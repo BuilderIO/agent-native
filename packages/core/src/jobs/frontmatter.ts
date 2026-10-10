@@ -20,6 +20,9 @@ export interface JobFrontmatter {
   orgId?: string;
   runAs?: "creator" | "shared";
   lastRun?: string;
+  lastHistoryId?: string;
+  lastRunManual?: boolean;
+  lastRunAdvanceSchedule?: boolean;
   lastCheck?: string;
   lastStatus?: JobLastStatus;
   lastError?: string;
@@ -150,6 +153,9 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "orgId",
   "runAs",
   "lastRun",
+  "lastHistoryId",
+  "lastRunManual",
+  "lastRunAdvanceSchedule",
   "lastCheck",
   "lastStatus",
   "lastError",
@@ -330,6 +336,15 @@ function parseKnownField(
       break;
     case "lastRun":
       meta.lastRun = value;
+      break;
+    case "lastHistoryId":
+      meta.lastHistoryId = value || undefined;
+      break;
+    case "lastRunManual":
+      meta.lastRunManual = value === "true";
+      break;
+    case "lastRunAdvanceSchedule":
+      meta.lastRunAdvanceSchedule = value !== "false";
       break;
     case "lastCheck":
       meta.lastCheck = value;
@@ -565,6 +580,11 @@ export function buildJobResourceContent(
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
   pushString(lines, "timezone", meta.timezone);
   pushString(lines, "lastRun", meta.lastRun);
+  pushString(lines, "lastHistoryId", meta.lastHistoryId);
+  if (meta.lastRunManual !== undefined)
+    lines.push(`lastRunManual: ${meta.lastRunManual}`);
+  if (meta.lastRunAdvanceSchedule !== undefined)
+    lines.push(`lastRunAdvanceSchedule: ${meta.lastRunAdvanceSchedule}`);
   pushString(lines, "lastCheck", meta.lastCheck);
   if (meta.lastStatus) lines.push(`lastStatus: ${meta.lastStatus}`);
   pushString(lines, "lastError", meta.lastError);
@@ -603,6 +623,9 @@ export function buildJobResourceContent(
 
 export type JobExecutionFrontmatterPatch = {
   lastRun?: string;
+  lastHistoryId?: string;
+  lastRunManual?: boolean;
+  lastRunAdvanceSchedule?: boolean;
   lastCheck?: string;
   lastStatus?: JobLastStatus;
   lastError?: string;
@@ -618,6 +641,54 @@ export type JobExecutionFrontmatterPatch = {
   remoteAutomationRunId?: string;
   remoteAdvanceSchedule?: boolean;
 };
+
+export const JOB_EXECUTION_FRONTMATTER_KEYS: ReadonlySet<string> = new Set<
+  keyof JobExecutionFrontmatterPatch
+>([
+  "lastRun",
+  "lastCheck",
+  "lastStatus",
+  "lastError",
+  "lastErrorCode",
+  "consecutiveFailures",
+  "lastFailedEventId",
+  "pausedReason",
+  "pausedAt",
+  "nextRun",
+  "remoteRequestId",
+  "remoteCommandId",
+  "remoteRunId",
+  "remoteAutomationRunId",
+  "remoteAdvanceSchedule",
+]);
+
+const FRONTMATTER_KEY_RE = /^([A-Za-z][A-Za-z0-9_]*):/;
+
+function frontmatterKeys(content: string): Set<string> {
+  const keys = new Set<string>();
+  const match = content.match(FRONTMATTER_RE);
+  if (!match) return keys;
+  for (const line of match[1].split(/\r?\n/)) {
+    const key = FRONTMATTER_KEY_RE.exec(line)?.[1];
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * Frontmatter keys present in `before` and gone from `after`, ignoring the
+ * execution bookkeeping a run adds and clears. A job whose file loses its
+ * editor-owned fields still schedules and runs, so nothing else notices.
+ */
+export function droppedJobFrontmatterKeys(
+  before: string,
+  after: string,
+): string[] {
+  const kept = frontmatterKeys(after);
+  return [...frontmatterKeys(before)].filter(
+    (key) => !kept.has(key) && !JOB_EXECUTION_FRONTMATTER_KEYS.has(key),
+  );
+}
 
 function jobFrontmatterBounds(content: string): {
   newline: string;

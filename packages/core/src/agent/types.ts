@@ -280,16 +280,24 @@ export interface AgentChatHarnessRequest {
 
 export interface AgentChatRequest {
   message: string;
+  /** AgentKit's submitted user message ID, used only to reconcile projections. */
+  agentKitMessageId?: string;
   actionScope?: AgentActionScope;
   queuedMessageId?: string;
+  queuedMessageClaimId?: string;
   displayMessage?: string;
   history?: AgentMessage[];
   structuredHistory?: AgentChatStructuredMessage[];
+  loadedSkillSlugs?: string[];
   references?: AgentChatReference[];
   threadId?: string;
   parentId?: string | null;
   attachments?: AgentChatAttachment[];
   internalContinuation?: boolean;
+  /** The time-limit stop this request continues, in the same turn. */
+  autoContinueOfRunId?: string;
+  /** The stopped run a person chose to continue, in the same turn. */
+  continueOfRunId?: string;
   __backgroundRun?: {
     runId: string;
     turnId?: string;
@@ -325,6 +333,8 @@ export interface AgentChatRequest {
         mode: "default";
       };
   turnId?: string;
+  /** Turn metadata the client forwards; read only for the keys it names. */
+  metadata?: Record<string, unknown>;
   mode?: "act" | "plan";
   model?: string;
   engine?: string;
@@ -383,14 +393,24 @@ export type AgentChatEvent =
         | "stop_sequence"
         | "error";
     }
-  | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
+  | {
+      type: "tool_start";
+      tool: string;
+      id?: string;
+      input: AgentToolInput;
+      inputFingerprint?: string;
+      inputStoredFingerprint?: string;
+    }
   | {
       type: "tool_done";
       tool: string;
       id?: string;
       input?: AgentToolInput;
+      inputFingerprint?: string;
+      inputStoredFingerprint?: string;
       result: string;
       isError?: boolean;
+      errorCode?: string;
       completedSideEffect?: boolean;
       replayed?: true;
       fileMutation?: AgentFileMutationProof;

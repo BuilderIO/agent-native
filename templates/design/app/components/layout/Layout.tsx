@@ -9,6 +9,7 @@ import {
 import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
 import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
@@ -69,9 +70,13 @@ function resolveDesignLayoutMode(input: {
   embedded: boolean;
   hasSession: boolean;
   isDesignEditor: boolean;
+  mcpAppWidgetEmbed: boolean;
 }): DesignLayoutMode {
+  // The MCP App host (ChatGPT, Codex, Claude) owns navigation and chat, so the
+  // widget gets no app chrome for any route or session state.
   if (
     input.builderHostEmbed ||
+    input.mcpAppWidgetEmbed ||
     (input.isDesignEditor && !input.hasSession && !input.embedded)
   ) {
     return "host-bare";
@@ -92,6 +97,7 @@ export function Layout({ children }: LayoutProps) {
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
   const builderHostEmbed = isBuilderHostEmbed();
+  const mcpAppWidgetEmbed = useIsMcpAppWidgetEmbed();
   const embedChromeRequested = isEmbedChromeRequested();
   // The shell canvas is embedded without a session, so this cannot be the token
   // check alone or it renders Design's own nav inside Builder.
@@ -106,6 +112,7 @@ export function Layout({ children }: LayoutProps) {
     embedded,
     hasSession,
     isDesignEditor,
+    mcpAppWidgetEmbed,
   });
   const standaloneEditor = layoutMode === "standalone-editor";
   // Settings brings its own navigation, header, and agent toggle, so it
@@ -186,7 +193,6 @@ export function Layout({ children }: LayoutProps) {
     : "show-questions";
   const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
     enabled: hasSession,
-    providerStatusChecksEnabled: false,
     stateKey: designQuestionStateKey,
     queryKey: [designQuestionStateKey],
     browserTabId,
@@ -229,14 +235,18 @@ export function Layout({ children }: LayoutProps) {
       <HeaderActionsProvider>
         <MobileSidebarContext.Provider value={null}>
           <div className="flex h-[100dvh] w-full overflow-hidden bg-background text-foreground">
-            <main
-              className={cn(
-                "min-w-0 flex-1",
-                isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
-              )}
-            >
-              {children}
-            </main>
+            {/* Matches the standalone editor's depth: a resolving session
+                switches modes, and a different tree remounts the editor. */}
+            <div className="contents">
+              <main
+                className={cn(
+                  "min-w-0 flex-1",
+                  isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
+                )}
+              >
+                {children}
+              </main>
+            </div>
           </div>
         </MobileSidebarContext.Provider>
       </HeaderActionsProvider>
@@ -343,6 +353,9 @@ export function Layout({ children }: LayoutProps) {
             scope={designScope}
             chatHistory={designChatHistory}
             showScopeBadge={false}
+            setupCardOwner={
+              isDesignHomeRoute(location.pathname) ? "host" : "chat"
+            }
             browserTabId={browserTabId}
             threadFooterSlot={designQuestionsWaitingSlot}
             onComposerTextChange={handleComposerTextChange}

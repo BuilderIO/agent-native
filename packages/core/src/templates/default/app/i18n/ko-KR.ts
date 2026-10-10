@@ -354,9 +354,9 @@ const messages = {
       "클라우드 에이전트가 귀하를 대신해 변경해 드립니다. 미리 보고 배포할 수 있는 링크가 제공됩니다.",
     codeChangeTitle: "코드 변경이 필요합니다",
     codeChangeBadge: "코드 변경",
-    connectBuilderTitle: "Builder.io 연결",
+    connectBuilderTitle: "Builder.io 사용",
     connectBuilderDescription:
-      "이 앱에서 클라우드 기반 코드 변경을 활성화하려면 빌더를 연결하세요(무료 요금제 제공).",
+      "이 앱에서 클라우드 기반 코드 변경을 사용하려면 Builder.io를 사용하세요(무료 요금제 제공).",
     setupRequired: "설정 필요",
     branchCreated: "지점이 생성되었습니다.",
     close: "닫기",
@@ -603,7 +603,7 @@ const messages = {
     back: "뒤로",
     agentEngineRequired: "에이전트 엔진 필요",
     agentEngineDescription:
-      "Connect Builder.io(무료 요금제 제공) or an LLM key before {{platform}} can answer.",
+      "{{platform}}이 답변하려면 Builder.io(무료 요금제 제공) 또는 LLM 키를 사용하세요.",
     openLlm: "LLM 열기",
     setup: "Setup",
     shareDocumentsWith: "다음과 문서 공유",
@@ -645,6 +645,8 @@ const messages = {
     promoteMustContain: "답변에 포함할 내용…",
     promoteMustContainOptional: "답변에서 확인할 선택적 텍스트…",
     promoteMustContainLabel: "승격된 평가 답변에서 확인할 텍스트",
+    promoteReviewedPromptLabel:
+      "수동으로 검토한 프롬프트(프로덕션에서 자동 복사되지 않음)",
     promoteNeedsContains:
       "이 실행에는 성공한 도구 호출이 없습니다. 평가로 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
     spans: "Spans",

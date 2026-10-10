@@ -1217,6 +1217,63 @@ describe("Chromium reparent matrix", () => {
     },
   );
 
+  it("applies a validated grid cell to host-supplied cross-screen markup", async () => {
+    const page = await browser.newPage({
+      viewport: { width: 900, height: 700 },
+    });
+    await page.setContent(`<!doctype html><html><body>
+      <div id="grid" style="display:grid;grid-template-columns:100px 100px;grid-template-rows:80px 80px">
+        <div id="existing" style="grid-column:1;grid-row:1">Existing</div>
+      </div>
+    </body></html>`);
+    await installBridge(page);
+
+    await page.evaluate(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: window,
+          data: {
+            type: "runtime-structure-insert",
+            requestId: 47,
+            html: '<div data-agent-native-node-id="grid-copy">Copy</div>',
+            anchorSelector: "#grid",
+            anchorSourceId: "",
+            anchorPendingNodeId: "",
+            placement: "inside",
+            gridPlacement: { column: 2, columnEnd: 3, row: 2, rowEnd: 3 },
+          },
+        }),
+      );
+    });
+
+    const result = await page.evaluate(() => {
+      const copy = document.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="grid-copy"]',
+      );
+      const messages = (
+        window as Window & { __matrixMessages?: Record<string, unknown>[] }
+      ).__matrixMessages!;
+      const change = messages.find(
+        (message) =>
+          message.type === "visual-structure-change" &&
+          message.sourceId === "grid-copy",
+      );
+      return {
+        parent: copy?.parentElement?.id ?? null,
+        column: copy?.style.gridColumn ?? null,
+        row: copy?.style.gridRow ?? null,
+        gridPlacement: change?.gridPlacement,
+      };
+    });
+    expect(result).toEqual({
+      parent: "grid",
+      column: "2 / 3",
+      row: "2 / 3",
+      gridPlacement: { column: 2, columnEnd: 3, row: 2, rowEnd: 3 },
+    });
+    await page.close();
+  });
+
   it(
     "rolls back an unacknowledged cross-screen insert by transaction identity after reminting a colliding node id",
     { timeout: 30_000 },

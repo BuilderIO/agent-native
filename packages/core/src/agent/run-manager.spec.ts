@@ -5,6 +5,7 @@ import {
   BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -164,6 +165,7 @@ vi.mock("../observability/tracking-identity.js", () => ({
 }));
 
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/registry.js";
 import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
@@ -809,6 +811,47 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("snapshots tool arguments before queued persistence and retries", async () => {
+    const input = { destination: "original" };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let toolAttempts = 0;
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, _seq, data) => {
+      const event = JSON.parse(data);
+      if (event.type === "text") await gate;
+      if (event.type === "tool_start" && toolAttempts++ === 0)
+        throw new Error("fixture write interrupted");
+    });
+    const run = startRun(
+      "run-input-snapshot",
+      "thread-input-snapshot",
+      async (send) => {
+        send({ type: "text", text: "working" });
+        send({ type: "tool_start", tool: "send-report", input });
+        input.destination = "mutated after execution started";
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => {
+      expect(input.destination).toBe("mutated after execution started");
+    });
+    release();
+    await run.finalized;
+    const starts = vi
+      .mocked(insertRunEvent)
+      .mock.calls.filter(
+        ([, , data]) => JSON.parse(data).type === "tool_start",
+      );
+    expect(starts).toHaveLength(2);
+    for (const [, , data, options] of starts) {
+      expect(JSON.parse(data).input).toEqual({ destination: "original" });
+      expect(options).toEqual({ toolInputSource: "execution" });
+    }
+  });
+
   it("persists terminal error events before marking errored runs complete", async () => {
     let releaseTerminalEvent!: () => void;
     const terminalEventPersisted = new Promise<void>((resolve) => {
@@ -850,6 +893,29 @@ describe("run manager soft timeout", () => {
         "errored",
       );
     });
+  });
+
+  it("identifies terminal events for attempt-scoped persistence", async () => {
+    const persistedEvents: boolean[] = [];
+    const run = startRun(
+      "run-event-persistence-metadata",
+      "thread-event-persistence-metadata",
+      async (send) => {
+        send({ type: "text", text: "finished" });
+      },
+      undefined,
+      {
+        softTimeoutMs: 0,
+        persistEvent: async (write, metadata) => {
+          persistedEvents.push(metadata.terminal);
+          await write();
+        },
+      },
+    );
+
+    await run.finalized;
+
+    expect(persistedEvents).toEqual([false, true]);
   });
 
   it("records terminal error diagnostics for errored runs", async () => {
@@ -2091,6 +2157,43 @@ describe("run manager soft timeout", () => {
     }
   });
 
+  it("does not execute a service-principal run after its durable start is refused", async () => {
+    const runFn = vi.fn(async () => {});
+    vi.mocked(insertRun).mockRejectedValueOnce(
+      new ServicePrincipalRefusedError(
+        "service_principal_inactive",
+        "This service principal is suspended or retired.",
+      ),
+    );
+
+    const run = startRun(
+      "run-refused-service-principal",
+      "thread-refused-service-principal",
+      runFn,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        runRowAlreadyInserted: true,
+        turnInitiator: {
+          email: "svc-ci@service.org-1",
+          orgId: "org-1",
+          anonymous: false,
+        },
+      },
+    );
+
+    await run.finalized;
+
+    expect(insertRun).toHaveBeenCalledWith(
+      "run-refused-service-principal",
+      "thread-refused-service-principal",
+      undefined,
+      { turnInitiator: expect.any(Object) },
+    );
+    expect(runFn).not.toHaveBeenCalled();
+    expect(run.status).toBe("errored");
+  });
+
   it("captures run-event persistence failures with the sequence and event type", async () => {
     const provider = vi.fn(() => "evt_run_event");
     const unregister = registerErrorCaptureProvider(
@@ -2163,7 +2266,10 @@ describe("run manager soft timeout", () => {
     unregister();
 
     expect(provider).toHaveBeenCalledWith(
-      err,
+      expect.objectContaining({
+        name: "Error",
+        message: "Internal Server Error",
+      }),
       expect.objectContaining({
         route: "/_agent-native/agent-chat",
         tags: expect.objectContaining({
@@ -2184,6 +2290,66 @@ describe("run manager soft timeout", () => {
       }),
     );
   });
+
+  it.each(["run", "completion"] as const)(
+    "keeps named run error messages out of Monitoring during %s",
+    async (phase) => {
+      const message =
+        "Jane Doe's notes are locked\nDeck Quarterly Planning not found";
+      const error = new EngineError(message, {
+        errorCode: "provider_config_error",
+        statusCode: 500,
+      });
+      error.stack = `EngineError: ${message}\n    at readNotes (/app/notes.ts:10:2)`;
+      Object.assign(error, { cause: new Error("Jane Doe's private document") });
+      const unregister = registerErrorCaptureProvider(
+        "run-privacy",
+        captureException,
+      );
+      try {
+        startRun(
+          `run-monitoring-privacy-${phase}`,
+          `thread-monitoring-privacy-${phase}`,
+          async () => {
+            if (phase === "run") throw error;
+          },
+          phase === "completion"
+            ? async () => {
+                throw error;
+              }
+            : undefined,
+          { softTimeoutMs: 0 },
+        );
+        await vi.waitFor(() =>
+          expect(track).toHaveBeenCalledWith(
+            "$exception",
+            expect.anything(),
+            undefined,
+          ),
+        );
+        const payload = vi
+          .mocked(track)
+          .mock.calls.find(([name]) => name === "$exception")?.[1];
+        expect(JSON.stringify(payload)).not.toContain("Jane Doe");
+        expect(JSON.stringify(payload)).not.toContain("Quarterly Planning");
+        expect(payload).toMatchObject({
+          exceptionType: "EngineError",
+          exceptionMessage: "Internal Server Error",
+          exceptionStack:
+            "EngineError: Internal Server Error\n    at readNotes (/app/notes.ts:10:2)",
+          exceptionTags: {
+            errorCode: "provider_config_error",
+            errorCause: "provider_config_error",
+            statusCode: "500",
+          },
+        });
+        expect(error.message).toBe(message);
+        expect(error.stack).toContain("Jane Doe");
+      } finally {
+        unregister();
+      }
+    },
+  );
 
   it("does not capture expected quota or rate-limit terminal run errors", async () => {
     const provider = vi.fn(() => "evt_run");
@@ -2334,6 +2500,41 @@ describe("run manager soft timeout", () => {
     expect(errorEvent).toBeDefined();
     expect(errorEvent).not.toHaveProperty("recoverable");
     expect(errorEvent).not.toHaveProperty("providerRetryable");
+  });
+
+  it("preserves an explicit terminal provider verdict on the wire", async () => {
+    const events: AgentChatEvent[] = [];
+    const message = "Invalid request timed out";
+
+    const run = startRun(
+      "run-provider-terminal-verdict",
+      "thread-provider-terminal-verdict",
+      async () => {
+        throw new EngineError(message, {
+          errorCode: "invalid_request",
+          providerRetryable: false,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.waitFor(() =>
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-provider-terminal-verdict",
+        "errored",
+      ),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        error: message,
+        errorCode: "invalid_request",
+        providerRetryable: false,
+      }),
+    );
   });
 
   it("does not capture missing LLM provider errors while preserving the terminal event", async () => {
@@ -2851,6 +3052,57 @@ describe("run manager soft timeout", () => {
     expect(setRunTerminalReason).toHaveBeenCalledWith(
       "run-permanent-precondition",
       "error:permanent_precondition",
+    );
+  });
+
+  it("completes a run that yields to a connection request after a failed tool result", async () => {
+    // The agent loop sends no `done` after a connection request: it breaks out
+    // and the run manager synthesizes the terminal. Reading the failed tool
+    // result before it as an unfinished turn persisted `truncated`/`stream_ended`
+    // with no successor, so the thread read as failed instead of waiting on the
+    // user.
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-connection-yield",
+      "thread-connection-yield",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "provider-api-request",
+          id: "call-1",
+          input: {},
+          result: "hubspot requires an available workspace connection.",
+          isError: true,
+        });
+        send({
+          type: "connection_required",
+          requestId: "request-1",
+          provider: "hubspot",
+          reason: "connect",
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events.some((event) => event.type === "auto_continue")).toBe(false);
+    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(run.status).toBe("completed");
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-connection-yield",
+      "completed",
+    );
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      "run-connection-yield",
+      "truncated",
+    );
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-connection-yield",
+      "done",
     );
   });
 
@@ -3695,6 +3947,7 @@ describe("run manager soft timeout", () => {
       turnId: "run-recent-completed",
       status: "completed",
       heartbeatAt: expect.any(Number),
+      inFlight: false,
     });
     expect(getRunByThread).toHaveBeenCalledWith("thread-recent", {
       includeTerminal: true,
@@ -3808,6 +4061,7 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-recent-errored",
       status: "errored",
+      inFlight: false,
     });
   });
 
@@ -3839,6 +4093,7 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-mem-background",
       status: "running",
+      inFlight: true,
       dispatchMode: "background-processing",
       terminalReason: null,
       diagStage: '{"stage":"worker_started","at":1}',
@@ -3874,6 +4129,7 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-mem-terminal",
       status: "completed",
+      inFlight: false,
       dispatchMode: "background-processing",
       terminalReason: "done",
     });
@@ -4565,6 +4821,60 @@ describe("run manager soft timeout", () => {
       expect(getRun("run-persist-permanent-gap")).toBeNull();
     },
   );
+
+  it("keeps user cancellation when a pending event write permanently fails", async () => {
+    let rejectFirstWrite!: (error: Error) => void;
+    let seqZeroAttempts = 0;
+    const writeError = new Error("permanent event persistence failure");
+    const onComplete = vi.fn();
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
+      if (seq === 0 && seqZeroAttempts++ === 0) {
+        await new Promise<void>((_resolve, reject) => {
+          rejectFirstWrite = reject;
+        });
+      }
+      throw writeError;
+    });
+
+    const run = startRun(
+      "run-abort-during-event-persistence",
+      "thread-abort-during-event-persistence",
+      async (send, signal) => {
+        send({ type: "text", text: "pending event" });
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.waitFor(() => expect(rejectFirstWrite).toBeTypeOf("function"));
+    expect(abortRun(run.runId, "user")).toBe(true);
+    rejectFirstWrite(writeError);
+    await run.finalized;
+
+    expect(run.status).toBe("aborted");
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "aborted",
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({ type: "done" }),
+          }),
+        ]),
+      }),
+    );
+    expect(setRunError).not.toHaveBeenCalledWith(
+      run.runId,
+      "run_event_persistence_failed",
+      expect.anything(),
+    );
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      run.runId,
+      "aborted:user",
+    );
+  });
 
   describe("no-progress backstop", () => {
     it("exports foreground and background backstop constants", () => {
@@ -5535,18 +5845,22 @@ describe("run manager soft timeout", () => {
       );
     });
 
-    it("emits an errored event carrying error_code and error_detail", async () => {
+    it("keeps named run error messages out of agent_run_terminal", async () => {
       startRun(
         "run-tracking-error",
         "thread-tracking-error",
         async () => {
-          throw new Error("boom");
+          throw new Error("Jane Doe's notes are locked");
         },
         undefined,
         { softTimeoutMs: 0 },
       );
 
       await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      const [, properties] = vi.mocked(track).mock.calls[0];
+      expect(JSON.stringify(properties)).not.toContain("Jane Doe");
+      expect(properties).not.toHaveProperty("error_detail");
 
       expect(track).toHaveBeenCalledWith(
         "agent_run_terminal",
@@ -5555,9 +5869,14 @@ describe("run manager soft timeout", () => {
           status: "errored",
           terminal_reason: "error:unknown",
           error_code: "unknown",
-          error_detail: "boom",
+          error_cause: "unknown",
         }),
         expect.anything(),
+      );
+      expect(setRunError).toHaveBeenCalledWith(
+        "run-tracking-error",
+        "unknown",
+        "Jane Doe's notes are locked",
       );
     });
 

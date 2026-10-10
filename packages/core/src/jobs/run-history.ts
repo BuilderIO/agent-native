@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
-import { getDbExec } from "../db/client.js";
+import { getDbExec, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -11,6 +11,7 @@ import {
 } from "../db/ddl-guard.js";
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
 import { emit as emitBusEvent, registerEvent } from "../event-bus/index.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import {
   createAutomationFailureUnsubscribeToken,
@@ -29,7 +30,7 @@ registerEvent({
     orgId: z.string().nullable(),
     runId: z.string().nullable(),
     threadId: z.string().nullable(),
-    status: z.enum(["success", "error", "interrupted"]),
+    status: z.enum(["success", "error", "interrupted", "skipped"]),
     error: z.string().nullable(),
     errorCode: z.string().nullable(),
     durationMs: z.number().nullable(),
@@ -40,7 +41,8 @@ export type AutomationRunStatus =
   | "running"
   | "success"
   | "error"
-  | "interrupted";
+  | "interrupted"
+  | "skipped";
 
 export interface AutomationRun {
   id: string;
@@ -57,6 +59,10 @@ export interface AutomationRun {
   finishedAt: number | null;
   error: string | null;
   errorCode: string | null;
+  /** A queued "Run now" row that a worker claims before it starts. */
+  dispatchPending: boolean;
+  /** When a worker last claimed this queued dispatch, if ever. */
+  claimedAt: number | null;
 }
 
 export interface StartAutomationRunInput {
@@ -85,7 +91,17 @@ const INTERRUPTED_RUN_ERROR_CODE = "background_automation_interrupted";
 
 const claimLeaseMs = () => resolveRunLivenessCeilingMs();
 
-const RUNS_RETAINED_PER_AUTOMATION = 50;
+/**
+ * How long a queued dispatch's claim stays valid before another worker may take
+ * it over (`claimAutomationRun`). The stale-lock recovery must leave a row
+ * inside this lease to its own worker.
+ */
+export function automationRunClaimLeaseMs(): number {
+  return claimLeaseMs();
+}
+
+/** How many finished runs each automation retains, in addition to unfinished runs. */
+export const RUNS_RETAINED_PER_AUTOMATION = 50;
 const FAILURE_ALERT_LEASE_MS = 60_000;
 const FAILURE_ALERT_RETRY_BASE_MS = 60_000;
 const FAILURE_ALERT_RETRY_MAX_MS = 6 * 60 * 60_000;
@@ -314,33 +330,70 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
         : row.error_code == null
           ? null
           : stringifyValue(row.error_code),
+    dispatchPending: Number(row.dispatch_pending ?? 0) === 1,
+    claimedAt: row.claimed_at == null ? null : Number(row.claimed_at),
   };
+}
+
+export interface StartAutomationRunOptions {
+  afterInsert?: (tx: DbExec, historyId: string) => Promise<void>;
+  afterCommit?: () => void | Promise<void>;
 }
 
 export async function startAutomationRun(
   input: StartAutomationRunInput,
+  options: StartAutomationRunOptions = {},
 ): Promise<string> {
   await ensureTable();
   const id = randomUUID();
-  await getDbExec().execute({
-    sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, app_id, notification_email, run_id, thread_id, status, started_at, dispatch_pending)
+  const client = getDbExec();
+  const insert = async (tx: DbExec) => {
+    const result = await tx.execute({
+      sql: `INSERT INTO ${TABLE} (id, owner, automation, path, scope, org_id, app_id, notification_email, run_id, thread_id, status, started_at, dispatch_pending)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)`,
-    args: [
-      id,
-      input.owner,
-      input.automation,
-      input.path,
-      input.scope ?? null,
-      input.orgId ?? null,
-      input.appId ?? null,
-      input.notificationEmail?.trim().toLowerCase() || null,
-      input.runId ?? null,
-      input.threadId ?? null,
-      Date.now(),
-      input.dispatchPending ? 1 : 0,
-    ],
-  });
-  await pruneAutomationRuns(input.owner, input.automation);
+      args: [
+        id,
+        input.owner,
+        input.automation,
+        input.path,
+        input.scope ?? null,
+        input.orgId ?? null,
+        input.appId ?? null,
+        input.notificationEmail?.trim().toLowerCase() || null,
+        input.runId ?? null,
+        input.threadId ?? null,
+        Date.now(),
+        input.dispatchPending ? 1 : 0,
+      ],
+    });
+    if (options.afterInsert) {
+      if (Number(result.rowsAffected ?? 0) !== 1)
+        throw new AutomationRunHistoryWriteError(id);
+      await options.afterInsert(tx, id);
+    }
+  };
+  if (options.afterInsert) {
+    if (!client.transaction) throw new AutomationRunHistoryWriteError(id);
+    await client.transaction(insert);
+  } else {
+    await insert(client);
+  }
+  try {
+    await options.afterCommit?.();
+  } catch (error) {
+    console.warn(
+      "[automations] Firing committed, but its notification failed:",
+      error,
+    );
+  }
+  try {
+    await pruneAutomationRuns(input.owner, input.automation);
+  } catch (error) {
+    console.warn(
+      "[automations] Firing committed, but history pruning failed:",
+      error,
+    );
+  }
   return id;
 }
 
@@ -411,11 +464,13 @@ async function pruneAutomationRuns(
   await getDbExec().execute({
     sql: `DELETE FROM ${TABLE}
           WHERE owner = ? AND automation = ?
+            AND finished_at IS NOT NULL
             AND COALESCE(failure_alert_state, '') NOT IN ('evaluating', 'pending', 'sending')
             AND started_at < (
             SELECT MIN(started_at) FROM (
               SELECT started_at FROM ${TABLE}
               WHERE owner = ? AND automation = ?
+                AND finished_at IS NOT NULL
               ORDER BY started_at DESC
               LIMIT ${RUNS_RETAINED_PER_AUTOMATION}
             ) recent
@@ -746,45 +801,107 @@ export async function processPendingAutomationFailureAlerts(options?: {
   return { attempted, delivered, deferred, suppressed, uncertain, failed };
 }
 
-export async function finishAutomationRun(
-  id: string,
-  status: Exclude<AutomationRunStatus, "running">,
-  error?: string,
-  errorCode?: string,
+export class AutomationRunHistoryWriteError extends Error {
+  readonly errorCode = "background_automation_history_write_failed";
+  constructor(readonly historyId: string) {
+    super(automationRecoveryMessagesForLocale().unreadable);
+    this.name = "AutomationRunHistoryWriteError";
+  }
+}
+
+export class AutomationRunHistoryClaimLostError extends Error {
+  readonly errorCode = "background_automation_claim_lost";
+  constructor(readonly historyId: string) {
+    super(automationRecoveryMessagesForLocale().unreadable);
+    this.name = "AutomationRunHistoryClaimLostError";
+  }
+}
+
+export interface FinishAutomationRunOptions {
+  requirePersisted?: boolean;
   /**
    * `notify: false` records the run without queueing the owner email. Used for
    * the early failures of a streak that will pause: the owner is told once,
    * by the run that pauses it.
    */
-  options: { notify?: boolean } = {},
+  notify?: boolean;
+  /**
+   * Finish only if the stored claim still equals this snapshot. The stale-lock
+   * recovery passes the `claimedAt` it read, so a worker that claims the run
+   * between that read and this write keeps its run instead of losing it to a
+   * stale terminal write.
+   */
+  expectedClaimedAt?: number | null;
+  /** Successors share the firing id, so recovery must also fence its worker. */
+  expectedRunId?: string | null;
+}
+
+export async function finishAutomationRun(
+  id: string,
+  status: Exclude<AutomationRunStatus, "running">,
+  error?: string,
+  errorCode?: string,
+  options: FinishAutomationRunOptions = {},
 ): Promise<void> {
   await ensureTable();
   const existing = await getDbExec().execute({
-    sql: `SELECT owner, automation, path, org_id, app_id, notification_email, run_id, thread_id, started_at, status FROM ${TABLE} WHERE id = ? LIMIT 1`,
+    sql: `SELECT owner, automation, path, org_id, app_id, notification_email, run_id, thread_id, started_at, status, claimed_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
     args: [id],
   });
   const row = existing.rows?.[0] as Record<string, unknown> | undefined;
   const finishedAt = Date.now();
+  const storedError = error?.slice(0, MAX_ERROR_LENGTH) ?? null;
+  const storedErrorCode =
+    status === "skipped"
+      ? null
+      : (errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null);
   const shouldQueueFailureAlert =
-    status !== "success" &&
+    (status === "error" || status === "interrupted") &&
     options.notify !== false &&
     Boolean(row?.notification_email);
+  const claimGuard = options.expectedClaimedAt !== undefined;
+  const runGuard = options.expectedRunId !== undefined;
   const update = await getDbExec().execute({
     sql: `UPDATE ${TABLE}
           SET status = ?, finished_at = ?, error = ?, error_code = ?,
               failure_alert_state = ?, failure_alert_next_attempt_at = ?,
               failure_alert_claimed_at = NULL
-          WHERE id = ? AND status = 'running'`,
+          WHERE id = ? AND status = 'running'${claimGuard ? " AND claimed_at IS NOT DISTINCT FROM ?" : ""}${runGuard ? " AND run_id IS NOT DISTINCT FROM ?" : ""}`,
     args: [
       status,
       finishedAt,
-      error?.slice(0, MAX_ERROR_LENGTH) ?? null,
-      errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
+      storedError,
+      storedErrorCode,
       shouldQueueFailureAlert ? "evaluating" : null,
       shouldQueueFailureAlert ? finishedAt : null,
       id,
+      ...(claimGuard ? [options.expectedClaimedAt] : []),
+      ...(runGuard ? [options.expectedRunId] : []),
     ],
   });
+  if (
+    options.requirePersisted &&
+    (!row || Number(update.rowsAffected ?? 0) === 0)
+  ) {
+    // Display history synthesizes interruption messages; retry identity needs stored values.
+    const persisted = await getDbExec().execute({
+      sql: `SELECT status, finished_at, error, error_code, run_id, claimed_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
+      args: [id],
+    });
+    const durable = persisted.rows?.[0] as Record<string, unknown> | undefined;
+    if (
+      !durable ||
+      durable.finished_at == null ||
+      durable.status !== status ||
+      (durable.error ?? null) !== storedError ||
+      (durable.error_code ?? null) !== storedErrorCode ||
+      (runGuard && (durable.run_id ?? null) !== options.expectedRunId) ||
+      (claimGuard &&
+        (durable.claimed_at == null ? null : Number(durable.claimed_at)) !==
+          options.expectedClaimedAt)
+    )
+      throw new AutomationRunHistoryWriteError(id);
+  }
   if (!row || Number(update.rowsAffected ?? 0) === 0) return;
   const rawStartedAt = Number(row.started_at);
   const startedAt = Number.isFinite(rawStartedAt) ? rawStartedAt : null;
@@ -800,8 +917,8 @@ export async function finishAutomationRun(
         runId: row.run_id == null ? null : stringifyValue(row.run_id),
         threadId: row.thread_id == null ? null : stringifyValue(row.thread_id),
         status,
-        error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
-        errorCode: errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
+        error: storedError,
+        errorCode: storedErrorCode,
         durationMs:
           startedAt === null ? null : Math.max(0, finishedAt - startedAt),
       },
@@ -830,12 +947,21 @@ export async function attachAutomationRunThread(
   id: string,
   threadId: string,
   runId: string,
+  options: { requirePersisted?: boolean; expectedRunId?: string | null } = {},
 ): Promise<void> {
   await ensureTable();
-  await getDbExec().execute({
-    sql: `UPDATE ${TABLE} SET thread_id = ?, run_id = ? WHERE id = ?`,
-    args: [threadId, runId, id],
+  const runGuard = options.expectedRunId !== undefined;
+  const update = await getDbExec().execute({
+    sql: `UPDATE ${TABLE} SET thread_id = ?, run_id = ? WHERE id = ? AND status = 'running'${runGuard ? " AND run_id IS NOT DISTINCT FROM ?" : ""}`,
+    args: [threadId, runId, id, ...(runGuard ? [options.expectedRunId] : [])],
   });
+  if (
+    (options.requirePersisted || runGuard) &&
+    Number(update.rowsAffected ?? 0) !== 1
+  ) {
+    if (runGuard) throw new AutomationRunHistoryClaimLostError(id);
+    throw new AutomationRunHistoryWriteError(id);
+  }
 }
 
 export async function deleteAutomationRuns(

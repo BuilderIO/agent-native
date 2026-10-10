@@ -11,6 +11,8 @@ import http, {
 import https from "node:https";
 import path from "node:path";
 
+import { WebSocket, WebSocketServer, type RawData } from "ws";
+
 import { injectDocumentMarkup } from "../shared/html-document.js";
 
 const DEFAULT_BRIDGE_PORT = 7331;
@@ -107,6 +109,7 @@ export interface DesignConnectManifest {
 
 export interface DesignConnectBridge {
   server: Server;
+  close: () => Promise<void>;
   manifest: DesignConnectManifest;
   /** Per-rootPath bridge token. Kept in-process only; never serialised into
    *  the manifest JSON so it is not exposed over the network via GET /manifest.
@@ -190,6 +193,9 @@ async function resolveBridgeToken(
 }
 
 const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+const DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_DOMAIN =
+  "agent-native-design-public-preview-v1\0";
+const DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_PREFIX = "design-public-preview-v1";
 const LIVE_EDIT_CAPABILITY_DOMAIN = "agent-native-live-edit-design-v1\0";
 const LIVE_EDIT_REGISTRATION_CAPABILITY_DOMAIN =
   "agent-native-live-edit-registration-v1\0";
@@ -212,6 +218,46 @@ export function deriveDesignPreviewToken(bridgeToken: string): string {
     .update(PREVIEW_TOKEN_DOMAIN)
     .update(bridgeToken)
     .digest("hex");
+}
+
+export function deriveDesignScopedReadOnlyPreviewToken(
+  bridgeToken: string,
+  designId: string,
+): string {
+  const encodedDesignId = Buffer.from(designId, "utf8").toString("base64url");
+  const signature = crypto
+    .createHmac("sha256", bridgeToken)
+    .update(DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_DOMAIN)
+    .update(designId)
+    .digest("hex");
+  return `${DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_PREFIX}.${encodedDesignId}.${signature}`;
+}
+
+function designIdFromScopedReadOnlyPreviewToken(
+  bridgeToken: string,
+  token: string,
+): string | null {
+  const [prefix, encodedDesignId, signature, extra] = token.split(".");
+  if (
+    prefix !== DESIGN_SCOPED_READ_ONLY_PREVIEW_TOKEN_PREFIX ||
+    !encodedDesignId ||
+    !signature ||
+    extra !== undefined
+  ) {
+    return null;
+  }
+  const designId = Buffer.from(encodedDesignId, "base64url").toString("utf8");
+  if (
+    !designId ||
+    Buffer.from(designId, "utf8").toString("base64url") !== encodedDesignId ||
+    !constantTimeTokenMatches(
+      token,
+      deriveDesignScopedReadOnlyPreviewToken(bridgeToken, designId),
+    )
+  ) {
+    return null;
+  }
+  return designId;
 }
 
 export function deriveDesignScopedLiveEditCapability(
@@ -1259,7 +1305,7 @@ function keyedFrameNavigation(
   requestUrl: URL,
   referer: string | undefined,
   bridgeUrl: string,
-): { bridgeKey: string; previewToken: string } | null {
+): { bridgeKey: string } | null {
   const origin = new URL(bridgeUrl).origin;
   const candidates: URL[] = [];
   if (requestUrl.origin === origin) candidates.push(requestUrl);
@@ -1274,10 +1320,7 @@ function keyedFrameNavigation(
   for (const url of candidates) {
     const bridgeKey = bridgeKeyFromUrl(url);
     if (!bridgeKey) continue;
-    return {
-      bridgeKey,
-      previewToken: url.searchParams.get("previewToken")?.trim() ?? "",
-    };
+    return { bridgeKey };
   }
   return null;
 }
@@ -1481,7 +1524,7 @@ function addPreviewTokenToResourceUrl(
   resourceUrl: string,
   previewToken: string,
 ): string {
-  if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(resourceUrl)) {
+  if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/|#|%23)/i.test(resourceUrl)) {
     return resourceUrl;
   }
   const hashIndex = resourceUrl.indexOf("#");
@@ -1493,6 +1536,60 @@ function addPreviewTokenToResourceUrl(
   const search = queryIndex === -1 ? "" : path.slice(queryIndex);
   const withoutStaleToken = stripQueryPair(search, "previewToken");
   return `${pathname}${appendQueryPair(withoutStaleToken, "previewToken", previewToken)}${hash}`;
+}
+
+const MAX_PREVIEW_HMR_MESSAGE_BYTES = 1024 * 1024;
+
+function rewriteViteHmrUpdate(
+  payload: Buffer,
+  previewToken: string,
+): Buffer | undefined {
+  if (payload.length > MAX_PREVIEW_HMR_MESSAGE_BYTES) return undefined;
+  let message: unknown;
+  try {
+    message = JSON.parse(payload.toString("utf8"));
+  } catch {
+    // coercion-ok: non-JSON Vite control frames are relayed unchanged.
+    return undefined;
+  }
+  if (
+    !message ||
+    typeof message !== "object" ||
+    !("type" in message) ||
+    message.type !== "update" ||
+    !("updates" in message) ||
+    !Array.isArray(message.updates)
+  ) {
+    return undefined;
+  }
+
+  let changed = false;
+  for (const candidate of message.updates) {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      !("type" in candidate) ||
+      candidate.type !== "js-update" ||
+      !("acceptedPath" in candidate) ||
+      typeof candidate.acceptedPath !== "string" ||
+      !("timestamp" in candidate) ||
+      typeof candidate.timestamp !== "number" ||
+      !Number.isSafeInteger(candidate.timestamp)
+    ) {
+      continue;
+    }
+    // Vite compares path and acceptedPath as module identities before it imports
+    // the update, so carry proxy auth in its cache-busting query instead.
+    candidate.timestamp = `${candidate.timestamp}&previewToken=${encodeURIComponent(previewToken)}`;
+    changed = true;
+  }
+  return changed ? Buffer.from(JSON.stringify(message)) : undefined;
+}
+
+function webSocketDataBuffer(data: RawData): Buffer {
+  if (Buffer.isBuffer(data)) return data;
+  if (Array.isArray(data)) return Buffer.concat(data);
+  return Buffer.from(data);
 }
 
 function addOpaqueFrameCredentials(
@@ -1577,10 +1674,16 @@ function addOpaqueFrameCredentials(
     `<script type="importmap" data-agent-native-opaque-preview-imports>${previewImportMap}</script>`,
     { target: "head" },
   );
-  return injectDocumentMarkup(
+  const withViteHmrStyleAuth = injectDocumentMarkup(
     withImportMap,
+    // coercion-ok: malformed Vite-generated CSS URLs stay unchanged in the frame.
+    `<script data-agent-native-vite-css-auth>(function(t){var p=Element.prototype.after;Element.prototype.after=function(){for(var i=0;i<arguments.length;i++){var n=arguments[i];if(!n||n.nodeType!==1||n.tagName!=="LINK")continue;try{var b=new URL(document.baseURI),u=new URL(n.getAttribute("href"),b);if(u.origin===b.origin&&!u.searchParams.has("previewToken")){u.searchParams.set("previewToken",t);n.setAttribute("href",u.toString())}}catch(_){}}return p.apply(this,arguments)}})(${previewTokenLiteral});</script>`,
+    { target: "head" },
+  );
+  return injectDocumentMarkup(
+    withViteHmrStyleAuth,
     // coercion-ok: invalid browser-owned URLs stay unchanged in the frame.
-    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o,h;try{var b=new URL(document.baseURI);o=b.origin;h=b.host}catch(_){return}function u(v){try{var a=new URL(String(v),document.baseURI),same=a.origin===o||(h===a.host&&(a.protocol==="ws:"||a.protocol==="wss:"));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return p.call(this,n)}})();</script>`,
+    String.raw`<script data-agent-native-opaque-preview-auth>(function(){var t=${previewTokenLiteral},o,h;try{var b=new URL(document.baseURI);o=b.origin;h=b.host}catch(_){return}function u(v){try{var r=String(v);if(/^(?:#|%23)/i.test(r.trim()))return null;var a=new URL(r,document.baseURI),same=a.origin===o||(h===a.host&&(a.protocol==="ws:"||a.protocol==="wss:"));if(!same||a.searchParams.has("previewToken"))return null;a.searchParams.set("previewToken",t);return a.toString()}catch(_){return null}}function c(v){return String(v).replace(/url\(\s*(["']?)([^"'()]+)\1\s*\)/gi,function(h,q,v){var s=u(v);return s?"url("+q+s+q+")":h})}var f=window.fetch.bind(window);window.fetch=function(i,n){var v=i instanceof Request?i.url:i,s=u(v);return s?f(i instanceof Request?new Request(s,i):s,n):f(i,n)};var x=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,v){var s=u(v);return x.call(this,m,s||v,...Array.prototype.slice.call(arguments,2))};var e=window.EventSource;if(e){var E=function(v,n){return new e(u(v)||v,n);};E.prototype=e.prototype;window.EventSource=E}var W=window.WebSocket;if(W){var S=function(v,p){var s=u(v);return p===undefined?new W(s||v):new W(s||v,p)};S.prototype=W.prototype;S.CONNECTING=W.CONNECTING;S.OPEN=W.OPEN;S.CLOSING=W.CLOSING;S.CLOSED=W.CLOSED;window.WebSocket=S}function d(n){if(n&&n.nodeType===1){var a=n.tagName==="SCRIPT"?"src":n.tagName==="LINK"?"href":n.tagName==="IMG"?"src":n.tagName==="IFRAME"?"src":null;if(a){var v=n.getAttribute(a),s=u(v);if(s)n.setAttribute(a,s)}else if(n.tagName==="STYLE"&&n.textContent){n.textContent=c(n.textContent)}}return n}var p=Node.prototype.appendChild;Node.prototype.appendChild=function(n){return p.call(this,d(n))};var i=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){return i.call(this,d(n),r)}})();</script>`,
     { target: "head" },
   );
 }
@@ -2745,6 +2848,12 @@ export async function startDesignConnectBridge(
   const previewSessionCookies = new PreviewSessionCookieJar(
     manifest.devServerUrl,
   );
+  const hmrWebSocketServer = new WebSocketServer({
+    noServer: true,
+    perMessageDeflate: false,
+    handleProtocols: (protocols) =>
+      protocols.has("vite-hmr") ? "vite-hmr" : false,
+  });
 
   const server = http.createServer(
     (req: IncomingMessage, res: ServerResponse) => {
@@ -2758,14 +2867,20 @@ export async function startDesignConnectBridge(
         explicitPreviewToken ||
         readRequestCookie(req, PREVIEW_SESSION_COOKIE_NAME) ||
         "";
-      const previewTokenValid = constantTimeTokenMatches(
-        providedPreviewToken,
-        previewToken,
-      );
-      const explicitPreviewTokenValid = constantTimeTokenMatches(
-        explicitPreviewToken,
-        previewToken,
-      );
+      const scopedReadOnlyPreviewDesignId =
+        designIdFromScopedReadOnlyPreviewToken(
+          bridgeToken,
+          providedPreviewToken,
+        );
+      const previewTokenValid =
+        constantTimeTokenMatches(providedPreviewToken, previewToken) ||
+        scopedReadOnlyPreviewDesignId !== null;
+      const explicitPreviewTokenValid =
+        constantTimeTokenMatches(explicitPreviewToken, previewToken) ||
+        designIdFromScopedReadOnlyPreviewToken(
+          bridgeToken,
+          explicitPreviewToken,
+        ) !== null;
       const corsApproved = configureBridgeCors(
         req,
         res,
@@ -2783,6 +2898,19 @@ export async function startDesignConnectBridge(
             ? {}
             : { ok: false, error: "origin is not allowed by this bridge" },
         );
+        return;
+      }
+      if (
+        scopedReadOnlyPreviewDesignId !== null &&
+        req.method &&
+        !["GET", "HEAD"].includes(req.method) &&
+        pathname !== "/live-edit-bridge"
+      ) {
+        req.resume();
+        sendJson(res, 403, {
+          ok: false,
+          error: "design-scoped read-only preview tokens cannot mutate the app",
+        });
         return;
       }
       const rejectInvalidPreviewToken = (): boolean => {
@@ -2908,6 +3036,8 @@ export async function startDesignConnectBridge(
             if (
               !designId ||
               !bridgeKey ||
+              (scopedReadOnlyPreviewDesignId !== null &&
+                scopedReadOnlyPreviewDesignId !== designId) ||
               (!isValidLiveEditCapability(req, designId) &&
                 !isValidLiveEditRegistrationCapability(req, designId))
             ) {
@@ -2999,6 +3129,8 @@ export async function startDesignConnectBridge(
           sendJson(res, 200, {
             ok: true,
             pending: pendingVisualEditPayloads.get(designId)?.pending ?? null,
+            revision:
+              pendingVisualEditRevisionHighWaterMarks.get(designId) ?? 0,
           });
           return;
         }
@@ -3094,7 +3226,10 @@ export async function startDesignConnectBridge(
                       : stored === "stale"
                         ? "stale pending publication revision"
                         : "conflicting pending publication revision",
-                  revision: existing?.revision,
+                  revision:
+                    pendingVisualEditRevisionHighWaterMarks.get(
+                      pendingDesignId,
+                    ) ?? 0,
                 });
                 return;
               }
@@ -3171,7 +3306,10 @@ export async function startDesignConnectBridge(
                     : stored === "stale"
                       ? "stale pending publication revision"
                       : "conflicting pending publication revision",
-                revision: existing?.revision,
+                revision:
+                  pendingVisualEditRevisionHighWaterMarks.get(
+                    candidate.designId,
+                  ) ?? 0,
               });
               return;
             }
@@ -3248,8 +3386,11 @@ export async function startDesignConnectBridge(
               includeEditorBridge ? editorBridgeScript : "",
               targetPath,
               requestedBridgeKey
-                ? { bridgeKey: requestedBridgeKey, previewToken }
-                : { previewToken },
+                ? {
+                    bridgeKey: requestedBridgeKey,
+                    previewToken: providedPreviewToken,
+                  }
+                : { previewToken: providedPreviewToken },
             );
             sendText(
               res,
@@ -3260,7 +3401,7 @@ export async function startDesignConnectBridge(
                 : "text/html; charset=utf-8",
               [
                 ...snapshot.setCookieHeaders,
-                previewSessionSetCookie(previewToken),
+                previewSessionSetCookie(providedPreviewToken),
               ],
               BRIDGE_FRAME_HEADERS,
             );
@@ -3581,9 +3722,7 @@ export async function startDesignConnectBridge(
                 const next = new URL("/live-edit", manifest.bridgeUrl);
                 next.searchParams.set("url", targetUrl);
                 next.searchParams.set("bridgeKey", keyed.bridgeKey);
-                if (keyed.previewToken) {
-                  next.searchParams.set("previewToken", keyed.previewToken);
-                }
+                next.searchParams.set("previewToken", providedPreviewToken);
                 res.writeHead(302, {
                   location: next.toString(),
                   ...BRIDGE_FRAME_HEADERS,
@@ -3659,10 +3798,16 @@ export async function startDesignConnectBridge(
                         );
                       })(),
                       keyed
-                        ? { bridgeKey: keyed.bridgeKey, previewToken }
+                        ? {
+                            bridgeKey: keyed.bridgeKey,
+                            previewToken: providedPreviewToken,
+                          }
                         : method === "GET"
-                          ? { recoverTargetUrl: targetUrl, previewToken }
-                          : { previewToken },
+                          ? {
+                              recoverTargetUrl: targetUrl,
+                              previewToken: providedPreviewToken,
+                            }
+                          : { previewToken: providedPreviewToken },
                     ),
                   )
                 : proxied.body;
@@ -3691,7 +3836,7 @@ export async function startDesignConnectBridge(
             const rewrittenResourceText = opaqueFrameJavaScript
               ? addOpaqueFrameJavaScriptResourceTokens(
                   responseText,
-                  previewToken,
+                  providedPreviewToken,
                 )
               : responseText;
             const opaqueFrameResponseBody = shouldRewriteOpaqueFrameResources
@@ -3699,7 +3844,7 @@ export async function startDesignConnectBridge(
                   opaqueFrameStylesheet
                     ? addOpaqueFrameResourceTokens(
                         rewrittenResourceText,
-                        previewToken,
+                        providedPreviewToken,
                       )
                     : rewrittenResourceText,
                 )
@@ -3737,7 +3882,15 @@ export async function startDesignConnectBridge(
       sendJson(res, 404, { ok: false, error: "not found" });
     },
   );
-
+  const terminateHmrClients = () => {
+    for (const client of hmrWebSocketServer.clients) client.terminate();
+  };
+  // noServer upgrades are not closed by http.Server.close().
+  const closeHttpServer = server.close.bind(server);
+  server.close = (callback?: (error?: Error) => void) => {
+    terminateHmrClients();
+    return closeHttpServer(callback);
+  };
   // Vite's proxied /@vite/client derives its HMR socket from the document's
   // bridge origin. Tunnel WebSocket upgrades to the one connected dev-server
   // origin so Fast Refresh remains live inside URL-backed screens. The target
@@ -3754,9 +3907,23 @@ export async function startDesignConnectBridge(
     const browserOrigin = readHeader(req, "origin");
     const sameBridgeOrigin =
       browserOrigin === new URL(manifest.bridgeUrl).origin;
-    if (!constantTimeTokenMatches(providedPreviewToken, previewToken)) {
+    const isViteHmrSocket = readHeader(req, "sec-websocket-protocol")
+      .split(",")
+      .some((protocol) => protocol.trim() === "vite-hmr");
+    const scopedReadOnlyPreviewDesignId =
+      designIdFromScopedReadOnlyPreviewToken(bridgeToken, providedPreviewToken);
+    if (
+      !constantTimeTokenMatches(providedPreviewToken, previewToken) &&
+      scopedReadOnlyPreviewDesignId === null
+    ) {
       clientSocket.end(
         "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+      );
+      return;
+    }
+    if (scopedReadOnlyPreviewDesignId !== null && !isViteHmrSocket) {
+      clientSocket.end(
+        "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
       );
       return;
     }
@@ -3781,6 +3948,14 @@ export async function startDesignConnectBridge(
     delete upstreamHeaders["x-agent-native-live-edit-capability"];
     delete upstreamHeaders["authorization"];
     delete upstreamHeaders["cookie"];
+    if (isViteHmrSocket) {
+      delete upstreamHeaders["connection"];
+      delete upstreamHeaders["upgrade"];
+      delete upstreamHeaders["sec-websocket-key"];
+      delete upstreamHeaders["sec-websocket-version"];
+      delete upstreamHeaders["sec-websocket-protocol"];
+      delete upstreamHeaders["sec-websocket-extensions"];
+    }
     upstreamHeaders.host = targetUrl.host;
     upstreamHeaders.origin = new URL(manifest.devServerUrl).origin;
     const cookie = mergePreviewCookieHeaders(
@@ -3788,6 +3963,55 @@ export async function startDesignConnectBridge(
       sameBridgeOrigin ? readHeader(req, "cookie") : "",
     );
     if (cookie) upstreamHeaders.cookie = cookie;
+
+    if (isViteHmrSocket) {
+      const hmrUrl = new URL(targetUrl);
+      hmrUrl.protocol = targetUrl.protocol === "https:" ? "wss:" : "ws:";
+      hmrWebSocketServer.handleUpgrade(
+        req,
+        clientSocket,
+        clientHead,
+        (browserSocket) => {
+          const upstreamSocket = new WebSocket(hmrUrl, "vite-hmr", {
+            headers: upstreamHeaders,
+            perMessageDeflate: false,
+          });
+          const queuedMessages: Array<{
+            data: RawData;
+            isBinary: boolean;
+          }> = [];
+          browserSocket.on("message", (data, isBinary) => {
+            if (upstreamSocket.readyState === WebSocket.OPEN) {
+              upstreamSocket.send(data, { binary: isBinary });
+            } else if (upstreamSocket.readyState === WebSocket.CONNECTING) {
+              queuedMessages.push({ data, isBinary });
+            }
+          });
+          upstreamSocket.once("open", () => {
+            for (const message of queuedMessages) {
+              upstreamSocket.send(message.data, { binary: message.isBinary });
+            }
+            queuedMessages.length = 0;
+          });
+          upstreamSocket.on("message", (data, isBinary) => {
+            const payload = webSocketDataBuffer(data);
+            const rewritten = isBinary
+              ? undefined
+              : rewriteViteHmrUpdate(payload, providedPreviewToken);
+            browserSocket.send(rewritten ?? payload, { binary: isBinary });
+          });
+          browserSocket.once("close", () => upstreamSocket.terminate());
+          upstreamSocket.once("close", () => browserSocket.close());
+          upstreamSocket.on("error", () => {
+            if (browserSocket.readyState === WebSocket.OPEN) {
+              browserSocket.close(1011, "Dev server HMR connection failed");
+            }
+          });
+          browserSocket.on("error", () => upstreamSocket.terminate());
+        },
+      );
+      return;
+    }
 
     const requestImpl = targetUrl.protocol === "https:" ? https : http;
     let upgraded = false;
@@ -3844,6 +4068,18 @@ export async function startDesignConnectBridge(
     upstreamRequest.end();
   });
 
+  let closePromise: Promise<void> | undefined;
+  const close = () => {
+    closePromise ??= (async () => {
+      terminateHmrClients();
+      await new Promise<void>((resolve) => hmrWebSocketServer.close(resolve));
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    })();
+    return closePromise;
+  };
+
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(new URL(manifest.bridgeUrl).port, "127.0.0.1", () => {
@@ -3856,12 +4092,19 @@ export async function startDesignConnectBridge(
     try {
       await persistBridgeToken(manifest.rootPath, bridgeToken);
     } catch (error) {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await close();
       throw error;
     }
   }
 
-  return { server, manifest, bridgeToken, previewToken, bridgeInstanceId };
+  return {
+    close,
+    server,
+    manifest,
+    bridgeToken,
+    previewToken,
+    bridgeInstanceId,
+  };
 }
 
 export function resolveAppUrl(explicit?: string): string | undefined {
@@ -4293,7 +4536,13 @@ export async function runDesign(argv: string[]) {
 
   return await new Promise<number>((resolve) => {
     const stop = () => {
-      bridge.server.close(() => resolve(0));
+      void bridge.close().then(
+        () => resolve(0),
+        (error) => {
+          console.error("[design connect] bridge shutdown failed", error);
+          resolve(1);
+        },
+      );
     };
     for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
       process.once(signal, stop);

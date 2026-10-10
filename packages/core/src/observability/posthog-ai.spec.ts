@@ -10,6 +10,7 @@ import {
   MAX_AI_CONTENT_BYTES,
   boundAiContent,
   emitAiFeedbackSurveyEvent,
+  resolveAiError,
   toAiErrorDetail,
   toPostHogMessages,
 } from "./posthog-ai.js";
@@ -54,7 +55,7 @@ describe("emitAiFeedbackSurveyEvent", () => {
   const base = {
     runId: "run-1",
     threadId: "thread-1",
-    userId: "alice@example.test",
+    userId: "alice@example.com",
     feedbackType: "thumbs_down" as const,
     value: "thumbs_down",
     submissionId: "sub-1",
@@ -107,7 +108,7 @@ describe("emitAiFeedbackSurveyEvent", () => {
     expect(url).toBe("https://us.i.posthog.com/capture/");
     const body = JSON.parse(init.body);
     expect(body.event).toBe("survey sent");
-    expect(body.distinct_id).toBe("alice@example.test");
+    expect(body.distinct_id).toBe("alice@example.com");
     expect(body.properties).toMatchObject({
       $survey_id: "survey-abc",
       $survey_response_1: "the answer cited the wrong doc",
@@ -148,7 +149,7 @@ describe("emitAiFeedbackSurveyEvent", () => {
       expect(
         mod.emitAiFeedbackSurveyEvent({
           ...base,
-          userId: "alice@example.test",
+          userId: "alice@example.com",
         }),
       ).toBe(false),
     );
@@ -248,19 +249,29 @@ describe("toAiErrorDetail", () => {
     expect(toAiErrorDetail(undefined, {})).toBeUndefined();
   });
 
-  it("carries terminal classification alongside the message", () => {
+  it("carries terminal classification in place of the message", () => {
     expect(
-      toAiErrorDetail("model refused", {
+      toAiErrorDetail("model refused Jane Doe's request", {
         state: "failed",
         code: "provider_error",
         retryable: true,
       }),
     ).toEqual({
-      message: "model refused",
+      message: "Agent run failed (provider_error)",
+      cause: "unknown",
       terminal_state: "failed",
       terminal_code: "provider_error",
       retryable: true,
     });
+  });
+
+  it("reports a failed run that carried no error detail", () => {
+    expect(resolveAiError(true, undefined)).toEqual({
+      message: "Agent run failed (unknown)",
+      cause: "unknown",
+      terminal_code: "unknown",
+    });
+    expect(resolveAiError(false, undefined)).toBeUndefined();
   });
 
   it("redacts secrets in the error message", () => {
@@ -271,6 +282,33 @@ describe("toAiErrorDetail", () => {
 });
 
 describe("toPostHogMessages", () => {
+  it.each([
+    ["flagged", { isError: true, content: "Jane Doe's notes are locked" }],
+    [
+      "legacy unflagged",
+      { content: "Error running read-notes: Jane Doe's notes are locked" },
+    ],
+    ["successful", { isError: false, content: "Error rates for Jane Doe" }],
+  ])("omits only failed tool results (%s)", (kind, part) => {
+    const normalized = toPostHogMessages([
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call_abc",
+            toolName: "read-notes",
+            ...part,
+          },
+        ],
+      },
+    ]);
+
+    expect(JSON.stringify(normalized).includes("Jane Doe")).toBe(
+      kind === "successful",
+    );
+  });
+
   it("lifts engine tool results out of the user turn into `tool` messages", () => {
     const normalized = toPostHogMessages([
       { role: "user", content: [{ type: "text", text: "make the report" }] },

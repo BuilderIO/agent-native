@@ -3,10 +3,125 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-01
+## 2026-10-09
+
+### Improved
+
+- Clips share links now guide agents to read full transcripts and inspect video frames, with distinct recovery steps for private clips, expired links, and unavailable video.
 
 ### Fixed
 
+- Agents can read clip transcripts and inspect video frames from shared links, with clear guidance when a private clip needs a Share with agents link.
+- Agents now get clear recovery steps when clip frames are still processing or stored media cannot be fetched.
+
+## 2026-10-08
+
+### Improved
+
+- Opening Clips now goes directly to the recordings library.
+- Signup and login sessions are available in Analytics with all form inputs masked.
+- Skip setup to start recording; storage setup remains available after a recording finishes.
+- The Clips agent can add split markers at timestamps so segments can be edited independently
+- You can skip setup and start recording clips without connecting storage.
+- The storage setup screen no longer lists example S3 providers.
+- The video editor confirms when edits save to a clip and provides a clear way back to its viewer.
+
+### Fixed
+
+- Clip uploads recover more reliably from temporary server interruptions
+- Clips blocks chat prompts until an AI provider is connected.
+- Clips marks recordings as failed when storage setup is missing, even if upload progress cannot be repaired.
+- Clips respects Skip after storage connects and gives accurate guidance when Builder does not respond
+- Recording edits, audio cleanup, and desktop dictation recover reliably after interruptions.
+- First-run storage setup remains available when the status check fails.
+
+## 2026-10-07
+
+### Improved
+
+- Allow local recordings to be previewed and downloaded without storage.
+- Clips explains when Builder needs separate file-upload access and how to restore storage.
+- Show a skippable storage choice before the first recording, then keep local capture available.
+- Builder.io setup choices now say “Use Builder.io”.
+
+### Fixed
+
+- Clips can finish saving when a browser tab stops responding.
+- Clips keeps active recordings running while storage connects and shows current Builder recovery steps
+- Clips preserves queued uploads, keeps complete local previews, and offers a retry when Builder status is unavailable.
+- Builder connection errors now show actionable retry and browser recovery guidance.
+- Return to Home after storage connects during first-run setup
+- Skipping storage setup keeps the recorder ready, including when opened from a setup link
+- Storage setup errors now point members to an owner or admin when they can't manage storage settings
+- Clips sizes Settings and recording views correctly while a recording is active.
+- Clarify Builder storage setup choices and retry guidance
+
+## 2026-10-06
+
+### Fixed
+
+- Fixed arrow-key selection in comment mentions
+- Fixed attached images missing from visual analysis.
+- Fixed clips freezing when you hit play while the recording was still being optimized
+- Fixed returning to shared clips after email verification
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Improved
+
+- Clips desktop offers one-click Builder account activation or sign-in.
+- Shared recording pages give the agent composer its own background.
+
+### Fixed
+
+- Dictation now transcribes from AirPods and other Bluetooth microphones instead of reporting that no speech was detected.
+- Agent links copied from a clip are shorter, so Claude can fetch them without hitting its URL length limit.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+- Confirming Discard recording now returns you to your library.
+- Discarding a recording now removes its failed upload card from your library.
+- Discarding a recovered recording no longer warns that it's open in another tab.
+- Search results identify recordings in Trash and open them with Trash navigation.
+
+## 2026-10-03
+
+### Fixed
+
+- Invalid Lab choices can be repaired from Labs settings.
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup now offers one-click activation and clear existing-account sign-in.
+
+### Fixed
+
+- Cancelled Rewind Clip setup can be retried immediately
+- Long uploads (an hour or more) now transcribe reliably instead of failing.
+- Recording countdowns begin during setup, with explicit cue outcomes and startup timing
+- Recording visibility defaults no longer switch to Public when saved settings cannot be read.
+- Screen recording startup now cleans up canceled Rewind setup and keeps countdown timing reliable on older macOS.
+- Recording reminders and other actionable notifications show their message above the buttons
+- Temporary upload authorization failures remain retryable, while permanently rejected Builder credentials trigger storage setup errors.
+
+## 2026-10-01
+
+### Improved
+
+- Clip pages show layout-matched skeletons while loading
+- Signed-out viewers now see that they need to sign in before commenting on shared clips.
+- The Connect storage card is simpler: one Create Builder.io account button opens the same account popover as the rest of the app, with S3-compatible storage as the alternative
+- You can start recording before connecting storage: the web recorder keeps a copy in your browser and the desktop app saves to Movies/Clips, and the recording uploads once you connect storage. If an upload is interrupted, Clips offers to finish it the next time you open it
+
+### Fixed
+
+- Camera repositioning keeps the recording controls visible
+- Desktop clips no longer play as a short fragment when a video chunk loads incompletely while the clip is still being processed
+- Existing Builder connections sign in from storage setup
+- Loom imports no longer stay stuck if their upload worker stops.
+- Storage setup recovers when Builder connects after cancellation
+- The dictation shortcut now responds to every quick tap, the voice bar no longer disappears mid-dictation, and AI cleanup works again.
 - Deleted dictations disappear from your history right away instead of after a few seconds
 - Dictation shortcuts stay hidden when voice dictation is disabled.
 - Opening a recording link no longer flashes a "Recording not found" message before the recording loads
@@ -100,7 +215,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Clips settings are reorganized in the new Settings: General with Recordings and Meetings tabs, Notifications, and Slack link previews under Channels.
 - The account menu at the bottom of the sidebar shows your photo, name, and organization, and holds Settings, Usage, Get apps and extensions, and Log out
 - Video storage now uses the shared storage form, and Clear credentials asks before it removes your storage keys
-- Connect Builder storage by creating an account in one click.
+- Use Builder storage by creating an account in one click.
 - Public clip embeds and meeting notes show richer link previews.
 - The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.
 - Shared clips remember your sidebar choice and help new viewers understand why to sign up.

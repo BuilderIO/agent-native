@@ -16,7 +16,7 @@ import {
 } from "@playwright/test";
 
 import { signedInContext } from "./authed";
-import { watchChatRequests } from "./chat";
+import { formatChatRequestDiagnostics, watchChatRequests } from "./chat";
 import {
   composerHoldsPrompt,
   describePersisted,
@@ -214,14 +214,16 @@ export async function readChatState(page: Page): Promise<StateRead> {
         )
           .filter(visible)
           .map(text),
-        messages: all<HTMLElement>(scope, "article.agentkit-message").map(
-          (element) => ({
+        // Multi-tab chat keeps every opened thread mounted under display:none,
+        // so after "New chat" the previous thread's messages are still here.
+        messages: all<HTMLElement>(scope, "article.agentkit-message")
+          .filter(visible)
+          .map((element) => ({
             role: element.dataset.role ?? "",
             id: element.dataset.messageId ?? null,
             busy: element.getAttribute("aria-busy") === "true",
             text: text(element),
-          }),
-        ),
+          })),
         errorCards: all<HTMLElement>(
           scope,
           ".agentkit-run-failure, .agentkit-error, [data-error-code]",
@@ -1005,7 +1007,7 @@ export class ChatReliabilitySession {
 
     sections.push(
       `agent-chat requests (${this.traffic.entries.length}):\n${summarizeTraffic(this.traffic.entries)}`,
-      `luna: ${JSON.stringify(this.luna.log)}`,
+      `luna: ${formatChatRequestDiagnostics(this.luna.log)}`,
     );
 
     if (id) {

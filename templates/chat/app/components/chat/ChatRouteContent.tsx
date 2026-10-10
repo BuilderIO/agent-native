@@ -4,13 +4,17 @@ import type {
 } from "@agent-native/agentkit";
 import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
 import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
-import { trackEvent } from "@agent-native/core/client/analytics";
+import {
+  captureException,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   AgentMessageView,
   AgentRunFailure,
   AgentConnectionRequestCard,
   AgentKitChat,
+  useAgentKitStopButton,
 } from "@agent-native/toolkit/app/agentkit/react/components";
 import {
   useAgentKit,
@@ -46,6 +50,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -124,7 +129,14 @@ function ChatThreadRouteContent({
               onIntegrityReport: reportStreamIntegrity,
             }}
             threadId={resolvedThreadId}
-            labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}
+            labels={{
+              composerPlaceholder: t("chat.composerPlaceholder"),
+              continueRun: t("agentChat.common.continue"), // i18n-key-ignore shared framework catalog
+              continueRunUnavailable: t(
+                // i18n-key-ignore shared framework catalog
+                "agentChat.recovery.continueUnavailable",
+              ),
+            }}
             slots={{
               emptyState: ChatEmptyState,
               message: ChatMessage,
@@ -190,6 +202,7 @@ function ChatRunFailure({
   const { controller } = useAgentKit();
   const t = useT();
   const [retryError, setRetryError] = useState<ChatRetryError | null>(null);
+  const retryStartedForRunsRef = useRef(new Set<string>());
   const recoveryMetadata = (message: (typeof thread.messages)[number]) =>
     (
       message.metadata as
@@ -212,7 +225,8 @@ function ChatRunFailure({
       recoveryMetadata(message)?.agentNativeRecoveryAction === "retry" &&
       recoveryMetadata(message)?.agentNativeRecoveryOfRunId === runId,
   );
-  const retryFirstMessage = useCallback(() => {
+  const retryFirstMessage = useCallback(async () => {
+    if (retryStartedForRunsRef.current.has(runId)) return;
     const attachments =
       originalRequest?.parts.filter((part) => part.type === "file") ?? [];
     if (attachments.some((part) => part.fileId && !part.url)) {
@@ -220,21 +234,33 @@ function ChatRunFailure({
       return;
     }
     setRetryError(null);
+    retryStartedForRunsRef.current.add(runId);
     const prompt =
       originalRequest?.parts
         .filter((part) => part.type === "text")
         .map((part) => part.text)
         .join("\n") ?? "";
-    void controller.sendMessage({
-      threadId,
-      text: prompt || t("chat.retryPreviousRequest"),
-      ...(attachments.length ? { attachments } : {}),
-      metadata: {
-        custom: {
-          agentNativeRecoveryAction: "retry",
-          agentNativeRecoveryOfRunId: runId,
+    let send: unknown;
+    try {
+      send = controller.sendMessage({
+        threadId,
+        text: prompt || t("chat.retryPreviousRequest"),
+        ...(attachments.length ? { attachments } : {}),
+        metadata: {
+          custom: {
+            agentNativeRecoveryAction: "retry",
+            agentNativeRecoveryOfRunId: runId,
+          },
         },
-      },
+      });
+    } catch (error) {
+      retryStartedForRunsRef.current.delete(runId);
+      captureException(error, { tags: { area: "chat_retry" } });
+      return;
+    }
+    void Promise.resolve(send).catch((error) => {
+      retryStartedForRunsRef.current.delete(runId);
+      captureException(error, { tags: { area: "chat_retry" } });
     });
   }, [controller, originalRequest, runId, t, threadId]);
   const isFirstMessage = userRequests.length === 1 && !hasRetryForThisRun;
@@ -320,14 +346,16 @@ function ChatLifecycleTracking({ threadId }: { threadId: string }) {
 function ChatAgentFooter({ children }: { children: ReactNode }) {
   const { controller, threadId } = useAgentKit();
   const submitAnswers = useCallback(
-    ({ formattedAnswers }: { formattedAnswers: string }) => {
-      void controller.sendMessage({ threadId, text: formattedAnswers });
+    async ({ formattedAnswers }: { formattedAnswers: string }) => {
+      await controller.sendMessage({ threadId, text: formattedAnswers });
+      return { delivered: true };
     },
     [controller, threadId],
   );
   const skipQuestions = useCallback(
-    ({ message }: { message: string }) => {
-      void controller.sendMessage({ threadId, text: message });
+    async ({ message }: { message: string }) => {
+      await controller.sendMessage({ threadId, text: message });
+      return { delivered: true };
     },
     [controller, threadId],
   );
@@ -498,6 +526,10 @@ function ChatCanvas({
 }) {
   const t = useT();
   const thread = useAgentThread();
+  const stopButton = useAgentKitStopButton({
+    label: t("agentChat.composer.stopResponse"), // i18n-key-ignore shared framework catalog
+    onError: (error) => toast.error(error.message),
+  });
   const hasConversation = thread.messages.length > 0;
 
   useEffect(() => {
@@ -526,10 +558,12 @@ function ChatCanvas({
   return (
     <AgentKitChat
       className="h-full"
-      title={thread.thread?.title ?? APP_TITLE}
+      title={thread.thread?.title?.trim() || APP_TITLE}
       toolbar={toolbar}
       emptyComposerPlacement="center"
       composerProps={{
+        requireAgentEngine: true,
+        stopButton,
         queueWhileRunning: true,
         autoFocus: true,
         plusMenuMode: "full",

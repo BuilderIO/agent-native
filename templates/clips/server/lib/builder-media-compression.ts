@@ -14,6 +14,7 @@ import { and, eq, isNull } from "drizzle-orm";
 
 import type { MediaWorkerCallback } from "../../shared/media-worker-contract.js";
 import { getDb, schema } from "../db/index.js";
+import { isBuilderCdnHost } from "./builder-cdn.js";
 import { enabledFlag } from "./env-flags.js";
 import {
   enqueueMediaWorkerJob,
@@ -24,7 +25,6 @@ import {
 } from "./media-worker.js";
 import { ownerEmailMatches } from "./recordings.js";
 
-const BUILDER_CDN_HOST_RE = /^cdn(?:-qa)?\.builder\.io$/i;
 const DEFAULT_TRIGGER_TIMEOUT_MS = 45_000;
 const DEFAULT_MAX_SOURCE_BYTES = 512 * 1024 * 1024;
 const MAX_TRIGGER_ATTEMPTS = 5;
@@ -294,7 +294,7 @@ export function extractBuilderMediaTarget(
 ): BuilderMediaTarget | null {
   try {
     const url = new URL(sourceUrl);
-    if (!BUILDER_CDN_HOST_RE.test(url.hostname)) return null;
+    if (!isBuilderCdnHost(url.hostname)) return null;
     if (url.searchParams.get("optimized") === "true") return null;
 
     let objectPath: string | null = null;

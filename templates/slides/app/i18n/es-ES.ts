@@ -58,6 +58,7 @@ const messages = {
     commentsAndRepliesDescription:
       "Cuando alguien comenta o responde en tu presentación.",
     retry: "Reintentar",
+    reload: "Recargar",
     mcpAbout:
       "Conecta Slides con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Slides por ti: crear presentaciones, añadir diapositivas y exportar a PowerPoint. Solo ve lo que tú puedes ver.",
     workspaceTitle: "Espacio de trabajo",
@@ -126,7 +127,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth no está configurado para este despliegue.",
     googlePickerNeedsKeys:
-      "Google Picker necesita GOOGLE_PICKER_API_KEY y GOOGLE_PICKER_APP_ID.",
+      "La exploración de archivos de Google Drive no está configurada. Aun así, puedes importar un documento pegando su enlace.",
     imageUploadFailed: "Error al subir la imagen",
     imageUploadNeedsBuilder:
       "Conecta un almacenamiento de objetos para subir imágenes: conecta Builder.io (gratis) o añade tus propias claves de almacenamiento compatibles con S3 en Configuración → Cargas de archivos.",
@@ -245,6 +246,7 @@ const messages = {
     importCompleteFile: "Archivo importado desde {{fileName}}.",
     backToDecks: "Volver a decks",
     toggleSlideList: "Alternar lista de diapositivas",
+    openInAgentNative: "Abrir en Agent-Native",
     designSystem: "Sistema de diseño",
     usingDesignSystem: "Usando {{title}}",
     usingLinkedDesignSystem: "Usando un sistema de diseño vinculado",
@@ -259,6 +261,16 @@ const messages = {
     generateImage: "Generar imagen",
     assetLibrary: "Biblioteca de recursos",
     imageOptions: "Opciones de imagen",
+    videoPlayback: "Reproducción de vídeo",
+    autoplayVideo: "Reproducción automática",
+    loopVideo: "Repetir vídeo",
+    videoUploading: "Subiendo vídeo…",
+    videoAdded: "Vídeo añadido",
+    videoUploadFailed: "Error al subir el vídeo",
+    videoUploadError: "No se pudo subir este vídeo.",
+    videoFormatUnsupported: "Solo se admiten vídeos MP4 y WebM.",
+    videoTooLarge: "El vídeo no puede superar los 50 MB.",
+    videoUploadNeedsBuilder: "El almacenamiento de vídeos no está configurado.",
     cropImage: "Recortar imagen",
     cropHandle: "Recortar imagen {{position}}",
     diagrams: "Diagramas",
@@ -312,6 +324,9 @@ const messages = {
     conflictStatus: "Conflicto de texto",
     conflictStatusDescription:
       "Revisa el texto en conflicto antes de guardar más cambios.",
+    accessLost: "Acceso perdido",
+    accessLostDescription:
+      "Tu acceso a esta presentación cambió. Tus cambios siguen en pantalla; reintenta cuando se restablezca el acceso o descarga una copia de seguridad.",
     reviewConflict: "Revisar conflicto",
     conflictTitle: "Conflicto de texto en la diapositiva {{number}}",
     conflictDescription:
@@ -360,6 +375,7 @@ const messages = {
     googleSlidesCreated: "Abierto en Google Slides",
     googleSlidesCreatedHint:
       "Se creó una copia de esta presentación en tu Google Drive.",
+    googleSlidesGoTo: "Ir a Google Slides",
     duplicateDeck: "Duplicar deck",
   },
   share: {
@@ -447,7 +463,9 @@ const messages = {
     resolveThread: "Resolver hilo",
     reopenThread: "Reabrir hilo",
     hideReplies: "Ocultar respuestas",
-    replyCount: "{{count}} respuestas",
+    replyCount_one: "{{count}} respuesta",
+    replyCount_many: "{{count}} respuestas",
+    replyCount_other: "{{count}} respuestas",
     title: "Comentarios",
     addComment: "Añadir comentario",
     close: "Cerrar",
@@ -777,6 +795,12 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "La ejecución del agente falló antes de crear diapositivas. Consulta los detalles del chat y vuelve a intentarlo.",
+    generationFailed:
+      "No se crearon diapositivas. Consulta los detalles del chat y vuelve a intentarlo.",
+    generationOutcomeUnresolved:
+      "No pudimos confirmar si se crearon las diapositivas. Revisa la presentación o el chat y vuelve a intentarlo.",
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -990,8 +1014,8 @@ const messages = {
           "Lee la web de la empresa indicada y crea una presentación sobre ella. Informa de errores de acceso en lugar de inventar datos.",
       },
     },
-    connectBuilderIo: "Conectar Builder.io",
-    connectingBuilder: "Conectando Builder.io…",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando Builder.io…",
     recent: "Recientes",
     starters: {
       pitch: {
@@ -1030,9 +1054,13 @@ const messages = {
     all: "Todos",
     showMineDecks: "Mostrar decks creados por mí",
     mine: "Míos",
+    ownedByAnyone: "De cualquiera",
+    ownedByMe: "Míos",
+    sharedWithMe: "Compartido conmigo",
     createDeckOrVisual: "Crear una presentación",
     noMineDecks: "Aún no has creado decks.",
     noDecksMatchSearch: "Ningún deck coincide con tu búsqueda.",
+    noDecksMatchFilter: "Ningún deck coincide con el filtro actual.",
     deleteDeckTitle: "¿Eliminar deck?",
     deleteDeckDescription:
       "Esto eliminará permanentemente este deck y todas sus diapositivas. Esta acción no se puede deshacer.",

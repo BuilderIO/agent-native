@@ -2,15 +2,14 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "../../pages/design-editor/read-design-editor-source";
+
 describe("DesignCanvas iframe pan bridge wiring", () => {
   const canvasSource = readFileSync(
     "app/components/design/DesignCanvas.tsx",
     "utf8",
   ).replace(/\r\n/g, "\n");
-  const editorSource = readFileSync(
-    "app/pages/DesignEditor.tsx",
-    "utf8",
-  ).replace(/\r\n/g, "\n");
+  const editorSource = readDesignEditorSource().replace(/\r\n/g, "\n");
   const bridgeSource = readFileSync(
     "app/components/design/bridge/embedded-wheel.bridge.ts",
     "utf8",
@@ -42,7 +41,7 @@ describe("DesignCanvas iframe pan bridge wiring", () => {
     );
     expect(canvasSource).toContain(": embeddedGestureBridgeForCurrentState");
     expect(canvasSource).toMatch(
-      /const waitingForLiveEditBridge\s*=\s*registerRuntimeBridge\s*&&\s*usesLiveEditInjectedBridge\s*&&\s*!liveEditBridgeRegistered;/,
+      /const waitingForLiveEditBridge\s*=\s*registerLiveEditPreview\s*&&\s*usesLiveEditInjectedBridge\s*&&\s*!liveEditBridgeRegistered;/,
     );
   });
 

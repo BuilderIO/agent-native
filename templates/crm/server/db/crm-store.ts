@@ -1,5 +1,16 @@
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, exists, inArray, isNull, like } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNull,
+  like,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import type {
   CrmAccessScope,
@@ -21,9 +32,13 @@ import {
   scopesAreCompatible,
   type RelatedRecordSummary,
 } from "../crm/read-through.js";
+import { recordsInCurrentScope } from "../lib/crm-query.js";
 import { getDb, schema } from "./index.js";
 
 const MAX_RECORD_LIMIT = 100;
+// ponytail: bounds the reads per call when most rows are withheld; the page
+// comes back short with a cursor instead of scanning every task.
+const MAX_SCOPE_FILL_BATCHES = 5;
 const RECORD_DETAIL_LIMIT = 20;
 const MAX_SCOPE_VALIDATIONS = 20;
 const SAFE_VIEW_COLUMNS = new Set([
@@ -810,42 +825,129 @@ export async function getCrmRecord(
   };
 }
 
-export async function listCrmTasks(input: {
-  recordId?: string;
-  status?: "open" | "done" | "cancelled";
-  limit: number;
-  cursor?: string;
-}) {
+export async function listCrmTasks(
+  input: {
+    recordId?: string;
+    status?: "open" | "done" | "cancelled";
+    limit: number;
+    cursor?: string;
+  },
+  options: { resolveScope?: CrmScopeResolver } = {},
+) {
   const db = getDb();
   const offset = decodeCursor(input.cursor);
   const limit = Math.min(input.limit, MAX_RECORD_LIMIT);
-  const conditions = [accessFilter(schema.crmTasks, schema.crmTaskShares)];
+  const conditions = [
+    accessFilter(schema.crmTasks, schema.crmTaskShares),
+    // A standalone task (no recordId/connectionId) is kept as-is; a task
+    // linked to a record only shows if the caller can also see that record,
+    // its connection, and (below) its current provider scope — a shared task
+    // must not reveal a record the record pages themselves would withhold.
+    or(
+      isNull(schema.crmTasks.recordId),
+      accessFilter(schema.crmRecords, schema.crmRecordShares),
+    )!,
+    or(
+      and(
+        isNull(schema.crmTasks.recordId),
+        isNull(schema.crmTasks.connectionId),
+      ),
+      accessFilter(schema.crmConnections, schema.crmConnectionShares),
+    )!,
+  ];
   if (input.recordId)
     conditions.push(eq(schema.crmTasks.recordId, input.recordId));
   if (input.status) conditions.push(eq(schema.crmTasks.status, input.status));
 
-  const rows = await db
-    .select({
-      id: schema.crmTasks.id,
-      title: schema.crmTasks.title,
-      status: schema.crmTasks.status,
-      dueAt: schema.crmTasks.dueAt,
-      recordId: schema.crmTasks.recordId,
-      assignedTo: schema.crmTasks.assignedTo,
-      authority: schema.crmTasks.authority,
-      updatedAt: schema.crmTasks.updatedAt,
-    })
-    .from(schema.crmTasks)
-    .where(and(...conditions))
-    .orderBy(desc(schema.crmTasks.dueAt), desc(schema.crmTasks.id))
-    .limit(limit + 1)
-    .offset(offset);
-  const result = page(rows, limit);
+  const selectTasks = (at: number, size: number) =>
+    db
+      .select({
+        id: schema.crmTasks.id,
+        title: schema.crmTasks.title,
+        status: schema.crmTasks.status,
+        dueAt: schema.crmTasks.dueAt,
+        recordId: schema.crmTasks.recordId,
+        assignedTo: schema.crmTasks.assignedTo,
+        authority: schema.crmTasks.authority,
+        updatedAt: schema.crmTasks.updatedAt,
+        connectionId: schema.crmRecords.connectionId,
+        objectType: schema.crmRecords.objectType,
+        provider: schema.crmRecords.provider,
+        accessScopeJson: schema.crmRecords.accessScopeJson,
+        workspaceConnectionId: schema.crmConnections.workspaceConnectionId,
+      })
+      .from(schema.crmTasks)
+      .leftJoin(
+        schema.crmRecords,
+        eq(schema.crmRecords.id, schema.crmTasks.recordId),
+      )
+      // A record-linked task is gated by the record's connection; a
+      // locally created task has no connectionId of its own.
+      .leftJoin(
+        schema.crmConnections,
+        eq(
+          schema.crmConnections.id,
+          sql`coalesce(${schema.crmRecords.connectionId}, ${schema.crmTasks.connectionId})`,
+        ),
+      )
+      .where(and(...conditions))
+      .orderBy(desc(schema.crmTasks.dueAt), desc(schema.crmTasks.id))
+      .limit(size)
+      .offset(at);
+  type TaskRow = Awaited<ReturnType<typeof selectTasks>>[number];
+  type LinkedTaskRow = TaskRow & {
+    connectionId: string;
+    objectType: string;
+    provider: string;
+    accessScopeJson: string;
+  };
+
+  // Linked records out of the current provider scope are dropped after SQL,
+  // so keep reading until the page is full; the cursor never moves past a
+  // row that was not returned.
+  const scopeResolver = options.resolveScope ?? defaultScopeResolver;
+  const kept: Array<{ row: TaskRow; at: number }> = [];
+  let scanned = offset;
+  let exhausted = false;
+  for (
+    let batch = 0;
+    batch < MAX_SCOPE_FILL_BATCHES && kept.length <= limit && !exhausted;
+    batch++
+  ) {
+    const rows = await selectTasks(scanned, limit + 1);
+    exhausted = rows.length < limit + 1;
+    const linked = rows.filter(
+      (row): row is LinkedTaskRow => row.recordId !== null,
+    );
+    const inScope = new Set<TaskRow>(
+      await recordsInCurrentScope(linked, scopeResolver),
+    );
+    rows.forEach((row, index) => {
+      if (row.recordId === null || inScope.has(row))
+        kept.push({ row, at: scanned + index });
+    });
+    scanned += rows.length;
+  }
+  const nextAt =
+    kept.length > limit ? kept[limit]!.at : exhausted ? undefined : scanned;
 
   return {
-    tasks: result.rows,
-    nextCursor: result.nextCursor ? String(offset + limit) : undefined,
-    complete: !result.nextCursor,
+    tasks: kept
+      .slice(0, limit)
+      .map(
+        ({
+          row: {
+            connectionId: _connectionId,
+            objectType: _objectType,
+            provider: _provider,
+            accessScopeJson: _accessScopeJson,
+            workspaceConnectionId: _workspaceConnectionId,
+            ...task
+          },
+        }) => task,
+      ),
+    nextCursor: nextAt === undefined ? undefined : String(nextAt),
+    complete: nextAt === undefined,
   };
 }
 

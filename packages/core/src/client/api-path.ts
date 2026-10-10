@@ -54,6 +54,21 @@ function normalizeBasePath(value: string | undefined): string {
   return `/${trimmed.replace(/^\/+/, "").replace(/\/+$/, "")}`;
 }
 
+export class WorkspaceAppMountResolutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkspaceAppMountResolutionError";
+  }
+}
+
+function isDeclaredRootPath(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    normalizeBasePath(value) === ""
+  );
+}
+
 function configuredBasePath(): string {
   const env = clientEnv();
   const value = env?.VITE_APP_BASE_PATH ?? env?.APP_BASE_PATH ?? env?.BASE_URL;
@@ -117,7 +132,39 @@ function pathMatchesBasePath(pathname: string, basePath: string): boolean {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
-function isWorkspaceRuntime(): boolean {
+function routerContextBasePath(): string {
+  if (typeof window === "undefined") return "";
+  const basename = (
+    window as Window & { __reactRouterContext?: { basename?: unknown } }
+  ).__reactRouterContext?.basename;
+  return typeof basename === "string" ? normalizeBasePath(basename) : "";
+}
+
+function workspaceAppConfiguredPath(): string {
+  if (typeof window === "undefined") return "";
+  const configuredPath = (
+    window as Window & {
+      __AGENT_NATIVE_CONFIG__?: { workspaceAppPath?: unknown };
+    }
+  ).__AGENT_NATIVE_CONFIG__?.workspaceAppPath;
+  return typeof configuredPath === "string"
+    ? normalizeBasePath(configuredPath)
+    : "";
+}
+
+function hasExplicitWorkspaceRootPath(): boolean {
+  if (typeof window === "undefined") return false;
+  const config = window as Window & {
+    __AGENT_NATIVE_CONFIG__?: { workspaceAppPath?: unknown };
+  };
+  const env = clientEnv();
+  return (
+    isDeclaredRootPath(config.__AGENT_NATIVE_CONFIG__?.workspaceAppPath) ||
+    isDeclaredRootPath(env?.VITE_APP_BASE_PATH ?? env?.APP_BASE_PATH)
+  );
+}
+
+export function isWorkspaceRuntime(): boolean {
   const env = clientEnv();
   const projected =
     typeof window !== "undefined" &&
@@ -134,16 +181,79 @@ function isWorkspaceRuntime(): boolean {
   );
 }
 
-function workspacePathBasePath(): string {
-  if (typeof window === "undefined" || !isWorkspaceRuntime()) return "";
+function workspacePathBasePath(fallbackPath = ""): string {
+  if (typeof window === "undefined" || !isWorkspaceRuntime()) {
+    return fallbackPath;
+  }
   const pathname = window.location?.pathname;
   if (typeof pathname !== "string") return "";
+  const routerBasePath = routerContextBasePath();
+  if (routerBasePath && pathMatchesBasePath(pathname, routerBasePath)) {
+    return routerBasePath;
+  }
+  const configuredWorkspacePath = workspaceAppConfiguredPath();
+  if (
+    configuredWorkspacePath &&
+    pathMatchesBasePath(pathname, configuredWorkspacePath)
+  ) {
+    return configuredWorkspacePath;
+  }
   const segment = pathname.split("/").find(Boolean);
-  if (!segment || isFrameworkSegment(segment) || segment === "api") return "";
-  const basePath = normalizeBasePath(segment);
+  if (!segment) {
+    if (hasExplicitWorkspaceRootPath()) return "";
+    if (fallbackPath) return fallbackPath;
+    throw new WorkspaceAppMountResolutionError(
+      "Cannot resolve workspace app mount path without explicit mount metadata.",
+    );
+  }
+  if (isFrameworkSegment(segment) || segment === "api") {
+    return fallbackPath;
+  }
+  if (hasExplicitWorkspaceRootPath()) return "";
   const mounts = workspaceAppMountPaths();
-  if (mounts && !mounts.has(basePath)) return "";
-  return basePath;
+  const matchingMount = mounts
+    ? [...mounts]
+        .filter((mount) => pathMatchesBasePath(pathname, mount))
+        .sort((a, b) => b.length - a.length)[0]
+    : undefined;
+  if (matchingMount) return matchingMount;
+  if (fallbackPath) return fallbackPath;
+  throw new WorkspaceAppMountResolutionError(
+    mounts
+      ? "Cannot resolve workspace app mount path because the current URL matches no projected mount."
+      : "Cannot resolve workspace app mount path without explicit mount metadata.",
+  );
+}
+
+/**
+ * Configure the router basename before hydration. If mount metadata is missing,
+ * keep the basename supplied by the server instead of guessing from the URL.
+ */
+export function configureClientRouterBasename(): boolean {
+  let basePath: string;
+  try {
+    basePath = appBasePath();
+  } catch (error) {
+    if (error instanceof WorkspaceAppMountResolutionError) {
+      console.error(
+        "Unable to resolve the workspace app mount; preserving the server router basename.",
+        error,
+      );
+      return false;
+    }
+    throw error;
+  }
+
+  if (typeof window === "undefined") return true;
+  if (!basePath && !hasExplicitWorkspaceRootPath()) return true;
+  const pathname = window.location.pathname;
+  const routerBasePath =
+    basePath && pathMatchesBasePath(pathname, basePath) ? basePath : "";
+  const context = (
+    window as Window & { __reactRouterContext?: { basename?: string } }
+  ).__reactRouterContext;
+  if (context) context.basename = routerBasePath;
+  return true;
 }
 
 function externalEmbedTargetBasePath(): string {
@@ -184,10 +294,26 @@ export function appBasePath(): string {
   const pathname = window.location.pathname;
   if (pathMatchesBasePath(pathname, configured)) return configured;
 
-  return derived || workspacePathBasePath() || configured;
+  return derived || workspacePathBasePath(configured);
 }
 
 function workspaceAppMountPaths(): Set<string> | null {
+  const projected =
+    typeof window === "undefined"
+      ? undefined
+      : (
+          window as Window & {
+            __AGENT_NATIVE_CONFIG__?: { workspaceAppMountPaths?: unknown };
+          }
+        ).__AGENT_NATIVE_CONFIG__?.workspaceAppMountPaths;
+  if (Array.isArray(projected)) {
+    const paths = projected
+      .filter((value): value is string => typeof value === "string")
+      .map(normalizeBasePath)
+      .filter(Boolean);
+    if (paths.length) return new Set(paths);
+  }
+
   const raw = clientEnv()?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
   if (typeof raw !== "string" || !raw.trim()) return null;
 
@@ -227,8 +353,11 @@ export function isWorkspaceAppPath(path: string): boolean {
 
   const targetPath = path.split(/[?#]/, 1)[0] || "/";
   const basePath = appBasePath();
-  if (!basePath) return false;
-  if (targetPath === basePath || targetPath.startsWith(`${basePath}/`)) {
+  if (!basePath && !hasExplicitWorkspaceRootPath()) return false;
+  if (
+    basePath &&
+    (targetPath === basePath || targetPath.startsWith(`${basePath}/`))
+  ) {
     return false;
   }
 
@@ -247,11 +376,7 @@ export function appMountPath(appLocalRoute: string): string {
   if (basePath && pathMatchesBasePath(pathname, basePath)) return basePath;
 
   const marker = normalizeBasePath(appLocalRoute);
-  if (!marker) {
-    return isWorkspaceRuntime() && pathname !== "/"
-      ? normalizeBasePath(pathname)
-      : basePath;
-  }
+  if (!marker) return basePath;
   const markerSegment = marker.slice(1);
 
   const mounts = workspaceAppMountPaths();
@@ -270,12 +395,13 @@ export function appMountPath(appLocalRoute: string): string {
     }
   }
 
-  const knownCandidates = mounts
-    ? candidates.filter((candidate) => mounts.has(candidate))
-    : candidates;
-  if (mounts && knownCandidates.length) {
-    return knownCandidates.sort((a, b) => b.length - a.length)[0];
+  if (mounts) {
+    const knownCandidates = candidates.filter((candidate) =>
+      mounts.has(candidate),
+    );
+    return knownCandidates.sort((a, b) => b.length - a.length)[0] ?? basePath;
   }
+  if (isWorkspaceRuntime()) return basePath;
   return candidates[0] ?? basePath;
 }
 

@@ -123,6 +123,8 @@ export default function ObservabilityPage() {
 
 도구 인수, 결과, 전체 오류 본문은 기본적으로 캡처되지 않습니다. `observability` 설정에서 인수를 저장하려면 `captureToolArgs`를, 결과와 전체 오류 본문을 저장하려면 `captureToolResults`를 활성화하세요. 민감한 필드는 저장 전에 마스킹됩니다. 실패한 도구는 `captureToolResults`가 꺼져 있어도 실패를 진단할 수 있도록, 자격 증명, 이메일 주소, 긴 불투명 ID를 마스킹한 오류의 첫 줄을 길이를 제한해 항상 보관합니다.
 
+프롬프트 캡처는 기본적으로 꺼져 있습니다. `observability` 설정에서 `capturePrompts: true`를 지정하거나 `AGENT_NATIVE_OBSERVABILITY_CAPTURE_PROMPTS=true`로 설정하면 이 상세 보기에서 각 `llm_call` 스팬의 입력과 출력을 저장합니다. 시스템 프롬프트는 제외되고, 구조화된 민감 필드는 마스킹되며, 각 입력과 출력은 128 KiB로 제한됩니다. 기존 스팬은 소급해 채워지지 않습니다.
+
 ### 사람 검토 {#review}
 
 사람 검토 탭에서는 각 실행의 요청과 답변을 확인하고, 피드백을 기록하며, 사람이 검토할 지침 업데이트 초안을 작성할 수 있습니다. 초안을 저장해도 지침이 자동으로 바뀌지는 않습니다.
@@ -336,13 +338,171 @@ export default defineAppConfig({
 
 에이전트 루프는 세 가지 범위 종류를 내보냅니다.
 
-| 스팬        | 언제                  | 속성                                                              |
-| ----------- | --------------------- | ----------------------------------------------------------------- |
-| `agent.run` | 에이전트 실행당 한 번 | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | 액션 호출당 한 번     | `tool.name` 및 성공/오류 상태                                     |
-| `llm.call`  | 모델 호출당           | 타이밍 + 정상/오류 상태                                           |
+| 스팬                  | 언제                  | 속성                                                                                                      |
+| --------------------- | --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | 에이전트 실행당 한 번 | `gen_ai.provider.name`, `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | 액션 호출당 한 번     | `gen_ai.tool.name` 및 성공/오류 상태                                                                      |
+| `chat {model}`        | 모델 호출당           | `gen_ai.provider.name`, 타이밍 + 정상/오류 상태                                                           |
 
-스팬은 OK/ERROR 상태로 완료되고 실패 시 오류 메시지를 기록합니다. 0/감시 속성 값은 정리되어 범위가 노이즈로 인해 복잡해지지 않습니다. 이 OTel 레이어는 위의 대시보드를 구동하는 내부 `agent_trace_spans`/`agent_trace_summaries` 테이블에 순전히 추가됩니다. 둘 다 동일한 실행 이벤트에서 생성됩니다.
+스팬은 OK/ERROR 상태로 완료되고 실패 시 코드에서 파생된 고정 메시지를 기록합니다. 0/감시 속성 값은 정리되어 범위가 노이즈로 인해 복잡해지지 않습니다. 이 OTel 레이어는 위의 대시보드를 구동하는 내부 `agent_trace_spans`/`agent_trace_summaries` 테이블에 순전히 추가됩니다. 둘 다 동일한 실행 이벤트에서 생성됩니다.
+
+### 메트릭 {#otel-metrics}
+
+호스트가 `@agent-native/core/server`의 `registerObservabilityProvider()`로 미터 프로바이더를 등록하면 Core는 메트릭도 기록합니다. 메트릭은 샘플링 없이 모든 요청과 실행에 대해 기록됩니다.
+
+| 계측기                                      | 속성                                                                                         |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+`agent_native.http.server.handoff.duration`은 `http.server.request.duration`과 같은 속성과 버킷을 갖지만, 응답 훅이 시작될 때가 아니라 훅이 응답을 런타임에 돌려줄 때 끝납니다. 이 지표의 백분위수가 `http.server.request.duration`의 백분위수에서 벌어지면, 인라인 텔레메트리 플러시 등으로 완성된 응답이 붙잡혀 있다는 뜻입니다. 두 백분위수는 서로 다른 요청에서 나올 수 있으므로, 이 차이는 신호일 뿐 특정 요청의 대기 시간이 아닙니다. `waitUntil`이 없으면 core는 해당 플러시 이후에 샘플을 기록하므로, 샘플은 다음 플러시와 함께 백엔드에 도착합니다.
+
+메트릭에서 `gen_ai.tool.name`은 프레임워크 액션 이름 또는 `other`이며, `gen_ai.request.model`은 엔진이 지원 모델로 등록한 경우에만 모델 ID이고 그렇지 않으면 `_OTHER`입니다. 따라서 앱에서 정의한 도구나 호출자가 지정한 모델 ID가 시리즈를 무한정 늘릴 수 없으며, 스팬에는 정확한 값이 남습니다.
+
+`http.route`는 모든 요청에 설정되며 닫힌 집합에서 값을 가져옵니다. 프레임워크 엔드포인트의 라우트 템플릿(`/_agent-native/auth/session`, `/_agent-native/agent-chat/runs/:runId/events`), 액션이 선언한 템플릿, 앱 자체의 Nitro 파일 라우트(`/api/clips/:id`), 또는 버킷입니다. 버킷은 해당 네임스페이스에서 목록에 없는 경로에 대한 `/_agent-native/*`, `/mcp/*`, `/.well-known/*`, 그 밖의 API 경로에 대한 `/api/*`, 파일 요청에 대한 `static`, 그 밖의 `GET` 또는 `HEAD`에 대한 `page`, 그리고 `other`입니다. 원시 요청 경로는 기록되지 않습니다. `http.server` 스팬에도 같은 값이 담깁니다.
+
+## OpenTelemetry 백엔드 연결 {#otel-provider}
+
+Core는 OpenTelemetry SDK나 익스포터를 포함하지 않습니다. 앱은 자체 SDK 프로바이더를 만들고 `@agent-native/core/server`의 `registerObservabilityProvider()`로 Core에 전달합니다. 그러면 Core가 위의 [스팬](#otel)과 [메트릭](#otel-metrics)을 이를 통해 내보내고, 앱의 익스포터가 이를 임의의 OTLP 백엔드로 전송합니다.
+
+### `registerObservabilityProvider()` {#register-observability-provider}
+
+`registerObservabilityProvider()`는 선택적 필드 두 개가 있는 객체 하나를 받습니다.
+
+- **tracerProvider**: `getTracer(name, version?)`가 있는 객체입니다. Core는 여기서 트레이서를 가져옵니다. 없으면 스팬은 전역 `@opentelemetry/api` 트레이서를 사용합니다.
+- **meterProvider**: `getMeter(name, version?)`가 있는 객체입니다. 메트릭은 미터 프로바이더가 등록된 경우에만 기록됩니다. 전역 대체 수단이 없으므로, 등록하지 않으면 모든 메트릭이 아무 동작도 하지 않습니다.
+
+두 프로바이더 모두 `forceFlush()`를 구현할 수 있으며, Core는 응답마다 이를 호출합니다([서버리스에서의 플러시](#otel-flush) 참조). SDK의 `BasicTracerProvider`와 `MeterProvider`는 이미 이 형태를 만족합니다.
+
+```ts
+function registerObservabilityProvider(
+  provider: ObservabilityProvider,
+): () => void;
+
+interface ObservabilityProvider {
+  tracerProvider?: ObservabilityTracerProvider;
+  meterProvider?: ObservabilityMeterProvider;
+}
+
+interface ObservabilityTracerProvider {
+  getTracer(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+
+interface ObservabilityMeterProvider {
+  getMeter(name: string, version?: string): unknown;
+  forceFlush?(): Promise<void>;
+}
+```
+
+나중에 호출하면 이전 프로바이더를 대체합니다. 반환된 함수는 해당 프로바이더가 아직 등록되어 있으면 등록을 해제합니다. 스팬을 쓰려면 앱에 `@opentelemetry/api`도 설치되어 있어야 합니다. 없으면 Core는 트레이싱을 끄고 경고를 한 번 기록합니다.
+
+### 서버리스에서의 플러시 {#otel-flush}
+
+서버리스 함수는 호출 사이에 동결되므로 SDK의 내보내기 타이머가 끝내 실행되지 않을 수 있습니다. 등록된 프로바이더가 `forceFlush()`를 구현하면 Core는 모든 요청 후 응답 훅에서 이를 호출하고 완료를 기다립니다. 각 플러시는 공유된 2초 타임아웃 하나와 경쟁하므로, 텔레메트리가 응답을 그보다 오래 붙잡지 않습니다. 플랫폼이 `waitUntil`을 제공하면(Cloudflare 또는 Netlify 호출 컨텍스트) Core는 플러시를 거기에 넘기고 기다리지 않고 응답을 먼저 보냅니다.
+
+Core는 미터 프로바이더의 `forceFlush()`를 프로세스당 최대 10초에 한 번만 호출하고, 그 사이의 요청에서는 건너뜁니다. 메트릭 내보내기는 프로세스가 가진 모든 시리즈를 매번 다시 보내므로, 이렇게 하면 업로드 양이 요청 수에 비례해 늘지 않습니다. 건너뛴 포인트는 사라지지 않고 다음 내보내기에 포함됩니다. 단, 해당 인스턴스가 더 이상 요청을 처리하지 않으면 예외입니다. 트레이서 프로바이더는 요청마다 플러시됩니다.
+
+플러시가 실패하거나 시간 초과되면 Core는 더 이상 기다리지 않고 `agent_native.telemetry.flush_failures`에 1을 더하며, 이 값은 다음 플러시에서 내보내집니다. 시간 초과된 내보내기는 계속 실행되므로, 런타임이 그 전에 프로세스를 동결하지 않으면 나중에 도착할 수도 있습니다. 실패의 `error.type`은 `timeout`, 런타임이 플러시 도중 프로세스를 동결한 경우 `suspended`, 그 밖에는 오류의 이름입니다. 계속 시간 초과되는 수집기는 이 카운터를 받지 못하므로, Core는 프로세스마다 신호와 오류 유형별로 `agent-native.telemetry_flush_failed` 한 줄을 함수 로그에도 기록합니다.
+
+장기 실행 서버에서는 응답마다 플러시하면 요청마다 한 번씩 내보내게 됩니다. 이런 환경에서는 `forceFlush()` 없이 프로바이더를 등록하고 SDK 자체 타이머가 내보내도록 두세요. `@agent-native/core/server`의 `isServerlessRuntime()`으로 두 경우를 구분할 수 있습니다. Netlify, Vercel, AWS Lambda, Cloudflare에서는 true입니다.
+
+### 예: HTTP를 통한 OTLP {#otel-example}
+
+이 서버 플러그인은 OpenTelemetry JS SDK를 Core에 연결합니다. 먼저 SDK 패키지를 설치하세요.
+
+```bash
+pnpm add @opentelemetry/api @opentelemetry/context-async-hooks @opentelemetry/exporter-metrics-otlp-proto @opentelemetry/exporter-trace-otlp-proto @opentelemetry/resources @opentelemetry/sdk-metrics @opentelemetry/sdk-trace-base
+```
+
+```ts filename="server/plugins/otel.ts"
+import { randomUUID } from "node:crypto";
+
+import {
+  defineNitroPlugin,
+  isServerlessRuntime,
+  registerObservabilityProvider,
+} from "@agent-native/core/server";
+import { context } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-proto";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import {
+  defaultResource,
+  detectResources,
+  envDetector,
+  resourceFromAttributes,
+} from "@opentelemetry/resources";
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
+import {
+  BasicTracerProvider,
+  BatchSpanProcessor,
+} from "@opentelemetry/sdk-trace-base";
+
+export default defineNitroPlugin(() => {
+  if (!process.env.OTEL_EXPORTER_OTLP_ENDPOINT) return;
+
+  // Metric counters are cumulative and restart with each process, so each
+  // process needs its own series.
+  const resource = defaultResource()
+    .merge(resourceFromAttributes({ "service.instance.id": randomUUID() }))
+    .merge(detectResources({ detectors: [envDetector] }));
+
+  const meterProvider = new MeterProvider({
+    resource,
+    readers: [
+      new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter(),
+        exportIntervalMillis: 60_000,
+      }),
+    ],
+  });
+
+  context.setGlobalContextManager(
+    new AsyncLocalStorageContextManager().enable(),
+  );
+  const tracerProvider = new BasicTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())],
+  });
+
+  if (isServerlessRuntime()) {
+    registerObservabilityProvider({ meterProvider, tracerProvider });
+    return;
+  }
+  // Without forceFlush(), core leaves exporting to the SDK's own timers.
+  registerObservabilityProvider({
+    meterProvider: {
+      getMeter: (name, version) => meterProvider.getMeter(name, version),
+    },
+    tracerProvider: {
+      getTracer: (name, version) => tracerProvider.getTracer(name, version),
+    },
+  });
+});
+```
+
+`OTEL_EXPORTER_OTLP_ENDPOINT`가 설정되기 전까지 플러그인은 아무 작업도 하지 않습니다. 나머지 구성은 SDK가 표준 OpenTelemetry 환경 변수에서 읽습니다.
+
+| 변수                                              | 효과                                                                                         |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                     | OTLP 수신기의 기본 URL입니다. 익스포터가 `/v1/traces`와 `/v1/metrics`를 덧붙입니다.          |
+| `OTEL_EXPORTER_OTLP_HEADERS`                      | 모든 내보내기와 함께 전송되는 헤더입니다. 예: `Authorization=Bearer%20<token>`               |
+| `OTEL_SERVICE_NAME`                               | 모든 스팬과 메트릭의 `service.name`                                                          |
+| `OTEL_RESOURCE_ATTRIBUTES`                        | 추가 리소스 속성입니다. 예: `deployment.environment.name=production`                         |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | 트레이스 샘플링입니다. 예: `parentbased_traceidratio`와 `0.1`. 메트릭은 샘플링되지 않습니다. |
+
+`-proto` 익스포터는 OTLP를 HTTP와 protobuf로 전송하므로, 엔드포인트를 수신기의 gRPC 포트가 아닌 HTTP 포트(기본값 4318)로 지정하세요. 스팬에는 프롬프트나 응답 텍스트가 포함되지 않습니다. [구성](#config)의 `capture*` 설정은 SQL 트레이스와 PostHog에 적용되며 OTLP에는 적용되지 않습니다.
+
+저장소의 [`packages/otel`](https://github.com/BuilderIO/agent-native/tree/main/packages/otel)에는 신호별 엔드포인트와 익스포터 검증을 갖춘 이 플러그인의 더 완전한 버전이 있습니다. npm에 게시되지 않았으므로 설치하는 대신 위의 플러그인에서 시작하세요.
 
 ## 오류 보고(Sentry) {#sentry}
 
@@ -396,3 +556,7 @@ CLI의 하드코딩된 DSN는 의도적입니다. 게시된 바이너리는 실�
 - [**Tracking**](/docs/tracking) — 앱 자체 이벤트에 대한 제품 분석(PostHog, Mixpanel, Amplitude)
 - [**Actions**](/docs/actions-overview) — 추적에서 도구 호출로 나타나는 작업
 - [**Security**](/docs/security) — 데이터 범위 지정 및 자격 증명 처리
+
+실행 실패 메시지는 콘텐츠 캡처를 활성화해도 Analytics와 Monitoring으로 전송되지 않습니다. `$ai_error`에는 종료 코드, 명명된 원인, 재시도 가능 여부, 코드에서 생성한 고정 메시지가 포함됩니다. 추적 이벤트는 `error_message`, `agent_run_terminal.error_detail`, 실패한 도구 결과의 텍스트를 생략하며 종료 이벤트는 `error_code`와 `error_cause`를 유지합니다. `agent_runs.error_detail`과 `agent_trace_spans.error_message`는 소유자의 접근 권한에 따른 디버깅을 위해 앱 자체 데이터베이스에 남습니다.
+
+실행 및 Builder 게이트웨이 예외는 유형, 코드, 스택 프레임을 유지하지만 원래 메시지와 중첩 원인 텍스트 대신 고정 메시지 `Internal Server Error`를 사용합니다. Monitoring은 메시지 속 이름 대신 앱, 유형, 프레임, 오류 코드, 실패 클래스로 문제를 그룹화합니다. `$ai_trace_id`의 트레이스 링크는 유지됩니다. 호스트가 관리하는 선택적 OpenTelemetry 실행 내보내기도 실패 텍스트를 생략하고 `agent.error_code`와 `agent.error_cause`를 유지합니다. 다른 예외 캡처는 변경되지 않습니다.

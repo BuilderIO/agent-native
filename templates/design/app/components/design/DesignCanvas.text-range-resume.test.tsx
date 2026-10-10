@@ -6,6 +6,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+import { useDesignHotkeys } from "@/hooks/useDesignHotkeys";
+
 import { DesignCanvas } from "./DesignCanvas";
 
 let container: HTMLDivElement;
@@ -47,7 +49,12 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function mountCanvasWithStyledRange(active = true) {
+function EnterHotkeyProbe({ onEnter }: { onEnter: () => void }) {
+  useDesignHotkeys({ onEnter });
+  return null;
+}
+
+async function mountCanvasWithStyledRange(active = true, onEnter?: () => void) {
   iframeServer = http.createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     response.end("<!doctype html><html><body>Runtime</body></html>");
@@ -73,23 +80,27 @@ async function mountCanvasWithStyledRange(active = true) {
   );
   await act(async () => {
     root.render(
-      <DesignCanvas
-        content="http://localhost:5173/"
-        contentKey="screen-live"
-        screenId="screen-live"
-        sourceType="localhost"
-        bridgeUrl={bridgeUrl}
-        previewToken="text-range-resume-token"
-        liveEditCapability="text-range-resume-live-capability"
-        liveEditRegistrationCapability="text-range-resume-registration-capability"
-        zoom={100}
-        deviceFrame="none"
-        editMode
-        interactMode={false}
-        onElementSelect={() => {}}
-        onElementHover={() => {}}
-        tweakValues={{}}
-      />,
+      <>
+        <DesignCanvas
+          content="http://localhost:5173/"
+          contentKey="screen-live"
+          screenId="screen-live"
+          sourceType="localhost"
+          connectionId="localhost_connection"
+          bridgeUrl={bridgeUrl}
+          previewToken="text-range-resume-token"
+          liveEditCapability="text-range-resume-live-capability"
+          liveEditRegistrationCapability="text-range-resume-registration-capability"
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />
+        {onEnter ? <EnterHotkeyProbe onEnter={onEnter} /> : null}
+      </>,
     );
   });
   await vi.waitFor(() => {
@@ -132,7 +143,9 @@ async function mountCanvasWithStyledRange(active = true) {
   });
   const resumes = () =>
     posted.filter((message) => message.type === "resume-text-edit");
-  return { resumes };
+  const inspectorFocusMessages = () =>
+    posted.filter((message) => message.type === "text-edit-inspector-focus");
+  return { fromFrame, inspectorFocusMessages, iframe, resumes };
 }
 
 const nextFrame = () =>
@@ -188,6 +201,36 @@ it("does not resume the text edit when an inspector trigger is only being opened
   expect(resumes()).toHaveLength(0);
 });
 
+it("leaves iframe content presses to the active runtime text editor", async () => {
+  const { inspectorFocusMessages } = await mountCanvasWithStyledRange();
+  const iframe = container.querySelector<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  )!;
+
+  await act(async () => {
+    iframe.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  });
+
+  expect(inspectorFocusMessages()).toEqual([]);
+});
+
+it("commits an active text edit on an outer canvas press before inspector focus", async () => {
+  const { inspectorFocusMessages } = await mountCanvasWithStyledRange();
+
+  await act(async () => {
+    document.body.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true }),
+    );
+  });
+
+  expect(inspectorFocusMessages()).toEqual([
+    expect.objectContaining({
+      type: "text-edit-inspector-focus",
+      focused: false,
+    }),
+  ]);
+});
+
 it("keeps focus in an open picker when the pointer moves over the canvas", async () => {
   await mountCanvasWithStyledRange(false);
   const iframe = container.querySelector<HTMLIFrameElement>(
@@ -214,4 +257,61 @@ it("keeps focus in an open picker when the pointer moves over the canvas", async
     );
   });
   expect(document.activeElement).toBe(field);
+});
+
+it("routes Enter to the canvas after a trusted pointer selection", async () => {
+  const onEnter = vi.fn();
+  const { fromFrame, iframe } = await mountCanvasWithStyledRange(
+    false,
+    onEnter,
+  );
+  let surface: HTMLElement | null = iframe.parentElement;
+  while (surface && surface.getAttribute("tabindex") !== "-1") {
+    surface = surface.parentElement;
+  }
+  expect(surface).not.toBeNull();
+
+  const designTab = document.createElement("button");
+  panel.appendChild(designTab);
+  designTab.focus();
+  expect(document.activeElement).toBe(designTab);
+
+  await fromFrame({
+    type: "agent-native:canvas-focus-state",
+    focusSafe: true,
+  });
+  expect(document.activeElement).toBe(designTab);
+
+  await fromFrame({
+    type: "element-select",
+    payload: { selector: "#hero", sourceId: "hero" },
+    intent: { source: "pointer" },
+  });
+  expect(document.activeElement).toBe(designTab);
+
+  const pressEnter = async () => {
+    const target = document.activeElement!;
+    await act(async () => {
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+  };
+  await pressEnter();
+  expect(onEnter).not.toHaveBeenCalled();
+
+  await fromFrame({
+    type: "element-select",
+    payload: { selector: "#hero", sourceId: "hero" },
+    intent: { source: "pointer" },
+    trustedPointer: true,
+  });
+  expect(document.activeElement).toBe(surface);
+
+  await pressEnter();
+  expect(onEnter).toHaveBeenCalledTimes(1);
 });

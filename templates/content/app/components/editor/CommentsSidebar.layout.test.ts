@@ -31,6 +31,14 @@ function rect(top: number) {
 }
 
 describe("comments sidebar layout", () => {
+  it("constrains thread rows to the panel's available width", () => {
+    const source = readFileSync(
+      "app/components/editor/CommentsSidebar.tsx",
+      "utf8",
+    );
+    expect(source.includes('"relative grid grid-cols-1 gap-3.5"')).toBe(true);
+  });
+
   it("keeps the selected history comment visible through status changes", () => {
     const source = readFileSync(
       "app/components/editor/CommentsSidebar.tsx",
@@ -549,15 +557,20 @@ describe("comments sidebar layout", () => {
     );
     expect(source).toContain('className="pointer-events-none absolute z-30"');
     expect(source).toContain("data-comments-anchored-popover");
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
-    expect(source).toMatch(
-      /utilityPanel === "comments" &&\s+!hasInlineCommentSpace &&\s+!!selectedSuggestionId/,
-    );
-    expect(source).toContain('window.addEventListener("resize", update)');
     expect(source).toContain(
-      'window.visualViewport?.addEventListener("resize", update)',
+      "const commentSurfaces = shellCommentSurfaces ?? measuredCommentSurfaces;",
     );
-    expect(source).toContain("observer?.observe(element)");
+    expect(source).toMatch(
+      /const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet\(\{\s+utilityPanel,\s+commentsHistoryDrawerOpen: showCommentsHistoryDrawer,\s+hasUtilityRailSpace,\s+hasInlineCommentSpace,\s+selectedSuggestionId,/,
+    );
+    expect(source).toContain(
+      `showUtilityPanelOffColumn &&
+    (commentSurfaces.list === "sheet" ||
+      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"))`,
+    );
+    expect(source).toContain(
+      'showUtilityPanelOffColumn && commentSurfaces.list === "region-list"',
+    );
     expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });
 

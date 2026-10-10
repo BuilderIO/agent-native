@@ -3,14 +3,148 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-09
+
+### Improved
+
+- Onboarding journeys include Builder connection and custom-key outcomes through deeper paths
+- Onboarding journeys now show later activity within a chosen window, mark no-later results as right-censored, and identify when follow-up counts are incomplete.
+- You can add app origins to a public key's replay allowlist without replacing its existing origins.
+
+### Fixed
+
+- Existing chat threads keep the composer anchored at the bottom while their messages load.
+- Journey captures now flag visible previews missing from the recording instead of saving blank screenshots
+- Journey recordings flag iframe content when clipping, masks, or filters make its visibility uncertain.
+- Onboarding journeys count saved clips and completed deck generations as outputs while showing Slides attempt outcomes separately
+- Session recordings keep their full history and performance insights across browser session changes and large replays.
+- Large onboarding journeys keep their step counts when follow-up coverage exceeds query limits
+
+## 2026-10-08
+
+### Added
+
+- Opted-in pre-auth recordings appear in Sessions as anonymous replays
+- Agents can build the onboarding journey tree with drop-off per step and render a screenshot of each step from session replays.
+
+### Improved
+
+- Set a chart's time range from its options menu.
+- A new Ask chat shows its heading and prompt immediately while existing chat history loads.
+- Sessions can show playable anonymous recordings without labeling them as signup-page captures.
+- Session replay screenshots capture directly without requesting screen sharing.
+
+### Fixed
+
+- Analytics journey paths group short resource IDs consistently across apps
+- Analytics keeps onboarding counts complete when only standalone setup events exceed the journey read limit.
+- Onboarding journey trees show Home chat setup choices in a separately counted tree and group equivalent artifact screens.
+- Agent-shared recording links now load across batched playback chunks
+- Fixed onboarding journey queries against BigQuery.
+- Session replay agent links can read their recording manifest and playback chunks.
+- Onboarding journey screenshots include dialogs at the recorded viewport. The
+  capture manifest discloses that remote assets were not fetched.
+- Onboarding journey replay links and screenshots now align with the selected step's recording timestamp.
+- Onboarding journeys preserve each skipped setup step
+- Onboarding journeys use the current Builder setup label
+- Analytics now reports uncertain storyboard saves without implying the export definitely failed.
+- Replay screenshot exports now report upload timeouts and incomplete cleanup.
+- Storyboard exports now ask you to check Design when Analytics cannot confirm a save.
+
+## 2026-10-07
+
+### Added
+
+- Selected session replays can be captured at exact timestamps and sent together to a private Design storyboard.
+- Session replay screenshots can be copied directly into Design.
+
+### Improved
+
+- Analytics chat follows short follow-ups like "what about EMEA?" and recovers from an unknown BigQuery column in one step
+- Thumbs-down on a chat answer now offers quick reasons and a Copy details button that copies the run id and thread link for a report
+
+### Fixed
+
+- Analytics now treats chart filter changes as data requests and reports when reference catalogs are incomplete.
+- Analytics chat no longer stays on "running" after the agent has finished; the thread reloads so the change is visible without asking again
+- Analytics chat stops retrying a data source that is not connected and says who can connect it
+- Analytics keeps S3 replay setup available when storage status cannot be checked.
+- Automatic learning captures stay private to the user, and shared learning updates require approval.
+- Builder storage setup now waits for renewed file access before confirming it is ready.
+- Personal Analytics memories stay limited to unscoped conversations, keeping organization-specific guidance from following users between organizations.
+- Session replay storyboard screenshots upload directly to Design's private storage, so Analytics does not need its own blob storage provider.
+- Session replay screenshot export captures readable video frames and safe poster images.
+
+## 2026-10-06
+
+### Added
+
+- Save a screenshot of any visible moment in a session replay.
+- Save exact session replay screens as PNG screenshots.
+- Session replays can be saved as screenshots without the replay controls.
+
+### Improved
+
+- Agent dashboard edits are now checked against the live chart before they save, so the agent no longer reports a chart change that did not happen.
+
+### Fixed
+
+- Collaborators see a consistent dashboard after simultaneous edits
+- Dashboard edits stay in sync when simultaneous updates occur.
+- Dashboard filter "Mine" now lists every dashboard you own (including ones you've shared) and no longer includes installed demos or items shared with you
+- Return each dashboard mutation's own written value even when another update lands immediately afterward
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+- Dashboard edits now report no change when the selected panels already match the requested values or order.
+- Dashboard mutation results now report only changes that were actually saved.
+- Refreshing a BigQuery dashboard panel now fetches current data.
+
+## 2026-10-05
+
+### Improved
+
+- Custom date controls stay beside the range selector, and dashboards can save a shared default view.
+
+### Fixed
+
+- Session replay agent links stay usable with large event lists and longer agent names.
+- Agent links copied from a dashboard, analysis, or session replay are shorter, so Claude can fetch them without hitting its URL length limit.
+- Analytics keeps workspace access working across apps with different local organization IDs.
+- BigQuery dashboard filters work with values that contain apostrophes or backslashes
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-02
+
+### Added
+
+- With the Sessions triage Lab on, filter sessions by speed, see page vitals and slow requests on replays, and compare p50 and p95 load, interaction, and request times per route
+- With the Sessions triage Lab on, rank and filter sessions by friction signals like dead clicks, error toasts, retry loops, failed actions, and agent failures, and open their Monitoring issues from the list.
+
+### Improved
+
+- Builder.io setup now explains free credits and the existing-account option.
+- Owners and admins can save data source credentials for the whole organization or just for themselves.
+- Retention reports now compare returns from paid and untagged signups.
+
+### Fixed
+
+- Dashboard queries preserve recording permissions across supported SQL formats
+- Events with a very long name, app, or page path no longer cause the rest of their batch to be lost
+
 ## 2026-10-01
 
 ### Improved
 
+- Clear all resets every Sessions filter in one click.
+- The first-party retention chart now splits 1-7d return into paid and untagged signups, and a Chat Readiness at Prompt panel shows whether AI was ready and how many prompts got no reply.
 - Error issues in Monitoring link straight to the chat thread that failed, and one underlying error now stays a single issue instead of splitting after each deploy
 - The observability settings tab is now labeled Observability.
 
 ## 2026-09-30
+
+### Added
+
+- External agents connected over MCP can read dashboards, saved analyses, the data dictionary, blog articles and provider data directly, without handing the question to the Analytics agent.
+- With the Sessions triage Lab on, filter sessions by events they did or didn't send, see app events and failed actions on replay timelines, and browse an event catalog.
 
 ### Improved
 
@@ -949,7 +1083,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Agents can search and read connected GitHub repositories when auditing tracking events.
 - Dashboards can now include extension panels that embed a sandboxed extension inline instead of a SQL chart
-- Set up session replay storage from settings: connect Builder.io or add S3-compatible storage
+- Set up session replay storage from settings: use Builder.io or add S3-compatible storage
 
 ### Improved
 

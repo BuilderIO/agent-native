@@ -27,7 +27,7 @@ Conceitos principais:
 - **Mesmo actions** — exatamente o mesmo registro de ação que alimenta o chat do agente e o A2A
 - **Ferramenta `ask-agent`** — uma metaferramenta que delega tarefas complexas ao loop completo do agente
 - **Aplicativos MCP** — actions pode anunciar recursos UI interativos por meio da extensão `io.modelcontextprotocol/ui` oficial
-- **MCP remoto padrão OAuth** — descoberta OAuth 2.1, registro dinâmico de cliente, código de autorização + PKCE, rotação de token de atualização
+- **MCP remoto padrão OAuth** — descoberta OAuth 2.1, registro dinâmico de cliente, código de autorização + PKCE, tokens de atualização
 - **Bearer auth fallback** — usa `ACCESS_TOKEN`, `ACCESS_TOKENS` ou JWTs criados por conexão para clientes que não podem executar OAuth
 
 <Diagram id="doc-block-1tzzedn" title="Seu aplicativo como um servidor MCP" summary={"Hosts externos se conectam por Streamable HTTP. Cada ação é uma ferramenta; ask-agent delega para o loop completo do agente."}>
@@ -348,7 +348,11 @@ Tokens de acesso são JWTs assinados cujo público é exatamente o recurso MCP U
 | `mcp:write` | mutação de actions e `ask-agent`                    |
 | `mcp:apps`  | Recursos de aplicativos MCP (recursos `ui://` HTML) |
 
-Os tokens de atualização são armazenados apenas como hashes e são alternados a cada atualização. `npx @agent-native/core@latest connect` grava esta entrada OAuth somente URL para clientes de código Claude por padrão; mantenha a página Connect, `npx @agent-native/core@latest connect --token <token>` e a configuração do portador estático para proxy stdio local, clientes mais antigos e fluxos de emergência/depuração.
+Os tokens de atualização são armazenados apenas como hashes e não são alternados: uma atualização retorna o mesmo token, e as concessões de atualização não têm prazo de validade fixo. Cada solicitação e cada atualização verificam novamente se o usuário ainda pertence à organização do token, então um membro removido perde o acesso MCP na próxima solicitação. `npx @agent-native/core@latest connect` grava esta entrada OAuth somente URL para clientes de código Claude por padrão; mantenha a página Connect, `npx @agent-native/core@latest connect --token <token>` e a configuração do portador estático para proxy stdio local, clientes mais antigos e fluxos de emergência/depuração.
+
+Os novos códigos de autorização e tokens de atualização mantêm o vínculo com seu proprietário na emissão. Concessões antigas sem vínculo e divergências de proprietário retornam `invalid_grant`. Renovar uma concessão revogada ou excluída retorna `invalid_grant` mesmo quando a atualização não afeta nenhuma linha. Uma falha de gravação na renovação retorna HTTP 503, que permite nova tentativa, com `Retry-After: 5`. Nenhuma dessas falhas emite um token de acesso.
+
+A atualização do vínculo de proprietário do OAuth exige que cada conexão OAuth existente [se reconecte uma vez](/docs/external-agents#reconnect). Os tokens de acesso OAuth antigos são recusados após a implantação. Os tokens de atualização antigos sem vínculo de proprietário retornam `invalid_grant`, e os códigos de autorização antigos pendentes devem reiniciar o consentimento. Os tokens de acesso recém-emitidos usam a validade configurada e as verificações de associação a cada solicitação. Esta transição não altera as credenciais antigas de `mcp-connect` no formato A2A nem os tokens A2A entre aplicativos. As conexões que usam tokens antigos de Connect no formato OAuth também precisam se reconectar.
 
 ## Configuração MCP personalizada {#custom-setup}
 

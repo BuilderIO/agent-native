@@ -19,8 +19,17 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { stripAgentChatContextFromMessage } from "../shared/agent-chat-context.js";
+import {
+  RUN_NOT_STARTED_METADATA_KEY,
+  type RefusedTurnRetryContext,
+} from "../shared/agent-chat-run-not-started.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
-import { stringifyToolUseInputForGateway } from "./engine/translate-anthropic.js";
+import {
+  INTERRUPTED_TOOL_RESULT_MARKER as INTERRUPTED_TOOL_RESULT,
+  stringifyToolUseInputForGateway,
+} from "./engine/translate-anthropic.js";
 import type { EngineContentPart, EngineMessage } from "./engine/types.js";
 import { parseFollowUpSuggestions } from "./follow-up-suggestions.js";
 import type { ActiveRun } from "./run-manager.js";
@@ -61,23 +70,165 @@ interface BuildAssistantMessageOptions {
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
 type UserMessage = ReturnType<typeof buildUserMessage>;
 
-const INTERRUPTED_TOOL_RESULT =
-  "Interrupted before this tool returned a result.";
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
 export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
 
+const INLINE_BASE64_MIN_CHARS = 64;
+const BASE64_PAYLOAD_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+const ATTACHMENT_PAYLOAD_FIELD =
+  /^(?:base64|bytes|body|data|dataurl|image|payload)$/i;
+const ATTACHMENT_REFERENCE_FIELD =
+  /^(?:preview|referenceUrl|src|thumbnail|url)$/i;
+
+function isDataUrlReference(value: unknown): value is string {
+  return typeof value === "string" && /^\s*data:/i.test(value);
+}
+
+function isRawBase64Payload(value: string, allowShort = false): boolean {
+  const trimmed = value.trim();
+  return (
+    trimmed.length >= (allowShort ? 4 : INLINE_BASE64_MIN_CHARS) &&
+    trimmed.length % 4 === 0 &&
+    BASE64_PAYLOAD_RE.test(trimmed)
+  );
+}
+
+function isByteArray(value: unknown): boolean {
+  return (
+    (Array.isArray(value) &&
+      value.length > 0 &&
+      value.every(
+        (item) =>
+          typeof item === "number" &&
+          Number.isInteger(item) &&
+          item >= 0 &&
+          item <= 255,
+      )) ||
+    ((value instanceof Uint8Array || value instanceof Uint8ClampedArray) &&
+      value.length > 0) ||
+    (value instanceof ArrayBuffer && value.byteLength > 0)
+  );
+}
+
+function isInlineAttachmentPayload(value: unknown): boolean {
+  return (
+    (typeof value === "string" &&
+      (parseBase64DataUrl(value) !== null || isRawBase64Payload(value))) ||
+    isByteArray(value)
+  );
+}
+
+function isAttachmentCollectionField(fieldName: string): boolean {
+  const normalized = fieldName.toLowerCase().replace(/[-_]/g, "");
+  return (
+    normalized.endsWith("attachment") ||
+    normalized.endsWith("attachments") ||
+    normalized === "files" ||
+    normalized === "images"
+  );
+}
+
+export function containsInlineAttachmentPayload(value: unknown): boolean {
+  const seen = new WeakMap<object, Set<string>>();
+  const visit = (
+    entry: unknown,
+    attachmentContext = false,
+    fieldName?: string,
+    shortImagePayload = false,
+  ): boolean => {
+    if (typeof entry === "string") {
+      if (!attachmentContext) return false;
+      if (ATTACHMENT_PAYLOAD_FIELD.test(fieldName ?? "")) {
+        return (
+          isInlineAttachmentPayload(entry) ||
+          (shortImagePayload && isRawBase64Payload(entry, true))
+        );
+      }
+      return (
+        ATTACHMENT_REFERENCE_FIELD.test(fieldName ?? "") &&
+        (isDataUrlReference(entry) ||
+          isRawBase64Payload(entry, shortImagePayload))
+      );
+    }
+    if (!entry || typeof entry !== "object") return false;
+    const visitKey = `${attachmentContext}:${fieldName ?? ""}:${shortImagePayload}`;
+    let visitedContexts = seen.get(entry);
+    if (visitedContexts?.has(visitKey)) return false;
+    if (!visitedContexts) {
+      visitedContexts = new Set();
+      seen.set(entry, visitedContexts);
+    }
+    visitedContexts.add(visitKey);
+    if (Array.isArray(entry)) {
+      if (
+        attachmentContext &&
+        ATTACHMENT_PAYLOAD_FIELD.test(fieldName ?? "") &&
+        isInlineAttachmentPayload(entry)
+      ) {
+        return true;
+      }
+      return entry.some((item) =>
+        visit(item, attachmentContext, fieldName, shortImagePayload),
+      );
+    }
+    if (
+      attachmentContext &&
+      ATTACHMENT_PAYLOAD_FIELD.test(fieldName ?? "") &&
+      isByteArray(entry)
+    ) {
+      return true;
+    }
+
+    const record = entry as Record<string, unknown>;
+    const isAttachment =
+      attachmentContext ||
+      record.type === "image" ||
+      record.type === "file" ||
+      record.type === "document" ||
+      [record.contentType, record.mediaType, record.mimeType].some(
+        (mimeType) =>
+          typeof mimeType === "string" && /^image\//i.test(mimeType),
+      );
+    const hasImagePayload =
+      shortImagePayload ||
+      record.type === "image" ||
+      [record.contentType, record.mediaType, record.mimeType].some(
+        (mimeType) =>
+          typeof mimeType === "string" && /^image\//i.test(mimeType),
+      );
+    return Object.entries(record).some(([key, child]) =>
+      visit(
+        child,
+        isAttachment || isAttachmentCollectionField(key),
+        key,
+        hasImagePayload,
+      ),
+    );
+  };
+
+  return visit(value);
+}
+
 function isInternalContinuationError(event: {
   error: string;
   errorCode?: string;
   recoverable?: boolean;
+  providerRetryable?: boolean;
 }): boolean {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
-  if (code === "builder_gateway_error") return false;
-  if (event.recoverable === false) return false;
+  if (
+    event.providerRetryable === false ||
+    event.recoverable === false ||
+    code === "builder_gateway_error" ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
@@ -305,9 +456,17 @@ export function buildAssistantMessage(
           : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
-      appendText(
-        `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
-      );
+      const missingProvider =
+        event.errorCode === "missing_api_key" ||
+        event.errorCode === "missing_credentials" ||
+        /no llm provider(?: key)? (?:is connected|was found)/i.test(
+          `${event.error}\n${normalized.message}`,
+        );
+      if (!missingProvider) {
+        appendText(
+          `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+        );
+      }
       continue;
     }
 
@@ -566,12 +725,19 @@ interface MessageIdentityKeySet {
   fingerprint: string[];
 }
 
-function messageIdentityKeySet(message: any): MessageIdentityKeySet {
+function messageIdentityKeySet(
+  message: any,
+  eventRunIds?: Map<string, string>,
+): MessageIdentityKeySet {
   const strong: string[] = [];
   if (typeof message?.id === "string" && message.id) {
     strong.push(`id:${message.id}`);
   }
-  const runId = getMessageRunId(message);
+  const runId =
+    getMessageRunId(message) ??
+    (typeof message?.id === "string"
+      ? eventRunIds?.get(message.id)
+      : undefined);
   if (runId) strong.push(`run:${runId}`);
   const turnId = turnIdOf(message);
   if (turnId) strong.push(`turn:${turnId}`);
@@ -1022,13 +1188,13 @@ function engineMessageTextLength(message: EngineMessage): number {
   );
 }
 
-export function recoverThreadHistoryForRequest(
-  threadData: string | Record<string, unknown> | null | undefined,
+function boundedHistoryWindow(
+  messages: EngineMessage[],
   limits?: { maxMessages?: number; maxChars?: number },
 ): EngineMessage[] {
   const maxMessages = limits?.maxMessages ?? MAX_RECOVERED_HISTORY_MESSAGES;
   const maxChars = limits?.maxChars ?? MAX_RECOVERED_HISTORY_CHARS;
-  const window = threadDataToEngineMessages(threadData).slice(-maxMessages);
+  const window = messages.slice(-maxMessages);
   let total = window.reduce(
     (sum, message) => sum + engineMessageTextLength(message),
     0,
@@ -1036,7 +1202,65 @@ export function recoverThreadHistoryForRequest(
   while (window.length > 1 && total > maxChars) {
     total -= engineMessageTextLength(window.shift()!);
   }
+  // Providers reject a tool result whose call was cut from the window.
+  while (window[0]?.content.some((part) => part.type === "tool-result")) {
+    window.shift();
+  }
   return window;
+}
+
+export function recoverThreadHistoryForRequest(
+  threadData: string | Record<string, unknown> | null | undefined,
+  limits?: { maxMessages?: number; maxChars?: number },
+): EngineMessage[] {
+  return boundedHistoryWindow(threadDataToEngineMessages(threadData), limits);
+}
+
+/**
+ * History for resuming a stopped turn: earlier turns get the recovery window,
+ * while the turn itself, from its last user message on, stays whole so every
+ * finished tool call keeps its result. Without a user message, the turn's
+ * prompt is not in the thread: `foundTurnPrompt` is false and every message is
+ * returned unbounded.
+ */
+export function resumeThreadHistoryForRequest(
+  threadData: string | Record<string, unknown> | null | undefined,
+): { messages: EngineMessage[]; foundTurnPrompt: boolean } {
+  const messages = threadDataToEngineMessages(threadData, {
+    includeToolCalls: true,
+  });
+  let turnStart = messages.length - 1;
+  while (
+    turnStart >= 0 &&
+    !(
+      messages[turnStart]!.role === "user" &&
+      messages[turnStart]!.content.some((part) => part.type === "text")
+    )
+  ) {
+    turnStart--;
+  }
+  if (turnStart < 0) return { messages, foundTurnPrompt: false };
+  return {
+    messages: [
+      ...boundedHistoryWindow(messages.slice(0, turnStart)),
+      ...messages.slice(turnStart),
+    ],
+    foundTurnPrompt: true,
+  };
+}
+
+/**
+ * The turn the thread's newest prompt was sent in, when the server stamped
+ * it. A prompt whose run was refused before it started has no run row, so
+ * this is how a continuation learns a newer prompt is waiting.
+ */
+export function latestPromptTurnId(
+  threadData: string | Record<string, unknown>,
+): string | undefined {
+  const data =
+    typeof threadData === "string" ? JSON.parse(threadData) : threadData;
+  const turnId = latestStoredUser(data)?.metadata?.custom?.submittedTurnId;
+  return typeof turnId === "string" ? turnId : undefined;
 }
 
 const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;
@@ -1350,6 +1574,13 @@ function chooseMergedHeadId(
 export interface MergeThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
+  onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
+}
+
+export interface ThreadAnnotationSnapshotConflict {
+  messageId: string;
+  annotationId?: string;
+  operation: "upsert" | "remove";
 }
 
 const CLAIMED_QUEUED_MESSAGE_IDS_KEY = "_claimedQueuedMessageIds";
@@ -1378,14 +1609,93 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
   return pruneClaimedQueuedMessages(normalized);
 }
 
+export function applySubmittedUserMessage(
+  repo: any,
+  userMessage: UserMessage,
+  queuedMessage?:
+    | { kind?: "queued-message"; id: string; claimId?: string; now?: number }
+    | { kind: "background-operation"; id: string },
+):
+  | { status: "submitted" | "already_submitted"; repo: any }
+  | { status: "already_claimed" | "claim_expired" } {
+  if (!queuedMessage) {
+    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
+  }
+
+  const userCustom = userMessage.metadata.custom as
+    | Record<string, unknown>
+    | undefined;
+  const wasSubmitted = Array.isArray(repo?.messages)
+    ? repo.messages.some((entry: unknown) => {
+        const outer = entry as Record<string, unknown> | null;
+        const message = outer?.message ?? outer;
+        if (!message || typeof message !== "object") return false;
+        const metadata = (message as Record<string, unknown>).metadata;
+        if (!metadata || typeof metadata !== "object") return false;
+        const custom = (metadata as Record<string, unknown>).custom;
+        return (
+          custom !== null &&
+          typeof custom === "object" &&
+          (custom as Record<string, unknown>).agentNativeQueuedMessageId ===
+            queuedMessage.id &&
+          (custom as Record<string, unknown>).submittedRunId ===
+            userCustom?.submittedRunId
+        );
+      })
+    : false;
+  if (wasSubmitted) {
+    return {
+      status: "already_submitted",
+      repo: claimQueuedMessage(repo, queuedMessage.id),
+    };
+  }
+  if (hasClaimedQueuedMessage(repo, queuedMessage.id)) {
+    return { status: "already_claimed" };
+  }
+
+  const queued = Array.isArray(repo?.queuedMessages)
+    ? repo.queuedMessages.find(
+        (message: unknown) =>
+          message &&
+          typeof message === "object" &&
+          (message as Record<string, unknown>).id === queuedMessage.id,
+      )
+    : undefined;
+  if (queuedMessage.kind === "background-operation") {
+    if (queued) return { status: "claim_expired" };
+    return {
+      status: "submitted",
+      repo: upsertUserMessage(
+        claimQueuedMessage(repo, queuedMessage.id),
+        userMessage,
+      ),
+    };
+  }
+  const claim = queued?.promotionClaim;
+  if (
+    !queued ||
+    typeof queuedMessage.claimId !== "string" ||
+    claim?.id !== queuedMessage.claimId ||
+    typeof claim.expiresAt !== "number" ||
+    claim.expiresAt <= (queuedMessage.now ?? Date.now())
+  ) {
+    return { status: "claim_expired" };
+  }
+
+  return {
+    status: "submitted",
+    repo: upsertUserMessage(
+      claimQueuedMessage(repo, queuedMessage.id),
+      userMessage,
+    ),
+  };
+}
+
 function snapshotEntryId(entry: any, kind: "message" | "toolCall" | "widget") {
   if (!entry || typeof entry !== "object") return undefined;
   if (kind === "widget") {
-    const messageId = entry.messageId;
     const widgetId = entry.widget?.id;
-    return typeof messageId === "string" && typeof widgetId === "string"
-      ? JSON.stringify([messageId, widgetId])
-      : undefined;
+    return typeof widgetId === "string" ? widgetId : undefined;
   }
   return typeof entry.id === "string" ? entry.id : undefined;
 }
@@ -1476,6 +1786,7 @@ function mergeAgentKitHistoryArray(
   kind: "message" | "toolCall" | "widget",
   existingMessageRunIds: Map<string, string>,
   incomingMessageRunIds: Map<string, string>,
+  promptRunIds: Map<string, string>,
 ): unknown[] | undefined {
   if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
   const merged = Array.isArray(existing) ? [...existing] : [];
@@ -1529,7 +1840,114 @@ function mergeAgentKitHistoryArray(
       }
     }
   }
-  return merged;
+  if (kind !== "message") return merged;
+  const runAt = replyRunIdAt(
+    merged,
+    [incomingMessageRunIds, existingMessageRunIds],
+    promptRunIds,
+  );
+  return merged.filter(
+    (_entry, index) => !isSupersededInFlightReply(merged, index, runAt),
+  );
+}
+
+/** Prompt id to the run it was submitted to, from the stored user messages. */
+function submittedPromptRunIds(...lists: unknown[]): Map<string, string> {
+  const runs = new Map<string, string>();
+  for (const list of lists) {
+    for (const entry of Array.isArray(list) ? list : []) {
+      const message = getStoredMessage(entry);
+      const id = messageId(message);
+      const runId = message?.metadata?.custom?.submittedRunId;
+      if (message?.role === "user" && id && typeof runId === "string") {
+        runs.set(id, runId);
+      }
+    }
+  }
+  return runs;
+}
+
+/**
+ * The run behind each reply: its own metadata, else the AgentKit events, else
+ * the prompt's submitted run when it is the prompt's first reply. Compacted
+ * events drop the link for a reply saved mid-stream, so the prompt is often
+ * the only record left.
+ */
+function replyRunIdAt(
+  entries: unknown[],
+  eventRunIds: Map<string, string>[],
+  promptRunIds: Map<string, string>,
+): (index: number) => string | undefined {
+  return (index) => {
+    const message = getStoredMessage(entries[index]);
+    const id = messageId(message);
+    const recorded =
+      getMessageRunId(message) ??
+      (id ? eventRunIds.find((runs) => runs.has(id))?.get(id) : undefined);
+    if (recorded) return recorded;
+    for (let i = index - 1; i >= 0; i--) {
+      const earlier = getStoredMessage(entries[i]);
+      if (earlier?.role === "assistant") return undefined;
+      if (earlier?.role === "user") {
+        const prompt = messageId(earlier);
+        return prompt ? promptRunIds.get(prompt) : undefined;
+      }
+    }
+    return undefined;
+  };
+}
+
+function storedMessageText(message: any): string {
+  return messageText(message?.content ?? message?.parts);
+}
+
+function isInFlightReply(message: any): boolean {
+  return (
+    message?.role === "assistant" &&
+    (message.status === "streaming" || message.status?.type === "running")
+  );
+}
+
+/**
+ * A reloaded page replays an unfinished run from its first event under a new
+ * message id, so the reply it saved mid-stream reaches storage beside the
+ * replay. That partial gives way only to a finished reply to the same prompt
+ * from the same run whose text extends it, and only while no other run is
+ * still answering that prompt. Without a known run on both sides, both stay.
+ */
+function isSupersededInFlightReply(
+  entries: unknown[],
+  index: number,
+  runAt: (index: number) => string | undefined,
+): boolean {
+  const message = getStoredMessage(entries[index]);
+  if (!isInFlightReply(message)) return false;
+  const runId = runAt(index);
+  if (!runId) return false;
+  let start = index;
+  while (start > 0 && getStoredMessage(entries[start - 1])?.role !== "user") {
+    start--;
+  }
+  if (start === 0) return false;
+  const text = storedMessageText(message);
+  let finishedPast = false;
+  for (let other = start; other < entries.length; other++) {
+    const reply = getStoredMessage(entries[other]);
+    if (reply?.role === "user") break;
+    if (other === index || reply?.role !== "assistant") continue;
+    const otherRunId = runAt(other);
+    if (isInFlightReply(reply) && otherRunId !== runId) return false;
+    const replyText = storedMessageText(reply);
+    if (
+      (reply.status === "complete" || reply.status?.type === "complete") &&
+      otherRunId === runId &&
+      replyText.length > text.length &&
+      replyText.startsWith(text)
+    ) {
+      finishedPast = true;
+    }
+  }
+  return finishedPast;
 }
 
 function latestSnapshotRun(runs: unknown): AgentRunSnapshot | undefined {
@@ -1543,10 +1961,36 @@ function latestSnapshotRun(runs: unknown): AgentRunSnapshot | undefined {
   }, undefined);
 }
 
+function isTerminalRunStatus(status: unknown): boolean {
+  return (
+    status === "completed" || status === "failed" || status === "cancelled"
+  );
+}
+
 function latestStoredUser(repo: any): any {
   return repo?.messages
     ?.map((entry: any) => getStoredMessage(entry))
     .findLast((message: any) => message?.role === "user");
+}
+
+/**
+ * Whether a stored user message is the prompt this run answers, rather than
+ * one sent after it started. Messages saved without the server's turn stamp
+ * fall back to their creation time.
+ */
+export function isRunPrompt(
+  user: any,
+  run: { runId: string; turnId?: string | null; startedAt: number },
+): boolean {
+  const userContext = user?.metadata?.custom;
+  if (userContext?.submittedTurnId) {
+    return userContext.submittedTurnId === run.turnId;
+  }
+  return (
+    userContext?.submittedRunId === run.runId ||
+    !user?.createdAt ||
+    new Date(user.createdAt).getTime() <= run.startedAt
+  );
 }
 
 function clearThreadSuggestions(repo: any): any {
@@ -1570,17 +2014,7 @@ export function foldThreadRunSuggestions(
   repo: any,
   run: ThreadSuggestionRun,
 ): any {
-  const user = latestStoredUser(repo);
-  const userContext = user?.metadata?.custom;
-  if (
-    userContext?.submittedTurnId
-      ? userContext.submittedTurnId !== run.turnId
-      : userContext?.submittedRunId !== run.runId &&
-        user?.createdAt &&
-        new Date(user.createdAt).getTime() > run.startedAt
-  ) {
-    return repo;
-  }
+  if (!isRunPrompt(latestStoredUser(repo), run)) return repo;
   const previous = repo.agentKit ?? {};
   const latest = latestSnapshotRun(previous.runs);
   const startedAt = new Date(run.startedAt).toISOString();
@@ -1642,13 +2076,24 @@ export function foldThreadRunSuggestions(
     ? previous.runs
     : [];
   const oldRun = runs.find((entry) => entry.id === run.runId);
+  const previousSequence =
+    oldRun &&
+    Number.isSafeInteger(oldRun.lastSequence) &&
+    oldRun.lastSequence >= 0
+      ? oldRun.lastSequence
+      : 0;
+  const lastSequence = run.events.reduce(
+    (maximum, { seq }) =>
+      Number.isSafeInteger(seq) && seq >= 0 ? Math.max(maximum, seq) : maximum,
+    previousSequence,
+  );
   const snapshot: AgentRunSnapshot = {
     ...oldRun,
     id: run.runId,
     threadId: run.threadId,
     status,
     startedAt,
-    lastSequence: oldRun?.lastSequence ?? 0,
+    lastSequence,
   };
   return {
     ...repo,
@@ -1663,19 +2108,778 @@ export function foldThreadRunSuggestions(
   };
 }
 
-function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
+function mergeAgentKitEvents(
+  existing: unknown,
+  incoming: unknown,
+  replacedRunIds: ReadonlySet<string> = new Set(),
+  staleRunIds: ReadonlySet<string> = new Set(),
+): unknown[] | undefined {
+  if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
+  const incomingEvents = Array.isArray(incoming)
+    ? incoming.filter(
+        (event) =>
+          typeof event?.runId !== "string" || !staleRunIds.has(event.runId),
+      )
+    : [];
+  const merged = Array.isArray(existing)
+    ? existing.filter(
+        (event) =>
+          typeof event?.runId !== "string" || !replacedRunIds.has(event.runId),
+      )
+    : [];
+  const positions = new Map<string, number>();
+  merged.forEach((event, index) => {
+    if (typeof event?.id === "string" && !positions.has(event.id)) {
+      positions.set(event.id, index);
+    }
+  });
+  for (const event of incomingEvents) {
+    if (typeof event?.id !== "string") {
+      merged.push(event);
+      continue;
+    }
+    const index = positions.get(event.id);
+    if (index === undefined) {
+      positions.set(event.id, merged.length);
+      merged.push(event);
+    } else {
+      merged[index] = event;
+    }
+  }
+
+  const positionsByRun = new Map<string, number[]>();
+  merged.forEach((event, index) => {
+    if (typeof event?.runId !== "string") return;
+    const runPositions = positionsByRun.get(event.runId) ?? [];
+    runPositions.push(index);
+    positionsByRun.set(event.runId, runPositions);
+  });
+  for (const runPositions of positionsByRun.values()) {
+    const runEvents = runPositions.map((index, order) => ({
+      event: merged[index],
+      index,
+      order,
+      sequence:
+        typeof merged[index]?.sequence === "number" &&
+        Number.isFinite(merged[index].sequence)
+          ? merged[index].sequence
+          : Number.NaN,
+    }));
+    runEvents.sort((left, right) => {
+      if (
+        Number.isFinite(left.sequence) &&
+        Number.isFinite(right.sequence) &&
+        left.sequence !== right.sequence
+      ) {
+        return left.sequence - right.sequence;
+      }
+      return left.order - right.order;
+    });
+    runPositions.forEach((index, order) => {
+      merged[index] = { ...runEvents[order].event, sequence: order + 1 };
+    });
+  }
+  return merged;
+}
+
+function mergeAgentKitFullEventSnapshot(
+  existingEvents: unknown,
+  incomingEvents: unknown,
+  incomingRuns: unknown,
+  committedSnapshots: unknown,
+): unknown[] | undefined {
+  if (!Array.isArray(incomingEvents)) return undefined;
+  const previousEvents = Array.isArray(existingEvents) ? existingEvents : [];
+  const incomingRunSequences = new Map<string, number>();
+  for (const run of Array.isArray(incomingRuns) ? incomingRuns : []) {
+    if (
+      typeof run?.id === "string" &&
+      typeof run.lastSequence === "number" &&
+      Number.isSafeInteger(run.lastSequence) &&
+      run.lastSequence >= 0
+    ) {
+      incomingRunSequences.set(run.id, run.lastSequence);
+    }
+  }
+  const existingEventsByRun = new Map<string, unknown[]>();
+  for (const event of previousEvents) {
+    if (typeof event?.runId !== "string") continue;
+    const events = existingEventsByRun.get(event.runId) ?? [];
+    events.push(event);
+    existingEventsByRun.set(event.runId, events);
+  }
+  const incomingEventsByRun = new Map<string, unknown[]>();
+  for (const event of incomingEvents) {
+    if (typeof event?.runId !== "string") continue;
+    const events = incomingEventsByRun.get(event.runId) ?? [];
+    events.push(event);
+    incomingEventsByRun.set(event.runId, events);
+  }
+
+  const protectedRunIds = new Set<string>();
   if (
-    !existing ||
-    typeof existing !== "object" ||
-    Array.isArray(existing) ||
-    !incoming ||
-    typeof incoming !== "object" ||
-    Array.isArray(incoming)
+    committedSnapshots &&
+    typeof committedSnapshots === "object" &&
+    !Array.isArray(committedSnapshots)
   ) {
-    return incoming ?? existing;
+    for (const [runId, value] of Object.entries(committedSnapshots)) {
+      if (!Array.isArray(value)) continue;
+      const committedSequence = value.reduce((maxSequence, entry) => {
+        const sequence = entry?.lastSequence;
+        return typeof sequence === "number" &&
+          Number.isSafeInteger(sequence) &&
+          sequence >= 0
+          ? Math.max(maxSequence, sequence)
+          : maxSequence;
+      }, -1);
+      if (committedSequence < 0) continue;
+      const runEvents = incomingEventsByRun.get(runId) ?? [];
+      const incomingSequence = Math.max(
+        incomingRunSequences.get(runId) ?? 0,
+        ...runEvents.map((event) => {
+          const sequence =
+            event && typeof event === "object"
+              ? (event as Record<string, unknown>).sequence
+              : undefined;
+          return typeof sequence === "number" &&
+            Number.isSafeInteger(sequence) &&
+            sequence >= 0
+            ? sequence
+            : 0;
+        }),
+      );
+      if (runEvents.length === 0 || incomingSequence <= committedSequence) {
+        protectedRunIds.add(runId);
+      }
+    }
+  }
+  if (protectedRunIds.size === 0) return incomingEvents;
+
+  const merged: unknown[] = [];
+  const insertedProtectedRuns = new Set<string>();
+  for (const event of incomingEvents) {
+    const runId = event?.runId;
+    if (typeof runId === "string" && protectedRunIds.has(runId)) {
+      if (!insertedProtectedRuns.has(runId)) {
+        merged.push(...(existingEventsByRun.get(runId) ?? []));
+        insertedProtectedRuns.add(runId);
+      }
+      continue;
+    }
+    merged.push(event);
+  }
+  for (const runId of protectedRunIds) {
+    if (insertedProtectedRuns.has(runId)) continue;
+    merged.push(...(existingEventsByRun.get(runId) ?? []));
+  }
+  return merged;
+}
+
+type AgentKitEventRunSnapshotBatch = {
+  runId: string;
+  snapshotId: string;
+  lastSequence: number;
+  expectedEventCount: number;
+  complete: boolean;
+};
+
+type PendingAgentKitEventRunSnapshot = Pick<
+  AgentKitEventRunSnapshotBatch,
+  "lastSequence" | "expectedEventCount"
+> & { events: unknown[] };
+
+type CommittedAgentKitEventRunSnapshot = Pick<
+  AgentKitEventRunSnapshotBatch,
+  "snapshotId" | "lastSequence" | "expectedEventCount"
+>;
+
+const MAX_PENDING_EVENT_RUN_SNAPSHOTS_PER_RUN = 2;
+const MAX_COMMITTED_EVENT_RUN_SNAPSHOTS_PER_RUN = 8;
+
+function mergeAgentKitEventRunSnapshots(input: {
+  existingEvents: unknown;
+  incomingEvents: unknown;
+  existingWatermarks: Map<string, number>;
+  existingRunSequences: Map<string, number>;
+  incomingWatermarks: Map<string, number>;
+  incomingReplacements: Map<string, number>;
+  batches: Map<string, AgentKitEventRunSnapshotBatch>;
+  existingPending: unknown;
+  existingCommits: unknown;
+}): {
+  events: unknown[] | undefined;
+  watermarks: Map<string, number>;
+  pending: Record<string, Record<string, PendingAgentKitEventRunSnapshot>>;
+  commits: Record<string, CommittedAgentKitEventRunSnapshot[]>;
+} {
+  const incomingEvents = Array.isArray(input.incomingEvents)
+    ? input.incomingEvents
+    : [];
+  const batchedRunIds = new Set(input.batches.keys());
+  const unbatchedEvents = Array.isArray(input.incomingEvents)
+    ? incomingEvents.filter((event) => !batchedRunIds.has(event?.runId))
+    : undefined;
+  const previousEvents = Array.isArray(input.existingEvents)
+    ? input.existingEvents
+    : [];
+  const commits: Record<string, CommittedAgentKitEventRunSnapshot[]> = {};
+  if (
+    input.existingCommits &&
+    typeof input.existingCommits === "object" &&
+    !Array.isArray(input.existingCommits)
+  ) {
+    for (const [runId, value] of Object.entries(input.existingCommits)) {
+      if (!Array.isArray(value)) continue;
+      const entries = value.flatMap((candidate) => {
+        if (!candidate || typeof candidate !== "object") return [];
+        const commit = candidate as Record<string, unknown>;
+        if (
+          typeof commit.snapshotId !== "string" ||
+          typeof commit.lastSequence !== "number" ||
+          !Number.isSafeInteger(commit.lastSequence) ||
+          commit.lastSequence < 0 ||
+          typeof commit.expectedEventCount !== "number" ||
+          !Number.isSafeInteger(commit.expectedEventCount) ||
+          commit.expectedEventCount < 1
+        ) {
+          return [];
+        }
+        return [
+          {
+            snapshotId: commit.snapshotId,
+            lastSequence: commit.lastSequence,
+            expectedEventCount: commit.expectedEventCount,
+          },
+        ];
+      });
+      if (entries.length > 0) {
+        commits[runId] = entries.slice(
+          -MAX_COMMITTED_EVENT_RUN_SNAPSHOTS_PER_RUN,
+        );
+      }
+    }
+  }
+  const watermarks = new Map(input.existingWatermarks);
+  const replacedRunIds = new Set<string>();
+  const staleRunIds = new Set<string>();
+
+  for (const [runId, lastSequence] of input.incomingWatermarks) {
+    const storedWatermark = watermarks.get(runId);
+    const storedRunSequence = input.existingRunSequences.get(runId);
+    const hasCommittedSnapshot = (commits[runId]?.length ?? 0) > 0;
+    const committedSequence = Math.max(
+      0,
+      ...(commits[runId] ?? []).map((entry) => entry.lastSequence),
+    );
+    const knownSequence = Math.max(
+      storedWatermark ?? 0,
+      storedRunSequence ?? 0,
+      committedSequence,
+    );
+    const hasKnownSequence =
+      storedWatermark !== undefined ||
+      storedRunSequence !== undefined ||
+      hasCommittedSnapshot;
+    const hasStoredEvents = previousEvents.some(
+      (event) => event?.runId === runId,
+    );
+    if (
+      (hasKnownSequence && lastSequence < knownSequence) ||
+      (hasCommittedSnapshot && lastSequence <= committedSequence)
+    ) {
+      staleRunIds.add(runId);
+      continue;
+    }
+    if (
+      input.incomingReplacements.has(runId) &&
+      (hasKnownSequence || !hasStoredEvents)
+    ) {
+      replacedRunIds.add(runId);
+    }
+    watermarks.set(runId, Math.max(knownSequence, lastSequence));
+  }
+
+  let events = mergeAgentKitEvents(
+    input.existingEvents,
+    unbatchedEvents,
+    replacedRunIds,
+    staleRunIds,
+  );
+  const pending: Record<
+    string,
+    Record<string, PendingAgentKitEventRunSnapshot>
+  > = {};
+  if (
+    input.existingPending &&
+    typeof input.existingPending === "object" &&
+    !Array.isArray(input.existingPending)
+  ) {
+    for (const [runId, value] of Object.entries(input.existingPending)) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        continue;
+      }
+      const batches: Record<string, PendingAgentKitEventRunSnapshot> = {};
+      for (const [snapshotId, candidate] of Object.entries(value)) {
+        if (!candidate || typeof candidate !== "object") continue;
+        const candidateRecord = candidate as Record<string, unknown>;
+        if (
+          Array.isArray(candidate) ||
+          typeof candidateRecord.lastSequence !== "number" ||
+          !Number.isSafeInteger(candidateRecord.lastSequence) ||
+          candidateRecord.lastSequence < 0 ||
+          typeof candidateRecord.expectedEventCount !== "number" ||
+          !Number.isSafeInteger(candidateRecord.expectedEventCount) ||
+          candidateRecord.expectedEventCount < 1 ||
+          !Array.isArray(candidateRecord.events)
+        ) {
+          continue;
+        }
+        batches[snapshotId] = {
+          lastSequence: candidateRecord.lastSequence,
+          expectedEventCount: candidateRecord.expectedEventCount,
+          events: candidateRecord.events.filter(
+            (event) => event?.runId === runId,
+          ),
+        };
+      }
+      if (Object.keys(batches).length > 0) pending[runId] = batches;
+    }
+  }
+  for (const [runId, batches] of Object.entries(pending)) {
+    const committedSequence = Math.max(
+      watermarks.get(runId) ?? 0,
+      input.existingRunSequences.get(runId) ?? 0,
+    );
+    if (!watermarks.has(runId) && !input.existingRunSequences.has(runId)) {
+      continue;
+    }
+    for (const [snapshotId, batch] of Object.entries(batches)) {
+      const supersededByLegacySnapshot =
+        (input.incomingWatermarks.get(runId) ?? -1) >= batch.lastSequence;
+      if (
+        batch.lastSequence < committedSequence ||
+        supersededByLegacySnapshot
+      ) {
+        delete batches[snapshotId];
+      }
+    }
+    if (Object.keys(batches).length === 0) delete pending[runId];
+  }
+
+  for (const [runId, batch] of input.batches) {
+    const committed = commits[runId]?.find(
+      (entry) => entry.snapshotId === batch.snapshotId,
+    );
+    if (committed) {
+      if (
+        committed.lastSequence !== batch.lastSequence ||
+        committed.expectedEventCount !== batch.expectedEventCount
+      ) {
+        throw new TypeError("Agent chat event snapshot id was reused.");
+      }
+      continue;
+    }
+
+    const knownSequence = Math.max(
+      watermarks.get(runId) ?? 0,
+      input.existingRunSequences.get(runId) ?? 0,
+    );
+    const hasKnownSequence =
+      watermarks.has(runId) || input.existingRunSequences.has(runId);
+    const alreadyCommittedAtOrAfter = (commits[runId] ?? []).some(
+      (entry) => entry.lastSequence >= batch.lastSequence,
+    );
+    if (
+      hasKnownSequence &&
+      (batch.lastSequence < knownSequence || alreadyCommittedAtOrAfter)
+    ) {
+      if (pending[runId]) {
+        delete pending[runId][batch.snapshotId];
+        if (Object.keys(pending[runId]).length === 0) delete pending[runId];
+      }
+      continue;
+    }
+
+    const current = pending[runId]?.[batch.snapshotId];
+    const matchingCurrent =
+      current?.lastSequence === batch.lastSequence &&
+      current.expectedEventCount === batch.expectedEventCount;
+    const batchEvents = incomingEvents.filter(
+      (event) => event?.runId === runId,
+    );
+    const stagedEvents =
+      mergeAgentKitEvents(matchingCurrent ? current.events : [], batchEvents) ??
+      [];
+
+    if (stagedEvents.length > batch.expectedEventCount) {
+      throw new TypeError(
+        "Agent chat event snapshot exceeded its event count.",
+      );
+    }
+    if (batch.complete && stagedEvents.length < batch.expectedEventCount) {
+      throw new TypeError(
+        "Agent chat event snapshot ended before all events arrived.",
+      );
+    }
+
+    if (stagedEvents.length === batch.expectedEventCount) {
+      events = mergeAgentKitEvents(events, stagedEvents, new Set([runId]));
+      watermarks.set(runId, Math.max(knownSequence, batch.lastSequence));
+      commits[runId] = [
+        ...(commits[runId] ?? []).filter(
+          (entry) => entry.snapshotId !== batch.snapshotId,
+        ),
+        {
+          snapshotId: batch.snapshotId,
+          lastSequence: batch.lastSequence,
+          expectedEventCount: batch.expectedEventCount,
+        },
+      ].slice(-MAX_COMMITTED_EVENT_RUN_SNAPSHOTS_PER_RUN);
+      if (pending[runId]) {
+        for (const [snapshotId, pendingBatch] of Object.entries(
+          pending[runId],
+        )) {
+          if (pendingBatch.lastSequence <= batch.lastSequence) {
+            delete pending[runId][snapshotId];
+          }
+        }
+        if (Object.keys(pending[runId]).length === 0) delete pending[runId];
+      }
+      continue;
+    }
+
+    const runPending = { ...(pending[runId] ?? {}) };
+    if (!matchingCurrent) {
+      while (
+        Object.keys(runPending).length >=
+        MAX_PENDING_EVENT_RUN_SNAPSHOTS_PER_RUN
+      ) {
+        const oldestSnapshotId = Object.keys(runPending)[0];
+        if (oldestSnapshotId === undefined) break;
+        delete runPending[oldestSnapshotId];
+      }
+    }
+    runPending[batch.snapshotId] = {
+      lastSequence: batch.lastSequence,
+      expectedEventCount: batch.expectedEventCount,
+      events: stagedEvents,
+    };
+    pending[runId] = runPending;
+  }
+
+  return { events, watermarks, pending, commits };
+}
+
+function mergeAgentKitAnnotations(
+  existing: unknown,
+  incoming: unknown,
+  replaceMessageIds: ReadonlySet<string>,
+  removalValuesByMessage: ReadonlyMap<string, ReadonlyMap<string, string>>,
+  conditionalUpserts?: unknown,
+  onConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void,
+): unknown[] | undefined {
+  if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
+  const annotationKey = (entry: any) => {
+    const id = entry?.annotation?.id;
+    return typeof id === "string"
+      ? JSON.stringify(["id", id])
+      : JSON.stringify(["value", entry]);
+  };
+  const merged = (Array.isArray(existing) ? existing : []).filter((entry) => {
+    const messageId = entry?.messageId;
+    if (replaceMessageIds.has(messageId)) return false;
+    const removalValues = removalValuesByMessage.get(messageId);
+    const baseline = removalValues?.get(annotationKey(entry));
+    if (baseline === undefined) return true;
+    if (JSON.stringify(entry) === baseline) return false;
+    if (typeof messageId === "string") {
+      const annotationId = entry?.annotation?.id;
+      onConflict?.({
+        messageId,
+        ...(typeof annotationId === "string" ? { annotationId } : {}),
+        operation: "remove",
+      });
+    }
+    return true;
+  });
+  const positions = new Map<string, number>();
+  merged.forEach((entry, index) => {
+    if (typeof entry?.messageId !== "string") return;
+    const key = JSON.stringify([entry.messageId, annotationKey(entry)]);
+    if (!positions.has(key)) positions.set(key, index);
+  });
+  if (Array.isArray(conditionalUpserts)) {
+    for (const update of conditionalUpserts) {
+      if (
+        !update ||
+        typeof update !== "object" ||
+        !update.entry ||
+        typeof update.entry !== "object" ||
+        Array.isArray(update.entry) ||
+        (update.baseline !== null &&
+          (!update.baseline ||
+            typeof update.baseline !== "object" ||
+            Array.isArray(update.baseline)))
+      ) {
+        continue;
+      }
+      const entry = update.entry;
+      if (typeof entry.messageId !== "string") {
+        merged.push(entry);
+        continue;
+      }
+      const key = JSON.stringify([entry.messageId, annotationKey(entry)]);
+      const index = positions.get(key);
+      if (index === undefined) {
+        if (update.baseline === null) {
+          positions.set(key, merged.length);
+          merged.push(entry);
+        } else {
+          const annotationId = entry.annotation?.id;
+          onConflict?.({
+            messageId: entry.messageId,
+            ...(typeof annotationId === "string" ? { annotationId } : {}),
+            operation: "upsert",
+          });
+        }
+        continue;
+      }
+      if (JSON.stringify(merged[index]) === JSON.stringify(entry)) continue;
+      if (
+        update.baseline !== null &&
+        JSON.stringify(merged[index]) === JSON.stringify(update.baseline)
+      ) {
+        merged[index] = entry;
+      } else {
+        const annotationId = entry.annotation?.id;
+        onConflict?.({
+          messageId: entry.messageId,
+          ...(typeof annotationId === "string" ? { annotationId } : {}),
+          operation: "upsert",
+        });
+      }
+    }
+  } else
+    for (const entry of Array.isArray(incoming) ? incoming : []) {
+      if (typeof entry?.messageId !== "string") {
+        merged.push(entry);
+        continue;
+      }
+      const key = JSON.stringify([entry.messageId, annotationKey(entry)]);
+      const index = positions.get(key);
+      if (index === undefined) {
+        positions.set(key, merged.length);
+        merged.push(entry);
+      } else {
+        merged[index] = entry;
+      }
+    }
+  return merged;
+}
+
+function mergeAgentKitHistory(
+  existing: unknown,
+  incoming: unknown,
+  promptRunIds: Map<string, string>,
+  onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void,
+): unknown {
+  const incomingIsRecord =
+    incoming !== null &&
+    typeof incoming === "object" &&
+    !Array.isArray(incoming);
+  if (!incomingIsRecord) return incoming ?? existing;
+  const next = incoming as Record<string, unknown>;
+  const existingIsRecord =
+    existing !== null &&
+    typeof existing === "object" &&
+    !Array.isArray(existing);
+  const snapshotDelta = next._snapshotDelta === true;
+  const incomingEventRunIds = new Set(
+    (Array.isArray(next.events) ? next.events : []).flatMap((event) =>
+      typeof event?.runId === "string" ? [event.runId] : [],
+    ),
+  );
+  const incomingRunStarts = new Set(
+    (Array.isArray(next.events) ? next.events : []).flatMap((event) =>
+      typeof event?.runId === "string" && event.sequence === 1
+        ? [event.runId]
+        : [],
+    ),
+  );
+  const eventRunSnapshotBatches = new Map<
+    string,
+    AgentKitEventRunSnapshotBatch
+  >();
+  for (const batch of Array.isArray(next.eventRunSnapshotBatches)
+    ? next.eventRunSnapshotBatches
+    : []) {
+    if (
+      typeof batch?.runId === "string" &&
+      typeof batch.snapshotId === "string" &&
+      batch.snapshotId.length > 0 &&
+      typeof batch.lastSequence === "number" &&
+      Number.isSafeInteger(batch.lastSequence) &&
+      batch.lastSequence >= 0 &&
+      typeof batch.expectedEventCount === "number" &&
+      Number.isSafeInteger(batch.expectedEventCount) &&
+      batch.expectedEventCount > 0 &&
+      typeof batch.complete === "boolean" &&
+      incomingEventRunIds.has(batch.runId)
+    ) {
+      eventRunSnapshotBatches.set(batch.runId, {
+        runId: batch.runId,
+        snapshotId: batch.snapshotId,
+        lastSequence: batch.lastSequence,
+        expectedEventCount: batch.expectedEventCount,
+        complete: batch.complete,
+      });
+    }
+  }
+  const eventRunSnapshotWatermarks = new Map<string, number>();
+  for (const watermark of Array.isArray(next.eventRunSnapshotWatermarks)
+    ? next.eventRunSnapshotWatermarks
+    : []) {
+    if (
+      typeof watermark?.runId === "string" &&
+      typeof watermark.lastSequence === "number" &&
+      Number.isSafeInteger(watermark.lastSequence) &&
+      watermark.lastSequence >= 0 &&
+      incomingEventRunIds.has(watermark.runId) &&
+      !eventRunSnapshotBatches.has(watermark.runId)
+    ) {
+      eventRunSnapshotWatermarks.set(
+        watermark.runId,
+        Math.max(
+          eventRunSnapshotWatermarks.get(watermark.runId) ?? 0,
+          watermark.lastSequence,
+        ),
+      );
+    }
+  }
+  const eventRunReplacements = new Map<string, number>();
+  for (const replacement of Array.isArray(next.eventRunReplacements)
+    ? next.eventRunReplacements
+    : []) {
+    if (
+      typeof replacement?.runId === "string" &&
+      typeof replacement.lastSequence === "number" &&
+      Number.isSafeInteger(replacement.lastSequence) &&
+      replacement.lastSequence >= 1 &&
+      incomingRunStarts.has(replacement.runId) &&
+      !eventRunSnapshotBatches.has(replacement.runId)
+    ) {
+      eventRunReplacements.set(
+        replacement.runId,
+        Math.max(
+          eventRunReplacements.get(replacement.runId) ?? 0,
+          replacement.lastSequence,
+        ),
+      );
+    }
+  }
+  for (const [runId, lastSequence] of eventRunReplacements) {
+    eventRunSnapshotWatermarks.set(
+      runId,
+      Math.max(eventRunSnapshotWatermarks.get(runId) ?? 0, lastSequence),
+    );
+  }
+  const annotationMessageIdsToReplace = new Set<string>();
+  const annotationRemovalValuesByMessage = new Map<
+    string,
+    Map<string, string>
+  >();
+  for (const replacement of Array.isArray(next.annotationMessageIdsToReplace)
+    ? next.annotationMessageIdsToReplace
+    : []) {
+    if (typeof replacement === "string") {
+      annotationMessageIdsToReplace.add(replacement);
+      continue;
+    }
+    if (
+      !replacement ||
+      typeof replacement !== "object" ||
+      typeof replacement.messageId !== "string" ||
+      !Array.isArray(replacement.annotationsToRemove)
+    ) {
+      continue;
+    }
+    const removalValues = new Map<string, string>();
+    for (const removal of replacement.annotationsToRemove) {
+      if (
+        !removal ||
+        typeof removal !== "object" ||
+        typeof removal.key !== "string" ||
+        !removal.baseline ||
+        typeof removal.baseline !== "object" ||
+        Array.isArray(removal.baseline)
+      ) {
+        continue;
+      }
+      const baseline = JSON.stringify(removal.baseline);
+      if (typeof baseline === "string") {
+        removalValues.set(removal.key, baseline);
+      }
+    }
+    if (removalValues.size > 0) {
+      annotationRemovalValuesByMessage.set(
+        replacement.messageId,
+        removalValues,
+      );
+    }
+  }
+  if (!existingIsRecord) {
+    const initial = { ...next };
+    delete initial._eventRunWatermarks;
+    if (snapshotDelta) {
+      if (Array.isArray(initial.messages) && initial.messages.length === 0) {
+        delete initial.messages;
+      }
+      const eventSnapshot = mergeAgentKitEventRunSnapshots({
+        existingEvents: undefined,
+        incomingEvents: next.events,
+        existingWatermarks: new Map(),
+        existingRunSequences: new Map(),
+        incomingWatermarks: eventRunSnapshotWatermarks,
+        incomingReplacements: eventRunReplacements,
+        batches: eventRunSnapshotBatches,
+        existingPending: undefined,
+        existingCommits: undefined,
+      });
+      if (eventSnapshot.events) initial.events = eventSnapshot.events;
+      if (eventSnapshot.watermarks.size > 0) {
+        initial._eventRunWatermarks = Object.fromEntries(
+          eventSnapshot.watermarks,
+        );
+      }
+      if (Object.keys(eventSnapshot.pending).length > 0) {
+        initial._pendingEventRunSnapshots = eventSnapshot.pending;
+      } else {
+        delete initial._pendingEventRunSnapshots;
+      }
+      if (Object.keys(eventSnapshot.commits).length > 0) {
+        initial._eventRunSnapshotCommits = eventSnapshot.commits;
+      } else {
+        delete initial._eventRunSnapshotCommits;
+      }
+      const annotations = mergeAgentKitAnnotations(
+        undefined,
+        next.annotations,
+        annotationMessageIdsToReplace,
+        annotationRemovalValuesByMessage,
+        next.annotationUpserts,
+        onAnnotationConflict,
+      );
+      if (annotations) initial.annotations = annotations;
+    }
+    delete initial._snapshotDelta;
+    delete initial.eventRunReplacements;
+    delete initial.eventRunSnapshotWatermarks;
+    delete initial.eventRunSnapshotBatches;
+    delete initial.annotationMessageIdsToReplace;
+    delete initial.annotationUpserts;
+    return initial;
   }
   const previous = existing as Record<string, unknown>;
-  const next = incoming as Record<string, unknown>;
   const merged: Record<string, unknown> = { ...previous, ...next };
   const runs = new Map<string, AgentRunSnapshot>();
   for (const run of [
@@ -1689,29 +2893,80 @@ function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
       continue;
     }
     const richer = newer.lastSequence >= run.lastSequence ? newer : run;
+    const statusRun =
+      run.lastSequence > newer.lastSequence
+        ? run
+        : newer.lastSequence > run.lastSequence
+          ? newer
+          : isTerminalRunStatus(run.status)
+            ? run
+            : newer;
     runs.set(run.id, {
       ...run,
       ...newer,
       ...richer,
       metadata: { ...run.metadata, ...newer.metadata, ...richer.metadata },
       lastSequence: Math.max(newer.lastSequence, run.lastSequence),
-      status: ["completed", "failed", "cancelled"].includes(run.status)
-        ? run.status
-        : newer.status,
+      status: statusRun.status,
     });
   }
   if (runs.size > 0) {
     merged.runs = [...runs.values()];
     const latest = latestSnapshotRun(merged.runs);
+    const incomingLatest = latestSnapshotRun(next.runs);
     const previousLatest = latestSnapshotRun(previous.runs);
-    merged.suggestions =
-      latest?.status !== "completed"
-        ? []
-        : latest.id === previousLatest?.id &&
-            previousLatest.status === "completed" &&
-            Array.isArray(previous.suggestions)
-          ? previous.suggestions
-          : next.suggestions;
+    const incomingLatestCompleted = incomingLatest?.status === "completed";
+    const incomingLatestIsMergedLatest =
+      incomingLatest?.id === latest?.id && incomingLatestCompleted;
+    const newLatestRunCompletion =
+      incomingLatestIsMergedLatest && latest?.id !== previousLatest?.id;
+    const latestRunJustCompleted =
+      incomingLatestIsMergedLatest &&
+      incomingLatest !== undefined &&
+      latest !== undefined &&
+      previousLatest !== undefined &&
+      previousLatest.id === latest.id &&
+      previousLatest.status !== "completed" &&
+      Number.isSafeInteger(incomingLatest.lastSequence) &&
+      incomingLatest.lastSequence >= 0 &&
+      Number.isSafeInteger(previousLatest.lastSequence) &&
+      previousLatest.lastSequence >= 0 &&
+      incomingLatest.lastSequence >= previousLatest.lastSequence;
+    const sameCompletedRunAdvanced =
+      incomingLatestIsMergedLatest &&
+      incomingLatest !== undefined &&
+      latest !== undefined &&
+      previousLatest !== undefined &&
+      incomingLatest.id === latest.id &&
+      previousLatest.id === latest.id &&
+      previousLatest.status === "completed" &&
+      Number.isSafeInteger(incomingLatest.lastSequence) &&
+      incomingLatest.lastSequence >= 0 &&
+      Number.isSafeInteger(previousLatest.lastSequence) &&
+      previousLatest.lastSequence >= 0 &&
+      incomingLatest.lastSequence > previousLatest.lastSequence;
+    const incomingSuggestionsAreCurrent =
+      Object.prototype.hasOwnProperty.call(next, "suggestions") &&
+      (newLatestRunCompletion ||
+        latestRunJustCompleted ||
+        sameCompletedRunAdvanced);
+    if (latest?.status !== "completed") {
+      merged.suggestions = [];
+    } else if (incomingSuggestionsAreCurrent) {
+      merged.suggestions = next.suggestions;
+    } else if (
+      previousLatest !== undefined &&
+      latest.id === previousLatest.id &&
+      previousLatest.status === "completed"
+    ) {
+      if (Object.prototype.hasOwnProperty.call(previous, "suggestions")) {
+        merged.suggestions = previous.suggestions;
+      } else {
+        delete merged.suggestions;
+      }
+    } else {
+      merged.suggestions = [];
+    }
     if (Array.isArray(merged.suggestions)) {
       merged.suggestions = merged.suggestions.filter(
         (suggestion: any) => suggestion?.runId === latest?.id,
@@ -1739,9 +2994,110 @@ function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
       kind,
       existingMessageRunIds,
       incomingMessageRunIds,
+      promptRunIds,
     );
     if (entries) merged[key] = entries;
   }
+  if (
+    snapshotDelta &&
+    Array.isArray(next.messages) &&
+    next.messages.length === 0 &&
+    !Array.isArray(previous.messages)
+  ) {
+    delete merged.messages;
+  }
+  if (snapshotDelta) {
+    const previousWatermarks = new Map<string, number>();
+    const previousWatermarkRecord = previous._eventRunWatermarks;
+    if (
+      previousWatermarkRecord &&
+      typeof previousWatermarkRecord === "object" &&
+      !Array.isArray(previousWatermarkRecord)
+    ) {
+      for (const [runId, value] of Object.entries(previousWatermarkRecord)) {
+        if (
+          typeof value === "number" &&
+          Number.isSafeInteger(value) &&
+          value >= 0
+        ) {
+          previousWatermarks.set(runId, value);
+        }
+      }
+    }
+    const previousRunSequences = new Map<string, number>();
+    for (const run of Array.isArray(previous.runs) ? previous.runs : []) {
+      if (
+        typeof run?.id === "string" &&
+        typeof run.lastSequence === "number" &&
+        Number.isSafeInteger(run.lastSequence) &&
+        run.lastSequence >= 0
+      ) {
+        previousRunSequences.set(run.id, run.lastSequence);
+      }
+    }
+    const eventSnapshot = mergeAgentKitEventRunSnapshots({
+      existingEvents: previous.events,
+      incomingEvents: next.events,
+      existingWatermarks: previousWatermarks,
+      existingRunSequences: previousRunSequences,
+      incomingWatermarks: eventRunSnapshotWatermarks,
+      incomingReplacements: eventRunReplacements,
+      batches: eventRunSnapshotBatches,
+      existingPending: previous._pendingEventRunSnapshots,
+      existingCommits: previous._eventRunSnapshotCommits,
+    });
+    if (eventSnapshot.events) merged.events = eventSnapshot.events;
+    delete merged._eventRunWatermarks;
+    if (eventSnapshot.watermarks.size > 0) {
+      merged._eventRunWatermarks = Object.fromEntries(eventSnapshot.watermarks);
+    }
+    if (Object.keys(eventSnapshot.pending).length > 0) {
+      merged._pendingEventRunSnapshots = eventSnapshot.pending;
+    } else {
+      delete merged._pendingEventRunSnapshots;
+    }
+    if (Object.keys(eventSnapshot.commits).length > 0) {
+      merged._eventRunSnapshotCommits = eventSnapshot.commits;
+    } else {
+      delete merged._eventRunSnapshotCommits;
+    }
+  } else {
+    const events = mergeAgentKitFullEventSnapshot(
+      previous.events,
+      next.events,
+      next.runs,
+      previous._eventRunSnapshotCommits,
+    );
+    if (events) merged.events = events;
+    if (previous._eventRunWatermarks === undefined) {
+      delete merged._eventRunWatermarks;
+    } else {
+      merged._eventRunWatermarks = previous._eventRunWatermarks;
+    }
+  }
+  delete merged._snapshotDelta;
+  delete merged.eventRunReplacements;
+  delete merged.eventRunSnapshotWatermarks;
+  delete merged.eventRunSnapshotBatches;
+  if (
+    snapshotDelta ||
+    annotationMessageIdsToReplace.size > 0 ||
+    annotationRemovalValuesByMessage.size > 0
+  ) {
+    const annotations = mergeAgentKitAnnotations(
+      previous.annotations,
+      next.annotations,
+      annotationMessageIdsToReplace,
+      annotationRemovalValuesByMessage,
+      next.annotationUpserts,
+      onAnnotationConflict,
+    );
+    if (annotations) merged.annotations = annotations;
+  } else if (Array.isArray(next.annotations)) {
+    merged.annotations = next.annotations;
+  }
+  delete merged.annotationMessageIdsToReplace;
+  delete merged.annotationUpserts;
   return merged;
 }
 
@@ -1779,28 +3135,35 @@ export function mergeThreadDataForClientSave(
     typeof existingNormalized === "object"
   ) {
     for (const [key, value] of Object.entries(existingNormalized)) {
-      if (key === "messages" || key === "headId") continue;
-      if (key === "queuedMessages" && !preserveExistingQueuedMessages) {
+      if (key === "messages" || key === "headId" || key === "queuedMessages") {
         continue;
       }
       if (!(key in merged)) {
         merged[key] = value;
       }
     }
-  } else if (
-    preserveExistingQueuedMessages &&
-    existingNormalized &&
-    typeof existingNormalized === "object" &&
-    existingNormalized.queuedMessages !== undefined &&
-    merged.queuedMessages === undefined
-  ) {
-    merged.queuedMessages = existingNormalized.queuedMessages;
+  }
+  // Queue mutations are the only writer of the queue and opt out here. Any
+  // other save carries a queue it read earlier, and letting that copy win drops
+  // a promotion claim or an append that landed in between.
+  if (preserveExistingQueuedMessages) {
+    if (existingNormalized?.queuedMessages !== undefined) {
+      merged.queuedMessages = existingNormalized.queuedMessages;
+    } else {
+      delete merged.queuedMessages;
+    }
   }
 
+  const promptRunIds = submittedPromptRunIds(
+    existingNormalized?.messages,
+    incomingNormalized?.messages,
+  );
   if (merged.agentKit !== undefined) {
     merged.agentKit = mergeAgentKitHistory(
       existingNormalized?.agentKit,
       merged.agentKit,
+      promptRunIds,
+      options.onAnnotationConflict,
     );
   }
 
@@ -1814,12 +3177,38 @@ export function mergeThreadDataForClientSave(
     return pruneClaimedQueuedMessages(merged);
   }
 
+  // The chat UI saves its replies under AgentKit ids with no runId; only the
+  // AgentKit events tie them to the run the server folded under its own id.
+  const eventRunIds = snapshotMessageRunIds(merged.agentKit);
   const incomingKeySets: MessageIdentityKeySet[] = incomingMessages.map(
-    (entry: unknown) => messageIdentityKeySet(getStoredMessage(entry)),
+    (entry: unknown) =>
+      messageIdentityKeySet(getStoredMessage(entry), eventRunIds),
   );
   const usedIncoming = new Set<number>();
   const nextMessages: any[] = [];
   const idRewrites = new Map<string, string>();
+
+  // A message that keeps its own id owns the incoming copy with that id; a
+  // run or turn match is weaker and must not take it from the message itself.
+  const incomingByOwnId = new Map<number, number>();
+  existingMessages.forEach((entry: unknown, existingIndex: number) => {
+    const existingMessage = getStoredMessage(entry);
+    const id = messageId(existingMessage);
+    if (
+      !id ||
+      (existingMessage?.role === "assistant" &&
+        messageContentIsEmpty(existingMessage.content))
+    ) {
+      return;
+    }
+    const incomingIndex = incomingKeySets.findIndex(
+      (keys, index) =>
+        !usedIncoming.has(index) && keys.strong.includes(`id:${id}`),
+    );
+    if (incomingIndex === -1) return;
+    usedIncoming.add(incomingIndex);
+    incomingByOwnId.set(existingIndex, incomingIndex);
+  });
 
   for (
     let existingIndex = 0;
@@ -1835,13 +3224,15 @@ export function mergeThreadDataForClientSave(
       continue;
     }
 
-    const existingKeys = messageIdentityKeySet(existingMessage);
-    const incomingIndex = findRankedIdentityMatch(
-      existingKeys,
-      incomingKeySets,
-      usedIncoming,
-      existingIndex,
-    );
+    const existingKeys = messageIdentityKeySet(existingMessage, eventRunIds);
+    const incomingIndex =
+      incomingByOwnId.get(existingIndex) ??
+      findRankedIdentityMatch(
+        existingKeys,
+        incomingKeySets,
+        usedIncoming,
+        existingIndex,
+      );
 
     if (incomingIndex === -1) {
       nextMessages.push(existingEntry);
@@ -1871,7 +3262,39 @@ export function mergeThreadDataForClientSave(
     nextMessages.push(incomingMessages[index]);
   }
 
-  merged.messages = nextMessages.map((entry) =>
+  // One reply per run: the server's folded reply carries the run in its
+  // metadata, and the chat UI's own copy of it (saved under an AgentKit id,
+  // tied to the run only by events) is dropped wherever both ended up stored.
+  const serverReplyRuns = new Set<string>();
+  for (const entry of nextMessages) {
+    const message = getStoredMessage(entry);
+    const runId =
+      message?.role === "assistant" ? getMessageRunId(message) : null;
+    if (runId) serverReplyRuns.add(runId);
+  }
+  const runAt = replyRunIdAt(
+    nextMessages,
+    [eventRunIds, snapshotMessageRunIds(existingNormalized?.agentKit)],
+    promptRunIds,
+  );
+  const keptMessages = nextMessages.filter((entry, index) => {
+    if (isSupersededInFlightReply(nextMessages, index, runAt)) return false;
+    const message = getStoredMessage(entry);
+    if (message?.role !== "assistant" || getMessageRunId(message)) return true;
+    const runId =
+      typeof message.id === "string" ? eventRunIds.get(message.id) : undefined;
+    if (!runId || !serverReplyRuns.has(runId)) return true;
+    const kept = nextMessages.find((candidate) => {
+      const other = getStoredMessage(candidate);
+      return other?.role === "assistant" && getMessageRunId(other) === runId;
+    });
+    const keptId = messageId(getStoredMessage(kept));
+    const droppedId = messageId(message);
+    if (keptId && droppedId) idRewrites.set(droppedId, keptId);
+    return false;
+  });
+
+  merged.messages = keptMessages.map((entry) =>
     rewriteEntryParentId(entry, idRewrites),
   );
   const normalizedMerged = normalizeThreadRepository(
@@ -1949,7 +3372,9 @@ function buildStoredAttachments(
         };
       }
       const uploadedUrl = (att as any).url as string | undefined;
-      if (uploadedUrl) {
+      const inlineDataUrl = isDataUrlReference(uploadedUrl);
+      const inlinePayload = isInlineAttachmentPayload(att.data);
+      if (uploadedUrl && !inlineDataUrl) {
         const referenceOnly = (att as any).referenceOnly === true;
         const storedAsImage = att.type === "image" && !referenceOnly;
         return {
@@ -1981,20 +3406,24 @@ function buildStoredAttachments(
         };
       }
 
-      if (typeof att.text === "string" && att.text.length > 0) {
+      const text =
+        typeof att.text === "string"
+          ? att.text
+          : typeof att.data === "string" && !inlinePayload
+            ? att.data
+            : undefined;
+      if (typeof text === "string" && text.length > 0) {
         return {
           id,
           type: "file",
           name: att.name,
           contentType: att.contentType,
           status: { type: "complete" },
-          content: [
-            { type: "text", text: textAttachmentEnvelope(att, att.text) },
-          ],
+          content: [{ type: "text", text: textAttachmentEnvelope(att, text) }],
         };
       }
 
-      if (att.storageRequired === true || typeof att.data === "string") {
+      if (inlineDataUrl || inlinePayload || att.storageRequired === true) {
         const uploadFailed = att.storageUploadFailed === true;
         return {
           id,
@@ -2005,9 +3434,11 @@ function buildStoredAttachments(
           content: [
             {
               type: "text",
-              text: uploadFailed
-                ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
-                : "Attachment not retained: connect object storage to keep files available throughout this thread.",
+              text: inlineDataUrl
+                ? "Attachment not retained: inline data URLs cannot be stored in thread history. Attach the file using durable storage to keep it available throughout this thread."
+                : uploadFailed
+                  ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
+                  : "Attachment not retained: connect object storage to keep files available throughout this thread.",
             },
           ],
           metadata: {
@@ -2026,8 +3457,11 @@ export function buildUserMessage(opts: {
   attachments?: AgentChatAttachment[];
   runId?: string;
   turnId?: string;
+  agentKitMessageId?: string;
   queuedMessageId?: string;
   createdAt?: Date;
+  /** The turn was refused before a run started; its retry reads this back. */
+  refusedRetry?: RefusedTurnRetryContext;
 }): {
   id: string;
   createdAt: Date;
@@ -2044,12 +3478,17 @@ export function buildUserMessage(opts: {
     content: [{ type: "text", text: opts.text }],
     ...(attachments.length > 0 ? { attachments } : {}),
     metadata: {
+      ...opts.refusedRetry,
       custom: {
         submittedRunId: opts.runId,
         ...(opts.turnId ? { submittedTurnId: opts.turnId } : {}),
+        ...(opts.agentKitMessageId
+          ? { agentKitMessageId: opts.agentKitMessageId }
+          : {}),
         ...(opts.queuedMessageId
           ? { agentNativeQueuedMessageId: opts.queuedMessageId }
           : {}),
+        ...(opts.refusedRetry ? { [RUN_NOT_STARTED_METADATA_KEY]: true } : {}),
       },
     },
   };
@@ -2448,6 +3887,11 @@ export function foldAssistantTurn(
     mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
   }
   if (incomingCustom.continued !== true) delete mergedCustom.continued;
+  // A turn's failure is its newest run's: a run that continued past an
+  // earlier stop clears the stop's error instead of inheriting it.
+  if (!runAlreadyFolded && incomingCustom.runError === undefined) {
+    delete mergedCustom.runError;
+  }
 
   const mergedMessage = {
     ...lastMsg,
@@ -2466,6 +3910,104 @@ export function foldAssistantTurn(
   nextRepo.messages[lastIndex] = { ...lastEntry, message: mergedMessage };
   nextRepo.headId = mergedMessage.id ?? nextRepo.headId;
   return nextRepo;
+}
+
+export function foldAgentChatRunCompletion(
+  repo: unknown,
+  assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
+  run: ThreadSuggestionRun &
+    Pick<
+      ActiveRun,
+      "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
+    >,
+) {
+  const folded = assistantMsg
+    ? foldAssistantTurn(repo, assistantMsg, {
+        runId: run.runId,
+        turnId: run.turnId,
+        parentId: run.parentId,
+        agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
+      })
+    : repo;
+  return foldThreadRunSuggestions(normalizeThreadRepository(folded), run);
+}
+
+/**
+ * A turn the server refused before any run started (no usable model
+ * credential, AI setup missing) still answers in the thread: a typed
+ * assistant error in the durable history and a failed AgentKit run, keyed by
+ * the turn id the client already uses as the run id, so the transcript shows
+ * the failure card with a retry instead of an unanswered prompt.
+ */
+export function foldUnstartedTurnFailure(
+  repo: any,
+  failure: {
+    runId: string;
+    threadId: string;
+    turnId?: string;
+    code: string;
+    message: string;
+    at?: Date;
+  },
+): any {
+  const assistant = buildAssistantMessage(
+    [
+      {
+        seq: 0,
+        event: {
+          type: "error",
+          error: failure.message,
+          errorCode: failure.code,
+        },
+      },
+    ],
+    failure.runId,
+    failure.turnId ? { turnId: failure.turnId } : {},
+  );
+  if (assistant) {
+    assistant.metadata.custom = {
+      ...(assistant.metadata.custom as Record<string, unknown> | undefined),
+      [RUN_NOT_STARTED_METADATA_KEY]: true,
+    };
+  }
+  const folded = assistant
+    ? foldAssistantTurn(repo, assistant, {
+        runId: failure.runId,
+        turnId: failure.turnId,
+      })
+    : normalizeThreadRepository(repo);
+  const at = (failure.at ?? new Date()).toISOString();
+  const previous = folded.agentKit ?? {};
+  const runs: AgentRunSnapshot[] = Array.isArray(previous.runs)
+    ? previous.runs.filter(
+        (run: AgentRunSnapshot | null) => run?.id !== failure.runId,
+      )
+    : [];
+  return {
+    ...folded,
+    agentKit: {
+      ...previous,
+      runs: [
+        ...runs,
+        {
+          id: failure.runId,
+          threadId: failure.threadId,
+          status: "failed",
+          lastSequence: 0,
+          startedAt: at,
+          completedAt: at,
+          error: {
+            code: failure.code,
+            message: failure.message,
+            retryable: false,
+          },
+        } satisfies AgentRunSnapshot,
+      ],
+      activeRunIds: Array.isArray(previous.activeRunIds)
+        ? previous.activeRunIds.filter((id: string) => id !== failure.runId)
+        : [],
+    },
+  };
 }
 
 export function normalizeThreadTitle(value: unknown): string {
@@ -2495,9 +4037,13 @@ export function extractThreadMeta(repo: any): {
       : typeof msg.content === "string"
         ? msg.content
         : "";
-    if (textParts.trim()) {
-      if (!title) title = textParts.trim().slice(0, 80);
-      preview = textParts.trim().slice(0, 120);
+    const visiblePrompt = stripAgentChatContextFromMessage(textParts)
+      .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (visiblePrompt) {
+      if (!title) title = visiblePrompt.slice(0, 80);
+      preview = visiblePrompt.slice(0, 120);
     }
   }
   return { title: titleOverride || title, preview };

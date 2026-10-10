@@ -1,12 +1,21 @@
-import type { BrowserContext, Locator, Page, Request } from "@playwright/test";
+import type {
+  BrowserContext,
+  Locator,
+  Page,
+  Request,
+  Response,
+} from "@playwright/test";
 
 import { renderedText } from "./app";
 
 export const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
 
-export const LUNA_OPENAI_MODEL = "gpt-5.6-luna";
-export const LUNA_BUILDER_MODEL = "gpt-5-6-luna";
-export const LUNA_MODEL_PATTERN = /^(?:openai\/)?gpt-5[.-]6-luna$/i;
+// Keep the scheduled lane on the current low-cost model offered by both the
+// OpenAI and Builder catalogs. Older gpt-5.6-luna selections are upgraded by
+// the runtime before a turn is sent.
+export const LUNA_OPENAI_MODEL = "gpt-6-luna";
+export const LUNA_BUILDER_MODEL = "gpt-6-luna";
+export const LUNA_MODEL_PATTERN = /^(?:openai\/)?gpt-(?:5[.-]6|6)-luna$/i;
 
 export interface ModelSelection {
   model: string;
@@ -21,7 +30,7 @@ export function lunaSelection(): ModelSelection {
     (engine === "builder" ? LUNA_BUILDER_MODEL : LUNA_OPENAI_MODEL);
   if (!LUNA_MODEL_PATTERN.test(model)) {
     throw new Error(
-      `BETA_E2E_MODEL=${model} is not a luna model. This suite is budgeted for luna; pick a gpt-5.6-luna id or change the budget deliberately.`,
+      `BETA_E2E_MODEL=${model} is not a luna model. This suite is budgeted for luna; pick a gpt-6-luna id or change the budget deliberately.`,
     );
   }
   return { model, engine, effort: "low" };
@@ -60,89 +69,337 @@ export interface ChatRequestLog {
   engines: string[];
   modelless: number;
   count: number;
+  /** One entry per turn POST, in order: what its body named at the top level. */
+  requests: Array<{ model: string | null; engine: string | null }>;
+  agentNativeRequests?: () => AgentNativeRequestDiagnosticsSnapshot;
 }
 
 export function formatChatRequestDiagnostics(log: ChatRequestLog): string {
-  return `Agent chat requests: ${JSON.stringify(log)}`;
+  const { agentNativeRequests, ...chatLog } = log;
+  return (
+    "Agent chat requests: " +
+    JSON.stringify({
+      ...chatLog,
+      ...(agentNativeRequests
+        ? { agentNativeRequests: agentNativeRequests() }
+        : {}),
+    })
+  );
+}
+
+export function readTurnSelection(raw: string | null): {
+  model: string | null;
+  engine: string | null;
+} {
+  if (!raw) return { model: null, engine: null };
+  let body: { model?: unknown; engine?: unknown } | null;
+  try {
+    body = JSON.parse(raw) as typeof body;
+  } catch {
+    // coercion-ok: a body that does not parse names no model, which assertOnlyLuna fails on.
+    return { model: null, engine: null };
+  }
+  const named = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value : null;
+  return { model: named(body?.model), engine: named(body?.engine) };
+}
+
+/**
+ * Everything wrong with the turns a page sent, as lines. A turn that names no
+ * engine is a violation, not a pass: the server then resolves the engine from
+ * the account (possibly the Builder gateway's shared credits), and nothing
+ * readable from outside says which one it picked.
+ */
+export function spendViolations(
+  log: ChatRequestLog,
+  expected: Pick<ModelSelection, "engine">,
+): string[] {
+  const lines: string[] = [];
+  const offenders = log.models.filter(
+    (model) => !LUNA_MODEL_PATTERN.test(model),
+  );
+  if (offenders.length > 0) {
+    lines.push(`non-luna models: ${[...new Set(offenders)].join(", ")}`);
+  }
+  if (log.modelless > 0) {
+    lines.push(
+      `${log.modelless} request(s) carried no model field, so the app fell back to its own default (a message queued behind a running turn is sent this way by a host whose transport has no model of its own)`,
+    );
+  }
+  const wrongEngine = log.engines.filter(
+    (engine) => engine !== MISSING_ENGINE && engine !== expected.engine,
+  );
+  if (wrongEngine.length > 0) {
+    lines.push(
+      `routed through engine(s) ${[...new Set(wrongEngine)].join(", ")} instead of ${expected.engine}, so the turn did not provably bill the dedicated key`,
+    );
+  }
+  const engineless = log.engines.filter(
+    (engine) => engine === MISSING_ENGINE,
+  ).length;
+  if (engineless > 0) {
+    lines.push(
+      `${engineless} request(s) named no engine, so the server chose it and the turn did not provably bill the dedicated key (${expected.engine})`,
+    );
+  }
+  return lines;
 }
 
 export function watchChatRequests(page: Page): {
   log: ChatRequestLog;
   assertOnlyLuna: () => void;
+  dispose: () => void;
 } {
   const log: ChatRequestLog = {
     models: [],
     engines: [],
     modelless: 0,
     count: 0,
+    requests: [],
   };
   const expected = lunaSelection();
+  const diagnostics = pageAgentNativeRequests(page);
+  let disposed = false;
 
-  page.on("request", (request: Request) => {
+  const onRequest = (request: Request) => {
+    if (disposed) return;
     if (request.method() !== "POST") return;
     if (!isChatTurnRequest(request.url())) return;
     log.count += 1;
-    const raw = request.postData();
-    if (!raw) {
-      log.modelless += 1;
-      return;
-    }
-    try {
-      const body = JSON.parse(raw) as { model?: unknown; engine?: unknown };
-      log.engines.push(
-        typeof body.engine === "string" && body.engine.trim()
-          ? body.engine
-          : MISSING_ENGINE,
-      );
-      if (typeof body.model === "string" && body.model.trim()) {
-        log.models.push(body.model);
-      } else {
-        log.modelless += 1;
-      }
-    } catch {
-      log.modelless += 1;
-    }
-  });
+    const sent = readTurnSelection(request.postData());
+    log.requests.push(sent);
+    log.engines.push(sent.engine ?? MISSING_ENGINE);
+    if (sent.model) log.models.push(sent.model);
+    else log.modelless += 1;
+  };
+  log.agentNativeRequests = diagnostics.snapshot;
+
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    page.off("request", onRequest);
+    page.off("close", dispose);
+    disposePageAgentNativeRequests(page, diagnostics);
+  };
+  page.on("request", onRequest);
+  page.on("close", dispose);
 
   return {
     log,
+    dispose,
     assertOnlyLuna() {
       if (log.count === 0) {
         throw new Error(
           "No POST to /_agent-native/agent-chat was observed, so this turn proved nothing about the agent or the model.",
         );
       }
-      const offenders = log.models.filter(
-        (model) => !LUNA_MODEL_PATTERN.test(model),
-      );
-      const wrongEngine = log.engines.filter(
-        (engine) => engine !== expected.engine,
-      );
-      if (offenders.length > 0 || log.modelless > 0 || wrongEngine.length > 0) {
+      const problems = spendViolations(log, expected);
+      if (problems.length > 0) {
         throw new Error(
           [
-            "Agent chat did not run on luna, so this run billed an unbudgeted model.",
+            "Agent chat did not provably run on luna through the dedicated key.",
             `requests=${log.count} luna=${log.models.filter((m) => LUNA_MODEL_PATTERN.test(m)).length}`,
-            offenders.length > 0
-              ? `non-luna models: ${[...new Set(offenders)].join(", ")}`
-              : "",
-            log.modelless > 0
-              ? `${log.modelless} request(s) carried no model field, so the app fell back to its own default`
-              : "",
-            wrongEngine.length > 0
-              ? `routed through engine(s) ${[...new Set(wrongEngine)].join(", ")} instead of ${expected.engine}, so the turn did not provably bill the dedicated key`
-              : "",
+            `sent: ${log.requests.map((sent, index) => `#${index + 1} model=${sent.model ?? "(none)"} engine=${sent.engine ?? "(none)"}`).join(", ")}`,
+            ...problems,
             "The seeded selection is dropped when the app's model picker does not offer it — usually because the org is connected to a different engine, so the requested engine's catalog is not exposed. Check BETA_E2E_ENGINE/BETA_E2E_MODEL against what the app actually lists.",
-          ]
-            .filter(Boolean)
-            .join("\n"),
+          ].join("\n"),
         );
       }
     },
   };
 }
 
-const MISSING_ENGINE = "(none)";
+export interface AgentNativeRequestDiagnosticsSnapshot {
+  omittedRequests: number;
+  requests: Array<{
+    path: string;
+    method: string;
+    status: number | null;
+    pending: boolean;
+    elapsedMs: number;
+  }>;
+}
+
+const MAX_AGENT_NATIVE_REQUEST_RECORDS = 24;
+const MAX_AGENT_NATIVE_ELAPSED_MS = 300_000;
+const SAFE_HTTP_METHODS = new Set(
+  "GET HEAD POST PUT PATCH DELETE OPTIONS".split(" "),
+);
+const SAFE_AGENT_NATIVE_PATHS = new Set([
+  "/_agent-native/agent-chat",
+  "/_agent-native/agent-chat/threads",
+  "/_agent-native/agent-chat/runs/active",
+  "/_agent-native/agent-engine/status",
+  "/_agent-native/application-state",
+  "/_agent-native/application-state/pending-selection-context",
+  "/_agent-native/actions/get-document",
+  "/_agent-native/events",
+  "/_agent-native/poll",
+  "/_agent-native/auth/session",
+  "/_agent-native/env-status",
+  "/_agent-native/builder/status",
+  "/_agent-native/file-upload/status",
+  "/_agent-native/agent-chat/models",
+  "/_agent-native/agent-chat/runs/latest",
+]);
+const SAFE_THREAD_PATH =
+  /^\/_agent-native\/agent-chat\/threads\/[^/]+(?:\/queued)?$/;
+
+function safeAgentNativePathname(
+  requestUrl: string,
+  pageUrl: string,
+): string | null {
+  try {
+    const request = new URL(requestUrl);
+    if (request.origin !== new URL(pageUrl).origin) return null;
+    const marker = request.pathname.lastIndexOf("/_agent-native");
+    if (marker < 0) return null;
+    const pathname = request.pathname.slice(marker).replace(/\/+$/, "");
+    return SAFE_AGENT_NATIVE_PATHS.has(pathname)
+      ? pathname
+      : SAFE_THREAD_PATH.test(pathname)
+        ? pathname.endsWith("/queued")
+          ? "/_agent-native/agent-chat/threads/:id/queued"
+          : "/_agent-native/agent-chat/threads/:id"
+        : "/_agent-native/[redacted]";
+  } catch {
+    // coercion-ok: invalid URLs cannot be scoped safely, so exclude them from diagnostics.
+    return null;
+  }
+}
+
+const boundedElapsedMs = (start: number, now: number): number =>
+  Math.max(0, Math.min(MAX_AGENT_NATIVE_ELAPSED_MS, Math.floor(now - start)));
+
+function diagnosticMethod(method: string): string {
+  const normalized = method.toUpperCase();
+  return SAFE_HTTP_METHODS.has(normalized) ? normalized : "OTHER";
+}
+
+export function watchAgentNativeRequests(
+  page: Page,
+  now: () => number = Date.now,
+) {
+  type TrackedRequest =
+    AgentNativeRequestDiagnosticsSnapshot["requests"][number] & {
+      startedAt: number;
+    };
+  const requests: TrackedRequest[] = [];
+  const pending = new Map<Request, TrackedRequest>();
+  let omittedRequests = 0;
+  let disposed = false;
+
+  const onRequest = (request: Request) => {
+    if (disposed) return;
+    const path = safeAgentNativePathname(request.url(), page.url());
+    if (!path) return;
+
+    if (requests.length >= MAX_AGENT_NATIVE_REQUEST_RECORDS) {
+      let completedIndex = requests.findIndex(
+        (entry) =>
+          !entry.pending &&
+          entry.path !== "/_agent-native/agent-engine/status" &&
+          entry.path !==
+            "/_agent-native/application-state/pending-selection-context",
+      );
+      if (completedIndex < 0)
+        completedIndex = requests.findIndex((entry) => !entry.pending);
+      if (completedIndex < 0) {
+        omittedRequests = Math.min(999_999, omittedRequests + 1);
+        return;
+      }
+      requests.splice(completedIndex, 1);
+      omittedRequests = Math.min(999_999, omittedRequests + 1);
+    }
+
+    const startedAt = now();
+    const entry: TrackedRequest = {
+      path,
+      method: diagnosticMethod(request.method()),
+      status: null,
+      pending: true,
+      elapsedMs: 0,
+      startedAt,
+    };
+    requests.push(entry);
+    pending.set(request, entry);
+  };
+
+  const onResponse = (response: Response) => {
+    const entry = pending.get(response.request());
+    if (!entry) return;
+    const status = response.status();
+    entry.status =
+      Number.isInteger(status) && status >= 100 && status <= 599
+        ? status
+        : null;
+  };
+
+  const finishRequest = (request: Request) => {
+    const entry = pending.get(request);
+    if (!entry) return;
+    entry.pending = false;
+    entry.elapsedMs = boundedElapsedMs(entry.startedAt, now());
+    pending.delete(request);
+  };
+
+  const snapshot = (): AgentNativeRequestDiagnosticsSnapshot => {
+    const capturedAt = now();
+    return {
+      omittedRequests,
+      requests: requests.map(({ startedAt, ...entry }) => ({
+        ...entry,
+        elapsedMs: entry.pending
+          ? boundedElapsedMs(startedAt, capturedAt)
+          : entry.elapsedMs,
+      })),
+    };
+  };
+
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    page.off("request", onRequest);
+    page.off("response", onResponse);
+    page.off("requestfinished", finishRequest);
+    page.off("requestfailed", finishRequest);
+    page.off("close", dispose);
+    pending.clear();
+  };
+
+  page.on("request", onRequest);
+  page.on("response", onResponse);
+  page.on("requestfinished", finishRequest);
+  page.on("requestfailed", finishRequest);
+  page.on("close", dispose);
+
+  return {
+    snapshot,
+    dispose,
+  };
+}
+
+type AgentNativeRequestWatcher = ReturnType<typeof watchAgentNativeRequests>;
+const pageAgentNativeWatchers = new WeakMap<Page, AgentNativeRequestWatcher>();
+
+function pageAgentNativeRequests(page: Page): AgentNativeRequestWatcher {
+  const existing = pageAgentNativeWatchers.get(page);
+  if (existing) return existing;
+  const diagnostics = watchAgentNativeRequests(page);
+  pageAgentNativeWatchers.set(page, diagnostics);
+  return diagnostics;
+}
+
+function disposePageAgentNativeRequests(
+  page: Page,
+  diagnostics: AgentNativeRequestWatcher,
+): void {
+  if (pageAgentNativeWatchers.get(page) === diagnostics)
+    pageAgentNativeWatchers.delete(page);
+  diagnostics.dispose();
+}
+
+export const MISSING_ENGINE = "(none)";
 
 export const COMPOSER = {
   input: '[data-agent-composer-slot="editor-input"]',
@@ -334,46 +591,59 @@ export async function sendPromptAndAwaitTurn(
   prompt: string,
   { turnTimeoutMs = 180_000 }: { turnTimeoutMs?: number } = {},
 ): Promise<void> {
-  const input = page.locator(VISIBLE_COMPOSER.input).first();
-  await input.waitFor({ state: "visible", timeout: 60_000 });
-  await typePrompt(page, input, prompt);
-
-  const send = page.locator(VISIBLE_COMPOSER.send).first();
-  await send.waitFor({ state: "visible", timeout: 30_000 });
-  await awaitSendEnabled(page, send);
-
-  // Armed before the click: a click that starts no turn used to read as a turn
-  // that finished at once, because the stop button never appeared to wait on.
-  const turnPost = page.waitForRequest(
-    (request) =>
-      request.method() === "POST" && isChatTurnRequest(request.url()),
-    { timeout: 30_000 },
-  );
-  turnPost.catch(() => undefined); // coercion-ok: awaited below; this only stops an unhandled rejection if the click throws first
+  const existingDiagnostics = pageAgentNativeWatchers.get(page);
+  const diagnostics = existingDiagnostics ?? pageAgentNativeRequests(page);
+  const ownsDiagnostics = !existingDiagnostics;
   try {
-    await send.click();
+    const input = page.locator(VISIBLE_COMPOSER.input).first();
+    await input.waitFor({ state: "visible", timeout: 60_000 });
+    await typePrompt(page, input, prompt);
+
+    const send = page.locator(VISIBLE_COMPOSER.send).first();
+    await send.waitFor({ state: "visible", timeout: 30_000 });
+    await awaitSendEnabled(page, send);
+
+    // Arm the request check before click so an early turn cannot escape it.
+    const turnPost = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" && isChatTurnRequest(request.url()),
+      { timeout: 30_000 },
+    );
+    turnPost.catch(() => undefined); // coercion-ok: awaited below; this only stops an unhandled rejection if the click throws first
+    try {
+      await send.click();
+    } catch (error) {
+      throw await composerFailure(
+        page,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    try {
+      await turnPost;
+    } catch {
+      const message =
+        "Send was clicked but the app never POSTed a turn to /_agent-native/agent-chat within 30s.";
+      throw await composerFailure(page, message);
+    }
+
+    const stop = page.locator(VISIBLE_COMPOSER.stop).first();
+    // A turn the POST proves started may finish before the stop button paints,
+    // so its absence here is not a failure; the hidden wait below is the gate.
+    await stop
+      .waitFor({ state: "visible", timeout: 30_000 })
+      .catch(() => undefined); // coercion-ok: see above
+    await stop.waitFor({ state: "hidden", timeout: turnTimeoutMs });
   } catch (error) {
-    throw await composerFailure(
-      page,
-      error instanceof Error ? error.message : String(error),
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      message +
+        "\nAgent-Native request diagnostics: " +
+        JSON.stringify(diagnostics.snapshot()),
+      { cause: error },
     );
+  } finally {
+    if (ownsDiagnostics) disposePageAgentNativeRequests(page, diagnostics);
   }
-  try {
-    await turnPost;
-  } catch {
-    throw await composerFailure(
-      page,
-      "Send was clicked but the app never POSTed a turn to /_agent-native/agent-chat within 30s.",
-    );
-  }
-
-  const stop = page.locator(VISIBLE_COMPOSER.stop).first();
-  // A turn the POST proves started may finish before the stop button paints,
-  // so its absence here is not a failure; the hidden wait below is the gate.
-  await stop
-    .waitFor({ state: "visible", timeout: 30_000 })
-    .catch(() => undefined); // coercion-ok: see above
-  await stop.waitFor({ state: "hidden", timeout: turnTimeoutMs });
 }
 
 export async function assertNoChatFailure(

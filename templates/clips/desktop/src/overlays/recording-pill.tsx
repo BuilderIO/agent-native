@@ -1377,7 +1377,7 @@ export function MeetingPill() {
                                 onClick={() =>
                                   void openExternal(
                                     new URL(
-                                      "/settings/agent",
+                                      "/settings/integrations/builder?builderConnect=1",
                                       loadStoredServerUrl(),
                                     ).toString(),
                                   )
@@ -1448,7 +1448,6 @@ export function MeetingPill() {
                   }
                   onMessageCountChange={handleAskMessageCountChange}
                   plusMenuMode="hidden"
-                  providerStatusChecksEnabled={false}
                   showHeader={false}
                   showModelSelector={false}
                   suggestionPlacement="hidden"
@@ -1481,7 +1480,6 @@ export function MeetingPill() {
                   isActiveComposer={false}
                   onMessageCountChange={handleChipsMessageCountChange}
                   plusMenuMode="hidden"
-                  providerStatusChecksEnabled={false}
                   showHeader={false}
                   showModelSelector={false}
                   suggestionPlacement="hidden"

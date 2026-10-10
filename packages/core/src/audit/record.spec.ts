@@ -130,6 +130,56 @@ describe("recordActionAudit attribution", () => {
     expect(lastEvent().actorKind).toBe("system");
   });
 
+  it.each(["mcp", "webmcp", "a2a"])(
+    "marks %s calls as the agent acting for the signed-in user",
+    async (caller) => {
+      await recordActionAudit({
+        config: undefined,
+        args: {},
+        ctx: { actionName: "update-form", caller, userEmail: "bob@x.com" },
+        status: "success",
+      });
+      expect(lastEvent()).toMatchObject({
+        caller,
+        actorKind: "agent",
+        actorEmail: "bob@x.com",
+      });
+    },
+  );
+
+  it("classifies service identities separately and checks their organization", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "mcp:admission",
+        caller: "mcp",
+        userEmail: "svc-ci@service.org-1",
+        orgId: "org-1",
+      },
+      status: "error",
+      error: Object.assign(new Error("refused"), { statusCode: 403 }),
+    });
+    expect(lastEvent()).toMatchObject({
+      actorKind: "service",
+      status: "denied",
+      actorEmail: "svc-ci@service.org-1",
+    });
+
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "mcp:read",
+        caller: "mcp",
+        userEmail: "svc-ci@service.org-1",
+        orgId: "org-2",
+      },
+      status: "success",
+    });
+    expect(lastEvent().actorKind).toBe("agent");
+  });
+
   it("uses the declared target + owner for scoping", async () => {
     await recordActionAudit({
       config: {
@@ -238,6 +288,59 @@ describe("recordActionAudit attribution", () => {
     expect(ev.status).toBe("error");
     expect(ev.errorCode).toBe("DOC_LOCKED");
   });
+
+  it.each([403, 404, 500])(
+    "records a committed write as success despite its %s response error",
+    async (statusCode) => {
+      const { withCommittedActionAudit } =
+        await import("./committed-outcome.js");
+      const error = Object.assign(new Error("Safe response failure"), {
+        statusCode,
+        errorCode: "DOCUMENT_SAVED_RESPONSE_FAILED",
+        details: { id: "fake-document", saved: true },
+      });
+      const result = { ownerEmail: "owner@example.com" };
+      expect(withCommittedActionAudit(error, result)).toBe(error);
+      expect(JSON.stringify(error)).not.toContain(result.ownerEmail);
+      const config = {
+        recordInputs: false,
+        target: (_args: unknown, outcome: unknown) => ({
+          type: "document",
+          id: "fake-document",
+          ownerEmail: (outcome as typeof result | undefined)?.ownerEmail,
+          visibility: "private" as const,
+        }),
+      };
+      const input = {
+        config,
+        args: {},
+        ctx: {
+          actionName: "update-document",
+          caller: "mcp",
+          userEmail: "editor@example.com",
+        },
+        status: "error" as const,
+        error,
+      };
+      await recordActionAudit(input);
+      expect(lastEvent()).toMatchObject({
+        status: "success",
+        ownerEmail: result.ownerEmail,
+        actorEmail: "editor@example.com",
+        errorCode: error.errorCode,
+        input: null,
+      });
+      const copy = Object.assign(
+        new Error(error.message),
+        JSON.parse(JSON.stringify(error)),
+      );
+      await recordActionAudit({ ...input, error: copy });
+      expect(lastEvent()).toMatchObject({
+        status: statusCode === 403 ? "denied" : "error",
+        ownerEmail: "editor@example.com",
+      });
+    },
+  );
 
   it("records an agent action blocked by approval as denied", async () => {
     await recordActionAudit({

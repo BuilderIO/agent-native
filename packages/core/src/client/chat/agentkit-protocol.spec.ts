@@ -4,6 +4,7 @@ import type {
   AgentMessage,
 } from "@agent-native/agentkit/protocol";
 import {
+  AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
   createAgentKitProtocolVersionOffer,
   parseAgentEvent,
   resumeEntryFromApproval,
@@ -11,9 +12,20 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  AUTO_CONTINUE_PROMPT,
+  CONTINUE_OF_RUN_METADATA_KEY,
+} from "../../agent/auto-continue.js";
+import { buildUserContentWithAttachments } from "../../agent/production-agent.js";
+import {
   BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
   BACKGROUND_FUNCTION_WALL_MS,
 } from "../../app-config/run-lifecycle-invariants.js";
+import { preUploadAttachments } from "../../file-upload/pre-upload-attachments.js";
+import {
+  registerFileUploadProvider,
+  unregisterFileUploadProvider,
+} from "../../file-upload/registry.js";
+import { PNG_BASE64 } from "../../file-upload/test-image-fixtures.js";
 import {
   subscribeChatFirstOpenApp,
   subscribeChatFirstOpenBrowser,
@@ -23,12 +35,29 @@ import {
   MAX_SUBSCRIBE_FAILURES,
   RUN_UNVERIFIED_MESSAGE,
 } from "./run-outcome.js";
-import { createAgentNativeChatRuntime } from "./runtime.js";
+import { createAgentNativeChatRuntime as createAgentNativeChatRuntimeImplementation } from "./runtime.js";
 import type {
   AgentChatRuntime,
   AgentChatRuntimeEvent,
+  AgentChatRuntimeTurn,
   AgentChatRuntimeTurnInput,
+  ServerRunState,
 } from "./runtime.js";
+
+function createAgentNativeChatRuntime(
+  options?: Parameters<typeof createAgentNativeChatRuntimeImplementation>[0],
+) {
+  const fetchImpl = options?.fetch ?? fetch;
+  return createAgentNativeChatRuntimeImplementation({
+    ...options,
+    fetch: (async (input, init) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return Response.json({ configured: true, chatEligible: true });
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch,
+  });
+}
 
 async function drain<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];
@@ -247,6 +276,194 @@ describe("createAgentKitProtocolAdapter", () => {
         },
       ],
       metadata: { agentNativeInternalContinuation: true },
+    });
+  });
+
+  it("forwards prior tool activity as structured history on the next turn", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async (_input: AgentChatRuntimeTurnInput) => ({
+      id: "turn-history",
+      runId: "run-history",
+      sessionId: "thread-1",
+      events: events(),
+    }));
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        userMessage("Expand the document"),
+        {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "I retrieved the document." },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-call",
+              data: {
+                id: "call-get-document",
+                name: "get_document",
+                input: { documentId: "doc-1" },
+              },
+            },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-result",
+              data: {
+                id: "call-get-document",
+                name: "get_document",
+                resultText: "Document title: Project Brief",
+              },
+            },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-call",
+              data: {
+                id: "call-search-1",
+                name: "docs-search",
+                input: { query: "project brief" },
+              },
+            },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-result",
+              data: {
+                id: "call-search-1",
+                name: "docs-search",
+                result: [{ title: "Project Brief" }],
+              },
+            },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-call",
+              data: {
+                id: "call-search-2",
+                name: "docs-search",
+                input: { query: "roadmap" },
+              },
+            },
+            {
+              type: "data",
+              mediaType: "application/x-agent-native-tool-result",
+              data: {
+                id: "call-search-2",
+                name: "docs-search",
+                resultText: "Provider timed out.",
+                isError: true,
+              },
+            },
+          ],
+        },
+        userMessage("Which tools did you call?"),
+      ],
+    });
+
+    expect(startTurn.mock.calls[0]?.[0]).toMatchObject({
+      prompt: "Which tools did you call?",
+      messages: [
+        expect.objectContaining({
+          role: "user",
+          content: [{ type: "text", text: "Expand the document" }],
+        }),
+        expect.objectContaining({
+          id: "assistant-1",
+          role: "assistant",
+          content: [
+            { type: "text", text: "I retrieved the document." },
+            {
+              type: "tool-call",
+              toolCallId: "call-get-document",
+              toolName: "get_document",
+              input: { documentId: "doc-1" },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-get-document",
+              toolName: "get_document",
+              resultText: "Document title: Project Brief",
+            },
+            {
+              type: "tool-call",
+              toolCallId: "call-search-1",
+              toolName: "docs-search",
+              input: { query: "project brief" },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-search-1",
+              toolName: "docs-search",
+              result: [{ title: "Project Brief" }],
+            },
+            {
+              type: "tool-call",
+              toolCallId: "call-search-2",
+              toolName: "docs-search",
+              input: { query: "roadmap" },
+            },
+            {
+              type: "tool-result",
+              toolCallId: "call-search-2",
+              toolName: "docs-search",
+              resultText: "Provider timed out.",
+              isError: true,
+            },
+          ],
+        }),
+        expect.objectContaining({
+          role: "user",
+          content: [{ type: "text", text: "Which tools did you call?" }],
+        }),
+      ],
+    });
+  });
+
+  it("forwards the after-setup resume marker to the turn the server claims it from", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async (_input: AgentChatRuntimeTurnInput) => ({
+      id: "turn-resume",
+      runId: "run-resume",
+      sessionId: "thread-1",
+      events: events(),
+    }));
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const custom = {
+      agentNativeRecoveryAction: "retry",
+      agentNativeRecoveryOfRunId: "run-refused",
+      agentNativeResumeAfterSetup: true,
+    };
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [{ ...userMessage("Create a deck"), metadata: { custom } }],
+      options: { metadata: { custom } },
+    });
+
+    expect(startTurn.mock.calls[0][0].metadata).toMatchObject({
+      agentNativeInternalContinuation: true,
+      custom,
     });
   });
 
@@ -524,6 +741,241 @@ describe("createAgentKitProtocolAdapter", () => {
           url: "/uploads/brief.pdf",
         },
       ],
+    });
+  });
+
+  it("preserves uploaded image bytes from protocol parts through model content", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    let startedTurn: AgentChatRuntimeTurnInput | undefined;
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: "runtime-test",
+      startTurn: async (turn) => {
+        startedTurn = turn;
+        return {
+          id: "turn-1",
+          runId: "core-run-1",
+          sessionId: "thread-1",
+          events: events(),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const imageUrl = `data:image/png;base64,${PNG_BASE64}`;
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          id: "user-image",
+          role: "user",
+          parts: [
+            { type: "text", text: "Match this visual reference" },
+            {
+              type: "file",
+              name: "reference.png",
+              // AgentKitAssistantChat used this sentinel before it learned to
+              // retain the data URL's real MIME type.
+              mediaType: "image",
+              url: imageUrl,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(startedTurn?.attachments).toMatchObject([
+      {
+        type: "image",
+        name: "reference.png",
+        mediaType: "image/png",
+        contentType: "image/png",
+        url: imageUrl,
+      },
+    ]);
+    const preUploaded = await preUploadAttachments({
+      attachments:
+        startedTurn?.attachments?.map((attachment) => ({
+          ...attachment,
+          type: attachment.type ?? "file",
+        })) ?? [],
+      ownerEmail: null,
+    });
+    expect(
+      buildUserContentWithAttachments({
+        text: "Match this visual reference",
+        attachments: preUploaded.attachments,
+      }),
+    ).toContainEqual({
+      type: "image",
+      data: PNG_BASE64,
+      mediaType: "image/png",
+    });
+  });
+
+  it("hydrates a provider-owned upload URL through protocol, runtime, and model input", async () => {
+    const providerId = "agentkit-protocol-owned-attachment-test";
+    registerFileUploadProvider({
+      id: providerId,
+      name: "Protocol attachment test storage",
+      isConfigured: () => true,
+      isOwnedUrl: (url) =>
+        new URL(url).origin === "https://storage.example.test",
+      upload: async () => ({
+        url: "https://storage.example.test/uploads/test.png",
+        provider: providerId,
+      }),
+    });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(Buffer.from(PNG_BASE64, "base64"), {
+          status: 200,
+          headers: {
+            "content-type": "image/png",
+            "content-length": String(
+              Buffer.from(PNG_BASE64, "base64").byteLength,
+            ),
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+        yield { type: "done", reason: "complete" };
+      }
+      const runtime = createRuntime(events);
+      let startedTurn: AgentChatRuntimeTurnInput | undefined;
+      runtime.createSession = async () => ({
+        id: "thread-1",
+        runtimeId: "runtime-test",
+        startTurn: async (turn) => {
+          startedTurn = turn;
+          return {
+            id: "turn-1",
+            runId: "core-run-1",
+            sessionId: "thread-1",
+            events: events(),
+          };
+        },
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+      await transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-owned-image",
+            role: "user",
+            parts: [
+              { type: "text", text: "Use the attached reference" },
+              {
+                type: "file",
+                name: "reference.png",
+                mediaType: "image/png",
+                url: "https://storage.example.test/uploads/test.png",
+              },
+            ],
+          },
+        ],
+      });
+
+      const preUploaded = await preUploadAttachments({
+        attachments:
+          startedTurn?.attachments?.map((attachment) => ({
+            ...attachment,
+            type: attachment.type ?? "file",
+          })) ?? [],
+        ownerEmail: null,
+      });
+      expect(preUploaded.readFailures).toEqual([]);
+      expect(
+        buildUserContentWithAttachments({
+          text: "Use the attached reference",
+          attachments: preUploaded.attachments,
+        }),
+      ).toContainEqual({
+        type: "image",
+        data: PNG_BASE64,
+        mediaType: "image/png",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      unregisterFileUploadProvider(providerId);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps an unknown file MIME as a model file part instead of dropping it", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    let startedTurn: AgentChatRuntimeTurnInput | undefined;
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: "runtime-test",
+      startTurn: async (turn) => {
+        startedTurn = turn;
+        return {
+          id: "turn-1",
+          runId: "core-run-1",
+          sessionId: "thread-1",
+          events: events(),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const fileUrl = `data:application/x-unrecognized;base64,${PNG_BASE64}`;
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          id: "user-file",
+          role: "user",
+          parts: [
+            { type: "text", text: "Inspect this file" },
+            {
+              type: "file",
+              name: "unknown.bin",
+              // The data URL's explicit MIME must beat a stale image sentinel.
+              mediaType: "image",
+              url: fileUrl,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(startedTurn?.attachments).toMatchObject([
+      {
+        type: "file",
+        name: "unknown.bin",
+        mediaType: "application/x-unrecognized",
+        contentType: "application/x-unrecognized",
+      },
+    ]);
+    const preUploaded = await preUploadAttachments({
+      attachments:
+        startedTurn?.attachments?.map((attachment) => ({
+          ...attachment,
+          type: attachment.type ?? "file",
+        })) ?? [],
+      ownerEmail: null,
+    });
+    expect(
+      buildUserContentWithAttachments({
+        text: "Inspect this file",
+        attachments: preUploaded.attachments,
+      }),
+    ).toContainEqual({
+      type: "file",
+      data: PNG_BASE64,
+      mediaType: "application/x-unrecognized",
+      filename: "unknown.bin",
     });
   });
 
@@ -829,9 +1281,17 @@ describe("createAgentKitProtocolAdapter", () => {
       toolCallId: "tool-1",
       outputTextDelta: "1 passed",
     });
+    expect(result[4]).toMatchObject({
+      type: "tool.started",
+      toolCall: { id: "tool-1", messageId: "assistant-1" },
+    });
     expect(result[7]).toMatchObject({
       type: "tool.updated",
-      toolCall: { name: "run_checks", output: { passed: 1 } },
+      toolCall: {
+        name: "run_checks",
+        output: { passed: 1 },
+        messageId: "assistant-1",
+      },
     });
     expect(result[5]).toMatchObject({
       type: "activity.started",
@@ -852,6 +1312,277 @@ describe("createAgentKitProtocolAdapter", () => {
     ).resolves.toMatchObject({
       status: "completed",
       lastSequence: 12,
+    });
+  });
+
+  it("does not associate a tool call with an already completed assistant message", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield {
+        type: "message-done",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          content: [{ type: "text", text: "That reply is complete." }],
+        },
+      };
+      yield {
+        type: "tool-start",
+        toolCall: { id: "tool-1", name: "search", input: { query: "next" } },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "tool-1",
+        toolName: "search",
+        status: "completed",
+        result: { found: true },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(result.find((event) => event.type === "tool.started")).toMatchObject(
+      {
+        type: "tool.started",
+        toolCall: { id: "tool-1" },
+      },
+    );
+    expect(
+      result.find((event) => event.type === "tool.started"),
+    ).not.toHaveProperty("toolCall.messageId");
+    expect(
+      result.find((event) => event.type === "tool.updated"),
+    ).not.toHaveProperty("toolCall.messageId");
+  });
+
+  it("associates a completed tool-first call with the next assistant message", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "tool-1",
+          name: "search",
+          input: { query: "agentkit" },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "tool-1",
+        toolName: "search",
+        status: "completed",
+        result: { found: true },
+      };
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          content: [{ type: "text", text: "I found it." }],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const toolUpdates = result.filter((event) => event.type === "tool.updated");
+
+    expect(toolUpdates).toHaveLength(2);
+    expect(toolUpdates[0]).not.toHaveProperty("toolCall.messageId");
+    expect(toolUpdates[1]).toMatchObject({
+      type: "tool.updated",
+      toolCall: {
+        id: "tool-1",
+        name: "search",
+        input: { query: "agentkit" },
+        output: { found: true },
+        status: "completed",
+        messageId: "assistant-1",
+      },
+    });
+    const messageCreatedSequence = result.find(
+      (event) => event.type === "message.created",
+    )?.sequence;
+    expect(toolUpdates[1]!.sequence).toBeGreaterThan(messageCreatedSequence!);
+  });
+
+  it("keeps an explicit tool-first message association over later assistant messages", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "tool-1",
+          name: "search",
+          input: { query: "agentkit" },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "tool-1",
+        toolName: "search",
+        status: "completed",
+        result: { found: true },
+        metadata: { messageId: "assistant-explicit" },
+      };
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-later",
+          role: "assistant",
+          content: [{ type: "text", text: "A later response." }],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const toolUpdates = result.filter((event) => event.type === "tool.updated");
+
+    expect(toolUpdates).toHaveLength(1);
+    expect(toolUpdates[0]).toMatchObject({
+      type: "tool.updated",
+      toolCall: { id: "tool-1", messageId: "assistant-explicit" },
+    });
+    expect(
+      result.find((event) => event.type === "message.created"),
+    ).toMatchObject({
+      message: { id: "assistant-later" },
+    });
+  });
+
+  it("does not associate tool-first calls with a nonassistant message", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: { id: "user-1", role: "user", content: [] },
+      };
+      yield {
+        type: "tool-start",
+        toolCall: {
+          id: "tool-1",
+          name: "search",
+          input: { query: "agentkit" },
+        },
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "tool-1",
+        toolName: "search",
+        status: "completed",
+        result: { found: true },
+      };
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    const started = result.find((event) => event.type === "tool.started");
+    const attached = result.filter((event) => event.type === "tool.updated");
+
+    expect(started).not.toHaveProperty("toolCall.messageId");
+    expect(attached).toHaveLength(2);
+    expect(attached[0]).not.toHaveProperty("toolCall.messageId");
+    expect(attached[1]).toMatchObject({
+      toolCall: { id: "tool-1", messageId: "assistant-1" },
+    });
+  });
+
+  it("bounds pending tool-first associations to the retained event limit", async () => {
+    const toolsReady = Promise.withResolvers<void>();
+    const continueToAssistant = Promise.withResolvers<void>();
+    const assistantReady = Promise.withResolvers<void>();
+    const continueAfterAssistant = Promise.withResolvers<void>();
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      for (let index = 1; index <= 3; index += 1) {
+        yield {
+          type: "tool-start",
+          toolCall: {
+            id: `tool-${index}`,
+            name: "search",
+            input: { query: `query-${index}` },
+          },
+        };
+        yield {
+          type: "tool-done",
+          toolCallId: `tool-${index}`,
+          toolName: "search",
+          status: "completed",
+          result: { found: true },
+        };
+      }
+      toolsReady.resolve();
+      await continueToAssistant.promise;
+      yield {
+        type: "message-start",
+        message: { id: "assistant-1", role: "assistant", content: [] },
+      };
+      assistantReady.resolve();
+      await continueAfterAssistant.promise;
+      yield { type: "done", reason: "complete" };
+    }
+
+    const transport = createAgentKitProtocolAdapter(createRuntime(events), {
+      maxRetainedEvents: 1,
+    });
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Search")],
+    });
+    await toolsReady.promise;
+    const beforeAssistant = await transport.getRun?.({
+      threadId: "thread-1",
+      runId,
+    });
+
+    continueToAssistant.resolve();
+    await assistantReady.promise;
+    const afterAssistant = await transport.getRun?.({
+      threadId: "thread-1",
+      runId,
+    });
+    expect(afterAssistant!.lastSequence - beforeAssistant!.lastSequence).toBe(
+      2,
+    );
+
+    continueAfterAssistant.resolve();
+    await vi.waitFor(async () => {
+      await expect(
+        transport.getRun?.({ threadId: "thread-1", runId }),
+      ).resolves.toMatchObject({ status: "completed" });
     });
   });
 
@@ -1718,7 +2449,6 @@ describe("createAgentKitProtocolAdapter", () => {
           yield { type: "done", reason: "complete" };
         }
         return {
-          id: "turn-2",
           sessionId: "thread-1",
           events: resumed(),
         };
@@ -1765,6 +2495,9 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(replacementRun?.metadata).not.toHaveProperty(
       "x-agent-native.observability.runtimeRunId",
     );
+    expect(replacementRun?.metadata).not.toHaveProperty(
+      "x-agent-native.observability.turnId",
+    );
     expect(await iterator.next()).toMatchObject({ done: true });
     const remaining = await drain(
       transport.subscribeToRun({
@@ -1776,6 +2509,9 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(continueTurnCalled).toBe(true);
     expect(remaining.map((event) => event.type)).toContain("approval.resolved");
     expect(remaining.map((event) => event.type)).toContain("run.completed");
+    remaining.forEach((event) =>
+      expect(() => parseAgentEvent(event)).not.toThrow(),
+    );
   });
 
   it("omits a missing runtime run id from initial run metadata", async () => {
@@ -1805,6 +2541,668 @@ describe("createAgentKitProtocolAdapter", () => {
     expect(startedRun?.metadata).not.toHaveProperty(
       "x-agent-native.observability.runtimeRunId",
     );
+  });
+
+  it("omits a missing runtime turn id from initial run metadata", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events);
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        sessionId: "thread-1",
+        events: events(),
+      }),
+    });
+
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Run it")],
+    });
+    const startedRun = await transport.getRun?.({
+      threadId: "thread-1",
+      runId,
+    });
+    expect(startedRun?.metadata).not.toHaveProperty(
+      "x-agent-native.observability.turnId",
+    );
+    const eventsReceived = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    eventsReceived.forEach((event) =>
+      expect(() => parseAgentEvent(event)).not.toThrow(),
+    );
+  });
+
+  it("includes a provided runtime turn id in replacement run metadata", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish the release?",
+      };
+      yield { type: "done", reason: "tool-use" };
+    }
+    const runtime = createRuntime(approvalEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true, approvals: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "runtime-run-1",
+        sessionId: "thread-1",
+        events: approvalEvents(),
+      }),
+      continueTurn: async () => ({
+        id: "turn-2",
+        sessionId: "thread-1",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })(),
+      }),
+    });
+
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+    const iterator = transport
+      .subscribeToRun({ threadId: "thread-1", runId })
+      [Symbol.asyncIterator]();
+    let approvalSeen = false;
+    while (!approvalSeen) {
+      const next = await iterator.next();
+      expect(next.done).toBe(false);
+      approvalSeen = next.value?.type === "approval.requested";
+    }
+
+    const resumed = await transport.resumeRun?.({
+      threadId: "thread-1",
+      runId,
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-1",
+          response: approvalResponse("approve"),
+        }),
+      ],
+    });
+    const replacementRun = await transport.getRun?.({
+      threadId: "thread-1",
+      runId: resumed!.runId,
+    });
+
+    expect(replacementRun?.metadata).toHaveProperty(
+      "x-agent-native.observability.turnId",
+      "turn-2",
+    );
+    expect(await iterator.next()).toMatchObject({ done: true });
+    const replacementEvents = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: resumed!.runId,
+      }),
+    );
+    replacementEvents.forEach((event) =>
+      expect(() => parseAgentEvent(event)).not.toThrow(),
+    );
+  });
+
+  it("resolves a resumed runtime run ID to its protocol run", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish the release?",
+      };
+      yield { type: "done", reason: "tool-use" };
+    }
+    async function* continuationEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "message-start",
+        message: {
+          id: "assistant-after-approval",
+          role: "assistant",
+          content: [],
+        },
+      };
+      yield {
+        type: "widget",
+        operation: "create",
+        widget: {
+          id: "tool-1:chat-ui",
+          kind: "release.summary",
+          data: { toolCallId: "tool-1", toolName: "publish" },
+        },
+      };
+      yield {
+        type: "message-done",
+        message: {
+          id: "assistant-after-approval",
+          role: "assistant",
+          content: [],
+        },
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const resume = vi.fn(async () => ({
+      id: "turn-restored",
+      runId: "runtime-after-approval",
+      sessionId: "thread-1",
+      events: continuationEvents(),
+    }));
+    const runtime = createRuntime(approvalEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        tools: { events: true, approvals: true },
+        resumableRuns: true,
+      },
+      resume,
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: runtime.id,
+      startTurn: async () => ({
+        id: "turn-before-approval",
+        runId: "runtime-before-approval",
+        sessionId: "thread-1",
+        events: approvalEvents(),
+      }),
+      continueTurn: async () => ({
+        id: "turn-after-approval",
+        runId: "runtime-after-approval",
+        sessionId: "thread-1",
+        events: continuationEvents(),
+      }),
+    });
+
+    const transport = createAgentKitProtocolAdapter(runtime, {
+      createId: () => "protocol-after-approval",
+    });
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Publish it")],
+    });
+    const initial = transport.subscribeToRun({ threadId: "thread-1", runId });
+    const initialIterator = initial[Symbol.asyncIterator]();
+    while (true) {
+      const next = await initialIterator.next();
+      expect(next.done).toBe(false);
+      if (next.value?.type === "approval.requested") break;
+    }
+
+    const resumed = await transport.resumeRun?.({
+      threadId: "thread-1",
+      runId,
+      resume: [
+        resumeEntryFromApproval({
+          approvalId: "approval-1",
+          response: approvalResponse("approve"),
+        }),
+      ],
+    });
+    expect(resumed?.runId).toBe("protocol-after-approval");
+    expect(
+      await transport.getRun?.({
+        threadId: "thread-1",
+        runId: "runtime-after-approval",
+      }),
+    ).toMatchObject({ id: "protocol-after-approval" });
+
+    const replayed = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: "runtime-after-approval",
+      }),
+    );
+
+    expect(resume).not.toHaveBeenCalled();
+    expect(
+      replayed.filter((event) => event.type === "message.completed"),
+    ).toHaveLength(1);
+    expect(
+      replayed.filter(
+        (event) =>
+          event.type === "widget.created" || event.type === "widget.updated",
+      ),
+    ).toHaveLength(1);
+    expect(new Set(replayed.map((event) => event.runId))).toEqual(
+      new Set(["protocol-after-approval"]),
+    );
+    await initialIterator.return?.();
+  });
+
+  it("reuses the active protocol run when authority exposes its successor", async () => {
+    let releaseInitialStream!: () => void;
+    const initialStreamGate = new Promise<void>((resolve) => {
+      releaseInitialStream = resolve;
+    });
+    async function* initialEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      await initialStreamGate;
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(initialEvents, {
+      capabilities: {
+        messages: { streaming: true },
+        resumableRuns: true,
+      },
+      async readRunState() {
+        return {
+          status: "running",
+          runId: "runtime-after-queue",
+          turnId: "turn-queued-message",
+          terminalReason: null,
+        };
+      },
+      async subscribe() {
+        return (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })();
+      },
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn: async () => ({
+            id: "turn-queued-message",
+            runId: "runtime-before-queue",
+            sessionId: "thread-1",
+            events: initialEvents(),
+          }),
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime, {
+      createId: () => "protocol-queued-run",
+    });
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Start the queued turn")],
+    });
+
+    const successorIterator = transport
+      .subscribeToRun({
+        threadId: "thread-1",
+        runId: "runtime-after-queue",
+      })
+      [Symbol.asyncIterator]();
+    const [activeRun, successorEvent] = await Promise.all([
+      transport.getRun?.({
+        threadId: "thread-1",
+        runId: "runtime-after-queue",
+      }),
+      successorIterator.next(),
+    ]);
+
+    expect(activeRun).toMatchObject({
+      id: runId,
+      status: "running",
+    });
+    expect(successorEvent).toMatchObject({
+      done: false,
+      value: { runId },
+    });
+    await successorIterator.return?.();
+    releaseInitialStream();
+    const replay = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+    expect(replay.some((event) => event.type === "run.completed")).toBe(true);
+    await transport.dispose();
+  });
+
+  it("reuses a restored run when its queued turn starts afterward", async () => {
+    const startTurn = vi.fn(async () => {
+      throw new Error("the restored queued turn must not start twice");
+    });
+    async function* waitForAbort(
+      signal?: AbortSignal,
+    ): AsyncIterable<AgentChatRuntimeEvent> {
+      if (!signal) return;
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", resolve, { once: true });
+      });
+    }
+    const runtime = createRuntime(
+      async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+        yield { type: "done", reason: "complete" };
+      },
+      {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+        },
+        async readRunState() {
+          return {
+            status: "running",
+            runId: "runtime-restored-queue",
+            turnId: "turn-queued-message",
+            terminalReason: null,
+          };
+        },
+        async subscribe(input) {
+          return waitForAbort(input.abortSignal);
+        },
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn,
+          };
+        },
+      },
+    );
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const restoredIterator = transport
+      .subscribeToRun({
+        threadId: "thread-1",
+        runId: "runtime-restored-queue",
+      })
+      [Symbol.asyncIterator]();
+
+    const restoredStart = await restoredIterator.next();
+    expect(restoredStart).toMatchObject({
+      done: false,
+      value: { runId: "runtime-restored-queue", type: "run.started" },
+    });
+
+    const promoted = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Promote the queued turn")],
+      queuePromotion: {
+        messageId: "queued-message",
+        claimId: "claim-1",
+        turnId: "turn-queued-message",
+      },
+    });
+
+    expect(promoted.runId).toBe("runtime-restored-queue");
+    expect(startTurn).not.toHaveBeenCalled();
+    await restoredIterator.return?.();
+    await transport.dispose();
+  });
+
+  it("coalesces overlapping starts for the same queued turn", async () => {
+    let releaseTurn!: (turn: AgentChatRuntimeTurn) => void;
+    const turnPromise = new Promise<AgentChatRuntimeTurn>((resolve) => {
+      releaseTurn = resolve;
+    });
+    let reportStartTurnCalled!: () => void;
+    const startTurnCalled = new Promise<void>((resolve) => {
+      reportStartTurnCalled = resolve;
+    });
+    const startTurn = vi.fn(() => {
+      reportStartTurnCalled();
+      return turnPromise;
+    });
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const input = {
+      threadId: "thread-1",
+      messages: [userMessage("Promote the queued turn")],
+      queuePromotion: {
+        messageId: "queued-message",
+        claimId: "claim-1",
+        turnId: "turn-queued-message",
+      },
+    };
+
+    const first = transport.startRun(input);
+    await startTurnCalled;
+    const second = transport.startRun(input);
+    releaseTurn({
+      id: "turn-queued-message",
+      runId: "runtime-queued-run",
+      sessionId: "thread-1",
+      events: events(),
+    });
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(firstResult.runId).toBe(secondResult.runId);
+    expect(startTurn).toHaveBeenCalledOnce();
+    await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: firstResult.runId,
+      }),
+    );
+    await transport.dispose();
+  });
+
+  it("reuses a queued start while restoring its runtime successor", async () => {
+    let releaseTurn!: (turn: AgentChatRuntimeTurn) => void;
+    const turnPromise = new Promise<AgentChatRuntimeTurn>((resolve) => {
+      releaseTurn = resolve;
+    });
+    let releaseAuthorityRead!: () => void;
+    const authorityReadGate = new Promise<void>((resolve) => {
+      releaseAuthorityRead = resolve;
+    });
+    let reportAuthorityReadCalled!: () => void;
+    const authorityReadCalled = new Promise<void>((resolve) => {
+      reportAuthorityReadCalled = resolve;
+    });
+    let reportStartTurnCalled!: () => void;
+    const startTurnCalled = new Promise<void>((resolve) => {
+      reportStartTurnCalled = resolve;
+    });
+    const startTurn = vi.fn(() => {
+      reportStartTurnCalled();
+      return turnPromise;
+    });
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events, {
+      capabilities: {
+        messages: { streaming: true },
+        resumableRuns: true,
+      },
+      async readRunState() {
+        reportAuthorityReadCalled();
+        await authorityReadGate;
+        return {
+          status: "running",
+          runId: "runtime-successor",
+          turnId: "turn-queued-message",
+          terminalReason: null,
+        };
+      },
+      async subscribe() {
+        return (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })();
+      },
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const input = {
+      threadId: "thread-1",
+      messages: [userMessage("Promote the queued turn")],
+      queuePromotion: {
+        messageId: "queued-message",
+        claimId: "claim-1",
+        turnId: "turn-queued-message",
+      },
+    };
+
+    const start = transport.startRun(input);
+    await startTurnCalled;
+    const restoredIterator = transport
+      .subscribeToRun({
+        threadId: "thread-1",
+        runId: "runtime-successor",
+      })
+      [Symbol.asyncIterator]();
+    const restoredStartPromise = restoredIterator.next();
+    await authorityReadCalled;
+    releaseAuthorityRead();
+    const restoredBeforeStartFinished = await Promise.race([
+      restoredStartPromise.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 0)),
+    ]);
+    expect(restoredBeforeStartFinished).toBe(false);
+    releaseTurn({
+      id: "turn-queued-message",
+      runId: "runtime-initial",
+      sessionId: "thread-1",
+      events: events(),
+    });
+    const [{ runId }, restoredStart] = await Promise.all([
+      start,
+      restoredStartPromise,
+    ]);
+
+    expect(startTurn).toHaveBeenCalledOnce();
+    expect(restoredStart).toMatchObject({
+      done: false,
+      value: { runId, type: "run.started" },
+    });
+    await restoredIterator.return?.();
+    await transport.dispose();
+  });
+
+  it("restores a runtime run after its queued promotion fails", async () => {
+    let rejectTurn!: (error: Error) => void;
+    const turnPromise = new Promise<AgentChatRuntimeTurn>(
+      (_resolve, reject) => {
+        rejectTurn = reject;
+      },
+    );
+    let reportStartTurnCalled!: () => void;
+    const startTurnCalled = new Promise<void>((resolve) => {
+      reportStartTurnCalled = resolve;
+    });
+    const startTurn = vi.fn(() => {
+      reportStartTurnCalled();
+      return turnPromise;
+    });
+    async function* waitForAbort(
+      signal?: AbortSignal,
+    ): AsyncIterable<AgentChatRuntimeEvent> {
+      if (!signal) return;
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", resolve, { once: true });
+      });
+    }
+    const runtime = createRuntime(
+      async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+        yield { type: "done", reason: "complete" };
+      },
+      {
+        capabilities: {
+          messages: { streaming: true },
+          resumableRuns: true,
+        },
+        async readRunState() {
+          return {
+            status: "running",
+            runId: "runtime-restored-failed-queue",
+            turnId: "turn-queued-message",
+            terminalReason: null,
+          };
+        },
+        async subscribe(input) {
+          return waitForAbort(input.abortSignal);
+        },
+        async createSession() {
+          return {
+            id: "thread-1",
+            runtimeId: "runtime-test",
+            startTurn,
+          };
+        },
+      },
+    );
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const promotion = transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Promote the queued turn")],
+      queuePromotion: {
+        messageId: "queued-message",
+        claimId: "claim-1",
+        turnId: "turn-queued-message",
+      },
+    });
+    await startTurnCalled;
+    const restoredIterator = transport
+      .subscribeToRun({
+        threadId: "thread-1",
+        runId: "runtime-restored-failed-queue",
+      })
+      [Symbol.asyncIterator]();
+    const restoredStart = restoredIterator.next();
+    rejectTurn(new Error("queued promotion failed"));
+
+    await expect(promotion).rejects.toThrow("queued promotion failed");
+    await expect(restoredStart).resolves.toMatchObject({
+      done: false,
+      value: {
+        runId: "runtime-restored-failed-queue",
+        type: "run.started",
+      },
+    });
+
+    await restoredIterator.return?.();
+    await transport.dispose();
+  });
+
+  it("omits a missing runtime turn id from restored run metadata", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events, {
+      capabilities: {
+        messages: { streaming: true, history: true, attachments: true },
+        resumableRuns: true,
+      },
+      async resume({ sessionId, runId }) {
+        return { sessionId, runId, events: events() };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    const restoredEvents = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: "restored-run",
+      }),
+    );
+
+    expect(restoredEvents.at(-1)?.type).toBe("run.completed");
+    expect(() =>
+      restoredEvents.forEach((event) => parseAgentEvent(event)),
+    ).not.toThrow();
+    await transport.dispose();
   });
 
   it("cancels a paused Core turn after its approval stream closes", async () => {
@@ -2171,6 +3569,238 @@ describe("createAgentKitProtocolAdapter", () => {
       ["/_agent-native/agent-chat/runs/run-2/events", "0"],
       ["/_agent-native/agent-chat/runs/run-3/events", "0"],
     ]);
+    await transport.dispose();
+  });
+
+  it("keeps optimized durable URLs beside inline pixels and original references", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async (_input: AgentChatRuntimeTurnInput) => ({
+      id: "turn-resized-image",
+      runId: "run-resized-image",
+      sessionId: "thread-1",
+      events: events(),
+    }));
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const originalUrl = "https://files.example.test/reference-original.png";
+    const resizedUrl = "https://files.example.test/reference-resized.jpg";
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [
+        {
+          ...userMessage("Use this reference"),
+          parts: [
+            { type: "text", text: "Use this reference" },
+            {
+              type: "file",
+              name: "reference-original.png",
+              mediaType: "image/png",
+              url: originalUrl,
+            },
+          ],
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference-original.png",
+          contentType: "image/jpeg",
+          data: "data:image/jpeg;base64,UkVTSVpFRA==",
+          url: resizedUrl,
+          referenceUrl: originalUrl,
+        },
+      ],
+    });
+
+    expect(startTurn).toHaveBeenCalledOnce();
+    expect(startTurn.mock.calls[0]?.[0].attachments).toEqual([
+      {
+        type: "file",
+        name: "reference-original.png",
+        contentType: "image/png",
+        url: originalUrl,
+        referenceOnly: true,
+      },
+      {
+        type: "image",
+        name: "reference-original.png",
+        contentType: "image/jpeg",
+        data: "data:image/jpeg;base64,UkVTSVpFRA==",
+        url: resizedUrl,
+      },
+    ]);
+    await transport.dispose();
+  });
+
+  it("preserves turn context through client time-limit continuation", async () => {
+    const sseResponse = (events: unknown[], runId: string) =>
+      new Response(
+        events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+        {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "X-Run-Id": runId,
+          },
+        },
+      );
+    let turnId: string | undefined;
+    let continuationRequest: Record<string, unknown> | undefined;
+    const originalPrompt = "Create a 1080x1350 Instagram post";
+    const referenceUrl = "https://files.example.test/instagram-reference.png";
+    const visionUrl =
+      "https://files.example.test/instagram-reference-resized.jpg";
+    const olderMessages: AgentMessage[] = [
+      { ...userMessage("Earlier project context"), id: "user-earlier" },
+      {
+        id: "user-current",
+        role: "user",
+        parts: [
+          { type: "text", text: originalPrompt },
+          {
+            type: "file",
+            name: "instagram-reference.png",
+            mediaType: "image/png",
+            url: referenceUrl,
+          },
+        ],
+      },
+      {
+        id: "assistant-long-run",
+        role: "assistant",
+        parts: [
+          ...Array.from({ length: 130 }, (_, index) => ({
+            type: "text" as const,
+            text: `Recent working note ${index}`,
+          })),
+          {
+            type: "data",
+            mediaType: AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE,
+            data: { id: "call-design", name: "edit-design", input: {} },
+          },
+        ],
+      },
+    ];
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), "http://localhost");
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (method === "POST") {
+          const request = JSON.parse(String(init?.body)) as Record<
+            string,
+            unknown
+          >;
+          if (request.autoContinueOfRunId === "run-1") {
+            continuationRequest = request;
+            return sseResponse(
+              [
+                { type: "text", text: "part two", seq: 0 },
+                { type: "done", seq: 1 },
+              ],
+              "run-2",
+            );
+          }
+          turnId = String(request.turnId);
+          return sseResponse(
+            [
+              { type: "text", text: "part one ", seq: 0 },
+              { type: "auto_continue", reason: "run_timeout", seq: 1 },
+            ],
+            "run-1",
+          );
+        }
+        if (url.pathname.endsWith("/runs/latest")) {
+          return Response.json({
+            runId: "run-1",
+            status: "truncated",
+            terminalReason: "run_timeout",
+            turnId,
+            dispatchMode: "foreground",
+          });
+        }
+        if (url.pathname.endsWith("/runs/run-1/events")) {
+          return sseResponse([], "run-1");
+        }
+        throw new Error(`Unexpected runtime request: ${url}`);
+      },
+    ) as typeof fetch;
+    const transport = createAgentKitProtocolAdapter(
+      createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetchMock,
+      }),
+    );
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: olderMessages,
+      requestAttachments: [
+        {
+          type: "image",
+          name: "instagram-reference.png",
+          contentType: "image/jpeg",
+          url: visionUrl,
+          referenceUrl,
+        },
+      ],
+      options: {
+        model: "continuation-context-model",
+        reasoningEffort: "high",
+        metadata: { turnContextMarker: "preserved" },
+      },
+    });
+
+    const result = await drain(
+      transport.subscribeToRun({ threadId: "thread-1", runId }),
+    );
+
+    expect(result.at(-1)?.type).toBe("run.completed");
+    const promptWithAttachment = `${originalPrompt}\n[attached: instagram-reference.png image/png ${referenceUrl}]`;
+    expect(continuationRequest).toMatchObject({
+      model: "continuation-context-model",
+      effort: "high",
+      autoContinueOfRunId: "run-1",
+      history: expect.arrayContaining([
+        { role: "user", content: "Earlier project context" },
+        { role: "user", content: promptWithAttachment },
+      ]),
+      attachments: [
+        {
+          type: "file",
+          name: "instagram-reference.png",
+          contentType: "image/png",
+          url: referenceUrl,
+          referenceOnly: true,
+        },
+        {
+          type: "image",
+          name: "instagram-reference.png",
+          contentType: "image/jpeg",
+          url: visionUrl,
+        },
+      ],
+      structuredHistory: expect.arrayContaining([
+        {
+          role: "user",
+          content: [{ type: "text", text: promptWithAttachment }],
+        },
+      ]),
+      metadata: { turnContextMarker: "preserved" },
+    });
+    expect(
+      (
+        continuationRequest?.attachments as Array<{ type?: string }> | undefined
+      )?.filter((attachment) => attachment.type === "image"),
+    ).toHaveLength(1);
     await transport.dispose();
   });
 
@@ -3032,6 +4662,212 @@ describe("createAgentKitProtocolAdapter", () => {
     );
   });
 
+  it("reuses the continued owner when a queued turn keeps its id", async () => {
+    async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "approval-request",
+        approvalId: "approval-1",
+        toolCallId: "tool-1",
+        toolName: "publish",
+        message: "Publish?",
+      };
+      await new Promise<void>(() => {});
+    }
+    const startTurn = vi.fn(async () => ({
+      id: "turn-queued",
+      runId: "runtime-queued",
+      sessionId: "thread-1",
+      events: approvalEvents(),
+    }));
+    const continueTurn = vi.fn(async () => ({
+      id: "turn-queued",
+      runId: "runtime-continued",
+      sessionId: "thread-1",
+      events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+        yield { type: "done", reason: "complete" };
+      })(),
+    }));
+    const runtime = createRuntime(async function* () {}, {
+      capabilities: {
+        messages: { streaming: true, history: true, attachments: true },
+        tools: { events: true, approvals: true },
+      },
+    });
+    runtime.createSession = async () => ({
+      id: "thread-1",
+      runtimeId: "runtime-test",
+      startTurn,
+      continueTurn,
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const queuePromotion = {
+      messageId: "queued-message",
+      claimId: "claim-1",
+      turnId: "turn-queued",
+    };
+
+    try {
+      const { runId } = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Publish this queued item")],
+        queuePromotion,
+      });
+      const iterator = transport
+        .subscribeToRun({ threadId: "thread-1", runId })
+        [Symbol.asyncIterator]();
+      while (true) {
+        const next = await iterator.next();
+        if (next.value?.type === "approval.requested") break;
+      }
+
+      const resumed = await transport.resumeRun!({
+        threadId: "thread-1",
+        runId,
+        resume: [
+          resumeEntryFromApproval({
+            approvalId: "approval-1",
+            response: approvalResponse("approve"),
+          }),
+        ],
+      });
+      const promoted = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Publish this queued item")],
+        queuePromotion,
+      });
+
+      expect(promoted.runId).toBe(resumed.runId);
+      expect(startTurn).toHaveBeenCalledOnce();
+      expect(continueTurn).toHaveBeenCalledOnce();
+      await iterator.return?.();
+      const events = await drain(
+        transport.subscribeToRun({
+          threadId: "thread-1",
+          runId: resumed.runId,
+        }),
+      );
+      expect(events.some((event) => event.type === "run.completed")).toBe(true);
+    } finally {
+      await transport.dispose();
+    }
+  });
+
+  describe("continuing a stopped run", () => {
+    function stoppedRunRuntime(state: ServerRunState) {
+      const continueTurn = vi.fn(async () => ({
+        id: "turn-1",
+        runId: "run-continued",
+        sessionId: "thread-1",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })(),
+      }));
+      const readRunState = vi.fn(async () => state);
+      const runtime = createRuntime(async function* () {}, {
+        readRunState,
+        subscribe: async () => (async function* () {})(),
+      });
+      runtime.createSession = async () => ({
+        id: "thread-1",
+        runtimeId: runtime.id,
+        startTurn: async () => {
+          throw new Error("Continuing must not start a new turn.");
+        },
+        continueTurn,
+      });
+      return { runtime, continueTurn, readRunState };
+    }
+
+    it("continues the turn the server says the run ended, after a reload", async () => {
+      const { runtime, continueTurn, readRunState } = stoppedRunRuntime({
+        status: "errored",
+        runId: "run-crashed",
+        turnId: "turn-1",
+        terminalReason: "stale_run",
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+
+      const { runId } = await transport.continueRun!({
+        threadId: "thread-1",
+        runId: "run-crashed",
+      });
+      const events = await drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId }),
+      );
+
+      expect(readRunState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: "thread-1",
+          runId: "run-crashed",
+        }),
+      );
+      expect(continueTurn).toHaveBeenCalledWith({
+        turnId: "turn-1",
+        prompt: AUTO_CONTINUE_PROMPT,
+        metadata: { [CONTINUE_OF_RUN_METADATA_KEY]: "run-crashed" },
+        abortSignal: expect.any(AbortSignal),
+      });
+      expect(runId).toBe("run-continued");
+      expect(events.map((event) => event.type)).toContain("run.completed");
+    });
+
+    it("re-sends the turn's durable attachment references, never inline bytes", async () => {
+      const { runtime, continueTurn } = stoppedRunRuntime({
+        status: "errored",
+        runId: "run-crashed",
+        turnId: "turn-1",
+        terminalReason: "stale_run",
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+
+      await transport.continueRun!({
+        threadId: "thread-1",
+        runId: "run-crashed",
+        attachments: [
+          {
+            type: "file",
+            name: "ad.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/ad.png",
+          },
+          {
+            type: "file",
+            name: "inline.png",
+            mediaType: "image/png",
+            url: "data:image/png;base64,SGVsbG8=",
+          },
+        ],
+      });
+
+      expect(continueTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attachments: [
+            {
+              type: "image",
+              name: "ad.png",
+              mediaType: "image/png",
+              contentType: "image/png",
+              url: "https://files.example.test/ad.png",
+            },
+          ],
+        }),
+      );
+      expect(JSON.stringify(continueTurn.mock.calls)).not.toContain("base64,");
+    });
+
+    it("refuses with a typed error when the server has no such run", async () => {
+      const { runtime, continueTurn } = stoppedRunRuntime({
+        status: "missing",
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+
+      await expect(
+        transport.continueRun!({ threadId: "thread-1", runId: "run-gone" }),
+      ).rejects.toMatchObject({ code: "continue_unavailable" });
+      expect(continueTurn).not.toHaveBeenCalled();
+    });
+  });
+
   it("retries session creation after a failed attempt", async () => {
     let attempts = 0;
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
@@ -3133,6 +4969,157 @@ describe("createAgentKitProtocolAdapter", () => {
         messages: [userMessage("Again")],
       }),
     ).rejects.toThrow("disposed");
+  });
+
+  it("resolves the runtime session before cancelling a run restored after reload", async () => {
+    const cancelled = vi.fn(async () => ({ status: "cancelled" as const }));
+    const session = {
+      id: "runtime-session-1",
+      runtimeId: "runtime-test",
+      threadId: "thread-1",
+      startTurn: async () => ({
+        id: "turn-1",
+        sessionId: "runtime-session-1",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          yield { type: "done", reason: "complete" };
+        })(),
+      }),
+    };
+    const getSession = vi.fn(async () => session);
+    const runtime = createRuntime(
+      async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+        yield { type: "done", reason: "complete" };
+      },
+      { getSession, cancel: cancelled },
+    );
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.cancelRun({
+      threadId: "thread-1",
+      runId: "run-restored-after-reload",
+    });
+
+    expect(getSession).toHaveBeenCalledWith({ sessionId: "thread-1" });
+    expect(cancelled).toHaveBeenCalledWith({
+      sessionId: "runtime-session-1",
+      runId: "run-restored-after-reload",
+      reason: "protocol-cancel",
+    });
+    await transport.dispose();
+  });
+
+  it("falls back to session cancellation when runtime cancellation is unsupported", async () => {
+    const stopped = Promise.withResolvers<void>();
+    const cancelTurn = vi.fn(async () => {
+      stopped.resolve();
+      return { status: "cancelled" as const };
+    });
+    const session = {
+      id: "runtime-session-2",
+      runtimeId: "runtime-test",
+      threadId: "thread-1",
+      cancelTurn,
+      startTurn: async () => ({
+        id: "unused-turn",
+        sessionId: "runtime-session-2",
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          await stopped.promise;
+        })(),
+      }),
+    };
+    const getSession = vi.fn(async () => session);
+    const runtimeCancel = vi.fn(async () => ({
+      status: "unsupported" as const,
+    }));
+    const resume = vi.fn(
+      async (
+        input: Parameters<NonNullable<AgentChatRuntime["resume"]>>[0],
+      ) => ({
+        id: "turn-restored-2",
+        sessionId: input.sessionId,
+        runId: input.runId,
+        events: (async function* (): AsyncIterable<AgentChatRuntimeEvent> {
+          await stopped.promise;
+        })(),
+      }),
+    );
+    const runtime = createRuntime(
+      async function* (): AsyncIterable<AgentChatRuntimeEvent> {},
+      {
+        capabilities: {
+          messages: { streaming: true, history: true },
+          resumableRuns: true,
+        },
+        getSession,
+        cancel: runtimeCancel,
+        resume,
+      },
+    );
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    await transport.cancelRun({
+      threadId: "thread-1",
+      runId: "run-restored-with-session-cancel",
+    });
+
+    expect(runtimeCancel).toHaveBeenCalledWith({
+      sessionId: "runtime-session-2",
+      runId: "run-restored-with-session-cancel",
+      reason: "protocol-cancel",
+    });
+    expect(resume).toHaveBeenCalledWith({
+      sessionId: "runtime-session-2",
+      runId: "run-restored-with-session-cancel",
+      after: 0,
+      abortSignal: expect.any(AbortSignal),
+    });
+    expect(cancelTurn).toHaveBeenCalledWith({
+      turnId: "turn-restored-2",
+      runId: "run-restored-with-session-cancel",
+      reason: "user",
+    });
+    await expect(
+      transport.getRun?.({
+        threadId: "thread-1",
+        runId: "run-restored-with-session-cancel",
+      }),
+    ).resolves.toMatchObject({ status: "cancelled" });
+    await transport.dispose();
+  });
+
+  it("does not cancel a known run through a different thread", async () => {
+    const cancelled = vi.fn(async () => ({ status: "cancelled" as const }));
+    async function* activeEvents(): AsyncIterable<AgentChatRuntimeEvent> {
+      await new Promise<void>(() => {});
+    }
+    const runtime = createRuntime(activeEvents, { cancel: cancelled });
+    runtime.createSession = async (input) => ({
+      id: "runtime-session-1",
+      runtimeId: runtime.id,
+      threadId: input?.threadId,
+      startTurn: async () => ({
+        id: "turn-1",
+        runId: "run-thread-1",
+        sessionId: "runtime-session-1",
+        events: activeEvents(),
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Keep this run scoped")],
+    });
+
+    await expect(
+      transport.cancelRun({
+        threadId: "thread-2",
+        runId: "run-thread-1",
+      }),
+    ).rejects.toThrow("Unknown AgentKit run: run-thread-1");
+    expect(cancelled).not.toHaveBeenCalled();
+
+    cancelled.mockClear();
+    await transport.dispose();
   });
 
   it("bounds process-local event retention and rejects stale cursors", async () => {

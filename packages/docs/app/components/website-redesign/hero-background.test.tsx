@@ -1,221 +1,65 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-import { ShellSettledProvider } from "../../shell-ready";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { HeroBackground } from "./hero-background";
 
-const { oceanMount, shaderMount } = vi.hoisted(() => ({
-  oceanMount: vi.fn(),
-  shaderMount: vi.fn(),
-}));
+const { waveMount } = vi.hoisted(() => ({ waveMount: vi.fn() }));
 
-vi.mock("./hero-shader-background", () => ({
-  HeroShaderBackground: () => {
-    shaderMount();
-    return <div data-testid="halftone" />;
+vi.mock("@agent-native/toolkit/app/shared", () => ({
+  WaveBackground: ({ className }: { className?: string }) => {
+    waveMount();
+    return <div className={className} data-testid="shared-wave" />;
   },
 }));
-
-vi.mock("./ocean/hero-ocean-background", () => ({
-  HeroOceanBackground: (props: { onError: (error: unknown) => void }) => {
-    oceanMount(props);
-    return <div data-testid="ocean" />;
-  },
-}));
-
-function stubReducedMotion(matches: boolean) {
-  const listeners = new Set<() => void>();
-  const query = {
-    matches,
-    addEventListener: (_: string, cb: () => void) => listeners.add(cb),
-    removeEventListener: (_: string, cb: () => void) => listeners.delete(cb),
-  };
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn(() => query),
-  );
-  window.matchMedia = vi.fn(() => query) as never;
-  return {
-    fire(next: boolean) {
-      query.matches = next;
-      for (const cb of listeners) cb();
-    },
-  };
-}
-
-function stubGpu(requestAdapter: () => Promise<unknown>) {
-  Object.defineProperty(navigator, "gpu", {
-    configurable: true,
-    value: { requestAdapter },
-  });
-}
-
-function removeGpu() {
-  Object.defineProperty(navigator, "gpu", {
-    configurable: true,
-    value: undefined,
-  });
-}
-
-beforeEach(() => {
-  stubReducedMotion(false);
-});
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  removeGpu();
-  oceanMount.mockClear();
-  shaderMount.mockClear();
+  Object.defineProperty(navigator, "gpu", {
+    configurable: true,
+    value: undefined,
+  });
+  waveMount.mockClear();
 });
-
-function Settled({ children }: { children: React.ReactNode }) {
-  return <ShellSettledProvider value>{children}</ShellSettledProvider>;
-}
 
 describe("HeroBackground", () => {
-  it("renders the ocean when an adapter is available", async () => {
-    stubGpu(async () => ({ name: "adapter" }));
-    render(
-      <Settled>
-        <HeroBackground />
-      </Settled>,
+  it("keeps the background inside the clipped homepage hero section", () => {
+    const route = readFileSync(
+      resolve(process.cwd(), "app/routes/_index.tsx"),
+      "utf8",
     );
-    expect(await screen.findByTestId("ocean")).toBeDefined();
-  });
-
-  it("never flashes the halftone before the ocean", async () => {
-    stubGpu(async () => ({ name: "adapter" }));
-    render(
-      <Settled>
-        <HeroBackground />
-      </Settled>,
+    const hero = readFileSync(
+      resolve(process.cwd(), "app/components/website-redesign/hero.tsx"),
+      "utf8",
     );
 
-    expect(screen.queryByTestId("halftone")).toBeNull();
-    await screen.findByTestId("ocean");
-    expect(screen.queryByTestId("halftone")).toBeNull();
-  });
-
-  it("renders the halftone fallback when WebGPU is absent", async () => {
-    removeGpu();
-    render(
-      <Settled>
-        <HeroBackground />
-      </Settled>,
+    expect(route).not.toContain("HeroBackground");
+    expect(hero.match(/<HeroBackground \/>/g)).toHaveLength(1);
+    expect(hero.indexOf("<HeroBackground />")).toBeLessThan(
+      hero.indexOf("<GridInner"),
     );
-    await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
-    expect(screen.queryByTestId("ocean")).toBeNull();
   });
 
-  it("treats a null adapter as unsupported rather than as a device", async () => {
-    stubGpu(async () => null);
-    render(
-      <Settled>
-        <HeroBackground />
-      </Settled>,
-    );
-    await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
-    expect(screen.queryByTestId("ocean")).toBeNull();
-  });
-
-  it("falls back when the adapter request rejects", async () => {
-    stubGpu(async () => {
-      throw new Error("adapter exploded");
+  it("renders the shared Toolkit wave on the homepage", () => {
+    const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
+    Object.defineProperty(navigator, "gpu", {
+      configurable: true,
+      value: { requestAdapter },
     });
-    render(
-      <Settled>
-        <HeroBackground />
-      </Settled>,
-    );
-    await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
-    expect(screen.queryByTestId("ocean")).toBeNull();
-  });
 
-  it("renders no background at all while the probe is in flight", () => {
-    stubGpu(() => new Promise(() => {}));
-    render(
-      <Settled>
-        <HeroBackground />
-      </Settled>,
-    );
-    expect(screen.queryByTestId("halftone")).toBeNull();
-    expect(screen.queryByTestId("ocean")).toBeNull();
-  });
+    render(<HeroBackground />);
 
-  it("skips the probe entirely under reduced motion", async () => {
-    stubReducedMotion(true);
-    const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
-    stubGpu(requestAdapter);
-    render(
-      <Settled>
-        <HeroBackground />
-      </Settled>,
-    );
-    await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
+    const wave = screen.getByTestId("shared-wave");
+    expect(wave.className).toContain("absolute");
+    expect(wave.className).toContain("inset-0");
+    expect(wave.className).toContain("z-[-1]");
+    expect(wave.className).not.toContain("fixed");
     expect(requestAdapter).not.toHaveBeenCalled();
-  });
-
-  it("demotes to the fallback when reduced motion turns on mid-session", async () => {
-    const motion = stubReducedMotion(false);
-    stubGpu(async () => ({ name: "adapter" }));
-    render(
-      <Settled>
-        <HeroBackground />
-      </Settled>,
-    );
-    await screen.findByTestId("ocean");
-
-    motion.fire(true);
-    await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
-  });
-
-  it("demotes to the fallback when the renderer fails after a good probe", async () => {
-    stubGpu(async () => ({ name: "adapter" }));
-    render(
-      <Settled>
-        <HeroBackground />
-      </Settled>,
-    );
-    await screen.findByTestId("ocean");
-
-    const { onError } = oceanMount.mock.calls.at(-1)![0];
-    onError(new Error("device lost"));
-    await waitFor(() => expect(screen.getByTestId("halftone")).toBeDefined());
-  });
-});
-
-describe("HeroBackground shell gating", () => {
-  it("does not probe for WebGPU until the root shell has settled", () => {
-    const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
-    stubGpu(requestAdapter);
-
-    render(
-      <ShellSettledProvider value={false}>
-        <HeroBackground />
-      </ShellSettledProvider>,
-    );
-
-    expect(requestAdapter).not.toHaveBeenCalled();
-  });
-
-  it("probes once the shell settles", async () => {
-    const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
-    stubGpu(requestAdapter);
-
-    const { rerender } = render(
-      <ShellSettledProvider value={false}>
-        <HeroBackground />
-      </ShellSettledProvider>,
-    );
-    rerender(
-      <ShellSettledProvider value>
-        <HeroBackground />
-      </ShellSettledProvider>,
-    );
-
-    await waitFor(() => expect(requestAdapter).toHaveBeenCalled());
+    expect(waveMount).toHaveBeenCalledOnce();
   });
 });

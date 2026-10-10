@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { ActionRunContext } from "../action.js";
 import {
   queueTrackingEvent,
@@ -5,13 +7,14 @@ import {
 } from "../observability/tracing.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { getRequestContext } from "../server/request-context.js";
+import { isTestIdentity } from "../server/test-identity.js";
 import {
   canonicalTrackingEvent,
   legacyLifecycleEvent,
+  TRACKING_EVENT_ALIAS_ID_PROPERTY,
   withCanonicalTrackingProperties,
 } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
-import { isQaTestEmail } from "../shared/qa-test-email.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 export { isQaTestEmail } from "../shared/qa-test-email.js";
@@ -21,18 +24,27 @@ interface GlobalWithRegistry {
   [REGISTRY_KEY]?: Map<string, TrackingProvider>;
 }
 
+/** The test identity an event belongs to, if any. */
+function testIdentityOf(
+  userId: string | undefined,
+  properties?: Record<string, unknown>,
+): string | undefined {
+  return [
+    getRequestContext()?.userEmail,
+    userId,
+    properties?.email,
+    properties?.userEmail,
+    properties?.user_email,
+  ].find((value): value is string => isTestIdentity(value));
+}
+
 function isTrackingSuppressed(
   userId: string | undefined,
   properties?: Record<string, unknown>,
 ): boolean {
-  const requestContext = getRequestContext();
   return (
-    requestContext?.isSyntheticTraffic === true ||
-    isQaTestEmail(requestContext?.userEmail) ||
-    isQaTestEmail(userId) ||
-    isQaTestEmail(properties?.email) ||
-    isQaTestEmail(properties?.userEmail) ||
-    isQaTestEmail(properties?.user_email)
+    getRequestContext()?.isSyntheticTraffic === true ||
+    testIdentityOf(userId, properties) !== undefined
   );
 }
 
@@ -66,16 +78,19 @@ export interface TrackingMeta {
   userId?: string;
   authUserId?: string;
   anonymousId?: string;
-  sessionId?: string;
+  /** Null pins session absence and disables request-context fallback. */
+  sessionId?: string | null;
   occurredAt?: number;
   telemetryOrigin?: TrackingEventOrigin;
 }
 
-export type TrackingSource = TrackingMeta | ActionRunContext;
+export type TrackingSource =
+  | TrackingMeta
+  | (ActionRunContext & Pick<TrackingMeta, "sessionId">);
 
 function isActionRunContext(
   source: TrackingSource,
-): source is ActionRunContext {
+): source is ActionRunContext & Pick<TrackingMeta, "sessionId"> {
   return typeof (source as ActionRunContext).caller === "string";
 }
 
@@ -98,12 +113,18 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
   }
   if (isActionRunContext(source)) {
     const callerMatchesRequest = source.userEmail === requestContext?.userEmail;
+    const explicitSessionId = source.sessionId;
     return {
       userId: source.userEmail,
       ...(callerMatchesRequest
         ? { authUserId: requestContext?.authUserId }
         : {}),
-      sessionId: callerMatchesRequest ? ambientSessionId : undefined,
+      sessionId:
+        explicitSessionId === undefined
+          ? callerMatchesRequest
+            ? ambientSessionId
+            : undefined
+          : (explicitSessionId ?? undefined),
       telemetryOrigin: "server",
     };
   }
@@ -120,7 +141,11 @@ function resolveTrackingSource(source: TrackingSource | undefined): {
       (canUseAmbientIdentity ? requestContext?.authUserId : undefined),
     anonymousId: source.anonymousId,
     sessionId:
-      source.sessionId ?? (canUseAmbientSession ? ambientSessionId : undefined),
+      source.sessionId === undefined
+        ? canUseAmbientSession
+          ? ambientSessionId
+          : undefined
+        : (source.sessionId ?? undefined),
     occurredAt: source.occurredAt,
     telemetryOrigin: source.telemetryOrigin ?? "server",
   };
@@ -139,7 +164,9 @@ export function track(
     occurredAt,
     telemetryOrigin,
   } = resolveTrackingSource(source);
-  if (isTrackingSuppressed(userId, properties)) return;
+  if (getRequestContext()?.isSyntheticTraffic === true) return;
+  const testIdentity = testIdentityOf(userId, properties);
+  if (testIdentity && name !== "$exception") return;
   const clientPlatform = getRequestContext()?.clientPlatform;
   const actionContext =
     source && isActionRunContext(source) ? source : undefined;
@@ -159,7 +186,17 @@ export function track(
     ...(clientPlatform
       ? { [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: clientPlatform }
       : {}),
+    // Ingest trusts an identity, never the flag, so the matched one rides along.
+    ...(testIdentity
+      ? { test_identity: true, test_identity_email: testIdentity }
+      : {}),
   });
+  const canonical = canonicalTrackingEvent(name, trackedProperties);
+  if (canonical) {
+    const aliasId = randomUUID();
+    trackedProperties[TRACKING_EVENT_ALIAS_ID_PROPERTY] = aliasId;
+    canonical.properties[TRACKING_EVENT_ALIAS_ID_PROPERTY] = aliasId;
+  }
 
   emitTrackingEvent(name, trackedProperties, {
     userId,
@@ -167,6 +204,7 @@ export function track(
     sessionId,
     occurredAt,
   });
+  if (testIdentity) return;
   const trackingScope = getRequestContext()?.trackingScope;
   if (trackingScope) {
     queueTrackingEvent(name, trackedProperties, telemetryOrigin, trackingScope);
@@ -174,7 +212,6 @@ export function track(
     queueTrackingEvent(name, trackedProperties, telemetryOrigin);
   }
 
-  const canonical = canonicalTrackingEvent(name, trackedProperties);
   if (canonical) {
     emitTrackingEvent(canonical.name, canonical.properties, {
       userId,
@@ -206,10 +243,15 @@ function emitTrackingEvent(
     timestamp: new Date(source.occurredAt || Date.now()).toISOString(),
     userId: source.userId,
     anonymousId: source.anonymousId,
-    sessionId: source.sessionId,
+    sessionId: source.sessionId ?? undefined,
   };
 
   for (const provider of getRegistry().values()) {
+    if (
+      properties.test_identity === true &&
+      !provider.acceptsTestIdentityExceptions
+    )
+      continue;
     try {
       const result = provider.track(event);
       if (result && typeof (result as Promise<void>).catch === "function") {

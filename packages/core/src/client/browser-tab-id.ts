@@ -1,7 +1,14 @@
+import { appBasePath, isWorkspaceRuntime } from "./api-path.js";
+
 let cached: string | undefined;
 
 const STORAGE_KEY = "agent-native:browser-tab-id";
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
+
+function storageKey(): string {
+  const appScope = isWorkspaceRuntime() ? appBasePath() : "";
+  return appScope ? `${STORAGE_KEY}:${appScope}` : STORAGE_KEY;
+}
 
 function generate(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -26,7 +33,8 @@ export function getBrowserTabId(): string {
     return cached;
   }
   try {
-    const existing = sessionStorage.getItem(STORAGE_KEY);
+    const key = storageKey();
+    const existing = sessionStorage.getItem(key);
     if (
       existing &&
       SAFE_BROWSER_TAB_ID_RE.test(existing) &&
@@ -36,7 +44,7 @@ export function getBrowserTabId(): string {
       return existing;
     }
     const id = generate();
-    sessionStorage.setItem(STORAGE_KEY, id);
+    sessionStorage.setItem(key, id);
     cached = id;
     return id;
   } catch {

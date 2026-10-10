@@ -1,3 +1,7 @@
+/** Why the reaper failed a row that waited for storage until its lease ran out. */
+export const WAITING_STORAGE_EXPIRED_REASON =
+  "Storage was never connected, so this upload expired.";
+
 export const RETRYABLE_UPLOAD_INTERRUPTION_REASON =
   "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.";
 

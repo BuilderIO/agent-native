@@ -1,10 +1,11 @@
-import { getUserLabs } from "../labs/store.js";
+import { getUserLabStates } from "../labs/store.js";
 import {
   DEFAULT_SKILL_SCOPE,
   isRuntimeVisibleScope,
   normalizeSkillScope,
   type SkillScope,
 } from "./agent-chat/skill-frontmatter.js";
+import { captureError } from "./capture-error.js";
 
 export {
   DEFAULT_SKILL_SCOPE,
@@ -391,8 +392,31 @@ export async function getEnabledSkillLabsForUser(
   if (keys.length === 0 || !userEmail?.trim()) return new Set();
 
   // Lab state is account-specific; never put it on the process-cached bundle.
-  const labs = await getUserLabs(userEmail.trim());
-  return new Set(keys.filter((key) => labs[key] === true));
+  const labs = await getUserLabStates(userEmail.trim());
+  return new Set(
+    keys.filter((key) => {
+      const state = labs[key];
+      if (!state) throw new Error(`Unknown required lab: ${key}`);
+      if ("error" in state) {
+        captureError(
+          new Error(
+            state.error === "invalid-choice"
+              ? `Invalid saved lab choice: ${key}`
+              : `Could not resolve saved lab state: ${key}`,
+          ),
+          {
+            tags: {
+              source: "agent-skills",
+              op: "get-enabled-skill-labs",
+              lab: key,
+            },
+          },
+        );
+        return false;
+      }
+      return state.enabled;
+    }),
+  );
 }
 
 export function getDevelopmentSkills(bundle: AgentsBundle): Skill[] {
@@ -462,7 +486,7 @@ function generateSkillsPromptBlockForEntries(
       ? `To read a skill in the in-app runtime agent, before starting a task it applies to:
   \`docs-search --slug "<slug>"\` — each skill's slug is the [bracketed] token ending its line
   \`docs-search --query "<topic>"\` to discover matching docs/skills
-Read each relevant page once per turn and reuse it for subsequent steps. Do not repeat an equivalent lookup unless you need a different page or question.`
+Read each relevant page once per conversation and reuse it. Do not repeat an equivalent lookup unless you need a different page or question.`
       : `To read a skill in dev mode (when you have bash access):
   \`bash(command="cat <skill-dir>/SKILL.md")\`
   \`bash(command="ls <skill-dir>/")\` to see all files in the folder`;

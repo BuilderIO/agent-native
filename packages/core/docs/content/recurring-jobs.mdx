@@ -127,9 +127,8 @@ The framework includes cron utilities (`isValidCron()` and `describeCron()`) for
 
 ### From the Automations UI
 
-Open **Automations** on the full-page Agent surface, then create a
-**Scheduled** automation. The stable compatibility URL is `/agent#jobs`; the
-hash does not change when the visible tab name changes.
+Open **Settings › Automations**, then create a **Scheduled** automation. Old
+`/agent#jobs` links redirect there.
 
 ### By asking the agent
 
@@ -157,14 +156,31 @@ Summarize overnight emails.`,
 
 ## How the scheduler runs {#how-scheduler-runs}
 
-The scheduler is a framework plugin (the internal `processRecurringJobs()` routine) that runs in-process: a `setInterval` fires every 60 seconds (with a 10-second startup delay) inside the agent chat plugin, wherever the server is running.
+On each tick, the scheduler (the internal `processRecurringJobs()` routine) finds the jobs that are due and runs them. What fires the tick depends on where the app runs:
 
-<Diagram id="doc-block-14nqnkx" title="One scheduler tick" summary="Every 60s the scheduler finds due jobs, then sends them through the same background execution lifecycle as event automations.">
+| Host                                                             | What fires the tick                                                  | Requirements and limits                                                                        |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Long-running server (Node.js, Docker, Fly, Render, a VPS)        | An in-process timer every 60 seconds, starting 10 seconds after boot | Runs while the process is up.                                                                  |
+| [Netlify](/docs/netlify)                                         | A scheduled function the build emits, every minute                   | Published deploys only, never Deploy Previews or branch deploys. The build needs `A2A_SECRET`. |
+| [Vercel](/docs/vercel#vercel-scheduled-work)                     | A Vercel cron job the build adds, every minute by default            | Production deployment only. Needs `CRON_SECRET`. Hobby projects can run it once a day at most. |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-scheduled-work) | A Cron Trigger the build adds to `wrangler.json`, every minute       | Needs `A2A_SECRET` as a Worker secret.                                                         |
+| AWS Lambda                                                       | Nothing                                                              | Scheduled automations don't fire.                                                              |
+| Local development                                                | Nothing, unless you opt in                                           | See the callout below.                                                                         |
+
+On Netlify, Vercel, and Cloudflare, the same tick also drains the queue of
+event-triggered automations, cleans up runs whose function was cut off, and
+runs app sweeps such as Mail's snooze and send-later. A serverless deploy
+without a trigger gets none of that: event-triggered automations wait in the
+queue and interrupted runs stay stuck. Webhook-triggered automations and
+**Run now** dispatch on their own, so they still work. When a deploy can't
+fire schedules, the **Automations** page says so and names the reason.
+
+<Diagram id="doc-block-14nqnkx" title="One scheduler tick" summary="On each tick the scheduler finds due jobs, then sends them through the same background execution lifecycle as event automations.">
 
 ```html
 <div class="sched">
   <div class="diagram-box accent">
-    <code>setInterval</code> &bull; 60s &#8635;
+    scheduler tick &bull; every minute &#8635;
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-card">
@@ -223,28 +239,28 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 
 <Callout id="doc-block-j6yn07" tone="risk">
 
-**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+**A warm instance doesn't run schedules.** Serverless hosts never start the in-process timer, so keep-alive pings don't make jobs fire. Only the platform trigger in the table above does. On AWS Lambda nothing fires them yet, so run scheduled automations on a long-running host (Fly, Render, a VPS) instead.
 
 </Callout>
 
 <Callout id="doc-block-rj2" tone="warning">
 
-**Disabled by default in local dev.** The scheduler's `setInterval` loop never starts when `NODE_ENV` is `development` or `test`, or when the app URL points at `localhost` / `127.0.0.1` / `*.localhost` — which covers most local dev setups. Set `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` to run the scheduler locally anyway. On a hosted deployment that runs its own dedicated sweep instead of this in-process scheduler, set `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1` as the matching kill switch.
+**Disabled by default in local dev.** The scheduler's `setInterval` loop never starts when `NODE_ENV` is `development` or `test`, or when the app URL points at `localhost` / `127.0.0.1` / `*.localhost` — which covers most local dev setups. Set `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` to run the scheduler locally anyway. To turn scheduled jobs off on any host, use `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1`, described next.
 
 </Callout>
 
 <Callout id="doc-block-rj3" tone="warning">
 
-**`AGENT_NATIVE_DISABLE_RECURRING_JOBS` is read in two scopes.** In the **build** environment it decides whether the platform's scheduled trigger is emitted at all — on Netlify that emitted function is the only durable driver, so a build with the switch on ships an app where no schedule can fire, whatever the deployed environment says. In the **runtime** environment it gates the in-process `setInterval` loop. Set it in the build environment to turn recurring jobs off for a deploy; the build records its decision so the **Automations** page can say schedules will never run instead of showing a next-run date nothing will honour.
+**`AGENT_NATIVE_DISABLE_RECURRING_JOBS` is read in two scopes.** On Netlify, Vercel, and Cloudflare, the **build** environment decides: the platform trigger keeps firing to drain event automations and clean up runs, but a build with the switch on skips scheduled jobs, whatever the deployed environment says. On a long-running server, the **runtime** environment gates the in-process timer. Set it where your host reads it. The build records its decision, so the **Automations** page can say schedules will never run instead of showing a next-run date nothing will honour.
 
 </Callout>
 
 ## Debugging a job {#debugging}
 
-- Open the automation's details in **Automations**, or inspect
+- Open the automation's details in **Settings › Automations**, or inspect
   `jobs/<name>.md` in Agent Resources — the frontmatter shows `lastRun`,
   `lastStatus`, `lastError`, and `nextRun`.
-- **Test it without waiting:** there's no force-fire tool. To exercise the same work on demand, either paste the job's prompt into the agent chat and let it run there, or temporarily set the schedule to the next minute so the scheduler picks it up on the next tick (then restore the real cron). This only works if the scheduler is actually running — see the local-dev caveat above; set `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` first if you're testing on localhost.
+- **Test it without waiting:** click **Run now** in **Settings › Automations**, or ask the agent to run it (`manage-automations` with `action=run-now`). The job's prompt runs immediately with its real side effects, and `nextRun` doesn't change. The exception is a job the framework paused: a successful run turns it back on and recomputes `nextRun`. Run now doesn't wait for a scheduler tick, so it also works on localhost without `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS` and on hosts without a scheduler trigger.
 - **Pause it:** flip `enabled: false`. The file stays put, just stops running.
 
 ## Agent tool {#agent-tool}
@@ -274,7 +290,7 @@ and remains a member; otherwise it does not execute.
 
 Don't confuse recurring jobs with `@agent-native/scheduling`:
 
-- **Recurring jobs (this page)** — cron-scheduled _prompts_ the agent runs in the background. Framework-level. Lives in Agent Resources. Runs on any agent-native app.
+- **Recurring jobs (this page)** — cron-scheduled _prompts_ the agent runs in the background. Framework-level. Lives in Agent Resources. Fires on any host with a scheduler (see [How the scheduler runs](#how-scheduler-runs)).
 - **`@agent-native/scheduling`** — a reusable domain package for building calendar/booking features (event types, availability windows, bookings). Powers the `calendar` template and custom scheduling surfaces.
 
 Recurring jobs are "how do I make the agent act on its own?" The scheduling package is "how do I build a calendar app?" Different concerns.

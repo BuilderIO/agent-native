@@ -8,6 +8,7 @@ import {
   insertBulletAfterCaret,
   isBulletList,
   isBulletRow,
+  isMarkdownBulletPrefixInMarker,
   removeEmptyBulletAtCaret,
   ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
@@ -707,6 +708,20 @@ describe("markdown prefix autoformat", () => {
       anchor === row.children[0] || anchor?.parentElement === row.children[0];
     expect(landedInTextSpan).toBe(true);
     expect(landedInMarker).toBe(false);
+  });
+
+  it("converts a dash prefix when the browser stores its space as NBSP", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><p><span>-\u00a0</span></p></div>';
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const el = root.firstElementChild as HTMLElement;
+    const textNode = el.firstElementChild?.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+    const caret = window.getSelection()!.getRangeAt(0);
+
+    expect(isMarkdownBulletPrefixInMarker(el, caret)).toBe(true);
+    expect(convertMarkdownPrefixToBullet(el)).toBe(true);
+    expect(isBulletList(el)).toBe(true);
   });
 
   it("lets Enter extend a list created from a markdown prefix", () => {

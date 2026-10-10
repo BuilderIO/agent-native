@@ -238,7 +238,7 @@ export default {
     eventRulesConnectJev: "招待ルールを実行するには Jev を接続",
     eventRulesFreeBuilderOrApiKey:
       "Builder.io なら無料、または API キーを追加。",
-    eventRulesConnectBuilder: "Builder.io を接続",
+    eventRulesConnectBuilder: "Builder.io を使う",
     eventRulesAddJevApiKey: "API キーを追加",
     eventRulesTabRules: "ルール",
     eventRulesHelpLabel: "招待ルールのプロンプトについて",
@@ -773,6 +773,7 @@ export default {
     },
   },
   calendarView: {
+    resizeAllDaySection: "終日セクションのサイズを変更",
     addWorkingLocation: "勤務場所を追加",
     addTitleBeforeCreate: "イベントを作成する前にタイトルを追加してください",
     calendarSettingsLoading:
@@ -965,6 +966,8 @@ export default {
     occurrences: "回",
     reviewInvite: "レビューの招待",
     reviewProposedTime: "提案された時刻を確認",
+    newTimeProposedBy: "{{name}}さんが新しい時間を提案しました",
+    reviewTimeProposals: "時間の提案を確認",
     responseAwaitingCount: "{{count}} 待機中",
     responseMaybeCount: "{{count}} 未定",
     responseNoCount: "{{count}} いいえ",

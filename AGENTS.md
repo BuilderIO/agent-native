@@ -143,8 +143,8 @@ exist, and both are narrow on purpose.
 Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
 `no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`,
-`no-bare-error-in-actions`, and `external-result-contract` check only lines
-this branch added, so the
+`no-bare-error-in-actions`, `external-result-contract`, and
+`no-source-reading-tests` check only lines this branch added, so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
 opt-out pragma, and every opt-out is a decision a reviewer should see.
 
@@ -368,6 +368,12 @@ instructions, and application state.
   improvement, behavior-affecting fix)? Record it from that app with
   `agent-native changelog add "<one sentence>" --type <added|improved|fixed>`.
   Skip refactors, tooling, and tests. See the `changelog` skill.
+- The Builder Code starter (`packages/core/src/templates/builder-code-starter`) is patches
+  over `templates/chat`. After editing Chat, run `pnpm guard:template-layers`.
+  If a patch fails, run `pnpm template-layer rebase builder-code-starter --out
+  .tmp/fs`, resolve conflicts keeping the starter's intent, then
+  `pnpm template-layer diff builder-code-starter --from .tmp/fs`. Never delete a
+  failing patch.
 
 ## Extensions
 

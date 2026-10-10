@@ -10,11 +10,9 @@
  * Agent actions (update-slide, add-slide, etc.) continue to use their own
  * dedicated actions which also use the same per-deck lock.
  */
-import {
-  AgentActionStopError,
-  isActionContractError,
-} from "@agent-native/core";
+import { ActionContractError, isActionContractError } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
@@ -27,6 +25,7 @@ import type { CreativeContextReuseLabel } from "@agent-native/creative-context/t
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getPreset, type TweakDefinition } from "../app/lib/design-systems.js";
 import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
@@ -41,12 +40,18 @@ import {
 } from "../server/lib/deck-versions.js";
 import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import {
+  HYGIENE_ACTION_DESCRIPTION,
+  slideHygieneResult,
+} from "../server/lib/slide-hygiene.js";
+import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
   type SourceImportMetadata,
 } from "../server/lib/source-import.js";
 import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { isRealSlide } from "../shared/blank-slide.js";
+import { stableStringify } from "../shared/deck-content.js";
 import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
@@ -59,6 +64,10 @@ import {
   slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
 import { assertStyleOnlyEdit } from "../shared/slide-style-only.js";
+import {
+  trackDeckCreationStarted,
+  trackSlideContentEdited,
+} from "./_deck-tracking.js";
 import {
   assertDeckWriteApplied,
   assertDeckClientWriteCurrent,
@@ -159,6 +168,11 @@ const SlideFieldsSchema = z.object({
     ),
 });
 
+const SlideFieldBaselineSchema = z.discriminatedUnion("present", [
+  z.object({ present: z.literal(false) }),
+  z.object({ present: z.literal(true), value: z.unknown() }),
+]);
+
 const PatchSlideOp = z
   .object({
     op: z.literal("patch-slide"),
@@ -170,6 +184,12 @@ const PatchSlideOp = z
       .optional()
       .describe(
         "Content hash from this slide's exact get-deck source. Required whenever fields.content is replaced.",
+      ),
+    baseFields: z
+      .record(z.string(), SlideFieldBaselineSchema)
+      .optional()
+      .describe(
+        "Exact snapshots for every non-content field being replaced: use {present:false} when absent, otherwise {present:true,value}. Stale retries only apply when each field still matches its snapshot or the requested value.",
       ),
     styleOnly: z
       .boolean()
@@ -195,6 +215,32 @@ const PatchSlideOp = z
         path: ["baseContentHash"],
         message: "Content replacement requires the source slide contentHash",
       });
+    }
+    if (operation.baseFields !== undefined) {
+      const touchedFields = Object.keys(operation.fields).filter(
+        (field) =>
+          field !== "content" &&
+          operation.fields[field as keyof typeof operation.fields] !==
+            undefined,
+      );
+      for (const field of touchedFields) {
+        if (!Object.hasOwn(operation.baseFields, field)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["baseFields", field],
+            message: "Snapshot every non-content field being replaced",
+          });
+        }
+      }
+      for (const field of Object.keys(operation.baseFields)) {
+        if (!touchedFields.includes(field)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["baseFields", field],
+            message: "Only snapshot fields included in fields",
+          });
+        }
+      }
     }
     if (!operation.styleOnly) return;
     if (operation.fields.content === undefined) {
@@ -295,6 +341,230 @@ export const OperationSchema = z.discriminatedUnion("op", [
 ]);
 
 export type Operation = z.infer<typeof OperationSchema>;
+type PatchSlideOperation = Extract<Operation, { op: "patch-slide" }>;
+
+const MCP_WIDGET_PATCH_SLIDE_FIELDS = new Set([
+  "content",
+  "notes",
+  "background",
+  "layout",
+  "layoutWarningDismissed",
+  "imageUrl",
+  "excalidrawData",
+  "transition",
+  "animations",
+  "splitByParagraph",
+  "skipped",
+]);
+
+const MCP_WIDGET_ADD_SLIDE_FIELDS = new Set([
+  "content",
+  "notes",
+  "background",
+  "layout",
+  "layoutWarningDismissed",
+  "imageUrl",
+  "excalidrawData",
+  "transition",
+  "animations",
+  "splitByParagraph",
+  "skipped",
+]);
+
+function hasOnlyMcpWidgetSlideFields(
+  fields: object,
+  allowedFields: Set<string>,
+): boolean {
+  const names = Object.keys(fields);
+  return (
+    names.length > 0 &&
+    names.every((name) => allowedFields.has(name)) &&
+    Object.values(fields).every((value) => value !== undefined)
+  );
+}
+
+function hasOnlyMcpWidgetOperationKeys(
+  operation: object,
+  allowedKeys: readonly string[],
+  requiredKeys: readonly string[],
+): boolean {
+  const keys = Object.keys(operation);
+  return (
+    keys.every((key) => allowedKeys.includes(key)) &&
+    requiredKeys.every((key) => Object.hasOwn(operation, key))
+  );
+}
+
+function hasExactMcpWidgetFieldBaselines(
+  fields: object,
+  baseFields: PatchSlideOperation["baseFields"],
+): boolean {
+  const fieldsByName = fields as Record<string, unknown>;
+  const changedFields = Object.keys(fields).filter(
+    (field) => field !== "content" && fieldsByName[field] !== undefined,
+  );
+  if (changedFields.length === 0) return baseFields === undefined;
+  if (!baseFields) return false;
+
+  const baselineFields = Object.keys(baseFields);
+  return (
+    baselineFields.length === changedFields.length &&
+    baselineFields.every((field) => {
+      const baseline = baseFields[field];
+      if (!changedFields.includes(field) || !baseline) return false;
+      const baselineKeys = Object.keys(baseline);
+      return baseline.present === false
+        ? baselineKeys.length === 1 && baselineKeys[0] === "present"
+        : baselineKeys.length === 2 &&
+            baselineKeys.includes("present") &&
+            baselineKeys.includes("value");
+    })
+  );
+}
+
+function hasOnlyMcpWidgetTweakSelections(
+  value: unknown,
+  tweakDefinitions: readonly TweakDefinition[],
+): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const tweaks = value as Record<string, unknown>;
+  const definitions = new Map(
+    tweakDefinitions.map((tweak) => [tweak.id, tweak]),
+  );
+  const entries = Object.entries(tweaks);
+  return (
+    entries.length > 0 &&
+    entries.every(([id, selectedValue]) => {
+      const definition = definitions.get(id);
+      return (
+        typeof selectedValue === "string" &&
+        (definition?.options?.some(
+          (option) => option.value === selectedValue,
+        ) ??
+          false)
+      );
+    })
+  );
+}
+
+export function isMcpWidgetPatchAllowed(
+  caller: string | undefined,
+  operations: Operation[],
+  options?: {
+    rewriteSource?: boolean;
+    hasCreativeContext?: boolean;
+    requireAllSourceSlides?: boolean;
+    tweakDefinitions?: readonly TweakDefinition[];
+  },
+): boolean {
+  if (caller !== "mcp-widget-write") return true;
+  if (
+    operations.length === 0 ||
+    options?.rewriteSource ||
+    options?.hasCreativeContext ||
+    options?.requireAllSourceSlides
+  ) {
+    return false;
+  }
+
+  return operations.every((operation) => {
+    if (operation.op === "patch-deck-fields") {
+      if (
+        !hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "fields"],
+          ["op", "fields"],
+        ) ||
+        Object.keys(operation.fields).length !== 1
+      ) {
+        return false;
+      }
+      if (typeof operation.fields.title === "string") return true;
+
+      return (
+        options?.tweakDefinitions !== undefined &&
+        hasOnlyMcpWidgetTweakSelections(
+          operation.fields.tweaks,
+          options.tweakDefinitions,
+        )
+      );
+    }
+
+    if (operation.op === "patch-slide") {
+      const hasContent = operation.fields.content !== undefined;
+      return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          [
+            "op",
+            "slideId",
+            "fields",
+            "baseContentHash",
+            "baseFields",
+            "preserveSource",
+          ],
+          ["op", "slideId", "fields"],
+        ) &&
+        hasOnlyMcpWidgetSlideFields(
+          operation.fields,
+          MCP_WIDGET_PATCH_SLIDE_FIELDS,
+        ) &&
+        Object.values(operation.fields).every((value) => value !== undefined) &&
+        hasExactMcpWidgetFieldBaselines(
+          operation.fields,
+          operation.baseFields,
+        ) &&
+        (operation.fields.layoutWarningDismissed === undefined ||
+          typeof operation.fields.layoutWarningDismissed === "boolean") &&
+        (hasContent
+          ? typeof operation.fields.content === "string" &&
+            typeof operation.baseContentHash === "string" &&
+            operation.baseContentHash.length > 0
+          : operation.baseContentHash === undefined) &&
+        operation.preserveSource !== false
+      );
+    }
+
+    if (operation.op === "add-slide") {
+      return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "slideId", "afterSlideId", "fields"],
+          ["op", "slideId", "fields"],
+        ) &&
+        typeof operation.fields.content === "string" &&
+        hasOnlyMcpWidgetSlideFields(
+          operation.fields,
+          MCP_WIDGET_ADD_SLIDE_FIELDS,
+        ) &&
+        (operation.fields.layoutWarningDismissed === undefined ||
+          typeof operation.fields.layoutWarningDismissed === "boolean")
+      );
+    }
+
+    if (operation.op === "delete-slide") {
+      return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "slideId", "allowEmpty"],
+          ["op", "slideId"],
+        ) && operation.allowEmpty !== true
+      );
+    }
+
+    if (operation.op === "reorder-slides") {
+      return (
+        hasOnlyMcpWidgetOperationKeys(
+          operation,
+          ["op", "orderedIds"],
+          ["op", "orderedIds"],
+        ) && operation.orderedIds.length > 0
+      );
+    }
+
+    return false;
+  });
+}
 
 function persistedTargetSlideCount(deck: unknown): number | null {
   if (!deck || typeof deck !== "object" || Array.isArray(deck)) return null;
@@ -315,35 +585,59 @@ function persistedTargetSlideCount(deck: unknown): number | null {
     : null;
 }
 
-function projectedSlideCount(
+interface ProjectedSlide {
+  id: unknown;
+  content?: unknown;
+  excalidrawData?: unknown;
+  real: boolean;
+}
+
+function projectedRealSlideCount(
   slides: unknown[],
   operations: Operation[],
-): { count: number; added: boolean } {
-  const slideIds = slides.map((slide) => {
-    if (!slide || typeof slide !== "object" || Array.isArray(slide)) {
-      return undefined;
-    }
-    return (slide as { id?: unknown }).id;
+): { initial: number; count: number; added: boolean } {
+  const projected = slides.map((slide): ProjectedSlide => {
+    const { id, content, excalidrawData } = (
+      slide && typeof slide === "object" && !Array.isArray(slide) ? slide : {}
+    ) as { id?: unknown; content?: unknown; excalidrawData?: unknown };
+    return { id, content, excalidrawData, real: isRealSlide(slide) };
   });
+  const initial = projected.filter(({ real }) => real).length;
   let added = false;
 
   for (const operation of operations) {
     if (operation.op === "add-slide") {
-      if (slideIds.some((id) => id === operation.slideId)) continue;
-      slideIds.push(operation.slideId);
+      if (projected.some(({ id }) => id === operation.slideId)) continue;
+      const { content, excalidrawData } = operation.fields;
+      projected.push({
+        id: operation.slideId,
+        content,
+        excalidrawData,
+        real: isRealSlide(operation.fields),
+      });
       added = true;
+      continue;
+    }
+    if (operation.op === "patch-slide") {
+      const slide = projected.find(({ id }) => id === operation.slideId);
+      const { content, excalidrawData } = operation.fields;
+      if (slide && (content !== undefined || excalidrawData !== undefined)) {
+        if (content !== undefined) slide.content = content;
+        if (excalidrawData !== undefined) slide.excalidrawData = excalidrawData;
+        slide.real = isRealSlide(slide);
+      }
       continue;
     }
     if (operation.op !== "delete-slide") continue;
 
-    const index = slideIds.findIndex((id) => id === operation.slideId);
-    if (index !== -1) slideIds.splice(index, 1);
-    if (slideIds.length === 0 && !operation.allowEmpty) {
-      slideIds.push(undefined);
+    const index = projected.findIndex(({ id }) => id === operation.slideId);
+    if (index !== -1) projected.splice(index, 1);
+    if (projected.length === 0 && !operation.allowEmpty) {
+      projected.push({ id: undefined, real: true });
     }
   }
 
-  return { count: slideIds.length, added };
+  return { initial, count: projected.filter(({ real }) => real).length, added };
 }
 
 function firstDuplicate(values: readonly string[]): string | undefined {
@@ -353,6 +647,29 @@ function firstDuplicate(values: readonly string[]): string | undefined {
     seen.add(value);
   }
   return undefined;
+}
+
+export function assertSlidesWidgetWriteScope(
+  deckId: string,
+  context: ActionRunContext | undefined,
+): void {
+  if (context?.caller !== "mcp-widget-write") return;
+
+  const grant = context.mcpDirectoryWidgetWrite;
+  if (
+    !grant ||
+    grant.appId !== "slides" ||
+    grant.resourceIds.deckId !== deckId ||
+    !grant.actionNames.includes("patch-deck")
+  ) {
+    throw new ActionContractError(
+      "This Slides widget write capability is missing or scoped to a different deck or action.",
+      {
+        errorCode: "mcp_widget_write_scope_mismatch",
+        statusCode: 403,
+      },
+    );
+  }
 }
 
 export function assertSourceImportSlidesCovered(
@@ -501,6 +818,47 @@ export function applyOperation(
           );
         }
       }
+      const alreadyDesiredFields = new Set<string>();
+      for (const field of Object.keys(fields)) {
+        if (
+          field === "content" ||
+          fields[field as keyof typeof fields] === undefined
+        ) {
+          continue;
+        }
+        const baseline = op.baseFields?.[field];
+        if (!baseline) continue;
+        const currentValue = slide[field];
+        const desiredValue = fields[field as keyof typeof fields];
+        const alreadyDesired =
+          desiredValue === null
+            ? currentValue === undefined
+            : currentValue !== undefined &&
+              stableStringify(currentValue) === stableStringify(desiredValue);
+        if (alreadyDesired) {
+          alreadyDesiredFields.add(field);
+          continue;
+        }
+        const matchesBaseline =
+          field === "notes"
+            ? stableStringify(currentValue ?? "") ===
+              stableStringify(baseline.present ? (baseline.value ?? "") : "")
+            : baseline.present
+              ? currentValue !== undefined &&
+                stableStringify(currentValue) ===
+                  stableStringify(baseline.value)
+              : currentValue === undefined;
+        if (!matchesBaseline) {
+          fail(
+            `Slide field ${field} changed since it was read. Re-read the slide and reconcile this field before retrying.`,
+            {
+              errorCode: "slide_field_stale",
+              statusCode: 409,
+              details: { slideId: op.slideId, field },
+            },
+          );
+        }
+      }
       const previousFitFields = {
         content: slide.content,
         layout: slide.layout,
@@ -521,7 +879,9 @@ export function applyOperation(
         assertNoRenderArtifacts(previousContent ?? "", nextContent, op.slideId);
         slide.content = nextContent;
       }
-      if (fields.notes !== undefined) slide.notes = fields.notes;
+      if (fields.notes !== undefined && !alreadyDesiredFields.has("notes")) {
+        slide.notes = fields.notes;
+      }
       for (const key of [
         "background",
         "layout",
@@ -535,6 +895,7 @@ export function applyOperation(
         "splitByParagraph",
         "skipped",
       ] as const) {
+        if (alreadyDesiredFields.has(key)) continue;
         const value = fields[key];
         if (value === null) delete slide[key];
         else if (value !== undefined) slide[key] = value;
@@ -819,7 +1180,7 @@ export function isAgentPatchCaller(caller: string | undefined): boolean {
 export default defineAction({
   title: "Patch Slides deck",
   description:
-    "Granular deck patch used by the browser editor for concurrent-safe writes. Every patch-slide operation that replaces fields.content must include that slide's exact contentHash as baseContentHash; read targets with get-deck compact=false first. Disjoint patch-slide and add-slide operations rebase against the latest deck. Stale delete-slide, reorder-slides, and patch-deck-fields operations return deck_revision_conflict; re-read and reconcile the deck before retrying those operations. Call get-design-system once for the full linked context. For a short, completed deck, pass all slides to create-deck in one call; use sequential add-slide calls only for long or live in-app generation. Reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
+    "Granular deck patch used by the browser editor for concurrent-safe writes. Every patch-slide operation that replaces fields.content must include that slide's exact contentHash as baseContentHash; read targets with get-deck compact=false first. Stale revision rebases support patch-slide operations with content hashes and, for each replaced non-content field, a baseFields snapshot; this also allows a combined content-and-metadata patch to rebase safely. Rebase only if each current field still matches its snapshot or the requested value. Same-field divergence returns slide_field_stale. Stale delete-slide, reorder-slides, and patch-deck-fields operations return deck_revision_conflict; re-read and reconcile the deck before retrying those operations. Call get-design-system once for the full linked context. For a short, completed deck, pass all slides to create-deck in one call; use sequential add-slide calls only for long or live in-app generation. Reserve patch-deck for existing-slide edits, deck fields, ordering, or intentional source-preserving batches. Never issue parallel writes to the same deck. " +
     "Each operation touches only the target slide or field — concurrent writers " +
     "on different slides never overwrite each other's work. For a deck-wide " +
     "source restyle, set requireAllSourceSlides=true and send one patch-slide " +
@@ -840,7 +1201,8 @@ export default defineAction({
     "return immediately with contentHash plus layoutFitRevision-keyed layoutFit.status=pending; call " +
     "Do not check fit after each write: finish all slide edits, then call get-layout-overflows once, and once more only after a repair. If measurements are unknown, report the unmeasured slides and do not recheck this turn unless the editor has produced a new measurement. " +
     "Agents can add, delete, and reorder slides through operations in this action. " +
-    "Structural edits to an imported deck clear its source-import metadata automatically; the legacy rewriteSource flag is not required.",
+    "Structural edits to an imported deck clear its source-import metadata automatically; the legacy rewriteSource flag is not required." +
+    HYGIENE_ACTION_DESCRIPTION,
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     clientWrite: deckClientWriteSchema.optional(),
@@ -894,6 +1256,7 @@ export default defineAction({
     },
     ctx,
   ) => {
+    assertSlidesWidgetWriteScope(deckId, ctx);
     await assertAccess("deck", deckId, "editor");
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
 
@@ -910,6 +1273,41 @@ export default defineAction({
           errorCode: "deck_not_found",
           statusCode: 404,
         });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const deck: any = JSON.parse(row.data);
+      if (
+        !isMcpWidgetPatchAllowed(ctx?.caller, operations, {
+          rewriteSource,
+          hasCreativeContext: creativeContext !== undefined,
+          requireAllSourceSlides,
+          tweakDefinitions: getPreset(
+            typeof deck.designSystemId === "string"
+              ? deck.designSystemId
+              : "default",
+          ).tweaks,
+        })
+      ) {
+        fail(
+          "The Slides widget can edit slide content, structure, title, and available design-system tweaks, not deck access or linked resources.",
+          {
+            errorCode: "mcp_widget_write_outside_editor_scope",
+            statusCode: 403,
+          },
+        );
+      }
+      if (
+        ctx?.caller === "mcp-widget-write" &&
+        clientWrite?.expectedUpdatedAt === undefined
+      ) {
+        fail(
+          "The Slides widget needs the current deck revision before saving.",
+          {
+            errorCode: "mcp_widget_write_revision_required",
+            statusCode: 409,
+          },
+        );
+      }
 
       const writeDisposition = assertDeckClientWriteCurrent(
         row,
@@ -930,8 +1328,10 @@ export default defineAction({
         };
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const deck: any = JSON.parse(row.data);
+      const previousSlides = Array.isArray(deck.slides)
+        ? deck.slides.map((slide: Record<string, unknown>) => ({ ...slide }))
+        : [];
+      const previousGenerationContext = deck.generationContext;
       const existingContext = storedCreativeContext(deck.creativeContext);
       const previousDeckFitFields = {
         aspectRatio: deck.aspectRatio,
@@ -939,6 +1339,22 @@ export default defineAction({
       };
 
       const currentSlides = Array.isArray(deck.slides) ? deck.slides : [];
+      if (ctx?.caller === "mcp-widget-write") {
+        const storedSlideIds = currentSlides
+          .map((slide: { id?: unknown }) => slide?.id)
+          .filter((id: unknown): id is string => typeof id === "string");
+        const duplicateSlideId = firstDuplicate(storedSlideIds);
+        if (duplicateSlideId !== undefined) {
+          fail(
+            "The Slides widget cannot edit a deck with duplicate slide IDs. Repair the deck in the Slides editor first.",
+            {
+              errorCode: "duplicate_deck_slide_ids",
+              statusCode: 409,
+              details: { slideId: duplicateSlideId },
+            },
+          );
+        }
+      }
       const sourceContentHashes = new Map<string, string>(
         currentSlides.map(
           (slide: { id: string; content?: unknown }) =>
@@ -988,25 +1404,39 @@ export default defineAction({
       }
 
       const targetSlideCount = persistedTargetSlideCount(deck);
-      const projected = projectedSlideCount(currentSlides, operations);
+      // Counting parses slide HTML and this runs on every editor save, so only
+      // an agent batch that appends against a persisted target pays for it.
       if (
         isAgentCaller &&
         targetSlideCount !== null &&
-        projected.added &&
-        projected.count > targetSlideCount
+        operations.some((operation) => operation.op === "add-slide")
       ) {
-        throw new AgentActionStopError(
-          `Cannot add slides: this deck would have ${projected.count} slides, exceeding its requested target of ${targetSlideCount}. Re-read the deck and stop adding slides unless the user explicitly changes the target.`,
-          {
-            errorCode: "target_slide_count_reached",
-            details: {
-              deckId,
-              currentSlideCount: currentSlides.length,
-              projectedSlideCount: projected.count,
-              targetSlideCount,
+        const projected = projectedRealSlideCount(currentSlides, operations);
+        if (projected.added && projected.count > targetSlideCount) {
+          const realSlideCount = projected.initial;
+          // The patch's own fills and deletes move the count before it adds.
+          const settledCount = projectedRealSlideCount(
+            currentSlides,
+            operations.filter((operation) => operation.op !== "add-slide"),
+          ).count;
+          const headroom = targetSlideCount - settledCount;
+          fail(
+            realSlideCount < targetSlideCount
+              ? `Not applied: this deck has ${realSlideCount} real slides of its persisted target of ${targetSlideCount}, and this patch would make it ${projected.count}. The deck is not complete: resend the patch ${headroom > 0 ? `adding at most ${headroom} more real slides in this patch (target ${targetSlideCount})` : `without its add-slide operations, since its other operations already bring the deck to ${settledCount} of ${targetSlideCount} real slides`}.`
+              : `Not applied: this deck has ${realSlideCount} real slides and this patch would make it ${projected.count}, exceeding its persisted target of ${targetSlideCount}. If the deck is complete, stop adding slides and summarize what was built. Only if the user explicitly asked for more slides than ${targetSlideCount}, call add-slide with targetSlideCountOverride set to the new total of real slides, then continue.`,
+            {
+              errorCode: "target_slide_count_reached",
+              statusCode: 409,
+              details: {
+                deckId,
+                currentSlideCount: currentSlides.length,
+                realSlideCount,
+                projectedSlideCount: projected.count,
+                targetSlideCount,
+              },
             },
-          },
-        );
+          );
+        }
       }
 
       const layoutFitSlideIds = new Set<string>();
@@ -1451,6 +1881,24 @@ export default defineAction({
         }
       });
 
+      if (
+        operations.some((operation) => operation.op !== "patch-deck-fields")
+      ) {
+        trackSlideContentEdited(
+          "patch_deck",
+          deckId,
+          previousSlides,
+          deck,
+          ctx,
+        );
+      }
+      trackDeckCreationStarted(
+        deckId,
+        previousGenerationContext,
+        deck.generationContext,
+        ctx,
+      );
+
       const updatedSlideIds = requestedSlideIds.filter((slideId) =>
         changedSlideIds.has(slideId),
       );
@@ -1497,6 +1945,15 @@ export default defineAction({
               partial: true,
               message: `Applied, but ${unchangedSlideIds.join(", ")} came out identical to the stored slide and were not written — do not report those slides as edited.`,
             }
+          : {}),
+        ...(isAgentCaller
+          ? slideHygieneResult(
+              [...contentChangedSlideIds].map((slideId) => ({
+                slideId,
+                html: contentsAfterOperations.get(slideId) ?? "",
+                previousHtml: contentsBeforeOperations.get(slideId),
+              })),
+            )
           : {}),
         ...(sourceRewriteRequested ? { sourceRewritten: true } : {}),
         ...(sourceImportCleared && !sourceRewriteRequested

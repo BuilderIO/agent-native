@@ -128,6 +128,29 @@ export interface ProviderErrorClassification {
 
 const MAX_RETRY_AFTER_MS = 60_000;
 
+const PROVIDER_ATTACHMENT_FIELD_PATTERN =
+  /\b(?:images?|files?|attachments?|media)[_-](?:url|data|source|type|format|size|input|content)\b|\b(?:images?|files?)\s+(?:url|data|source|type|format|size|content)\b|\b(?:url|data|source|type|format|size|input|content)\b.{0,40}\b(?:images?|files?|attachments?|media)\b|\bmime[\s_-]?type\b/gi;
+const PROVIDER_ATTACHMENT_REJECTION_PATTERN =
+  /\b(?:invalid|unsupported|not supported|does not support|too large|too big|too long|exceeds?|over(?:sized|size| the)? limit|maximum (?:allowed )?(?:size|length)|(?:size|length) limit|malformed)\b/i;
+
+// Phrasings Anthropic, OpenAI, Google, and the Builder gateway use for an
+// image they refused. Specific enough to classify without a status code.
+const PROVIDER_IMAGE_REJECTION_PATTERN =
+  /\bimage exceeds \d+(?:\.\d+)?\s*mb\b|\b(?:could not|unable to) process (?:the )?(?:input )?image\b|\binvalid image\b|\bunsupported image\b|\bimage (?:is )?too (?:large|big)\b|\bprovided image is not valid\b/i;
+
+export function isInvalidAttachmentProviderMessage(message: string): boolean {
+  if (PROVIDER_IMAGE_REJECTION_PATTERN.test(message)) return true;
+  for (const match of message.matchAll(PROVIDER_ATTACHMENT_FIELD_PATTERN)) {
+    const index = match.index ?? 0;
+    const start = Math.max(0, index - 100);
+    const end = Math.min(message.length, index + match[0].length + 140);
+    if (PROVIDER_ATTACHMENT_REJECTION_PATTERN.test(message.slice(start, end))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function extractRetryAfterMs(err: unknown): number | undefined {
   const wrapped = err as { lastError?: unknown; cause?: unknown } | null;
   for (const source of [err, wrapped?.lastError, wrapped?.cause]) {
@@ -143,6 +166,42 @@ export function extractRetryAfterMs(err: unknown): number | undefined {
       }
       return Math.min(ms, MAX_RETRY_AFTER_MS);
     }
+  }
+  return undefined;
+}
+
+/**
+ * Some provider clients keep the HTTP status only on a wrapped cause: the
+ * Ollama provider wraps ollama-js's `ResponseError`, which names it
+ * `status_code`. Without it a provider 500 reads as an unnamed failure.
+ */
+function wrappedHttpStatus(err: unknown): number | undefined {
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+  for (
+    let link = 0;
+    link <= DEFAULT_MAX_CAUSE_LINKS &&
+    current !== null &&
+    typeof current === "object" &&
+    !seen.has(current);
+    link += 1
+  ) {
+    seen.add(current);
+    const { statusCode, status_code: snakeStatus } = current as {
+      statusCode?: unknown;
+      status_code?: unknown;
+    };
+    for (const status of [statusCode, snakeStatus]) {
+      if (
+        typeof status === "number" &&
+        Number.isInteger(status) &&
+        status >= 100 &&
+        status <= 599
+      ) {
+        return status;
+      }
+    }
+    current = (current as { cause?: unknown }).cause;
   }
   return undefined;
 }
@@ -163,7 +222,12 @@ export function classifyProviderError(
   const statusCode =
     typeof providerError?.statusCode === "number"
       ? providerError.statusCode
-      : undefined;
+      : wrappedHttpStatus(providerError);
+
+  const invalidAttachment =
+    (statusCode === 400 || statusCode === 422) &&
+    typeof providerError?.message === "string" &&
+    isInvalidAttachmentProviderMessage(providerError.message);
 
   const described = describeErrorWithCauses(err);
   const isConnectionError =
@@ -186,8 +250,9 @@ export function classifyProviderError(
           : stringifyUnknown(providerError),
       ));
 
-  const providerRetryable =
-    typeof providerError?.isRetryable === "boolean"
+  const providerRetryable = invalidAttachment
+    ? false
+    : typeof providerError?.isRetryable === "boolean"
       ? providerError.isRetryable
       : isConnectionError || isBareRejection || timedOut
         ? true
@@ -201,19 +266,21 @@ export function classifyProviderError(
     // retries, but run-level continuation keys off the errorCode. A bare 403
     // is the one status that gets a different code instead of `http_403`,
     // because that code is the client's credential-rejected signal.
-    ...(statusCode !== undefined
-      ? isBareRejection
-        ? {
-            errorCode: PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
-            statusCode,
-          }
-        : { errorCode: `http_${statusCode}`, statusCode }
-      : isConnectionError || timedOut
-        ? { errorCode: "provider_network_error" }
-        : (() => {
-            const code = classifyTerminalErrorCode(described);
-            return code ? { errorCode: code } : {};
-          })()),
+    ...(invalidAttachment
+      ? { errorCode: "invalid_attachment", statusCode }
+      : statusCode !== undefined
+        ? isBareRejection
+          ? {
+              errorCode: PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
+              statusCode,
+            }
+          : { errorCode: `http_${statusCode}`, statusCode }
+        : isConnectionError || timedOut
+          ? { errorCode: "provider_network_error" }
+          : (() => {
+              const code = classifyTerminalErrorCode(described);
+              return code ? { errorCode: code } : {};
+            })()),
     ...(providerRetryable !== undefined ? { providerRetryable } : {}),
     ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
   };

@@ -230,7 +230,7 @@ export default {
     eventRulesAutomationLink: "अन्य कार्रवाइयों के लिए ऑटोमेशन बनाएँ।",
     eventRulesConnectJev: "निमंत्रण नियम चलाने के लिए Jev कनेक्ट करें",
     eventRulesFreeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
-    eventRulesConnectBuilder: "Builder.io कनेक्ट करें",
+    eventRulesConnectBuilder: "Builder.io इस्तेमाल करें",
     eventRulesAddJevApiKey: "API कुंजी जोड़ें",
     eventRulesTabRules: "नियम",
     eventRulesHelpLabel: "निमंत्रण नियम प्रॉम्प्ट के बारे में",
@@ -760,6 +760,7 @@ export default {
     },
   },
   calendarView: {
+    resizeAllDaySection: "पूरे दिन वाले अनुभाग का आकार बदलें",
     addWorkingLocation: "कार्य स्थान जोड़ें",
     addTitleBeforeCreate: "इवेंट बनाने से पहले शीर्षक जोड़ें",
     calendarSettingsLoading:
@@ -949,6 +950,8 @@ export default {
     occurrences: "बार",
     reviewInvite: "आमंत्रण की समीक्षा करें",
     reviewProposedTime: "सुझाए गए समय की समीक्षा करें",
+    newTimeProposedBy: "{{name}} ने नया समय सुझाया",
+    reviewTimeProposals: "समय के सुझावों की समीक्षा करें",
     responseAwaitingCount: "{{count}} प्रतीक्षा में",
     responseMaybeCount: "{{count}} शायद",
     responseNoCount: "{{count}} नहीं",

@@ -4,6 +4,11 @@ import type { AgentRunSummary } from "../agent/run-store.js";
 import { CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT } from "../agent/run-store.js";
 import type { ChatThread } from "../chat-threads/store.js";
 import {
+  registerTrackingProvider,
+  unregisterTrackingProvider,
+} from "../tracking/registry.js";
+import type { TrackingEvent } from "../tracking/types.js";
+import {
   finalizeClaimedAgentChatProcessRunFailure,
   handleSharedThreadRequest,
   isNetlifyRecurringJobsRuntime,
@@ -11,7 +16,224 @@ import {
   resolveAgentCheckpointPaths,
   scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
+  trackAgentChatRunLifecycle,
 } from "./agent-chat-plugin.js";
+import { runWithRequestContext } from "./request-context.js";
+
+describe("agent chat run lifecycle tracking", () => {
+  it("keys server run events by durable thread and attempt ids", () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "agent-chat-run-lifecycle-test",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    try {
+      trackAgentChatRunLifecycle(
+        "run_started",
+        "thread-1",
+        "attempt-1",
+        "owner@example.com",
+        {},
+        "slides",
+      );
+      trackAgentChatRunLifecycle(
+        "run_no_reply",
+        "thread-1",
+        "attempt-1",
+        "owner@example.com",
+        {},
+        "slides",
+      );
+      trackAgentChatRunLifecycle(
+        "run_finished",
+        "thread-1",
+        "attempt-3",
+        "owner@example.com",
+        {
+          status: "errored",
+          failure_code: "missing_credentials",
+          engine: "anthropic",
+        },
+        "slides",
+      );
+      trackAgentChatRunLifecycle("run_started", undefined, "attempt-2");
+    } finally {
+      unregisterTrackingProvider("agent-chat-run-lifecycle-test");
+    }
+
+    expect(events).toMatchObject([
+      {
+        name: "run_started",
+        userId: "owner@example.com",
+        properties: {
+          thread_id: "thread-1",
+          attempt_id: "attempt-1",
+          app_name: "slides",
+          template_name: "slides",
+        },
+      },
+      {
+        name: "run_no_reply",
+        userId: "owner@example.com",
+        properties: {
+          thread_id: "thread-1",
+          attempt_id: "attempt-1",
+          app_name: "slides",
+          template_name: "slides",
+        },
+      },
+      {
+        name: "run_finished",
+        userId: "owner@example.com",
+        properties: {
+          thread_id: "thread-1",
+          attempt_id: "attempt-3",
+          status: "errored",
+          failure_code: "missing_credentials",
+          engine: "anthropic",
+          app_name: "slides",
+          template_name: "slides",
+        },
+      },
+    ]);
+  });
+
+  it("carries the canonical user id when the run context has no owner yet", () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "agent-chat-run-lifecycle-identity-test",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    try {
+      // A durable worker: the verified initiator is the only identity it has.
+      runWithRequestContext(
+        { userEmail: "owner@example.com", authUserId: "auth-user-1" },
+        () => {
+          trackAgentChatRunLifecycle(
+            "run_started",
+            "thread-1",
+            "run-1",
+            undefined,
+            {},
+            "slides",
+          );
+          trackAgentChatRunLifecycle(
+            "run_finished",
+            "thread-1",
+            "run-1",
+            "owner@example.com",
+            { status: "completed" },
+            "slides",
+          );
+        },
+      );
+      runWithRequestContext(
+        { userEmail: "anon-visitor-1", agentRunAnonymous: true },
+        () => {
+          trackAgentChatRunLifecycle(
+            "run_no_reply",
+            "thread-2",
+            "run-2",
+            undefined,
+            {},
+            "slides",
+          );
+        },
+      );
+    } finally {
+      unregisterTrackingProvider("agent-chat-run-lifecycle-identity-test");
+    }
+
+    expect(events).toMatchObject([
+      {
+        name: "run_started",
+        userId: "owner@example.com",
+        properties: { auth_user_id: "auth-user-1", attempt_id: "run-1" },
+      },
+      {
+        name: "run_finished",
+        userId: "owner@example.com",
+        properties: { auth_user_id: "auth-user-1", status: "completed" },
+      },
+      { name: "run_no_reply", properties: { attempt_id: "run-2" } },
+    ]);
+    expect(events[2]?.userId).toBeUndefined();
+  });
+
+  it("uses the request identity snapshot after request context is gone", () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "agent-chat-run-lifecycle-snapshot-test",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    try {
+      trackAgentChatRunLifecycle(
+        "run_finished",
+        "thread-1",
+        "run-1",
+        undefined,
+        { status: "completed" },
+        "slides",
+        {
+          userId: "owner@example.com",
+          authUserId: "auth-user-1",
+          sessionId: "browser-session-1",
+        },
+      );
+    } finally {
+      unregisterTrackingProvider("agent-chat-run-lifecycle-snapshot-test");
+    }
+
+    expect(events).toMatchObject([
+      {
+        name: "run_finished",
+        userId: "owner@example.com",
+        sessionId: "browser-session-1",
+        properties: {
+          auth_user_id: "auth-user-1",
+          session_id: "browser-session-1",
+          thread_id: "thread-1",
+          attempt_id: "run-1",
+        },
+      },
+    ]);
+  });
+
+  it("suppresses delayed lifecycle events for synthetic traffic snapshots", () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "agent-chat-run-lifecycle-synthetic-test",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    try {
+      trackAgentChatRunLifecycle(
+        "run_finished",
+        "thread-synthetic",
+        "run-synthetic",
+        undefined,
+        { status: "completed" },
+        "slides",
+        { userId: "test@example.com", isSyntheticTraffic: true },
+      );
+    } finally {
+      unregisterTrackingProvider("agent-chat-run-lifecycle-synthetic-test");
+    }
+
+    expect(events).toEqual([]);
+  });
+});
 
 describe("agent checkpoint path provenance", () => {
   const contentSha256 = "a".repeat(64);
@@ -337,15 +559,87 @@ describe("scheduled trigger availability", () => {
     expect(
       scheduledTriggerAvailability({
         NODE_ENV: "production",
-        VERCEL: "1",
-      }),
-    ).toEqual({ available: false, reason: "no-platform-scheduler" });
-    expect(
-      scheduledTriggerAvailability({
-        NODE_ENV: "production",
         AWS_LAMBDA_FUNCTION_NAME: "analytics-handler",
       }),
     ).toEqual({ available: false, reason: "no-platform-scheduler" });
+  });
+
+  it("reports a production Vercel deploy as driven by Vercel Cron", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+        CRON_SECRET: "cron-secret",
+      }),
+    ).toEqual({ available: true, driver: "vercel-cron" });
+  });
+
+  // Vercel Cron fires whether or not CRON_SECRET is set, and the sweep rejects
+  // every request it cannot verify, so a deploy without the secret has a
+  // trigger that never gets through.
+  it("names the missing CRON_SECRET instead of vouching for Vercel Cron", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        VERCEL: "1",
+        VERCEL_ENV: "production",
+      }),
+    ).toEqual({
+      available: false,
+      reason: "missing-trigger-secret",
+      driver: "vercel-cron",
+      secret: "CRON_SECRET",
+    });
+  });
+
+  it("reports Vercel preview deploys as unscheduled, because cron skips them", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        VERCEL: "1",
+        VERCEL_ENV: "preview",
+        CRON_SECRET: "cron-secret",
+      }),
+    ).toEqual({ available: false, reason: "no-platform-scheduler" });
+  });
+
+  it("reports a Cloudflare worker as driven by its Cron Trigger", () => {
+    const cloudflareWorker = { cloudflareWorker: true };
+
+    expect(
+      shouldDisableRecurringJobsRuntime(
+        { NODE_ENV: "production", APP_URL: "https://app.example.com" },
+        cloudflareWorker,
+      ),
+    ).toBe(true);
+    expect(
+      scheduledTriggerAvailability(
+        { NODE_ENV: "production", A2A_SECRET: "a2a-secret" },
+        cloudflareWorker,
+      ),
+    ).toEqual({ available: true, driver: "cloudflare-cron-trigger" });
+    expect(
+      scheduledTriggerAvailability(
+        { NODE_ENV: "production" },
+        cloudflareWorker,
+      ),
+    ).toEqual({
+      available: false,
+      reason: "missing-trigger-secret",
+      driver: "cloudflare-cron-trigger",
+      secret: "A2A_SECRET",
+    });
+  });
+
+  it("lets the build kill switch outrank a missing trigger secret", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        VERCEL: "1",
+        AGENT_NATIVE_BUILD_RECURRING_JOBS: "disabled",
+      }),
+    ).toEqual({ available: false, reason: "disabled-by-env" });
   });
 
   it("distinguishes a dev machine from a broken deploy", () => {
@@ -392,7 +686,7 @@ describe("scheduled trigger availability", () => {
     ).toEqual({ available: true, driver: "netlify-scheduled-function" });
   });
 
-  // The mirror image, and the reason the Netlify branch reads the build scope
+  // The mirror image, and the reason a platform trigger reads the build scope
   // ALONE: the emitted scheduled function fires on the platform's clock and
   // never consults the deployed env, so a runtime-only kill switch does not stop
   // it. Reporting "won't run" there would be a false alarm about work that runs.

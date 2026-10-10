@@ -130,6 +130,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "仍在等待{{stage}}。請求：{{action}}。",
+    widgetDocumentLoadStage: "已儲存的頁面內文",
+    widgetDraftCheckStage: "頁面草稿復原",
+    widgetEditorInitStage: "富文字編輯器初始化",
     iconPickerIcons: "圖示",
     iconPickerEmoji: "表情符號",
     iconPickerRecent: "最近使用",
@@ -253,8 +257,6 @@ const overrides = {
   },
   landing: {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
-    requestedPageUnavailable:
-      "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
     workspaceWelcomeUnavailableTitle: "這裡尚未開啟任何內容",
     workspaceWelcomeUnavailableDescription:
@@ -312,6 +314,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未選取頁面",
+    pageNoAccess: "你沒有此頁面的存取權",
+    pageMissing: "此頁面不存在",
+    pageInTrash: "此頁面在垃圾桶中",
+    pageInTrashAskOwner: "請擁有者還原它。",
+    openTrash: "開啟垃圾桶",
+    goToMyPages: "前往我的頁面",
     noPageDescription: "從側邊欄選取頁面，或建立新頁面開始。",
     documentUnavailable: "檔案不可用",
     documentUnavailableDescription:
@@ -334,6 +342,10 @@ const overrides = {
     suggestionFormattingBaselineUnsupported:
       "頁面中的某些格式無法安全地建議變更。編輯者可以先更新這些格式，然後您再重試。",
     suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
+    suggestionUnplaceable:
+      "此建議周圍的文字已變更，因此無法套用。它仍在待處理狀態：請拒絕它，或重新建議此修改。",
+    proposalUnplaceable:
+      "其中一則建議周圍的文字已變更，無法套用，因此所有建議均未套用。它們仍在待處理狀態：請逐則接受或拒絕。",
     suggestionAmendmentFailed: "無法儲存建議",
     suggestionAmendmentResolved:
       "此建議已在其他地方變更。你未儲存的草稿仍保留在這裡。",
@@ -428,7 +440,6 @@ const overrides = {
     reorderField: "重新排序 {{name}}",
     title: "標題",
     toggleField: "切換 {{name}}",
-    createCollection: "建立集合",
     creatingDatabase: "正在建立內嵌集合...",
     databaseCreated: "集合已建立",
     emptyBlockPlaceholder: "按「/」使用指令",
@@ -861,6 +872,8 @@ const overrides = {
       openInClaude: "在 Claude 中開啟",
       openInClaudeCode: "在 Claude Code 中開啟",
       openInCodex: "在 Codex 中開啟",
+      connectContent: "連接 Content",
+      otherAgents: "其他代理程式",
       agentCopyAccessNote: "代理程式可以透過現有權限使用 Content MCP",
       temporaryAgentLink: "暫時性代理程式連結",
       privateLinkCanView: "只有有權限的人可以檢視",
@@ -946,12 +959,14 @@ const overrides = {
       localAndNotionChanged:
         "本機檔案和 Notion 自上次同步後都已更改。請選取保留哪個版本。",
       morePageActions: "更多頁面操作",
+      formatting: "格式",
       noPagesFound: "沒有找到頁面",
       notifications: "通知",
       notionSync: "概念同步",
       notionPageUrlOrId: "Notion 頁面 URL 或頁面 ID",
       open: "開啟",
       openInNotion: "在概念中開啟",
+      openInAgentNative: "在 Agent-Native 中開啟",
       orgCanFindAndView: "您組織中的任何人都可以尋找和檢視",
       orgLinkCanView: "您組織中知道該連結的任何人都可以檢視",
       pageBreadcrumb: "頁面面包屑",
@@ -1046,6 +1061,9 @@ const overrides = {
     aiUndo: "復原",
     aiDone: "完成",
     aiMoreChanges: "另外 {{count}} 處",
+    suggestionReplaced: "已取代",
+    suggestionWithdrawn: "已撤回",
+    suggestedChange: "建議的變更",
     aiUndoUnavailable: "已刪除的文字無法自動復原",
     aiUndoFailed: "無法復原變更",
     aiResolvedByAi: "已由 AI 解決",
@@ -1391,7 +1409,7 @@ const overrides = {
     attached: "Attached",
     bodyDiff: "內文差異",
     builderIsntConnectedGoBackToConnectYour:
-      "Builder 未連線。請先返回並連線你的帳戶。",
+      "Builder 尚未連線。請返回並先使用 Builder.io。",
     calculate: "Calculate",
     calendarBy: "行事曆依據",
     cancel: "Cancel",
@@ -1408,7 +1426,7 @@ const overrides = {
     collapseAllGroups: "折疊所有分組",
     color: "Color",
     connectYourBuilderAccountToBrowseItsSpaces:
-      "連線你的 Builder 帳戶以瀏覽其空間和模型。",
+      "使用 Builder 帳戶瀏覽其空間和模型。",
     connectedSources: "已連線的來源",
     couldntSyncRetry: "無法同步 · 重試",
     databasePagePreview: "集合頁面預覽",
@@ -1757,6 +1775,11 @@ const overrides = {
     removeLocalFilesFromSidebar: "從側邊欄移除",
     removeLocalFilesQuestion: "要從側邊欄移除本機檔案嗎？",
     failedCreatePage: "建立頁面失敗",
+    failedCreatePageDraftDescription:
+      "草稿已儲存在此瀏覽器中。你可以重試建立頁面，或捨棄草稿。",
+    discardFailedCreatePageQuestion: "捨棄待處理的建立？",
+    discardFailedCreatePageDescription:
+      "這會清除待處理的建立與未儲存的草稿。如果頁面已儲存，仍會保留在你的工作區。",
     failedDeletePage: "刪除頁面失敗",
     failedPermanentDeleteDatabase: "永久刪除集合失敗",
     failedPermanentDeletePage: "永久刪除頁面失敗",

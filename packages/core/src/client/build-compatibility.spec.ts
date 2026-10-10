@@ -67,6 +67,27 @@ describe("client build compatibility recovery", () => {
     expect(replace).toHaveBeenCalledOnce();
   });
 
+  it("allows a user-requested cache-busted reload after an earlier one was canceled", () => {
+    const { win, replace } = compatibilityWindow();
+
+    expect(
+      reloadForClientCompatibilityMismatch("build-4", "slides-write-v1", win),
+    ).toBe(true);
+    expect(
+      reloadForClientCompatibilityMismatch("build-4", "slides-write-v1", win),
+    ).toBe(false);
+    expect(
+      reloadForClientCompatibilityMismatch("build-4", "slides-write-v1", win, {
+        force: true,
+      }),
+    ).toBe(true);
+
+    expect(replace).toHaveBeenCalledTimes(2);
+    expect(replace).toHaveBeenLastCalledWith(
+      "https://content.example/page/one?view=all&__an_build=build-4",
+    );
+  });
+
   it("removes only the compatibility cache buster after hydration", () => {
     const { win, replaceState } = compatibilityWindow(
       "https://content.example/page/one?view=all&__an_build=build-2",

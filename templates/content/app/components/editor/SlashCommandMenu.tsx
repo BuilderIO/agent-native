@@ -1,5 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useLabs } from "@agent-native/core/client/labs";
+import {
+  isLabStateEnabled,
+  useLabStates,
+} from "@agent-native/core/client/labs";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
 import {
@@ -82,6 +85,7 @@ interface SlashCommandMenuProps {
   documentId?: string;
   contentSpaceId?: string;
   suggesting?: boolean;
+  directoryWidgetEditing?: boolean;
   onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
   onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
   notionPageId?: string | null;
@@ -168,6 +172,7 @@ export interface CommandItem {
   shortcut?: string;
   icon: React.ElementType;
   suggestionSafe?: boolean;
+  directoryWidgetSafe?: boolean;
   preserveSlashRange?: boolean;
   action: (
     editor: Editor,
@@ -193,6 +198,14 @@ export function slashCommandsForMode<T extends { suggestionSafe?: boolean }>(
 ): T[] {
   return suggesting
     ? commands.filter((command) => command.suggestionSafe === true)
+    : [...commands];
+}
+
+export function slashCommandsForDirectoryWidget<
+  T extends { directoryWidgetSafe?: boolean },
+>(commands: readonly T[], directoryWidgetEditing: boolean): T[] {
+  return directoryWidgetEditing
+    ? commands.filter((command) => command.directoryWidgetSafe === true)
     : [...commands];
 }
 
@@ -318,6 +331,7 @@ export function buildHeadingCommands(
   return headingCommandMetadata.map((heading) => ({
     ...heading,
     suggestionSafe: true,
+    directoryWidgetSafe: true,
     action: (editor) => {
       const chain = editor.chain().focus();
       return behavior === "toggle"
@@ -703,12 +717,13 @@ export function SlashCommandMenu({
   documentId,
   contentSpaceId,
   suggesting = false,
+  directoryWidgetEditing = false,
   notionPageId,
   onDraftCommitted,
   onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
-  const labs = useLabs();
+  const labs = useLabStates();
   const { send, isGenerating } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
@@ -1188,10 +1203,16 @@ export function SlashCommandMenu({
         : (buildRegistrySlashItems(contentBlockRegistry, {
             notionCompatibleOnly: !!notionPageId,
             policy: {
-              advancedCode: labs[CONTENT_SLASH_ADVANCED_CODE.key] === true,
-              layouts: labs[CONTENT_SLASH_LAYOUTS.key] === true,
-              visuals: labs[CONTENT_SLASH_VISUALS.key] === true,
-              developerDocs: labs[CONTENT_SLASH_DEVELOPER_DOCS.key] === true,
+              advancedCode: isLabStateEnabled(
+                labs,
+                CONTENT_SLASH_ADVANCED_CODE.key,
+              ),
+              layouts: isLabStateEnabled(labs, CONTENT_SLASH_LAYOUTS.key),
+              visuals: isLabStateEnabled(labs, CONTENT_SLASH_VISUALS.key),
+              developerDocs: isLabStateEnabled(
+                labs,
+                CONTENT_SLASH_DEVELOPER_DOCS.key,
+              ),
             },
           }) as unknown as CommandItem[]),
     [isTurnInto, labs, notionPageId],
@@ -1215,7 +1236,7 @@ export function SlashCommandMenu({
   const blockCommands = [
     ...(isTurnInto ? turnIntoCommands : commands).map(localizeCommand),
     ...equationCommands,
-  ];
+  ].map((command) => ({ ...command, directoryWidgetSafe: true }));
   const uniqueRegistryCommands = excludeCommandsWithDuplicateTitles(
     blockCommands,
     registryCommands,
@@ -1231,24 +1252,25 @@ export function SlashCommandMenu({
     cmd.title.toLowerCase().includes(normalizedQuery) ||
     cmd.description.toLowerCase().includes(normalizedQuery) ||
     cmd.searchText?.toLowerCase().includes(normalizedQuery);
-  const availableAiCommands = slashCommandsForMode(aiCommands, suggesting);
+  const availableAiCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(aiCommands, suggesting);
   const availableBlockCommands = slashCommandsForMode(
-    blockCommands,
+    slashCommandsForDirectoryWidget(blockCommands, directoryWidgetEditing),
     suggesting,
   );
-  const availableRegistryCommands = slashCommandsForMode(
-    uniqueRegistryCommands,
-    suggesting,
-  );
-  const availableLocalComponentCommands = slashCommandsForMode(
-    localComponentCommands,
-    suggesting,
-  );
-  const availablePageCommands = slashCommandsForMode(pageCommands, suggesting);
-  const availableMediaCommands = slashCommandsForMode(
-    mediaCommands,
-    suggesting,
-  );
+  const availableRegistryCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(uniqueRegistryCommands, suggesting);
+  const availableLocalComponentCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(localComponentCommands, suggesting);
+  const availablePageCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(pageCommands, suggesting);
+  const availableMediaCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(mediaCommands, suggesting);
   const filteredAiCommands = availableAiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands =
     availableBlockCommands.filter(commandMatchesQuery);
@@ -1626,6 +1648,7 @@ export function SlashCommandMenu({
             >
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 disabled={isGenerating}
                 placeholder={t("editor.describeWhatToGenerate")}
                 draftScope={`content:generate:${documentId ?? "document"}`}

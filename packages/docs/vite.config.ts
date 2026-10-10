@@ -1,9 +1,9 @@
 import { agentNative } from "@agent-native/core/vite";
 import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { wgslVitePlugin } from "@vgpu/wgsl/loader-vite";
 import { defineConfig } from "vite";
 
+import { betaNoindexHeadersPlugin } from "./app/vite-beta-noindex-plugin";
 import { sitemapPlugin } from "./app/vite-sitemap-plugin";
 
 const reactRouterPlugins = reactRouter as unknown as () => any[];
@@ -14,9 +14,9 @@ const agentNativePlugins = agentNative as unknown as (
 export default defineConfig({
   plugins: [
     tailwindcss(),
-    wgslVitePlugin(),
     ...reactRouterPlugins(),
     sitemapPlugin(),
+    betaNoindexHeadersPlugin(),
     ...agentNativePlugins({
       tailwind: false,
       // Syntax highlighting is hydrated after the document loads. Keeping
@@ -54,7 +54,7 @@ export default defineConfig({
         "@assistant-ui/react",
       ],
       routeWarmup: {
-        strategy: "viewport",
+        strategy: "off",
         data: true,
         modules: true,
         maxConcurrent: 8,

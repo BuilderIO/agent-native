@@ -19,9 +19,13 @@ proof_requirements:
     "Agent proposals use the ordinary action, review, and history path; they are not a private inline editor.",
     "Collaborators see reconciliation and failures honestly rather than silently losing edits.",
   ]
-evidence: []
+evidence:
+  [
+    "../../../app/components/editor/DocumentEditor.layout.test.ts",
+    "../../../app/hooks/use-create-page.test.tsx",
+  ]
 superseded_by: null
-last_reviewed: "2026-09-23"
+last_reviewed: "2026-10-08"
 ---
 
 # Document editor
@@ -50,6 +54,12 @@ Ravi turns a paragraph into a callout, anchors a Comment, accepts an agent edit,
 
 ## Acceptance stories
 
+### Start writing a blank Page immediately
+
+Given the create Action has returned a new empty Page while the editor's first
+read is still pending, when the Page opens, then its title and body are
+editable from that create response and any later read failure remains visible.
+
 ### Reconcile collaboration
 
 Given two editors change adjacent text while one is offline, when reconnecting, then no edit is silently lost.
@@ -61,6 +71,8 @@ Given media, comments, and an agent mutation, when export runs, then visible con
 ## Current evidence
 
 `app/components/editor/VisualEditor.tsx`, `DocumentEditor.tsx`, `actions/edit-document.ts`, and `actions/update-document.ts` provide revisioned saves, idempotent external edits, and generation-fenced recovery. The September 23 authenticated beta pass on deployed `c0d9e4b97f73` failed after three alternating two-tab edits: the saved body missed later edits from one tab and the other tab opened the version-choice dialog. The current save-session repair has passed an early local three-cycle reproduction, ten alternating cycles with canonical read-back, and an independent browser/MCP edit with replay receipt. This is local, in-progress evidence; the final cumulative R01–R08 real-interface pass and repaired hosted beta acceptance are still pending.
+
+The two-tab lane (`e2e/two-tab-convergence.spec.ts`) runs Content's production build under beta's poll path and fails on lost or duplicated text. Its `@known-loss` scenario `delete-before-peer-save` fails on main: a word one tab deletes after seeing it only through the live copy comes back when the other tab's held save lands. Both copies of the body still accept writes, so this stays open until the live copy is the only writer. Behind the `content.live-body-shadow` feature flag, the editor measures whether the Markdown built from the live copy the way the server will write it (the structural schema and `docToNfm`) matches what the editor saves at the same moment, without changing what is saved.
 
 ## Proof plan
 

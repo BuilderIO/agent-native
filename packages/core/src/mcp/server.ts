@@ -10,12 +10,19 @@ import {
 import { getAppConfig } from "../app-config/store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { isLoopbackRequest } from "../server/auth.js";
+import {
+  describeBearerCredentialRefusal,
+  type BearerCredentialRefusal,
+} from "../server/bearer-credential-refusal.js";
+import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getH3App } from "../server/framework-request-handler.js";
+import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { trackMcpInitialize } from "./analytics.js";
 import {
   createMCPServerForRequest,
   verifyAuth,
+  McpIdentityVerificationUnavailableError,
   getAccessTokens,
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
@@ -23,6 +30,8 @@ import {
   validateMcpDirectoryProfile,
   validateMcpDirectoryWidgetDomain,
   selectMcpActionSurface,
+  selectMcpDirectoryWidgetReadActions,
+  selectMcpDirectoryWidgetWriteActions,
   type MCPConfig,
   type MCPCallerIdentity,
   type MCPRequestMeta,
@@ -47,6 +56,8 @@ export {
   getAccessTokens,
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
+  selectMcpDirectoryWidgetReadActions,
+  selectMcpDirectoryWidgetWriteActions,
 };
 export type { MCPConfig, MCPCallerIdentity, MCPRequestMeta };
 
@@ -158,8 +169,10 @@ function buildWebRequest(
 function buildUnauthorizedBody(
   event: H3Event,
   routePath = MCP_PUBLIC_ROUTE_PREFIX,
+  refusal?: BearerCredentialRefusal,
 ): {
   error: string;
+  reason?: BearerCredentialRefusal;
   message: string;
   authenticate: {
     command?: string;
@@ -184,7 +197,7 @@ function buildUnauthorizedBody(
   const authorizeUrl = issuer
     ? `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/oauth/authorize`
     : undefined;
-  const message = command
+  const instructions = command
     ? `Authentication required. Run \`${command}\` to re-authenticate this ` +
       `MCP connector without reinstalling it (or, in a Claude Code host, ` +
       `run /mcp and choose Authenticate), then retry. For first-time ` +
@@ -193,7 +206,10 @@ function buildUnauthorizedBody(
       "then retry.";
   return {
     error: "Unauthorized",
-    message,
+    ...(refusal ? { reason: refusal } : {}),
+    message: refusal
+      ? `${describeBearerCredentialRefusal(refusal)} ${instructions}`
+      : instructions,
     authenticate: {
       ...(command ? { command } : {}),
       ...(firstTimeCommand ? { firstTimeCommand } : {}),
@@ -205,6 +221,53 @@ function buildUnauthorizedBody(
 }
 
 const loggedDirectoryProfileFailures = new Set<string>();
+const directoryLogMethods = new Set([
+  "initialize",
+  "notifications/initialized",
+  "server/discover",
+  "tools/list",
+  "tools/call",
+  "resources/list",
+  "resources/templates/list",
+  "resources/read",
+  "prompts/list",
+  "prompts/get",
+  "ping",
+]);
+
+function directoryLogMethod(body: unknown): string | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  if (Array.isArray(body)) return "batch";
+  const method = (body as { method?: unknown }).method;
+  if (typeof method !== "string") return "other";
+  return directoryLogMethods.has(method) ? method : "other";
+}
+
+function responseStatusFromEvent(event: H3Event): number {
+  const status =
+    event.res?.status ??
+    (event as any).node?.res?.statusCode ??
+    (event as any)._status;
+  return typeof status === "number" && Number.isInteger(status) && status > 0
+    ? status
+    : 200;
+}
+
+function responseStatusFromError(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const status = error as { status?: unknown; statusCode?: unknown };
+  for (const candidate of [status.status, status.statusCode]) {
+    if (
+      typeof candidate === "number" &&
+      Number.isInteger(candidate) &&
+      candidate >= 100 &&
+      candidate <= 599
+    ) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
 
 function directoryProfileUnavailable(
   event: H3Event,
@@ -249,10 +312,11 @@ function directoryProfileUnavailable(
  *     h3 mount falls through to the next handler.
  *   - a Web `Response` or an auth-error object otherwise.
  */
-export async function handleMcpRequest(
+async function handleMcpRequestInternal(
   event: H3Event,
   config: MCPConfig,
   routePath = MCP_PUBLIC_ROUTE_PREFIX,
+  onMcpMethod?: (method: string) => void,
 ): Promise<
   Response | string | { error: string } | Record<string, unknown> | undefined
 > {
@@ -286,27 +350,55 @@ export async function handleMcpRequest(
         connectorCatalog: directoryProfile.connectorCatalog,
         instructions: directoryProfile.instructions,
         keyToolNames: directoryProfile.keyToolNames,
-        widgetDomain: requestMeta.origin,
+        widgetDomain:
+          directoryProfile.widgetDomain ??
+          config.widgetDomain ??
+          requestMeta.origin,
       }
     : config;
-  const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
-    allowDevOpen:
-      isLoopbackRequest(event) &&
-      isLoopbackOrigin(requestMeta.origin) &&
-      (hasLocalOwnerHint || process.env.AGENT_NATIVE_MCP_DEV_OPEN === "1"),
-    resourceUrl: getMcpOAuthAudiences(event, routePath),
-  });
+  let authResult: Awaited<ReturnType<typeof verifyAuth>>;
+  try {
+    authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+      allowDevOpen:
+        isLoopbackRequest(event) &&
+        isLoopbackOrigin(requestMeta.origin) &&
+        (hasLocalOwnerHint || getAppConfig().mcp.allowDevOpen),
+      resourceUrl: getMcpOAuthAudiences(event, routePath),
+      requestOrigin: getOrigin(event),
+    });
+  } catch (error) {
+    if (!(error instanceof McpIdentityVerificationUnavailableError))
+      throw error;
+    setResponseStatus(event, 503);
+    setResponseHeader(event, "Retry-After", "5");
+    return {
+      error: "Service Unavailable",
+      message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+    };
+  }
+  if (!authResult.authed && authResult.unavailable) {
+    // The token is valid but its org membership could not be checked. No auth
+    // challenge: re-authenticating would not help, and the client must keep
+    // its tokens and retry.
+    setResponseStatus(event, 503);
+    setResponseHeader(event, "Retry-After", "5");
+    return {
+      error: "Service Unavailable",
+      message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+    };
+  }
   if (!authResult.authed) {
     setResponseStatus(event, 401);
     setResponseHeader(
       event,
       "WWW-Authenticate",
-      buildMcpOAuthChallenge(event, routePath),
+      buildMcpOAuthChallenge(event, routePath, authResult.refusal),
     );
-    return buildUnauthorizedBody(event, routePath);
+    return buildUnauthorizedBody(event, routePath, authResult.refusal);
   }
 
   const body = method === "POST" ? await readBody(event) : undefined;
+  onMcpMethod?.(directoryLogMethod(body) ?? method);
 
   const initializeRequest = body
     ? (Array.isArray(body) ? body : [body]).find(
@@ -398,6 +490,49 @@ export async function handleMcpRequest(
     webRequest,
     method === "POST" ? { parsedBody: body } : undefined,
   );
+}
+
+export async function handleMcpRequest(
+  event: H3Event,
+  config: MCPConfig,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): Promise<
+  Response | string | { error: string } | Record<string, unknown> | undefined
+> {
+  const pathname = event.url?.pathname || "/";
+  const subpath = pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+  const isDirectoryRequest =
+    routePath === MCP_DIRECTORY_ROUTE_PREFIX && !subpath;
+  const startedAt = performance.now();
+  let method = getMethod(event);
+  let status = 500;
+
+  try {
+    const result = await handleMcpRequestInternal(
+      event,
+      config,
+      routePath,
+      (requestMethod) => {
+        method = requestMethod;
+      },
+    );
+    status =
+      result instanceof Response
+        ? result.status
+        : responseStatusFromEvent(event);
+    return result;
+  } catch (error) {
+    status = responseStatusFromError(error) ?? 500;
+    throw error;
+  } finally {
+    if (isDirectoryRequest) {
+      console.info("[mcp:directory] request", {
+        method,
+        status,
+        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      });
+    }
+  }
 }
 
 export function mountMCP(

@@ -1,10 +1,10 @@
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  DefaultSpinner,
+  LanguagePicker,
   PoweredByBadge,
+  WaveBackground,
 } from "@agent-native/toolkit/app/shared";
-import { LanguagePicker } from "@agent-native/toolkit/app/shared";
 import type { Booking } from "@shared/api";
 import { getWeekStartsOn } from "@shared/calendar-week";
 import { IconAlertTriangle, IconCalendar } from "@tabler/icons-react";
@@ -25,7 +25,6 @@ import {
   type BookingFormValue,
 } from "@/components/booking/BookingForm";
 import { DatePicker } from "@/components/booking/DatePicker";
-import { OceanBookingBackground } from "@/components/booking/ocean-booking-background";
 import { RequiredHostsBadge } from "@/components/booking/RequiredHostsBadge";
 import { TimeSlotPicker } from "@/components/booking/TimeSlotPicker";
 import {
@@ -34,6 +33,7 @@ import {
 } from "@/components/booking/TimeZoneGrid";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   useAvailableDays,
   useAvailableSlots,
@@ -78,7 +78,7 @@ function BookingPageShell({
         className,
       )}
     >
-      <OceanBookingBackground className="fixed inset-0 z-0" />
+      <WaveBackground className="fixed inset-0 z-0" />
       <div className="fixed top-4 right-4 z-50 flex items-center gap-1">
         <LanguagePicker variant="ghost-icon" />
         <ThemeToggle />
@@ -90,6 +90,47 @@ function BookingPageShell({
         {children}
       </div>
     </div>
+  );
+}
+
+function BookingPageSkeleton() {
+  return (
+    <BookingPageShell className="pb-20">
+      <div className="mx-auto mt-[7.5vh] w-full max-w-lg" aria-busy="true">
+        <div className="mb-8 flex flex-col items-center">
+          <Skeleton className="mb-4 h-12 w-12 rounded-full" />
+          <Skeleton className="h-8 w-36" />
+          <Skeleton className="mt-3 h-5 w-64 max-w-full" />
+          <Skeleton className="mt-4 h-8 w-40 rounded-full" />
+        </div>
+        <div className="rounded-xl border border-border bg-card p-6">
+          <div className="mb-6 flex items-center justify-center gap-2">
+            {[0, 1, 2].map((step) => (
+              <div key={step} className="flex items-center gap-2">
+                <Skeleton className="h-7 w-7 rounded-full" />
+                {step < 2 && <Skeleton className="h-px w-8" />}
+              </div>
+            ))}
+          </div>
+          <Skeleton className="mx-auto mb-6 h-5 w-28" />
+          <div className="mb-4 flex items-center justify-between px-4">
+            <Skeleton className="h-4 w-4" />
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-4 w-4" />
+          </div>
+          <div className="mb-1 grid grid-cols-7 gap-1">
+            {Array.from({ length: 7 }, (_, day) => (
+              <Skeleton key={day} className="mx-auto h-4 w-6" />
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {Array.from({ length: 35 }, (_, day) => (
+              <Skeleton key={day} className="h-10 w-full rounded-md" />
+            ))}
+          </div>
+        </div>
+      </div>
+    </BookingPageShell>
   );
 }
 
@@ -394,7 +435,7 @@ export default function BookingPage() {
     availabilityLoading ||
     isRedirecting
   ) {
-    return <DefaultSpinner />;
+    return <BookingPageSkeleton />;
   }
 
   if ((bookingLinkError || !bookingLink) && !isLegacyBookingPage) {

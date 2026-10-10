@@ -7,13 +7,23 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 
 const TABLE = "automation_scheduler_health";
 const DEFAULT_APP_ID = "default";
 const MAX_ERROR_LENGTH = 500;
 
-export const AUTOMATION_SCHEDULER_LEASE_MS = 10 * 60_000;
+export const AUTOMATION_SCHEDULER_LEASE_MS = 2 * 60_000;
 export const AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS = 60_000;
+
+export class AutomationSchedulerLeaseLostError extends Error {
+  readonly errorCode = "automation_scheduler_lease_lost";
+
+  constructor(cause?: unknown) {
+    super(automationRecoveryMessagesForLocale().leaseLost, { cause });
+    this.name = "AutomationSchedulerLeaseLostError";
+  }
+}
 
 export const AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS: MigrationEntry[] = [
   {
@@ -221,12 +231,13 @@ export async function renewAutomationSchedulerLease(input: {
   const result = await getDbExec().execute({
     sql: `UPDATE ${TABLE}
           SET lease_expires_at = ?, updated_at = ?
-          WHERE id = ? AND lease_owner = ?`,
+          WHERE id = ? AND lease_owner = ? AND lease_expires_at > ?`,
     args: [
       expiresAt,
       now,
       leaseRowId(normalizeAppId(input.appId)),
       input.owner,
+      now,
     ],
   });
   return Number(result.rowsAffected ?? 0) > 0;

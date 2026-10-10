@@ -2,7 +2,10 @@ import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 
-const collabDocs = vi.hoisted(() => ({ docs: new Map<string, unknown>() }));
+const collabDocs = vi.hoisted(() => ({
+  docs: new Map<string, unknown>(),
+  mutationSources: [] as Array<string | undefined>,
+}));
 
 function getOrCreateDoc(docId: string): InstanceType<typeof Y.Doc> {
   let doc = collabDocs.docs.get(docId) as
@@ -59,13 +62,14 @@ vi.mock("@agent-native/core/collab", () => ({
   ) => applyTextDiff(doc, text),
   withPreparedYDocMutation: async (
     docId: string,
-    _requestSource: string | undefined,
+    requestSource: string | undefined,
     run: (lease: {
       doc: InstanceType<typeof Y.Doc>;
       baseVersion: number | null;
       persist: (_tx: unknown, text: string) => Promise<void>;
     }) => Promise<unknown>,
   ) => {
+    collabDocs.mutationSources.push(requestSource);
     const base = collabDocs.docs.get(docId) as
       | InstanceType<typeof Y.Doc>
       | undefined;
@@ -141,17 +145,50 @@ function seedFile(content: string, updatedAt = "2026-07-06T00:00:00.000Z") {
   });
 }
 
-type Predicate = ReturnType<typeof eq> | ReturnType<typeof and>;
+type Predicate = ReturnType<typeof eq> | ReturnType<typeof and> | undefined;
 
 function matchesDesignFile(row: FileRow, predicate: Predicate): boolean {
-  const asString = JSON.stringify(predicate);
-  if (asString.includes('"id"') && asString.includes(FILE_ID)) {
-    return row.id === FILE_ID;
-  }
-  if (asString.includes('"designId"') || asString.includes('"design_id"')) {
-    return row.designId === DESIGN_ID;
-  }
-  return true;
+  if (!predicate) return true;
+  const equalities: Array<{ column: string; value: unknown }> = [];
+  const seen = new WeakSet<object>();
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    const chunks = record.queryChunks;
+    if (Array.isArray(chunks)) {
+      for (let index = 0; index < chunks.length; index += 1) {
+        const candidate = chunks[index];
+        if (
+          candidate &&
+          typeof candidate === "object" &&
+          "name" in candidate &&
+          typeof candidate.name === "string"
+        ) {
+          const boundValue = chunks
+            .slice(index + 1)
+            .find(
+              (entry) =>
+                typeof entry === "string" ||
+                typeof entry === "number" ||
+                typeof entry === "boolean",
+            );
+          if (boundValue !== undefined) {
+            equalities.push({ column: candidate.name, value: boundValue });
+          }
+        }
+        visit(chunks[index]);
+      }
+      return;
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+  visit(predicate);
+  return equalities.every(({ column, value }) => {
+    if (column === "id") return row.id === value;
+    if (column === "designId") return row.designId === value;
+    return true;
+  });
 }
 
 vi.mock("../server/db/index.js", () => {
@@ -245,6 +282,15 @@ beforeEach(() => {
 });
 
 describe("update-file: expectedVersionHash / syncCollab regression baseline", () => {
+  const widgetWriteContext = {
+    caller: "mcp-widget-write" as const,
+    mcpDirectoryWidgetWrite: {
+      appId: "design",
+      resourceIds: { designId: DESIGN_ID },
+      actionNames: ["update-file"],
+    },
+  };
+
   it("rejects malformed managed-style HTML before SQL or collab mutation", async () => {
     const before = buildDoc();
     const malformed = before.replace(
@@ -295,9 +341,122 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       // expectedVersionHash intentionally omitted.
     } as never);
 
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     expect(await hasCollabState(FILE_ID)).toBe(true);
+  });
+
+  it("requires expectedVersionHash for widget content writes", async () => {
+    const before = buildDoc();
+    const next = buildDoc(" widget-edit-");
+
+    await expect(
+      updateFileAction.run(
+        { id: FILE_ID, content: next } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_expected_version_required",
+      statusCode: 400,
+    });
+
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(before);
+    expect(await hasCollabState(FILE_ID)).toBe(false);
+  });
+
+  it("returns not found for a file outside the widget design before reading its row", async () => {
+    designFilesStore.rows.set("foreign-file", {
+      ...designFilesStore.rows.get(FILE_ID)!,
+      id: "foreign-file",
+      designId: "design-outside-scope",
+    });
+
+    await expect(
+      updateFileAction.run(
+        { id: "foreign-file", filename: "changed.html" } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(designFilesStore.rows.get("foreign-file")!.filename).toBe(
+      "index.html",
+    );
+  });
+
+  it("writes widget content normally when its current expectedVersionHash is provided", async () => {
+    const before = buildDoc();
+    const next = buildDoc(" widget-edit-");
+
+    const result = await updateFileAction.run(
+      {
+        id: FILE_ID,
+        content: next,
+        expectedVersionHash: sourceContentHash(before),
+      } as never,
+      widgetWriteContext as never,
+    );
+
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: DESIGN_ID,
+      updated: true,
+    });
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
+    expect(await hasCollabState(FILE_ID)).toBe(true);
+  });
+
+  it("rejects syncCollab:false for widget content writes instead of reporting a skipped stale mirror as success", async () => {
+    const original = buildDoc();
+    await applyText(FILE_ID, buildDoc(" live-edit-"), "content", "agent");
+    designFilesStore.rows.get(FILE_ID)!.content = buildDoc(" mirror-advanced-");
+    const sqlContentBefore = designFilesStore.rows.get(FILE_ID)!.content;
+
+    await expect(
+      updateFileAction.run(
+        {
+          id: FILE_ID,
+          content: buildDoc(" caller-stale-mirror-"),
+          syncCollab: false,
+          expectedVersionHash: sourceContentHash(original),
+        } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_sync_required",
+      statusCode: 400,
+    });
+
+    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(sqlContentBefore);
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toContain(
+      "live-edit-",
+    );
+    expect(getOrCreateDoc(FILE_ID).getText("content").toString()).not.toContain(
+      "caller-stale-mirror-",
+    );
+  });
+
+  it("tags the live-document update with the saving tab so its own tab can ignore the echo and peers see a human edit", async () => {
+    collabDocs.mutationSources.length = 0;
+    await updateFileAction.run(
+      { id: FILE_ID, content: buildDoc(" tab-edit-") } as never,
+      {
+        requestHeaders: new Headers({ "x-request-source": "tab-abc" }),
+      } as never,
+    );
+    expect(collabDocs.mutationSources).toEqual(["tab-abc"]);
+  });
+
+  it("keeps attributing header-less writes, such as the agent's, to the agent", async () => {
+    collabDocs.mutationSources.length = 0;
+    await updateFileAction.run({
+      id: FILE_ID,
+      content: buildDoc(" agent-edit-"),
+    } as never);
+    expect(collabDocs.mutationSources).toEqual(["agent"]);
   });
 
   it("2. syncCollab:true (default) + mismatched hash: still throws, not skipped", async () => {
@@ -336,6 +495,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
 
     expect(result).toEqual({
       id: FILE_ID,
+      designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
     });
@@ -379,7 +539,11 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       expectedVersionHash: matchingHash,
     } as never);
 
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     const liveText = getOrCreateDoc(FILE_ID).getText("content").toString();
     expect(liveText).not.toBe(next);
@@ -401,6 +565,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
 
     expect(result).toEqual({
       id: FILE_ID,
+      designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
     });
@@ -414,7 +579,11 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       filename: "renamed-only.html",
     } as never);
 
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.filename).toBe(
       "renamed-only.html",
     );
@@ -450,7 +619,11 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       expectedVersionHash: staleHash,
     } as never);
 
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
   });
 
@@ -474,6 +647,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
 
     expect(result).toEqual({
       id: FILE_ID,
+      designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
     });
@@ -507,7 +681,11 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       syncCollab: false,
       expectedVersionHash: sourceContentHash(editOne),
     } as never);
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(editTwo);
 
     for (const update of delayed) Y.applyUpdate(server, update, "remote");
@@ -532,6 +710,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
 
     expect(result).toEqual({
       id: FILE_ID,
+      designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
     });
@@ -559,7 +738,11 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       expectedVersionHash: sourceContentHash(mirrorState),
     } as never);
 
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(callerContent);
 
     expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(

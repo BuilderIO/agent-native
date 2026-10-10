@@ -15,14 +15,16 @@ import {
   stampSlideSource,
   storedFormOf,
 } from "./slide-source-map";
+import { applyVideoPlaybackSettings } from "./slide-video";
 
 const NONCE = "slide-r1.s1";
 const SCOPE = '[data-slide-content-scope="slide-r1"]';
 
-function mount(stored: string) {
+function mount(stored: string, disableVideoAutoplay = false) {
   const rendered = renderRawSlideHtml(stored, {
     scopeSelector: SCOPE,
     stampNonce: NONCE,
+    disableVideoAutoplay,
   });
   const root = document.createElement("div");
   root.innerHTML = rendered.html;
@@ -119,6 +121,24 @@ describe("mergeRenderedEdits", () => {
       }
     }
     expect(slides).toBeGreaterThan(40);
+  });
+
+  it("persists autoplay being turned off from a thumbnail-rendered slide", () => {
+    const source =
+      '<div class="fmd-slide"><video autoplay src="/uploads/clip.mp4"></video></div>';
+    const { root, save } = mount(source, true);
+    const video = root.querySelector("video");
+    if (!video) throw new Error("Expected video in rendered slide");
+
+    applyVideoPlaybackSettings(video, { mode: "click", loop: false });
+
+    const result = save();
+    const savedVideo = new DOMParser()
+      .parseFromString(result.html, "text/html")
+      .querySelector("video");
+    expect(result.changed).toBe(true);
+    expect(savedVideo?.hasAttribute("autoplay")).toBe(false);
+    expect(savedVideo?.hasAttribute("data-video-autoplay")).toBe(false);
   });
 
   it("does not persist transient slash-menu accessibility attributes", () => {
@@ -286,6 +306,30 @@ describe("mergeRenderedEdits", () => {
     const out = save().html;
     expect(out).toContain("<p>Pasted</p>");
     expect(out).not.toContain(SOURCE_STAMP_ATTR);
+  });
+
+  it("keeps generated crop keyframes inside a newly wrapped image", () => {
+    const source =
+      '<div class="fmd-slide"><img id="pic" src="image.png"></div>';
+    const { root, save } = mount(source);
+    const image = q(root, "#pic");
+    const frame = document.createElement("div");
+    frame.className = "fmd-pptx-image";
+    image.replaceWith(frame);
+    const viewport = document.createElement("div");
+    viewport.className = "fmd-image-crop-viewport";
+    viewport.append(image);
+    frame.append(viewport);
+    const style = document.createElement("style");
+    style.setAttribute("data-fmd-crop-keyframes", "");
+    style.textContent =
+      "@keyframes fmd_crop_test { from { transform: rotate(0deg); } to { transform: rotate(90deg); } }";
+    frame.append(style);
+
+    const output = save().html;
+    expect(output).toContain("@keyframes fmd_crop_test");
+    expect(output).toContain('data-fmd-crop-keyframes=""');
+    expect(output).toContain('class="fmd-pptx-image"');
   });
 
   it("falls back to canonical markup for a misnested element only", () => {

@@ -31,7 +31,7 @@ const OPEN_BUILDER_SPACE_SETTINGS_LABEL = "Open Builder space settings";
 const START_NEW_CHAT_LABEL = "Start new chat";
 const ADD_CREDITS_IN_BUILDER_LABEL = "Add credits in Builder";
 const BUILDER_AUTHENTICATION_ERROR =
-  "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.";
+  "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available) in Settings, then retry.";
 /**
  * A 401 says the credential this request carried was refused. It does NOT say
  * whose credential it was, and the reader is frequently someone with no saved
@@ -80,10 +80,14 @@ const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
 const CREDITS_LIMIT_REACHED_MESSAGE = "You've reached your AI credits limit.";
 const ATTACHMENT_PASSWORD_PROTECTED_MESSAGE =
   "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.";
+const INVALID_ATTACHMENT_MESSAGE =
+  "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.";
 const MALFORMED_REQUEST_ATTACHMENT_MESSAGE =
   "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.";
 const MALFORMED_REQUEST_MESSAGE =
   "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.";
+export const CHAT_REQUEST_TOO_LARGE_MESSAGE =
+  "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.";
 const MALFORMED_REQUEST_CODES = new Set([
   "invalid_request",
   "invalid_request_error",
@@ -157,20 +161,22 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     ATTACHMENT_PASSWORD_PROTECTED_MESSAGE,
     "agentChat.errorMessages.attachmentPasswordProtected",
   ],
+  [INVALID_ATTACHMENT_MESSAGE, "agentChat.errorMessages.invalidAttachment"],
+  [CHAT_REQUEST_TOO_LARGE_MESSAGE, "agentChat.errorMessages.requestTooLarge"],
   [
-    "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.",
+    "No LLM provider is connected. Open this app's Manage agent > LLM, then use Builder.io or add a provider key.",
     "agentChat.errorMessages.noProviderConnected",
   ],
   [
-    "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io (free tier available) or add a provider key.",
+    "No LLM provider is connected. Open this app's Manage agent > LLM, then use Builder.io (free tier available) or add a provider key.",
     "agentChat.errorMessages.noProviderConnected",
   ],
   [
-    "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
+    "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io or add a provider key.",
     "agentChat.errorMessages.noProviderConnected",
   ],
   [
-    "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.",
+    "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
     "agentChat.errorMessages.noProviderConnected",
   ],
   [
@@ -407,7 +413,10 @@ export function normalizeChatError(
 ): NormalizedChatError {
   const raw = String(errorMessage || "Unknown error");
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
-  const text = looksHtml ? htmlToText(raw) : raw.trim();
+  const providerText = looksHtml ? htmlToText(raw) : raw.trim();
+  const text = /^Gateway error \(no detail; raw event:/i.test(providerText)
+    ? "Gateway error (no detail)"
+    : providerText;
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
   const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const credential = chatCredentialState(text, code);
@@ -435,6 +444,10 @@ export function normalizeChatError(
     isBuilderGatewayInternalErrorMessage(text)
   ) {
     return { message: GATEWAY_INTERNAL_ERROR_MESSAGE, details: text };
+  }
+
+  if (code === "invalid_attachment") {
+    return { message: INVALID_ATTACHMENT_MESSAGE, details: text };
   }
 
   if (
@@ -502,14 +515,6 @@ export function normalizeChatError(
     };
   }
 
-  if (/^Gateway error \(no detail; raw event:/i.test(text)) {
-    return {
-      message:
-        "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
-      details: text,
-    };
-  }
-
   if (/inactivity timeout/i.test(text)) {
     return {
       message:
@@ -531,6 +536,14 @@ export function normalizeChatError(
       message: ATTACHMENT_REJECTION_PATTERN.test(text)
         ? MALFORMED_REQUEST_ATTACHMENT_MESSAGE
         : MALFORMED_REQUEST_MESSAGE,
+      details: text,
+    };
+  }
+
+  if (/^Gateway error \(no detail(?:;|\))/i.test(text)) {
+    return {
+      message:
+        "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
       details: text,
     };
   }

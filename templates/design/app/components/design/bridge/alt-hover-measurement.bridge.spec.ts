@@ -87,7 +87,284 @@ async function measure(hovered: Box) {
   }
 }
 
-describe("Alt-hover measurement matches Figma", () => {
+async function measureAfterSelectedElementMoves() {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page: Page = await browser.newPage({
+      viewport: { width: 1000, height: 800 },
+    });
+    await page.setContent(
+      `<!doctype html><html><body style="margin:0">${box("hovered", {
+        left: 519,
+        top: 400,
+        width: 200,
+        height: 120,
+      })}${box("selected", {
+        left: 200,
+        top: 200,
+        width: 200,
+        height: 120,
+      })}</body></html>`,
+    );
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.evaluate(() => {
+      window.postMessage(
+        {
+          type: "select-element",
+          selector: '[data-agent-native-node-id="selected"]',
+        },
+        "*",
+      );
+    });
+    await page.waitForTimeout(50);
+    await page.keyboard.down("Alt");
+    await page.mouse.move(520, 410, { steps: 3 });
+    await page.waitForTimeout(50);
+
+    await page.evaluate(() => {
+      document
+        .querySelector<HTMLElement>('[data-agent-native-node-id="selected"]')!
+        .style.setProperty("top", "220px");
+    });
+    await page.waitForFunction(
+      () => {
+        const overlay = document.querySelector(
+          "[data-agent-native-measurement-overlay]",
+        );
+        return [...(overlay?.children ?? [])].some(
+          (node) => node.textContent === "60",
+        );
+      },
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    return await page.evaluate(() => {
+      const overlay = document.querySelector(
+        "[data-agent-native-measurement-overlay]",
+      )!;
+      const nodes = [...overlay.children] as HTMLElement[];
+      return {
+        labels: nodes
+          .map((node) => node.textContent)
+          .filter(Boolean)
+          .sort(),
+        dashed: nodes.filter((node) => node.style.cssText.includes("dashed"))
+          .length,
+      };
+    });
+  } finally {
+    await browser.close();
+  }
+}
+
+async function measureAfterHoveredElementMoves() {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page: Page = await browser.newPage({
+      viewport: { width: 1000, height: 800 },
+    });
+    await page.setContent(
+      `<!doctype html><html><body style="margin:0">${box("hovered", {
+        left: 519,
+        top: 400,
+        width: 200,
+        height: 120,
+      })}${box("selected", {
+        left: 200,
+        top: 200,
+        width: 200,
+        height: 120,
+      })}</body></html>`,
+    );
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.evaluate(() => {
+      window.postMessage(
+        {
+          type: "select-element",
+          selector: '[data-agent-native-node-id="selected"]',
+        },
+        "*",
+      );
+    });
+    await page.waitForTimeout(50);
+    await page.keyboard.down("Alt");
+    await page.mouse.move(520, 410, { steps: 3 });
+    await page.waitForTimeout(50);
+
+    await page.evaluate(() => {
+      document
+        .querySelector<HTMLElement>('[data-agent-native-node-id="hovered"]')!
+        .style.setProperty("top", "420px");
+    });
+    await page.waitForFunction(
+      () => {
+        const overlay = document.querySelector(
+          "[data-agent-native-measurement-overlay]",
+        );
+        return [...(overlay?.children ?? [])].some(
+          (node) => node.textContent === "100",
+        );
+      },
+      undefined,
+      { timeout: 5_000 },
+    );
+
+    return await page.evaluate(() => {
+      const overlay = document.querySelector(
+        "[data-agent-native-measurement-overlay]",
+      )!;
+      const nodes = [...overlay.children] as HTMLElement[];
+      return {
+        labels: nodes
+          .map((node) => node.textContent)
+          .filter(Boolean)
+          .sort(),
+        dashed: nodes.filter((node) => node.style.cssText.includes("dashed"))
+          .length,
+      };
+    });
+  } finally {
+    await browser.close();
+  }
+}
+
+async function measureAfterEditorModeStarts(
+  mode: "read-only-message" | "interaction-mode-message" | "read-only-config",
+) {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page: Page = await browser.newPage({
+      viewport: { width: 1000, height: 800 },
+    });
+    await page.setContent(
+      `<!doctype html><html><body style="margin:0">${box("hovered", {
+        left: 519,
+        top: 400,
+        width: 200,
+        height: 120,
+      })}${box("selected", {
+        left: 200,
+        top: 200,
+        width: 200,
+        height: 120,
+      })}</body></html>`,
+    );
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.evaluate(() => {
+      window.postMessage(
+        {
+          type: "select-element",
+          selector: '[data-agent-native-node-id="selected"]',
+        },
+        "*",
+      );
+    });
+    await page.waitForTimeout(50);
+    await page.keyboard.down("Alt");
+    await page.mouse.move(520, 410, { steps: 3 });
+    await page.waitForFunction(
+      () =>
+        document.querySelector<HTMLElement>(
+          "[data-agent-native-measurement-overlay]",
+        )?.style.display === "block",
+    );
+    await page.evaluate(() => {
+      const selected = document.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="selected"]',
+      )!;
+      const hovered = document.querySelector<HTMLElement>(
+        '[data-agent-native-node-id="hovered"]',
+      )!;
+      const reads = { selected: 0, hovered: 0 };
+      const isMeasurementRead = () =>
+        (new Error().stack || "").includes("currentMeasurementGeometry");
+      const selectedGetBoundingClientRect =
+        selected.getBoundingClientRect.bind(selected);
+      const hoveredGetBoundingClientRect =
+        hovered.getBoundingClientRect.bind(hovered);
+      selected.getBoundingClientRect = () => {
+        if (isMeasurementRead()) reads.selected += 1;
+        return selectedGetBoundingClientRect();
+      };
+      hovered.getBoundingClientRect = () => {
+        if (isMeasurementRead()) reads.hovered += 1;
+        return hoveredGetBoundingClientRect();
+      };
+      (window as any).__measurementGeometryReads = reads;
+    });
+    if (mode === "read-only-message") {
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "set-read-only") return;
+              window.removeEventListener("message", onMessage);
+              resolve();
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage({ type: "set-read-only", readOnly: true }, "*");
+          }),
+      );
+    } else if (mode === "interaction-mode-message") {
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== "set-interaction-mode") return;
+              window.removeEventListener("message", onMessage);
+              resolve();
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              { type: "set-interaction-mode", interact: true },
+              "*",
+            );
+          }),
+      );
+    } else {
+      await page.evaluate(() =>
+        (window as any).__anEditorChromeBridgeInstance.updateConfig({
+          readOnly: true,
+        }),
+      );
+    }
+    const readsAfterModeStarts = await page.evaluate(() => ({
+      ...(window as any).__measurementGeometryReads,
+    }));
+    const overlayAfterModeStarts = await page.evaluate(() => {
+      const overlay = document.querySelector<HTMLElement>(
+        "[data-agent-native-measurement-overlay]",
+      )!;
+      return {
+        display: overlay.style.display,
+        children: overlay.childElementCount,
+      };
+    });
+    await page.waitForTimeout(80);
+
+    return await page
+      .evaluate(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          "[data-agent-native-measurement-overlay]",
+        )!;
+        return {
+          display: overlay.style.display,
+          children: overlay.childElementCount,
+          reads: (window as any).__measurementGeometryReads,
+        };
+      })
+      .then((result) => ({
+        ...result,
+        readsAfterModeStarts,
+        overlayAfterModeStarts,
+      }));
+  } finally {
+    await browser.close();
+  }
+}
+
+describe("Alt-hover measurement", () => {
   it("shows both gaps with dashed runs to a diagonal neighbour", async () => {
     expect(
       await measure({ left: 519, top: 400, width: 200, height: 120 }),
@@ -110,5 +387,35 @@ describe("Alt-hover measurement matches Figma", () => {
     expect(
       await measure({ left: 350, top: 280, width: 200, height: 120 }),
     ).toEqual({ labels: ["150", "150", "80", "80"], dashed: 0 });
+  });
+
+  it("updates the measurements after the selected element moves", async () => {
+    expect(await measureAfterSelectedElementMoves()).toEqual({
+      labels: ["119", "60"],
+      dashed: 2,
+    });
+  });
+
+  it("updates the measurements after the hovered element moves", async () => {
+    expect(await measureAfterHoveredElementMoves()).toEqual({
+      labels: ["100", "119"],
+      dashed: 2,
+    });
+  });
+
+  it.each([
+    "read-only-message",
+    "interaction-mode-message",
+    "read-only-config",
+  ] as const)("clears measurements when %s starts", async (mode) => {
+    const result = await measureAfterEditorModeStarts(mode);
+
+    expect(result.overlayAfterModeStarts).toEqual({
+      display: "none",
+      children: 0,
+    });
+    expect(result.display).toBe("none");
+    expect(result.children).toBe(0);
+    expect(result.reads).toEqual(result.readsAfterModeStarts);
   });
 }, 60_000);

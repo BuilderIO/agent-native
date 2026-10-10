@@ -8,6 +8,7 @@ import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
@@ -21,6 +22,8 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import type { EditorMountMode } from "@shared/editor-mount-outcomes";
+import { isMarkdownFilePath } from "@shared/import/paths";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -82,6 +85,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
@@ -108,6 +112,7 @@ import {
   isEditorDraftSaveAccepted,
   type EditorDraftSaveResult,
 } from "./editor-draft-save";
+import { observeEditorMount } from "./editor-mount-telemetry";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
@@ -136,6 +141,7 @@ import {
 } from "./extensions/registryBlocks";
 import {
   SuggestionHighlight,
+  acceptedSuggestionAtRange,
   setSuggestionHighlights,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
@@ -159,8 +165,20 @@ import {
   videoUploadErrorMessage,
 } from "./image-upload";
 import { LinkHoverPreview } from "./LinkHoverPreview";
+import {
+  LIVE_BODY_PARITY_QUIET_MS,
+  measureLiveBodyParity,
+  reportLiveBodyParity,
+} from "./live-body-parity";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import {
+  resolveSuggestionPresentationRange,
+  type SuggestionPresentationTransition,
+} from "./suggestions/presentation-rebase";
+import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
+import { ContentTableView } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
+import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
 function compareDocumentBodyRevisions(
   first: string,
@@ -359,7 +377,11 @@ function dispatchLiteralPaste(view: EditorView, slice: Slice): void {
     .setMeta("paste", true)
     .setMeta("uiEvent", "paste");
   const expected = insertion.doc;
+  const before = view.state.doc;
   view.dispatch(insertion);
+  // A filter refused the paste (for example into a block that is read-only
+  // while suggesting); retrying it as a raw range would insert it anyway.
+  if (view.state.doc === before) return;
 
   if (!view.state.doc.eq(expected)) {
     view.dispatch(
@@ -1141,8 +1163,51 @@ export interface VisualEditorSuggestion {
   afterText: string;
   beforePresentation?: SuggestionPresentationContext;
   afterPresentation?: SuggestionPresentationContext;
+  canonicalOperation?: Parameters<typeof resolveSuggestionPresentationRange>[1];
+  canonicalTransition?: SuggestionPresentationTransition;
+  observedTransition?: SuggestionPresentationTransition;
   anchor: { from: number; prefix: string; suffix: string };
-  presentation: "draft" | "canonical";
+  settlementReadbackContent?: string | null;
+  presentation: "draft" | "canonical" | "settling";
+}
+
+export function acceptedSuggestionRendered(
+  actualMarkdown: string,
+  readbackMarkdown: string,
+  suggestion: VisualEditorSuggestion,
+) {
+  const afterSource = suggestion.afterPresentation?.source;
+  const beforeSource = suggestion.beforePresentation?.source;
+  if (afterSource === undefined || beforeSource === undefined) return false;
+  const actual = canonicalizeNfm(actualMarkdown);
+  const readback = canonicalizeNfm(readbackMarkdown);
+  const before = canonicalizeNfm(beforeSource);
+  return readback !== before && actual === readback;
+}
+
+export function acceptedSuggestionReadbackOutdated(
+  actualMarkdown: string,
+  readbackMarkdown: string,
+  suggestion: VisualEditorSuggestion,
+) {
+  const beforeSource = suggestion.beforePresentation?.source;
+  if (beforeSource === undefined) return false;
+  const actual = canonicalizeNfm(actualMarkdown);
+  return (
+    actual !== canonicalizeNfm(beforeSource) &&
+    actual !== canonicalizeNfm(readbackMarkdown)
+  );
+}
+
+export function canProjectAcceptedSuggestion(
+  suggestion: VisualEditorSuggestion,
+) {
+  return (
+    suggestion.kind !== "add_text_block" &&
+    !/[\r\n]/.test(suggestion.beforeText + suggestion.afterText) &&
+    !suggestion.beforeText.includes("<empty-block/>") &&
+    !suggestion.afterText.includes("<empty-block/>")
+  );
 }
 
 function suggestionAnchorRange(
@@ -1154,21 +1219,55 @@ function suggestionAnchorRange(
     suggestion.presentation === "draft"
       ? suggestion.afterText
       : suggestion.beforeText;
-  const sourceFrom = suggestion.anchor.from;
+  const canonicalRange =
+    suggestion.presentation === "canonical" && suggestion.canonicalOperation
+      ? resolveSuggestionPresentationRange(
+          source,
+          suggestion.canonicalOperation,
+          suggestion.canonicalTransition,
+          suggestion.observedTransition,
+        )
+      : undefined;
+  if (canonicalRange === null) return null;
+  const anchor = canonicalRange
+    ? {
+        from: canonicalRange.from,
+        prefix: source.slice(
+          Math.max(0, canonicalRange.from - 32),
+          canonicalRange.from,
+        ),
+        suffix: source.slice(canonicalRange.to, canonicalRange.to + 32),
+      }
+    : suggestion.anchor;
+  const sourceFrom = anchor.from;
   const sourceTo = sourceFrom + rawQuote.length;
   const sourceMatches =
     source.slice(sourceFrom, sourceTo) === rawQuote &&
-    source.slice(
-      Math.max(0, sourceFrom - suggestion.anchor.prefix.length),
-      sourceFrom,
-    ) === suggestion.anchor.prefix &&
-    source.slice(sourceTo, sourceTo + suggestion.anchor.suffix.length) ===
-      suggestion.anchor.suffix;
+    source.slice(Math.max(0, sourceFrom - anchor.prefix.length), sourceFrom) ===
+      anchor.prefix &&
+    source.slice(sourceTo, sourceTo + anchor.suffix.length) === anchor.suffix;
   const sourceRangeToPm = (from: number, to: number) => {
     const mapped = suggestionFormattingSourceRange(source, from, to);
     if (!mapped) return null;
     const plain = buildDocText(doc);
     if (plain.text !== mapped.text) return null;
+    if (mapped.emptyCell) {
+      const emptyCells: number[] = [];
+      doc.descendants((node, pos) => {
+        if (
+          (node.type.name === "tableCell" ||
+            node.type.name === "tableHeader") &&
+          node.childCount === 1 &&
+          node.firstChild!.type.name === "paragraph" &&
+          node.firstChild!.content.size === 0
+        )
+          emptyCells.push(pos + 2);
+      });
+      const at = emptyCells[mapped.emptyCell.index];
+      return emptyCells.length === mapped.emptyCell.count && at !== undefined
+        ? { from: at, to: at }
+        : null;
+    }
     const position = (offset: number, affinity: "left" | "right") => {
       let textOffset = 0;
       let result: number | null = null;
@@ -1261,11 +1360,10 @@ function suggestionAnchorRange(
   if (suggestion.kind === "set_inline_mark") {
     let from = sourceFrom;
     if (!sourceMatches) {
-      const needle =
-        suggestion.anchor.prefix + rawQuote + suggestion.anchor.suffix;
+      const needle = anchor.prefix + rawQuote + anchor.suffix;
       const match = source.indexOf(needle);
       if (match < 0 || source.indexOf(needle, match + 1) >= 0) return null;
-      from = match + suggestion.anchor.prefix.length;
+      from = match + anchor.prefix.length;
     }
     const mappedRange = sourceRangeToPm(from, from + rawQuote.length);
     return mappedRange && mappedRange.to > mappedRange.from
@@ -1283,11 +1381,11 @@ function suggestionAnchorRange(
   );
   const prefix =
     startOffset === undefined
-      ? suggestionAnchorText(suggestion.anchor.prefix)
+      ? suggestionAnchorText(anchor.prefix)
       : mappedSource.slice(0, startOffset);
   const suffix =
     startOffset === undefined
-      ? suggestionAnchorText(suggestion.anchor.suffix)
+      ? suggestionAnchorText(anchor.suffix)
       : mappedSource.slice(startOffset + quote.length);
   const from = resolveAnchorPoint(
     doc,
@@ -1330,6 +1428,42 @@ export function suggestionHighlightSpec(
   if (beforePresentation === null || afterPresentation === null) return null;
   const range = suggestionAnchorRange(doc, suggestion);
   if (!range) return null;
+  if (
+    suggestion.presentation === "settling" &&
+    suggestion.beforePresentation &&
+    suggestion.afterPresentation &&
+    acceptedSuggestionAtRange(
+      doc,
+      range,
+      suggestion.beforePresentation,
+      suggestion.afterPresentation,
+    )
+  )
+    return null;
+  if (
+    suggestion.presentation === "settling" &&
+    canProjectAcceptedSuggestion(suggestion)
+  ) {
+    return {
+      suggestionId: suggestion.id,
+      kind:
+        suggestion.kind === "delete_text"
+          ? "delete"
+          : suggestion.kind === "insert_text"
+            ? "insert"
+            : suggestion.kind === "add_text_block"
+              ? "add_block"
+              : "replace",
+      from: range.from,
+      to: range.to,
+      insertedText: suggestion.afterText,
+      insertedPresentation: suggestion.afterPresentation,
+      settling: true,
+      settlingBeforePresentation: suggestion.beforePresentation,
+      settlingAfterSource: suggestion.afterPresentation?.source,
+      settlingReadbackContent: suggestion.settlementReadbackContent,
+    };
+  }
   if (suggestion.presentation === "draft") {
     if (
       /^\n+$/.test(suggestionAnchorText(suggestion.afterText)) ||
@@ -1418,6 +1552,8 @@ function writeContentSelectionState(value: unknown) {
 }
 
 interface VisualEditorProps {
+  visitKey?: string;
+  editorMountMode?: EditorMountMode;
   documentId?: string;
   contentSpaceId?: string;
   content: string;
@@ -1442,17 +1578,26 @@ interface VisualEditorProps {
     serverRevision: string;
   }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
+  isEditorClean?: (liveMarkdown: string) => boolean;
   onChange: (markdown: string) => void;
   onSaveContent?: (
     markdown: string,
   ) => EditorDraftSaveResult | Promise<EditorDraftSaveResult>;
   onEscape?: () => void;
+  /** Opens the import dialog for a drop that carries Markdown files. */
+  onImportFiles?: (files: File[]) => void;
   ydoc?: YDoc | null;
+  /** Shadow mode: compare saves with the body built from the live copy. */
+  observeLiveBody?: boolean;
   collabSynced?: boolean;
   awareness?: Awareness | null;
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
+  directoryWidgetEditing?: boolean;
+  /** Where the widget's docked formatting toolbar renders, under the page toolbar. */
+  widgetFormattingSlot?: HTMLElement | null;
   suggesting?: boolean;
+  widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
@@ -1461,6 +1606,7 @@ interface VisualEditorProps {
     offsetTop: number,
     anchor?: CommentTextAnchor,
     range?: { from: number; to: number },
+    suggestionId?: string,
   ) => void;
   commentThreads?: CommentThread[];
   activeThreadId?: string | null;
@@ -1468,6 +1614,22 @@ interface VisualEditorProps {
   pendingHighlight?: { from: number; to: number } | null;
   onActivateThread?: (threadId: string) => void;
   suggestions?: VisualEditorSuggestion[];
+  acceptedDecisionReadback?: { id: string; content: string } | null;
+  onAcceptedDecisionRendered?: (id: string) => void;
+  onAcceptedDecisionReadbackOutdated?: (
+    id: string,
+    actualContent: string,
+  ) => void;
+  proposalDecisionReadback?: {
+    generation: number;
+    content: string;
+    beforeContent: string;
+  } | null;
+  onProposalDecisionRendered?: (generation: number) => void;
+  onProposalDecisionReadbackOutdated?: (
+    generation: number,
+    actualContent: string,
+  ) => void;
   activeSuggestionId?: string | null;
   onActivateSuggestion?: (suggestionId: string) => void;
   onHoverSuggestion?: (suggestionId: string | null) => void;
@@ -1477,10 +1639,8 @@ interface VisualEditorProps {
     startOffset: number;
     beforeMarkdown: string;
   }) => void;
-  initialSelection?:
-    | { from: number; prefix: string; suffix: string }
-    | VisualEditorSelectionSnapshot
-    | null;
+  initialSelection?: VisualEditorInitialSelection | null;
+  onInitialSelectionApplied?: (selection: VisualEditorInitialSelection) => void;
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
@@ -1518,6 +1678,10 @@ export interface VisualEditorSelectionSnapshot {
   head: number;
   docJson: string;
 }
+
+export type VisualEditorInitialSelection =
+  | { from: number; prefix: string; suffix: string }
+  | VisualEditorSelectionSnapshot;
 
 export interface VisualEditorSelectionController {
   captureSelection: (options?: {
@@ -1669,6 +1833,16 @@ export function suggestionReplacementIntentForTransaction(
   };
 }
 
+function hasSemanticCollaborationContent(value: string): boolean {
+  return (
+    value
+      .split(/\r?\n/)
+      .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
+      .join("\n")
+      .trim().length > 0
+  );
+}
+
 export function shouldSeedCollaborativeContent({
   content,
   currentMarkdown,
@@ -1678,12 +1852,10 @@ export function shouldSeedCollaborativeContent({
   currentMarkdown: string;
   fragmentLength: number;
 }): boolean {
-  const semanticMarkdown = currentMarkdown
-    .split(/\r?\n/)
-    .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
-    .join("\n")
-    .trim();
-  return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
+  return (
+    hasSemanticCollaborationContent(content) &&
+    (fragmentLength === 0 || !hasSemanticCollaborationContent(currentMarkdown))
+  );
 }
 
 export function parseNfmForCollabReconcile(
@@ -1851,6 +2023,7 @@ interface VisualEditorExtensionOptions {
   onImageComment?: (quotedText: string, offsetTop: number) => void;
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   canMutateMedia?: () => boolean;
+  isSuggesting?: () => boolean;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
   localFilePath?: string | null;
@@ -2450,6 +2623,7 @@ export function createVisualEditorExtensions({
   onImageComment,
   onImageFilePickerRequest,
   canMutateMedia,
+  isSuggesting,
   onJoinTitle,
   onOpenNotionPageLink,
   localFilePath,
@@ -2522,6 +2696,7 @@ export function createVisualEditorExtensions({
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
       CustomTable.configure({
         resizable: true,
+        View: ContentTableView,
         HTMLAttributes: { class: "notion-table" },
       }),
       TableRow,
@@ -2529,6 +2704,9 @@ export function createVisualEditorExtensions({
       NotionTableCell,
       NormalizeTableHeaders,
       NormalizeTableAlignment,
+      ...(isSuggesting
+        ? [SuggestingReadOnlyBlocks.configure({ isSuggesting })]
+        : []),
       ...createNotionEditorExtensions({
         documentId,
         onOpenPageLink: onOpenNotionPageLink,
@@ -2843,6 +3021,8 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 }
 
 export function VisualEditor({
+  visitKey,
+  editorMountMode,
   documentId,
   contentSpaceId,
   content,
@@ -2854,15 +3034,21 @@ export function VisualEditor({
   requestCollabSync,
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
+  isEditorClean,
   onChange,
   onSaveContent,
   onEscape,
+  onImportFiles,
   ydoc,
+  observeLiveBody = false,
   collabSynced = true,
   awareness,
   user,
   editable = true,
+  directoryWidgetEditing = false,
+  widgetFormattingSlot = null,
   suggesting = false,
+  widgetLoadDiagnosticsActive = false,
   localFileMode = false,
   localFilePath,
   referenceDepth,
@@ -2873,11 +3059,18 @@ export function VisualEditor({
   pendingHighlight,
   onActivateThread,
   suggestions = [],
+  acceptedDecisionReadback = null,
+  onAcceptedDecisionRendered,
+  onAcceptedDecisionReadbackOutdated,
+  proposalDecisionReadback = null,
+  onProposalDecisionRendered,
+  onProposalDecisionReadbackOutdated,
   activeSuggestionId,
   onActivateSuggestion,
   onHoverSuggestion,
   onSuggestionReplacementIntent,
   initialSelection,
+  onInitialSelectionApplied,
   onSuggestionAnchorsChange,
   showCommentIndicators = true,
   onJoinTitle,
@@ -2889,6 +3082,9 @@ export function VisualEditor({
   onPersistenceControllerChange,
 }: VisualEditorProps) {
   const t = useT();
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
+  const widgetDiagnosticsActive =
+    widgetBridgeActive || widgetLoadDiagnosticsActive;
   const fileUploadStatus = useFileUploadStatus();
   const fileStorageState: "configured" | "missing" | "unknown" =
     fileUploadStatus.isError
@@ -2920,6 +3116,39 @@ export function VisualEditor({
   );
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const liveBodyObserverRef = useRef<{ documentId: string; ydoc: YDoc } | null>(
+    null,
+  );
+  liveBodyObserverRef.current =
+    observeLiveBody && ydoc && documentId ? { documentId, ydoc } : null;
+  const liveBodyParityTimerRef = useRef<
+    ReturnType<typeof setTimeout> | undefined
+  >(undefined);
+  const scheduleLiveBodyParity = useCallback((editorToMeasure: CoreEditor) => {
+    const observer = liveBodyObserverRef.current;
+    if (!observer) return;
+    clearTimeout(liveBodyParityTimerRef.current);
+    liveBodyParityTimerRef.current = setTimeout(() => {
+      // Serialize and read the live copy in the same tick: anything later
+      // compares two different states.
+      let saved: string | null;
+      try {
+        saved = serializeEditorDraftForPersistence(editorToMeasure);
+      } catch (error) {
+        console.warn(
+          "[content] could not serialize the body to compare",
+          error,
+        );
+        return;
+      }
+      if (saved === null) return;
+      reportLiveBodyParity(
+        observer.documentId,
+        measureLiveBodyParity(observer.ydoc, saved),
+      );
+    }, LIVE_BODY_PARITY_QUIET_MS);
+  }, []);
+  useEffect(() => () => clearTimeout(liveBodyParityTimerRef.current), []);
   const onSaveContentRef = useRef(onSaveContent);
   onSaveContentRef.current = onSaveContent;
   const onActivateThreadRef = useRef(onActivateThread);
@@ -3043,6 +3272,7 @@ export function VisualEditor({
     }
   }, [documentId, fileStorageConfigured]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
+  const isSuggesting = useCallback(() => suggestingRef.current, []);
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
@@ -3078,6 +3308,8 @@ export function VisualEditor({
 
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
+  const onImportFilesRef = useRef(onImportFiles);
+  onImportFilesRef.current = onImportFiles;
   const extensions = useMemo(
     () => [
       ...createVisualEditorExtensions({
@@ -3088,6 +3320,7 @@ export function VisualEditor({
         onImageComment: onComment,
         onImageFilePickerRequest,
         canMutateMedia,
+        isSuggesting,
         onJoinTitle,
         onOpenNotionPageLink,
         localFilePath,
@@ -3130,6 +3363,7 @@ export function VisualEditor({
       onComment,
       onImageFilePickerRequest,
       canMutateMedia,
+      isSuggesting,
       onJoinTitle,
       onOpenNotionPageLink,
       localFilePath,
@@ -3165,6 +3399,7 @@ export function VisualEditor({
           return options?.strict === true
             ? ("failed" as const)
             : ("unchanged" as const);
+        scheduleLiveBodyParity(editorToPersist);
         const normalized = options?.markdown ?? serialized;
         if (localFileMode && normalized === content)
           return "unchanged" as const;
@@ -3195,7 +3430,7 @@ export function VisualEditor({
         return "failed" as const;
       }
     },
-    [content, localFileMode, t],
+    [content, localFileMode, scheduleLiveBodyParity, t],
   );
   onMediaSourceCommittedRef.current = async (editorToPersist, transaction) => {
     if (suggestingRef.current) return;
@@ -3216,6 +3451,9 @@ export function VisualEditor({
   };
 
   const historyEditorRef = useRef<CoreEditor | null>(null);
+  const historyControllerRef = useRef<VisualEditorHistoryController | null>(
+    null,
+  );
   const acknowledgedRestoreRef = useRef<{
     documentId: string | null;
     content: string;
@@ -3226,6 +3464,18 @@ export function VisualEditor({
     ReturnType<typeof setTimeout> | undefined
   >(undefined);
   const editor = useEditor({
+    onCreate: ({ editor }) => {
+      if (editor.isDestroyed || !editor.view.dom.isConnected) return;
+      if (documentId && visitKey !== undefined) {
+        observeEditorMount(
+          editor,
+          documentId,
+          visitKey,
+          editorMountMode ??
+            (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
+        );
+      }
+    },
     extensions,
     content: ydoc ? undefined : nfmToDoc(content),
     editorProps: {
@@ -3233,6 +3483,18 @@ export function VisualEditor({
         class: "notion-editor",
       },
       handleDrop(view, event) {
+        const droppedFiles = Array.from(event.dataTransfer?.files ?? []);
+        if (
+          view.editable &&
+          onImportFilesRef.current &&
+          droppedFiles.some((file) => isMarkdownFilePath(file.name))
+        ) {
+          // Images dropped beside Markdown belong to the import, not the page.
+          event.preventDefault();
+          setIsDraggingMedia(false);
+          onImportFilesRef.current(droppedFiles);
+          return true;
+        }
         if (view.editable) markUserEditIntent();
         setIsDraggingMedia(false);
         if (!view.editable || !event.dataTransfer) return false;
@@ -3522,10 +3784,11 @@ export function VisualEditor({
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) {
+      historyControllerRef.current = null;
       onHistoryControllerChange?.(null);
       return;
     }
-    onHistoryControllerChange?.({
+    const historyController: VisualEditorHistoryController = {
       undo: () => runPersistableHistoryCommand(editor, "undo"),
       redo: () => runPersistableHistoryCommand(editor, "redo"),
       replaceWithAuthoritativeContent: (snapshot) => {
@@ -3559,14 +3822,19 @@ export function VisualEditor({
         }
         return applied;
       },
-    });
+    };
+    historyControllerRef.current = historyController;
+    onHistoryControllerChange?.(historyController);
     const initialHistoryState = {
       canUndo: editor.can().undo(),
       canRedo: editor.can().redo(),
     };
     deliveredHistoryStateRef.current = initialHistoryState;
     onHistoryStateChange?.(initialHistoryState);
-    return () => onHistoryControllerChange?.(null);
+    return () => {
+      historyControllerRef.current = null;
+      onHistoryControllerChange?.(null);
+    };
   }, [
     editor,
     documentId,
@@ -3909,6 +4177,7 @@ export function VisualEditor({
     requestCollabSync,
     onBaseAwareReconcile,
     onRemoteSnapshotChange,
+    isEditorClean,
     requestInitialSeed:
       ydoc && editable && documentId ? requestInitialSeed : undefined,
     onInitialSeedError,
@@ -3988,6 +4257,17 @@ export function VisualEditor({
   );
 
   const editableMarkedRef = useRef(false);
+  useEffect(() => {
+    if (editor && !editor.isDestroyed && documentId && visitKey !== undefined) {
+      observeEditorMount.contextChanged(
+        editor,
+        documentId,
+        visitKey,
+        editorMountMode ??
+          (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
+      );
+    }
+  }, [editor, editable, documentId, visitKey, suggesting, editorMountMode]);
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
@@ -4125,20 +4405,24 @@ export function VisualEditor({
         .join("|"),
     [suggestions],
   );
+  const applySuggestionsRef = useRef<((report?: boolean) => void) | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const apply = () => {
+    const apply = (report = true) => {
       if (editor.isDestroyed) return;
       const specs = suggestions
         .map((suggestion) =>
           suggestionHighlightSpec(editor.state.doc, suggestion),
         )
         .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
-      onSuggestionAnchorsChange?.(
-        Array.from(new Set(specs.map((spec) => spec.suggestionId))),
-      );
-      const visibleSpecs = showCommentIndicators ? specs : [];
+      if (report)
+        onSuggestionAnchorsChange?.(
+          Array.from(new Set(specs.map((spec) => spec.suggestionId))),
+        );
+      const visibleSpecs = showCommentIndicators
+        ? specs
+        : specs.filter((spec) => spec.settling);
       const selection = pendingNativeSuggestionSelection(
         editor.view,
         visibleSpecs,
@@ -4149,13 +4433,10 @@ export function VisualEditor({
         selection.status === "mapped" ? selection.selection : undefined,
       );
     };
-    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
-      if (transaction.docChanged) apply();
-    };
+    applySuggestionsRef.current = apply;
     apply();
-    editor.on("transaction", onTransaction);
     return () => {
-      editor.off("transaction", onTransaction);
+      applySuggestionsRef.current = null;
     };
   }, [
     activeSuggestionId,
@@ -4164,6 +4445,92 @@ export function VisualEditor({
     suggestions,
     suggestionsSignature,
     showCommentIndicators,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    // Prop updates must not move reconciliation behind other transaction consumers.
+    const onTransaction = ({ transaction }: { transaction: Transaction }) => {
+      // While suggesting, the draft reaches the parent a tick after the doc
+      // changes, so these are the previous draft's suggestions; reporting
+      // their anchors would mark text the author is typing as unplaced.
+      if (transaction.docChanged)
+        applySuggestionsRef.current?.(!suggestingRef.current);
+    };
+    editor.on("transaction", onTransaction);
+    return () => {
+      editor.off("transaction", onTransaction);
+    };
+  }, [editor]);
+
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed || !acceptedDecisionReadback) return;
+    const settlingSuggestion = suggestions.find(
+      (suggestion) => suggestion.id === acceptedDecisionReadback.id,
+    );
+    if (!settlingSuggestion) return;
+    const check = () => {
+      if (editor.isDestroyed) return;
+      const actualContent = docToNfm(editor.getJSON() as any);
+      if (
+        acceptedSuggestionRendered(
+          actualContent,
+          acceptedDecisionReadback.content,
+          settlingSuggestion,
+        )
+      ) {
+        onAcceptedDecisionRendered?.(acceptedDecisionReadback.id);
+      } else if (
+        acceptedSuggestionReadbackOutdated(
+          actualContent,
+          acceptedDecisionReadback.content,
+          settlingSuggestion,
+        )
+      ) {
+        onAcceptedDecisionReadbackOutdated?.(
+          acceptedDecisionReadback.id,
+          actualContent,
+        );
+      }
+    };
+    editor.on("transaction", check);
+    check();
+    return () => {
+      editor.off("transaction", check);
+    };
+  }, [
+    acceptedDecisionReadback,
+    editor,
+    onAcceptedDecisionRendered,
+    onAcceptedDecisionReadbackOutdated,
+    suggestions,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed || !proposalDecisionReadback) return;
+    const check = () => {
+      if (editor.isDestroyed) return;
+      const actual = canonicalizeNfm(docToNfm(editor.getJSON() as any));
+      if (actual === canonicalizeNfm(proposalDecisionReadback.content))
+        onProposalDecisionRendered?.(proposalDecisionReadback.generation);
+      else if (
+        actual !== canonicalizeNfm(proposalDecisionReadback.beforeContent)
+      )
+        onProposalDecisionReadbackOutdated?.(
+          proposalDecisionReadback.generation,
+          actual,
+        );
+    };
+    editor.on("transaction", check);
+    check();
+    return () => {
+      editor.off("transaction", check);
+    };
+  }, [
+    editor,
+    onProposalDecisionReadbackOutdated,
+    onProposalDecisionRendered,
+    proposalDecisionReadback,
   ]);
 
   useEffect(() => {
@@ -4193,10 +4560,11 @@ export function VisualEditor({
       if (!editor.isDestroyed) {
         editor.view.dispatch(editor.state.tr.setSelection(selection!));
         editor.view.focus();
+        onInitialSelectionApplied?.(initialSelection);
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [editable, editor, initialSelection]);
+  }, [editable, editor, initialSelection, onInitialSelectionApplied]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -4273,7 +4641,7 @@ export function VisualEditor({
   }, [editor]);
 
   if (!editor) {
-    return (
+    const skeleton = (
       <div className="flex flex-col gap-3 px-8 py-6 animate-pulse">
         <div className="h-4 w-2/3 rounded bg-muted" />
         <div className="h-4 w-full rounded bg-muted" />
@@ -4281,7 +4649,24 @@ export function VisualEditor({
         <div className="h-4 w-3/4 rounded bg-muted" />
       </div>
     );
+    return (
+      <WidgetLoadDiagnostic
+        active={widgetDiagnosticsActive}
+        stage={t("editor.widgetEditorInitStage")}
+        action="VisualEditor.useEditor"
+        fallback={skeleton}
+      />
+    );
   }
+
+  const widgetFormattingToolbar = (
+    <BubbleToolbar
+      docked
+      editor={editor}
+      onUndo={() => historyControllerRef.current?.undo()}
+      onRedo={() => historyControllerRef.current?.redo()}
+    />
+  );
 
   return (
     <div
@@ -4294,7 +4679,13 @@ export function VisualEditor({
         containerRef={wrapperRef}
         ttlMs={CONTENT_RECENT_EDIT_TTL_MS}
       />
-      {editable ? (
+      {editable && directoryWidgetEditing ? (
+        widgetFormattingSlot ? (
+          createPortal(widgetFormattingToolbar, widgetFormattingSlot)
+        ) : (
+          <div className="sticky top-0 z-10">{widgetFormattingToolbar}</div>
+        )
+      ) : editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}
       {editable ? (
@@ -4303,6 +4694,7 @@ export function VisualEditor({
           documentId={documentId}
           contentSpaceId={contentSpaceId}
           suggesting={suggesting}
+          directoryWidgetEditing={directoryWidgetEditing}
           notionPageId={notionPageId}
           onDraftCommitted={() =>
             Promise.resolve(
@@ -4321,7 +4713,7 @@ export function VisualEditor({
         />
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
-      {editable ? <TableHoverControls editor={editor} /> : null}
+      {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
       {editable && isDraggingMedia ? (
         <div className="media-drop-overlay">
           <div className="media-drop-overlay__content">

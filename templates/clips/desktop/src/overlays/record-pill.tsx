@@ -1,8 +1,10 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconCheck,
   IconCopy,
   IconExclamationMark,
+  IconHistory,
   IconLink,
   IconLoader2,
   IconX,
@@ -37,6 +39,7 @@ import type {
   RecordingPlayheadOrientation,
   RecordingPlayheadSize,
 } from "../../../shared/recording-playhead-position";
+import type { ScreenHistoryWindow } from "../../../shared/screen-history-context";
 import { LiveWaveform } from "../components/live-waveform";
 import { completionActionCopy } from "../i18n/completion-en-US";
 import {
@@ -55,10 +58,26 @@ import {
 } from "../lib/pill-completion-actions";
 import { toolbarEnabledEffect } from "../lib/pill-session";
 import type { PillMode } from "../lib/pill-session";
+import { RECORDER_DISCARD_EVENT } from "../lib/recorder-events";
+import {
+  removeRecordingContext,
+  setRecordingContextWindow,
+} from "../lookback/context-api";
+import {
+  canEditLookbackWindow,
+  lookbackCardLine,
+} from "../lookback/lookback-card";
+import { LookbackEditDialog } from "../lookback/LookbackEditDialog";
+import {
+  currentLookbackTarget,
+  useLookbackLabEnabled,
+  useRecordingContext,
+} from "../lookback/use-lookback";
 
 const RIGHT_EDGE_ANCHOR_PX = 200;
 const NATIVE_LAYOUT_GUARD_MS = 1_500;
 const NATIVE_DOCK_SETTLE_MS = 32;
+const LOOKBACK_EDIT_WINDOW = { width: 380, height: 400 };
 const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
 
 const FALLBACK_HORIZONTAL_PLAYHEAD_SIZE: RecordingPlayheadSize = {
@@ -165,6 +184,17 @@ export function RecordingPill() {
     useState<RecordingPlayheadDock>("free");
   const [playheadDockTransitioning, setPlayheadDockTransitioning] =
     useState(false);
+  const t = useT();
+  const lookbackLabEnabled = useLookbackLabEnabled();
+  // Set when the card opens so the context read follows that recording only.
+  const [contextRecordingId, setContextRecordingId] = useState<string | null>(
+    null,
+  );
+  const { view: lookbackView, setItem: setLookbackItem } = useRecordingContext(
+    contextRecordingId,
+    lookbackLabEnabled,
+  );
+  const [lookbackEditOpen, setLookbackEditOpen] = useState(false);
 
   const modeRef = useRef<PillMode>("recording");
   const elapsedRef = useRef(0);
@@ -210,6 +240,10 @@ export function RecordingPill() {
     null,
   );
   const playheadConfirmOpenRef = useRef(false);
+  const [confirmRequest, setConfirmRequest] = useState<{
+    intent: RecordingPlayheadIntent;
+    token: number;
+  } | null>(null);
   const stopDispatchRef = useRef<Promise<{ finishingHoldSet: boolean }> | null>(
     null,
   );
@@ -511,6 +545,8 @@ export function RecordingPill() {
     modeRef.current = "recording";
     setMode("recording");
     setCompletionActionBusy(false);
+    setContextRecordingId(null);
+    setLookbackEditOpen(false);
     clearPauseTransition();
     setPaused(false);
   }
@@ -583,6 +619,7 @@ export function RecordingPill() {
       console.error("[record-pill] recorder stop dispatch failed:", error),
     );
     resizeWindowTo(340, 180);
+    setContextRecordingId(sessionRef.current.recordingId ?? null);
     setMode("done");
     if (demoMode) {
       setTimeout(() => {
@@ -636,7 +673,7 @@ export function RecordingPill() {
     toolbarDismissedRef.current = true;
     setToolbarVisible(false);
     setEnabled(false);
-    void safeEmit("clips:recorder-cancel").then(() =>
+    void safeEmit(RECORDER_DISCARD_EVENT).then(() =>
       scheduleCloseFallback("cancel"),
     );
   }
@@ -858,6 +895,19 @@ export function RecordingPill() {
     track(
       safeListen("clips:toolbar-sync", () => {
         void safeEmit("clips:toolbar-ready", {});
+      }),
+    );
+    // The cancel shortcut never deletes by itself: it opens the same
+    // "Discard …?" confirmation as the toolbar's discard button.
+    track(
+      safeListen("clips:recorder-cancel", () => {
+        if (!recordingActive) return;
+        toolbarDismissedRef.current = false;
+        setToolbarVisible(true);
+        setConfirmRequest((previous) => ({
+          intent: "delete",
+          token: (previous?.token ?? 0) + 1,
+        }));
       }),
     );
     track(
@@ -1260,6 +1310,55 @@ export function RecordingPill() {
     if (micWarningLabel) setAnnouncement(micWarningLabel);
   }, [micWarningLabel]);
 
+  const lookbackCard = lookbackCardLine(lookbackView);
+  const lookbackEditable = canEditLookbackWindow(lookbackView.item);
+  const lookbackText =
+    lookbackCard.kind === "saving"
+      ? t("lookbackContext.saving", { window: lookbackCard.window })
+      : lookbackCard.kind === "ready"
+        ? t("lookbackContext.ready", { window: lookbackCard.window })
+        : lookbackCard.kind === "failed"
+          ? t("lookbackContext.failed")
+          : lookbackCard.kind === "unreadable"
+            ? t("lookbackContext.unreadable")
+            : lookbackCard.kind === "removed"
+              ? t("lookbackContext.removed")
+              : null;
+
+  // The edit window is larger than the card, so the dialog gets room while open.
+  function handleLookbackEditOpenChange(open: boolean) {
+    setLookbackEditOpen(open);
+    if (open) {
+      void resizeWindowTo(
+        LOOKBACK_EDIT_WINDOW.width,
+        LOOKBACK_EDIT_WINDOW.height,
+      );
+    } else {
+      syncWindowToContent();
+    }
+  }
+
+  async function saveLookbackWindow(next: ScreenHistoryWindow) {
+    const item = lookbackView.item;
+    if (!item) throw new Error("No earlier screen time to edit.");
+    const updated = await setRecordingContextWindow(currentLookbackTarget(), {
+      id: item.id,
+      startedAt: next.startedAt,
+      endedAt: next.endedAt,
+    });
+    setLookbackItem(updated);
+  }
+
+  async function removeLookbackWindow() {
+    const item = lookbackView.item;
+    if (!item) throw new Error("No earlier screen time to remove.");
+    const removed = await removeRecordingContext(
+      currentLookbackTarget(),
+      item.id,
+    );
+    setLookbackItem(removed);
+  }
+
   return (
     <div
       data-tw-surface
@@ -1309,6 +1408,22 @@ export function RecordingPill() {
               <IconX size={15} aria-hidden />
             </button>
           </div>
+          {lookbackText ? (
+            <div className="mb-3 flex items-center gap-2 rounded-lg bg-[var(--pill-card-well)] px-2.5 py-2 text-xs text-[var(--pill-card-ink-2)]">
+              <IconHistory size={14} className="flex-none" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{lookbackText}</span>
+              {lookbackEditable ? (
+                <button
+                  type="button"
+                  onClick={() => handleLookbackEditOpenChange(true)}
+                  disabled={completionActionBusy}
+                  className="flex-none font-semibold text-[var(--pill-card-ink)]"
+                >
+                  {t("lookbackContext.edit")}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {viewUrl ? (
             <div className="mb-3 flex items-center gap-2 rounded-lg bg-[var(--pill-card-well)] px-2.5 py-2 text-xs">
               <IconLink
@@ -1377,6 +1492,15 @@ export function RecordingPill() {
               {completionActionError}
             </p>
           ) : null}
+          {lookbackView.item ? (
+            <LookbackEditDialog
+              item={lookbackView.item}
+              open={lookbackEditOpen}
+              onOpenChange={handleLookbackEditOpenChange}
+              onSave={saveLookbackWindow}
+              onRemove={removeLookbackWindow}
+            />
+          ) : null}
         </div>
       ) : (
         <RecordingPlayhead
@@ -1420,6 +1544,7 @@ export function RecordingPill() {
             deleteConfirm: "Discard",
             resumeConfirm: "Resume",
           }}
+          confirmRequest={confirmRequest}
           onStop={stop}
           onTogglePause={togglePause}
           onConfirmAction={confirmDestructive}

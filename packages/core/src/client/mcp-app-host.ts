@@ -6,10 +6,18 @@ import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
+  MCP_APP_HOST_FILL_ATTRIBUTE,
+  mcpAppHostFillsContainer,
+} from "../shared/mcp-app-display.js";
+import { MCP_APP_WIDGET_EMBED_ATTRIBUTE } from "../shared/mcp-app-widget-embed.js";
+import {
   getEmbedAuthToken,
+  hasMcpDirectoryWidgetCapabilityToken,
   isEmbedAuthActive,
   markEmbedMcpChatBridgeActive,
   isEmbedMcpChatBridgeActive,
+  isMcpDirectoryWidgetReadOnlyEmbed,
+  isMcpDirectoryWidgetWriteEmbed,
   readEmbedMcpChatBridgeFlagFromUrl,
 } from "./embed-auth.js";
 import { getFrameOrigin } from "./frame.js";
@@ -213,6 +221,31 @@ function notify() {
   for (const listener of listeners) listener();
 }
 
+function syncHostFillAttribute(context: McpAppHostContext | null): void {
+  if (!isBrowserWindow() || !document.documentElement) return;
+  if (mcpAppHostFillsContainer(context)) {
+    document.documentElement.setAttribute(MCP_APP_HOST_FILL_ATTRIBUTE, "1");
+  } else {
+    document.documentElement.removeAttribute(MCP_APP_HOST_FILL_ATTRIBUTE);
+  }
+}
+
+function mergeHostContext(
+  previous: McpAppHostContext | null,
+  update: Record<string, unknown>,
+): McpAppHostContext {
+  const merged = { ...(previous ?? {}), ...update };
+  if (isRecord(update.containerDimensions)) {
+    merged.containerDimensions = {
+      ...(isRecord(previous?.containerDimensions)
+        ? previous.containerDimensions
+        : {}),
+      ...update.containerDimensions,
+    };
+  }
+  return merged;
+}
+
 function updateSnapshot(data: HostContextMessage["data"]): void {
   if (!isRecord(data)) return;
   const nextSnapshot: McpAppHostContextSnapshot = {
@@ -229,6 +262,7 @@ function updateSnapshot(data: HostContextMessage["data"]): void {
     : snapshot.hostInfo;
   if (hostInfo) nextSnapshot.hostInfo = hostInfo;
   snapshot = nextSnapshot;
+  syncHostFillAttribute(nextSnapshot.context);
   notify();
 }
 
@@ -298,8 +332,9 @@ function resolveJsonRpc(data: Record<string, unknown>): void {
 
 function handleJsonRpcNotification(message: Record<string, unknown>): void {
   if (message.method !== "ui/notifications/host-context-changed") return;
+  const update = isRecord(message.params) ? message.params : null;
   updateSnapshot({
-    context: isRecord(message.params) ? message.params : undefined,
+    context: update ? mergeHostContext(snapshot.context, update) : undefined,
   });
 }
 
@@ -472,6 +507,86 @@ function readOpenAiBridge(): OpenAiAppBridge | null {
   return bridge && typeof bridge === "object"
     ? (bridge as OpenAiAppBridge)
     : null;
+}
+
+const widgetEmbedListeners = new Set<() => void>();
+let widgetEmbedLatched = false;
+
+function latchWidgetEmbed(): void {
+  if (widgetEmbedLatched) return;
+  widgetEmbedLatched = true;
+  document.documentElement?.setAttribute(MCP_APP_WIDGET_EMBED_ATTRIBUTE, "1");
+  // The first answer is computed during a render, and a subscriber must not be
+  // told to re-render from inside another component's render.
+  queueMicrotask(() => {
+    for (const listener of widgetEmbedListeners) listener();
+  });
+}
+
+/**
+ * True when this document is an app running inside an MCP App widget (a
+ * ChatGPT, Codex, or Claude card or panel). The host, not the app, owns
+ * navigation and chat there, so apps drop their own navigation chrome.
+ *
+ * Being a widget is a property of the document, not of its current URL: the
+ * first positive answer is kept (and marked on `<html>`, where the first-paint
+ * script in `getMcpAppWidgetEmbedBootScriptBody` also marks it), so a client
+ * navigation that drops the embed query params, or a token swap that
+ * de-enrolls the chat bridge, never brings the app's own chrome back.
+ */
+export function isMcpAppWidgetEmbed(): boolean {
+  if (!isBrowserWindow()) return false;
+  if (widgetEmbedLatched) return true;
+  if (
+    document.documentElement?.hasAttribute(MCP_APP_WIDGET_EMBED_ATTRIBUTE) ||
+    (isInChildFrame() &&
+      (isMcpAppBridgeEnabled() || hasMcpDirectoryWidgetCapabilityToken()))
+  ) {
+    latchWidgetEmbed();
+  }
+  return widgetEmbedLatched;
+}
+
+function subscribeToWidgetEmbed(listener: () => void): () => void {
+  widgetEmbedListeners.add(listener);
+  return () => {
+    widgetEmbedListeners.delete(listener);
+  };
+}
+
+export function useIsMcpAppWidgetEmbed(): boolean {
+  return useSyncExternalStore(
+    subscribeToWidgetEmbed,
+    isMcpAppWidgetEmbed,
+    () => false,
+  );
+}
+
+/**
+ * True for a directory widget, whose scoped session can only read its own
+ * resource. Apps skip application-state writes and save-failure surfaces there
+ * instead of showing errors for requests that can never land.
+ */
+export function useIsMcpDirectoryWidgetReadOnlyEmbed(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    isMcpDirectoryWidgetReadOnlyEmbed,
+    () => false,
+  );
+}
+
+export function useIsMcpDirectoryWidgetWriteEmbed(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    isMcpDirectoryWidgetWriteEmbed,
+    () => false,
+  );
+}
+
+export function isOpenAiMcpAppHost(): boolean {
+  return (
+    isInChildFrame() && isMcpAppBridgeEnabled() && readOpenAiBridge() !== null
+  );
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -862,6 +977,12 @@ export function _resetMcpAppHostForTests(): void {
   directHostChatQueue = Promise.resolve();
   snapshot = { context: null, capabilities: null, version: null };
   listeners.clear();
+  widgetEmbedLatched = false;
+  widgetEmbedListeners.clear();
+  if (isBrowserWindow()) {
+    document.documentElement?.removeAttribute(MCP_APP_HOST_FILL_ATTRIBUTE);
+    document.documentElement?.removeAttribute(MCP_APP_WIDGET_EMBED_ATTRIBUTE);
+  }
 }
 
 if (isBrowserWindow()) {

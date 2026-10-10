@@ -3,10 +3,25 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
 import { getHeader, getMethod, getQuery, setResponseStatus } from "h3";
 
+import type { DbExec } from "../db/client.js";
 import { getOrgDomain } from "../org/context.js";
+import {
+  getConfiguredAppBasePath,
+  normalizeAppBasePath,
+} from "../server/app-base-path.js";
 import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
+import {
+  describeBearerCredentialRefusalWithRecovery,
+  type BearerCredentialRefusal,
+} from "../server/bearer-credential-refusal.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
+import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
+import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  McpCredentialIssuanceError,
+  withMcpCredentialIssuance,
+} from "./credential-issuance.js";
 import {
   applicationTypeForRedirectUris,
   isAllowedOAuthRedirectUri,
@@ -18,11 +33,13 @@ import {
   createOAuthCode,
   createOAuthRefreshToken,
   consumeOAuthCode,
+  ensureOAuthTables,
   generateOpaqueToken,
   getOAuthClient,
   getOAuthCode,
   getOAuthRefreshToken,
   registerOAuthClient,
+  revokeOAuthRefreshToken,
   touchOAuthRefreshToken,
 } from "./oauth-store.js";
 import {
@@ -105,19 +122,6 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function normalizeBasePath(raw: string | undefined): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed || trimmed === "/") return "";
-  const withSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  return withSlash.replace(/\/+$/, "");
-}
-
-function configuredBasePath(): string {
-  return normalizeBasePath(
-    process.env.APP_BASE_PATH || process.env.VITE_APP_BASE_PATH,
-  );
-}
-
 function stripTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -146,11 +150,11 @@ function configuredPublicBaseUrl(): string | undefined {
 }
 
 function appendConfiguredBasePath(baseUrl: string): string {
-  const basePath = configuredBasePath();
+  const basePath = getConfiguredAppBasePath();
   if (!basePath) return stripTrailingSlash(baseUrl);
   try {
     const url = new URL(baseUrl);
-    const pathname = normalizeBasePath(url.pathname);
+    const pathname = normalizeAppBasePath(url.pathname);
     if (pathname === basePath || pathname.endsWith(`${basePath}`)) {
       return stripTrailingSlash(`${url.origin}${pathname}`);
     }
@@ -172,9 +176,26 @@ function deriveOrigin(event: H3Event): string {
 }
 
 export function getMcpOAuthIssuer(event: H3Event): string | undefined {
-  const baseUrl = configuredPublicBaseUrl() || deriveOrigin(event);
+  return resolveMcpOAuthIssuer(deriveOrigin(event));
+}
+
+/**
+ * The issuer MCP credentials are bound to, given the caller's request origin.
+ * Verification accepts only this issuer's resources, so anything that mints a
+ * bearer for this app must resolve its audience here, not from request headers:
+ * a configured public URL wins over the host a page was reached through.
+ */
+export function resolveMcpOAuthIssuer(
+  requestOrigin: string | undefined,
+): string | undefined {
+  const baseUrl = configuredPublicBaseUrl() || requestOrigin;
   if (!baseUrl) return undefined;
   return appendConfiguredBasePath(baseUrl);
+}
+
+export function getMcpConnectUrl(event: H3Event): string | undefined {
+  const issuer = getMcpOAuthIssuer(event);
+  return issuer ? `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/connect` : undefined;
 }
 
 function normalizeMcpResourcePath(routePath?: string): string {
@@ -266,15 +287,24 @@ export function getMcpOAuthProtectedResourceMetadataUrl(
   return metadataUrl.toString();
 }
 
+/** `refusal` is set only when the request presented a bearer token. */
 export function buildMcpOAuthChallenge(
   event: H3Event,
   routePath = MCP_PUBLIC_ROUTE_PREFIX,
+  refusal?: BearerCredentialRefusal,
 ): string {
   const metadata = getMcpOAuthProtectedResourceMetadataUrl(event, routePath);
-  const scope = MCP_OAUTH_RESOURCE_SCOPE;
-  return metadata
-    ? `Bearer resource_metadata="${metadata}", scope="${scope}"`
-    : `Bearer scope="${scope}"`;
+  const params = [
+    ...(metadata ? [`resource_metadata="${metadata}"`] : []),
+    `scope="${MCP_OAUTH_RESOURCE_SCOPE}"`,
+    ...(refusal
+      ? [
+          `error="invalid_token"`,
+          `error_description="${describeBearerCredentialRefusalWithRecovery(refusal, getMcpConnectUrl(event))}"`,
+        ]
+      : []),
+  ];
+  return `Bearer ${params.join(", ")}`;
 }
 
 function protectedResourcePathFromRequest(
@@ -963,17 +993,45 @@ async function handleAuthorize(
   const orgDomain = selectedOrganization
     ? await resolveOrgDomain(selectedOrganization.id)
     : undefined;
-  const code = await createOAuthCode({
-    clientId,
-    redirectUri,
-    codeChallenge: params.code_challenge,
-    codeChallengeMethod: "S256",
-    ownerEmail: session.email,
-    orgId: selectedOrganization?.id ?? null,
-    orgDomain: orgDomain ?? null,
-    scope,
-    resource,
-  });
+  let code;
+  try {
+    await ensureOAuthTables();
+    code = await withMcpCredentialIssuance(
+      {
+        email: session.email,
+        orgId: selectedOrganization?.id ?? null,
+        requestOrigin: getOrigin(event),
+      },
+      (tx) =>
+        createOAuthCode(
+          {
+            clientId,
+            redirectUri,
+            codeChallenge: params.code_challenge,
+            codeChallengeMethod: "S256",
+            ownerEmail: session.email,
+            orgId: selectedOrganization?.id ?? null,
+            orgDomain: orgDomain ?? null,
+            scope,
+            resource,
+          },
+          tx,
+        ),
+    );
+  } catch (error) {
+    if (
+      error instanceof McpCredentialIssuanceError &&
+      error.reason === "not-member"
+    ) {
+      return redirectWithOAuthError({
+        redirectUri,
+        issuer,
+        state,
+        error: "access_denied",
+      });
+    }
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
 
   let isDeepLinkRedirect = false;
   try {
@@ -1007,25 +1065,33 @@ async function handleAuthorize(
   });
 }
 
-async function issueTokenSet(params: {
-  ownerEmail: string;
-  orgId?: string | null;
-  orgDomain?: string | null;
-  clientId: string;
-  scope: string;
-  resource: string;
-  issuer: string;
-}): Promise<Record<string, unknown>> {
+async function issueTokenSet(
+  params: {
+    ownerEmail: string;
+    orgId?: string | null;
+    orgDomain?: string | null;
+    clientId: string;
+    scope: string;
+    resource: string;
+    issuer: string;
+    grantCreatedAtMs: number | null;
+  },
+  tx: DbExec,
+): Promise<Record<string, unknown>> {
   const refreshToken = generateOpaqueToken();
-  await createOAuthRefreshToken({
-    refreshToken,
-    clientId: params.clientId,
-    ownerEmail: params.ownerEmail,
-    orgId: params.orgId ?? null,
-    orgDomain: params.orgDomain ?? null,
-    scope: params.scope,
-    resource: params.resource,
-  });
+  await createOAuthRefreshToken(
+    {
+      refreshToken,
+      clientId: params.clientId,
+      ownerEmail: params.ownerEmail,
+      orgId: params.orgId ?? null,
+      orgDomain: params.orgDomain ?? null,
+      scope: params.scope,
+      resource: params.resource,
+      grantCreatedAtMs: params.grantCreatedAtMs,
+    },
+    tx,
+  );
   const accessToken = await signMcpOAuthAccessToken(params);
   return {
     access_token: accessToken,
@@ -1034,6 +1100,16 @@ async function issueTokenSet(params: {
     refresh_token: refreshToken,
     scope: params.scope,
   };
+}
+
+const NOT_A_MEMBER_DESCRIPTION =
+  "The user is no longer a member of the organization this grant was issued for";
+
+/** Retryable: the client must keep its refresh token, not start over. */
+function grantUnavailableError(description: string): Response {
+  const response = oauthError("temporarily_unavailable", description, 503);
+  response.headers.set("Retry-After", "5");
+  return response;
 }
 
 async function handleAuthorizationCodeGrant(
@@ -1047,7 +1123,13 @@ async function handleAuthorizationCodeGrant(
   if (!code || !clientId || !redirectUri || !isValidCodeVerifier(verifier)) {
     return oauthError("invalid_request", "Missing authorization-code fields");
   }
-  const row = await getOAuthCode(code);
+  let row;
+  try {
+    await ensureOAuthTables();
+    row = await getOAuthCode(code);
+  } catch {
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
   if (!row) return oauthError("invalid_grant", "Invalid or expired code");
   if (row.clientId !== clientId || row.redirectUri !== redirectUri) {
     return oauthError("invalid_grant", "Code was issued to another client");
@@ -1056,22 +1138,51 @@ async function handleAuthorizationCodeGrant(
   if (!safeEqual(expectedChallenge, row.codeChallenge)) {
     return oauthError("invalid_grant", "PKCE verification failed");
   }
-  const consumed = await consumeOAuthCode(code);
-  if (!consumed) return oauthError("invalid_grant", "Invalid or expired code");
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
-  return json(
-    await issueTokenSet({
-      ownerEmail: row.ownerEmail,
-      orgId: row.orgId,
-      orgDomain: row.orgDomain,
-      clientId,
-      scope: row.scope,
-      resource: row.resource,
-      issuer,
-    }),
-  );
+  try {
+    return await withMcpCredentialIssuance(
+      {
+        email: row.ownerEmail,
+        orgId: row.orgId,
+        requestOrigin: getOrigin(event),
+      },
+      async (tx) => {
+        const consumed = await consumeOAuthCode(code, row.ownerEmail, tx);
+        if (!consumed)
+          return oauthError("invalid_grant", "Invalid or expired code");
+        return json(
+          await issueTokenSet(
+            {
+              ownerEmail: consumed.ownerEmail,
+              orgId: consumed.orgId,
+              orgDomain: consumed.orgDomain,
+              clientId,
+              scope: consumed.scope,
+              resource: consumed.resource,
+              issuer,
+              grantCreatedAtMs: consumed.createdAt,
+            },
+            tx,
+          ),
+        );
+      },
+    );
+  } catch (error) {
+    if (
+      error instanceof McpCredentialIssuanceError &&
+      error.reason === "not-member"
+    ) {
+      try {
+        await consumeOAuthCode(code, row.ownerEmail);
+      } catch {
+        return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+      }
+      return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
+    }
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
 }
 
 async function handleRefreshTokenGrant(
@@ -1086,7 +1197,13 @@ async function handleRefreshTokenGrant(
   if (!clientId) {
     return oauthError("invalid_request", "client_id is required");
   }
-  const existing = await getOAuthRefreshToken(refreshToken);
+  let existing;
+  try {
+    await ensureOAuthTables();
+    existing = await getOAuthRefreshToken(refreshToken);
+  } catch {
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
   if (!existing) return oauthError("invalid_grant", "Invalid refresh token");
   if (existing.clientId !== clientId) {
     return oauthError(
@@ -1094,26 +1211,57 @@ async function handleRefreshTokenGrant(
       "Refresh token belongs to another client",
     );
   }
-  await touchOAuthRefreshToken(refreshToken).catch(() => undefined);
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
-  const accessToken = await signMcpOAuthAccessToken({
-    ownerEmail: existing.ownerEmail,
-    orgId: existing.orgId,
-    orgDomain: existing.orgDomain,
-    clientId: existing.clientId,
-    scope: existing.scope,
-    resource: existing.resource,
-    issuer,
-  });
-  return json({
-    access_token: accessToken,
-    token_type: "Bearer",
-    expires_in: MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
-    refresh_token: refreshToken,
-    scope: existing.scope,
-  });
+  try {
+    return await withMcpCredentialIssuance(
+      {
+        email: existing.ownerEmail,
+        orgId: existing.orgId,
+        requestOrigin: getOrigin(event),
+      },
+      async (tx) => {
+        const renewal = await touchOAuthRefreshToken(
+          refreshToken,
+          existing.ownerEmail,
+          tx,
+        );
+        if (renewal !== "renewed")
+          return oauthError("invalid_grant", "Invalid refresh token");
+        const accessToken = await signMcpOAuthAccessToken({
+          ownerEmail: existing.ownerEmail,
+          orgId: existing.orgId,
+          orgDomain: existing.orgDomain,
+          clientId: existing.clientId,
+          scope: existing.scope,
+          resource: existing.resource,
+          issuer,
+          grantCreatedAtMs: existing.grantCreatedAtMs,
+        });
+        return json({
+          access_token: accessToken,
+          token_type: "Bearer",
+          expires_in: MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+          refresh_token: refreshToken,
+          scope: existing.scope,
+        });
+      },
+    );
+  } catch (error) {
+    if (
+      error instanceof McpCredentialIssuanceError &&
+      error.reason === "not-member"
+    ) {
+      try {
+        await revokeOAuthRefreshToken(refreshToken, existing.ownerEmail);
+      } catch {
+        return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+      }
+      return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
+    }
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
 }
 
 async function handleToken(event: H3Event): Promise<Response> {

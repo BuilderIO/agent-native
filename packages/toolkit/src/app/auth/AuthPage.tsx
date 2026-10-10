@@ -1,5 +1,6 @@
 /** @jsxRuntime classic */
 
+import { getAnalyticsSessionId } from "@agent-native/core/client/analytics";
 import { frameworkRoutePrefix } from "@agent-native/core/client/api-path";
 import {
   isAgentNativeDesktop,
@@ -18,10 +19,12 @@ import type {
   AuthPageProps,
   AuthView,
 } from "@agent-native/core/shared/auth-page-types";
+import { resolveLaneEndpoint } from "@agent-native/core/shared/environment-lanes";
 import { toPublicFrameworkPath } from "@agent-native/core/shared/framework-route-prefix";
-import { isQaTestEmail } from "@agent-native/core/shared/qa-test-email";
+import { isTestIdentityEmail } from "@agent-native/core/shared/qa-test-email";
 import { DEPLOY_SETTINGS_REQUIRED_CODE } from "@agent-native/core/shared/runtime-config";
 import {
+  decodeContinuation,
   isVerificationLinkInvalid,
   signInJourney,
   type SignInJourney,
@@ -31,7 +34,7 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
 
-import { StarfieldBackground } from "../shared/StarfieldBackground.js";
+import { WaveBackground } from "../shared/WaveBackground.js";
 
 export type {
   AuthLegalNotice,
@@ -59,7 +62,6 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TAB_STORAGE_KEY = "an.onboarding.tab";
 const PENDING_SIGNUP_EMAIL_STORAGE_KEY = "an.onboarding.pendingSignupEmail";
 const ANALYTICS_ANONYMOUS_ID_KEY = "agent-native.anonymous_id";
-const ANALYTICS_SESSION_ID_KEY = "agent-native.session_id";
 const FIRST_TOUCH_STORAGE_KEY = "an_attribution";
 const FIRST_TOUCH_COOKIE = "an_ft";
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
@@ -68,6 +70,20 @@ const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
 export { isVerificationLinkInvalid };
+
+export function hasInvalidVerificationLinkInSearch(search: string): boolean {
+  const params = new URLSearchParams(search);
+  if (isVerificationLinkInvalid(params.get("error"))) return true;
+
+  const continuation = decodeContinuation(params.get("c"));
+  return continuation
+    ? isVerificationLinkInvalid(
+        new URL(continuation, "https://agent-native.invalid").searchParams.get(
+          "error",
+        ),
+      )
+    : false;
+}
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -128,6 +144,15 @@ function inferWorkspaceBasePath(pathname: string): string {
     return "";
   }
   return `/${firstSegment}`;
+}
+
+export function resolveAuthPageBasePath(
+  appBasePath: string,
+  workspaceRuntime: boolean,
+  pathname: string,
+): string {
+  if (appBasePath || !workspaceRuntime) return appBasePath;
+  return inferWorkspaceBasePath(pathname);
 }
 
 function readStorage(key: string): string {
@@ -203,9 +228,22 @@ async function requestJson(
   url: string,
   init: RequestInit = {},
 ): Promise<AuthRequestResult> {
+  const headers = new Headers(init.headers);
+  if (typeof window !== "undefined") {
+    const requestUrl = new URL(url, window.location.href);
+    const sessionId = getAnalyticsSessionId();
+    if (
+      requestUrl.origin === window.location.origin &&
+      sessionId &&
+      /^[!-~]{1,127}$/.test(sessionId)
+    ) {
+      headers.set("X-Agent-Native-Session-Id", sessionId);
+    }
+  }
   const response = await fetch(url, {
     credentials: "include",
     ...init,
+    headers,
   });
   let data: Record<string, unknown> = {};
   let readable = false;
@@ -240,7 +278,7 @@ function trackAuth(
   properties: Record<string, unknown> = {},
   email: string,
 ): void {
-  if (!isValidEmail(email) || isQaTestEmail(email)) return;
+  if (!isValidEmail(email) || isTestIdentityEmail(email)) return;
   if (
     isSyntheticTrafficValue(
       (
@@ -264,17 +302,12 @@ function trackAuth(
     if (!config?.agentNativeAnalyticsPublicKey) return;
     const anonymousId = readStorage(ANALYTICS_ANONYMOUS_ID_KEY);
     if (!anonymousId) return;
-    const sessionId = (() => {
-      try {
-        return window.sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY) ?? "";
-      } catch {
-        // coercion-ok: analytics session storage is optional.
-        return "";
-      }
-    })();
-    const endpoint =
+    const sessionId = getAnalyticsSessionId();
+    const endpoint = resolveLaneEndpoint(
       config.agentNativeAnalyticsEndpoint ??
-      "https://analytics.agent-native.com/track";
+        "https://analytics.agent-native.com/track",
+      window.location.hostname,
+    );
     const legacyProperties = { app, ...properties };
     const events: Array<{
       name: string;
@@ -288,7 +321,7 @@ function trackAuth(
         event: event.name,
         properties: event.properties,
         anonymousId,
-        sessionId: sessionId || undefined,
+        sessionId,
         timestamp: new Date().toISOString(),
       });
       if (navigator.sendBeacon?.(endpoint, body)) continue;
@@ -586,19 +619,9 @@ export function shouldStartWithLocalDev(
   return (
     !params.has("tab") &&
     !params.has("verified") &&
-    !isVerificationLinkInvalid(params.get("error")) &&
+    !hasInvalidVerificationLinkInSearch(search) &&
     !path.endsWith("/login") &&
     !path.endsWith("/signup")
-  );
-}
-
-function AuthMarketingBackground() {
-  return (
-    <div
-      aria-hidden="true"
-      className="auth-marketing-screenshot"
-      data-agent-native-marketing-background
-    />
   );
 }
 
@@ -698,11 +721,13 @@ export function AuthPage(props: AuthPageProps) {
   );
 
   React.useEffect(() => {
-    if (appBasePath || !workspaceRuntime) {
-      setRuntimeBasePathResolved(true);
-      return;
-    }
-    setRuntimeAppBasePath(inferWorkspaceBasePath(window.location.pathname));
+    setRuntimeAppBasePath(
+      resolveAuthPageBasePath(
+        appBasePath,
+        workspaceRuntime,
+        window.location.pathname,
+      ),
+    );
     setRuntimeBasePathResolved(true);
   }, [appBasePath, workspaceRuntime]);
 
@@ -859,7 +884,9 @@ export function AuthPage(props: AuthPageProps) {
     if (googleOnly) return;
     const path = window.location.pathname.replace(/\/+$/, "") || "/";
     const params = new URLSearchParams(window.location.search);
-    const verificationError = isVerificationLinkInvalid(params.get("error"));
+    const verificationError = hasInvalidVerificationLinkInSearch(
+      window.location.search,
+    );
     if (params.get("verified") || verificationError) {
       setView("login");
       const rememberedEmail = readPendingSignupEmail();
@@ -906,7 +933,13 @@ export function AuthPage(props: AuthPageProps) {
             },
           );
           if (isAuthenticatedAuthSession(response, data)) {
-            redirectToSignedInApp();
+            if (
+              !isVerificationLinkInvalid(
+                new URLSearchParams(window.location.search).get("error"),
+              )
+            ) {
+              redirectToSignedInApp();
+            }
             return;
           }
           if (isConfirmedAnonymousAuthSession(response, data, readable)) {
@@ -2346,15 +2379,6 @@ export function AuthPage(props: AuthPageProps) {
       </span>
     </p>
   ) : null;
-  const signupWave =
-    usesMarketingWelcome && view === "signup" ? (
-      <div className="auth-marketing-signup-wave">
-        <StarfieldBackground
-          className="auth-marketing-signup-wave-canvas"
-          transparent
-        />
-      </div>
-    ) : null;
   const signupForm = (
     <AuthForm
       id="signup-form"
@@ -2420,7 +2444,6 @@ export function AuthPage(props: AuthPageProps) {
       footer={
         <>
           {legalNote}
-          {signupWave}
           {localModeNote}
         </>
       }
@@ -3049,12 +3072,7 @@ export function AuthPage(props: AuthPageProps) {
             {authCard}
           </aside>
           <section className="marketing-panel">
-            <div className="auth-marketing-visual">
-              <div className="auth-marketing-screenshot-wrap">
-                <AuthMarketingBackground />
-              </div>
-              {marketingContent}
-            </div>
+            <div className="auth-marketing-visual">{marketingContent}</div>
           </section>
         </div>
       </div>
@@ -3126,13 +3144,19 @@ export function AuthPage(props: AuthPageProps) {
     </div>
   );
   return (
-    <>
-      {localePicker}
-      {initialPrompt ? (
-        <div className="auth-centered">{authCard}</div>
-      ) : (
-        marketingSurface
-      )}
-    </>
+    <div
+      className="auth-page"
+      data-auth-marketing={marketingCopy && !initialPrompt ? "true" : undefined}
+    >
+      <WaveBackground className="auth-wave-background" />
+      <div className="auth-page-content">
+        {localePicker}
+        {initialPrompt ? (
+          <div className="auth-centered">{authCard}</div>
+        ) : (
+          marketingSurface
+        )}
+      </div>
+    </div>
   );
 }

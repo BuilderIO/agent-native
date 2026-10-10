@@ -60,13 +60,13 @@ const GROQ_MODEL = "whisper-large-v3-turbo";
 const GROQ_CLEANUP_MODEL = "llama-3.3-70b-versatile";
 const OPENAI_MODEL = "gpt-transcribe";
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
-const OPENAI_CLEANUP_MODEL = "gpt-5.6-luna";
+const OPENAI_CLEANUP_MODEL = "gpt-6-luna";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_TRANSCRIPT_CHARS = 150_000;
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
-const BUILDER_CLEANUP_MODEL = "gpt-5-6-luna";
+const BUILDER_CLEANUP_MODEL = "gpt-6-luna";
 
-const GEMINI_MODEL = "gemini-2.0-flash-lite";
+const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 /**
@@ -288,7 +288,7 @@ export function createTranscribeVoiceHandler() {
         setResponseStatus(event, 400);
         return {
           error: gatewayLaneUnavailableMessage(
-            `${label} is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.`,
+            `${label} is selected but Builder.io is not connected. Sign in to Builder.io (free tier available) in Settings, or change the provider preference.`,
           ),
         };
       }
@@ -444,7 +444,7 @@ export function createTranscribeVoiceHandler() {
       error: gatewayLaneUnavailableMessage(
         builderError
           ? `Builder transcription failed: ${builderError}. Add GOOGLE_GENERATIVE_AI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
-          : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GOOGLE_GENERATIVE_AI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+          : "No voice transcription provider configured. Use Builder.io (free tier available) or add GOOGLE_GENERATIVE_AI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
       ),
     };
   });
@@ -585,7 +585,7 @@ async function cleanupTranscriptText({
       setResponseStatus(event, 400);
       return {
         error: gatewayLaneUnavailableMessage(
-          "Builder.io cleanup is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.",
+          "Builder.io cleanup is selected but Builder.io is not connected. Sign in to Builder.io (free tier available) in Settings, or change the provider preference.",
         ),
       };
     }

@@ -22,6 +22,7 @@ export {
 } from "./ComposerContextMenu.js";
 export {
   areComposerContextItemsReady,
+  composerContextFits,
   snapshotComposerContextItems,
   ComposerContextError,
   COMPOSER_CONTEXT_MAX_ITEMS,
@@ -53,6 +54,9 @@ export {
   isLocalRuntimeEngine,
   getOversizedDocumentAttachmentError,
   insertComposerHardBreakAndScrollIntoView,
+  composerDraftSnapshot,
+  sameComposerDraft,
+  type ComposerDraftSnapshot,
   type ComposerSubmitIntent,
   type TiptapComposerHandle,
   type ComposerTextSelection,

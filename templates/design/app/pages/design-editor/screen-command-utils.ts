@@ -2,12 +2,8 @@ import type { DesignEditorCommand } from "@/hooks/use-navigation-state";
 import { designEditorViewFromSearchParams } from "@/lib/design-editor-route";
 
 import { queryUniqueSelector } from "./dom-utils";
-import {
-  normalizeDesignLeftPanel,
-  normalizeDesignMode,
-  normalizeDesignTool,
-} from "./tool-state";
-import { type DesignFile, FOCUSED_SCREEN_ZOOM } from "./types";
+import { normalizeDesignLeftPanel, normalizeDesignTool } from "./tool-state";
+import type { DesignFile } from "./types";
 
 export function normalizeScreenTarget(value: string): string {
   return value
@@ -36,7 +32,9 @@ export function designEditorCommandFromSearchParams(
   designId: string,
   searchParams: URLSearchParams,
 ): DesignEditorCommand | null {
-  const editorView = designEditorViewFromSearchParams(searchParams);
+  const requestedEditorView = designEditorViewFromSearchParams(searchParams);
+  const editorView =
+    requestedEditorView === "single" ? "overview" : requestedEditorView;
   const inspector = searchParams.get("inspector");
   const leftPanel = normalizeDesignLeftPanel(searchParams.get("panel"));
   const screen =
@@ -44,16 +42,12 @@ export function designEditorCommandFromSearchParams(
     searchParams.get("fileId") ??
     searchParams.get("filename");
   const selection = searchParams.get("selection");
-  const rawZoom = searchParams.get("zoom");
+  const rawZoom =
+    requestedEditorView === "single" ? null : searchParams.get("zoom");
   const zoom = rawZoom !== null ? Number(rawZoom) : NaN;
   const tool = normalizeDesignTool(searchParams.get("tool"));
-  const mode =
-    editorView === "single"
-      ? (normalizeDesignMode(searchParams.get("mode")) ?? "interact")
-      : undefined;
   if (
     editorView !== "overview" &&
-    editorView !== "single" &&
     inspector !== "design" &&
     inspector !== "tweaks" &&
     inspector !== "extensions" &&
@@ -68,9 +62,7 @@ export function designEditorCommandFromSearchParams(
     designId,
     issuedAt: 0,
   };
-  if (editorView === "overview" || editorView === "single") {
-    command.editorView = editorView;
-  }
+  if (editorView) command.editorView = editorView;
   if (inspector === "design" || inspector === "tweaks") {
     command.inspectorTab = inspector;
   } else if (inspector === "extensions") {
@@ -81,11 +73,8 @@ export function designEditorCommandFromSearchParams(
   if (selection) command.selection = selection;
   if (Number.isFinite(zoom)) {
     command.zoom = zoom;
-  } else if (editorView === "single") {
-    command.zoom = FOCUSED_SCREEN_ZOOM;
   }
   if (tool) command.tool = tool;
-  if (mode) command.mode = mode;
   return command;
 }
 

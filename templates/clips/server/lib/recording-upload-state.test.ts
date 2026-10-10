@@ -12,6 +12,9 @@ import {
   deleteRecordingChunks,
   listRecordingChunkKeys,
   recordingChunkIndexFromKey,
+  recordingUploadBrowserSessionId,
+  recordingUploadStateForAttemptIfCurrent,
+  recordingUploadStateForAttempt,
   sumRecordingChunkBytes,
   validateRecordingChunkKeys,
 } from "./recording-upload-state";
@@ -19,6 +22,93 @@ import {
 describe("recording upload state helpers", () => {
   beforeEach(() => {
     dbMock.execute.mockReset();
+  });
+
+  it("keeps upload attribution scoped to the matching attempt and generation", () => {
+    const attempt = {
+      recordingId: "rec_1",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    const state = {
+      recordingId: "rec_1",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+      browserSessionId: "browser-session-1",
+    };
+
+    expect(recordingUploadBrowserSessionId(state, attempt)).toBe(
+      "browser-session-1",
+    );
+    expect(
+      recordingUploadBrowserSessionId(state, {
+        ...attempt,
+        uploadGenerationId: "generation-2",
+      }),
+    ).toBeUndefined();
+    expect(
+      recordingUploadStateForAttempt({
+        state,
+        attempt: { ...attempt, uploadAttemptId: "attempt-2" },
+        browserSessionId: "new-session",
+      }),
+    ).toEqual({
+      recordingId: "rec_1",
+      uploadAttemptId: "attempt-2",
+      uploadGenerationId: "generation-1",
+      browserSessionId: "new-session",
+    });
+  });
+
+  it("preserves the first session for an attempt while enriching initial upload state", () => {
+    const attempt = {
+      recordingId: "rec_1",
+      uploadAttemptId: "attempt-1",
+      uploadGenerationId: "generation-1",
+    };
+    const initial = {
+      recordingId: "rec_1",
+      status: "uploading",
+      progress: 0,
+    };
+    const attributed = recordingUploadStateForAttempt({
+      state: initial,
+      attempt,
+      browserSessionId: "browser-session-1",
+    });
+
+    expect(attributed).toEqual({
+      ...initial,
+      ...attempt,
+      browserSessionId: "browser-session-1",
+    });
+    expect(
+      recordingUploadStateForAttempt({
+        state: attributed,
+        attempt,
+        browserSessionId: "another-session",
+      }),
+    ).toEqual(attributed);
+  });
+
+  it("refuses to attribute a replacement upload state to a stale attempt", () => {
+    expect(
+      recordingUploadStateForAttemptIfCurrent({
+        state: {
+          recordingId: "rec_1",
+          status: "uploading",
+          uploadAttemptId: "attempt-2",
+          uploadGenerationId: "generation-2",
+          browserSessionId: "replacement-session",
+        },
+        attempt: {
+          recordingId: "rec_1",
+          uploadAttemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
+        },
+        browserSessionId: "stale-session",
+      }),
+    ).toBeNull();
   });
 
   it("lists chunk keys without selecting base64 chunk values", async () => {

@@ -4,6 +4,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -405,7 +406,9 @@ export default defineAction({
               nextData: next,
             })
           : Promise.resolve(null),
-      afterCommit: (blobHandle) => deleteVisualEditSnapshotBlobs([blobHandle]),
+      afterCommit: async (blobHandle) => {
+        await deleteVisualEditSnapshotBlobs([blobHandle]);
+      },
       lockSourceMutation: true,
     });
 
@@ -423,4 +426,5 @@ export default defineAction({
       dataUpdatedAt: persisted.updatedAt,
     };
   },
+  changeResource: (p, result) => designChangeResource(p.designId, result),
 });

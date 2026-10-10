@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Deck } from "@/context/DeckContext";
 
-import { refreshDeckForGenerationOutcome } from "./DeckEditor";
+import { refreshDeckForGenerationOutcome } from "../lib/generation-lifecycle.js";
 
 const deckEditorSource = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "DeckEditor.tsx"),
@@ -24,10 +24,18 @@ describe("generation deck refresh", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(deck);
 
-    const result = refreshDeckForGenerationOutcome(refreshOpenDeck, "deck-1");
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+    );
     await vi.advanceTimersByTimeAsync(250);
 
-    await expect(result).resolves.toEqual({ status: "ready", deck });
+    await expect(result).resolves.toEqual({
+      status: "ready",
+      deck,
+      endedAt: 1000,
+    });
     expect(refreshOpenDeck).toHaveBeenCalledTimes(2);
   });
 
@@ -37,8 +45,8 @@ describe("generation deck refresh", () => {
       .mockRejectedValue(new Error("refresh failed"));
 
     await expect(
-      refreshDeckForGenerationOutcome(refreshOpenDeck, "deck-1"),
-    ).resolves.toEqual({ status: "failed" });
+      refreshDeckForGenerationOutcome(refreshOpenDeck, "deck-1", () => 1000),
+    ).resolves.toEqual({ status: "failed", endedAt: 1000 });
   });
 
   it("returns unavailable when both refreshes return null", async () => {
@@ -48,10 +56,17 @@ describe("generation deck refresh", () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
 
-    const result = refreshDeckForGenerationOutcome(refreshOpenDeck, "deck-1");
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+    );
     await vi.advanceTimersByTimeAsync(250);
 
-    await expect(result).resolves.toEqual({ status: "not_ready" });
+    await expect(result).resolves.toEqual({
+      status: "not_ready",
+      endedAt: 1000,
+    });
   });
 
   it("returns unavailable when the retry also rejects", async () => {
@@ -61,10 +76,42 @@ describe("generation deck refresh", () => {
       .mockResolvedValueOnce(null)
       .mockRejectedValueOnce(new Error("refresh failed"));
 
-    const result = refreshDeckForGenerationOutcome(refreshOpenDeck, "deck-1");
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      () => 1000,
+    );
     await vi.advanceTimersByTimeAsync(250);
 
-    await expect(result).resolves.toEqual({ status: "failed" });
+    await expect(result).resolves.toEqual({ status: "failed", endedAt: 1000 });
+  });
+
+  it("captures terminal time before awaiting the deck refresh", async () => {
+    const deck = { id: "deck-1" } as unknown as Deck;
+    let finishRefresh!: (value: Deck | null) => void;
+    const refreshOpenDeck = vi.fn(
+      () =>
+        new Promise<Deck | null>((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+    const now = vi.fn().mockReturnValueOnce(1000).mockReturnValue(2000);
+
+    const result = refreshDeckForGenerationOutcome(
+      refreshOpenDeck,
+      "deck-1",
+      now,
+    );
+    expect(now).toHaveBeenCalledTimes(1);
+    now.mockReturnValue(3000);
+    finishRefresh(deck);
+
+    await expect(result).resolves.toEqual({
+      status: "ready",
+      deck,
+      endedAt: 1000,
+    });
+    expect(now).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -101,7 +148,9 @@ describe("generation outcome cleanup", () => {
     const settleBody = deckEditorSource.slice(settleStart, settleEnd);
 
     expect(settleStart).toBeGreaterThanOrEqual(0);
-    expect(settleBody).toContain('if (refreshResult.status !== "ready")');
+    expect(settleBody).toContain(
+      'if (outcomeRefreshResult.status !== "ready")',
+    );
     expect(settleBody).toContain(
       'trackEvent("generation_outcome_unresolved", {',
     );

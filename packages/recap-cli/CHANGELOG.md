@@ -1,5 +1,62 @@
 # @agent-native/recap-cli
 
+## 0.5.68
+
+### Patch Changes
+
+- 116fdc9: Verify a published recap is readable before capturing it, and report Plan read and screenshot failures in the informational PR recap check.
+- Release all public npm packages with a patch version bump.
+
+## 0.5.67
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.66
+
+### Patch Changes
+
+- c3feada: Allow revocable organization service tokens to have a lifetime of up to ten years and give recap-auth failures the correct recovery command.
+- Release all public npm packages with a patch version bump.
+
+## 0.5.65
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.64
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.63
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.62
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.61
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- dd47e1b: Fix published recap CLI installation in visual recap workflows by preferring `agent-native-recap` and falling back to the legacy `agent-native` executable for older pinned versions.
+
+## 0.5.60
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.59
 
 ### Patch Changes

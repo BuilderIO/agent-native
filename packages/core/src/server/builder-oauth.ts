@@ -12,6 +12,8 @@ import {
   type McpOAuthCredentialBundle,
 } from "../mcp-client/oauth-client.js";
 import { getOAuthTokens, listOAuthTokenOwners } from "../oauth-tokens/store.js";
+import { invalidateAgentEngineStatusCache } from "./agent-engine-status-cache.js";
+import { orderCredentialScopes } from "./credential-read-order.js";
 import { isPersonalProviderKeyUseRestricted } from "./personal-provider-key-policy.js";
 
 const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
@@ -140,11 +142,12 @@ function userOwnerOptions(ownerEmail: string) {
   };
 }
 
-// Read paths try the caller's personal grant first, then the org grant. An
+// Read paths try a member's personal grant first, then the org grant. An
 // explicit orgId wins over the user's active org so background work stays
 // bound to the organization that authorized it. `forUse` reads pick the grant
 // a request runs on, so they skip a personal grant the org policy disallows
-// (disconnect still sees it so its owner can remove it).
+// (disconnect still sees it so its owner can remove it), and put the org grant
+// first for an owner or admin (`orderCredentialScopes`).
 async function resolveBuilderOAuthOptions(
   ownerEmail: string,
   orgId?: string | null,
@@ -164,7 +167,10 @@ async function resolveBuilderOAuthOptions(
     }));
   const personal = personalAllowed ? [userOptions] : [];
   const org = resolvedOrgId ? [orgOwnerOptions(resolvedOrgId)] : [];
-  return [...personal, ...org];
+  const options = [...personal, ...org];
+  return forUse
+    ? orderCredentialScopes(options, resolvedOrgId, email)
+    : options;
 }
 
 async function resolveBuilderOAuthOptionsForScope(
@@ -349,6 +355,7 @@ export async function saveBuilderOAuthCredentials(input: {
     ...options,
     credentials: { ...input.credentials, connectedAt: Date.now() },
   });
+  invalidateAgentEngineStatusCache();
   return options.scope;
 }
 
@@ -397,6 +404,7 @@ export async function getBuilderOAuthSession(
   ownerEmail: string,
   orgId?: string | null,
   requiredScope?: BuilderOAuthPermissionScope,
+  access: { forceRefresh?: boolean } = {},
 ): Promise<BuilderOAuthSession | null> {
   let missingRequiredScope = false;
   for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
@@ -408,7 +416,10 @@ export async function getBuilderOAuthSession(
       `${options.scope}:${options.scopeId}`,
     );
     if (stored === null) continue;
-    const accessToken = await getMcpOAuthAccessToken(options);
+    const accessToken = await getMcpOAuthAccessToken({
+      ...options,
+      forceRefresh: access.forceRefresh,
+    });
     if (!accessToken) continue;
     const credentials = await readMcpOAuthCredentials(options);
     if (!credentials || !isBuilderCredential(credentials)) continue;
@@ -457,6 +468,42 @@ export async function hasBuilderOAuthSession(
     ) {
       return true;
     }
+  }
+  return false;
+}
+
+/**
+ * Read the saved Builder grant without refreshing its access token. The
+ * status route and chat preflight need a cheap readiness answer; runtime
+ * dispatch owns token refresh and reports a reconnect error if refresh fails.
+ */
+export async function hasUsableBuilderOAuthSessionForReadiness(
+  ownerEmail: string,
+  orgId?: string | null,
+  requiredScope: BuilderOAuthPermissionScope = BUILDER_OAUTH_SCOPE,
+): Promise<boolean> {
+  for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
+    forUse: true,
+  })) {
+    if (
+      (await getOAuthTokens(
+        "mcp",
+        options.key,
+        `${options.scope}:${options.scopeId}`,
+      )) === null
+    ) {
+      continue;
+    }
+    const credentials = await readMcpOAuthCredentials(options);
+    if (
+      !credentials ||
+      !isBuilderCredential(credentials) ||
+      credentials.oauthLifecycle?.reconnectReason ||
+      !scopesFrom(credentials).includes(requiredScope)
+    ) {
+      continue;
+    }
+    return true;
   }
   return false;
 }
@@ -641,6 +688,7 @@ export async function deleteBuilderOAuthSession(
   }
   if (!selected) return { localDeleted: false, remoteRevoked: false };
   const result = await revokeMcpOAuthCredentials(selected);
+  if (result.local === "deleted") invalidateAgentEngineStatusCache();
   return {
     localDeleted: result.local === "deleted",
     remoteRevoked: result.remote === "succeeded",

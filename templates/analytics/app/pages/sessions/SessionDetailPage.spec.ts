@@ -1,17 +1,25 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
+import {
+  MAX_SESSION_REPLAY_CAPTURE_BYTES,
+  MAX_SESSION_REPLAY_CAPTURE_CHUNKS,
+  MAX_SESSION_REPLAY_CAPTURE_EVENTS,
+} from "@shared/session-replay-capture";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildIdleSkipRanges,
   buildReplayMarkers,
   buildReplayViewportTimeline,
+  collapsePageChangeMarkers,
   fetchSessionReplayPlayback,
   filterReplayMarkers,
   normalizeReplayEvents,
   partitionReplayChunkBatches,
   REPLAY_OVERLAY_STYLE_RULES,
   replayDevToolsIssueCount,
+  replayActionName,
   replayAvailabilityErrorKey,
   replayInitialViewportDimensions,
   replayPayloadEvents,
@@ -498,6 +506,288 @@ describe("session replay timeline markers", () => {
   });
 });
 
+describe("session replay app event markers", () => {
+  const events = [
+    {
+      type: 4,
+      timestamp: 1_000,
+      data: { width: 1280, height: 720, href: "https://clips.example.test/" },
+    },
+    {
+      type: 5,
+      timestamp: 2_000,
+      data: {
+        tag: "agent-native.event",
+        payload: { name: "recording_started" },
+      },
+    },
+    {
+      type: 5,
+      timestamp: 3_000,
+      data: {
+        tag: "agent-native.network",
+        payload: {
+          api: "fetch",
+          method: "POST",
+          url: "https://clips.example.test/_agent-native/actions/create-clip",
+          status: 500,
+          ok: false,
+        },
+      },
+    },
+  ];
+
+  it("hides app events and keeps failed actions as network errors with the Lab off", () => {
+    const markers = buildReplayMarkers(events);
+    expect(markers.map((marker) => [marker.kind, marker.label])).toEqual([
+      ["navigation", "Navigate"],
+      ["custom", "Network error"],
+    ]);
+  });
+
+  it("shows named app events and failed actions with the Lab on", () => {
+    const markers = buildReplayMarkers(events, { appEvents: true });
+    expect(
+      markers.map((marker) => ({
+        kind: marker.kind,
+        label: marker.label,
+        detail: marker.detail,
+        severity: marker.severity,
+        offsetMs: marker.offsetMs,
+      })),
+    ).toEqual([
+      expect.objectContaining({ kind: "navigation", offsetMs: 0 }),
+      {
+        kind: "event",
+        label: "recording_started",
+        detail: undefined,
+        severity: "info",
+        offsetMs: 1_000,
+      },
+      {
+        kind: "event",
+        label: "Action failed",
+        detail: "create-clip · 500",
+        severity: "error",
+        offsetMs: 2_000,
+      },
+    ]);
+  });
+
+  describe("performance markers", () => {
+    const performanceEvents = [
+      events[0],
+      {
+        type: 5,
+        timestamp: 2_000,
+        data: {
+          tag: "agent-native.vitals",
+          payload: {
+            route: "/r/:id",
+            navigationType: "load",
+            lcpMs: 4_200,
+            cls: 0.02,
+            ttfbMs: 310,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_000,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            method: "POST",
+            duration_ms: 2_400,
+            status_code: 200,
+            outcome: "success",
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_200,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "save-clip",
+            method: "POST",
+            duration_ms: 1_200,
+            status_code: 500,
+            outcome: "http-error",
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_500,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            duration_ms: 999,
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_600,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            duration_ms: 9_000,
+            page_hidden: true,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_700,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            duration_ms: 5_000,
+            outcome: "cancelled",
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        // A network event stops timing at the headers, so it never marks a
+        // slow request; the slow-request event carries the counted timing.
+        type: 5,
+        timestamp: 3_800,
+        data: {
+          tag: "agent-native.network",
+          payload: {
+            api: "fetch",
+            method: "POST",
+            url: "https://clips.example.test/_agent-native/actions/list-clips",
+            status: 200,
+            ok: true,
+            durationMs: 2_400,
+          },
+        },
+      },
+    ];
+
+    it("leaves the timeline unchanged with the Lab off", () => {
+      expect(
+        buildReplayMarkers(performanceEvents).map((marker) => marker.kind),
+      ).toEqual(["navigation"]);
+    });
+
+    it("marks page vitals and the slow requests the row hint counts", () => {
+      const markers = buildReplayMarkers(performanceEvents, {
+        appEvents: true,
+        performance: { pageVitals: "Page vitals", slowRequest: "Slow request" },
+      });
+      expect(
+        markers.map(({ kind, label, detail, severity, offsetMs }) => ({
+          kind,
+          label,
+          detail,
+          severity,
+          offsetMs,
+        })),
+      ).toEqual([
+        expect.objectContaining({ kind: "navigation" }),
+        {
+          kind: "event",
+          label: "Page vitals",
+          detail: "LCP 4.2 s · CLS 0.02 · TTFB 310 ms",
+          severity: "warn",
+          offsetMs: 1_000,
+        },
+        {
+          kind: "event",
+          label: "Slow request",
+          detail: "list-clips · 2.4 s",
+          severity: "warn",
+          offsetMs: 2_000,
+        },
+        {
+          kind: "event",
+          label: "Slow request",
+          detail: "save-clip · 1.2 s",
+          severity: "warn",
+          offsetMs: 2_200,
+        },
+      ]);
+    });
+  });
+
+  it("reads action names from Agent-Native action routes only", () => {
+    expect(
+      replayActionName("https://x.test/_agent-native/actions/list-clips?x=1"),
+    ).toBe("list-clips");
+    expect(replayActionName("/_agent-native/actions/clips%3Async")).toBe(
+      "clips:sync",
+    );
+    expect(replayActionName("https://x.test/api/clips")).toBeNull();
+    expect(replayActionName(undefined)).toBeNull();
+  });
+
+  it("collapses runs of page changes until an app event or input", () => {
+    const markers = buildReplayMarkers(
+      [
+        {
+          type: 4,
+          timestamp: 1_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/a" },
+        },
+        {
+          type: 3,
+          timestamp: 1_500,
+          data: { source: 2, type: 2, id: 7, x: 1, y: 1 },
+        },
+        {
+          type: 4,
+          timestamp: 2_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/b" },
+        },
+        {
+          type: 4,
+          timestamp: 3_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/c" },
+        },
+        {
+          type: 5,
+          timestamp: 4_000,
+          data: { tag: "agent-native.event", payload: { name: "clip_viewed" } },
+        },
+        {
+          type: 4,
+          timestamp: 5_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/d" },
+        },
+      ],
+      { appEvents: true },
+    );
+
+    const collapsed = collapsePageChangeMarkers(markers);
+    expect(
+      collapsed.map((marker) => [
+        marker.kind,
+        marker.offsetMs,
+        marker.collapsedCount ?? 1,
+      ]),
+    ).toEqual([
+      ["navigation", 0, 3],
+      ["click", 500, 1],
+      ["event", 3_000, 1],
+      ["navigation", 4_000, 1],
+    ]);
+    expect(collapsed[0].detail).toBe(markers[3].detail);
+  });
+});
+
 describe("session replay inactivity ranges", () => {
   it("ignores mutation, empty mouse-move, and custom diagnostic noise", () => {
     const ranges = buildIdleSkipRanges([
@@ -595,6 +885,361 @@ describe("session replay Dev Tools badge", () => {
 });
 
 describe("session replay chunk loading", () => {
+  it("loads equal-timestamp chunks through the target and accepts the scoped chunk query", async () => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const chunkFixtures = [500, 1_000, 1_000, 1_500, 2_000].map(
+      (offsetMs, seq) =>
+        replayCaptureChunkFixture(
+          seq,
+          [{ type: 3, timestamp: startedAt + offsetMs }],
+          replayChunkPath(seq, "agent-token"),
+        ),
+    );
+    const manifest = captureManifest(
+      chunkFixtures.map(({ manifest }) => manifest),
+    );
+    const requested: number[] = [];
+    const requestedChunkUrls: string[] = [];
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://analytics.example.test",
+        pathname: "/sessions/sr_1",
+        search: "?agent_access=agent-token",
+      },
+    });
+    vi.stubGlobal("location", {
+      origin: "https://analytics.example.test",
+      pathname: "/sessions/sr_1",
+      search: "?agent_access=agent-token",
+    });
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      const seq = Number(/\/chunks\/(\d+)/.exec(url)?.[1]);
+      requested.push(seq);
+      requestedChunkUrls.push(url);
+      return chunkFixtures[seq]!.response();
+    }) as typeof fetch;
+
+    const playback = await fetchSessionReplayPlayback("sr_1", {
+      agentAccessToken: "agent-token",
+      captureThroughOffsetMs: 1_000,
+    });
+
+    expect(requested).toEqual([0, 1, 2, 3]);
+    expect(playback.chunks.map((chunk) => chunk.seq)).toEqual([0, 1, 2, 3]);
+    expect(
+      requestedChunkUrls.every((url) => {
+        const params = new URL(url, "https://analytics.example.test")
+          .searchParams;
+        return (
+          params.size === 1 && params.get("agent_access") === "agent-token"
+        );
+      }),
+    ).toBe(true);
+    expect(playback.loadedChunks).toBe(4);
+    expect(playback.isComplete).toBe(false);
+    expect(playback.truncated).toBe(true);
+  });
+
+  it.each(["agent_access=wrong-token", "agent_access=agent-token&extra=value"])(
+    "rejects unrelated or mismatched chunk query parameters: %s",
+    async (query) => {
+      const startedAt = Date.parse(recordingSummary().startedAt);
+      const fixture = replayCaptureChunkFixture(
+        0,
+        [{ type: 3, timestamp: startedAt + 1_000 }],
+        `${replayChunkPath(0)}?${query}`,
+      );
+      const manifest = captureManifest([fixture.manifest]);
+      const requestedChunks: string[] = [];
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/manifest")) return jsonResponse(manifest);
+        requestedChunks.push(url);
+        return fixture.response();
+      }) as typeof fetch;
+      vi.stubGlobal("window", {
+        location: { origin: "https://analytics.example.test" },
+      });
+      vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+      await expect(
+        fetchSessionReplayPlayback("sr_1", {
+          agentAccessToken: "agent-token",
+          captureThroughOffsetMs: 1,
+        }),
+      ).rejects.toThrow("replay_capture_manifest_invalid");
+      expect(requestedChunks).toHaveLength(0);
+    },
+  );
+
+  it("rejects malformed metadata in an unneeded manifest suffix", async () => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const first = replayCaptureChunkFixture(0, [
+      { type: 3, timestamp: startedAt + 1 },
+      { type: 3, timestamp: startedAt + 11 },
+    ]);
+    const malformedSuffix = {
+      ...replayChunkManifest(1, replayChunkPath(1)),
+      checksum: "not-a-sha256-checksum",
+      eventCount: 0,
+    };
+    const manifest = captureManifest([first.manifest, malformedSuffix]);
+    let chunkRequests = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      chunkRequests += 1;
+      return first.response();
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", {
+        captureThroughOffsetMs: 10,
+      }),
+    ).rejects.toThrow("replay_capture_manifest_invalid");
+    expect(chunkRequests).toBe(0);
+  });
+
+  it("applies cumulative limits to the loaded prefix, not the full recording", async () => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const first = replayCaptureChunkFixture(0, [
+      { type: 3, timestamp: startedAt + 1 },
+      { type: 3, timestamp: startedAt + 11 },
+    ]);
+    const suffix = Array.from(
+      { length: MAX_SESSION_REPLAY_CAPTURE_CHUNKS },
+      (_, index) => {
+        const seq = index + 1;
+        return {
+          ...replayChunkManifest(seq, replayChunkPath(seq)),
+          checksum: "a".repeat(64),
+          byteLength: seq <= 6 ? 11 * 1024 * 1024 : 50,
+          eventCount: seq === 1 ? MAX_SESSION_REPLAY_CAPTURE_EVENTS : 0,
+        };
+      },
+    );
+    const manifest = captureManifest([first.manifest, ...suffix]);
+    expect(manifest.recording.chunkCount).toBeGreaterThan(
+      MAX_SESSION_REPLAY_CAPTURE_CHUNKS,
+    );
+    expect(manifest.recording.eventCount).toBeGreaterThan(
+      MAX_SESSION_REPLAY_CAPTURE_EVENTS,
+    );
+    expect(manifest.recording.totalBytes).toBeGreaterThan(
+      MAX_SESSION_REPLAY_CAPTURE_BYTES,
+    );
+    const requested: number[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      requested.push(Number(/\/chunks\/(\d+)/.exec(url)?.[1]));
+      return first.response();
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    const playback = await fetchSessionReplayPlayback("sr_1", {
+      captureThroughOffsetMs: 10,
+    });
+
+    expect(requested).toEqual([0]);
+    expect(playback.chunks.map((chunk) => chunk.seq)).toEqual([0]);
+    expect(playback.loadedBytes).toBe(first.manifest.byteLength);
+  });
+
+  it("enforces the chunk limit when the requested prefix itself is too long", async () => {
+    const body = "[]";
+    const checksum = createHash("sha256").update(body).digest("hex");
+    const chunks = Array.from(
+      { length: MAX_SESSION_REPLAY_CAPTURE_CHUNKS + 1 },
+      (_, seq) => ({
+        ...replayChunkManifest(seq, replayChunkPath(seq)),
+        checksum,
+        byteLength: Buffer.byteLength(body),
+        eventCount: 0,
+      }),
+    );
+    const manifest = captureManifest(chunks);
+    const requested: number[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      const seq = Number(/\/chunks\/(\d+)/.exec(url)?.[1]);
+      requested.push(seq);
+      return new Response(body, {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Replay-Seq": String(seq),
+          "X-Session-Replay-Checksum": checksum,
+        },
+      });
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", {
+        captureThroughOffsetMs: 1,
+      }),
+    ).rejects.toThrow("replay_capture_chunk_limit_exceeded");
+    expect(requested).toHaveLength(MAX_SESSION_REPLAY_CAPTURE_CHUNKS);
+  });
+
+  it("fails before fetching when the needed prefix exceeds the event limit", async () => {
+    const fixture = replayCaptureChunkFixture(0, []);
+    const oversizedChunk = {
+      ...fixture.manifest,
+      eventCount: MAX_SESSION_REPLAY_CAPTURE_EVENTS + 1,
+    };
+    const manifest = captureManifest([oversizedChunk]);
+    let chunkRequests = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      chunkRequests += 1;
+      return fixture.response();
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", { captureThroughOffsetMs: 0 }),
+    ).rejects.toThrow("replay_capture_limit_exceeded");
+    expect(chunkRequests).toBe(0);
+  });
+
+  it.each([
+    [
+      "sequence header",
+      { "X-Session-Replay-Seq": "1" },
+      "replay_capture_chunk_header_mismatch",
+    ],
+    [
+      "checksum header",
+      { "X-Session-Replay-Checksum": "f".repeat(64) },
+      "replay_capture_chunk_header_mismatch",
+    ],
+  ])("rejects a mismatched %s", async (_label, headerOverrides, error) => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const fixture = replayCaptureChunkFixture(0, [
+      { type: 3, timestamp: startedAt + 1 },
+    ]);
+    const manifest = captureManifest([fixture.manifest]);
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      return fixture.response(headerOverrides as Record<string, string>);
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", { captureThroughOffsetMs: 0 }),
+    ).rejects.toThrow(error);
+  });
+
+  it.each([
+    ["body length", "size"],
+    ["body checksum", "checksum"],
+  ])("rejects mismatched chunk %s", async (_label, mismatch) => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const fixture = replayCaptureChunkFixture(0, [
+      { type: 3, timestamp: startedAt + 1 },
+    ]);
+    const manifest = captureManifest([fixture.manifest]);
+    const replacementTimestamp = String(startedAt + 2);
+    const tamperedBody =
+      mismatch === "size"
+        ? `${fixture.body} `
+        : fixture.body.replace(String(startedAt + 1), replacementTimestamp);
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      return new Response(tamperedBody, {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Replay-Seq": "0",
+          "X-Session-Replay-Checksum": fixture.manifest.checksum,
+        },
+      });
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", { captureThroughOffsetMs: 0 }),
+    ).rejects.toThrow(
+      mismatch === "size"
+        ? "replay_capture_chunk_size_mismatch"
+        : "replay_capture_chunk_checksum_mismatch",
+    );
+  });
+
+  it.each(["3", 7, -1, 3.5, null])(
+    "rejects malformed replay event type %s",
+    async (type) => {
+      const startedAt = Date.parse(recordingSummary().startedAt);
+      const fixture = replayCaptureChunkFixture(0, [
+        { type, timestamp: startedAt + 1 },
+      ]);
+      const manifest = captureManifest([fixture.manifest]);
+      globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/manifest")) return jsonResponse(manifest);
+        return fixture.response();
+      }) as typeof fetch;
+      vi.stubGlobal("window", {
+        location: { origin: "https://analytics.example.test" },
+      });
+      vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+      await expect(
+        fetchSessionReplayPlayback("sr_1", { captureThroughOffsetMs: 0 }),
+      ).rejects.toThrow("replay_capture_event_invalid");
+    },
+  );
+
+  it("fails when full-manifest declared totals do not match its chunks", async () => {
+    const startedAt = Date.parse(recordingSummary().startedAt);
+    const fixture = replayCaptureChunkFixture(0, [
+      { type: 3, timestamp: startedAt + 1 },
+    ]);
+    const manifest = captureManifest([fixture.manifest]);
+    manifest.recording.totalBytes += 1;
+    let chunkRequests = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/manifest")) return jsonResponse(manifest);
+      chunkRequests += 1;
+      return fixture.response();
+    }) as typeof fetch;
+    vi.stubGlobal("window", {
+      location: { origin: "https://analytics.example.test" },
+    });
+    vi.stubGlobal("location", { origin: "https://analytics.example.test" });
+
+    await expect(
+      fetchSessionReplayPlayback("sr_1", { captureThroughOffsetMs: 0 }),
+    ).rejects.toThrow("replay_capture_manifest_incomplete");
+    expect(chunkRequests).toBe(0);
+  });
+
   it("keeps copied agent access tokens on manifest and chunk fetches", async () => {
     vi.stubGlobal("window", {
       location: {
@@ -839,7 +1484,7 @@ function recordingSummary() {
 function replayChunkManifest(seq: number, bytesPath: string) {
   return {
     seq,
-    checksum: `checksum_${seq}`,
+    checksum: createHash("sha256").update(`chunk-${seq}`).digest("hex"),
     byteLength: 50,
     eventCount: 1,
     startedAt: "2026-01-01T00:00:00.000Z",
@@ -848,16 +1493,60 @@ function replayChunkManifest(seq: number, bytesPath: string) {
   };
 }
 
-function replayChunkPath(seq: number): string {
-  return `/api/session-replay/recordings/sr_1/chunks/${seq}`;
+function replayChunkPath(seq: number, agentAccessToken?: string): string {
+  const path = `/api/session-replay/recordings/sr_1/chunks/${seq}`;
+  return agentAccessToken
+    ? `${path}?agent_access=${encodeURIComponent(agentAccessToken)}`
+    : path;
 }
 
 function replayChunkEvents(seq: number, events: unknown[]) {
   return {
     seq,
-    checksum: `checksum_${seq}`,
+    checksum: createHash("sha256").update(JSON.stringify(events)).digest("hex"),
     byteLength: 50,
     eventCount: events.length,
     events,
+  };
+}
+
+function replayCaptureChunkFixture(
+  seq: number,
+  events: unknown[],
+  bytesPath = replayChunkPath(seq),
+) {
+  const body = JSON.stringify(events);
+  const checksum = createHash("sha256").update(body, "utf8").digest("hex");
+  const manifest = {
+    ...replayChunkManifest(seq, bytesPath),
+    checksum,
+    byteLength: Buffer.byteLength(body, "utf8"),
+    eventCount: events.length,
+  };
+  return {
+    manifest,
+    body,
+    response(headerOverrides: Record<string, string> = {}) {
+      return new Response(body, {
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Replay-Seq": String(seq),
+          "X-Session-Replay-Checksum": checksum,
+          ...headerOverrides,
+        },
+      });
+    },
+  };
+}
+
+function captureManifest(chunks: ReturnType<typeof replayChunkManifest>[]) {
+  return {
+    recording: {
+      ...recordingSummary(),
+      chunkCount: chunks.length,
+      eventCount: chunks.reduce((sum, chunk) => sum + chunk.eventCount, 0),
+      totalBytes: chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0),
+    },
+    chunks,
   };
 }

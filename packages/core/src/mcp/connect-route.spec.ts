@@ -51,12 +51,63 @@ function membership(orgId: string, orgName: string) {
 
 const tokenRows: any[] = [];
 const deviceRows: any[] = [];
+let issuanceFailure: "not-member" | "unavailable" | null = null;
+let issuanceRole = "member";
+const issuanceTransaction = {
+  execute: vi.fn(async ({ sql }: { sql: string }) => {
+    if (issuanceFailure === "unavailable")
+      throw new Error("test membership query unavailable");
+    // No email change has retired an address in these tests.
+    if (sql.includes("to_regclass"))
+      return { rows: [{ present: false }], rowsAffected: 0 };
+    return {
+      rows:
+        issuanceFailure === "not-member" && sql.includes("org_members")
+          ? []
+          : [{ id: "member-1", role: issuanceRole }],
+      rowsAffected: 0,
+    };
+  }),
+};
+vi.mock("../db/client.js", () => ({
+  getDbExec: () => ({
+    transaction: async (
+      run: (tx: typeof issuanceTransaction) => Promise<unknown>,
+    ) => {
+      const previousTokens = structuredClone(tokenRows);
+      const previousDevices = structuredClone(deviceRows);
+      try {
+        return await run(issuanceTransaction);
+      } catch (err) {
+        tokenRows.splice(0, tokenRows.length, ...previousTokens);
+        deviceRows.splice(0, deviceRows.length, ...previousDevices);
+        throw err;
+      }
+    },
+  }),
+}));
+vi.mock("./credential-membership.js", () => ({
+  checkCredentialOrgMembership: vi.fn(async () => "member"),
+}));
+vi.mock("./credential-issuance.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("./credential-issuance.js")>();
+  return {
+    ...original,
+    withMcpCredentialIssuance: vi.fn(original.withMcpCredentialIssuance),
+  };
+});
 vi.mock("./connect-store.js", () => ({
+  ensureConnectTables: vi.fn(async () => {}),
   MCP_CONNECT_SCOPE: "mcp-connect",
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
   DEFAULT_TOKEN_TTL_DAYS: 365,
   MIN_TOKEN_TTL_DAYS: 1,
   MAX_TOKEN_TTL_DAYS: 365,
+  MAX_SERVICE_TOKEN_TTL_DAYS: 3650,
+  normalizeServiceName: (name: string) => name.trim().toLowerCase(),
+  serviceIdentityEmail: (name: string, orgId: string) =>
+    `svc-${name}@service.${orgId}`,
   DEVICE_CODE_TTL_MS: 600_000,
   recordMintedToken: vi.fn(async (p: any) => {
     const id = "id-" + tokenRows.length;
@@ -149,7 +200,10 @@ vi.mock("./connect-store.js", () => ({
   expireDeviceCode: vi.fn(async () => {}),
 }));
 
-const { handleMcpConnect } = await import("./connect-route.js");
+const { withMcpCredentialIssuance } = await import("./credential-issuance.js");
+const withMcpCredentialIssuanceMock = vi.mocked(withMcpCredentialIssuance);
+const { handleMcpConnect, mintOrgServiceToken } =
+  await import("./connect-route.js");
 const { defineAppConfig, resetAppConfigForTests } =
   await import("../app-config/index.js");
 
@@ -177,8 +231,21 @@ function ev(opts: {
 
 const SECRET = "test-a2a-secret";
 
+// Vitest runs with NODE_ENV=test, which resolves to the local environment and
+// its suffixed server name; most cases here describe production.
+beforeEach(() => {
+  vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("handleMcpConnect", () => {
   beforeEach(() => {
+    issuanceTransaction.execute.mockClear();
+    issuanceFailure = null;
+    issuanceRole = "member";
+    withMcpCredentialIssuanceMock.mockClear();
     tokenRows.length = 0;
     deviceRows.length = 0;
     getSessionMock.mockReset();
@@ -193,6 +260,53 @@ describe("handleMcpConnect", () => {
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
   });
+
+  it.each(["mint", "approve", "poll"] as const)(
+    "returns retryable unavailable when Connect table preflight fails for %s",
+    async (operation) => {
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      if (operation !== "mint") {
+        await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      }
+      if (operation === "poll") {
+        await handleMcpConnect(
+          ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+          "/device/authorize",
+        );
+      }
+      const previousDevices = structuredClone(deviceRows);
+      const { ensureConnectTables } = await import("./connect-store.js");
+      vi.mocked(ensureConnectTables).mockRejectedValueOnce(
+        new Error("test preflight database unavailable"),
+      );
+      withMcpCredentialIssuanceMock.mockClear();
+      const response = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body:
+            operation === "poll"
+              ? { device_code: deviceRows[0].deviceCode }
+              : { user_code: "ABCD-2345" },
+        }),
+        operation === "mint"
+          ? "/token"
+          : operation === "approve"
+            ? "/device/authorize"
+            : "/device/poll",
+      );
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Retry-After")).toBe("5");
+      expect(await response.json()).toEqual({
+        error: "Organization membership could not be verified. Retry shortly.",
+      });
+      expect(withMcpCredentialIssuanceMock).not.toHaveBeenCalled();
+      expect(tokenRows).toHaveLength(0);
+      expect(deviceRows).toEqual(previousDevices);
+    },
+  );
 
   describe("connect page", () => {
     it("serves the configured login HTML when unauthenticated", async () => {
@@ -256,6 +370,64 @@ describe("handleMcpConnect", () => {
       expect(body).not.toContain(
         '<details id="assistantSetup" class="hosts" open>',
       );
+    });
+
+    it("emits inline scripts that parse", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      const scripts = [...body.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+      expect(scripts.length).toBeGreaterThan(0);
+      for (const [, code] of scripts) {
+        expect(() => new Function(code)).not.toThrow();
+      }
+    });
+
+    it("renders the service-principal governance view, hidden until the org has principals", async () => {
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(ev({}), "/");
+      const body = await res.text();
+      expect(body).toContain(
+        '<details id="principals" class="connections hidden">',
+      );
+      expect(body).toContain("Service principals");
+      expect(body).toContain('"/_agent-native/actions"');
+      expect(body).toContain('ACTIONS + "/list-org-service-tokens"');
+      expect(body).toContain('"set-service-principal-lifecycle"');
+      expect(body).toContain("data.canManage");
+      expect(body).toContain("No owner or action grant is set.");
+      // Only missing-org/auth responses hide the view; a route 404 is shown.
+      expect(body).toContain(
+        "res.status === 400 || res.status === 401 || res.status === 403",
+      );
+      expect(body).not.toContain("res.status === 404");
+      expect(body).toContain("if (!USER_CODE) loadPrincipals();");
+
+      const localized = await (
+        await handleMcpConnect(ev({ acceptLanguage: "es-ES" }), "/")
+      ).text();
+      expect(localized).toContain("Principales de servicio");
+    });
+
+    it("uses the configured public framework prefix for service-principal actions", async () => {
+      const previousPrefix =
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+        "/_platform";
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      try {
+        const res = await handleMcpConnect(ev({}), "/");
+        const body = await res.text();
+        expect(body).toContain('var ACTIONS = "/_platform/actions";');
+        expect(body).not.toContain('var ACTIONS = "/_agent-native/actions";');
+      } finally {
+        if (previousPrefix === undefined) {
+          delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+        } else {
+          process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+            previousPrefix;
+        }
+      }
     });
 
     it("localizes the shared guide copy from the request language", async () => {
@@ -343,7 +515,7 @@ describe("handleMcpConnect", () => {
       expect(res.status).toBe(401);
     });
 
-    it("mints a connect-scoped JWT with jti and records it", async () => {
+    it("mints an audience-bound MCP OAuth token while A2A_SECRET is set and records its jti", async () => {
       getSessionMock.mockResolvedValue({
         email: "u@example.com",
         orgId: "org-1",
@@ -367,22 +539,86 @@ describe("handleMcpConnect", () => {
         "npx @agent-native/core@latest connect https://mail.agent-native.com",
       );
 
-      const { payload } = await jose.jwtVerify(
-        data.token,
-        new TextEncoder().encode(SECRET),
-      );
-      expect(payload.sub).toBe("u@example.com");
-      expect(payload.scope).toBe("mcp-connect");
-      expect(typeof payload.jti).toBe("string");
-      expect(payload.org_domain).toBe("builder.io");
+      const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const verified = await verifyMcpOAuthAccessToken(data.token, data.mcpUrl);
+      expect(verified).toMatchObject({
+        userEmail: "u@example.com",
+        orgId: "org-1",
+        orgDomain: "builder.io",
+        clientId: "agent-native-connect",
+        jti: expect.any(String),
+      });
+      expect(
+        await verifyMcpOAuthAccessToken(
+          data.token,
+          "https://calendar.agent-native.com/mcp",
+        ),
+      ).toBeNull();
 
       expect(tokenRows).toHaveLength(1);
       expect(tokenRows[0]).toMatchObject({
         ownerEmail: "u@example.com",
         orgId: "org-1",
         label: "laptop",
-        jti: payload.jti,
+        jti: verified?.jti,
       });
+    });
+
+    it.each(["not-member", "unavailable"] as const)(
+      "refuses a stale personal mint when the issuance boundary returns %s",
+      async (reason) => {
+        getSessionMock.mockResolvedValue({
+          email: "u@example.com",
+          orgId: "org-1",
+        });
+        issuanceFailure = reason;
+        const response = await handleMcpConnect(
+          ev({ method: "POST" }),
+          "/token",
+        );
+        expect(response.status).toBe(reason === "not-member" ? 403 : 503);
+        expect(tokenRows).toHaveLength(0);
+        expect(withMcpCredentialIssuanceMock).toHaveBeenCalledWith(
+          {
+            email: "u@example.com",
+            orgId: "org-1",
+            requestOrigin: "https://mail.agent-native.com",
+          },
+          expect.any(Function),
+        );
+      },
+    );
+
+    it("returns retryable unavailable without exposing a token when recording a personal mint fails", async () => {
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      const { recordMintedToken } = await import("./connect-store.js");
+      vi.mocked(recordMintedToken).mockRejectedValueOnce(
+        new Error(
+          "Unexpected affected row count for MCP connect token insert.",
+        ),
+      );
+      const response = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Retry-After")).toBe("5");
+      expect(await response.json()).not.toHaveProperty("token");
+      expect(tokenRows).toHaveLength(0);
+    });
+
+    it("records a personal mint through the issuance transaction", async () => {
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      const response = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      expect(response.status).toBe(200);
+      const { recordMintedToken } = await import("./connect-store.js");
+      expect(recordMintedToken).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orgId: "org-1" }),
+        issuanceTransaction,
+      );
     });
 
     it("binds a new token to the default org of an account without one", async () => {
@@ -428,6 +664,32 @@ describe("handleMcpConnect", () => {
       const lifetimeDays =
         ((payload.exp as number) - (payload.iat as number)) / 86400;
       expect(Math.round(lifetimeDays)).toBe(365);
+    });
+
+    it("mints revocable org service tokens with a 10-year lifetime", async () => {
+      issuanceRole = "admin";
+      const minted = await mintOrgServiceToken({
+        serviceName: "pr-recap",
+        orgId: "org-1",
+        createdBy: "admin@example.com",
+        ttlDays: 3650,
+        appUrl: "https://plan.example.com",
+      });
+      const { payload } = await jose.jwtVerify(
+        minted.token,
+        new TextEncoder().encode(SECRET),
+      );
+
+      expect(minted.ttlDays).toBe(3650);
+      expect(payload.jti).toBe(minted.jti);
+      expect((payload.exp as number) - (payload.iat as number)).toBe(
+        3650 * 86_400,
+      );
+      expect(tokenRows[0]).toMatchObject({
+        jti: minted.jti,
+        kind: "service",
+        ownerEmail: "svc-pr-recap@service.org-1",
+      });
     });
 
     it("mints a standard MCP OAuth token when no A2A_SECRET is configured", async () => {
@@ -556,6 +818,28 @@ describe("handleMcpConnect", () => {
       expect(data.interval).toBe(3);
       expect(data.expires_in).toBe(600);
     });
+
+    it.each(["APP_URL", "WORKSPACE_OAUTH_ORIGIN"])(
+      "device/start uses %s behind an internal proxy host",
+      async (originSetting) => {
+        vi.stubEnv("APP_URL", undefined);
+        vi.stubEnv("WORKSPACE_OAUTH_ORIGIN", undefined);
+        vi.stubEnv(originSetting, "https://mail.example.com");
+        vi.stubEnv("APP_BASE_PATH", "/mail");
+        const res = await handleMcpConnect(
+          ev({ method: "POST", host: "mail-internal:3000" }),
+          "/device/start",
+        );
+        expect(res.status).toBe(200);
+        const data = await res.json();
+        expect(data.verification_uri).toBe(
+          "https://mail.example.com/mail/mcp/connect",
+        );
+        expect(data.verification_uri_complete).toBe(
+          `https://mail.example.com/mail/mcp/connect?user_code=${data.user_code}`,
+        );
+      },
+    );
 
     it("persists requested full catalog scope and rejects non-boolean values", async () => {
       const res = await handleMcpConnect(
@@ -737,6 +1021,179 @@ describe("handleMcpConnect", () => {
       expect(res.status).toBe(400);
     });
 
+    it.each(["not-member", "unavailable"] as const)(
+      "refuses stale device approval when issuance returns %s",
+      async (reason) => {
+        await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+        getSessionMock.mockResolvedValue({
+          email: "u@example.com",
+          orgId: "org-1",
+        });
+        issuanceFailure = reason;
+        const response = await handleMcpConnect(
+          ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+          "/device/authorize",
+        );
+        expect(response.status).toBe(reason === "not-member" ? 403 : 503);
+        expect(deviceRows[0].status).toBe("pending");
+        expect(deviceRows[0].ownerEmail).toBeNull();
+      },
+    );
+
+    it.each(["not-member", "unavailable"] as const)(
+      "refuses polling a previously approved device when issuance returns %s",
+      async (reason) => {
+        await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+        getSessionMock.mockResolvedValue({
+          email: "u@example.com",
+          orgId: "org-1",
+        });
+        await handleMcpConnect(
+          ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+          "/device/authorize",
+        );
+        issuanceFailure = reason;
+        const response = await handleMcpConnect(
+          ev({
+            method: "POST",
+            body: { device_code: deviceRows[0].deviceCode },
+          }),
+          "/device/poll",
+        );
+        expect(response.status).toBe(reason === "not-member" ? 403 : 503);
+        expect(tokenRows).toHaveLength(0);
+        expect(deviceRows[0].status).toBe("approved");
+      },
+    );
+
+    it("rechecks device status after the membership lock even when the poll preloaded an approved row", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      issuanceTransaction.execute.mockImplementationOnce(async () => {
+        deviceRows[0].status = "expired";
+        return { rows: [{ id: "member-1" }], rowsAffected: 0 };
+      });
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: deviceRows[0].deviceCode } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ status: "expired" });
+      expect(tokenRows).toHaveLength(0);
+    });
+
+    it("uses one issuance transaction for device approval and claim, record, finish", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      const dc = deviceRows[0].deviceCode;
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(200);
+      const {
+        approveDeviceCode,
+        claimDeviceCodeForMint,
+        recordMintedToken,
+        finishDeviceCodeMint,
+      } = await import("./connect-store.js");
+      expect(approveDeviceCode).toHaveBeenLastCalledWith(
+        "ABCD-2345",
+        "u@example.com",
+        "org-1",
+        issuanceTransaction,
+      );
+      expect(claimDeviceCodeForMint).toHaveBeenLastCalledWith(
+        dc,
+        expect.any(String),
+        issuanceTransaction,
+      );
+      expect(recordMintedToken).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          ownerEmail: "u@example.com",
+          orgId: "org-1",
+        }),
+        issuanceTransaction,
+      );
+      expect(finishDeviceCodeMint).toHaveBeenLastCalledWith(
+        dc,
+        tokenRows[0].jti,
+        issuanceTransaction,
+      );
+    });
+
+    it("rolls back the device claim when recording fails and allows a retry", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      const dc = deviceRows[0].deviceCode;
+      const { recordMintedToken } = await import("./connect-store.js");
+      vi.mocked(recordMintedToken).mockRejectedValueOnce(
+        new Error("test write failure"),
+      );
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(503);
+      expect(deviceRows[0]).toMatchObject({
+        status: "approved",
+        tokenJti: null,
+      });
+      expect(tokenRows).toHaveLength(0);
+      const retried = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      expect(retried.status).toBe(200);
+      expect((await retried.json()).status).toBe("approved");
+      expect(tokenRows).toHaveLength(1);
+    });
+
+    it("rolls back the token record when finishing the device fails", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      const { finishDeviceCodeMint } = await import("./connect-store.js");
+      vi.mocked(finishDeviceCodeMint).mockResolvedValueOnce(false);
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: deviceRows[0].deviceCode } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(503);
+      expect(tokenRows).toHaveLength(0);
+      expect(deviceRows[0]).toMatchObject({
+        status: "approved",
+        tokenJti: null,
+      });
+    });
+
     it("poll: pending → approved (mints once) → consumed", async () => {
       await handleMcpConnect(ev({ method: "POST" }), "/device/start");
       const dc = deviceRows[0].deviceCode;
@@ -761,12 +1218,14 @@ describe("handleMcpConnect", () => {
       );
       const data = await res.json();
       expect(data.status).toBe("approved");
-      const { payload } = await jose.jwtVerify(
-        data.token,
-        new TextEncoder().encode(SECRET),
-      );
-      expect(payload.sub).toBe("u@example.com");
-      expect(payload.scope).toBe("mcp-connect");
+      const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
+      expect(
+        await verifyMcpOAuthAccessToken(data.token, data.mcpUrl),
+      ).toMatchObject({
+        userEmail: "u@example.com",
+        clientId: "agent-native-connect",
+      });
+      const payload = jose.decodeJwt(data.token);
       const lifetimeDays =
         ((payload.exp as number) - (payload.iat as number)) / 86400;
       expect(Math.round(lifetimeDays)).toBe(365);
@@ -936,10 +1395,7 @@ describe("server name on a multi-label host", () => {
   afterEach(() => resetAppConfigForTests());
 
   async function serverNameFor(host: string): Promise<string> {
-    const res = await handleMcpConnect(
-      ev({ method: "POST", host, body: { label: "laptop", ttlDays: 30 } }),
-      "/token",
-    );
+    const res = await handleMcpConnect(ev({ host }), "/identity");
     expect(res.status).toBe(200);
     return (await res.json()).serverName;
   }
@@ -979,15 +1435,215 @@ describe("explicit server name", () => {
   it("wins over the derived name, prefix included", async () => {
     defineAppConfig({ app: { id: "plan" } });
     const res = await handleMcpConnect(
-      ev({
-        method: "POST",
-        host: "plan.agent-native.com",
-        body: { label: "laptop", ttlDays: 30 },
-      }),
-      "/token",
+      ev({ host: "plan.agent-native.com" }),
+      "/identity",
       { serverName: "plan" },
     );
     expect(res.status).toBe(200);
     expect((await res.json()).serverName).toBe("plan");
+  });
+
+  it("is refused rather than published when it is not a plain name", async () => {
+    await expect(
+      handleMcpConnect(ev({ host: "plan.agent-native.com" }), "/identity", {
+        serverName: "plan; echo hi",
+      }),
+    ).rejects.toThrow(/not a plain name/);
+  });
+
+  it("is refused before a token is minted that no response would return", async () => {
+    const { recordMintedToken } = await import("./connect-store.js");
+    vi.mocked(recordMintedToken).mockClear();
+    await expect(
+      handleMcpConnect(
+        ev({ method: "POST", host: "plan.agent-native.com" }),
+        "/token",
+        { serverName: "plan; echo hi" },
+      ),
+    ).rejects.toThrow(/not a plain name/);
+    expect(recordMintedToken).not.toHaveBeenCalled();
+  });
+
+  it("still lets users list and revoke their tokens when it is refused", async () => {
+    const options = { serverName: "plan; echo hi" };
+    const list = await handleMcpConnect(
+      ev({ host: "plan.agent-native.com" }),
+      "/tokens",
+      options,
+    );
+    expect(list.status).toBe(200);
+    const revoke = await handleMcpConnect(
+      ev({ method: "POST", host: "plan.agent-native.com", body: { id: "x" } }),
+      "/tokens/revoke",
+      options,
+    );
+    expect(revoke.status).toBe(200);
+  });
+});
+
+describe("connect identity", () => {
+  beforeEach(() => {
+    getSessionMock.mockResolvedValue(null);
+    getConfiguredLoginHtmlMock.mockReturnValue(null);
+  });
+  afterEach(() => resetAppConfigForTests());
+
+  async function identityFor(
+    host: string,
+    options: Parameters<typeof handleMcpConnect>[2] = {},
+  ) {
+    const res = await handleMcpConnect(ev({ host }), "/identity", options);
+    expect(res.status).toBe(200);
+    return res.json();
+  }
+
+  it("answers without a session and keeps production names unsuffixed", async () => {
+    defineAppConfig({ app: { id: "content" } });
+    expect(await identityFor("content.agent-native.com")).toEqual({
+      serverName: "agent-native-content",
+      appName: "content",
+      appUrl: "https://content.agent-native.com",
+      mcpUrl: "https://content.agent-native.com/mcp",
+      environment: "production",
+      connect: true,
+    });
+  });
+
+  it("fits a long hostname-derived name instead of failing", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "preview");
+    const label = `deploy-preview-6800--${"x".repeat(42)}`;
+    const { serverName } = await identityFor(`${label}.netlify.app`);
+    expect(serverName).toMatch(
+      /^preview-agent-native-deploy-preview-6800--x+__[0-9a-z]{11}$/,
+    );
+    expect(serverName.length).toBeLessThanOrEqual(64);
+  });
+
+  it.each([
+    ["beta", "beta.content.agent-native.com", "beta-agent-native-content"],
+    [
+      "preview",
+      "preview.content.agent-native.com",
+      "preview-agent-native-content",
+    ],
+    ["local", "localhost:8080", "local-agent-native-content"],
+  ])(
+    "gives the %s environment its own name",
+    async (environment, host, serverName) => {
+      vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", environment);
+      defineAppConfig({ app: { id: "content" } });
+      const identity = await identityFor(host);
+      expect(identity.serverName).toBe(serverName);
+      expect(identity.environment).toBe(environment);
+    },
+  );
+
+  it("prefixes a declared server name outside production", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    expect(
+      (await identityFor("beta.plan.agent-native.com", { serverName: "plan" }))
+        .serverName,
+    ).toBe("beta-plan");
+  });
+
+  it("keeps beta mail apart from a production app named mail-beta", async () => {
+    defineAppConfig({ app: { id: "mail-beta" } });
+    const production = await identityFor("mail-beta.example.com");
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    defineAppConfig({ app: { id: "mail" } });
+    const beta = await identityFor("beta.mail.agent-native.com");
+    expect(production.serverName).toBe("agent-native-mail-beta");
+    expect(beta.serverName).toBe("beta-agent-native-mail");
+  });
+
+  it("targets the workspace base path", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/content");
+    defineAppConfig({ app: { id: "content" } });
+    const identity = await identityFor("workspace.example.com");
+    expect(identity.appUrl).toBe("https://workspace.example.com/content");
+    expect(identity.mcpUrl).toBe("https://workspace.example.com/content/mcp");
+    expect(identity.serverName).toBe("agent-native-content");
+  });
+
+  it("advertises the base path the MCP server is mounted on when both variables are set", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/content");
+    vi.stubEnv("APP_BASE_PATH", "/legacy");
+    const identity = await identityFor("workspace.example.com");
+    expect(identity.appUrl).toBe("https://workspace.example.com/content");
+    expect(identity.mcpUrl).toBe("https://workspace.example.com/content/mcp");
+  });
+
+  it("matches the name the token payload writes", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    process.env.A2A_SECRET = SECRET;
+    try {
+      defineAppConfig({ app: { id: "mail" } });
+      const identity = await identityFor("beta.mail.agent-native.com");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          host: "beta.mail.agent-native.com",
+          body: { label: "laptop", ttlDays: 30 },
+        }),
+        "/token",
+      );
+      const payload = await res.json();
+      expect(payload.serverName).toBe(identity.serverName);
+      expect(payload.mcpUrl).toBe(identity.mcpUrl);
+    } finally {
+      delete process.env.A2A_SECRET;
+    }
+  });
+
+  it("advertises the public URL OAuth discovery uses, not the request host", async () => {
+    vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+    defineAppConfig({ app: { id: "mail" } });
+    const identity = await identityFor("mail-internal:3000");
+    expect(identity.appUrl).toBe("https://mail.agent-native.com");
+    expect(identity.mcpUrl).toBe("https://mail.agent-native.com/mcp");
+    expect(identity.serverName).toBe("agent-native-mail");
+  });
+
+  it("rejects writes", async () => {
+    const res = await handleMcpConnect(ev({ method: "POST" }), "/identity");
+    expect(res.status).toBe(405);
+  });
+
+  it("renders install links that carry only the name and URL", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    defineAppConfig({ app: { id: "mail" } });
+    getSessionMock.mockResolvedValue({ email: "u@example.com" });
+    const res = await handleMcpConnect(
+      ev({ host: "beta.mail.agent-native.com" }),
+      "/",
+    );
+    const body = await res.text();
+    const hrefs = [...body.matchAll(/href="([^"]+)"/g)]
+      .map(([, href]) => href.replace(/&amp;/g, "&"))
+      .filter(
+        (href) =>
+          href.startsWith("https://cursor.com/install-mcp") ||
+          href.startsWith("vscode:") ||
+          href.startsWith("vscode-insiders:"),
+      );
+    expect(hrefs).toHaveLength(3);
+    for (const href of hrefs) {
+      const payload = href.startsWith("https://cursor.com/")
+        ? {
+            name: new URL(href).searchParams.get("name"),
+            ...JSON.parse(atob(new URL(href).searchParams.get("config")!)),
+          }
+        : JSON.parse(decodeURIComponent(href.slice(href.indexOf("?") + 1)));
+      const { type, ...rest } = payload;
+      expect(rest).toEqual({
+        name: "beta-agent-native-mail",
+        url: "https://beta.mail.agent-native.com/mcp",
+      });
+      expect(type === undefined || type === "http").toBe(true);
+    }
+    expect(body).toContain(
+      'href="https://cursor.com/install-mcp?name=beta-agent-native-mail',
+    );
   });
 });

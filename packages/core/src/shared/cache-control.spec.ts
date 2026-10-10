@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_CONTROL,
   DISABLED_SSR_CACHE_HEADERS,
   isSsrCacheEnabled,
   parseSsrCacheSetting,
   resolveSsrCacheHeaders,
+  resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
   SSR_HTML_CONTENT_TYPE,
@@ -14,7 +16,7 @@ import {
   ssrCacheHeadersForPolicy,
   withSsrHtmlContentType,
 } from "./cache-control.js";
-
+import { CHUNK_RECOVERY_QUERY_PARAM } from "./route-chunk-recovery-bootstrap.js";
 function envWith(value: string | undefined) {
   return { [SSR_CACHE_ENV_VAR]: value };
 }
@@ -195,6 +197,24 @@ describe("resolveSsrCacheHeaders", () => {
   });
 });
 
+describe("resolveChunkRecoveryCacheHeaders", () => {
+  it("revalidates recovery shells in browsers and bypasses shared CDNs", () => {
+    expect(resolveChunkRecoveryCacheHeaders(DEFAULT_SSR_CACHE_HEADERS)).toEqual(
+      {
+        "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+        "cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+        "netlify-cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+      },
+    );
+  });
+
+  it("keeps recovery responses disabled when the deployment opts out", () => {
+    expect(
+      resolveChunkRecoveryCacheHeaders(DISABLED_SSR_CACHE_HEADERS),
+    ).toEqual(DISABLED_SSR_CACHE_HEADERS);
+  });
+});
+
 describe("resolveSsrCacheKeyHeaders", () => {
   it("narrows query variation on Netlify", () => {
     expect(resolveSsrCacheKeyHeaders({ NETLIFY: "true" })).toEqual({
@@ -202,6 +222,23 @@ describe("resolveSsrCacheKeyHeaders", () => {
     });
     expect(resolveSsrCacheKeyHeaders({ SITE_ID: "site-test" })).toEqual({
       "netlify-vary": "query=_routes|index",
+    });
+  });
+
+  it("uses full query variation only when requested", () => {
+    expect(
+      resolveSsrCacheKeyHeaders({ NETLIFY: "true" }, { varyByQuery: true }),
+    ).toEqual({ "netlify-vary": "query" });
+  });
+
+  it("varies only on the fixed legacy recovery marker when requested", () => {
+    expect(
+      resolveSsrCacheKeyHeaders(
+        { NETLIFY: "true" },
+        { varyByLegacyRecovery: true },
+      ),
+    ).toEqual({
+      "netlify-vary": `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
     });
   });
 

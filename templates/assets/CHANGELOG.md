@@ -3,6 +3,31 @@
 All notable user-facing changes to Assets are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-08
+
+### Improved
+
+- A new chat shows its heading and prompt immediately while existing chat history loads.
+
+## 2026-10-06
+
+### Fixed
+
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Fixed
+
+- Sign-in and signup pages now share the animated Agent-Native wave.
+
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup copy now clarifies account use and available credits.
+- Owners and admins can save image generation keys for the whole organization, which is now the default.
+
 ## 2026-10-01
 
 ### Fixed

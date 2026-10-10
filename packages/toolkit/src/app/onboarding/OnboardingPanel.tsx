@@ -1,6 +1,8 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
+  createOnboardingCorrelationId,
   trackOnboardingEvent,
   useOnboarding,
 } from "@agent-native/core/client/onboarding/use-onboarding";
@@ -25,13 +27,15 @@ import {
   IconKey,
   IconLoader2,
 } from "@tabler/icons-react";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useId, useRef } from "react";
 
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
 } from "../settings/index.js";
 import { StorageSettingsForm } from "../settings/StorageSettingsForm.js";
+import { useCredentialSaveScope } from "../settings/use-credential-save-scope.js";
+import { WhoField } from "../settings/WhoField.js";
 
 type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
@@ -71,21 +75,32 @@ export function OnboardingPanel({
   const checklistVisible =
     !loading && totalCount > 0 && (previewMode || (!dismissed && !allComplete));
   const [expanded, setExpanded] = useState(true);
+  const stepViewRef = useRef<{ key: string; id: string } | null>(null);
 
   useEffect(() => {
-    if (!checklistVisible) return;
+    if (!checklistVisible || !expanded) {
+      stepViewRef.current = null;
+      return;
+    }
     const activeStepIndex = steps.findIndex(
       (step) => step.id === currentStepId,
     );
     const activeStep = steps[activeStepIndex];
     trackOnboardingEvent("onboarding_started", { flow: "checklist" });
     if (!activeStep) return;
+    if (stepViewRef.current?.key !== activeStep.id) {
+      stepViewRef.current = {
+        key: activeStep.id,
+        id: createOnboardingCorrelationId(),
+      };
+    }
     trackOnboardingEvent("onboarding_step_viewed", {
       flow: "checklist",
       step_id: activeStep.id,
       step_index: activeStepIndex,
+      step_view_id: stepViewRef.current.id,
     });
-  }, [checklistVisible, currentStepId, previewMode, steps]);
+  }, [checklistVisible, currentStepId, expanded, previewMode, steps]);
 
   if (loading || totalCount === 0) return null;
   if (!previewMode) {
@@ -595,13 +610,20 @@ function FormMethod({
   method: Extract<OnboardingMethod, { kind: "form" }>;
   onCompleted: () => Promise<void>;
 }) {
-  const { fields, writeScope, saveTo, secretDescription } = method.payload;
+  const { fields, saveTo, secretDescription } = method.payload;
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Owners and admins pick who can use the keys (organization by default);
+  // everyone else saves personally — the server refuses a member's shared save.
+  const t = useT();
+  const saveScope = useCredentialSaveScope();
+  const whoId = useId();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const scope = saveScope.scope;
+    if (!scope) return;
     setSaving(true);
     setErr(null);
     try {
@@ -613,10 +635,7 @@ function FormMethod({
         return;
       }
       if (saveTo === "scoped-secrets") {
-        const secretScope =
-          writeScope === "workspace" || writeScope === "app"
-            ? "workspace"
-            : "user";
+        const secretScope = scope === "org" ? "workspace" : "user";
         for (const entry of vars) {
           const res = await fetch(
             agentNativePath("/_agent-native/secrets/adhoc"),
@@ -647,7 +666,10 @@ function FormMethod({
       const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vars, scope: writeScope ?? "workspace" }),
+        body: JSON.stringify({
+          vars,
+          scope,
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -682,10 +704,27 @@ function FormMethod({
           />
         </label>
       ))}
+      {saveScope.canChoose && saveScope.scope ? (
+        <WhoField
+          id={whoId}
+          choice
+          scope={saveScope.scope}
+          disabled={saving}
+          onChange={saveScope.setScope}
+        />
+      ) : null}
+      {saveScope.roleUnavailable ? (
+        <p role="alert" style={styles.errText}>
+          {t("agentPanel.saveScopeRoleUnavailable")}{" "}
+          <button type="button" onClick={saveScope.retry}>
+            {t("agentChat.common.retry")}
+          </button>
+        </p>
+      ) : null}
       {err && <p style={styles.errText}>{err}</p>}
       <button
         type="submit"
-        disabled={saving}
+        disabled={saving || !saveScope.scope}
         style={{ ...buttonPrimary(method.primary), opacity: saving ? 0.6 : 1 }}
       >
         {saving ? "Saving..." : "Save"}
@@ -703,6 +742,7 @@ function BuilderCliAuthMethod({
   primary?: boolean;
   onClick: () => void;
 }) {
+  const t = useT();
   const connectFlow = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: "onboarding_builder_cli_auth",
@@ -726,19 +766,13 @@ function BuilderCliAuthMethod({
                 style={{ marginInlineEnd: 4 }}
                 className="animate-spin"
               />
-              Waiting for Builder...
+              {t("agentChat.onboarding.builderConnecting")}
             </>
           ) : (
-            "Connect Builder"
+            t("agentChat.setup.connectBuilder")
           )}
         </button>
       </BuilderConnectPopover>
-      {connecting && (
-        <p style={styles.methodHint}>
-          A Builder tab opened. Choose your team or app space there; setup will
-          continue here automatically.
-        </p>
-      )}
       {error && <p style={styles.errText}>{error}</p>}
     </>
   );

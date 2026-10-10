@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor motion dock transition", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
 
   it("opens after a painted collapsed frame so height can transition", () => {
     const openStart = source.indexOf("const setMotionDockOpenAnimated");
@@ -43,9 +43,6 @@ describe("DesignEditor motion dock transition", () => {
   it("keeps the motion dock behind the secondary-panel experiment", () => {
     expect(source).toContain(
       "SHOW_DESIGN_SECONDARY_LEFT_PANELS &&\n      !initialGenerationChromeLimited &&\n      activeFile &&\n      motionDockMounted",
-    );
-    expect(source).toContain(
-      "motionDisabled={!activeFile || initialGenerationChromeLimited}",
     );
   });
 

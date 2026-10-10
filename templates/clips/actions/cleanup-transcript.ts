@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
+import type { BUILDER_MODEL_CONFIG } from "@agent-native/core/agent/model-config";
 import {
   FeatureNotConfiguredError,
   resolveGeminiApiKey,
@@ -18,7 +19,10 @@ import {
   noteBuilderCreditsExhausted,
 } from "./lib/builder-credits-state.js";
 
-const BUILDER_MODEL = "gpt-5-6-luna";
+// Typed against the Builder catalog so a retired id fails typecheck instead of
+// every cleanup call.
+const BUILDER_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
+  "gpt-6-luna";
 
 const GEMINI_BYOK_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_BYOK_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_BYOK_MODEL}:generateContent`;
@@ -235,7 +239,7 @@ function buildCleanupConfigurationError({
   builderFailureMessage: string | null;
 }): FeatureNotConfiguredError {
   let message =
-    "Transcript cleanup needs Builder.io Connect (free tier available) or a fallback AI key.";
+    "Use Builder.io (free credits available) or a fallback AI key for transcript cleanup.";
 
   if (builderConfigured && builderReturnedEmpty) {
     message =

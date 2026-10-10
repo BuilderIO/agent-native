@@ -125,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 每个托管应用程序还有一个帮助页面
 `https://&lt;app&gt;/mcp/connect` 与可复制的 URL 和
-Claude、ChatGPT、光标、Claude 代码、Codex、Grok 和其他的主机特定选项卡。
+适用于 Claude、ChatGPT、Cursor、VS Code、Claude Code、Codex、Grok 和“其他”的主机专属选项卡。
 
 ## 私有 Content 链接 {#private-content-links}
 
@@ -169,9 +169,26 @@ Dispatch 不会重写 ChatGPT 或 Claude 的缓存日历/邮件/等。
 快照。`mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` 范围与下文
 [标准远程 MCP OAuth](#standard-oauth) 中介绍的相同。
 
-Cursor、Goose、Postman、MCPJam 和 VS Code GitHub Copilot 使用相同的遥控器
-当其构建支持远程 OAuth 时，MCP URL 通过自己的 MCP 服务器 UI
-MCP 服务器。
+### Cursor、VS Code 和 Codex {#install-links}
+
+**Settings → MCP server** 和 `/mcp/connect` 中的 **Cursor** 与 **VS Code**
+选项卡提供安装按钮。**添加到 Cursor** 会打开 Cursor 的 **Install MCP server?**
+提示。**添加到 VS Code** 和 **添加到 VS Code Insiders** 会打开带有 **Install**
+按钮的服务器页面。链接只包含服务器名称、传输方式和 MCP URL，从不包含令牌、请求头或账户信息。
+客户端首次连接时会自行完成 OAuth 登录。在 VS Code 中，这些工具随后会出现在 Agent 模式下的 Chat 视图中。
+
+对于 Codex，运行 `codex mcp add <server-name> --url <mcp-url>`，然后运行
+`codex mcp login <server-name>`，通过 OAuth 登录。**Codex** 选项卡会填好这两个值。
+
+当 Goose、Postman、MCPJam 和其他客户端的版本支持带 OAuth 的远程 MCP 服务器时，
+它们会在各自的 MCP 服务器界面中使用同一个远程 MCP URL。
+
+### 服务器名称 {#server-names}
+
+应用会为自己的 MCP 服务器命名，所有入口都使用这个名称：安装链接、可复制的命令，以及
+`npx @agent-native/core@latest connect`。
+生产环境使用不带前缀的名称，例如 `agent-native-mail`。Beta、预览和本地部署会把环境名放在最前面，例如 `beta-agent-native-mail`，这样同一个客户端可以同时保留生产和 Beta 两个条目。这些前缀是保留的：`mcp.serverName` 不能以 `beta-`、`preview-` 或 `local-` 开头，因此 Beta 名称永远不会与另一个应用的生产名称相同。
+脚本可以通过 `GET /mcp/connect/identity` 读取名称；该接口无需登录，返回服务器名称、应用名称、应用 URL、MCP URL、环境，以及在 `mcp.connect` 关闭时为 `false` 的 `connect` 标志。
 
 ### 快速测试提示 {#quick-test}
 
@@ -261,7 +278,9 @@ npx @agent-native/core@latest connect https://mail.agent-native.com
 
 ### 401 后重新进行身份验证 {#reconnect}
 
-连接后，身份验证应长期持续 - 访问令牌默认持续 30 天（在服务器上使用 `MCP_OAUTH_ACCESS_TOKEN_TTL` 覆盖，例如 `7d` 或 `12h`），并具有 365 天滑动刷新窗口，因此随机 401 应该很少见。当发生这种情况时，请使用轻量级重新连接命令而不是重新安装：
+OAuth 所有者绑定更新要求每个现有的 OAuth 连接[重新连接一次](/docs/external-agents#reconnect)。更新上线后，旧 OAuth 访问令牌会被拒绝。未绑定所有者的旧刷新令牌会返回 `invalid_grant`，尚未使用的旧授权码必须重新开始同意流程。新签发的访问令牌使用配置的有效期，并在每次请求时检查成员资格。此次切换不会更改旧 A2A 格式的 `mcp-connect` 凭据或跨应用 A2A 令牌。使用旧 OAuth 格式 Connect 令牌的连接也必须重新连接。
+
+连接后，身份验证应长期持续 - 访问令牌默认持续 30 天（在服务器上使用 `MCP_OAUTH_ACCESS_TOKEN_TTL` 覆盖，例如 `7d` 或 `12h`），且刷新授权没有固定有效期，因此随机 401 应该很少见。当发生这种情况时，请使用轻量级重新连接命令而不是重新安装：
 
 ```bash
 npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
@@ -309,7 +328,7 @@ claude mcp add --transport http agent-native \
 https://dispatch.agent-native.com/mcp
 ```
 
-OAuth 流程是授权代码 + PKCE 和刷新令牌轮换。访问令牌是受众绑定到确切的 MCP 资源 URL 并携带签名的用户/组织身份，因此工具调用、`resources/read` 和 MCP 应用程序 iframe 启动的 `tools/call` 都通过与现有连接铸造的 JWT 路径相同的 `runWithRequestContext` 租户范围运行。 iframe 从不接收原始 OAuth 令牌；主机通过经过身份验证的 MCP 连接来调解呼叫。
+OAuth 流程是授权代码 + PKCE 和刷新令牌，刷新令牌不会轮换。访问令牌是受众绑定到确切的 MCP 资源 URL 并携带签名的用户/组织身份，因此工具调用、`resources/read` 和 MCP 应用程序 iframe 启动的 `tools/call` 都通过与现有连接铸造的 JWT 路径相同的 `runWithRequestContext` 租户范围运行。 iframe 从不接收原始 OAuth 令牌；主机通过经过身份验证的 MCP 连接来调解呼叫。
 
 当前范围是：
 

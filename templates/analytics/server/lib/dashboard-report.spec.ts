@@ -540,6 +540,39 @@ describe("dashboard report email", () => {
     expect(snapshot.panelIds).toEqual(["p1"]);
   });
 
+  it("reads multi-select filters the way the page does, so a cleared selection stays cleared", async () => {
+    mocks.getReportDashboard.mockResolvedValue(
+      dashboardWith(
+        [panel("p1")],
+        [
+          {
+            id: "plan",
+            label: "Plan",
+            type: "multi-select",
+            default: "free",
+            options: [{ value: "free", label: "Free" }],
+          },
+          {
+            id: "tier",
+            label: "Tier",
+            type: "multi-select",
+            options: [{ value: "pro", label: "Pro" }],
+          },
+        ],
+      ),
+    );
+
+    const snapshot = await collectReportSnapshot({
+      ...subscription(),
+      filters: { f_plan: "__empty__", f_tier: "pro,," },
+    });
+
+    // A cleared selection stays an empty override, so a dashboard variable cannot fill it.
+    expect(snapshot.filters).toEqual({ f_plan: "", f_tier: "pro" });
+    // The link must reopen with the selection cleared, not with the default.
+    expect(snapshot.dashboardUrl).toContain("f_plan=__empty__");
+  });
+
   it("reads the dashboard under the subscription owner's access scope", async () => {
     await collectReportSnapshot(subscription());
 

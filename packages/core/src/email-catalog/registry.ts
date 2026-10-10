@@ -192,6 +192,8 @@ export async function renderTransactionalEmailPreviewAsync(
 }
 
 export {
+  CORE_ACCESS_GRANTED_EMAIL_ID,
+  CORE_ACCESS_REQUESTED_EMAIL_ID,
   CORE_RESOURCE_SHARED_EMAIL_ID,
   overrideTransactionalEmail,
   removeTransactionalEmailOverride,

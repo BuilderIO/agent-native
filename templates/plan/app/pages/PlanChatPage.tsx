@@ -2,12 +2,32 @@ import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
 import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
+import { useNavigate } from "react-router";
 
 import { LocalCodebasePicker } from "@/components/plan/LocalCodebasePicker";
+import { planChatThreadPath } from "@/lib/chat-route";
 import { schedulePlanRoutePrewarm } from "@/lib/route-prewarm";
 
-export function PlanChatPage() {
+export function PlanChatHydrateFallback() {
   const t = useT();
+  return (
+    <div className="flex h-full min-h-0 bg-background px-4 py-4">
+      <div className="mx-auto flex w-full max-w-3xl items-center justify-center">
+        <h1 className="text-center text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">
+          {t("chat.heading")}
+        </h1>
+      </div>
+    </div>
+  );
+}
+
+export function PlanChatPage({
+  threadId = null,
+}: {
+  threadId?: string | null;
+}) {
+  const t = useT();
+  const navigate = useNavigate();
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
@@ -28,6 +48,11 @@ export function PlanChatPage() {
       contentClassName="max-w-5xl"
       surfaceClassName="border-0 bg-transparent shadow-none"
       storageKey="plans"
+      threadUrlSync={{
+        routeThreadId: threadId,
+        getPath: planChatThreadPath,
+        navigate,
+      }}
       showHeader={false}
       showTabBar={false}
       dynamicSuggestions={false}

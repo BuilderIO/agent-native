@@ -41,9 +41,9 @@ describe("onboarding app profiles", () => {
     );
     expect(storage).toMatchObject({
       builderIncluded: true,
-      suggested: appId !== "clips",
+      suggested: true,
     });
-    expect(storage?.required).toBe(appId === "clips");
+    expect(storage?.required).toBe(false);
     expect(profile.capabilities).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -67,6 +67,8 @@ describe("onboarding app profiles", () => {
           suggested: true,
           builderIncluded: true,
           keySummary: "Jev decision model key",
+          whyKey: "agentChat.onboarding.capability.systemOne.why",
+          why: "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request.",
         }),
       ]),
     );
@@ -87,7 +89,10 @@ describe("onboarding app profiles", () => {
       "browser-automation",
       "transcription",
     ]);
-    expect(clips.capabilities[2]?.required).toBe(true);
+    expect(clips.capabilities[2]).toMatchObject({
+      required: false,
+      suggested: true,
+    });
     expect(clips.capabilities[2]?.keySummary).toBe("Object storage");
     expect(clips.capabilities[2]?.label).toBe("Object storage");
     expect(clips.capabilities[2]?.service).toBe("storage");

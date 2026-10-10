@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveFilterVars } from "./DashboardFilterBar";
+import { normalizeMultiSelectValue } from "./filter-vars";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
 import type { DashboardFilter } from "./types";
 
@@ -87,6 +88,28 @@ describe("resolveFilterVars", () => {
     expect(sql).toContain(
       "('custom' IN ('', 'all') OR ('custom' = '365d' AND e.event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)) OR ('custom' = 'custom' AND e.event_date >= DATE('2026-08-01') AND e.event_date <= DATE('2026-08-15')))",
     );
+  });
+
+  it("quotes BigQuery panel values with GoogleSQL escapes", () => {
+    const sql = interpolateDashboardPanelSql(
+      "SELECT * FROM events WHERE name = '{{name}}' AND note = \"{{note}}\"",
+      { name: "o'brien\\", note: 'say "hi"\nnow' },
+      { source: "bigquery" },
+    );
+
+    expect(sql).toBe(
+      String.raw`SELECT * FROM events WHERE name = 'o\'brien\\' AND note = "say \"hi\"\nnow"`,
+    );
+  });
+
+  it("keeps PostgreSQL quoting for first-party panels the BigQuery binder re-quotes", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "SELECT * FROM analytics_events WHERE name = '{{name}}'",
+        { name: "o'brien\\" },
+        { source: "first-party" },
+      ),
+    ).toBe("SELECT * FROM analytics_events WHERE name = 'o''brien\\'");
   });
 
   it("applies custom bounds to repeated Postgres cohort predicates", () => {
@@ -350,5 +373,80 @@ describe("resolveFilterVars", () => {
       { id: "q", label: "Query", type: "text", default: "30d" },
     ];
     expect(resolveFilterVars(filters, noParams).q).toBe("30d");
+  });
+});
+
+describe("multi-select filters", () => {
+  const tier: DashboardFilter = {
+    id: "tier",
+    label: "Tier",
+    type: "multi-select",
+    options: [
+      { value: "free", label: "Free" },
+      { value: "self_serve", label: "Self-Serve" },
+      { value: "enterprise", label: "Enterprise" },
+    ],
+  };
+
+  it("keeps the comma-joined selection from the URL param or default", () => {
+    const fromUrl = (key: string) => (key === "tier" ? "free,self_serve" : "");
+    expect(resolveFilterVars([tier], fromUrl).tier).toBe("free,self_serve");
+    expect(
+      resolveFilterVars([{ ...tier, default: "enterprise" }], noParams).tier,
+    ).toBe("enterprise");
+  });
+
+  it("expands the list placeholder into one quoted literal per selected value", () => {
+    expect(
+      interpolate("WHERE tier IN ({{tier:list}})", { tier: "free,self_serve" }),
+    ).toBe("WHERE tier IN ('free', 'self_serve')");
+  });
+
+  it("drops a clause guarded by the conditional when nothing is selected", () => {
+    const sql = "SELECT 1{{?tier}} WHERE tier IN ({{tier:list}}){{/tier}}";
+    expect(interpolate(sql, { tier: "" })).toBe("SELECT 1");
+    expect(interpolate(sql, { tier: "free" })).toBe(
+      "SELECT 1 WHERE tier IN ('free')",
+    );
+  });
+
+  it("fails loudly for an unguarded list with no selection", () => {
+    expect(interpolate("WHERE tier IN ({{tier:list}})", { tier: "" })).toBe(
+      "WHERE tier IN (__empty_list_filter__)",
+    );
+  });
+
+  it("drops empty tokens so a comma-only value reads as no selection", () => {
+    expect(normalizeMultiSelectValue(",")).toBe("");
+    expect(normalizeMultiSelectValue("free,,self_serve")).toBe(
+      "free,self_serve",
+    );
+    expect(resolveFilterVars([{ ...tier, default: "," }], noParams).tier).toBe(
+      "",
+    );
+  });
+
+  it("treats the empty marker as no selection even when a default is set", () => {
+    const withDefault: DashboardFilter = { ...tier, default: "enterprise" };
+    const vars = resolveFilterVars([withDefault], (key) =>
+      key === "tier" ? "__empty__" : "",
+    );
+    expect(vars.tier).toBe("");
+    expect(
+      interpolate(
+        "SELECT 1{{?tier}} WHERE tier IN ({{tier:list}}){{/tier}}",
+        vars,
+      ),
+    ).toBe("SELECT 1");
+  });
+
+  it("uses GoogleSQL escapes for each item on BigQuery panels", () => {
+    expect(
+      interpolateDashboardPanelSql(
+        "WHERE plan IN ({{plan:list}})",
+        { plan: "o'brien,pro" },
+        { source: "bigquery" },
+      ),
+    ).toBe(String.raw`WHERE plan IN ('o\'brien', 'pro')`);
   });
 });

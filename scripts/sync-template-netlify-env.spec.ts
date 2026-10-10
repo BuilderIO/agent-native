@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   hostedTelemetryIdentityEnv,
+  hostedTraceSamplerEnv,
+  staleTraceSamplerDefaults,
   isAllowedHostedTemplateEnvKey,
   isForbiddenHostedTemplateEnvKey,
   normalizeProductionUrlEntry,
   resolveNetlifyApiContext,
-  resolveNetlifyEnvScopes,
   resolveNetlifyTemplateName,
 } from "./sync-template-netlify-env";
 
@@ -150,24 +151,6 @@ describe("resolveNetlifyApiContext", () => {
   });
 });
 
-describe("resolveNetlifyEnvScopes", () => {
-  it("limits the fleet-wide Sentry upload token to builds", () => {
-    expect(
-      resolveNetlifyEnvScopes("SENTRY_AUTH_TOKEN", [
-        "builds",
-        "functions",
-        "runtime",
-      ]),
-    ).toEqual(["builds"]);
-  });
-
-  it("preserves configured scopes for other keys", () => {
-    expect(
-      resolveNetlifyEnvScopes("SENTRY_DSN", ["functions", "runtime"]),
-    ).toEqual(["functions", "runtime"]);
-  });
-});
-
 describe("resolveNetlifyTemplateName", () => {
   it("maps the legacy chat template name to the current starter site", () => {
     expect(resolveNetlifyTemplateName("chat")).toBe("starter");
@@ -175,6 +158,53 @@ describe("resolveNetlifyTemplateName", () => {
 
   it("preserves current Netlify site names", () => {
     expect(resolveNetlifyTemplateName("clips")).toBe("clips");
+  });
+});
+
+describe("hostedTraceSamplerEnv", () => {
+  it("samples 1% of new traces on production sites", () => {
+    expect(hostedTraceSamplerEnv("production")).toEqual([
+      ["OTEL_TRACES_SAMPLER", "parentbased_traceidratio"],
+      ["OTEL_TRACES_SAMPLER_ARG", "0.01"],
+    ]);
+  });
+
+  it("keeps a configured sampler or ratio", () => {
+    expect(
+      hostedTraceSamplerEnv("production", { sampler: "always_on" }),
+    ).toEqual([]);
+    expect(hostedTraceSamplerEnv("production", { samplerArg: "0.1" })).toEqual([
+      ["OTEL_TRACES_SAMPLER", "parentbased_traceidratio"],
+    ]);
+  });
+
+  it("leaves beta and other contexts on the SDK default", () => {
+    expect(hostedTraceSamplerEnv("branch:beta")).toEqual([]);
+    expect(hostedTraceSamplerEnv("deploy-preview")).toEqual([]);
+  });
+});
+
+describe("staleTraceSamplerDefaults", () => {
+  it("retires the generated ratio once a production sampler is configured without one", () => {
+    expect(
+      staleTraceSamplerDefaults("production", { sampler: "traceidratio" }),
+    ).toEqual([["OTEL_TRACES_SAMPLER_ARG", "0.01"]]);
+  });
+
+  it("leaves the ratio alone when the source sets it, the sampler ignores it, or the default still applies", () => {
+    expect(
+      staleTraceSamplerDefaults("production", {
+        sampler: "traceidratio",
+        samplerArg: "0.5",
+      }),
+    ).toEqual([]);
+    expect(staleTraceSamplerDefaults("production", {})).toEqual([]);
+    expect(
+      staleTraceSamplerDefaults("production", { sampler: "always_on" }),
+    ).toEqual([]);
+    expect(
+      staleTraceSamplerDefaults("branch:beta", { sampler: "always_on" }),
+    ).toEqual([]);
   });
 });
 

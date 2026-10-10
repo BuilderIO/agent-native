@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-import { explainPeerProbe, settlePeerProbe } from "../lib/a2a-probe";
+import {
+  explainPeerProbe,
+  peerProbePasses,
+  settlePeerProbe,
+} from "../lib/a2a-probe";
 import { renderedText } from "../lib/app";
 import {
   assertSignedInOnBeta,
@@ -152,10 +156,13 @@ test.describe("A2A reachability between deployed peers", () => {
           return { status: response.status, body: await response.text() };
         }, analyticsUrl),
       );
+      // A plain probe reads the peer's card and does not verify authorization,
+      // so a pass here is "reachable and advertises signed calls"; the
+      // delegation test above exercises the signed call itself.
       expect(
-        settled.outcome,
+        peerProbePasses(settled.outcome),
         explainPeerProbe("Slides", "Analytics", analyticsUrl, settled),
-      ).toBe("authorized");
+      ).toBe(true);
     } finally {
       await context.close();
     }

@@ -72,6 +72,7 @@ import {
   ingestException,
   isBenignBrowserAbortException,
   listErrorIssues,
+  listRecordingErrorIssues,
   matchErrorIssuesBySignatures,
   normalizeFrameFile,
   parseStack,
@@ -487,6 +488,7 @@ function derivedFor(
     userKey: "anon-1",
     sessionId: "sess-1",
     timestamp: "2026-07-08T12:00:00.000Z",
+    testIdentity: false,
     ...overrides,
   };
 }
@@ -514,6 +516,7 @@ async function createTables(client: PGliteClient): Promise<void> {
       assignee text,
       app text,
       template text,
+      test_identity_only boolean NOT NULL DEFAULT false,
       created_at text NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at text NOT NULL DEFAULT CURRENT_TIMESTAMP,
       owner_email text NOT NULL DEFAULT 'local@localhost',
@@ -564,6 +567,7 @@ async function createTables(client: PGliteClient): Promise<void> {
       extra text NOT NULL DEFAULT '{}',
       breadcrumbs text NOT NULL DEFAULT '[]',
       occurred_at text NOT NULL,
+      test_identity boolean NOT NULL DEFAULT false,
       created_at text NOT NULL DEFAULT CURRENT_TIMESTAMP,
       owner_email text NOT NULL DEFAULT 'local@localhost',
       org_id text
@@ -576,9 +580,21 @@ async function createTables(client: PGliteClient): Promise<void> {
     CREATE TABLE session_recordings (
       id text PRIMARY KEY,
       client_recording_id text NOT NULL,
+      session_id text NOT NULL DEFAULT 'legacy-session',
       owner_email text NOT NULL,
       org_id text,
       visibility text NOT NULL DEFAULT 'private'
+    )
+  `,
+  );
+  await execute(
+    client,
+    `
+    CREATE TABLE session_recording_session_associations (
+      id text PRIMARY KEY,
+      recording_id text NOT NULL REFERENCES session_recordings(id) ON DELETE CASCADE,
+      session_id text NOT NULL,
+      UNIQUE (recording_id, session_id)
     )
   `,
   );
@@ -894,6 +910,120 @@ describe("ingestException", () => {
     });
   });
 
+  it("keeps a test identity's error queryable without alerting or counting the user", async () => {
+    const result = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userKey: "qa+autoz@builder.io", testIdentity: true }),
+    );
+
+    expect(result).toMatchObject({ isNewIssue: true, stored: true });
+    expect(notifyWithDeliveryMock).not.toHaveBeenCalled();
+    const [issue] = await loadIssues();
+    expect(issue).toMatchObject({ testIdentityOnly: true, usersAffected: 0 });
+    const detail = await getErrorIssue(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      result.issueId,
+    );
+    expect(detail.issue.testIdentityOnly).toBe(true);
+    expect(detail.events[0]?.testIdentity).toBe(true);
+  });
+
+  it("alerts once, on the first real occurrence of an issue a test identity found first", async () => {
+    const qa = derivedFor({
+      userKey: "qa+autoz@builder.io",
+      testIdentity: true,
+    });
+    const first = await ingestException(SCOPE, baseRaw(), qa);
+    await ingestException(SCOPE, baseRaw(), qa);
+    expect(notifyWithDeliveryMock).not.toHaveBeenCalled();
+
+    const real = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userKey: "customer@example.com" }),
+    );
+    await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userKey: "other@example.com" }),
+    );
+
+    expect(real.issueId).toBe(first.issueId);
+    expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
+    expect(notifyWithDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({ issueId: first.issueId }),
+      }),
+      expect.anything(),
+    );
+    const [issue] = await loadIssues();
+    expect(issue).toMatchObject({
+      testIdentityOnly: false,
+      eventCount: 4,
+      usersAffected: 2,
+    });
+  });
+
+  it("stores and alerts the first real occurrence even when the issue is already sampled", async () => {
+    resetErrorIngestStateForTests();
+    const qaDerived = derivedFor({
+      userKey: "qa+autoz@builder.io",
+      testIdentity: true,
+    });
+    const qa = await ingestException(SCOPE, baseRaw(), qaDerived);
+    await (drizzle(client, { schema }) as any)
+      .update(schema.errorIssues)
+      .set({ eventCount: 500 })
+      .where(eq(schema.errorIssues.id, qa.issueId));
+    // Primes the sampler, so an anonymous occurrence would only be counted.
+    await ingestException(SCOPE, baseRaw(), qaDerived);
+
+    const real = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userKey: null, anonymousId: null, sessionId: null }),
+    );
+
+    expect(real.stored).toBe(true);
+    expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists issues only test identities have hit just when asked, or to a test-identity viewer", async () => {
+    const qa = await ingestException(
+      SCOPE,
+      baseRaw({ type: "RangeError" }),
+      derivedFor({ userKey: "qa+autoz@builder.io", testIdentity: true }),
+    );
+    const real = await ingestException(SCOPE, baseRaw(), derivedFor());
+    const reader = { userEmail: SCOPE.ownerEmail, orgId: null };
+
+    expect((await listErrorIssues(reader)).map((issue) => issue.id)).toEqual([
+      real.issueId,
+    ]);
+    const all = await listErrorIssues(reader, { includeTestIdentities: true });
+    expect(
+      all.map((issue) => [issue.id, issue.testIdentityOnly]).sort(),
+    ).toEqual(
+      [
+        [qa.issueId, true],
+        [real.issueId, false],
+      ].sort(),
+    );
+
+    const qaOwner = { ownerEmail: "e2e+autoz@builder.io", orgId: null };
+    const own = await captureTestError(
+      { userEmail: qaOwner.ownerEmail, orgId: null },
+      {},
+    );
+    expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        await listErrorIssues({ userEmail: qaOwner.ownerEmail, orgId: null })
+      ).map((issue) => issue.id),
+    ).toEqual([own.issueId]);
+  });
+
   it("does not expose private replay links through an org-shared issue", async () => {
     await execute(client, {
       sql: `
@@ -929,6 +1059,296 @@ describe("ingestException", () => {
     expect(detail.events[0].sessionRecordingId).toBeNull();
     expect(detail.events[0].sessionRecordingPath).toBeNull();
     expect(detail.sessions).toEqual([]);
+  });
+});
+
+describe("listRecordingErrorIssues", () => {
+  let client: PGliteClient;
+
+  beforeEach(async () => {
+    client = await PGlite.create("memory://");
+    await createTables(client);
+    getDbMock.mockReturnValue(drizzle(client, { schema }));
+  });
+
+  afterEach(async () => {
+    await client.close();
+  });
+
+  it("uses the legacy recording session while associations are not migrated", async () => {
+    await client.query("DROP TABLE session_recording_session_associations");
+    const db = drizzle(client, { schema }) as any;
+    const ownerEmail = "alice@example.com";
+    await client.query(
+      `INSERT INTO session_recordings (id, client_recording_id, session_id, owner_email, org_id)
+       VALUES ('recording-legacy', 'client-legacy', 'legacy-session', $1, NULL)`,
+      [ownerEmail],
+    );
+    await db.insert(schema.errorIssues).values({
+      id: "issue-legacy-session",
+      fingerprint: "fingerprint-legacy-session",
+      title: "Legacy session issue",
+      firstSeenAt: "2026-10-01T00:00:00.000Z",
+      lastSeenAt: "2026-10-01T00:00:00.000Z",
+      ownerEmail,
+      orgId: null,
+    });
+    await db.insert(schema.errorEvents).values({
+      id: "event-legacy-session",
+      issueId: "issue-legacy-session",
+      fingerprint: "fingerprint-legacy-session",
+      occurredAt: "2026-10-01T00:00:00.000Z",
+      clientRecordingId: "client-legacy",
+      sessionId: "legacy-session",
+      ownerEmail,
+      orgId: null,
+    });
+
+    const issues = await listRecordingErrorIssues(
+      { userEmail: ownerEmail, orgId: null },
+      [
+        {
+          id: "recording-legacy",
+          clientRecordingId: "client-legacy",
+          ownerEmail,
+          orgId: null,
+          errorCount: 1,
+        },
+      ],
+    );
+
+    expect(issues.get("recording-legacy")).toEqual([
+      expect.objectContaining({ id: "issue-legacy-session", count: 1 }),
+    ]);
+  });
+
+  it("matches unlinked errors by exact association and keeps direct recording links", async () => {
+    const db = drizzle(client, { schema }) as any;
+    const ownerEmail = "alice@example.com";
+    const orgId = "org_1";
+    await client.query(
+      `INSERT INTO session_recordings (id, client_recording_id, session_id, owner_email, org_id)
+       VALUES ('recording-1', 'client-1', 'mutable-current-session', $1, $2),
+              ('recording-2', 'client-1', 'legacy-session', $1, $2),
+              ('recording-3', 'client-1', 'legacy-session', $1, $2)`,
+      [ownerEmail, orgId],
+    );
+    await client.query(
+      `INSERT INTO session_recording_session_associations (id, recording_id, session_id)
+       VALUES ('association-1', 'recording-1', 'observed-session'),
+              ('association-2', 'recording-2', 'other-session')`,
+    );
+    await db.insert(schema.errorIssues).values([
+      {
+        id: "issue-direct",
+        fingerprint: "fingerprint-direct",
+        title: "Direct recording issue",
+        firstSeenAt: "2026-10-01T00:00:00.000Z",
+        lastSeenAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+      },
+      {
+        id: "issue-exact",
+        fingerprint: "fingerprint-exact",
+        title: "Observed session issue",
+        firstSeenAt: "2026-10-01T00:00:00.000Z",
+        lastSeenAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+      },
+      {
+        id: "issue-mutable",
+        fingerprint: "fingerprint-mutable",
+        title: "Unobserved current session issue",
+        firstSeenAt: "2026-10-01T00:00:00.000Z",
+        lastSeenAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+      },
+      {
+        id: "issue-sessionless",
+        fingerprint: "fingerprint-sessionless",
+        title: "Ambiguous sessionless issue",
+        firstSeenAt: "2026-10-01T00:00:00.000Z",
+        lastSeenAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+      },
+      {
+        id: "issue-legacy",
+        fingerprint: "fingerprint-legacy",
+        title: "Legacy recording session issue",
+        firstSeenAt: "2026-10-01T00:00:00.000Z",
+        lastSeenAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+      },
+    ]);
+    await db.insert(schema.errorEvents).values([
+      {
+        id: "event-direct",
+        issueId: "issue-direct",
+        fingerprint: "fingerprint-direct",
+        occurredAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+        sessionRecordingId: "recording-1",
+      },
+      {
+        id: "event-exact",
+        issueId: "issue-exact",
+        fingerprint: "fingerprint-exact",
+        occurredAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+        clientRecordingId: "client-1",
+        sessionId: "observed-session",
+      },
+      {
+        id: "event-mutable",
+        issueId: "issue-mutable",
+        fingerprint: "fingerprint-mutable",
+        occurredAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+        clientRecordingId: "client-1",
+        sessionId: "mutable-current-session",
+      },
+      {
+        id: "event-sessionless",
+        issueId: "issue-sessionless",
+        fingerprint: "fingerprint-sessionless",
+        occurredAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+        clientRecordingId: "client-1",
+        sessionId: null,
+      },
+      {
+        id: "event-legacy",
+        issueId: "issue-legacy",
+        fingerprint: "fingerprint-legacy",
+        occurredAt: "2026-10-01T00:00:00.000Z",
+        ownerEmail,
+        orgId,
+        clientRecordingId: "client-1",
+        sessionId: "legacy-session",
+      },
+    ]);
+
+    const issues = await listRecordingErrorIssues(
+      { userEmail: ownerEmail, orgId },
+      [
+        {
+          id: "recording-1",
+          clientRecordingId: "client-1",
+          ownerEmail,
+          orgId,
+          errorCount: 2,
+        },
+        {
+          id: "recording-2",
+          clientRecordingId: "client-1",
+          ownerEmail,
+          orgId,
+          errorCount: 1,
+        },
+        {
+          id: "recording-3",
+          clientRecordingId: "client-1",
+          ownerEmail,
+          orgId,
+          errorCount: 1,
+        },
+      ],
+      10,
+    );
+
+    expect(issues.get("recording-1")?.map((issue) => issue.id)).toEqual([
+      "issue-direct",
+      "issue-exact",
+    ]);
+    expect(issues.get("recording-2")).toBeNull();
+    expect(issues.get("recording-3")?.map((issue) => issue.id)).toEqual([
+      "issue-legacy",
+    ]);
+  });
+
+  it("returns unknown when an event-linked issue read hits its global cap", async () => {
+    const ownerEmail = "alice@example.com";
+    await client.query(
+      `INSERT INTO session_recordings
+        (id, client_recording_id, session_id, owner_email, org_id)
+       VALUES ('recording-capped-events', 'client-capped-events', 'session-capped-events', $1, NULL)`,
+      [ownerEmail],
+    );
+    await client.query(
+      `INSERT INTO error_issues
+        (id, fingerprint, title, first_seen_at, last_seen_at, owner_email)
+       SELECT 'issue-cap-' || n, 'fingerprint-cap-' || n, 'Issue ' || n,
+              '2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z', $1
+       FROM generate_series(1, 501) AS n`,
+      [ownerEmail],
+    );
+    await client.query(
+      `INSERT INTO error_events
+        (id, issue_id, fingerprint, occurred_at, session_recording_id, owner_email)
+       SELECT 'event-cap-' || n, 'issue-cap-' || n, 'fingerprint-cap-' || n,
+              '2026-10-01T00:00:00.000Z', 'recording-capped-events', $1
+       FROM generate_series(1, 501) AS n`,
+      [ownerEmail],
+    );
+
+    const issues = await listRecordingErrorIssues(
+      { userEmail: ownerEmail, orgId: null },
+      [
+        {
+          id: "recording-capped-events",
+          clientRecordingId: "client-capped-events",
+          ownerEmail,
+          orgId: null,
+          errorCount: 501,
+        },
+      ],
+    );
+
+    expect(issues.get("recording-capped-events")).toBeNull();
+  });
+
+  it("returns unknown when a last-recording fallback read hits its global cap", async () => {
+    const ownerEmail = "alice@example.com";
+    await client.query(
+      `INSERT INTO session_recordings
+        (id, client_recording_id, session_id, owner_email, org_id)
+       VALUES ('recording-capped-fallback', 'client-capped-fallback', 'session-capped-fallback', $1, NULL)`,
+      [ownerEmail],
+    );
+    await client.query(
+      `INSERT INTO error_issues
+        (id, fingerprint, title, first_seen_at, last_seen_at,
+         last_session_recording_id, owner_email)
+       SELECT 'fallback-cap-' || n, 'fallback-fingerprint-' || n,
+              'Fallback ' || n, '2026-10-01T00:00:00.000Z',
+              '2026-10-01T00:00:00.000Z', 'recording-capped-fallback', $1
+       FROM generate_series(1, 501) AS n`,
+      [ownerEmail],
+    );
+
+    const issues = await listRecordingErrorIssues(
+      { userEmail: ownerEmail, orgId: null },
+      [
+        {
+          id: "recording-capped-fallback",
+          clientRecordingId: "client-capped-fallback",
+          ownerEmail,
+          orgId: null,
+          errorCount: 1,
+        },
+      ],
+    );
+
+    expect(issues.get("recording-capped-fallback")).toBeNull();
   });
 });
 

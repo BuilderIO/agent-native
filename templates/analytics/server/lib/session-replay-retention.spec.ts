@@ -1,7 +1,13 @@
+import { gzipSync } from "node:zlib";
+
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
+const readPrivateBlobMock = vi.hoisted(() => vi.fn());
+const finalizeReplayFrictionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -15,7 +21,12 @@ vi.mock("../db/index.js", async () => {
 vi.mock("@agent-native/core/private-blob", () => ({
   deletePrivateBlob: deletePrivateBlobMock,
   putPrivateBlob: vi.fn(),
-  readPrivateBlob: vi.fn(),
+  readPrivateBlob: readPrivateBlobMock,
+}));
+
+vi.mock("./session-friction.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./session-friction.js")>()),
+  finalizeReplayFriction: finalizeReplayFrictionMock,
 }));
 
 import {
@@ -23,8 +34,12 @@ import {
   finalizeAbandonedSessionRecordings,
 } from "./session-replay";
 
-function createDbMock(selectResults: unknown[][]) {
-  const updates: Array<{ table: unknown; values: unknown }> = [];
+function createDbMock(
+  selectResults: unknown[][],
+  updateResults: unknown[][] = [],
+) {
+  const updates: Array<{ table: unknown; values: unknown; where: unknown }> =
+    [];
   const deletes: Array<{ table: unknown }> = [];
   const db = {
     select: vi.fn(() => ({
@@ -33,6 +48,7 @@ function createDbMock(selectResults: unknown[][]) {
           const rows = selectResults.shift() ?? [];
           return {
             limit: vi.fn(async () => rows),
+            orderBy: vi.fn(() => ({ limit: vi.fn(async () => rows) })),
             then: (resolve: (value: unknown[]) => void) =>
               Promise.resolve(rows).then(resolve),
           };
@@ -41,8 +57,14 @@ function createDbMock(selectResults: unknown[][]) {
     })),
     update: vi.fn((table: unknown) => ({
       set: vi.fn((values: unknown) => ({
-        where: vi.fn(async () => {
-          updates.push({ table, values });
+        where: vi.fn((where: unknown) => {
+          updates.push({ table, values, where });
+          const updated = updateResults.shift() ?? [{}];
+          return {
+            returning: vi.fn(async () => updated),
+            then: (resolve: (value: undefined) => void) =>
+              Promise.resolve(undefined).then(resolve),
+          };
         }),
       })),
     })),
@@ -58,7 +80,10 @@ function createDbMock(selectResults: unknown[][]) {
 describe("session replay retention", () => {
   beforeEach(() => {
     getDbMock.mockReset();
+    finalizeReplayFrictionMock.mockReset();
+    finalizeReplayFrictionMock.mockResolvedValue(undefined);
     deletePrivateBlobMock.mockReset();
+    readPrivateBlobMock.mockReset();
     deletePrivateBlobMock.mockResolvedValue({
       deleted: true,
       provider: "test",
@@ -70,6 +95,10 @@ describe("session replay retention", () => {
       [
         {
           id: "rec_1",
+          sessionId: "session_1",
+          ownerEmail: "owner@example.com",
+          orgId: null,
+          chunkCount: 3,
           status: "active",
           startedAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:20:00.000Z",
@@ -94,6 +123,163 @@ describe("session replay retention", () => {
         updatedAt: "2026-01-01T01:00:00.000Z",
       },
     });
+    expect(finalizeReplayFrictionMock).toHaveBeenCalledWith(
+      {
+        id: "rec_1",
+        sessionId: "session_1",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        chunkCount: 3,
+        errorCount: 0,
+        rageClickCount: 0,
+      },
+      "2026-01-01T01:00:00.000Z",
+      expect.any(Function),
+    );
+  });
+
+  it("leaves a recording active when an upload reopens it during finalization", async () => {
+    const { db, updates } = createDbMock(
+      [
+        [
+          {
+            id: "rec_1",
+            sessionId: "session_1",
+            ownerEmail: "owner@example.com",
+            orgId: null,
+            chunkCount: 3,
+            status: "active",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:20:00.000Z",
+            lastIngestedAt: "2026-01-01T00:05:00.000Z",
+          },
+        ],
+      ],
+      [[]],
+    );
+    getDbMock.mockReturnValue(db);
+
+    const result = await finalizeAbandonedSessionRecordings(
+      new Date("2026-01-01T01:00:00.000Z"),
+    );
+
+    expect(result).toEqual({ finalized: 0 });
+    const condition = new PgDialect().sqlToQuery(updates[0]!.where as SQL);
+    expect(condition.params).toEqual([
+      "rec_1",
+      "active",
+      "2026-01-01T00:20:00.000Z",
+    ]);
+  });
+
+  it("leaves a recording active for the next sweep when its friction cannot be finalized", async () => {
+    const { db, updates } = createDbMock([
+      [
+        {
+          id: "rec_1",
+          sessionId: "session_1",
+          ownerEmail: "owner@example.com",
+          orgId: "org_1",
+          chunkCount: 3,
+          status: "active",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:20:00.000Z",
+          lastIngestedAt: "2026-01-01T00:05:00.000Z",
+          errorCount: 2,
+          rageClickCount: 1,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+    finalizeReplayFrictionMock.mockRejectedValue(new Error("db down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await finalizeAbandonedSessionRecordings(
+      new Date("2026-01-01T01:00:00.000Z"),
+    );
+
+    expect(finalizeReplayFrictionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec_1",
+        errorCount: 2,
+        rageClickCount: 1,
+      }),
+      "2026-01-01T01:00:00.000Z",
+      expect.any(Function),
+    );
+    expect(result).toEqual({ finalized: 0 });
+    expect(updates).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("stays active until the next sweep"),
+      expect.any(Error),
+    );
+    warn.mockRestore();
+  });
+
+  it("gives friction every stored chunk in order, a page at a time", async () => {
+    const blobRef = (opaque: string) =>
+      JSON.stringify({
+        kind: "agent-native.session-replay.private-blob",
+        version: 1,
+        compression: "gzip",
+        handle: { opaque },
+      });
+    const inline = Array.from({ length: 20 }, (_, seq) => ({
+      seq,
+      storageKind: "inline",
+      inlineData: `{"events":[${seq}]}`,
+    }));
+    const { db } = createDbMock([
+      [
+        {
+          id: "rec_1",
+          sessionId: "session_1",
+          ownerEmail: "owner@example.com",
+          orgId: null,
+          chunkCount: 23,
+          status: "active",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:20:00.000Z",
+          lastIngestedAt: "2026-01-01T00:05:00.000Z",
+        },
+      ],
+      inline,
+      [
+        { seq: 20, storageKind: "blob", storageRef: blobRef("readable") },
+        { seq: 22, storageKind: "blob", storageRef: blobRef("missing") },
+        { seq: 23, storageKind: "blob", storageRef: "not a ref" },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+    readPrivateBlobMock.mockImplementation(async (handle) => {
+      if (handle.opaque !== "readable") throw new Error("blob missing");
+      return { data: gzipSync('{"events":[20]}') };
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await finalizeAbandonedSessionRecordings(
+      new Date("2026-01-01T01:00:00.000Z"),
+    );
+    const readStoredChunks = finalizeReplayFrictionMock.mock.calls[0]?.[2];
+    const chunks: unknown[] = [];
+    for await (const chunk of readStoredChunks()) chunks.push(chunk);
+
+    expect(chunks).toEqual([
+      ...inline.map(({ seq, inlineData }) => ({ seq, inlineData })),
+      { seq: 20, inlineData: '{"events":[20]}' },
+      { seq: 22, inlineData: null },
+      { seq: 23, inlineData: null },
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Could not read a stored replay chunk"),
+      expect.objectContaining({ seq: 22 }),
+      expect.any(Error),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("no readable storage reference"),
+      expect.objectContaining({ seq: 23 }),
+    );
+    warn.mockRestore();
   });
 
   it("expires old recordings after deleting private blob chunks", async () => {

@@ -11,6 +11,7 @@ import { z } from "zod";
 import {
   buildDashboardAgentContext,
   buildDashboardSeedAgentContext,
+  isAgentContextCaller,
 } from "../server/lib/agent-readable-resource-context";
 import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
@@ -21,14 +22,21 @@ import {
 
 export default defineAction({
   description:
-    "Get a SQL analytics dashboard by ID. By default this returns compact panel summaries, layout/order fields, and current-version certification status without giant SQL strings; use includeConfig=true only when you need the full dashboard config for a detailed SQL/config edit.",
+    "Get a SQL analytics dashboard by ID. By default this returns compact panel summaries (chart type, `bindings` naming the result columns each chart is bound to, SQL size and hash), layout/order fields, certification, and a `revision`, without SQL strings. Pass `panelIds` to get the full SQL and config of just those panels in `panelDetails`. Use includeConfig=true only to review the whole dashboard; past ~12k characters it returns summaries with `truncated: true` and `omittedPanelIds`.",
   schema: z.object({
     id: z.string().describe("The dashboard ID"),
     includeConfig: z
       .boolean()
       .optional()
       .describe(
-        "If true, include the full dashboard config including panel SQL. Defaults to false to keep agent context compact.",
+        "If true, include the full dashboard config including every panel's SQL. Defaults to false to keep agent context compact; prefer panelIds.",
+      ),
+    panelIds: z
+      .array(z.string())
+      .max(25)
+      .optional()
+      .describe(
+        "Panel ids to return in full (SQL and config) under `panelDetails`; unknown ids come back in `missingPanelIds`. Every other panel stays a compact summary.",
       ),
     reviewPreview: z
       .boolean()
@@ -44,6 +52,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpApp: {
     compactCatalog: true,
@@ -71,11 +80,17 @@ export default defineAction({
       view: "adhoc",
     };
   },
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
     const orgId = getRequestOrgId() || null;
     const ctx = { email, orgId };
+
+    const detail = {
+      includeConfig: args.includeConfig === true,
+      panelIds: args.panelIds,
+      forAgent: isAgentContextCaller(actionContext?.caller),
+    };
 
     let dash;
     if (args.reviewPreview) {
@@ -115,9 +130,7 @@ export default defineAction({
           args.id,
           seed,
         ).config;
-        return buildDashboardSeedAgentContext(args.id, config, {
-          includeConfig: args.includeConfig === true,
-        });
+        return buildDashboardSeedAgentContext(args.id, config, detail);
       }
       throw Object.assign(new Error("Dashboard not found"), {
         statusCode: 404,
@@ -128,8 +141,6 @@ export default defineAction({
       config: repairKnownFirstPartyDashboardQueries(args.id, dash.config)
         .config,
     };
-    return buildDashboardAgentContext(dashboard, {
-      includeConfig: args.includeConfig === true,
-    });
+    return buildDashboardAgentContext(dashboard, detail);
   },
 });

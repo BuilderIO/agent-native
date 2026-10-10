@@ -125,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 每個託管應用程式還有一個幫助頁面
 `https://&lt;app&gt;/mcp/connect` 與可複製的 URL 和
-Claude、ChatGPT、游標、Claude 程式碼、Codex、Grok 和其他的主機特定分頁。
+適用於 Claude、ChatGPT、Cursor、VS Code、Claude Code、Codex、Grok 和「其他」的主機專屬分頁。
 
 ## 私人 Content 連結 {#private-content-links}
 
@@ -169,9 +169,26 @@ Dispatch 不會重寫 ChatGPT 或 Claude 的快取行事曆/郵件/等。
 快照。`mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` 範圍與下文
 [標準遠端 MCP OAuth](#standard-oauth) 中介紹的相同。
 
-Cursor、Goose、Postman、MCPJam 和 VS Code GitHub Copilot 使用相同的遙控器
-當其建置支援遠端 OAuth 時，MCP URL 透過自己的 MCP 伺服器 UI
-MCP 伺服器。
+### Cursor、VS Code 和 Codex {#install-links}
+
+**Settings → MCP server** 和 `/mcp/connect` 中的 **Cursor** 與 **VS Code**
+分頁提供安裝按鈕。**新增至 Cursor** 會開啟 Cursor 的 **Install MCP server?**
+提示。**新增至 VS Code** 和 **新增至 VS Code Insiders** 會開啟帶有 **Install**
+按鈕的伺服器頁面。連結只包含伺服器名稱、傳輸方式和 MCP URL，絕不包含權杖、標頭或帳戶資訊。
+用戶端第一次連線時會自行完成 OAuth 登入。在 VS Code 中，這些工具接著會出現在 Agent 模式下的 Chat 檢視中。
+
+若是 Codex，請執行 `codex mcp add <server-name> --url <mcp-url>`，接著執行
+`codex mcp login <server-name>`，透過 OAuth 登入。**Codex** 分頁會填好這兩個值。
+
+當 Goose、Postman、MCPJam 和其他用戶端的版本支援採用 OAuth 的遠端 MCP 伺服器時，
+它們會在各自的 MCP 伺服器介面中使用同一個遠端 MCP URL。
+
+### 伺服器名稱 {#server-names}
+
+應用程式會為自己的 MCP 伺服器命名，所有入口都使用這個名稱：安裝連結、可複製的指令，以及
+`npx @agent-native/core@latest connect`。
+正式環境使用不帶前綴的名稱，例如 `agent-native-mail`。Beta、預覽和本機部署會把環境名稱放在最前面，例如 `beta-agent-native-mail`，讓同一個用戶端可以同時保留正式環境和 Beta 兩個項目。這些前綴是保留的：`mcp.serverName` 不能以 `beta-`、`preview-` 或 `local-` 開頭，因此 Beta 名稱絕不會與另一個應用程式的正式環境名稱相同。
+指令碼可以透過 `GET /mcp/connect/identity` 讀取名稱；這個端點不需要登入，會傳回伺服器名稱、應用程式名稱、應用程式 URL、MCP URL、環境，以及在 `mcp.connect` 關閉時為 `false` 的 `connect` 旗標。
 
 ### 快速測試提示 {#quick-test}
 
@@ -261,7 +278,9 @@ npx @agent-native/core@latest connect https://mail.agent-native.com
 
 ### 401 後重新進行驗證 {#reconnect}
 
-連線後，驗證應長期持續 - 存取權杖預設持續 30 天（在伺服器上使用 `MCP_OAUTH_ACCESS_TOKEN_TTL` 覆蓋，例如 `7d` 或 `12h`），並具有 365 天滑動重新整理視窗，因此隨機 401 應該很少見。當發生這種情況時，請使用輕量級重新連線指令而不是重新安裝：
+OAuth 擁有者繫結更新要求每個現有的 OAuth 連線[重新連線一次](/docs/external-agents#reconnect)。更新上線後，舊 OAuth 存取權杖會遭拒。未繫結擁有者的舊重新整理權杖會傳回 `invalid_grant`，尚未使用的舊授權碼必須重新開始同意流程。新簽發的存取權杖使用設定的有效期限，並在每次請求時檢查成員資格。此次切換不會變更舊 A2A 格式的 `mcp-connect` 認證或跨應用程式 A2A 權杖。使用舊 OAuth 格式 Connect 權杖的連線也必須重新連線。
+
+連線後，驗證應長期持續 - 存取權杖預設持續 30 天（在伺服器上使用 `MCP_OAUTH_ACCESS_TOKEN_TTL` 覆蓋，例如 `7d` 或 `12h`），且重新整理授權沒有固定有效期，因此隨機 401 應該很少見。當發生這種情況時，請使用輕量級重新連線指令而不是重新安裝：
 
 ```bash
 npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
@@ -309,7 +328,7 @@ claude mcp add --transport http agent-native \
 https://dispatch.agent-native.com/mcp
 ```
 
-OAuth 流程是授權程式碼 + PKCE 和重新整理權杖輪換。存取權杖是受眾綁定到確切的 MCP 資源 URL 並攜帶簽名的使用者/組織身分，因此工具呼叫、`resources/read` 和 MCP 應用程式 iframe 啟動的 `tools/call` 都透過與現有連線鑄造的 JWT 路徑相同的 `runWithRequestContext` 租戶範圍執行。 iframe 從不接收原始 OAuth 權杖；主機透過經過驗證的 MCP 連線來調解呼叫。
+OAuth 流程是授權程式碼 + PKCE 和重新整理權杖，重新整理權杖不會輪換。存取權杖是受眾綁定到確切的 MCP 資源 URL 並攜帶簽名的使用者/組織身分，因此工具呼叫、`resources/read` 和 MCP 應用程式 iframe 啟動的 `tools/call` 都透過與現有連線鑄造的 JWT 路徑相同的 `runWithRequestContext` 租戶範圍執行。 iframe 從不接收原始 OAuth 權杖；主機透過經過驗證的 MCP 連線來調解呼叫。
 
 目前範圍是：
 

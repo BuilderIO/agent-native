@@ -1,12 +1,26 @@
 name: Design E2E (browser)
 
 on:
+  pull_request:
+    paths:
+      - ".github/actions/setup-pnpm/**"
+      - ".github/workflows/design-e2e.yml"
+      - "package.json"
+      - "packages/agentkit/**"
+      - "packages/core/**"
+      - "packages/creative-context/**"
+      - "packages/recap-cli/**"
+      - "packages/toolkit/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "scripts/prebuild-workspace-packages.ts"
+      - "templates/design/**"
   schedule:
     - cron: "37 9 * * *"
   workflow_dispatch: {}
 
 concurrency:
-  group: design-e2e
+  group: design-e2e-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -14,17 +28,27 @@ permissions:
 
 jobs:
   e2e:
-    name: Shard ${{ matrix.shard }}/8
+    name: ${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/8', matrix.shard) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     # Reserve time after the shard timeout for setup and report upload.
     timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: ${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8]') }}
+        # Heap, blanked screens and the live-editor pool on a production build;
+        # the gates and their reasons are in templates/design/scripts/runtime-budget.json.
+        include:
+          - shard: runtime-budget
     services:
       postgres:
-        image: postgres:17-alpine
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_DB: design_e2e
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -66,6 +90,14 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
+      - name: Allow the downloaded Chromium sandbox
+        run: |
+          if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" == "1" ]]; then
+            browser_path="$HOME/.cache/ms-playwright/**/chrome-headless-shell"
+            printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile design-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$browser_path" | sudo tee /etc/apparmor.d/design-playwright-chromium >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/design-playwright-chromium
+          fi
+
       - name: Migrate the isolated test database
         working-directory: templates/design
         env:
@@ -77,19 +109,339 @@ jobs:
 
       - name: Run shard
         id: run-shard
+        if: matrix.shard != 'runtime-budget'
         working-directory: templates/design
         timeout-minutes: 37
         env:
           E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
         run: |
           mkdir -p .react-router/types
-          pnpm exec playwright test --shard=${{ matrix.shard }}/8
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            pnpm exec playwright test e2e/url-export-font.spec.ts e2e/single-screen-pdf-export.spec.ts e2e/imported-html-export.spec.ts e2e/private-screenshot-preview.spec.ts
+            pnpm exec playwright test e2e/marquee-reachability.spec.ts --grep "modifier-held marquee"
+          else
+            pnpm exec playwright test --shard=${{ matrix.shard }}/8
+          fi
+
+      # These specs skip themselves unless the loopback provider is on, so
+      # without this step nothing in CI proves the model receives uploaded
+      # image bytes or that an ad keeps its exact size.
+      - name: Run chat attachment and sizing loopback E2E
+        if: matrix.shard == 1
+        working-directory: templates/design
+        timeout-minutes: 15
+        env:
+          E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          E2E_AI_SIDEBAR_LOOPBACK: "1"
+        run: pnpm exec playwright test e2e/ai-sidebar-reporter-path.spec.ts
+
+      - name: Build Design for production
+        if: matrix.shard == 'runtime-budget'
+        working-directory: templates/design
+        timeout-minutes: 20
+        run: pnpm build
+
+      - name: Measure the runtime budget
+        if: matrix.shard == 'runtime-budget'
+        working-directory: templates/design
+        timeout-minutes: 25
+        env:
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          AUTH_DISABLED: "1"
+          # Undoing a duplicate checkpoints the screen, which needs blob storage.
+          AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS: "1"
+          # guard:allow-secret-literal — local ephemeral CI server only.
+          BETTER_AUTH_SECRET: design-runtime-budget-test-secret
+          PORT: "9444"
+          APP_URL: http://127.0.0.1:9444
+        run: |
+          mkdir -p "$RUNNER_TEMP/runtime-budget"
+          nohup pnpm start > "$RUNNER_TEMP/design-server.log" 2>&1 &
+          for _ in $(seq 1 120); do
+            curl -sf -o /dev/null "$APP_URL/_agent-native/ping" && break
+            sleep 1
+          done
+          if ! curl -sf -o /dev/null "$APP_URL/_agent-native/ping"; then
+            echo "::error::Design did not answer on $APP_URL"
+            tail -50 "$RUNNER_TEMP/design-server.log"
+            exit 1
+          fi
+          pnpm perf:runtime-budget --base-url "$APP_URL" \
+            --out "$RUNNER_TEMP/runtime-budget/result.json" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload runtime budget measurements
+        if: ${{ !cancelled() && matrix.shard == 'runtime-budget' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: design-runtime-budget
+          path: |
+            ${{ runner.temp }}/runtime-budget
+            ${{ runner.temp }}/design-server.log
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Upload report on failure
-        if: ${{ !cancelled() && steps.run-shard.outcome != 'success' }}
+        if: ${{ !cancelled() && matrix.shard != 'runtime-budget' && steps.run-shard.outcome != 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: design-e2e-report-${{ matrix.shard }}
           path: templates/design/test-results
           retention-days: 7
           if-no-files-found: warn
+
+  report:
+    name: Report scheduled Design E2E failures
+    if: >-
+      ${{ always() && github.event_name == 'schedule' && needs.e2e.result != 'success' && needs.e2e.result != 'skipped' }}
+    needs: [e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download Design E2E artifacts
+        id: download-artifacts
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: design-*
+          path: .tmp/design-e2e-report/source-artifacts
+
+      - name: Collect failed jobs and full logs
+        id: collect
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          report_dir=.tmp/design-e2e-report
+          mkdir -p "$report_dir/logs"
+          : > "$report_dir/collection-errors.txt"
+          incomplete=false
+
+          if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" > "$report_dir/jobs-response.json" 2> "$report_dir/jobs-api-error.txt" && \
+            jq -e '.jobs | type == "array"' "$report_dir/jobs-response.json" >/dev/null; then
+            jq '{jobs: .jobs}' "$report_dir/jobs-response.json" > "$report_dir/jobs.json"
+          else
+            detail="$(tr '\r\n' ' ' < "$report_dir/jobs-api-error.txt" | cut -c 1-500)"
+            printf 'Could not read job metadata: %s\n' "${detail:-GitHub returned invalid job data.}" >> "$report_dir/collection-errors.txt"
+            printf '{"jobs":[]}\n' > "$report_dir/jobs.json"
+            incomplete=true
+          fi
+
+          if gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" > "$report_dir/artifacts-response.json" 2> "$report_dir/artifacts-api-error.txt" && \
+            jq -e '.artifacts | type == "array"' "$report_dir/artifacts-response.json" >/dev/null; then
+            jq '{artifacts: .artifacts}' "$report_dir/artifacts-response.json" > "$report_dir/artifacts.json"
+          else
+            detail="$(tr '\r\n' ' ' < "$report_dir/artifacts-api-error.txt" | cut -c 1-500)"
+            printf 'Could not read artifact metadata: %s\n' "${detail:-GitHub returned invalid artifact data.}" >> "$report_dir/collection-errors.txt"
+            printf '{"artifacts":[]}\n' > "$report_dir/artifacts.json"
+            incomplete=true
+          fi
+
+          while IFS=$'\t' read -r job_id job_name; do
+            [ -n "$job_id" ] || continue
+            log_path="$report_dir/logs/$job_id.log"
+            if ! gh run view --log-failed --job "$job_id" --repo "$GITHUB_REPOSITORY" > "$log_path" 2> "$log_path.error"; then
+              detail="$(tr '\r\n' ' ' < "$log_path.error" | cut -c 1-500)"
+              printf 'Could not read logs for %s (%s): %s\n' "$job_name" "$job_id" "${detail:-GitHub returned no job log.}" >> "$report_dir/collection-errors.txt"
+              incomplete=true
+            fi
+          done < <(jq -r '.jobs[] | select(.name != "Report scheduled Design E2E failures") | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "startup_failure") | [.id, .name] | @tsv' "$report_dir/jobs.json")
+
+          failed_jobs="$(jq '[.jobs[] | select(.name != "Report scheduled Design E2E failures") | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "startup_failure")] | length' "$report_dir/jobs.json")"
+          if [ "$failed_jobs" -eq 0 ]; then
+            printf 'GitHub did not return any failed job details for the failed matrix run.\n' >> "$report_dir/collection-errors.txt"
+            incomplete=true
+          fi
+          echo "incomplete=$incomplete" >> "$GITHUB_OUTPUT"
+
+      - name: Build the complete run report
+        id: build-report
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          report_dir=.tmp/design-e2e-report
+          mkdir -p "$report_dir/logs" "$report_dir/source-artifacts"
+          if [ ! -s "$report_dir/jobs.json" ] || ! jq -e '.jobs | type == "array"' "$report_dir/jobs.json" >/dev/null; then
+            printf '{"jobs":[]}\n' > "$report_dir/jobs.json"
+          fi
+          if [ ! -s "$report_dir/artifacts.json" ] || ! jq -e '.artifacts | type == "array"' "$report_dir/artifacts.json" >/dev/null; then
+            printf '{"artifacts":[]}\n' > "$report_dir/artifacts.json"
+          fi
+          touch "$report_dir/collection-errors.txt"
+
+          incomplete="${{ steps.collect.outcome != 'success' || steps.collect.outputs.incomplete == 'true' || steps.download-artifacts.outcome != 'success' }}"
+          if [ "${{ steps.collect.outcome }}" != "success" ]; then
+            printf 'The job metadata collector did not complete; some failure details may be missing.\n' >> "$report_dir/collection-errors.txt"
+          fi
+          if [ "${{ steps.download-artifacts.outcome }}" != "success" ]; then
+            printf 'One or more Design E2E source artifacts could not be downloaded.\n' >> "$report_dir/collection-errors.txt"
+          fi
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          failed_jobs="$(jq '[.jobs[] | select(.name != "Report scheduled Design E2E failures") | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "startup_failure")] | length' "$report_dir/jobs.json")"
+
+          while IFS=$'\t' read -r job_name shard_number; do
+            [ -n "$shard_number" ] || continue
+            expected="design-e2e-report-$shard_number"
+            if ! jq -e --arg name "$expected" 'any(.artifacts[]; .name == $name and (.expired | not))' "$report_dir/artifacts.json" >/dev/null || \
+              [ -z "$(find "$report_dir/source-artifacts/$expected" -type f -print -quit 2>/dev/null)" ]; then
+              printf 'The failed %s job has no downloadable Playwright report artifact (%s).\n' "$job_name" "$expected" >> "$report_dir/collection-errors.txt"
+              incomplete=true
+            fi
+          done < <(jq -r '.jobs[] | select(.name | test("^Shard [0-9]+/8$")) | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "startup_failure") | [.name, (.name | capture("^Shard (?<shard>[0-9]+)/8$").shard)] | @tsv' "$report_dir/jobs.json")
+
+          if [ "$failed_jobs" -eq 0 ]; then
+            incomplete=true
+          fi
+
+          jq -n \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg runUrl "$run_url" \
+            --arg sha "$GITHUB_SHA" \
+            --arg event "$GITHUB_EVENT_NAME" \
+            --arg matrixResult "${{ needs.e2e.result }}" \
+            --argjson incomplete "$incomplete" \
+            --slurpfile jobs "$report_dir/jobs.json" \
+            --slurpfile artifacts "$report_dir/artifacts.json" \
+            --rawfile collectionErrors "$report_dir/collection-errors.txt" \
+            '{runId: $runId, runAttempt: $runAttempt, runUrl: $runUrl, sha: $sha, event: $event, matrixResult: $matrixResult, incomplete: $incomplete, jobs: $jobs[0].jobs, artifacts: $artifacts[0].artifacts, collectionErrors: ($collectionErrors | split("\n") | map(select(length > 0)))}' \
+            > "$report_dir/metadata.json"
+
+          {
+            echo "# Scheduled Design E2E report"
+            echo
+            echo "- Run: $run_url (attempt $GITHUB_RUN_ATTEMPT)"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Matrix result: ${{ needs.e2e.result }}"
+            echo "- Failed jobs: $failed_jobs"
+            if [ "$incomplete" = "true" ]; then
+              echo "- Collection: INCOMPLETE; see the collection errors below."
+            else
+              echo "- Collection: complete."
+            fi
+            echo
+            echo "## Failed jobs and steps"
+            jq -r '.jobs[] | select(.name != "Report scheduled Design E2E failures") | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "startup_failure") | "### \(.name) — \(.conclusion)\n\n- Job: \(.html_url // "URL unavailable")\n- Failed steps: \([.steps[]? | select(.conclusion == "failure") | .name] | if length == 0 then "none recorded" else join(", ") end)\n- Full log: logs/\(.id).log"' "$report_dir/jobs.json"
+            echo
+            echo "## Run artifacts"
+            jq -r --arg server "$GITHUB_SERVER_URL" --arg repository "$GITHUB_REPOSITORY" --arg run "$GITHUB_RUN_ID" '.artifacts[] | select(.name | startswith("design-")) | "- [\(.name)](\($server)/\($repository)/actions/runs/\($run)/artifacts/\(.id)) — \(.size_in_bytes) bytes; expires \(.expires_at // "unknown")"' "$report_dir/artifacts.json"
+            echo
+            echo "The source artifacts are copied under source-artifacts/ and retained with this report. Full failed-job logs are under logs/."
+            if [ -s "$report_dir/collection-errors.txt" ]; then
+              echo
+              echo "## Collection errors"
+              cat "$report_dir/collection-errors.txt"
+            fi
+          } > "$report_dir/report.md"
+
+          {
+            echo "*Scheduled Design E2E failed* — $failed_jobs failing, cancelled, or timed-out jobs."
+            echo "Run: <$run_url|Design E2E workflow> (attempt $GITHUB_RUN_ATTEMPT; commit $GITHUB_SHA)."
+            if [ "$failed_jobs" -gt 0 ]; then
+              jq -r '.jobs[] | select(.name != "Report scheduled Design E2E failures") | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "startup_failure") | "• \(.name) — \(.conclusion); failed steps: \([.steps[]? | select(.conclusion == "failure") | .name] | if length == 0 then "none recorded" else join(", ") end)"' "$report_dir/jobs.json"
+            else
+              echo "• GitHub did not return failed job details; the run's failure summary is unknown."
+            fi
+            if [ "$incomplete" = "true" ]; then
+              echo ":warning: Evidence collection is incomplete. See the run and report artifact for available details."
+            fi
+          } > "$report_dir/slack-summary.txt"
+          echo "incomplete=$incomplete" >> "$GITHUB_OUTPUT"
+
+      - name: Build a degraded report if report generation failed
+        if: ${{ always() && steps.build-report.outcome != 'success' }}
+        run: |
+          set -euo pipefail
+          report_dir=.tmp/design-e2e-report
+          mkdir -p "$report_dir/logs" "$report_dir/source-artifacts"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          printf '{"runId":"%s","runUrl":"%s","matrixResult":"%s","incomplete":true,"jobs":[],"artifacts":[],"collectionErrors":["Report generation failed; inspect workflow logs."]}\n' \
+            "$GITHUB_RUN_ID" "$run_url" "${{ needs.e2e.result }}" > "$report_dir/metadata.json"
+          printf '# Scheduled Design E2E report is degraded\n\nReport generation failed. See %s for workflow logs and any downloaded shard artifacts.\n' \
+            "$run_url" > "$report_dir/report.md"
+          printf '*Scheduled Design E2E report is degraded.* Report generation failed; see <%s|workflow run> for available logs and shard artifacts.\n' \
+            "$run_url" > "$report_dir/slack-summary.txt"
+
+      - name: Upload the complete Design E2E report
+        id: report-artifact
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: design-e2e-scheduled-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .tmp/design-e2e-report/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Build the consolidated Slack message
+        id: slack-message
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          report_dir=.tmp/design-e2e-report
+          mkdir -p "$report_dir"
+          if [ ! -s "$report_dir/slack-summary.txt" ]; then
+            run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            printf '*Scheduled Design E2E report is degraded.* See <%s|workflow run> for the failure details.\n' "$run_url" > "$report_dir/slack-summary.txt"
+          fi
+          report_artifact_url="${{ steps.report-artifact.outputs.artifact-url }}"
+          if [ -n "$report_artifact_url" ]; then
+            printf '\nComplete failed-job logs and shard artifacts: <%s|90-day report artifact>.\n' "$report_artifact_url" >> "$report_dir/slack-summary.txt"
+          else
+            run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            printf '\nThe 90-day report artifact could not be uploaded; see <%s|workflow run> for available evidence. No GitHub issue fallback was used.\n' "$run_url" >> "$report_dir/slack-summary.txt"
+          fi
+          jq -n --arg channel C0C4U4XRT6X --rawfile text "$report_dir/slack-summary.txt" \
+            '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' \
+            > "$report_dir/slack-payload.json"
+
+      - name: Check Slack configuration
+        id: slack-config
+        if: ${{ always() }}
+        env:
+          QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "$QA_SLACK_BOT_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Slack notification not configured: QA_SLACK_BOT_TOKEN is empty, so the scheduled Design E2E report could not be sent to #qa-agent-native."
+          fi
+
+      - name: Post the consolidated report to Slack
+        id: slack
+        if: ${{ always() && steps.slack-config.outputs.configured == 'true' && steps.slack-message.outcome == 'success' }}
+        continue-on-error: true
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+          errors: false
+          payload-file-path: .tmp/design-e2e-report/slack-payload.json
+
+      - name: Report Slack delivery failure
+        if: ${{ always() && steps.slack-config.outputs.configured == 'true' && (steps.slack.outcome != 'success' || steps.slack.outputs.ok != 'true') }}
+        env:
+          SLACK_RESPONSE: ${{ steps.slack.outputs.response }}
+          SLACK_OUTCOME: ${{ steps.slack.outcome }}
+        run: |
+          set -euo pipefail
+          reason="$(jq -r '.error // empty' <<< "${SLACK_RESPONSE:-null}" 2>/dev/null || true)"
+          reason="${reason:-no Slack API success response; step outcome ${SLACK_OUTCOME:-unknown}}"
+          echo "::error::Slack notification failed: chat.postMessage to #qa-agent-native returned \"$reason\". No GitHub issue fallback was used."
+          exit 1
+
+      - name: Fail if evidence or delivery was incomplete
+        if: >-
+          ${{ always() && (steps.collect.outcome != 'success' || steps.collect.outputs.incomplete == 'true' || steps.download-artifacts.outcome != 'success' || steps.build-report.outcome != 'success' || steps.build-report.outputs.incomplete == 'true' || steps.report-artifact.outcome != 'success' || steps.report-artifact.outputs.artifact-url == '' || steps.slack-config.outputs.configured != 'true' || steps.slack.outcome != 'success' || steps.slack.outputs.ok != 'true') }}
+        run: |
+          echo "::error::The scheduled Design E2E report was incomplete or not delivered to #qa-agent-native. See this job's summary and the workflow run. No GitHub issue fallback was used."
+          exit 1

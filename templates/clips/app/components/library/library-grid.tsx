@@ -8,8 +8,6 @@ import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
 import {
   IconAlertTriangle,
-  IconChevronLeft,
-  IconChevronRight,
   IconFolderPlus,
   IconLink,
   IconUpload,
@@ -41,7 +39,7 @@ import type { VideoStorageGateIssue } from "@/hooks/use-drop-video-upload";
 import {
   useFolders,
   useOrganizations,
-  useRecordings,
+  useInfiniteRecordings,
   useRecordingsCount,
   useTrashRecording,
   useArchiveRecording,
@@ -49,6 +47,7 @@ import {
   useMoveRecording,
   type ListRecordingsArgs,
   type RecordingSummary,
+  dedupeRecordingsById,
 } from "@/hooks/use-library";
 import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
 import {
@@ -56,7 +55,10 @@ import {
   useVideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
 import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
-import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
+import {
+  LocalCopyInUseError,
+  retryRecordingUploadFromBackup,
+} from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
 import { resolveVideoMimeType } from "@/lib/video-metadata";
 
@@ -101,7 +103,7 @@ function Skeleton() {
   );
 }
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 20;
 
 interface FolderTargetRow {
   id: string;
@@ -217,7 +219,11 @@ export function LibraryGrid({
   const [createFolderTarget, setCreateFolderTarget] =
     useState<CreateFolderTarget | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
-  const [page, setPage] = useState(1);
+  const scrollRootRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const nextPageInFlightRef = useRef<string | null>(null);
+  const initialPreloadRequestRef = useRef<string | null>(null);
+  const [isLargeViewport, setIsLargeViewport] = useState(false);
   const handleSortChange = useCallback(
     (nextSort: SortKey) => {
       setSort(nextSort);
@@ -249,10 +255,18 @@ export function LibraryGrid({
   }, [title]);
 
   useEffect(() => {
-    setPage(1);
     setSelected(new Set());
     setLastSelectedId(null);
   }, [view, kind, folderId, spaceId, tagFilter, sort]);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsLargeViewport(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     const handleOpenCreateFolder = () => setCreateFolderOpen(true);
@@ -275,12 +289,6 @@ export function LibraryGrid({
     [view, kind, folderId, spaceId, tagFilter],
   );
   const { data: totalCount } = useRecordingsCount(countArgs);
-  const total = totalCount ?? 0;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
 
   const args: ListRecordingsArgs = useMemo(
     () => ({
@@ -291,13 +299,89 @@ export function LibraryGrid({
       tag: tagFilter ?? null,
       sort,
       limit: PAGE_SIZE,
-      offset: (page - 1) * PAGE_SIZE,
     }),
-    [view, kind, folderId, spaceId, tagFilter, sort, page],
+    [view, kind, folderId, spaceId, tagFilter, sort],
   );
 
-  const { data, isLoading, isError, refetch, isRefetching } =
-    useRecordings(args);
+  const totalKnown = typeof totalCount === "number";
+  const {
+    data,
+    isLoading,
+    isError,
+    refetch,
+    isRefetching,
+    hasNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+    fetchNextPage,
+  } = useInfiniteRecordings(args, totalKnown ? totalCount : undefined);
+
+  const requestKey = JSON.stringify(args);
+  const fetchNextPageIfIdle = useCallback(() => {
+    if (nextPageInFlightRef.current === requestKey) return;
+    nextPageInFlightRef.current = requestKey;
+    const releaseRequest = () => {
+      if (nextPageInFlightRef.current === requestKey) {
+        nextPageInFlightRef.current = null;
+      }
+    };
+    void fetchNextPage().then(releaseRequest, releaseRequest);
+  }, [fetchNextPage, requestKey]);
+
+  useEffect(() => {
+    if (
+      !isLargeViewport ||
+      isLoading ||
+      !hasNextPage ||
+      isFetchingNextPage ||
+      data?.pages.length !== 1 ||
+      initialPreloadRequestRef.current === requestKey
+    ) {
+      return;
+    }
+    initialPreloadRequestRef.current = requestKey;
+    fetchNextPageIfIdle();
+  }, [
+    data?.pages.length,
+    fetchNextPageIfIdle,
+    hasNextPage,
+    isFetchingNextPage,
+    isLargeViewport,
+    isLoading,
+    requestKey,
+  ]);
+
+  useEffect(() => {
+    const root = scrollRootRef.current;
+    const sentinel = loadMoreSentinelRef.current;
+    if (
+      !root ||
+      !sentinel ||
+      !hasNextPage ||
+      isFetchingNextPage ||
+      isFetchNextPageError ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          fetchNextPageIfIdle();
+        }
+      },
+      { root, rootMargin: "320px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [
+    data?.pages.length,
+    fetchNextPageIfIdle,
+    hasNextPage,
+    isFetchNextPageError,
+    isFetchingNextPage,
+  ]);
 
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
@@ -326,10 +410,10 @@ export function LibraryGrid({
   );
   const recordings = useMemo(
     () =>
-      (data?.recordings ?? []).filter(
-        (recording) => !activeUploadIds.has(recording.id),
-      ),
-    [activeUploadIds, data?.recordings],
+      dedupeRecordingsById(
+        data?.pages.flatMap((page) => page.recordings) ?? [],
+      ).filter((recording) => !activeUploadIds.has(recording.id)),
+    [activeUploadIds, data?.pages],
   );
   const { data: organizations } = useOrganizations({
     enabled: canMoveSelection,
@@ -514,7 +598,11 @@ export function LibraryGrid({
     try {
       await retryRecordingUploadFromBackup(rec.id);
     } catch (err: any) {
-      toast.error(err?.message ?? t("clipsFinalRaw.retryFailed"));
+      toast.error(
+        err instanceof LocalCopyInUseError
+          ? t("recordRoute.localRecordingOpenElsewhere")
+          : (err?.message ?? t("clipsFinalRaw.retryFailed")),
+      );
     } finally {
       void refetch();
     }
@@ -691,6 +779,7 @@ export function LibraryGrid({
           <div className="pointer-events-none absolute inset-2 z-20 rounded-lg border-2 border-dashed border-primary bg-primary/5" />
         )}
         <div
+          ref={scrollRootRef}
           className={cn(
             "min-h-0 flex-1 overflow-y-auto",
             selected.size > 0 && "pb-20",
@@ -877,44 +966,26 @@ export function LibraryGrid({
               )}
             </div>
           </LibraryCanvasContextMenu>
-        </div>
 
-        {!isLoading && recordings.length > 0 && totalPages > 1 && (
-          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-2.5">
-            <span className="text-xs text-muted-foreground">
-              {t("libraryGrid.paginationRange", {
-                start: (page - 1) * PAGE_SIZE + 1,
-                end: (page - 1) * PAGE_SIZE + recordings.length,
-                total,
-              })}
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-              >
-                <IconChevronLeft className="h-3.5 w-3.5" />
-                {t("libraryGrid.paginationPrevious")}
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                {t("libraryGrid.paginationPage", { page, totalPages })}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1"
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-              >
-                {t("libraryGrid.paginationNext")}
-                <IconChevronRight className="h-3.5 w-3.5" />
+          {isFetchingNextPage && (
+            <div
+              className="grid gap-4 px-5 pb-5 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]"
+              role="status"
+            >
+              {Array.from({ length: 4 }, (_, index) => (
+                <Skeleton key={index} />
+              ))}
+            </div>
+          )}
+          {isFetchNextPageError && (
+            <div className="flex justify-center px-5 pb-5">
+              <Button size="sm" variant="outline" onClick={fetchNextPageIfIdle}>
+                {t("libraryGrid.retry")}
               </Button>
             </div>
-          </div>
-        )}
+          )}
+          {hasNextPage && <div ref={loadMoreSentinelRef} className="h-px" />}
+        </div>
 
         {/* Keep selected-library actions visible while the recording list scrolls. */}
         {canManageRecordings && selected.size > 0 && (

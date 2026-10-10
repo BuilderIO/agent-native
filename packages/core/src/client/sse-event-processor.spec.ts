@@ -3614,7 +3614,7 @@ describe("SSE event processor error classification", () => {
                 providerLabel: "Builder.io",
                 reason: "Builder.io is not connected for this workspace.",
                 message:
-                  "Builder.io is not connected. Connect Builder.io to continue.",
+                  "Builder.io is not connected for this workspace. Use Builder.io to continue: choose the button shown here, or set up Builder.io in Settings.",
               },
             }),
           },
@@ -3999,8 +3999,7 @@ describe("SSE event processor error classification", () => {
       eventStream([
         {
           type: "error",
-          error:
-            'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+          error: "Gateway error (no detail)",
           errorCode: "builder_gateway_error",
         },
       ]),
@@ -5317,6 +5316,51 @@ describe("auto-continue on a deployment that replaces the error message", () => 
       (await readError({ errorCode: "builder_gateway_stream_ended" }))
         .continued,
     ).toBe(true);
+  });
+
+  it("keeps an invalid request terminal when the message says timeout", async () => {
+    expect(
+      (
+        await readError({
+          error: "Invalid request timed out",
+          errorCode: "invalid_request",
+          recoverable: true,
+          providerRetryable: false,
+        })
+      ).continued,
+    ).toBe(false);
+  });
+
+  it("keeps a typed attachment rejection terminal and records no retry recovery", async () => {
+    const outcome = await readError({
+      error: "Invalid 'image_url': image size exceeds limit.",
+      errorCode: "invalid_attachment",
+      providerRetryable: false,
+    });
+
+    expect(outcome.continued).toBe(false);
+    const last = outcome.results?.at(-1) as any;
+    expect(last.content.at(-1).text).toContain(
+      "export a smaller PNG, JPEG, GIF, or WebP",
+    );
+    expect(last.content.at(-1).text).not.toMatch(/retry/i);
+    expect(last.metadata.custom.runError).toMatchObject({
+      errorCode: "invalid_attachment",
+    });
+    expect(last.metadata.custom.runError.recoverable).toBeUndefined();
+  });
+
+  it("continues a recoverable run timeout despite stop wording", async () => {
+    const outcome = await readError({
+      error: "The agent run was stopped before it finished.",
+      errorCode: "run_timeout",
+      recoverable: true,
+    });
+
+    expect(outcome.continued).toBe(true);
+    if (outcome.continued) {
+      expect(outcome.signal.reason).toBe("run_timeout");
+    }
   });
 
   for (const errorCode of [

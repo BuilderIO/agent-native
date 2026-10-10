@@ -7,6 +7,17 @@ import {
   elapsedMsFromCaptureStart,
 } from "./cdp-time";
 import {
+  chooseTabToDetach,
+  fetchXhrFromResourceTiming,
+  lookbackElapsedMs,
+  MAX_DEBUGGED_TABS,
+  pickDebugTabIds,
+  type ResourceTimingSnapshot,
+  recordTabActivation,
+  removeTabActivation,
+  type TabActivation,
+} from "./debugger-scope";
+import {
   MediaPermissionRequiredError,
   mediaPermissionErrorFromResponse,
   mediaPermissionRequirements,
@@ -21,6 +32,7 @@ import {
   shouldReconcilePersistedRecording,
   type OffscreenRecordingState,
 } from "./native-recording-state";
+import { broadcastOverlayMessage } from "./overlay-broadcast";
 import {
   sendWithInjectionFallback,
   shouldFollowOverlay,
@@ -38,9 +50,9 @@ const MAX_CLICK_INPUT_INGRESS_PER_WINDOW = 100;
 const MAX_MESSAGE_LENGTH = 2_000;
 const MAX_URL_LENGTH = 1_000;
 const STORAGE_SETUP_REQUIRED_MESSAGE =
-  "Connect storage to finish saving this clip: Builder.io (free tier storage + AI) or S3-compatible storage.";
+  "Use Builder.io storage (free tier storage + AI) or S3-compatible storage to finish saving this clip.";
 const STORAGE_SETUP_FAILURE_RE =
-  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|(?:connect|use) builder|s3-compatible/i;
 const SECRET_KEY_FRAGMENT =
   "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
 const AUTHORIZATION_SCHEME_RE =
@@ -111,12 +123,14 @@ type ChromeTab = {
   url?: string;
 };
 
+// elapsedMs is negative for entries from before the recording started (lookback).
 type ConsoleLog = {
   timestampMs: number;
   elapsedMs: number;
   level: ConsoleLevel;
   message: string;
   stack?: string;
+  tabId?: number;
 };
 
 type NetworkRequest = {
@@ -130,6 +144,7 @@ type NetworkRequest = {
   ok?: boolean;
   durationMs: number;
   error?: string;
+  tabId?: number;
 };
 
 type InteractionEvent = {
@@ -228,6 +243,7 @@ function friendlyRecordingError(message: string | null | undefined): string {
 
 type PendingNetworkRequest = {
   requestId: string;
+  tabId: number;
   timestampMs: number;
   elapsedMs: number;
   startedAtMonotonicSeconds: number | null;
@@ -240,6 +256,11 @@ type PendingNetworkRequest = {
   error?: string;
 };
 
+// Entries from before the recording started, held with absolute time until the
+// recording begins and they get a negative elapsedMs.
+type LookbackConsoleLog = Omit<ConsoleLog, "elapsedMs">;
+type LookbackNetworkRequest = Omit<NetworkRequest, "elapsedMs">;
+
 type CaptureSession = {
   sessionId: string;
   targetTabId: number;
@@ -251,6 +272,12 @@ type CaptureSession = {
   includeDeveloperLogs: boolean;
   attached: boolean;
   attachError: string | null;
+  // Attached tabs and when each was last active, bounded by MAX_DEBUGGED_TABS.
+  debugTabs: Map<number, number>;
+  captureBegun: boolean;
+  lookbackConsoleLogs: LookbackConsoleLog[];
+  lookbackNetworkRequests: LookbackNetworkRequest[];
+  lookbackNetworkKeys: Set<string>;
   consoleLogs: ConsoleLog[];
   networkRequests: NetworkRequest[];
   interactionEvents: InteractionEvent[];
@@ -600,40 +627,45 @@ function allTabs(): Promise<chrome.tabs.Tab[]> {
 }
 
 async function broadcastMount(): Promise<void> {
-  if (!CROSS_TAB_FOLLOW) {
-    if (overlayTabId !== null) await mountOverlayOnTab(overlayTabId);
-    return;
-  }
   const parts = desiredParts();
   const resetDiagnosticQuotas = overlayPhase === "recording";
-  const tabs = await allTabs();
-  await Promise.all(
-    tabs.map((tab) =>
-      typeof tab.id === "number"
-        ? sendTabMessage(tab.id, {
-            type: "CLIPS_OVERLAY_MOUNT",
-            parts,
-            ...(resetDiagnosticQuotas ? { resetDiagnosticQuotas: true } : {}),
-          })
-        : Promise.resolve(),
-    ),
+  const outcome = await broadcastOverlayMessage(
+    async () =>
+      CROSS_TAB_FOLLOW
+        ? (await allTabs()).flatMap((tab) =>
+            typeof tab.id === "number" ? [tab.id] : [],
+          )
+        : overlayTabId === null
+          ? []
+          : [overlayTabId],
+    sendTabMessage,
+    {
+      type: "CLIPS_OVERLAY_MOUNT",
+      parts,
+      ...(resetDiagnosticQuotas ? { resetDiagnosticQuotas: true } : {}),
+    },
   );
+  if (outcome === "timed-out") {
+    console.warn("[clips-bg] overlay mount did not reach every tab in time");
+  }
 }
 
 async function broadcastUnmount(): Promise<void> {
-  if (!CROSS_TAB_FOLLOW) {
-    if (overlayTabId !== null)
-      await sendTabMessage(overlayTabId, { type: "CLIPS_OVERLAY_UNMOUNT" });
-    return;
-  }
-  const tabs = await allTabs();
-  await Promise.all(
-    tabs.map((tab) =>
-      typeof tab.id === "number"
-        ? sendTabMessage(tab.id, { type: "CLIPS_OVERLAY_UNMOUNT" })
-        : Promise.resolve(),
-    ),
+  const outcome = await broadcastOverlayMessage(
+    async () =>
+      CROSS_TAB_FOLLOW
+        ? (await allTabs()).flatMap((tab) =>
+            typeof tab.id === "number" ? [tab.id] : [],
+          )
+        : overlayTabId === null
+          ? []
+          : [overlayTabId],
+    sendTabMessage,
+    { type: "CLIPS_OVERLAY_UNMOUNT" },
   );
+  if (outcome === "timed-out") {
+    console.warn("[clips-bg] overlay unmount did not reach every tab in time");
+  }
 }
 
 function resetOverlay(): void {
@@ -1307,6 +1339,11 @@ function createSession(
     diagnosticsPausedAtMs: null,
     diagnosticsPausedDurationMs: 0,
     pendingNetworkRequests: new Map(),
+    debugTabs: new Map(),
+    captureBegun: false,
+    lookbackConsoleLogs: [],
+    lookbackNetworkRequests: [],
+    lookbackNetworkKeys: new Set(),
   };
   sessions.set(sessionId, session);
   tabToSession.set(session.targetTabId, sessionId);
@@ -1326,6 +1363,8 @@ function restoreCaptureSession(recording: NativeRecording): CaptureSession {
   session.recordingId = recording.recordingId;
   session.startedAt = recording.startedAt;
   session.startedAtMs = recording.startedAtMs;
+  // A restored recording already began, so late console replay is not lookback.
+  session.captureBegun = true;
   session.diagnosticsPausedAtMs =
     typeof recording.diagnosticsPausedAtMs === "number"
       ? recording.diagnosticsPausedAtMs
@@ -1684,7 +1723,10 @@ async function markRecordingStarted() {
   const session = activeNativeRecording
     ? sessions.get(activeNativeRecording.sessionId)
     : null;
-  if (session) beginSessionCapture(session, overlayBaseEpochMs);
+  if (session) {
+    await refreshLookbackNetwork(session);
+    beginSessionCapture(session, overlayBaseEpochMs);
+  }
   if (activeNativeRecording) {
     delete activeNativeRecording.diagnosticsPausedAtMs;
     delete activeNativeRecording.diagnosticsPausedDurationMs;
@@ -2226,8 +2268,12 @@ function beginSessionCapture(
 ): void {
   session.startedAtMs = startedAtMs;
   session.startedAt = new Date(startedAtMs).toISOString();
-  session.consoleLogs = [];
-  session.networkRequests = [];
+  session.captureBegun = true;
+  session.consoleLogs = lookbackConsoleFor(session, startedAtMs);
+  session.networkRequests = lookbackNetworkFor(session, startedAtMs);
+  session.lookbackConsoleLogs = [];
+  session.lookbackNetworkRequests = [];
+  session.lookbackNetworkKeys.clear();
   session.interactionEvents = [];
   session.clickInputIngressWindowStartedAtMs = 0;
   session.clickInputIngressCount = 0;
@@ -2243,37 +2289,187 @@ function beginSessionCapture(
   session.pendingNetworkRequests.clear();
 }
 
+// Lookback entries are the ones gathered before the recording began, placed by
+// their time relative to its start. Anything older than the window is dropped.
+function lookbackConsoleFor(
+  session: CaptureSession,
+  startedAtMs: number,
+): ConsoleLog[] {
+  return session.lookbackConsoleLogs
+    .flatMap((entry) => {
+      const elapsedMs = lookbackElapsedMs(entry.timestampMs, startedAtMs);
+      return elapsedMs === null ? [] : [{ ...entry, elapsedMs }];
+    })
+    .slice(-MAX_CONSOLE_LOGS);
+}
+
+function lookbackNetworkFor(
+  session: CaptureSession,
+  startedAtMs: number,
+): NetworkRequest[] {
+  return session.lookbackNetworkRequests
+    .flatMap((entry) => {
+      const elapsedMs = lookbackElapsedMs(entry.timestampMs, startedAtMs);
+      return elapsedMs === null ? [] : [{ ...entry, elapsedMs }];
+    })
+    .slice(-MAX_NETWORK_REQUESTS);
+}
+
+// Attaches to the recording's tab and to recently active tabs, up to
+// MAX_DEBUGGED_TABS. Safe to call again: tabs already attached are skipped.
 async function attachSession(session: CaptureSession): Promise<void> {
-  if (!session.includeDeveloperLogs || session.attached) return;
+  if (!session.includeDeveloperLogs) return;
+  // If the recent-tab list cannot be read, only the recording's own tab is
+  // attached, and the failure is reported rather than hidden.
+  let wanted = [session.targetTabId];
   try {
-    await debuggerAttach(session.targetTabId);
-    session.attached = true;
-    tabToSession.set(session.targetTabId, session.sessionId);
-    await Promise.allSettled([
-      debuggerSendCommand(session.targetTabId, "Runtime.enable"),
-      debuggerSendCommand(session.targetTabId, "Log.enable"),
-      debuggerSendCommand(session.targetTabId, "Network.enable", {
-        maxTotalBufferSize: 0,
-        maxResourceBufferSize: 0,
-        maxPostDataSize: 0,
-      }),
-    ]);
-  } catch (err) {
-    session.attachError =
-      err instanceof Error ? err.message : "Could not attach to the tab.";
-    pushConsole(session, {
-      level: "warn",
-      message: `Clips could not attach browser diagnostics: ${session.attachError}`,
+    wanted = pickDebugTabIds({
+      targetTabId: session.targetTabId,
+      activations: await readTabActivations(),
+      nowMs: nowMs(),
     });
+  } catch (err) {
+    session.attachError = `Could not read recently used tabs: ${
+      err instanceof Error ? err.message : String(err)
+    }`;
+  }
+  for (const tabId of wanted) {
+    if (session.debugTabs.has(tabId)) continue;
+    if (session.debugTabs.size >= MAX_DEBUGGED_TABS) break;
+    await attachDebugTab(session, tabId);
   }
 }
 
-async function detachSession(session: CaptureSession): Promise<void> {
-  if (session.attached) {
-    await debuggerDetach(session.targetTabId);
+async function attachDebugTab(
+  session: CaptureSession,
+  tabId: number,
+): Promise<boolean> {
+  try {
+    await debuggerAttach(tabId);
+  } catch (err) {
+    // Other tabs can refuse (DevTools already open, chrome:// pages). Only the
+    // recording's own tab is reported as an attach failure.
+    if (tabId === session.targetTabId) {
+      session.attachError =
+        err instanceof Error ? err.message : "Could not attach to the tab.";
+    } else {
+      console.warn("[clips-bg] debugger skipped a recent tab", tabId, err);
+    }
+    return false;
   }
-  session.attached = false;
+  session.debugTabs.set(tabId, nowMs());
+  tabToSession.set(tabId, session.sessionId);
+  session.attached = true;
+  await Promise.allSettled([
+    debuggerSendCommand(tabId, "Runtime.enable"),
+    debuggerSendCommand(tabId, "Log.enable"),
+    debuggerSendCommand(tabId, "Network.enable", {
+      maxTotalBufferSize: 0,
+      maxResourceBufferSize: 0,
+      maxPostDataSize: 0,
+    }),
+  ]);
+  return true;
+}
+
+async function detachDebugTab(
+  session: CaptureSession,
+  tabId: number,
+): Promise<void> {
+  await debuggerDetach(tabId);
+  session.debugTabs.delete(tabId);
+  tabToSession.delete(tabId);
+  session.attached = session.debugTabs.size > 0;
+}
+
+async function detachSession(session: CaptureSession): Promise<void> {
+  for (const tabId of [...session.debugTabs.keys()]) {
+    await detachDebugTab(session, tabId);
+  }
   tabToSession.delete(session.targetTabId);
+  session.attached = false;
+}
+
+// Runs inside the page through chrome.scripting, so it must not close over
+// anything from this file.
+function readResourceTiming(): {
+  timeOriginMs: number;
+  entries: ResourceTimingSnapshot[];
+} {
+  return {
+    timeOriginMs: performance.timeOrigin,
+    entries: performance.getEntriesByType("resource").map((entry) => {
+      const timing = entry as PerformanceResourceTiming & {
+        responseStatus?: number;
+      };
+      return {
+        name: timing.name,
+        initiatorType: timing.initiatorType,
+        startTime: timing.startTime,
+        duration: timing.duration,
+        responseStatus: timing.responseStatus,
+      };
+    }),
+  };
+}
+
+// Chrome does not replay network events on attach, but the page keeps its
+// resource timing history. It is read only before the recording begins.
+async function readLookbackNetwork(
+  session: CaptureSession,
+  tabId: number,
+): Promise<void> {
+  if (session.captureBegun) return;
+  let snapshot:
+    | { timeOriginMs: number; entries: ResourceTimingSnapshot[] }
+    | undefined;
+  try {
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: readResourceTiming,
+    });
+    snapshot = injection?.result;
+  } catch (err) {
+    // chrome:// and other pages cannot be scripted, so they have no lookback.
+    console.warn("[clips-bg] no network lookback for tab", tabId, err);
+    return;
+  }
+  if (!snapshot) return;
+  for (const entry of fetchXhrFromResourceTiming(
+    snapshot.entries,
+    snapshot.timeOriginMs,
+  )) {
+    const url = sanitizeUrl(entry.url);
+    const key = `${tabId}|${entry.timestampMs}|${url}`;
+    if (!url || session.lookbackNetworkKeys.has(key)) continue;
+    session.lookbackNetworkKeys.add(key);
+    session.lookbackNetworkRequests.push({
+      timestampMs: entry.timestampMs,
+      type: entry.type,
+      method: "UNKNOWN",
+      url,
+      durationMs: entry.durationMs,
+      tabId,
+      ...(entry.status
+        ? {
+            status: entry.status,
+            ok: entry.status >= 200 && entry.status < 400,
+          }
+        : {}),
+    });
+  }
+  if (session.lookbackNetworkRequests.length > MAX_NETWORK_REQUESTS) {
+    session.lookbackNetworkRequests.splice(
+      0,
+      session.lookbackNetworkRequests.length - MAX_NETWORK_REQUESTS,
+    );
+  }
+}
+
+async function refreshLookbackNetwork(session: CaptureSession): Promise<void> {
+  for (const tabId of [...session.debugTabs.keys()]) {
+    await readLookbackNetwork(session, tabId);
+  }
 }
 
 async function deleteSession(sessionId: string): Promise<void> {
@@ -2290,13 +2486,12 @@ function pushConsole(
     message: string;
     stack?: string | null;
     timestampMs?: number | null;
+    tabId?: number;
   },
 ): void {
   const timestampMs = Number.isFinite(entry.timestampMs)
     ? (entry.timestampMs as number)
     : nowMs();
-  const elapsedMs = diagnosticElapsedMs(timestampMs, session);
-  if (elapsedMs === null) return;
   const message = truncate(
     redactString(entry.message, { redactQueryValues: true }),
     MAX_MESSAGE_LENGTH,
@@ -2307,12 +2502,32 @@ function pushConsole(
         MAX_MESSAGE_LENGTH,
       )
     : "";
+  const tabId = entry.tabId;
+  if (!session.captureBegun) {
+    session.lookbackConsoleLogs.push({
+      timestampMs,
+      level: entry.level,
+      message,
+      ...(stack ? { stack } : {}),
+      ...(tabId !== undefined ? { tabId } : {}),
+    });
+    if (session.lookbackConsoleLogs.length > MAX_CONSOLE_LOGS) {
+      session.lookbackConsoleLogs.splice(
+        0,
+        session.lookbackConsoleLogs.length - MAX_CONSOLE_LOGS,
+      );
+    }
+    return;
+  }
+  const elapsedMs = diagnosticElapsedMs(timestampMs, session);
+  if (elapsedMs === null) return;
   session.consoleLogs.push({
     timestampMs,
     elapsedMs,
     level: entry.level,
     message,
     ...(stack ? { stack } : {}),
+    ...(tabId !== undefined ? { tabId } : {}),
   });
   if (session.consoleLogs.length > MAX_CONSOLE_LOGS) {
     session.consoleLogs.splice(
@@ -2454,7 +2669,11 @@ function stackTraceText(stackTrace: unknown): string | null {
   return lines.length ? lines.join("\n") : null;
 }
 
-function handleConsoleEvent(session: CaptureSession, params: unknown): void {
+function handleConsoleEvent(
+  session: CaptureSession,
+  params: unknown,
+  tabId: number,
+): void {
   if (!params || typeof params !== "object") return;
   const event = params as Record<string, unknown>;
   const args = Array.isArray(event.args) ? event.args : [];
@@ -2465,10 +2684,15 @@ function handleConsoleEvent(session: CaptureSession, params: unknown): void {
     message,
     stack: stackTraceText(event.stackTrace),
     timestampMs: cdpTimestampMs(event.timestamp),
+    tabId,
   });
 }
 
-function handleExceptionEvent(session: CaptureSession, params: unknown): void {
+function handleExceptionEvent(
+  session: CaptureSession,
+  params: unknown,
+  tabId: number,
+): void {
   if (!params || typeof params !== "object") return;
   const details = (params as { exceptionDetails?: unknown }).exceptionDetails;
   if (!details || typeof details !== "object") return;
@@ -2485,10 +2709,15 @@ function handleExceptionEvent(session: CaptureSession, params: unknown): void {
     stack: stackTraceText(item.stackTrace),
     timestampMs:
       typeof item.timestamp === "number" ? item.timestamp : undefined,
+    tabId,
   });
 }
 
-function handleLogEntryEvent(session: CaptureSession, params: unknown): void {
+function handleLogEntryEvent(
+  session: CaptureSession,
+  params: unknown,
+  tabId: number,
+): void {
   if (!params || typeof params !== "object") return;
   const entry = (params as { entry?: unknown }).entry;
   if (!entry || typeof entry !== "object") return;
@@ -2500,6 +2729,7 @@ function handleLogEntryEvent(session: CaptureSession, params: unknown): void {
     level: consoleLevel(item.level),
     message: `${source}${text}`,
     timestampMs: cdpTimestampMs(item.timestamp),
+    tabId,
   });
 }
 
@@ -2513,9 +2743,15 @@ function requestTimestampMs(params: Record<string, unknown>): number {
   return cdpWallTimeMs(params.wallTime) ?? nowMs();
 }
 
+// Request ids are only unique per debugger target, so pending requests are keyed by tab too.
+function networkKey(tabId: number, requestId: string): string {
+  return `${tabId}:${requestId}`;
+}
+
 function handleRequestWillBeSent(
   session: CaptureSession,
   params: unknown,
+  tabId: number,
 ): void {
   if (!params || typeof params !== "object") return;
   const event = params as Record<string, unknown>;
@@ -2532,8 +2768,9 @@ function handleRequestWillBeSent(
   if (elapsedMs === null) return;
   const url = sanitizeUrl(typeof request.url === "string" ? request.url : "");
   if (!url) return;
-  session.pendingNetworkRequests.set(requestId, {
+  session.pendingNetworkRequests.set(networkKey(tabId, requestId), {
     requestId,
+    tabId,
     timestampMs,
     elapsedMs,
     startedAtMonotonicSeconds:
@@ -2550,13 +2787,16 @@ function handleRequestWillBeSent(
 function handleResponseReceived(
   session: CaptureSession,
   params: unknown,
+  tabId: number,
 ): void {
   if (!params || typeof params !== "object") return;
   const event = params as Record<string, unknown>;
   const requestId =
     typeof event.requestId === "string" ? event.requestId : null;
   if (!requestId) return;
-  const pending = session.pendingNetworkRequests.get(requestId);
+  const pending = session.pendingNetworkRequests.get(
+    networkKey(tabId, requestId),
+  );
   if (!pending) return;
   const response =
     event.response && typeof event.response === "object"
@@ -2579,11 +2819,13 @@ function finalizeNetworkRequest(
   session: CaptureSession,
   requestId: string,
   params: Record<string, unknown>,
+  tabId: number,
   error?: string,
 ): void {
-  const pending = session.pendingNetworkRequests.get(requestId);
+  const key = networkKey(tabId, requestId);
+  const pending = session.pendingNetworkRequests.get(key);
   if (!pending) return;
-  session.pendingNetworkRequests.delete(requestId);
+  session.pendingNetworkRequests.delete(key);
   const monotonicEnd =
     typeof params.timestamp === "number" ? params.timestamp : null;
   const durationMs =
@@ -2596,6 +2838,7 @@ function finalizeNetworkRequest(
     type: pending.type,
     method: pending.method,
     url: pending.url,
+    tabId: pending.tabId,
     ...(typeof pending.status === "number" ? { status: pending.status } : {}),
     ...(pending.statusText ? { statusText: pending.statusText } : {}),
     ...(typeof pending.ok === "boolean" ? { ok: pending.ok } : {}),
@@ -2611,22 +2854,31 @@ function finalizeNetworkRequest(
   });
 }
 
-function handleLoadingFinished(session: CaptureSession, params: unknown): void {
+function handleLoadingFinished(
+  session: CaptureSession,
+  params: unknown,
+  tabId: number,
+): void {
   if (!params || typeof params !== "object") return;
   const event = params as Record<string, unknown>;
   const requestId =
     typeof event.requestId === "string" ? event.requestId : null;
-  if (requestId) finalizeNetworkRequest(session, requestId, event);
+  if (requestId) finalizeNetworkRequest(session, requestId, event, tabId);
 }
 
-function handleLoadingFailed(session: CaptureSession, params: unknown): void {
+function handleLoadingFailed(
+  session: CaptureSession,
+  params: unknown,
+  tabId: number,
+): void {
   if (!params || typeof params !== "object") return;
   const event = params as Record<string, unknown>;
   const requestId =
     typeof event.requestId === "string" ? event.requestId : null;
   const errorText =
     typeof event.errorText === "string" ? event.errorText : "Request failed";
-  if (requestId) finalizeNetworkRequest(session, requestId, event, errorText);
+  if (requestId)
+    finalizeNetworkRequest(session, requestId, event, tabId, errorText);
 }
 
 async function handleExternalMessage(
@@ -2646,6 +2898,7 @@ async function handleExternalMessage(
     const session = sessions.get(message.sessionId);
     if (!session) return { ok: false, error: "Capture session not found." };
     session.recordingId = message.recordingId ?? null;
+    await refreshLookbackNetwork(session);
     beginSessionCapture(session);
     await attachSession(session);
     return {
@@ -2977,6 +3230,88 @@ chrome.tabs.onActivated.addListener((info) => {
   })();
 });
 
+// Recent-tab tracking decides which tabs a recording attaches to. Updates go
+// through one queue so overlapping activations cannot overwrite each other.
+const RECENT_TABS_KEY = "recentTabActivations";
+let tabActivationQueue: Promise<void> = Promise.resolve();
+
+function queueTabActivation(task: () => Promise<void>): void {
+  tabActivationQueue = tabActivationQueue
+    .then(task)
+    .catch((err) => console.warn("[clips-bg] tab tracking failed", err));
+}
+
+async function readTabActivations(): Promise<TabActivation[]> {
+  const stored = await sessionStorageGet([RECENT_TABS_KEY]);
+  const value = stored[RECENT_TABS_KEY];
+  return Array.isArray(value) ? (value as TabActivation[]) : [];
+}
+
+function recordingDiagnosticsSession(): CaptureSession | null {
+  if (!activeNativeRecording) return null;
+  const { status, sessionId } = activeNativeRecording;
+  if (status !== "recording") return null;
+  const session = sessions.get(sessionId);
+  return session?.includeDeveloperLogs ? session : null;
+}
+
+// While a recording runs, the tab the user switches to is attached too. When
+// the cap is full, the least recently active attached tab gives up its slot;
+// its logs so far stay in the recording.
+async function followRecordingTab(tabId: number, now: number): Promise<void> {
+  const session = recordingDiagnosticsSession();
+  if (!session) return;
+  if (session.debugTabs.has(tabId)) {
+    session.debugTabs.set(tabId, now);
+    return;
+  }
+  // Attach first, so a refused tab never costs an attached tab its slot.
+  if (!(await attachDebugTab(session, tabId))) return;
+  while (session.debugTabs.size > MAX_DEBUGGED_TABS) {
+    const victim = chooseTabToDetach({
+      attached: [...session.debugTabs].map(([id, lastActiveMs]) => ({
+        tabId: id,
+        lastActiveMs,
+      })),
+      keepTabId: tabId,
+    });
+    if (victim === null) break;
+    await detachDebugTab(session, victim);
+  }
+}
+
+async function noteTabActivated(tabId: number): Promise<void> {
+  const now = nowMs();
+  await sessionStorageSet({
+    [RECENT_TABS_KEY]: recordTabActivation(
+      await readTabActivations(),
+      tabId,
+      now,
+    ),
+  });
+  await followRecordingTab(tabId, now);
+}
+
+chrome.tabs.onActivated.addListener((info) => {
+  queueTabActivation(() => noteTabActivated(info.tabId));
+});
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  queueTabActivation(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, windowId });
+    if (typeof tab?.id === "number") await noteTabActivated(tab.id);
+  });
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  queueTabActivation(async () => {
+    await sessionStorageSet({
+      [RECENT_TABS_KEY]: removeTabActivation(await readTabActivations(), tabId),
+    });
+  });
+});
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== "complete") return;
   void (async () => {
@@ -3047,21 +3382,24 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   const sessionId = tabToSession.get(tabId);
   const session = sessionId ? sessions.get(sessionId) : null;
   if (!session) return;
+  // Network events before the recording begins are not kept: the page's
+  // resource timing history covers that period instead.
+  if (!session.captureBegun && method.startsWith("Network.")) return;
   try {
     if (method === "Runtime.consoleAPICalled") {
-      handleConsoleEvent(session, params);
+      handleConsoleEvent(session, params, tabId);
     } else if (method === "Runtime.exceptionThrown") {
-      handleExceptionEvent(session, params);
+      handleExceptionEvent(session, params, tabId);
     } else if (method === "Log.entryAdded") {
-      handleLogEntryEvent(session, params);
+      handleLogEntryEvent(session, params, tabId);
     } else if (method === "Network.requestWillBeSent") {
-      handleRequestWillBeSent(session, params);
+      handleRequestWillBeSent(session, params, tabId);
     } else if (method === "Network.responseReceived") {
-      handleResponseReceived(session, params);
+      handleResponseReceived(session, params, tabId);
     } else if (method === "Network.loadingFinished") {
-      handleLoadingFinished(session, params);
+      handleLoadingFinished(session, params, tabId);
     } else if (method === "Network.loadingFailed") {
-      handleLoadingFailed(session, params);
+      handleLoadingFailed(session, params, tabId);
     }
   } catch (err) {
     pushConsole(session, {
@@ -3079,7 +3417,11 @@ chrome.debugger.onDetach.addListener((source) => {
   const sessionId = tabToSession.get(tabId);
   if (!sessionId) return;
   const session = sessions.get(sessionId);
-  if (session) session.attached = false;
+  if (session) {
+    session.debugTabs.delete(tabId);
+    session.attached = session.debugTabs.size > 0;
+  }
+  tabToSession.delete(tabId);
 });
 
 function startDevHotReload(): void {

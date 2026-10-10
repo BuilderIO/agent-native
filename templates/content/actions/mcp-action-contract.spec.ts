@@ -14,8 +14,10 @@ import connectNotionStatus from "./connect-notion-status.js";
 import createContentDatabase from "./create-content-database.js";
 import createDocument from "./create-document.js";
 import deleteContentDatabase from "./delete-content-database.js";
+import deleteDocument from "./delete-document.js";
 import describeContentDatabase from "./describe-content-database.js";
 import editDocument from "./edit-document.js";
+import executeContentTrashPurge from "./execute-content-trash-purge.js";
 import getContentDatabaseSource from "./get-content-database-source.js";
 import getContentDatabase from "./get-content-database.js";
 import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
@@ -23,14 +25,17 @@ import getDocument from "./get-document.js";
 import listComments from "./list-comments.js";
 import listContentDatabases from "./list-content-databases.js";
 import listContentSpaces from "./list-content-spaces.js";
+import listContentTrash from "./list-content-trash.js";
 import listDocuments from "./list-documents.js";
 import listTrashedContentDatabases from "./list-trashed-content-databases.js";
 import manageContentDatabaseMigration from "./manage-content-database-migration.js";
 import migrateContentDatabaseRows from "./migrate-content-database-rows.js";
 import navigate from "./navigate.js";
 import patchDatabaseItems from "./patch-database-items.js";
+import permanentlyDeleteDocument from "./permanently-delete-document.js";
 import refreshList from "./refresh-list.js";
 import restoreContentDatabase from "./restore-content-database.js";
+import restoreDocument from "./restore-document.js";
 import searchDocuments from "./search-documents.js";
 import updateComment from "./update-comment.js";
 import updateContentDatabaseView from "./update-content-database-view.js";
@@ -50,11 +55,15 @@ describe("Content action-owned agent catalogs", () => {
     "delete-content-database": deleteContentDatabase,
     "restore-content-database": restoreContentDatabase,
     "list-trashed-content-databases": listTrashedContentDatabases,
+    "delete-document": deleteDocument,
+    "restore-document": restoreDocument,
+    "list-content-trash": listContentTrash,
     "list-documents": listDocuments,
     "search-documents": searchDocuments,
     "get-document": getDocument,
     "create-document": createDocument,
     "edit-document": editDocument,
+    "update-document": updateDocument,
     "list-comments": listComments,
     "add-comment": addComment,
     "update-comment": updateComment,
@@ -320,6 +329,23 @@ describe("Content action-owned agent catalogs", () => {
     for (const action of Object.values(deferredDatabaseActions)) {
       expect(action.mcpTool).not.toBe(true);
     }
+  });
+
+  it("keeps external Trash recoverable and permanent deletion off MCP", () => {
+    for (const action of [
+      permanentlyDeleteDocument,
+      executeContentTrashPurge,
+    ]) {
+      expect(action.mcpTool).not.toBe(true);
+    }
+    expect(deleteDocument.mcpAnnotations?.destructiveHint).toBe(true);
+    expect(deleteContentDatabase.mcpAnnotations?.destructiveHint).toBe(true);
+    expect(deleteDocument.tool.parameters?.required).toEqual(
+      expect.arrayContaining(["id", "expectedUpdatedAt", "idempotencyKey"]),
+    );
+    expect(restoreDocument.tool.parameters?.required).toEqual(
+      expect.arrayContaining(["id", "expectedTrashedAt", "idempotencyKey"]),
+    );
   });
 
   it("classifies direct comment reads and writes for MCP authorization", () => {

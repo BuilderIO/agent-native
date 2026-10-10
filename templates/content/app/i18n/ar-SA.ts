@@ -250,7 +250,7 @@ const databaseExactEnglish = {
     "Analizando ambos orígenes para encontrar una clave compartida",
   bodyDiff: "Diferencia del cuerpo",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder no está conectado. Vuelve para conectar tu cuenta primero.",
+    "Builder غير متصل. ارجع لاستخدام Builder.io أولاً.",
   calendarBy: "Calendario por",
   checkingBuilderConnection: "Comprobando conexión de Builder",
   clearAll: "Borrar todo",
@@ -262,7 +262,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "Contraer todos los grupos",
   collapseAll: "Contraer todo",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Conecta tu cuenta de Builder para explorar sus espacios y modelos.",
+    "استخدم حساب Builder لتصفح مساحاته ونماذجه.",
   connectedSources: "Fuentes conectadas",
   couldntSyncRetry: "No se pudo sincronizar · Reintentar",
   countAll: "Contar todo",
@@ -439,7 +439,6 @@ const editor = {
   pageBodySyncing: "لا يزال محتوى هذه الصفحة قيد المزامنة",
   pageBodySyncingDescription:
     "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة محتوى الصفحة، حتى لا تتم الكتابة فوق المحتوى الحالي.",
-  createCollection: "إنشاء مجموعة",
   creatingDatabase: "جارٍ إنشاء مجموعة مضمنة...",
   databaseCreated: "تم إنشاء المجموعة",
   emptyBlockPlaceholder: 'اضغط على "/" للأوامر',
@@ -790,10 +789,12 @@ const editor = {
     linkToNotionPage: "رابط إلى صفحة الفكرة",
     localFile: "الملف المحلي",
     morePageActions: "المزيد من إجراءات الصفحة",
+    formatting: "التنسيق",
     noPagesFound: "لم يتم العثور على صفحات",
     notifications: "الإخطارات",
     notionSync: "مزامنة الفكرة",
     openInNotion: "فتح في Notion",
+    openInAgentNative: "فتح في Agent-Native",
     orgCanFindAndView: "يمكن لأي شخص في مؤسستك البحث والعرض",
     orgLinkCanView: "يمكن لأي شخص في مؤسستك لديه الرابط العرض",
     pin: "تثبيت",
@@ -939,8 +940,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "لم تعد صفحتك السابقة متاحة، لذلك فتحنا صفحة الترحيب.",
-  requestedPageUnavailable:
-    "هذه الصفحة غير متاحة لحسابك، لذلك فتحنا صفحة الترحيب.",
   saveFailed: "تعذر حفظ موضعك",
   workspaceWelcomeUnavailableTitle: "لا يوجد شيء مفتوح هنا بعد",
   workspaceWelcomeUnavailableDescription:
@@ -1058,6 +1057,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "ما زلنا بانتظار {{stage}}. الطلب: {{action}}.",
+    widgetDocumentLoadStage: "محتوى الصفحة المحفوظة",
+    widgetDraftCheckStage: "استعادة مسودة الصفحة",
+    widgetEditorInitStage: "تهيئة محرر النص المنسق",
     iconPickerIcons: "الأيقونات",
     iconPickerEmoji: "الرموز التعبيرية",
     iconPickerRecent: "الأخيرة",
@@ -1067,6 +1070,10 @@ const exactEnglish = {
     iconPickerUploading: "جارٍ الرفع…",
     suggestionAmendmentEmpty:
       "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
+    suggestionUnplaceable:
+      "تغيّر النص المحيط بهذا الاقتراح، لذا لا يمكن تطبيقه. لا يزال معلّقًا: ارفضه أو اقترح التعديل مرة أخرى.",
+    proposalUnplaceable:
+      "تغيّر النص المحيط بأحد هذه الاقتراحات فلا يمكن تطبيقه، لذا لم يُطبَّق أي منها. لا تزال جميعها معلّقة: اقبلها أو ارفضها واحدًا تلو الآخر.",
     suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
     suggestionAmendmentResolved:
       "تم تغيير هذا الاقتراح في مكان آخر. لا تزال مسودتك غير المحفوظة هنا.",
@@ -1100,6 +1107,8 @@ const exactEnglish = {
       openInClaude: "فتح في Claude",
       openInClaudeCode: "فتح في Claude Code",
       openInCodex: "فتح في Codex",
+      connectContent: "ربط Content",
+      otherAgents: "وكلاء آخرون",
       agentCopyAccessNote: "يمكن للوكلاء استخدام Content MCP بأذوناتك الحالية",
       temporaryAgentLink: "رابط مؤقت للوكيل",
       privateLinkCanView: "يمكن للأشخاص المصرح لهم فقط عرض هذا الرابط",
@@ -1338,6 +1347,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "لم يتم تحديد صفحة",
+    pageNoAccess: "ليست لديك صلاحية الوصول إلى هذه الصفحة",
+    pageMissing: "هذه الصفحة غير موجودة",
+    pageInTrash: "هذه الصفحة في المهملات",
+    pageInTrashAskOwner: "اطلب من المالك استعادتها.",
+    openTrash: "فتح المهملات",
+    goToMyPages: "الانتقال إلى صفحاتي",
     noPageDescription: "اختر صفحة من الشريط الجانبي أو أنشئ واحدة جديدة.",
     newPage: "صفحة جديدة",
     createFailed: "فشل إنشاء الصفحة",
@@ -1420,6 +1435,9 @@ const overrides = {
     aiUndo: "تراجع",
     aiDone: "تم",
     aiMoreChanges: "+{{count}} أخرى",
+    suggestionReplaced: "تم الاستبدال",
+    suggestionWithdrawn: "تم السحب",
+    suggestedChange: "التغيير المقترح",
     aiUndoUnavailable: "لا يمكن استعادة النص المحذوف تلقائيًا",
     aiUndoFailed: "تعذر التراجع عن التغيير",
     aiResolvedByAi: "حلّه الذكاء الاصطناعي",
@@ -1461,6 +1479,11 @@ const overrides = {
     resize: "تغيير حجم الشريط الجانبي",
     expand: "توسيع الشريط الجانبي",
     failedCreatePage: "فشل إنشاء الصفحة",
+    failedCreatePageDraftDescription:
+      "تم حفظ مسودتك في هذا المتصفح. يمكنك إعادة محاولة إنشاء الصفحة أو حذف المسودة.",
+    discardFailedCreatePageQuestion: "هل تريد إلغاء الإنشاء المعلّق؟",
+    discardFailedCreatePageDescription:
+      "سيؤدي ذلك إلى مسح الإنشاء المعلّق وأي مسودة غير محفوظة. إذا كانت الصفحة محفوظة بالفعل، فستبقى في مساحة عملك.",
     failedDeletePage: "فشل حذف الصفحة",
     failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
     failedRestorePage: "فشل استعادة الصفحة",

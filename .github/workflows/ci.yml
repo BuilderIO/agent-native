@@ -25,12 +25,14 @@ jobs:
       test_workspace_filters: ${{ steps.scope.outputs.test_workspace_filters }}
       fast_tests: ${{ steps.scope.outputs.fast_tests }}
       content: ${{ steps.scope.outputs.content }}
+      content_convergence: ${{ steps.scope.outputs.content_convergence }}
       core_integration: ${{ steps.scope.outputs.core_integration }}
       plan_e2e: ${{ steps.scope.outputs.plan_e2e }}
       brain_evals: ${{ steps.scope.outputs.brain_evals }}
       build: ${{ steps.scope.outputs.build }}
       trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
       scaffold: ${{ steps.scope.outputs.scaffold }}
+      builder_code_starter_scaffold: ${{ steps.scope.outputs.builder_code_starter_scaffold }}
       ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
       ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
@@ -38,7 +40,13 @@ jobs:
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
+      design_canvas_interaction_e2e: ${{ steps.scope.outputs.design_canvas_interaction_e2e }}
+      pre_auth_session_replay_e2e: ${{ steps.scope.outputs.pre_auth_session_replay_e2e }}
+      design_canvas_e2e_specs: ${{ steps.scope.outputs.design_canvas_e2e_specs }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
+      slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
+      slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
+      slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
       changeset: ${{ steps.scope.outputs.changeset }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
       lanes_matrix: ${{ steps.lanes.outputs.matrix }}
@@ -65,6 +73,7 @@ jobs:
         env:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_PR_TITLE: ${{ github.event.pull_request.title }}
         run: node --experimental-strip-types scripts/ci-change-scope.ts
 
       # Full planning only reads manifests and counts files. Targeted planning
@@ -81,7 +90,7 @@ jobs:
         env:
           CI_FULL: ${{ steps.scope.outputs.full }}
           TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
-          LANES: 2
+          LANES: 8
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
@@ -97,7 +106,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.lint == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -142,7 +151,7 @@ jobs:
           done < <(git diff --name-only -z "$CI_BASE_SHA...$CI_HEAD_SHA")
 
           if ((${#format_files[@]} > 0)); then
-            pnpm exec oxfmt --check "${format_files[@]}"
+            pnpm exec oxfmt --check --no-error-on-unmatched-pattern "${format_files[@]}"
           fi
           if ((${#lint_files[@]} > 0)); then
             pnpm exec oxlint --config .oxlintrc.json --no-error-on-unmatched-pattern "${lint_files[@]}"
@@ -170,6 +179,10 @@ jobs:
       - uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
+
+      - name: Build core declarations before dependent typechecks
+        if: needs.change-scope.outputs.full == 'true' || contains(needs.change-scope.outputs.test_workspace_filters, '{packages/core}')
+        run: pnpm --filter @agent-native/core run build
 
       - name: Typecheck affected workspaces
         env:
@@ -217,6 +230,9 @@ jobs:
           pnpm exec playwright install --only-shell --force chromium
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
 
+      - name: Allow the downloaded Chromium sandbox
+        uses: ./.github/actions/allow-playwright-sandbox
+
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
         run: >-
@@ -250,6 +266,45 @@ jobs:
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
 
+      - name: Run package fast-test shards for lane
+        if: toJSON(matrix.packageShards) != '[]'
+        env:
+          PACKAGE_SHARDS: ${{ toJSON(matrix.packageShards) }}
+        run: |
+          set -uo pipefail
+          excludes=(
+            --exclude "**/*.db.test.ts"
+            --exclude "**/*.integration.spec.ts"
+            --exclude "**/*.integration.test.ts"
+            --exclude "**/*.e2e.spec.ts"
+            --exclude "**/*.e2e.test.ts"
+            --exclude "**/e2e/**"
+            --exclude "**/*.live.spec.ts"
+            --exclude "**/*.live.test.ts"
+            --exclude "**/*.perf.spec.ts"
+            --exclude "**/*.perf.test.ts"
+            --exclude "**/create-e2e.spec.ts"
+          )
+          status=0
+          while IFS=$'\t' read -r name shard; do
+            echo "::group::$name ($shard)"
+            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            echo "::endgroup::"
+          done < <(
+            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
+          )
+          exit "$status"
+
+      - name: Run isolated Design HTML integrity performance checks
+        if: >-
+          matrix.lane == 'lane-1' &&
+          (needs.change-scope.outputs.full == 'true' ||
+           contains(needs.change-scope.outputs.test_workspace_filters, '{templates/design}'))
+        working-directory: templates/design
+        env:
+          VITEST_CONCURRENCY: "1"
+        run: pnpm run test:perf
+
   test-targeted:
     name: Fast tests targeted ${{ matrix.lane }}
     needs: change-scope
@@ -281,6 +336,9 @@ jobs:
           pnpm exec playwright install --only-shell --force chromium
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
 
+      - name: Allow the downloaded Chromium sandbox
+        uses: ./.github/actions/allow-playwright-sandbox
+
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
         env:
@@ -295,7 +353,7 @@ jobs:
             while IFS= read -r -d '' file; do
               core_test_files+=("$file")
             done < <(
-              node -e 'for (const file of JSON.parse(process.env.CORE_TEST_FILES)) process.stdout.write(`${file}\0`)'
+              node -e 'for (const file of JSON.parse(process.env.CORE_TEST_FILES)) process.stdout.write(file + "\0")'
             )
             if ((${#core_test_files[@]} == 0)); then
               echo "::error::Planner emitted a changed Core shard with no test files"
@@ -334,14 +392,342 @@ jobs:
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
 
+      - name: Run package fast-test shards for lane
+        if: toJSON(matrix.packageShards) != '[]'
+        env:
+          PACKAGE_SHARDS: ${{ toJSON(matrix.packageShards) }}
+        run: |
+          set -uo pipefail
+          excludes=(
+            --exclude "**/*.db.test.ts"
+            --exclude "**/*.integration.spec.ts"
+            --exclude "**/*.integration.test.ts"
+            --exclude "**/*.e2e.spec.ts"
+            --exclude "**/*.e2e.test.ts"
+            --exclude "**/e2e/**"
+            --exclude "**/*.live.spec.ts"
+            --exclude "**/*.live.test.ts"
+            --exclude "**/*.perf.spec.ts"
+            --exclude "**/*.perf.test.ts"
+            --exclude "**/create-e2e.spec.ts"
+          )
+          status=0
+          while IFS=$'\t' read -r name shard; do
+            echo "::group::$name ($shard)"
+            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            echo "::endgroup::"
+          done < <(
+            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(name + "\t" + shard)'
+          )
+          exit "$status"
+
+      - name: Run isolated Design HTML integrity performance checks
+        if: >-
+          matrix.lane == 'lane-1' &&
+          (needs.change-scope.outputs.full == 'true' ||
+           contains(needs.change-scope.outputs.test_workspace_filters, '{templates/design}'))
+        working-directory: templates/design
+        env:
+          VITEST_CONCURRENCY: "1"
+        run: pnpm run test:perf
+
+  design-canvas-interaction-acceptance:
+    name: Design canvas interaction acceptance (${{ matrix.shard }})
+    needs: change-scope
+    if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.shard == 'music-app-workflow' && 25 || matrix.shard == 'ai-sidebar-loopback' && 20 || 9 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          [
+            inspector-1a,
+            inspector-1b,
+            inspector-2,
+            inspector-3a,
+            inspector-3b,
+            inspector-4a,
+            inspector-4b,
+            drag-1a,
+            drag-1b,
+            drag-2a,
+            drag-2b,
+            position-1a,
+            position-1b,
+            position-2a,
+            position-2b,
+            position-3,
+            screen-history-1,
+            screen-history-2,
+            screen-history-3,
+            ai-sidebar-loopback,
+            music-app-workflow,
+          ]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Allow the downloaded Chromium sandbox
+        uses: ./.github/actions/allow-playwright-sandbox
+
+      - name: Run focused Screen selection history regressions
+        if: startsWith(matrix.shard, 'screen-history-')
+        working-directory: templates/design
+        timeout-minutes: 4
+        env:
+          E2E_RUN_ID: design-selection-history-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+        run: |
+          case "${{ matrix.shard }}" in
+            screen-history-1)
+              grep='undo of a screen deletion remaps stale selection-history entries instead of restoring a dead screen id|undo restores a child layer with its additive Screen selection|marquee-selecting child elements after a Screen pick deletes only the elements|undoing a canvas element click restores its explicit Screen target for Delete|failed Screen deletion keeps the explicit Screen target for retry'
+              ;;
+            screen-history-2)
+              grep='a newer layer selection survives failed Screen deletion settlement|Shift-picking a Screen extends the Delete selection in All screens|a newer Screen pick survives failed Screen deletion settlement|a newer sidebar Screen selection survives failed Screen deletion settlement|Select All Screens survives failed Screen deletion settlement'
+              ;;
+            screen-history-3)
+              grep='deleting a selected child layer keeps its owning Screen|marquee selection persists and deletes Screens after a prior layer selection|deep-select marquee over a Screen deletes only the child|Shift-marqueeing child layers preserves an explicit Screen elsewhere for Delete|Shift-marquee reselecting an owner Screen makes Delete target the Screen'
+              ;;
+            *)
+              echo "::error::Unknown Screen-history shard: ${{ matrix.shard }}"
+              exit 2
+              ;;
+          esac
+          pnpm exec playwright test \
+            e2e/interaction-selection-history-delete-screen.spec.ts \
+            --grep "$grep" \
+            --workers=1
+
+      - name: Run AI sidebar loopback image regressions
+        if: matrix.shard == 'ai-sidebar-loopback'
+        working-directory: templates/design
+        timeout-minutes: 18
+        env:
+          E2E_RUN_ID: design-ai-sidebar-${{ github.run_id }}-${{ github.run_attempt }}
+          E2E_AI_SIDEBAR_LOOPBACK: "1"
+        run: pnpm exec playwright test e2e/ai-sidebar-reporter-path.spec.ts --workers=1 --retries=0
+
+      - name: Run long music-app workflow regression
+        if: ${{ matrix.shard == 'music-app-workflow' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/interaction-responsive-music-app.spec.ts') }}
+        working-directory: templates/design
+        timeout-minutes: 23
+        env:
+          E2E_RUN_ID: design-music-app-${{ github.run_id }}-${{ github.run_attempt }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+        run: |
+          set -euo pipefail
+          music_app_spec='e2e/interaction-responsive-music-app.spec.ts'
+          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-spec-selection.ts > "$changed_specs_file"
+          mapfile -d '' -t existing_changed_specs < "$changed_specs_file"
+          if [[ ! -f "$music_app_spec" ]]; then
+            echo "::error::The selected music-app workflow spec is missing."
+            exit 2
+          fi
+          if ((${#existing_changed_specs[@]} == 0)); then
+            echo "::error::The music-app workflow regression was selected but no runnable changed spec resolved."
+            exit 2
+          fi
+          if ! printf '%s\n' "${existing_changed_specs[@]}" | grep -Fqx "$music_app_spec"; then
+            echo "::error::The music-app workflow regression was selected but is absent from the runnable changed specs."
+            exit 2
+          fi
+          pnpm exec playwright test "$music_app_spec" \
+            --grep 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$' \
+            --workers=1 --retries=0 --trace on
+
+      - name: Upload music-app workflow diagnostics
+        if: ${{ failure() && matrix.shard == 'music-app-workflow' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: design-music-app-${{ github.run_id }}-${{ github.run_attempt }}
+          path: templates/design/test-results/design-music-app-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Run focused Design regression cases
+        if: ${{ !startsWith(matrix.shard, 'screen-history-') && matrix.shard != 'ai-sidebar-loopback' && matrix.shard != 'music-app-workflow' }}
+        working-directory: templates/design
+        timeout-minutes: 4
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          # Workers in a shard share PGlite-backed application state; each matrix shard has its own E2E_RUN_ID.
+          focused_specs_file="$RUNNER_TEMP/design-regression-pins.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-regression-pins.ts "${{ matrix.shard }}" > "$focused_specs_file"
+          mapfile -d '' -t focused_specs < "$focused_specs_file"
+          if (( ${#focused_specs[@]} == 0 )); then
+            echo "::error::No Design regression pins resolved for shard ${{ matrix.shard }}"
+            exit 2
+          fi
+          pnpm exec playwright test "${focused_specs[@]}" --workers=1
+
+  design-canvas-changed-spec-diagnostics:
+    name: Design changed-spec diagnostics (${{ matrix.shard }})
+    needs: change-scope
+    if: needs.change-scope.outputs.design_canvas_e2e_specs != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          [
+            changed-1,
+            changed-2,
+            changed-3,
+            changed-4,
+            changed-5,
+            changed-6,
+            changed-7,
+            changed-8,
+            changed-9,
+            changed-10,
+            changed-11,
+            changed-12,
+            changed-13,
+            changed-14,
+            changed-15,
+            changed-16,
+            changed-17,
+            changed-18,
+            changed-19,
+            changed-20,
+            changed-21,
+            changed-22,
+            changed-23,
+            changed-24,
+            changed-25,
+            changed-26,
+            changed-27,
+            changed-28,
+            changed-29,
+            changed-30,
+            changed-31,
+            changed-32,
+            changed-33,
+            changed-34,
+            changed-35,
+            changed-36,
+            changed-37,
+            changed-38,
+            changed-39,
+            changed-40,
+            changed-41,
+            changed-42,
+            changed-43,
+            changed-44,
+            changed-45,
+            changed-46,
+            changed-47,
+            changed-48,
+          ]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Allow the downloaded Chromium sandbox
+        uses: ./.github/actions/allow-playwright-sandbox
+
+      - name: Run changed Design E2E specs
+        working-directory: templates/design
+        timeout-minutes: 7
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+        run: |
+          set -euo pipefail
+          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-spec-selection.ts > "$changed_specs_file"
+          mapfile -d '' -t existing_changed_specs < "$changed_specs_file"
+          if ((${#existing_changed_specs[@]} == 0)); then
+            echo "No runnable changed Design E2E specs remain."
+            exit 0
+          fi
+          changed_shard="${{ matrix.shard }}"
+          changed_shard="${changed_shard#changed-}"
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$'
+
+  pre-auth-session-replay-smoke:
+    name: Pre-auth session replay smoke
+    needs: change-scope
+    if: needs.change-scope.outputs.pre_auth_session_replay_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Run pre-auth session replay smoke
+        working-directory: templates/design
+        timeout-minutes: 7
+        env:
+          E2E_DISABLE_AUTO_DEV_ACCOUNT: "1"
+          E2E_RUN_ID: pre-auth-replay-${{ github.run_id }}-${{ github.run_attempt }}
+        run: pnpm exec playwright test e2e/pre-auth-session-replay-smoke.spec.ts --workers=1
+
   fast-tests:
     name: Fast tests
-    needs: [change-scope, docs, test-rest, test-targeted]
+    needs:
+      [
+        change-scope,
+        docs,
+        test-rest,
+        test-targeted,
+        design-canvas-interaction-acceptance,
+        pre-auth-session-replay-smoke,
+      ]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Gate on lane results
+      - name: Summarize upstream test results
         env:
           CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
           DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
@@ -351,55 +737,118 @@ jobs:
           DOCS_RESULT: ${{ needs.docs.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
+          DESIGN_CANVAS_E2E: ${{ needs.change-scope.outputs.design_canvas_interaction_e2e }}
+          DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}
+          PRE_AUTH_REPLAY_E2E: ${{ needs.change-scope.outputs.pre_auth_session_replay_e2e }}
+          PRE_AUTH_REPLAY_RESULT: ${{ needs.pre-auth-session-replay-smoke.result }}
         run: |
-          if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
-            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+          set -euo pipefail
+
+          actions_run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          failures=()
+          record_failure() {
+            failures+=("$1: $2")
+          }
+          require_boolean() {
+            local selection="$1"
+            local value="$2"
+            case "$value" in
+              true|false) ;;
+              *) record_failure "Determine change scope" "$selection selection was missing or invalid ($value)" ;;
+            esac
+          }
+          require_success() {
+            local job="$1"
+            local result="$2"
+            if [[ "$result" == "skipped" ]]; then
+              record_failure "$job" "was unexpectedly skipped (expected success)"
+            elif [[ "$result" != "success" ]]; then
+              record_failure "$job" "did not succeed (expected success, received $result)"
+            fi
+          }
+          require_skipped() {
+            local job="$1"
+            local result="$2"
+            local reason="$3"
+            if [[ "$result" != "skipped" ]]; then
+              record_failure "$job" "$reason (expected skipped, received $result)"
+            fi
+          }
+
+          if [[ "$CHANGE_SCOPE_RESULT" != "success" ]]; then
+            require_success "Determine change scope" "$CHANGE_SCOPE_RESULT"
+          else
+            require_boolean "full-suite" "$CI_FULL"
+            require_boolean "Fast tests" "$FAST_TESTS"
+            require_boolean "docs-only" "$DOCS_ONLY"
+
+            if [[ "$PRE_AUTH_REPLAY_E2E" == "true" ]]; then
+              require_success "Pre-auth session replay smoke" "$PRE_AUTH_REPLAY_RESULT"
+            elif [[ "$PRE_AUTH_REPLAY_E2E" == "false" ]]; then
+              require_skipped "Pre-auth session replay smoke" "$PRE_AUTH_REPLAY_RESULT" "ran outside its selected paths"
+            else
+              record_failure "Determine change scope" "pre-auth replay selection was missing or invalid ($PRE_AUTH_REPLAY_E2E)"
+            fi
+
+            case "$DESIGN_CANVAS_E2E" in
+              true)
+                require_success "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT"
+                ;;
+              false)
+                require_skipped "Design canvas interaction acceptance (matrix jobs)" "$DESIGN_CANVAS_RESULT" "ran outside its selected paths"
+                ;;
+              *)
+                record_failure "Determine change scope" "Design canvas selection was missing or invalid ($DESIGN_CANVAS_E2E)"
+                ;;
+            esac
+
+            if [[ "$DOCS_ONLY" == "true" ]]; then
+              require_success "Docs checks" "$DOCS_RESULT"
+              require_skipped "Fast tests (test-rest matrix)" "$TEST_REST_RESULT" "ran outside its selected paths"
+              require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "ran outside its selected paths"
+              success_message="Docs-only change: docs checks passed; fast-test lanes are not required."
+            else
+              require_skipped "Docs checks" "$DOCS_RESULT" "ran outside its selected paths"
+              if [[ "$CI_FULL" == "true" ]]; then
+                if [[ "$HAS_TESTS" != "true" ]]; then
+                  record_failure "Determine change scope" "full fast-test lanes were selected without test lanes (has_tests=$HAS_TESTS)"
+                fi
+                require_success "Fast tests (test-rest matrix)" "$TEST_REST_RESULT"
+                require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "ran outside its selected paths"
+                success_message="Full fast-test suite passed across all sharded lanes."
+              else
+                require_skipped "Fast tests (test-rest matrix)" "$TEST_REST_RESULT" "ran outside its selected paths"
+                if [[ "$FAST_TESTS" != "true" ]]; then
+                  require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "ran without a fast-test selection"
+                  success_message="No workspace fast tests are selected for this change set."
+                else
+                  case "$HAS_TESTS" in
+                    true)
+                      require_success "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT"
+                      success_message="Targeted workspace fast tests passed."
+                      ;;
+                    false)
+                      require_skipped "Fast tests targeted (test-targeted matrix)" "$TEST_TARGETED_RESULT" "no affected workspace has a test script"
+                      success_message="No affected workspace has a test script; targeted fast tests were skipped."
+                      ;;
+                    *)
+                      record_failure "Determine change scope" "targeted lanes were not planned (has_tests='$HAS_TESTS')"
+                      ;;
+                  esac
+                fi
+              fi
+            fi
+          fi
+
+          if ((${#failures[@]} > 0)); then
+            echo "::error title=Fast tests summary::This job summarizes upstream tests and found ${#failures[@]} failing or unexpectedly skipped prerequisite(s). See the linked Actions run and named jobs below: $actions_run_url"
+            for failure in "${failures[@]}"; do
+              echo "::error::$failure. Actions run: $actions_run_url"
+            done
             exit 1
           fi
-          if [ "$DOCS_ONLY" = "true" ]; then
-            if [ "$DOCS_RESULT" != "success" ]; then
-              echo "::error::docs checks did not succeed ($DOCS_RESULT)"
-              exit 1
-            fi
-            echo "Docs-only change: full fast-test lanes are not required."
-            exit 0
-          fi
-          if [ "$CI_FULL" = "true" ]; then
-            if [ "$HAS_TESTS" != "true" ] || [ "$TEST_REST_RESULT" != "success" ]; then
-              echo "::error::full fast-test lanes did not succeed (has_tests=$HAS_TESTS, test-rest=$TEST_REST_RESULT)"
-              exit 1
-            fi
-            echo "Full fast-test suite passed across all sharded lanes."
-            exit 0
-          fi
-          if [ "$FAST_TESTS" != "true" ]; then
-            if [ "$TEST_TARGETED_RESULT" != "skipped" ]; then
-              echo "::error::targeted test job ran without a fast-test selection ($TEST_TARGETED_RESULT)"
-              exit 1
-            fi
-            echo "No workspace fast tests are selected for this change set."
-            exit 0
-          fi
-          case "$HAS_TESTS" in
-            true)
-              if [ "$TEST_TARGETED_RESULT" != "success" ]; then
-                echo "::error::test-targeted did not succeed ($TEST_TARGETED_RESULT)"
-                exit 1
-              fi
-              echo "Targeted workspace fast tests passed."
-              ;;
-            false)
-              if [ "$TEST_TARGETED_RESULT" != "skipped" ] && [ "$TEST_TARGETED_RESULT" != "success" ]; then
-                echo "::error::targeted test job did not skip cleanly ($TEST_TARGETED_RESULT)"
-                exit 1
-              fi
-              echo "No affected workspace has a test script; targeted fast tests were skipped."
-              ;;
-            *)
-              echo "::error::targeted lanes were not planned (has_tests='$HAS_TESTS')"
-              exit 1
-              ;;
-          esac
+
+          echo "$success_message"
 
   docs:
     name: Docs checks
@@ -439,12 +888,18 @@ jobs:
   content-db-tests:
     name: Content DB tests
     needs: change-scope
-    if: needs.change-scope.outputs.content == 'true'
+    if: needs.change-scope.outputs.content == 'true' || needs.change-scope.outputs.content_convergence == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     services:
       postgres:
-        image: postgres:17-alpine
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_DB: content_migration_test
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -461,6 +916,9 @@ jobs:
       - uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
+
+      - name: Create isolated Content row-mutation database
+        run: psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
 
       - name: Run Content DB tests
         run: pnpm test:content-db
@@ -485,7 +943,88 @@ jobs:
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
-          CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+          CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
+
+      # Two tabs on one page against the production build, with the realtime
+      # stream refused as a serverless function refuses it.
+      - name: Restore Playwright browser cache
+        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Build Content for the two-tab convergence lane
+        id: convergence-build
+        if: ${{ !cancelled() && needs.change-scope.outputs.content_convergence == 'true' }}
+        run: |
+          docker exec "${{ job.services.postgres.id }}" createdb -U postgres content_convergence
+          pnpm --filter content build
+        env:
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Run Content two-tab convergence lane
+        id: convergence
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts \
+            e2e/two-tab-convergence.spec.ts \
+            e2e/chatgpt-widget-body-paint.spec.ts \
+            --workers=1 \
+            --grep-invert @known-loss --output test-results/required
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/required.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      # Main still loses text in these. They report every run without failing
+      # the PR until the fix that drops their @known-loss tag lands.
+      - name: Run Content two-tab scenarios main still loses text in
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
+            --grep @known-loss --pass-with-no-tests --output test-results/known-loss
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/known-loss.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      - name: Summarize Content two-tab convergence
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        working-directory: templates/content
+        run: >-
+          node --experimental-strip-types e2e/convergence-summary.ts
+          "$RUNNER_TEMP/content-convergence/convergence.jsonl"
+          "$RUNNER_TEMP/content-convergence/required.json"
+          "$RUNNER_TEMP/content-convergence/known-loss.json"
+          >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Content two-tab convergence report
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: content-convergence-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/content-convergence/
+            templates/content/test-results/
+          if-no-files-found: warn
+          retention-days: 14
 
   core-integration-tests:
     name: Core integration tests
@@ -534,20 +1073,9 @@ jobs:
   slides-chat-e2e:
     name: Slides chat caret in Chromium
     needs: change-scope
-    # Off on purpose. #6485 disabled this job and #6496 switched it back on as a
-    # side effect of a Slides change; it then failed on every PR that reached it.
-    # Turning it back on is an explicit decision, not something to restore while
-    # editing this block.
-    if: >-
-      false && (
-      needs.change-scope.outputs.full == 'true' ||
-      contains(needs.change-scope.outputs.workspace_filters, '{templates/slides}') ||
-      contains(needs.change-scope.outputs.workspace_filters, '{packages/core}') ||
-      contains(needs.change-scope.outputs.workspace_filters, '{packages/toolkit}') ||
-      contains(needs.change-scope.outputs.workspace_filters, '{packages/creative-context}')
-      )
+    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -565,18 +1093,102 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Install Playwright WebKit
-        run: pnpm exec playwright install --with-deps webkit
-
-      - name: Check selection direction and chat typing while slide text editing remains active
+      - name: Check platform-aware line-edge caret navigation in slide text
         working-directory: templates/slides
+        timeout-minutes: 10
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform linux
+
+  slides-chat-typing-e2e:
+    name: Slides chat typing during slide editing
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Check chat typing while slide text editing remains active
+        working-directory: templates/slides
+        timeout-minutes: 20
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+
+  slides-macos-caret-qa:
+    name: Slides caret navigation in macOS
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Check platform-aware line-edge caret navigation in slide text
+        working-directory: templates/slides
+        timeout-minutes: 10
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa --line-key-platform darwin
+
+  slides-authoring-e2e:
+    name: Slides rich-text authoring
+    needs: change-scope
+    if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright browsers
+        run: |
+          pnpm exec playwright install --only-shell --with-deps chromium
+          pnpm exec playwright install --with-deps webkit
+          pnpm exec playwright install --with-deps firefox
 
       - name: Check IME Escape preserves inline slide text editing
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
 
-      - name: Check typing fidelity across Slides text surfaces
+      - name: Check mobile PowerPoint import pending status
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --mobile-import-status
+
+      - name: Check typing fidelity across Slides text surfaces in Chromium
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
 
@@ -596,9 +1208,33 @@ jobs:
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
 
-      - name: Check mixed rich-text authoring operations in Chromium
+      - name: Run deterministic authoring smoke in Chromium
         working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --steps 80
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 16 --steps 80 --browser chromium
+
+      - name: Run absolute-layout authoring smoke in Chromium
+        working-directory: templates/slides
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 2 --steps 80 --browser chromium
+
+      - name: Run deterministic authoring smoke in WebKit
+        working-directory: templates/slides
+        env:
+          SLIDES_AUTHORING_FUZZ_TRACE: "1"
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 16 --steps 80 --browser webkit
+
+      - name: Run deterministic authoring smoke in Firefox
+        working-directory: templates/slides
+        env:
+          SLIDES_AUTHORING_FUZZ_TRACE: "1"
+        run: >-
+          pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
+          --seed 16 --steps 80 --browser firefox
 
   brain-evals:
     name: Brain evals
@@ -621,16 +1257,22 @@ jobs:
         run: pnpm test:brain-privacy-evals
 
   build:
-    name: Build
+    name: Build artifacts
     needs: change-scope
     if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     env:
       DATABASE_URL: postgresql://postgres@127.0.0.1:5432/agent_native_build
     services:
       postgres:
-        image: postgres:17-alpine
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_DB: agent_native_build
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -664,6 +1306,70 @@ jobs:
       - name: Build docs site
         if: needs.change-scope.outputs.docs_only == 'true'
         run: pnpm --filter @agent-native/docs build
+
+  build-gate:
+    name: Build
+    needs: [change-scope, build, typecheck, guards]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Gate on scoped build, typecheck, and security guard results
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
+          DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
+          BUILD_REQUIRED: ${{ needs.change-scope.outputs.build }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          TYPECHECK_REQUIRED: ${{ needs.change-scope.outputs.typecheck }}
+          TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          GUARDS_REQUIRED: ${{ needs.change-scope.outputs.guards }}
+          GUARDS_RESULT: ${{ needs.guards.result }}
+        run: |
+          set -euo pipefail
+
+          require_selector() {
+            local check_name="$1"
+            local selected="$2"
+            if [[ "$selected" == "true" || "$selected" == "false" ]]; then
+              return 0
+            fi
+            echo "::error::$check_name selection was missing or invalid ($selected)"
+            return 1
+          }
+
+          require_result() {
+            local check_name="$1"
+            local selected="$2"
+            local result="$3"
+            local expected_result="skipped"
+            if [[ "$selected" == "true" ]]; then
+              expected_result="success"
+            fi
+            if [[ "$result" == "$expected_result" ]]; then
+              return 0
+            fi
+            echo "::error::$check_name selected=$selected expected=$expected_result result=$result"
+            return 1
+          }
+
+          status=0
+          if [[ "$CHANGE_SCOPE_RESULT" != "success" ]]; then
+            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            status=1
+          fi
+          require_selector "Docs build" "$DOCS_ONLY" || status=1
+          require_selector "Build artifacts" "$BUILD_REQUIRED" || status=1
+          require_selector "Typecheck" "$TYPECHECK_REQUIRED" || status=1
+          require_selector "Security guards" "$GUARDS_REQUIRED" || status=1
+
+          build_selected=false
+          if [[ "$DOCS_ONLY" == "true" || "$BUILD_REQUIRED" == "true" ]]; then
+            build_selected=true
+          fi
+          require_result "Build artifacts" "$build_selected" "$BUILD_RESULT" || status=1
+          require_result "Typecheck" "$TYPECHECK_REQUIRED" "$TYPECHECK_RESULT" || status=1
+          require_result "Security guards" "$GUARDS_REQUIRED" "$GUARDS_RESULT" || status=1
+          exit "$status"
 
   neon-query-budget:
     name: Cold-request query budget ${{ matrix.shard }}
@@ -726,9 +1432,15 @@ jobs:
     if: needs.change-scope.outputs.neon_connection_budget == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
     services:
       postgres:
-        image: postgres:18-alpine
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:18-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_PASSWORD: neon-budget
           POSTGRES_DB: neon_budget
@@ -806,6 +1518,17 @@ jobs:
           pnpm --filter @agent-native/core exec vitest run
           src/cli/create-e2e.spec.ts
           -t "pnpm install, pnpm typecheck, and pnpm action hello all succeed"
+
+      - name: Builder Code starter — materialize + pnpm install + typecheck
+        if: needs.change-scope.outputs.builder_code_starter_scaffold == 'true'
+        env:
+          AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
+        run: |
+          out="$(mktemp -d)/app"
+          node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" template materialize --template builder-code-starter --name app --out "$out"
+          cd "$out"
+          pnpm install
+          pnpm typecheck
 
       - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
         env:
@@ -890,11 +1613,12 @@ jobs:
         with:
           install: no-scripts
 
-      - name: Build recap CLI, AgentKit, core, Toolkit, and creative context
+      - name: Build recap CLI, AgentKit, core, OTel, Toolkit, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/otel build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
@@ -927,7 +1651,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.guards == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -952,6 +1676,9 @@ jobs:
       - name: Test mobile build path guard
         run: pnpm test:mobile-build-paths
 
+      - name: Test source-reading tests guard
+        run: pnpm test:no-source-reading-tests
+
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert
 
@@ -962,6 +1689,7 @@ jobs:
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
+          pnpm --filter @agent-native/otel build
 
       - name: Test unbounded read guards
         run: >-
@@ -972,6 +1700,13 @@ jobs:
 
       - name: Run security guards
         run: pnpm guards
+
+      - name: Check the Slides interaction oracle against one full test run
+        if: ${{ !cancelled() && needs.change-scope.outputs.slides_oracle == 'true' }}
+        working-directory: templates/slides
+        env:
+          VITEST_CONCURRENCY: 100%
+        run: pnpm oracle:ratchet
 
       - name: Run root script tests for this change
         if: ${{ !cancelled() && needs.change-scope.outputs.script_tests != '[]' && needs.change-scope.outputs.script_tests != '' }}

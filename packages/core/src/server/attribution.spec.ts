@@ -3,21 +3,29 @@ import { describe, it, expect } from "vitest";
 import {
   addSignupAttributionHeader,
   decodeSignupAttributionContext,
+  deriveLastTouchAttribution,
   deriveReferralSource,
   deriveSignupAttribution,
   encodeSignupAttributionContext,
   parseCookieHeader,
   SIGNUP_ATTRIBUTION_HEADER_NAME,
   readAnalyticsAnonymousId,
+  readAnalyticsSessionId,
   readFirstTouchAttribution,
+  readLastTouchAttribution,
   signupAttributionContextFromCookieHeader,
   signupAttributionContextFromHeaders,
   signupAttributionFromCookieHeader,
   type FirstTouchAttribution,
+  type LastTouchAttribution,
 } from "./attribution.js";
 
 function ftCookie(ft: FirstTouchAttribution): string {
   return `an_ft=${encodeURIComponent(JSON.stringify(ft))}`;
+}
+
+function ltCookie(lt: LastTouchAttribution): string {
+  return `an_lt=${encodeURIComponent(JSON.stringify(lt))}`;
 }
 
 describe("parseCookieHeader", () => {
@@ -148,6 +156,32 @@ describe("deriveReferralSource", () => {
     ).toBe("external");
   });
 
+  it("a referrer forwarded from the marketing site derives external", () => {
+    expect(
+      deriveReferralSource({
+        landing_path: "/",
+        site_referrer: "github.com",
+        site_landing_path: "/apps/design",
+      }),
+    ).toBe("external");
+    expect(
+      deriveReferralSource({ landing_path: "/", site_landing_path: "/apps" }),
+    ).toBe("direct");
+  });
+
+  it("our own hosts, dev servers, and Google sign-in derive direct", () => {
+    for (const host of [
+      "www.agent-native.com",
+      "slides.agent-native.com",
+      "localhost:8080",
+      "accounts.google.com",
+    ]) {
+      expect(
+        deriveReferralSource({ landing_path: "/", landing_referrer: host }),
+      ).toBe("direct");
+    }
+  });
+
   it("nothing derives direct", () => {
     expect(deriveReferralSource(null)).toBe("direct");
     expect(deriveReferralSource({})).toBe("direct");
@@ -167,6 +201,9 @@ describe("deriveSignupAttribution", () => {
       utm_campaign: "launch",
       utm_content: "card-a",
       utm_term: "agents",
+      gclid: "google-click-1",
+      msclkid: "microsoft-click-1",
+      vector_source: "vector-campaign",
       landing_path: "/plan/xyz",
       landing_referrer: "t.co",
     };
@@ -180,8 +217,37 @@ describe("deriveSignupAttribution", () => {
       utm_campaign: "launch",
       utm_content: "card-a",
       utm_term: "agents",
+      gclid: "google-click-1",
+      msclkid: "microsoft-click-1",
+      vector_source: "vector-campaign",
       first_touch_path: "/plan/xyz",
       landing_referrer: "t.co",
+    });
+  });
+
+  it("marks when first-touch cookie packing retained only priority fields", () => {
+    expect(
+      signupAttributionFromCookieHeader(
+        ftCookie({ gclid: "click-id", capture_truncated: "1" }),
+      ),
+    ).toMatchObject({
+      gclid: "click-id",
+      attribution_truncated: "true",
+    });
+  });
+
+  it("keeps the forwarded marketing-site source apart from the app's own", () => {
+    expect(
+      deriveSignupAttribution({
+        landing_path: "/",
+        site_referrer: "github.com",
+        site_landing_path: "/apps/design",
+      }),
+    ).toEqual({
+      referral_source: "external",
+      first_touch_path: "/",
+      site_referrer: "github.com",
+      site_landing_path: "/apps/design",
     });
   });
 
@@ -254,6 +320,28 @@ describe("signupAttributionContextFromCookieHeader", () => {
     expect(
       signupAttributionContextFromCookieHeader("an_aid=has%20space"),
     ).toBeUndefined();
+    expect(
+      signupAttributionContextFromCookieHeader("an_sid=has%20space"),
+    ).toBeUndefined();
+  });
+
+  it("uses the session id only with an established signup context", () => {
+    expect(readAnalyticsSessionId("an_sid=session%2Fsignup-1")).toBe(
+      "session/signup-1",
+    );
+    expect(readAnalyticsSessionId("an_sid=%E0%A4%A")).toBeUndefined();
+    expect(readAnalyticsSessionId(`an_sid=${"x".repeat(128)}`)).toBeUndefined();
+    expect(
+      signupAttributionContextFromCookieHeader("an_sid=session-1"),
+    ).toBeUndefined();
+    expect(
+      signupAttributionContextFromCookieHeader(
+        `${ftCookie({ landing_path: "/" })}; an_sid=session-1`,
+      ),
+    ).toEqual({
+      attribution: { referral_source: "direct", first_touch_path: "/" },
+      sessionId: "session-1",
+    });
   });
 
   it("reports no browser context rather than direct attribution", () => {
@@ -267,11 +355,12 @@ describe("signupAttributionContextFromCookieHeader", () => {
   it("still reports direct for a real visitor carrying no campaign", () => {
     expect(
       signupAttributionContextFromCookieHeader(
-        `${ftCookie({ landing_path: "/" })}; an_aid=anon_1`,
+        `${ftCookie({ landing_path: "/" })}; an_aid=anon_1; an_sid=session-1`,
       ),
     ).toEqual({
       attribution: { referral_source: "direct", first_touch_path: "/" },
       anonymousId: "anon_1",
+      sessionId: "session-1",
     });
   });
 });
@@ -281,6 +370,7 @@ describe("signup attribution request handoff", () => {
     const context = {
       attribution: { referral_source: "clip_share", utm_campaign: "launch" },
       anonymousId: "anon_signup_1",
+      sessionId: "session_signup_1",
     };
     const headers = addSignupAttributionHeader(
       { cookie: "an_aid=wrong-client-value" },
@@ -311,5 +401,140 @@ describe("signup attribution request handoff", () => {
 
     expect(spoofed.get(SIGNUP_ATTRIBUTION_HEADER_NAME)).toBeNull();
     expect(signupAttributionContextFromHeaders(spoofed)).toBeUndefined();
+  });
+});
+
+describe("last touch", () => {
+  it("reads only last-touch fields out of an_lt", () => {
+    const raw = JSON.stringify({
+      ref: "steve",
+      landed_at: "2026-09-01T00:00:00.000Z",
+      touched_at: "2026-10-02T00:00:00.000Z",
+    });
+    expect(
+      readLastTouchAttribution(`an_lt=${encodeURIComponent(raw)}`),
+    ).toEqual({ ref: "steve", touched_at: "2026-10-02T00:00:00.000Z" });
+    expect(readLastTouchAttribution("an_lt=not-json")).toBeNull();
+    expect(readLastTouchAttribution(ftCookie({ ref: "steve" }))).toBeNull();
+  });
+
+  it("derives last-touch signup properties with their own source", () => {
+    expect(
+      deriveLastTouchAttribution({
+        utm_source: "youtube",
+        utm_medium: "video",
+        site_referrer: "www.youtube.com",
+        site_landing_path: "/blog/launch",
+        landing_path: "/",
+        touched_at: "2026-10-02T00:00:00.000Z",
+      }),
+    ).toEqual({
+      last_touch_source: "external",
+      last_touch_utm_source: "youtube",
+      last_touch_utm_medium: "video",
+      last_touch_site_referrer: "www.youtube.com",
+      last_touch_path: "/",
+      last_touch_site_path: "/blog/launch",
+      last_touch_at: "2026-10-02T00:00:00.000Z",
+    });
+    expect(deriveLastTouchAttribution({ landing_path: "/share/clip" })).toEqual(
+      { last_touch_source: "clip_share", last_touch_path: "/share/clip" },
+    );
+    expect(deriveLastTouchAttribution(null)).toEqual({});
+  });
+
+  it("keeps last touch's raw tags, click ids, inviting user, and truncation", () => {
+    const cookie = ltCookie({
+      via: "owner_42",
+      utm_term: "agents",
+      gclid: "g-1",
+      msclkid: "m-1",
+      vector_source: "v-1",
+      capture_truncated: "1",
+    });
+
+    expect(signupAttributionFromCookieHeader(cookie)).toEqual({
+      referral_source: "direct",
+      last_touch_source: "direct",
+      last_touch_via: "owner_42",
+      last_touch_utm_term: "agents",
+      last_touch_gclid: "g-1",
+      last_touch_msclkid: "m-1",
+      last_touch_vector_source: "v-1",
+      last_touch_truncated: "true",
+    });
+  });
+
+  it("keeps last_touch_source meaning who referred, not the channel", () => {
+    // Tags alone don't name a referrer; dashboards sort them into channels.
+    expect(
+      deriveLastTouchAttribution({ utm_source: "youtube", utm_medium: "video" })
+        .last_touch_source,
+    ).toBe("direct");
+  });
+
+  it("adds last touch beside first touch at signup", () => {
+    const cookies = [
+      ftCookie({
+        utm_source: "google",
+        utm_medium: "cpc",
+        landing_path: "/",
+        landing_referrer: "www.google.com",
+      }),
+      ltCookie({ ref: "steve", utm_medium: "video", landing_path: "/" }),
+      "an_aid=anon_1",
+    ].join("; ");
+
+    expect(signupAttributionContextFromCookieHeader(cookies)).toEqual({
+      attribution: {
+        referral_source: "external",
+        referral_medium: "cpc",
+        utm_source: "google",
+        utm_medium: "cpc",
+        first_touch_path: "/",
+        landing_referrer: "www.google.com",
+        last_touch_source: "steve",
+        last_touch_ref: "steve",
+        last_touch_utm_medium: "video",
+        last_touch_path: "/",
+      },
+      anonymousId: "anon_1",
+    });
+  });
+
+  it("reports a last touch even when first touch is missing", () => {
+    expect(
+      signupAttributionFromCookieHeader(ltCookie({ ref: "steve" })),
+    ).toEqual({
+      referral_source: "direct",
+      last_touch_source: "steve",
+      last_touch_ref: "steve",
+    });
+    expect(
+      signupAttributionContextFromCookieHeader(ltCookie({ ref: "steve" })),
+    ).toBeDefined();
+  });
+
+  it("drops last touch rather than first touch when both overflow the handoff", () => {
+    const long = "é".repeat(120);
+    const cookies = [
+      ftCookie({ utm_campaign: long, utm_content: long, utm_term: long }),
+      ltCookie({ ref: long, utm_content: long }),
+    ].join("; ");
+
+    const context = signupAttributionContextFromCookieHeader(
+      `${cookies}; an_aid=${"a".repeat(128)}`,
+    )!;
+
+    expect(context.attribution).toMatchObject({
+      utm_campaign: long,
+      utm_content: long,
+      utm_term: long,
+      last_touch_truncated: "true",
+    });
+    expect(context.attribution).not.toHaveProperty("last_touch_ref");
+    expect(
+      decodeSignupAttributionContext(encodeSignupAttributionContext(context)),
+    ).toEqual(context);
   });
 });

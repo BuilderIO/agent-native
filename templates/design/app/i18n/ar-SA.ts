@@ -1,4 +1,77 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "مرجع الجلسة المرصودة",
+    sessionsOfAll: "\u200f{count} جلسة · {percent} من الإجمالي",
+    sessionsOfAppRoot:
+      "\u200f{count} جلسة · {percent} من مجموعة {app} (n={rootCount})",
+    sessionsOfPrevious: "\u200f{count} جلسة · {percent} من الخطوة السابقة",
+    sessionsOfParent: "\u200f{count} جلسة · {percent} من {label}",
+    observedContinuation:
+      "التسجيل نفسه · المثال {fromExample} ← المثال {toExample}",
+    observedContinuationCompact: "مثال {fromExample} ← {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "\u200f{count} جلسة · {percent} من هذه الخطوة",
+    partialSample: "عينة جزئية",
+    continuedOnUnpictured:
+      "المتابعة في مسارات غير معروضة: {count} · {percent} من هذه الخطوة",
+    noLaterStepObserved: "لم تُرصد خطوة لاحقة",
+    examplePosition: "المعرض {current} من {total}",
+    sourceExampleLabel: "المصدر",
+    showExample: "عرض مثال المصدر {current}",
+    screenshotExamples: "أمثلة لقطات الشاشة",
+    screenshotAlt:
+      "{label}، مثال المصدر {source}، موضعه في المعرض {current} من {total}، تاريخ الالتقاط {date}",
+    screenshotMissing: "لم تُلتقط لقطة شاشة",
+    recordingUnavailable: "غير متاح",
+    recordingGap: "فجوة في التسجيل",
+    recordingGapDuration: "فجوة في التسجيل · {duration}",
+    eventTime: "وقت الحدث (UTC)",
+    generationCompletedEvent: "حدث generation_completed (UTC)",
+    replayObservation: "ملاحظة إعادة التشغيل",
+    utcTimestamp: "طابع زمني UTC",
+    recordingId: "معرّف التسجيل",
+    replayOffset: "إزاحة إعادة التشغيل",
+    replayOffsetUnavailable: "غير متاح",
+    replaySeek: "موضع إعادة التشغيل",
+    checkpointSeekTarget: "هدف الانتقال إلى نقطة التحقق",
+    analyticsCheckpointOffset: "إزاحة نقطة تحقق Analytics",
+    replayObserved: "وقت ملاحظة إعادة التشغيل",
+    screenshotCaptured: "وقت التقاط لقطة الشاشة",
+    screenshotExportTimestamp: "وقت تصدير لقطة الشاشة بتوقيت UTC",
+    output: "المخرَج",
+    outputTitle: "عنوان المخرَج",
+    observedState: "الحالة المرصودة",
+    actorRecording: "الفاعل (التسجيل)",
+    actorSource: "مصدر الفاعل",
+    recordingMetadata: "بيانات التسجيل الوصفية",
+    evidence: "الدليل",
+    generationCompletedEvidence: "حدث generation_completed",
+    renderedOutputEvidence: "تمت ملاحظة مخرَج معروض؛ لا ندّعي وجود حدث اكتمال",
+    openFullPrompt: "فتح المطالبة كاملة",
+    prompt: "المطالبة",
+    promptEnglish: "المطالبة (بالإنجليزية)",
+    promptSource: "المطالبة (المصدر)",
+    source: "المصدر",
+    promptNotCaptured: "لم تُلتقط المطالبة",
+    actorUnavailable: "الفاعل غير متاح",
+    replayDetails: "تفاصيل إعادة التشغيل والمصدر",
+    sourceApp: "تطبيق المصدر",
+    route: "المسار الحالي عند الالتقاط",
+    routeUnavailable: "غير متاح",
+    captureSourceFingerprint: "بصمة مصدر الالتقاط",
+    captureSourceUnavailable: "غير مقدم",
+    recordingStarted: "بدأ التسجيل",
+    appBandHeading: "{app} · {count} جلسة",
+    journeyTitleSummary: "{app} · من {from} إلى {to} · {count} جلسة{partial}",
+    journeyTitleAppBandsSummary:
+      "من {from} إلى {to} · مجموعات مستقلة لكل تطبيق{partial}",
+    sessionCount: "\u200f{count} جلسة",
+    otherPaths: "مسارات أخرى",
+    otherBranchesShown: "يُعرض {shown} من أصل {total} فرعًا",
+    otherBranchDetailsUnavailable: "تفاصيل الفروع غير متاحة في شجرة الرحلة هذه",
+    otherBranchSourceKey: "مفتاح الخطوة المصدر: {key}",
+    htmlLanguage: "ar-SA",
+  },
   composer: { menu: { integrations: "التكاملات" } },
   creativeContext: {
     title: "المكتبة",
@@ -211,7 +284,7 @@ export default {
       tokenLabel: "رمز وصول Figma",
       tokenPlaceholder: "الصق رمز وصول Figma",
       connecting: "جار الاتصال…",
-      connect: "اتصال",
+      connect: "الاتصال بـ Figma",
       getToken: "الحصول على رمز",
       importFrame: "استيراد الإطار",
       chooseFrame: "اختيار إطار",
@@ -219,6 +292,18 @@ export default {
       exportSvg: "تصدير SVG",
       actionsPrefill: "راجع ثم أرسل",
       retry: "إعادة المحاولة",
+      currentDesign: "تصميم Design الحالي",
+      chooseDesign: "تصميم (اسألني أي تصميم أستخدمه عند الحاجة)",
+      importFramePrompt:
+        "استورد إطار Figma هذا إلى {{destination}} وحدد المحتوى الذي تعذر على المستورد نقله: {{url}}",
+      importFilePrompt:
+        "افتح ملف Figma هذا، واعرض الإطارات العليا فيه، واسألني عن الإطار الذي أريد استيراده: {{url}}",
+      inspectFramePrompt:
+        "افحص إطار Figma هذا ولخص بنيته ومكوناته وأنماطه والرموز القابلة لإعادة الاستخدام: {{url}}",
+      inspectFilePrompt:
+        "افحص ملف Figma هذا ولخص بنيته ومكوناته وأنماطه والرموز القابلة لإعادة الاستخدام: {{url}}",
+      exportSvgPrompt:
+        "صدّر شاشة Design الحالية بصيغة SVG لاستخدامها في Figma وحدد الأجزاء التي ستصبح محتوى SVG ثابتًا.",
     },
   },
   common: {
@@ -664,7 +749,7 @@ export default {
     makeItRealCard: {
       open: "فتح",
       choose: "اختيار",
-      connect: "ربط",
+      connect: "استخدم Builder.io",
       generating: "جارٍ الإنشاء",
       generate: "إنشاء",
       migrationFailed: "فشل الترحيل. يُرجى المحاولة مرة أخرى.",
@@ -686,6 +771,9 @@ export default {
       tools: "الأدوات",
       tokens: "الرموز",
       label: "مساحة عمل التصميم",
+      account: "الحساب",
+      collapse: "طي الشريط الجانبي",
+      expand: "توسيع الشريط الجانبي",
     },
     breakpointBar: {
       base: "الأساس",
@@ -775,12 +863,10 @@ export default {
       "تم تغيير {{path}} على القرص منذ فتحه. أعد تحميل الشاشة وحاول مرة أخرى.",
     applyToSourceError: "تعذّر الحفظ في المصدر: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "استيراد الرموز",
       importTitle: "استيراد الرموز",
       importHint:
@@ -792,6 +878,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "استيراد الرموز الملصقة",
       importedCount: "تم استيراد {{count}} رمزا",
+      count: "{{count}} رمز",
+      search: "البحث في الرموز",
+      noMatches: "لا توجد رموز مطابقة",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -837,6 +926,12 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
       figmaPasteImagesDontShowAgain: "عدم الإظهار مرة أخرى",
+      figmaPasteUploadImage: "رفع صورة",
+      figmaPasteUploadImageFor: "رفع “{{name}}”",
+      figmaPasteImageFallbackName: "صورة {{index}}",
+      figmaPasteUploadImageSuccess: "تمت إضافة الصورة",
+      figmaPasteUploadImageInvalid: "اختر ملف صورة، مثل SVG أو PNG أو JPG.",
+      figmaPasteUploadImageError: "تعذّر ملء هذه الصورة",
       figmaHydrationDialogTitle: "ربط Figma لتحميل الصور",
       figmaHydrationDialogDescription:
         "أدخل رمز الوصول إلى Figma لتحميل {{count}} صورة{{plural}} مفقودة في الشاشة{{screensPlural}} المستوردة.",
@@ -923,6 +1018,8 @@ export default {
         figmaPasteFailed: "فشل استيراد لصق Figma",
         uploadFailed: "فشل رفع الملف",
         invalidFigFile: "اختر ملفا ينتهي بـ .fig.",
+        unsupportedFileType: "اختر ملف ‎.fig‎ أو ‎.html‎ أو ‎.htm‎.",
+        importBusy: "هناك استيراد آخر قيد التنفيذ. أنهِه أو ألغِه أولاً.",
         figFileTooLarge:
           "ملف ‎.fig‎ كبير جدًا — الحد الأقصى للرفع {{max}} ميغابايت. في Figma، انسخ الإطار المطلوب فقط إلى ملف جديد وصدّر ذلك الملف بصيغة ‎.fig‎، أو استخدم اللصق من Figma.",
       },
@@ -934,6 +1031,8 @@ export default {
       "توقف الإنشاء قبل إنشاء الملفات. حاول مرة أخرى للمتابعة من نفس المطالبة.",
     generationStoppedCheckAgent:
       "توقف الإنشاء قبل إنشاء الملفات. تحقق من رسالة الوكيل أو حاول مرة أخرى.",
+    invalidCanvasDimensions:
+      "حجم اللوحة المطلوب غير مدعوم. استخدم أبعادًا موجبة بالبكسل ضمن حدود المحرر.",
     notFound: "التصميم غير موجود",
     backToDesigns: "العودة إلى التصاميم",
     designNotFoundDescription: "هذا التصميم غير موجود أو تم حذفه.",
@@ -960,7 +1059,17 @@ export default {
     saveTemplate: "حفظ القالب",
     templateSaved: "تم حفظ القالب في المكتبة",
     templateSaveFailed: "تعذر حفظ هذا القالب",
-    clickToRename: "انقر لإعادة التسمية",
+    fileMenu: {
+      pendingEditsBlocked:
+        "طبّق تعديلاتك المرئية المعلّقة أو تجاهلها قبل التكرار.",
+      designs: "التصاميم",
+      rename: "إعادة التسمية",
+      duplicate: "تكرار",
+      versionHistory: "سجل الإصدارات",
+      import: "استيراد…",
+      delete: "حذف",
+      deleteError: "تعذّر حذف هذا التصميم",
+    },
     collaborators: "المتعاونون",
     share: "مشاركة",
     signUpToSave: "سجل",
@@ -980,6 +1089,10 @@ export default {
       draw: "يرسم",
       interact: "Interact",
       screens: "الشاشات",
+    },
+    topBar: {
+      modeDesign: "التصميم",
+      modeSwitch: "وضع المحرر",
     },
     fileTabs: "Files",
     tools: {
@@ -1001,6 +1114,10 @@ export default {
     keyboardShortcuts: {
       title: "اختصارات لوحة المفاتيح",
       close: "يغلق: اختصارات لوحة المفاتيح",
+      search: "بحث",
+      searchLabel: "البحث في اختصارات لوحة المفاتيح",
+      categoriesLabel: "فئات الاختصارات",
+      empty: "لا توجد اختصارات تطابق “{{query}}”",
       codeContext: "الكود",
       screenContext: "الشاشات",
       nudgeAmount: {
@@ -1033,11 +1150,6 @@ export default {
         leftBracket: "القوس المربع الأيسر",
         rightBracket: "القوس المربع الأيمن",
       },
-      descriptions: {
-        toggleUi: "اضغطه الآن لإخفاء اللوحات بسرعة والتركيز على عملك",
-        undo: "تراجع عن أحدث تغيير في التصميم",
-        redo: "استعد تغيير التصميم الذي تراجعت عنه للتو",
-      },
       categories: {
         essential: "أساسي",
         tools: "الأدوات",
@@ -1069,6 +1181,7 @@ export default {
         showLayers: "الطبقات",
         showAssets: "الأصول",
         toggleUi: "View",
+        toggleMinimalUi: "واجهة مبسطة",
         toggleComments: "تثبيت تعليق",
         zoomIn: "تكبير",
         zoomOut: "تصغير",
@@ -1348,6 +1461,14 @@ export default {
         "التقاط PNG غير متاح في المعاينات المخصصة للقراءة فقط",
       pngSaveError: "تعذر حفظ PNG",
       pngExportError: "تعذر تصدير PNG",
+      exportTooLarge:
+        "حجم التصدير كبير جدًا. الحد الأقصى للطلب 5 MB؛ قلّل الأصول المضمّنة أو أبعاد الصورة ثم حاول مرة أخرى.",
+      exportResourcesUnavailable:
+        "تعذر عرض التصدير بدقة لأن صورة أو خطًا أو ورقة أنماط واحدة أو أكثر غير متاحة. تحقّق من هذه الموارد ثم حاول مرة أخرى.",
+      exportTimedOut: "انتهت مهلة التصدير. حاول مرة أخرى أو قلّل حجم التصميم.",
+      exportBusy: "يجري عرض تصدير آخر. انتظر قليلًا ثم حاول مرة أخرى.",
+      exportChromiumUnavailable:
+        "التصدير غير متاح لتعذر بدء أداة العرض. حاول مرة أخرى لاحقًا.",
       pdfExportError: "تعذر تصدير PDF",
       pdfDownloaded: "تم تنزيل PDF",
       pdfAllScreensDownloaded: "تم تنزيل PDF (كل الشاشات)",
@@ -1467,6 +1588,13 @@ export default {
       permissionPromptSettingsInstructions:
         "انقر على رمز عناصر التحكم بالموقع إلى يسار شريط العناوين، وافتح إعدادات الموقع، ثم اضبط الشبكة المحلية على «السماح».",
       permissionPromptRetry: "إعادة محاولة الاتصال",
+      previewCredentialsUnavailableTitle:
+        "بيانات اعتماد المعاينة المحلية غير متاحة",
+      previewCredentialsUnavailableDescription:
+        "أعِد توصيل اتصال localhost لهذه الشاشة من المفتش، ثم أعد المحاولة.",
+      publicPreviewUnavailableDescription:
+        "لا تتم مشاركة معاينات localhost مع المشاهدين العامة. افتح هذا التصميم بصفتك متعاونًا لعرض هذه الشاشة.",
+      previewCredentialsRetry: "إعادة محاولة بيانات الاعتماد",
     },
   },
   multiScreenCanvas: {
@@ -1477,6 +1605,7 @@ export default {
     fork: "تفريع",
     fullView: "عرض كامل",
     preview: "معاينة",
+    focusScreen: "تركيز الشاشة",
     openAndDuplicate: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
     openAndPreview: "حدد {{display}}. استخدم وضع التفاعل للتمرير المركّز.",
     doubleClickToEdit: "استخدم وضع التفاعل للتمرير المركّز",
@@ -1549,8 +1678,12 @@ export default {
     assetAdded: "تمت إضافة الأصول",
     assetsNoImageUrl: "لم تُرجع Assets عنوان URL للصورة.",
     failedToUploadFile: "فشل تحميل الملف",
+    imageAttachmentUnavailable:
+      "تعذّر تجهيز هذه الصورة للرفع. جرّب صورة بتنسيق JPG أو PNG أو GIF أو WebP.",
+    imageAttachmentTooLarge:
+      "يمكن أن يصل حجم كل صورة إلى {{perFile}} ميغابايت، وبإجمالي {{total}} ميغابايت للصور.",
     attachmentsTooLarge:
-      "المرفقات كبيرة جدًا. الحد الأقصى للرفع هو {{max}} ميغابايت إجمالًا — أرفق ملفات أقل أو أصغر.",
+      "يتم تحسين الصور تلقائيًا. يجب ألا يتجاوز الحجم الإجمالي للصور المحسّنة والملفات الأخرى {{max}} ميغابايت.",
     failedToSubmitPrompt: "تعذر إرسال المطالبة",
     skipPrompt: "تخطي المطالبة",
     startBlankCanvas: "ابدأ بلوحة فارغة",
@@ -1707,8 +1840,8 @@ export default {
     designPromptTitle: "لنصمم أول تصميم لك",
     recent: "الأخيرة",
     browseAllTemplates: "تصفح الكل",
-    connectBuilderIo: "ربط Builder.io",
-    connectingBuilder: "جارٍ ربط Builder.io…",
+    connectBuilderIo: "استخدم Builder.io",
+    connectingBuilder: "جارٍ إعداد Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "تصاميم البحث...",
     newDesign: "جديد Design",
@@ -1718,6 +1851,9 @@ export default {
     allAuthors: "جميع المؤلفين",
     me: "أنا",
     designFilter: "تصفية التصميمات",
+    ownedByAnyone: "مملوك لأي شخص",
+    ownedByMe: "مملوك لي",
+    sharedWithMe: "تمت مشاركته معي",
     mine: "تصميماتي",
     all: "الكل",
     showMineDesigns: "عرض تصميماتي",
@@ -1751,6 +1887,7 @@ export default {
     pickStartingPoint: "اختر نقطة بداية أو اكتب مطالبتك الخاصة.",
     searchNoResultsTitle: "لا توجد تصميمات تطابق هذا البحث",
     searchNoResultsDescription: "جرّب بحثًا مختلفًا.",
+    noDesignsMatchFilter: "لا توجد تصميمات تطابق عامل التصفية الحالي.",
     starterSaas: "الصفحة المقصودة SaaS",
     starterDashboard: "لوحة المعلومات",
     starterPricing: "صفحة التسعير",
@@ -1971,6 +2108,14 @@ export default {
       "تتطلب فهرسة التعليمات البرمجية والمستودعات خطة Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "أنظمة التصميم قريبًا",
+    waitlist: {
+      join: "انضم إلى قائمة الانتظار",
+      joining: "جارٍ الانضمام…",
+      joined: "أُضيفت إلى قائمة الانتظار",
+      error: "تعذّر الانضمام إلى قائمة الانتظار. يُرجى المحاولة مجددًا.",
+      unavailable: "التسجيل في قائمة الانتظار غير متاح الآن. يُرجى المحاولة لاحقًا.",
+    },
     deleteError: "لا يمكن حذف نظام التصميم",
     updateSuccess: "تم تحديث نظام التصميم",
     updateError: "لا يمكن تحديث نظام التصميم",

@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { resolveConfig as resolveElectronConfig } from "electron-vite";
@@ -14,7 +15,9 @@ const configurations = [
       "@agent-native/code-agents-ui",
       "@agent-native/code-agents-ui/code-agents",
       "@agent-native/shared-app-config",
-      "@modelcontextprotocol/sdk",
+      "@modelcontextprotocol/core",
+      "@modelcontextprotocol/node",
+      "@modelcontextprotocol/server",
       "@sentry/electron",
       "electron-updater",
       "zod",
@@ -113,4 +116,35 @@ describe("desktop build dependency boundary", () => {
       );
     },
   );
+
+  it("packages Core's runtime modules that remain external to the main bundle", async () => {
+    const main = loaded.config?.main;
+    expect(main).toBeDefined();
+    const resolved = await resolveViteConfig(main!, "build", "production");
+    const external = resolved.build.rolldownOptions.external;
+    expect(typeof external).toBe("function");
+    if (typeof external !== "function")
+      throw new Error("Missing dependency external predicate");
+
+    for (const subpath of [
+      "@agent-native/core",
+      "@agent-native/core/cli/agent-plugin",
+      "@agent-native/core/integrations/computer-supervision",
+      "@agent-native/core/shared/chat-first-app-creation",
+      "@agent-native/core/shared/environment-lanes",
+      "@agent-native/core/terminal/pty-server",
+    ]) {
+      expect(external(subpath, undefined, false), subpath).toBe(true);
+    }
+
+    const builderConfig = await readFile(
+      new URL("../../electron-builder.yml", import.meta.url),
+      "utf8",
+    );
+    expect(builderConfig).toContain(
+      "node_modules/@agent-native/core/package.json",
+    );
+    expect(builderConfig).toContain("node_modules/@agent-native/core/dist/**");
+    expect(builderConfig).toContain("node_modules/ws/**");
+  });
 });

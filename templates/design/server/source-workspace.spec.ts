@@ -42,7 +42,9 @@ vi.mock("./db/index.js", () => ({
   },
 }));
 
+import { sourceContentHash } from "../shared/source-workspace.js";
 import {
+  prepareInlineSourceEdit,
   readPreparedSourceText,
   readLiveSourceFile,
   resolveSourceWorkspace,
@@ -97,6 +99,45 @@ describe("resolveSourceWorkspace", () => {
     await expect(readLiveSourceFile(sourceFiles[1])).rejects.toMatchObject({
       statusCode: 409,
     });
+  });
+
+  it("reconciles unsaved editor content against its unchanged persisted base", async () => {
+    const persistedContent = "<main>Saved</main>";
+    const currentContent = "<main>Saved with local edits</main>";
+    const file = {
+      ...sourceFiles[1],
+      content: persistedContent,
+      updatedAt: "revision-1",
+    };
+
+    const prepared = await prepareInlineSourceEdit({
+      file,
+      currentContent,
+      revision: "revision-1",
+    });
+
+    expect(prepared).toEqual({
+      content: currentContent,
+      expectedVersionHash: sourceContentHash(persistedContent),
+    });
+  });
+
+  it("rejects unsaved editor content when live content has a third version", async () => {
+    mocks.hasCollabState.mockResolvedValue(true);
+    mocks.getText.mockResolvedValue("<main>Concurrent edit</main>");
+    const file = {
+      ...sourceFiles[1],
+      content: "<main>Saved</main>",
+      updatedAt: "revision-1",
+    };
+
+    await expect(
+      prepareInlineSourceEdit({
+        file,
+        currentContent: "<main>Saved with local edits</main>",
+        revision: "revision-1",
+      }),
+    ).rejects.toBeInstanceOf(SourceWorkspaceEditConflictError);
   });
 
   it("maps malformed prepared collaboration documents to a typed conflict", () => {

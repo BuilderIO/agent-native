@@ -33,7 +33,7 @@ L'application s'ouvre automatiquement dans votre navigateur. L'enregistrement fo
 
 <Callout tone="info">
 
-L'enregistrement, la transcription, et les titres/résumés IA nécessitent que le stockage de fichiers et les crédits IA soient configurés avant de fonctionner de bout en bout. Connectez Builder.io depuis **Paramètres** pour les deux à la fois (son niveau gratuit inclut des crédits IA gérés), ou connectez un stockage compatible S3 séparément et apportez votre propre clé Groq pour la transcription. Consultez [Transcription et métadonnées IA](/docs/template-clips-features#transcription-and-ai-metadata).
+L'enregistrement, la transcription, et les titres/résumés IA nécessitent que le stockage de fichiers et les crédits IA soient configurés avant de fonctionner de bout en bout. Utilisez Builder.io depuis **Paramètres** pour les deux à la fois (son niveau gratuit inclut des crédits IA gérés), ou connectez un stockage compatible S3 séparément et apportez votre propre clé Groq pour la transcription. Consultez [Transcription et métadonnées IA](/docs/template-clips-features#transcription-and-ai-metadata).
 
 </Callout>
 
@@ -91,11 +91,21 @@ Chaque opération est un fichier TypeScript dans `templates/clips/actions/`, mon
 
 ### Mémoire d'écran (Rewind)
 
-| Action                                                                                                                          | Ce qu'elle fait                                                              |
-| ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | Lire le tampon local de Rewind                                               |
-| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | Le flux d'examen et d'approbation pour ajouter l'historique Rewind à un clip |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | Appliquer une extension approuvée ; rendre d'abord le clip privé             |
+| Action                                                                                                                          | Ce qu'elle fait                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | Lire le tampon local de Rewind                                                                                                                                                                             |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | Actions de compatibilité obsolètes. L'option de l'éditeur qui les utilisait a été supprimée ; pour le temps d'écran précédent, utilisez `request-recording-context`                                        |
+| `apply-rewind-extension`                                                                                                        | Action de compatibilité obsolète. Applique une extension approuvée pour l'option de l'éditeur supprimée                                                                                                    |
+| `make-recording-private-for-rewind`                                                                                             | Rendre d'abord le clip privé                                                                                                                                                                               |
+| `request-recording-context`                                                                                                     | Propriétaire uniquement. Demande le temps d'écran précédent avant le début d'un clip ; le clip devient privé                                                                                               |
+| `request-recording-context` (`deviceId`)                                                                                        | Optionnel. Associe l'élément à l'appareil qui a enregistré le clip, pour que seule son application de bureau l'exporte. Sans cette valeur, aucun appareil n'est enregistré                                 |
+| `list-recording-context`                                                                                                        | L'élément actif de temps d'écran précédent du clip : ses fenêtres temporelles et son statut (accès spectateur)                                                                                             |
+| `list-pending-recording-context`                                                                                                | Éléments en attente sur les clips dont vous êtes propriétaire, pour le worker d'export de l'application de bureau                                                                                          |
+| `list-pending-recording-context` (`deviceId`)                                                                                   | Optionnel. Avec `deviceId`, ne renvoie que les éléments capturés par cet appareil ainsi que les éléments sans appareil enregistré. Sans ce paramètre, la liste n'est pas filtrée (anciens clients)         |
+| `update-recording-context`                                                                                                      | Le worker de bureau signale un élément comme `processing`, `ready` ou `failed`                                                                                                                             |
+| `set-recording-context-window`                                                                                                  | Rogne un élément dans sa fenêtre temporelle d'origine de 5 minutes ; il repasse à `pending` et est réexporté                                                                                               |
+| `remove-recording-context`                                                                                                      | Propriétaire uniquement. Supprime un élément et envoie son enregistrement des images à la corbeille. La vue de modification de l'application de bureau et le panneau de l'onglet Transcription l'appellent |
+| `rewind_preview_window`, `rewind_preview_discard`                                                                               | Application de bureau uniquement (commandes Tauri, pas des actions). Crée ou supprime un aperçu local d'une fenêtre temporelle. Jamais envoyé                                                              |
 
 ### Inter-applications et statistiques
 
@@ -123,6 +133,19 @@ Chaque opération est un fichier TypeScript dans `templates/clips/actions/`, mon
 | `get-playback-position`, `save-playback-position`, `get-recording-player-data`        | Reprendre la lecture ; transcription complète et diagnostics                                        |
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | Le flux d'intégration anonyme pour un tiers. Consultez [Intégrer Clips](/docs/template-clips-embed) |
 | `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | Le lanceur de rapport de bug intégré et les diagnostics de l'extension Chrome                       |
+
+## Diagnostics du navigateur
+
+L'extension Chrome ajoute à un enregistrement les diagnostics de console et de réseau, et `save-browser-diagnostics` les stocke. Chaque entrée de console et de réseau porte un `tabId`.
+
+| Sujet           | Comportement                                                                                                                                                                                                                          |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Onglets         | Jusqu'à cinq par enregistrement : l'onglet de départ, puis les onglets actifs au cours des 10 dernières minutes, du plus récent au plus ancien. Un onglet vers lequel l'utilisateur bascule pendant l'enregistrement est aussi joint. |
+| Au-delà de cinq | L'onglet le moins récemment actif, autre que celui au premier plan, est détaché. Ses entrées jusque-là restent dans l'enregistrement.                                                                                                 |
+| Rétrospective   | Jusqu'à 30 secondes avant le début de l'enregistrement, limité par l'historique de console de la page et la liste de resource timing. Ces entrées ont un `elapsedMs` négatif.                                                         |
+| `tabId`         | Renseigné sur chaque entrée de console et de réseau.                                                                                                                                                                                  |
+| `method`        | `"UNKNOWN"` sur les entrées réseau de la rétrospective, issues de resource timing, qui n'ont pas de méthode HTTP. Les requêtes en direct indiquent la méthode.                                                                        |
+| Non collecté    | Corps et en-têtes des requêtes et des réponses. Les entrées de console et de réseau sont expurgées avant l'envoi.                                                                                                                     |
 
 ## Modèle de données
 

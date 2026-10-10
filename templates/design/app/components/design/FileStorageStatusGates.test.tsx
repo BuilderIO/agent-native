@@ -98,7 +98,22 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
 }));
 vi.mock("@/components/design/editor/toolbar-controls", () => ({
-  DesignModeTab: () => null,
+  DesignModeTab: ({
+    active,
+    label,
+    onClick,
+  }: {
+    active: boolean;
+    label: string;
+    onClick: () => void;
+  }) => (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      onClick={onClick}
+    />
+  ),
   DesignPenToolIcon: () => null,
   DesignToolbarTool: ({
     options,
@@ -285,7 +300,13 @@ describe("ImageFillControls file storage gate", () => {
 });
 
 describe("DesignBottomToolbar file storage gate", () => {
-  const renderToolbar = () =>
+  const renderToolbar = (
+    modeProps: {
+      showModeTabs?: boolean;
+      canComment?: boolean;
+      onModeChange?: (mode: string) => void;
+    } = {},
+  ) =>
     render(
       <DesignBottomToolbar
         mode="edit"
@@ -307,10 +328,64 @@ describe("DesignBottomToolbar file storage gate", () => {
         onScale={vi.fn()}
         onMediaFiles={vi.fn()}
         onCommentPin={vi.fn()}
-        onModeChange={vi.fn()}
-        shortcutsPanelOpen={false}
+        canComment={modeProps.canComment ?? true}
+        onModeChange={modeProps.onModeChange ?? vi.fn()}
+        showModeTabs={modeProps.showModeTabs ?? false}
       />,
     );
+
+  it("carries the mode tabs only where the top bar is absent", async () => {
+    setUploadStatus();
+    const onModeChange = vi.fn();
+    await renderToolbar({ showModeTabs: false, onModeChange });
+    for (const label of [
+      "designEditor.modes.annotate",
+      "designEditor.modes.edit",
+      "designEditor.modes.interact",
+    ]) {
+      expect(
+        container.querySelector(`button[aria-label="${label}"]`),
+      ).toBeNull();
+    }
+
+    await renderToolbar({ showModeTabs: true, onModeChange });
+    const interact = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.modes.interact"]',
+    );
+    expect(interact).toBeTruthy();
+    expect(
+      container
+        .querySelector('button[aria-label="designEditor.modes.edit"]')
+        ?.getAttribute("aria-pressed"),
+    ).toBe("true");
+    await act(async () => interact?.click());
+    expect(onModeChange).toHaveBeenCalledWith("interact");
+  });
+
+  it("leaves out comments and annotation where a widget ticket cannot write them", async () => {
+    setUploadStatus();
+    const option = (key: string) =>
+      container.querySelector(`[data-option="${key}"]`);
+    const modeTab = (mode: string) =>
+      container.querySelector(
+        `button[aria-label="designEditor.modes.${mode}"]`,
+      );
+
+    await renderToolbar({ showModeTabs: true, canComment: true });
+    expect(option("comment")).toBeTruthy();
+    expect(option("draw")).toBeTruthy();
+    expect(modeTab("annotate")).toBeTruthy();
+
+    await renderToolbar({ showModeTabs: true, canComment: false });
+    expect(option("comment")).toBeNull();
+    expect(option("draw")).toBeNull();
+    expect(modeTab("annotate")).toBeNull();
+    for (const key of ["move", "frame", "rect", "pen", "text"]) {
+      expect(option(key), key).toBeTruthy();
+    }
+    expect(modeTab("edit")).toBeTruthy();
+    expect(modeTab("interact")).toBeTruthy();
+  });
 
   async function openImageVideoGate() {
     const imageVideo = container.querySelector<HTMLButtonElement>(

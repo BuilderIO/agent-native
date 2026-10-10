@@ -59,6 +59,7 @@ const messages = {
     commentsAndRepliesDescription:
       "Wenn jemand dein Deck kommentiert oder darin antwortet.",
     retry: "Erneut versuchen",
+    reload: "Neu laden",
     mcpAbout:
       "Verbinde Slides mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Slides für dich arbeiten: Decks erstellen, Folien hinzufügen und nach PowerPoint exportieren. Sie sieht nur, was du sehen kannst.",
     workspaceTitle: "Arbeitsbereich",
@@ -127,7 +128,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth ist für diese Bereitstellung nicht konfiguriert.",
     googlePickerNeedsKeys:
-      "Google Picker benötigt GOOGLE_PICKER_API_KEY und GOOGLE_PICKER_APP_ID.",
+      "Die Dateiauswahl in Google Drive ist nicht eingerichtet. Du kannst weiterhin ein Dokument über seinen Link importieren.",
     imageUploadFailed: "Bildupload fehlgeschlagen",
     imageUploadNeedsBuilder:
       "Verbinde einen Objektspeicher, um Bilder hochzuladen: Verbinde Builder.io (kostenlos) oder füge eigene S3-kompatible Speicherschlüssel unter Einstellungen → Datei-Uploads hinzu.",
@@ -244,6 +245,7 @@ const messages = {
     importCompleteFile: "Datei aus {{fileName}} importiert.",
     backToDecks: "Zurück zu Decks",
     toggleSlideList: "Folienliste umschalten",
+    openInAgentNative: "In Agent-Native öffnen",
     designSystem: "Designsystem",
     usingDesignSystem: "{{title}} wird verwendet",
     usingLinkedDesignSystem: "Verknüpftes Designsystem wird verwendet",
@@ -258,6 +260,16 @@ const messages = {
     generateImage: "Bild generieren",
     assetLibrary: "Asset-Bibliothek",
     imageOptions: "Bildoptionen",
+    videoPlayback: "Videowiedergabe",
+    autoplayVideo: "Automatische Wiedergabe",
+    loopVideo: "Video wiederholen",
+    videoUploading: "Video wird hochgeladen…",
+    videoAdded: "Video hinzugefügt",
+    videoUploadFailed: "Video-Upload fehlgeschlagen",
+    videoUploadError: "Dieses Video konnte nicht hochgeladen werden.",
+    videoFormatUnsupported: "Es werden nur MP4- und WebM-Videos unterstützt.",
+    videoTooLarge: "Videos dürfen höchstens 50 MB groß sein.",
+    videoUploadNeedsBuilder: "Videospeicher ist nicht eingerichtet.",
     cropImage: "Bild zuschneiden",
     cropHandle: "Bild {{position}} zuschneiden",
     diagrams: "Diagramme",
@@ -305,12 +317,15 @@ const messages = {
       "Öffnet direkt im Vollbild-Präsentationsmodus.",
     present: "Präsentieren",
     more: "Mehr",
-    importing: "Importiert...",
+    importing: "Wird importiert...",
     importFile: "Datei importieren",
     downloadBackup: "Backup herunterladen",
     conflictStatus: "Textkonflikt",
     conflictStatusDescription:
       "Prüfe den Textkonflikt, bevor du weitere Änderungen speicherst.",
+    accessLost: "Zugriff verloren",
+    accessLostDescription:
+      "Dein Zugriff auf diese Präsentation hat sich geändert. Deine Änderungen bleiben auf dem Bildschirm; versuche es erneut, sobald der Zugriff wiederhergestellt ist, oder lade ein Backup herunter.",
     reviewConflict: "Konflikt prüfen",
     conflictTitle: "Textkonflikt auf Folie {{number}}",
     conflictDescription:
@@ -359,6 +374,7 @@ const messages = {
     googleSlidesCreated: "In Google Slides geöffnet",
     googleSlidesCreatedHint:
       "Eine Kopie dieser Präsentation wurde in deinem Google Drive erstellt.",
+    googleSlidesGoTo: "In Google Slides öffnen",
     duplicateDeck: "Deck duplizieren",
   },
   share: {
@@ -445,7 +461,8 @@ const messages = {
     resolveThread: "Thread lösen",
     reopenThread: "Thread wieder öffnen",
     hideReplies: "Antworten ausblenden",
-    replyCount: "{{count}} Antworten",
+    replyCount_one: "{{count}} Antwort",
+    replyCount_other: "{{count}} Antworten",
     title: "Kommentare",
     addComment: "Kommentar hinzufügen",
     close: "Schließen",
@@ -779,6 +796,12 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "Der Agent-Lauf ist fehlgeschlagen, bevor Folien erstellt wurden. Prüfe die Details im Chat und versuche es erneut.",
+    generationFailed:
+      "Es wurden keine Folien erstellt. Prüfe die Details im Chat und versuche es erneut.",
+    generationOutcomeUnresolved:
+      "Wir konnten nicht bestätigen, ob Folien erstellt wurden. Prüfe das Deck oder den Chat und versuche es erneut.",
     deckHasNoSlides: "Dieses Deck enthält keine Folien.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -989,8 +1012,8 @@ const messages = {
           "Lies die angegebene Unternehmenswebsite und erstelle eine Präsentation über das Unternehmen. Melde Zugriffsfehler, statt Fakten zu erfinden.",
       },
     },
-    connectBuilderIo: "Builder.io verbinden",
-    connectingBuilder: "Builder.io wird verbunden…",
+    connectBuilderIo: "Builder.io verwenden",
+    connectingBuilder: "Builder.io wird eingerichtet…",
     recent: "Zuletzt verwendet",
     starters: {
       pitch: {
@@ -1029,9 +1052,13 @@ const messages = {
     all: "Alle",
     showMineDecks: "Von mir erstellte Decks anzeigen",
     mine: "Meine",
+    ownedByAnyone: "Beliebiger Eigentümer",
+    ownedByMe: "Mir gehörend",
+    sharedWithMe: "Mit mir geteilt",
     createDeckOrVisual: "Präsentation erstellen",
     noMineDecks: "Du hast noch keine Decks erstellt.",
     noDecksMatchSearch: "Keine Decks entsprechen deiner Suche.",
+    noDecksMatchFilter: "Keine Decks entsprechen dem aktuellen Filter.",
     deleteDeckTitle: "Deck löschen?",
     deleteDeckDescription:
       "Dadurch werden dieses Deck und alle Folien dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",

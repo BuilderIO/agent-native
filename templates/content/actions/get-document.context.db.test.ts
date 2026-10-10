@@ -18,6 +18,7 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let getDocumentAction: typeof import("./get-document.js").default;
+let getPreviewDraftAction: typeof import("./get-preview-document-draft.js").default;
 let getDocumentContextPath: typeof import("../server/lib/document-context.js").getDocumentContextPath;
 
 beforeAll(async () => {
@@ -26,6 +27,8 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   getDocumentAction = (await import("./get-document.js")).default;
+  getPreviewDraftAction = (await import("./get-preview-document-draft.js"))
+    .default;
   getDocumentContextPath = (await import("../server/lib/document-context.js"))
     .getDocumentContextPath;
   const plugin = (await import("../server/plugins/db.js")).default;
@@ -169,6 +172,12 @@ function getDocument(id: string, databaseId?: string) {
 }
 
 describe("get-document context and properties", () => {
+  it("returns an empty context path for a standalone Page", async () => {
+    await addDocument({ id: "standalone-page" });
+
+    expect((await getDocument("standalone-page")).contextPath).toEqual([]);
+  });
+
   it("returns the readable ancestor path, with collection ancestors named by their collection", async () => {
     await addCollection({ id: "context-tracker", documentId: "tracker-page" });
     await addDocument({ id: "tracker-child", parentId: "tracker-page" });
@@ -451,5 +460,135 @@ describe("get-document context and properties", () => {
         description: "numbered-page description",
       },
     ]);
+  });
+});
+
+describe("get-document preview draft", () => {
+  async function read(
+    id: string,
+    includePreviewDraft?: boolean,
+    orgId?: string,
+  ) {
+    return runWithRequestContext({ userEmail: OWNER, orgId }, () =>
+      getDocumentAction.run({ id, includePreviewDraft }, {
+        userEmail: OWNER,
+      } as any),
+    );
+  }
+  function readDraftOnItsOwn(documentId: string, orgId?: string) {
+    return runWithRequestContext({ userEmail: OWNER, orgId }, () =>
+      getPreviewDraftAction.run({ documentId }),
+    );
+  }
+
+  it("carries the reader's own draft for the active organization only when asked, as the draft read answers", async () => {
+    await addDocument({ id: "drafted-page" });
+    await addDocument({ id: "viewed-drafted-page", ownerEmail: OTHER });
+    await shareWithOwner("viewed-drafted-page");
+    await getDb()
+      .insert(schema.documentPreviewDrafts)
+      .values([
+        {
+          id: "own-draft",
+          ownerEmail: OWNER,
+          documentId: "drafted-page",
+          title: "Draft title",
+          content: "unsaved body",
+        },
+        {
+          id: "own-organization-draft",
+          ownerEmail: OWNER,
+          orgId: ORGANIZATION_ID,
+          documentId: "drafted-page",
+          title: "Organization draft",
+          content: "unsaved in the organization",
+        },
+        {
+          id: "other-draft",
+          ownerEmail: OTHER,
+          documentId: "drafted-page",
+          title: "Not mine",
+          content: "another reader's body",
+        },
+        {
+          id: "viewer-draft",
+          ownerEmail: OWNER,
+          documentId: "viewed-drafted-page",
+          title: "Old draft",
+          content: "written while it was editable",
+        },
+      ]);
+
+    expect(await read("drafted-page")).not.toHaveProperty("previewDraft");
+    const personal = (await read("drafted-page", true)).previewDraft;
+    expect(personal).toEqual({
+      editable: true,
+      draft: expect.objectContaining({
+        documentId: "drafted-page",
+        content: "unsaved body",
+      }),
+    });
+    expect(personal).toEqual(await readDraftOnItsOwn("drafted-page"));
+    const inOrganization = (await read("drafted-page", true, ORGANIZATION_ID))
+      .previewDraft;
+    expect(inOrganization?.draft?.content).toBe("unsaved in the organization");
+    expect(inOrganization).toEqual(
+      await readDraftOnItsOwn("drafted-page", ORGANIZATION_ID),
+    );
+    const viewed = (await read("viewed-drafted-page", true)).previewDraft;
+    expect(viewed).toEqual({ editable: false, draft: null });
+    expect(viewed).toEqual(await readDraftOnItsOwn("viewed-drafted-page"));
+  });
+
+  it("leaves the draft to its own read for a page reached only through its space", async () => {
+    const now = new Date().toISOString();
+    await getDb().insert(schema.contentSpaces).values({
+      id: "context-organization-space",
+      name: "Context Org",
+      kind: "organization",
+      ownerEmail: OTHER,
+      orgId: ORGANIZATION_ID,
+      filesDatabaseId: "context-organization-files",
+      createdBy: OTHER,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.documents).values({
+      id: "space-page",
+      spaceId: "context-organization-space",
+      ownerEmail: OTHER,
+      orgId: ORGANIZATION_ID,
+      title: "Space page",
+      content: "space body",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    // A share with the organization holds only while it is the active one,
+    // which the space makes it for its members.
+    await getDb().insert(schema.documentShares).values({
+      id: "space-page-share",
+      resourceId: "space-page",
+      principalType: "org",
+      principalId: ORGANIZATION_ID,
+      role: "editor",
+      createdBy: OTHER,
+      createdAt: now,
+    });
+    await getDb().insert(schema.documentPreviewDrafts).values({
+      id: "space-page-draft",
+      ownerEmail: OWNER,
+      documentId: "space-page",
+      title: "Space page",
+      content: "unsaved space body",
+    });
+
+    const page = await read("space-page", true);
+
+    expect(page.canEdit).toBe(true);
+    expect(page).not.toHaveProperty("previewDraft");
+    await expect(readDraftOnItsOwn("space-page")).rejects.toMatchObject({
+      statusCode: 403,
+    });
   });
 });

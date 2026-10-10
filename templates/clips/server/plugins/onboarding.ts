@@ -11,7 +11,7 @@ import {
 } from "../lib/s3-upload-provider.js";
 import { hasRequestVideoStorage } from "../lib/video-storage.js";
 
-const basePlugin = createOnboardingPlugin();
+const basePlugin = createOnboardingPlugin({ appId: "clips" });
 
 export default async (nitroApp: any): Promise<void> => {
   await basePlugin(nitroApp);
@@ -30,7 +30,7 @@ export default async (nitroApp: any): Promise<void> => {
       {
         id: "builder",
         kind: "builder-cli-auth",
-        label: "Connect Builder.io",
+        label: "Use Builder.io",
         description:
           "Builder.io's free tier includes video storage and AI credits.",
         primary: true,

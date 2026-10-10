@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     workspaceOwnerEmails: [] as string[],
     defaultOwnerEmail: undefined as string | undefined,
   },
+  superOrgId: undefined as string | undefined,
 }));
 
 vi.mock("@agent-native/core/db", () => ({
@@ -19,7 +20,10 @@ vi.mock("@agent-native/core/db", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  getAppConfig: () => ({ dispatch: mocks.dispatchConfig }),
+  getAppConfig: () => ({
+    dispatch: mocks.dispatchConfig,
+    observability: { superOrgId: mocks.superOrgId },
+  }),
 }));
 
 vi.mock("./dispatch-store.js", () => ({
@@ -113,6 +117,7 @@ describe("thread-debug-store", () => {
     mocks.dispatchConfig.adminEmails = [];
     mocks.dispatchConfig.workspaceOwnerEmails = [];
     mocks.dispatchConfig.defaultOwnerEmail = undefined;
+    mocks.superOrgId = undefined;
     mocks.currentExecute.mockReset();
     mocks.createDbExec.mockReset();
     mocks.currentExecute.mockImplementation(async ({ sql, args }) => ({
@@ -425,6 +430,32 @@ describe("thread-debug-store", () => {
       "run-current",
     ]);
     expect(mocks.createDbExec).not.toHaveBeenCalled();
+  });
+
+  it("lets super-org admins inspect owners outside the Dispatch roster", async () => {
+    mocks.orgId = "super-org";
+    mocks.superOrgId = "super-org";
+    mocks.currentExecute.mockImplementation(async ({ sql, args }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "admin" }] };
+      }
+      if (sql.includes("SELECT email FROM org_members")) {
+        return { rows: [{ email: "owner@example.com" }] };
+      }
+      if (sql.includes("FROM chat_threads")) {
+        return {
+          rows:
+            sql.includes("1 = 1") && args[0] === "thread-1"
+              ? [{ ...thread, owner_email: "outsider@example.com" }]
+              : [],
+        };
+      }
+      return { rows: rowsForThreadLookup(sql, args) };
+    });
+
+    const result = await getAgentThreadDebug({ threadId: "thread-1" });
+
+    expect(result.thread.ownerEmail).toBe("outsider@example.com");
   });
 
   it("keeps explicit remote sources admin-only", async () => {

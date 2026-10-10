@@ -1,4 +1,77 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "देखे गए सत्र का संदर्भ",
+    sessionsOfAll: "{count} सत्र · कुल का {percent}",
+    sessionsOfAppRoot: "{count} सत्र · {app} समूह का {percent} (n={rootCount})",
+    sessionsOfPrevious: "{count} सत्र · पिछले चरण का {percent}",
+    sessionsOfParent: "{count} सत्र · {label} का {percent}",
+    observedContinuation:
+      "वही रिकॉर्डिंग · उदाहरण {fromExample} → उदाहरण {toExample}",
+    observedContinuationCompact: "उदा. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "{count} सत्र · इस चरण का {percent}",
+    partialSample: "आंशिक नमूना",
+    continuedOnUnpictured:
+      "न दिखाए गए रास्तों पर जारी: {count} · इस चरण का {percent}",
+    noLaterStepObserved: "इसके बाद कोई चरण नहीं देखा गया",
+    examplePosition: "गैलरी {current}/{total}",
+    sourceExampleLabel: "स्रोत",
+    showExample: "स्रोत उदाहरण {current} दिखाएँ",
+    screenshotExamples: "स्क्रीनशॉट उदाहरण",
+    screenshotAlt:
+      "{label}, स्रोत उदाहरण {source}, गैलरी में स्थान {current}/{total}, कैप्चर की तारीख {date}",
+    screenshotMissing: "कोई स्क्रीनशॉट कैप्चर नहीं हुआ",
+    recordingUnavailable: "उपलब्ध नहीं",
+    recordingGap: "रिकॉर्डिंग में अंतराल",
+    recordingGapDuration: "रिकॉर्डिंग में अंतराल · {duration}",
+    eventTime: "इवेंट समय (UTC)",
+    generationCompletedEvent: "generation_completed इवेंट (UTC)",
+    replayObservation: "रीप्ले अवलोकन",
+    utcTimestamp: "UTC टाइमस्टैम्प",
+    recordingId: "रिकॉर्डिंग ID",
+    replayOffset: "रीप्ले ऑफ़सेट",
+    replayOffsetUnavailable: "उपलब्ध नहीं",
+    replaySeek: "रीप्ले खोज",
+    checkpointSeekTarget: "चेकपॉइंट खोज लक्ष्य",
+    analyticsCheckpointOffset: "Analytics चेकपॉइंट ऑफ़सेट",
+    replayObserved: "रीप्ले देखा गया",
+    screenshotCaptured: "स्क्रीनशॉट कैप्चर समय",
+    screenshotExportTimestamp: "स्क्रीनशॉट निर्यात UTC समय",
+    output: "आउटपुट",
+    outputTitle: "आउटपुट शीर्षक",
+    observedState: "देखी गई स्थिति",
+    actorRecording: "कर्ता (रिकॉर्डिंग)",
+    actorSource: "कर्ता का स्रोत",
+    recordingMetadata: "रिकॉर्डिंग मेटाडेटा",
+    evidence: "साक्ष्य",
+    generationCompletedEvidence: "generation_completed इवेंट",
+    renderedOutputEvidence:
+      "रेंडर किया गया आउटपुट देखा गया; completion event का दावा नहीं",
+    openFullPrompt: "पूरा prompt खोलें",
+    prompt: "Prompt",
+    promptEnglish: "Prompt (अंग्रेज़ी)",
+    promptSource: "Prompt (स्रोत)",
+    source: "स्रोत",
+    promptNotCaptured: "Prompt कैप्चर नहीं हुआ",
+    actorUnavailable: "कर्ता उपलब्ध नहीं",
+    replayDetails: "रीप्ले और स्रोत का विवरण",
+    sourceApp: "स्रोत ऐप",
+    route: "कैप्चर के समय वर्तमान मार्ग",
+    routeUnavailable: "उपलब्ध नहीं",
+    captureSourceFingerprint: "कैप्चर स्रोत फ़िंगरप्रिंट",
+    captureSourceUnavailable: "प्रदान नहीं किया गया",
+    recordingStarted: "रिकॉर्डिंग शुरू हुई",
+    appBandHeading: "{app} · {count} सत्र",
+    journeyTitleSummary: "{app} · {from} से {to} · {count} सत्र{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} से {to} · ऐप के अनुसार अलग-अलग समूह{partial}",
+    sessionCount: "{count} सत्र",
+    otherPaths: "अन्य रास्ते",
+    otherBranchesShown: "{total} में से {shown} शाखाएँ दिखाई गईं",
+    otherBranchDetailsUnavailable: "इस यात्रा ट्री में शाखाओं का विवरण उपलब्ध नहीं है",
+    otherBranchSourceKey: "स्रोत चरण कुंजी: {key}",
+    htmlLanguage: "hi-IN",
+  },
   composer: { menu: { integrations: "इंटीग्रेशन" } },
   creativeContext: {
     title: "लाइब्रेरी",
@@ -212,7 +285,7 @@ export default {
       tokenLabel: "Figma एक्सेस टोकन",
       tokenPlaceholder: "Figma access token paste करें",
       connecting: "कनेक्ट हो रहा है…",
-      connect: "कनेक्ट करें",
+      connect: "Figma कनेक्ट करें",
       getToken: "Token पाएँ",
       importFrame: "Frame import करें",
       chooseFrame: "Frame चुनें",
@@ -220,6 +293,18 @@ export default {
       exportSvg: "SVG export करें",
       actionsPrefill: "जाँचें, फिर भेजें",
       retry: "फिर कोशिश करें",
+      currentDesign: "मौजूदा Design",
+      chooseDesign: "एक Design (ज़रूरत हो तो पूछें कि कौन-सा Design इस्तेमाल करना है)",
+      importFramePrompt:
+        "इस Figma frame को {{destination}} में import करें और बताएँ कि importer कौन-सी सामग्री साथ नहीं ला सका: {{url}}",
+      importFilePrompt:
+        "यह Figma file खोलें, उसके शीर्ष-स्तर के frames की सूची दें, और पूछें कि कौन-सा frame import करना है: {{url}}",
+      inspectFramePrompt:
+        "इस Figma frame की संरचना, components, styles और दोबारा इस्तेमाल किए जा सकने वाले tokens का सार दें: {{url}}",
+      inspectFilePrompt:
+        "इस Figma file की संरचना, components, styles और दोबारा इस्तेमाल किए जा सकने वाले tokens का सार दें: {{url}}",
+      exportSvgPrompt:
+        "मौजूदा Design screen को Figma में इस्तेमाल के लिए SVG के रूप में export करें और बताएँ कि कौन-से हिस्से स्थिर SVG सामग्री बनेंगे।",
     },
   },
   common: {
@@ -689,6 +774,9 @@ export default {
       tools: "उपकरण",
       tokens: "टोकन",
       label: "डिज़ाइन कार्यक्षेत्र",
+      account: "खाता",
+      collapse: "साइडबार समेटें",
+      expand: "साइडबार फैलाएँ",
     },
     breakpointBar: {
       base: "आधार",
@@ -778,12 +866,10 @@ export default {
       "{{path}} इसके खुलने के बाद डिस्क पर बदल गई है। स्क्रीन को रीलोड करें और फिर से प्रयास करें।",
     applyToSourceError: "स्रोत में सहेजा नहीं जा सका: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "टोकन इम्पोर्ट करें",
       importTitle: "टोकन इम्पोर्ट करें",
       importHint:
@@ -795,6 +881,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "पेस्ट किए गए टोकन इम्पोर्ट करें",
       importedCount: "{{count}} टोकन इम्पोर्ट हुए",
+      count: "{{count}} टोकन",
+      search: "टोकन खोजें",
+      noMatches: "कोई मेल खाता टोकन नहीं",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -841,6 +930,12 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
       figmaPasteImagesDontShowAgain: "फिर से न दिखाएँ",
+      figmaPasteUploadImage: "इमेज अपलोड करें",
+      figmaPasteUploadImageFor: "“{{name}}” अपलोड करें",
+      figmaPasteImageFallbackName: "इमेज {{index}}",
+      figmaPasteUploadImageSuccess: "इमेज भर दी गई",
+      figmaPasteUploadImageInvalid: "SVG, PNG या JPG जैसी कोई इमेज फ़ाइल चुनें।",
+      figmaPasteUploadImageError: "वह इमेज नहीं भरी जा सकी",
       figmaHydrationDialogTitle: "छवियाँ लोड करने के लिए Figma जोड़ें",
       figmaHydrationDialogDescription:
         "आयातित screen{{screensPlural}} में {{count}} गायब छवि{{plural}} लोड करने के लिए अपना Figma access token दर्ज करें।",
@@ -928,6 +1023,8 @@ export default {
         figmaPasteFailed: "Figma paste आयात विफल रहा",
         uploadFailed: "File upload विफल रहा",
         invalidFigFile: ".fig पर समाप्त होने वाली file चुनें।",
+        unsupportedFileType: "कोई .fig, .html या .htm फ़ाइल चुनें।",
+        importBusy: "एक और आयात जारी है। पहले उसे पूरा करें या रद्द करें।",
         figFileTooLarge:
           "यह .fig बहुत बड़ी है — uploads की सीमा {{max}} MB है। Figma में जिस frame को import करना है उसे एक नई file में copy करें और उस file को .fig के रूप में export करें, या Paste from Figma का उपयोग करें।",
       },
@@ -939,6 +1036,8 @@ export default {
       "फ़ाइलें बनाने से पहले जनरेशन रुक गया। उसी प्रॉम्प्ट से जारी रखने के लिए फिर कोशिश करें।",
     generationStoppedCheckAgent:
       "फ़ाइलें बनाने से पहले जनरेशन रुक गया। एजेंट संदेश देखें या फिर कोशिश करें।",
+    invalidCanvasDimensions:
+      "अनुरोधित कैनवास आकार समर्थित नहीं है। संपादक की सीमाओं के भीतर सकारात्मक पिक्सेल आयामों का उपयोग करें।",
     notFound: "डिज़ाइन नहीं मिला",
     backToDesigns: "डिज़ाइन पर वापस जाएँ",
     designNotFoundDescription: "यह डिज़ाइन मौजूद नहीं है या हटा दिया गया है।",
@@ -965,7 +1064,16 @@ export default {
     saveTemplate: "टेम्पलेट सहेजें",
     templateSaved: "टेम्पलेट लाइब्रेरी में सहेजा गया",
     templateSaveFailed: "यह टेम्पलेट सहेजा नहीं जा सका",
-    clickToRename: "नाम बदलने के लिए क्लिक करें",
+    fileMenu: {
+      pendingEditsBlocked: "डुप्लिकेट करने से पहले लंबित विज़ुअल संपादन लागू करें या छोड़ दें।",
+      designs: "डिज़ाइन",
+      rename: "नाम बदलें",
+      duplicate: "डुप्लिकेट करें",
+      versionHistory: "संस्करण इतिहास",
+      import: "आयात करें…",
+      delete: "हटाएँ",
+      deleteError: "इस डिज़ाइन को हटाया नहीं जा सका",
+    },
     collaborators: "सहयोगी",
     share: "साझा करें",
     signUpToSave: "साइन अप करें",
@@ -987,6 +1095,10 @@ export default {
       interact: "Interact",
       screens: "स्क्रीन",
     },
+    topBar: {
+      modeDesign: "डिज़ाइन",
+      modeSwitch: "एडिटर मोड",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1007,6 +1119,10 @@ export default {
     keyboardShortcuts: {
       title: "कीबोर्ड शॉर्टकट",
       close: "बंद करना: कीबोर्ड शॉर्टकट",
+      search: "खोजें",
+      searchLabel: "कीबोर्ड शॉर्टकट खोजें",
+      categoriesLabel: "शॉर्टकट श्रेणियाँ",
+      empty: "“{{query}}” से मेल खाने वाला कोई शॉर्टकट नहीं",
       codeContext: "कोड",
       screenContext: "स्क्रीन",
       nudgeAmount: {
@@ -1039,11 +1155,6 @@ export default {
         leftBracket: "बायाँ कोष्ठक",
         rightBracket: "दायाँ कोष्ठक",
       },
-      descriptions: {
-        toggleUi: "पैनल तुरंत छिपाकर अपने काम पर ध्यान देने के लिए इसे अभी दबाएँ",
-        undo: "सबसे हाल के डिज़ाइन बदलाव को वापस करें",
-        redo: "अभी वापस किए गए डिज़ाइन बदलाव को फिर से लागू करें",
-      },
       categories: {
         essential: "आवश्यक",
         tools: "उपकरण",
@@ -1075,6 +1186,7 @@ export default {
         showLayers: "परतें",
         showAssets: "एसेट",
         toggleUi: "View",
+        toggleMinimalUi: "न्यूनतम UI",
         toggleComments: "टिप्पणी पिन करें",
         zoomIn: "ज़ूम इन",
         zoomOut: "ज़ूम आउट",
@@ -1352,6 +1464,16 @@ export default {
       pngReadOnlyUnavailable: "केवल-पढ़ने वाले पूर्वावलोकन में PNG कैप्चर उपलब्ध नहीं है",
       pngSaveError: "PNG सहेजा नहीं जा सका",
       pngExportError: "PNG निर्यात नहीं किया जा सका",
+      exportTooLarge:
+        "निर्यात बहुत बड़ा है। अनुरोध की सीमा 5 MB है; एम्बेड किए गए संसाधन या रास्टर आयाम कम करके फिर कोशिश करें।",
+      exportResourcesUnavailable:
+        "एक या अधिक छवियाँ, फ़ॉन्ट या स्टाइलशीट उपलब्ध न होने के कारण निर्यात सही ढंग से रेंडर नहीं हो सका। इन संसाधनों की जाँच करके फिर कोशिश करें।",
+      exportTimedOut:
+        "निर्यात का समय समाप्त हो गया। फिर कोशिश करें या डिज़ाइन का आकार कम करें।",
+      exportBusy:
+        "एक अन्य निर्यात अभी रेंडर हो रहा है। थोड़ा इंतज़ार करें और फिर कोशिश करें।",
+      exportChromiumUnavailable:
+        "रेंडरर शुरू न हो पाने के कारण निर्यात उपलब्ध नहीं है। बाद में फिर कोशिश करें।",
       pdfExportError: "PDF निर्यात नहीं किया जा सका",
       pdfDownloaded: "PDF डाउनलोड किया गया",
       pdfAllScreensDownloaded: "PDF डाउनलोड किया गया (सभी स्क्रीन)",
@@ -1472,6 +1594,12 @@ export default {
       permissionPromptSettingsInstructions:
         "ऐड्रेस बार के बाईं ओर साइट कंट्रोल आइकन पर क्लिक करें, साइट सेटिंग खोलें, फिर लोकल नेटवर्क को ‘अनुमति दें’ पर सेट करें।",
       permissionPromptRetry: "कनेक्शन फिर से आज़माएँ",
+      previewCredentialsUnavailableTitle: "लोकल प्रीव्यू क्रेडेंशियल उपलब्ध नहीं हैं",
+      previewCredentialsUnavailableDescription:
+        "इंस्पेक्टर में इस स्क्रीन का localhost कनेक्शन फिर से जोड़ें, फिर दोबारा कोशिश करें।",
+      publicPreviewUnavailableDescription:
+        "लोकलहोस्ट प्रीव्यू सार्वजनिक दर्शकों के साथ साझा नहीं किए जाते। इस स्क्रीन को देखने के लिए इस डिज़ाइन को सहयोगी के रूप में खोलें।",
+      previewCredentialsRetry: "क्रेडेंशियल फिर से आज़माएँ",
     },
   },
   multiScreenCanvas: {
@@ -1482,6 +1610,7 @@ export default {
     fork: "फोर्क",
     fullView: "पूर्ण दृश्य",
     preview: "पूर्वावलोकन",
+    focusScreen: "स्क्रीन पर फ़ोकस करें",
     openAndDuplicate:
       "{{display}} चुनें। केंद्रित स्क्रॉलिंग के लिए इंटरैक्ट मोड का उपयोग करें।",
     openAndPreview:
@@ -1556,8 +1685,12 @@ export default {
     assetAdded: "संपत्ति जोड़ी गई",
     assetsNoImageUrl: "Assets ने कोई छवि URL नहीं लौटाया।",
     failedToUploadFile: "फ़ाइल अपलोड करने में विफल",
+    imageAttachmentUnavailable:
+      "इस छवि को अपलोड के लिए तैयार नहीं किया जा सका। JPG, PNG, GIF या WebP छवि आज़माएँ।",
+    imageAttachmentTooLarge:
+      "हर छवि {{perFile}} MB तक हो सकती है; सभी छवियों का कुल आकार {{total}} MB तक हो सकता है।",
     attachmentsTooLarge:
-      "ये attachments बहुत बड़े हैं। Uploads की कुल सीमा {{max}} MB है — कम या छोटी files attach करें।",
+      "छवियाँ अपने आप अनुकूलित होती हैं। अनुकूलित छवियों और अन्य फ़ाइलों का कुल आकार {{max}} MB से अधिक नहीं होना चाहिए।",
     failedToSubmitPrompt: "प्रॉम्प्ट सबमिट नहीं हो सका",
     skipPrompt: "प्रॉम्प्ट छोड़ें",
     startBlankCanvas: "खाली कैनवास से शुरू करें",
@@ -1714,8 +1847,8 @@ export default {
     designPromptTitle: "आइए अपना पहला डिज़ाइन बनाएं",
     recent: "हाल के",
     browseAllTemplates: "सभी ब्राउज़ करें",
-    connectBuilderIo: "Builder.io कनेक्ट करें",
-    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
+    connectBuilderIo: "Builder.io इस्तेमाल करें",
+    connectingBuilder: "Builder.io सेट अप हो रहा है…",
     pageTitle: "Designs",
     searchPlaceholder: "डिज़ाइन खोजें...",
     newDesign: "नया Design",
@@ -1725,6 +1858,9 @@ export default {
     allAuthors: "सभी लेखक",
     me: "मैं",
     designFilter: "डिज़ाइन फ़िल्टर",
+    ownedByAnyone: "किसी के भी स्वामित्व वाले",
+    ownedByMe: "मेरे स्वामित्व वाले",
+    sharedWithMe: "मेरे साथ साझा",
     mine: "मेरे",
     all: "सभी",
     showMineDesigns: "मेरे डिज़ाइन दिखाएं",
@@ -1758,6 +1894,7 @@ export default {
     pickStartingPoint: "एक प्रारंभिक बिंदु चुनें या अपना स्वयं का संकेत लिखें।",
     searchNoResultsTitle: "इस खोज से मेल खाने वाला कोई डिज़ाइन नहीं है",
     searchNoResultsDescription: "कोई दूसरी खोज आज़माएँ।",
+    noDesignsMatchFilter: "वर्तमान फ़िल्टर से कोई डिज़ाइन मेल नहीं खाता।",
     starterSaas: "सास लैंडिंग पृष्ठ",
     starterDashboard: "डैशबोर्ड",
     starterPricing: "मूल्य निर्धारण पृष्ठ",
@@ -1975,6 +2112,15 @@ export default {
       "कोड और रिपॉज़िटरी इंडेक्सिंग के लिए Builder Enterprise योजना आवश्यक है",
   },
   designSystems: {
+    comingSoonTitle: "डिज़ाइन सिस्टम जल्द आ रहे हैं",
+    waitlist: {
+      join: "प्रतीक्षा सूची में शामिल हों",
+      joining: "शामिल हो रहे हैं…",
+      joined: "आप प्रतीक्षा सूची में हैं",
+      error: "प्रतीक्षा सूची में शामिल नहीं हो सके। कृपया फिर से कोशिश करें।",
+      unavailable:
+        "प्रतीक्षा सूची में शामिल होना अभी उपलब्ध नहीं है। कृपया बाद में फिर से कोशिश करें।",
+    },
     deleteError: "डिज़ाइन सिस्टम को हटाया नहीं जा सका",
     updateSuccess: "डिज़ाइन सिस्टम अपडेट किया गया",
     updateError: "डिज़ाइन सिस्टम अपडेट नहीं किया जा सका",

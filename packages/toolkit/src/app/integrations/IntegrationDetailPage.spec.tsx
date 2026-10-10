@@ -201,7 +201,7 @@ describe("IntegrationDetailPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders Figma like the prototype: logo breadcrumb, prompts, callout, and both groups", async () => {
+  it("renders the Figma integration detail page with its logo, prompts, callout, and groups", async () => {
     vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
     await render("figma");
 
@@ -356,6 +356,15 @@ describe("IntegrationDetailPage", () => {
     expect(url.searchParams.get("scope")).toBe("user");
     expect(navigate).not.toHaveBeenCalled();
     expect(rowText("sign-in")).toContain("OAuth");
+  });
+
+  it("connects an admin's server for the organization unless they pick Just me", async () => {
+    await render("context7");
+    const { action } = await renderHeader();
+    await act(async () => action?.click());
+    expect(createServer).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scope: "org" }),
+    );
   });
 
   it("lets an admin share a public server with the organization", async () => {

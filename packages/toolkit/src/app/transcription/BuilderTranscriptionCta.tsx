@@ -31,7 +31,7 @@ export function BuilderTranscriptionCta() {
           ? "Waiting for Builder.io…"
           : statusUnavailable
             ? "Builder status unavailable. Try again."
-            : "Connect Builder.io for higher-quality transcription — free credits, no API key needed."}
+            : t("agentChat.transcription.builderCtaDescription")}
       </span>
       {flow.error && (
         <span className="text-destructive text-[10px]">{flow.error}</span>
@@ -56,7 +56,9 @@ export function BuilderTranscriptionCta() {
             disabled={flow.connecting}
             className="ml-auto shrink-0 inline-flex items-center gap-1 rounded bg-foreground px-2 py-1 text-[10px] font-semibold text-background transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
           >
-            {statusUnavailable || flow.error ? "Retry" : "Connect"}
+            {statusUnavailable || flow.error
+              ? "Retry"
+              : t("agentChat.setup.connectBuilder")}
           </button>
         </DeferredBuilderConnectPopover>
       )}

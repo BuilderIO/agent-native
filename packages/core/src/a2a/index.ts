@@ -27,12 +27,16 @@ export {
   A2AMissingJsonRpcResponseError,
   A2ANoJsonRpcInterfaceError,
   A2AProtocolError,
+  assertCredentialedA2AUrl,
   callAction,
   callAgent,
   clearA2ACardCache,
+  getGlobalA2ASecret,
+  signA2AOrganizationToken,
   signA2AToken,
 } from "./client.js";
 export type { A2AProtocolErrorCode } from "./client.js";
+export { workspacePrivateOrigins } from "./workspace-private-origins.js";
 export {
   clearRemoteAgentTokenCache,
   RemoteAgentAuthError,
@@ -44,6 +48,7 @@ export type {
   RemoteAgentCredentialContext,
 } from "./remote-agent-auth.js";
 export { canonicalA2AAudience } from "./audience.js";
+export { A2APersistencePayloadError } from "./persistence-safety.js";
 export { resolveA2ACallerAuth } from "./caller-auth.js";
 export { readPeerComposerSource } from "./composer-source.js";
 export type { A2ACallerAuth } from "./caller-auth.js";

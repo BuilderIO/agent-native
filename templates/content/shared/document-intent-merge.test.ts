@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeDocumentBodyIntents } from "./document-intent-merge.js";
+import {
+  bodyHoldsChanges,
+  mergeDocumentBodyIntents,
+} from "./document-intent-merge.js";
 
 const base = "Paragraph one\nParagraph two\nParagraph three";
 const browser = "Browser edit\nParagraph two\nParagraph three";
@@ -107,6 +110,172 @@ describe("document body intent merge", () => {
         ],
       }),
     ).toMatchObject({ content: "aZbc", displaced: true });
+  });
+
+  it.each([
+    ["holds the start of", "Alpha.", "Alpha. ", "Alpha. tab one"],
+    ["finished", "Alpha.", "Alpha. tab one", "Alpha. "],
+  ])(
+    "keeps a peer's whole insertion when the incoming body %s it",
+    (_case, paragraphBase, authoredCandidateContent, currentContent) => {
+      for (const incomingWriter of ["browser:a", "browser:z"]) {
+        expect(
+          mergeDocumentBodyIntents({
+            authoredBaseContent: `${paragraphBase}\nCharlie`,
+            authoredCandidateContent: `${authoredCandidateContent}\nCharlie two`,
+            currentContent: `${currentContent}\nCharlie`,
+            currentRevision: 3,
+            incoming: {
+              writerId: incomingWriter,
+              operationId: `${incomingWriter}:1`,
+              authoredBaseRevision: 2,
+            },
+            priorIntents: [
+              {
+                writerId: "browser:m",
+                operationId: "m:1",
+                authoredBaseRevision: 2,
+                committedRevision: 3,
+                affectedBlockIndexes: [0],
+                canonicalChanged: true,
+              },
+            ],
+          }),
+        ).toMatchObject({
+          status: "resolved",
+          content: "Alpha. tab one\nCharlie two",
+          displaced: false,
+        });
+      }
+    },
+  );
+
+  it("merges a block that several of a peer's saves touched", () => {
+    const peerSave = (generation: number, committedRevision: number) => ({
+      writerId: "browser:a",
+      operationId: `a:${generation}`,
+      generation,
+      authoredBaseRevision: 1,
+      committedRevision,
+      affectedBlockIndexes: [0],
+      canonicalChanged: true,
+    });
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: "Alpha. one\nCharlie. two",
+        // Tab B's copy of tab A's typing arrived mid-word.
+        authoredCandidateContent: "Alpha. one thr\nCharlie. two four",
+        currentContent: "Alpha. one three five\nCharlie. two",
+        currentRevision: 4,
+        incoming: {
+          writerId: "browser:b",
+          operationId: "b:30",
+          generation: 30,
+          authoredBaseRevision: 2,
+        },
+        priorIntents: [peerSave(20, 3), peerSave(30, 4)],
+      }),
+    ).toMatchObject({
+      status: "resolved",
+      content: "Alpha. one three five\nCharlie. two four",
+      displaced: false,
+    });
+  });
+
+  it("lets a writer's later save replace the blocks its own earlier saves wrote", () => {
+    const ownSave = (generation: number, committedRevision: number) => ({
+      writerId: "browser:a",
+      operationId: `a:${generation}`,
+      generation,
+      authoredBaseRevision: 0,
+      committedRevision,
+      affectedBlockIndexes: [0],
+      canonicalChanged: true,
+    });
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: "Alpha.\nCharlie.",
+        authoredCandidateContent: "Alpha. one three five\nCharlie.",
+        currentContent: "Alpha. one three\nCharlie. two",
+        currentRevision: 3,
+        incoming: {
+          writerId: "browser:a",
+          operationId: "a:30",
+          generation: 30,
+          authoredBaseRevision: 0,
+        },
+        priorIntents: [
+          ownSave(10, 1),
+          {
+            writerId: "browser:b",
+            operationId: "b:10",
+            generation: 10,
+            authoredBaseRevision: 0,
+            committedRevision: 2,
+            affectedBlockIndexes: [1],
+            canonicalChanged: true,
+          },
+          ownSave(20, 3),
+        ],
+      }),
+    ).toMatchObject({
+      status: "resolved",
+      content: "Alpha. one three five\nCharlie. two",
+      displaced: false,
+    });
+  });
+
+  it("keeps an acknowledged same-writer insertion when a later stale snapshot appends text", () => {
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: "Alpha paragraph A-first\nCharlie paragraph",
+        authoredCandidateContent:
+          "Alpha paragraph A-first A-third\nCharlie paragraph B-first B-second",
+        currentContent:
+          "Alpha paragraph A-first A-second\nCharlie paragraph B-first B-second",
+        currentRevision: 4,
+        incoming: {
+          writerId: "browser:a",
+          operationId: "a:30",
+          generation: 30,
+          authoredBaseRevision: 1,
+        },
+        priorIntents: [
+          {
+            writerId: "browser:b",
+            operationId: "b:10",
+            generation: 10,
+            authoredBaseRevision: 0,
+            committedRevision: 2,
+            affectedBlockIndexes: [1],
+            canonicalChanged: true,
+          },
+          {
+            writerId: "browser:a",
+            operationId: "a:20",
+            generation: 20,
+            authoredBaseRevision: 1,
+            committedRevision: 3,
+            affectedBlockIndexes: [0],
+            canonicalChanged: true,
+          },
+          {
+            writerId: "browser:b",
+            operationId: "b:20",
+            generation: 20,
+            authoredBaseRevision: 2,
+            committedRevision: 4,
+            affectedBlockIndexes: [1],
+            canonicalChanged: true,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      status: "resolved",
+      content:
+        "Alpha paragraph A-first A-second A-third\nCharlie paragraph B-first B-second",
+      displaced: false,
+    });
   });
 
   it.each([
@@ -445,5 +614,71 @@ describe("document body intent merge", () => {
         ],
       }),
     ).toEqual({ status: "preservation-required", reason: "structure" });
+  });
+
+  it("merges a save authored on the blank-line body an agent stored", () => {
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: "Alpha.\n\nBravo.\n\nCharlie.",
+        authoredCandidateContent: "Alpha.\nBravo.\nCharlie. two",
+        currentContent: "Alpha. one\nBravo.\nCharlie.",
+        currentRevision: 2,
+        incoming: {
+          writerId: "browser:b",
+          operationId: "b:1",
+          authoredBaseRevision: 1,
+        },
+        priorIntents: [
+          {
+            writerId: "browser:a",
+            operationId: "a:1",
+            authoredBaseRevision: 1,
+            committedRevision: 2,
+            affectedBlockIndexes: [0],
+            canonicalChanged: true,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      status: "resolved",
+      content: "Alpha. one\nBravo.\nCharlie. two",
+      displaced: false,
+    });
+  });
+
+  it("still preserves a save onto a body that does not serialize as stored", () => {
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: "Alpha.\n\nBravo.\n\nCharlie.",
+        authoredCandidateContent: "Alpha.\nBravo.\nCharlie. two",
+        currentContent: "Alpha. one\n\nBravo.\n\nCharlie.",
+        currentRevision: 2,
+        incoming: {
+          writerId: "browser:b",
+          operationId: "b:1",
+          authoredBaseRevision: 1,
+        },
+        priorIntents: [
+          {
+            writerId: "mcp:z",
+            operationId: "z:1",
+            authoredBaseRevision: 1,
+            committedRevision: 2,
+            affectedBlockIndexes: [0],
+            canonicalChanged: true,
+          },
+        ],
+      }),
+    ).toEqual({ status: "preservation-required", reason: "structure" });
+  });
+
+  it("compares a held body against the blank-line body an agent stored", () => {
+    expect(
+      bodyHoldsChanges(
+        "Alpha.\n\nBravo.",
+        "Alpha. peer\nBravo. mine more",
+        "Alpha. peer\nBravo. mine",
+      ),
+    ).toBe(true);
   });
 });

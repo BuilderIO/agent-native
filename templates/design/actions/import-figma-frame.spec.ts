@@ -266,7 +266,10 @@ describe("import-figma-frame", () => {
               children: [
                 {
                   id: "page-1",
-                  children: [{ id: "9:9", name: "First Frame" }],
+                  children: [
+                    { id: "9:8", type: "RECTANGLE", name: "Cover shape" },
+                    { id: "9:9", type: "FRAME", name: "First Frame" },
+                  ],
                 },
               ],
             },
@@ -947,7 +950,7 @@ describe("import-figma-frame", () => {
     await expect(
       action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any),
     ).rejects.toThrow(
-      /Connect Builder\.io.*configure S3.*No image bytes were stored in SQL/i,
+      /Use Builder\.io.*configure S3.*No image bytes were stored in SQL/i,
     );
     expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
   });

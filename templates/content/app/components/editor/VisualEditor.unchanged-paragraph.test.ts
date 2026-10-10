@@ -1,14 +1,20 @@
 // @vitest-environment happy-dom
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
-import { nfmToDoc } from "@shared/nfm";
+import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { resolveMarkdownSuggestionRange } from "@shared/suggestion-rebase";
 import { Editor } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
 
-import { suggestionPresentation } from "./DocumentEditor";
+import {
+  suggestionPresentation,
+  suggestionPresentations,
+} from "./DocumentEditor";
 import { setSuggestionHighlights } from "./extensions/SuggestionHighlight";
-import { markdownSuggestionOperationsForEditorRevision } from "./suggestions/markdown-operation";
+import {
+  markdownSuggestionOperation,
+  markdownSuggestionOperationsForEditorRevision,
+} from "./suggestions/markdown-operation";
 import {
   createVisualEditorExtensions,
   suggestionHighlightSpec,
@@ -20,6 +26,55 @@ const canonical =
   "This reads more clearly than the original.\u00a0Indeed.\nEditors publish carefully.\nAlso:\u00a0Final sentence.\u00a0Added words\u00a0revised\u00a0finally.";
 
 describe("saved unchanged paragraph presentation", () => {
+  it("renders every saved insertion in a five-paragraph review without changing canonical content", () => {
+    const before = "First.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.";
+    const words = ["First", "Second", "Third", "Fourth", "Fifth"];
+    const suggestions = words.map((word) => ({
+      id: word,
+      status: "pending" as const,
+      operations: [
+        markdownSuggestionOperation(
+          before,
+          before.replace(`${word}.`, `${word} accepted.`),
+        )!,
+      ],
+    }));
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc(before),
+    });
+    try {
+      const canonical = editor.getJSON();
+      const presentations = suggestions.flatMap((suggestion) =>
+        suggestionPresentations(suggestion, before),
+      );
+      expect(presentations.map((presentation) => presentation.id)).toEqual(
+        words,
+      );
+      const specs = presentations.map((presentation) =>
+        suggestionHighlightSpec(editor.state.doc, presentation),
+      );
+      expect(specs.every((spec) => spec !== null)).toBe(true);
+      setSuggestionHighlights(editor.view, {
+        specs: specs.map((spec) => spec!),
+      });
+      expect(
+        [...editor.view.dom.querySelectorAll("[data-suggestion-id]")].map(
+          (node) => node.getAttribute("data-suggestion-id"),
+        ),
+      ).toEqual(words);
+      expect(editor.view.dom.textContent).toBe(
+        words.map((word) => `${word} accepted.`).join(""),
+      );
+      expect(editor.getJSON()).toEqual(canonical);
+      expect(docToNfm(editor.getJSON() as any)).toBe(
+        before.replace(/\n\n/g, "\n"),
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("renders an action-created replacement through surrounding canonicalization", () => {
     const raw =
       "# Review notes\n\nEditors publish carefully.\n\n- Verify preview\n- Verify highlight";

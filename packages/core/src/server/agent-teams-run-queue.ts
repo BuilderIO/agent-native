@@ -1,5 +1,11 @@
-import { getDbExec } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { ensureRunTables } from "../agent/run-store.js";
+import { getDbExec, withDbExec } from "../db/client.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
+import { stripInlineBytesFromJson } from "../shared/inline-bytes.js";
 
 export const MAX_AGENT_TEAM_CONTINUATIONS = 60;
 
@@ -8,6 +14,8 @@ export const MAX_AGENT_TEAM_NO_PROGRESS_CONTINUATIONS = 3;
 export const RUN_DISPATCH_STUCK_AFTER_MS = 15_000;
 
 export const RUN_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
+
+export const RUN_RECONCILIATION_RETRY_AFTER_MS = 60_000;
 
 export type AgentTeamRunQueueStatus = "queued" | "running" | "done" | "failed";
 
@@ -20,6 +28,9 @@ export interface AgentTeamRunPayload {
   parentRunId?: string;
   name?: string;
   allowedActionNames?: string[];
+  noProgressCount?: number;
+  hitContinuationLimit?: boolean;
+  transcriptRunIds?: string[];
   turnId: string;
 }
 
@@ -54,13 +65,24 @@ export async function ensureTable(): Promise<void> {
             continuation_count BIGINT NOT NULL DEFAULT 0,
             attempts BIGINT NOT NULL DEFAULT 0,
             created_at BIGINT NOT NULL,
-            updated_at BIGINT NOT NULL
+            updated_at BIGINT NOT NULL,
+            reconciliation_attempted_at BIGINT
           )
         `;
       const indexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_status ON agent_team_run_queue (status, updated_at)`;
+      const reconciliationIndexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_reconciliation ON agent_team_run_queue (status, reconciliation_attempted_at, updated_at) WHERE status IN ('queued', 'running')`;
 
       await ensureTableExists("agent_team_run_queue", createSql);
+      await ensureColumnExists(
+        "agent_team_run_queue",
+        "reconciliation_attempted_at",
+        "ALTER TABLE agent_team_run_queue ADD COLUMN IF NOT EXISTS reconciliation_attempted_at BIGINT",
+      );
       await ensureIndexExists("idx_agent_team_run_queue_status", indexSql);
+      await ensureIndexExists(
+        "idx_agent_team_run_queue_reconciliation",
+        reconciliationIndexSql,
+      );
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -179,23 +201,25 @@ export async function touchAgentTeamRun(
 export async function bumpAgentTeamContinuation(
   taskId: string,
   claimedAttempts?: number,
+  options: { requeue?: boolean } = {},
 ): Promise<number | null> {
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
+  const nextStatus = options.requeue === false ? "running" : "queued";
   const result =
     claimedAttempts !== undefined
       ? await client.execute({
           sql: `UPDATE agent_team_run_queue
-                  SET continuation_count = continuation_count + 1, status = 'queued', updated_at = ?
+                  SET continuation_count = continuation_count + 1, status = ?, updated_at = ?
                 WHERE task_id = ? AND status = 'running' AND attempts = ?`,
-          args: [now, taskId, claimedAttempts],
+          args: [nextStatus, now, taskId, claimedAttempts],
         })
       : await client.execute({
           sql: `UPDATE agent_team_run_queue
-                  SET continuation_count = continuation_count + 1, status = 'queued', updated_at = ?
+                  SET continuation_count = continuation_count + 1, status = ?, updated_at = ?
                 WHERE task_id = ? AND status = 'running'`,
-          args: [now, taskId],
+          args: [nextStatus, now, taskId],
         });
   if (getAffectedRowCount(result) === 0) return null;
   const { rows } = await client.execute({
@@ -206,23 +230,158 @@ export async function bumpAgentTeamContinuation(
   return Number((rows[0] as any).continuation_count ?? 0);
 }
 
+export async function requeueAgentTeamRunContinuation(
+  taskId: string,
+  claimedAttempts: number,
+  payload?: AgentTeamRunPayload,
+): Promise<boolean> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: payload
+      ? `UPDATE agent_team_run_queue
+            SET status = 'queued', payload = ?, updated_at = ?
+          WHERE task_id = ? AND status = 'running' AND attempts = ?`
+      : `UPDATE agent_team_run_queue
+            SET status = 'queued', updated_at = ?
+          WHERE task_id = ? AND status = 'running' AND attempts = ?`,
+    args: payload
+      ? [JSON.stringify(payload), Date.now(), taskId, claimedAttempts]
+      : [Date.now(), taskId, claimedAttempts],
+  });
+  return getAffectedRowCount(result) > 0;
+}
+
+export async function withCurrentAgentTeamRunAttempt<T>(
+  taskId: string,
+  claimedAttempts: number,
+  write: () => Promise<T>,
+  options: {
+    statuses?: readonly AgentTeamRunQueueStatus[];
+    expectedUpdatedAt?: number;
+  } = {},
+): Promise<{ current: false } | { current: true; value: T }> {
+  await ensureTable();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Agent Teams attempt fencing requires transactions.");
+  }
+
+  return client.transaction(async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `SELECT status, attempts, updated_at FROM agent_team_run_queue WHERE task_id = ? FOR UPDATE`,
+      args: [taskId],
+    });
+    const row = rows[0];
+    const allowedStatuses = options.statuses ?? ["running"];
+    if (
+      !row ||
+      !allowedStatuses.includes(row.status) ||
+      Number(row.attempts) !== claimedAttempts ||
+      (options.expectedUpdatedAt !== undefined &&
+        Number(row.updated_at) !== options.expectedUpdatedAt)
+    ) {
+      return { current: false };
+    }
+
+    const value = await withDbExec(tx, write);
+    return { current: true, value };
+  });
+}
+
+export async function persistAgentTeamRunEventIfCurrent(input: {
+  taskId: string;
+  claimedAttempts: number;
+  runId: string;
+  seq: number;
+  eventData: string;
+  terminal: boolean;
+}): Promise<boolean> {
+  await Promise.all([ensureTable(), ensureRunTables()]);
+  const statuses = input.terminal
+    ? "'queued', 'running', 'done', 'failed'"
+    : "'running'";
+  // Keep the queue lock and event write together so a reclaim cannot overtake a stale event.
+  const { rows } = await getDbExec().execute({
+    sql: `WITH current_attempt AS MATERIALIZED (
+            SELECT task_id
+            FROM agent_team_run_queue
+            WHERE task_id = ? AND attempts = ? AND status IN (${statuses})
+            FOR UPDATE
+          ), inserted_event AS (
+            INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+            SELECT ?, ?, ?, ?
+            FROM current_attempt
+            WHERE NOT EXISTS (
+              SELECT 1 FROM agent_runs
+              WHERE id = ? AND status <> 'running'
+            )
+            ON CONFLICT (run_id, seq) DO NOTHING
+            RETURNING 1
+          )
+          SELECT EXISTS (SELECT 1 FROM current_attempt) AS is_current`,
+    args: [
+      input.taskId,
+      input.claimedAttempts,
+      input.runId,
+      input.seq,
+      Date.now(),
+      stripInlineBytesFromJson(input.eventData, "placeholder"),
+      input.runId,
+    ],
+  });
+  return rows[0]?.is_current === true || rows[0]?.is_current === 1;
+}
+
 export async function completeAgentTeamRun(
   taskId: string,
   status: "done" | "failed",
   claimedAttempts?: number,
+  payload?: AgentTeamRunPayload,
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
   const result =
     claimedAttempts !== undefined
       ? await client.execute({
-          sql: `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ? AND attempts = ?`,
-          args: [status, Date.now(), taskId, claimedAttempts],
+          sql: payload
+            ? `UPDATE agent_team_run_queue SET status = ?, payload = ?, updated_at = ? WHERE task_id = ? AND status IN ('queued', 'running') AND attempts = ?`
+            : `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ? AND status IN ('queued', 'running') AND attempts = ?`,
+          args: payload
+            ? [
+                status,
+                JSON.stringify(payload),
+                Date.now(),
+                taskId,
+                claimedAttempts,
+              ]
+            : [status, Date.now(), taskId, claimedAttempts],
         })
       : await client.execute({
           sql: `UPDATE agent_team_run_queue SET status = ?, updated_at = ? WHERE task_id = ?`,
           args: [status, Date.now(), taskId],
         });
+  return getAffectedRowCount(result) > 0;
+}
+
+export async function completeAgentTeamRunIfCurrent(
+  taskId: string,
+  status: "done" | "failed",
+  expected: Pick<AgentTeamRunQueueRow, "status" | "attempts" | "updatedAt">,
+): Promise<boolean> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `UPDATE agent_team_run_queue
+            SET status = ?, updated_at = ?
+          WHERE task_id = ? AND status = ? AND attempts = ? AND updated_at = ?`,
+    args: [
+      status,
+      Date.now(),
+      taskId,
+      expected.status,
+      expected.attempts,
+      expected.updatedAt,
+    ],
+  });
   return getAffectedRowCount(result) > 0;
 }
 
@@ -240,6 +399,57 @@ export async function listActiveAgentTeamTaskIdsForOwner(
     args: [owner, limit],
   });
   return rows.map((r: any) => String(r.task_id));
+}
+
+export async function listStaleActiveAgentTeamRuns(
+  updatedBefore: number,
+  limit = 50,
+  reconciliationAttemptedBefore = Date.now() -
+    RUN_RECONCILIATION_RETRY_AFTER_MS,
+): Promise<
+  Array<{ taskId: string; ownerEmail: string; orgId: string | null }>
+> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT task_id, owner_email, org_id FROM agent_team_run_queue
+            WHERE owner_email IS NOT NULL
+              AND BTRIM(owner_email) <> ''
+              AND status IN ('queued', 'running')
+              AND updated_at <= ?
+              AND (reconciliation_attempted_at IS NULL OR reconciliation_attempted_at <= ?)
+          ORDER BY COALESCE(reconciliation_attempted_at, updated_at) ASC, updated_at ASC, task_id ASC
+          LIMIT ?`,
+    args: [updatedBefore, reconciliationAttemptedBefore, limit],
+  });
+  return rows.map((row: any) => ({
+    taskId: String(row.task_id),
+    ownerEmail: String(row.owner_email),
+    orgId: (row.org_id as string | null) ?? null,
+  }));
+}
+
+export async function claimAgentTeamRunReconciliationAttempt(
+  taskId: string,
+  updatedBefore: number,
+  reconciliationAttemptedBefore: number,
+  attemptedAt = Date.now(),
+): Promise<number | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `UPDATE agent_team_run_queue
+            SET reconciliation_attempted_at = ?
+          WHERE task_id = ?
+            AND owner_email IS NOT NULL
+            AND BTRIM(owner_email) <> ''
+            AND status IN ('queued', 'running')
+            AND updated_at <= ?
+            AND (reconciliation_attempted_at IS NULL OR reconciliation_attempted_at <= ?)
+          RETURNING attempts`,
+    args: [attemptedAt, taskId, updatedBefore, reconciliationAttemptedBefore],
+  });
+  const claimed = rows[0];
+  return claimed ? Number(claimed.attempts) : null;
 }
 
 export async function getAgentTeamRunDispatchState(

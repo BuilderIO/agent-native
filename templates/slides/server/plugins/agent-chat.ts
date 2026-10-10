@@ -1,10 +1,12 @@
 import {
   createAgentChatPlugin,
+  getRequestUserEmail,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { CLIENT_COMPATIBILITY_VERSION } from "../../shared/client-compatibility.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
 import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
@@ -12,6 +14,10 @@ import {
   createDeckChatBeginningSnapshot,
   deckVersionChatContextFromRun,
 } from "../lib/deck-versions.js";
+import {
+  readGeneratedDeckSlideCount,
+  trackGenerationCompletedForRun,
+} from "../lib/generation-completion.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -168,6 +174,20 @@ async function autosaveDeckAfterAgentTurn(
   });
 }
 
+async function reportGenerationCompletion(
+  _scope: unknown,
+  run: { runId: string; turnId?: string; threadId?: string; status: string },
+  outcome: { turnContinues: boolean },
+): Promise<void> {
+  const userEmail = getRequestUserEmail();
+  await trackGenerationCompletedForRun(
+    run,
+    outcome,
+    readGeneratedDeckSlideCount,
+    userEmail ? { userId: userEmail } : undefined,
+  );
+}
+
 async function autosaveDeckBeforeAgentTurn(
   scope: { type: string; id: string },
   run: { threadId?: string; runId?: string },
@@ -188,8 +208,10 @@ async function autosaveDeckBeforeAgentTurn(
 
 export default createAgentChatPlugin({
   appId: "slides",
+  clientCompatibilityVersion: CLIENT_COMPATIBILITY_VERSION,
   onAgentTurnStart: autosaveDeckBeforeAgentTurn,
   onAgentTurnComplete: autosaveDeckAfterAgentTurn,
+  onAgentRunComplete: reportGenerationCompletion,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {
@@ -218,7 +240,7 @@ export default createAgentChatPlugin({
     "/_agent-native/actions/request-deck-access",
   ],
   prepareRequest: prepareSlidesChatAttachments,
-  systemPrompt: `You are an AI deck assistant. You create, edit, import, export, style, share, and navigate decks through actions and shared application state. A request to create or generate a presentation starts a new deck even when chat is scoped to an open deck or follows an earlier creation request; edit the open deck only when the user asks to change it. For a short, fully planned presentation, pass every slide to one create-deck call. For long or live in-app generation, create the deck with slides: [] and add slides sequentially as they are authored so each write preserves per-slide Creative Context provenance. Use patch-deck for deck fields, ordering, or multi-slide edits; before a multi-slide content patch, make one get-deck compact=false read of every target's full source and contentHash, using slideIds when target IDs are known and reading the full deck once when they are not. Send each matching hash as baseContentHash in one patch-deck call. Set styleOnly=true only when the requested batch changes CSS while preserving text, markup, element order, and protected layout CSS. Verify once after the batch by reading the same slideIds with compact=false. Use update-slide for one targeted slide or when active editing needs per-slide content hashes. Never issue parallel writes to the same deck. The legacy generate-slides-ai action returns Markdown drafts and is not part of the persisted presentation workflow. When speaker notes are requested, keep presenter-only text in each slide's notes field rather than the slide HTML, and preserve notes during source-preserving edits.
+  systemPrompt: `You are an AI deck assistant. You create, edit, import, export, style, share, and navigate decks through actions and shared application state. A request to create or generate a presentation starts a new deck even when chat is scoped to an open deck or follows an earlier creation request; edit the open deck only when the user asks to change it. For a short, fully planned presentation, pass every slide to one create-deck call. For long or live in-app generation, create the deck with slides: [] and add slides sequentially as they are authored so each write preserves per-slide Creative Context provenance. Removing boxes, headers, or other objects is an in-slide edit: preserve slide count, order, and IDs, and use update-slide or patch-deck with patch-slide operations; use delete-slide only when the user explicitly asks to remove a slide. Use patch-deck for deck fields, ordering, or multi-slide edits; before a multi-slide content patch, make one get-deck compact=false read of every target's full source and contentHash, using slideIds when target IDs are known and reading the full deck once when they are not. Send each matching hash as baseContentHash in one patch-deck call. Set styleOnly=true only when the requested batch changes CSS while preserving text, markup, element order, and protected layout CSS. Verify once after the batch by reading the same slideIds with compact=false. Use update-slide for one targeted slide or when active editing needs per-slide content hashes. Never issue parallel writes to the same deck. The legacy generate-slides-ai action returns Markdown drafts and is not part of the persisted presentation workflow. When speaker notes are requested, keep presenter-only text in each slide's notes field rather than the slide HTML, and preserve notes during source-preserving edits.
 
 Explicit source import rule: an attachment is reference context by default and must not write slides just because it was provided. When the user explicitly asks to import or convert an attached PDF or PPTX into the current or visible deck, call view-screen when the deckId is not already known, then call import-file with the persisted filePath, matching format, deckId, and importIntoDeck: true. This is the deterministic Slides conversion path and returns imported: true with a slide count; do not use extraction-only import-file and recreate the pages with add-slide. Use import-pptx with deckId only when the user explicitly asks to replace the current deck, because that action replaces all slides. For a Google Slides URL, call import-google-slides-reference with presentationUrl; it deterministically exports and parses the presentation into a new editable Slides deck. The Import from controls and these explicit requests are the only import triggers.
 
@@ -309,7 +331,7 @@ Layout-fit workflow is strict. After creating or structurally rewriting slides, 
 
 Contrast verification is the last step of any turn that created or changed slides, even when the user did not ask about contrast. After every other edit, including layout-fit repairs, and right before the final response, call audit-contrast once for the deck. If it cannot run because the deck is not open in the editor, say contrast was not checked instead of claiming it passes. For contrast, readability, or accessibility questions about text color, call audit-contrast instead of computing ratios from hex values yourself; hand-computed ratios miss overlays, inherited colors, and design-system tokens as rendered. Fix failures in one bounded pass by adjusting the deck's color role (--deck-muted, --deck-ink, a surface) rather than recoloring one element, audit once more, then report what remains. Every replacement color must match the deck's theme: when a design system is linked, choose a passing color from that system's own palette, and if none passes, keep the token and report it rather than inventing a color; otherwise reuse a color already in the deck or shift the failing color's lightness while keeping its hue. Never introduce an unrelated hue to pass contrast. Claim the deck passes only when canClaimContrastPasses is true; report unverified text and skipped slides as not checked. If slides come back skipped as stale-render, call audit-contrast once more before reporting. Remaining unverified text sits over an image, gradient, or visual effect; name those slides and objects, and do not call them risky or fine without a measurement.
 
-Fit means the main content fits the native content area. A small outer-wrapper spill is tolerated by the measurement, but cards, text, columns, and other visible content must fit. Never use zoom, transform: scale(), overflow: hidden/scroll, clipping, or a smaller-than-16px body font to hide overflow. Preserve manually positioned freeform objects and their data-slide-object-id values; repair normal-flow structure, copy, gaps, or slide padding instead. A successful action result must include the affected slide IDs; if it does not, report that no verified write occurred.
+Fit means the main content fits the native content area. A small outer-wrapper spill is tolerated by the measurement, but cards, text, columns, and other visible content must fit. Never use zoom, transform: scale(), overflow: hidden/scroll, clipping, or a smaller-than-16px body font to hide overflow. Preserve manually positioned freeform objects and their data-slide-object-id values; repair normal-flow structure, copy, gaps, or slide padding instead. Card, text-container height, and contain rules are in the slide-editing skill. A successful action result must include the affected slide IDs; if it does not, report that no verified write occurred.
 
 Image workflow is strict. For direct insertion, call generate-image-api with insertIntoSlide: true plus deckId and slideId. Claim that an image was added only when that action returns inserted: true; a preview URL or completed generation alone is not a slide edit. For preview-only variations, call generate-image-api without insertIntoSlide, then use update-slide to place the chosen URL and re-read the target with get-deck slideId=<id> compact=false to confirm its persisted HTML contains that image source before claiming success.
 

@@ -29,6 +29,7 @@ import {
   rewriteRedirectLocation,
   escapeHtml,
 } from "./gateway-helpers.js";
+import { openUrlInBrowser } from "./open-url.js";
 import { DEV_SERVER_SUPERVISOR_ENV } from "./process.js";
 import { captureSentryException } from "./sentry-telemetry.js";
 
@@ -1384,31 +1385,10 @@ export async function runWorkspaceDev(
   function openBrowser(url: string): void {
     if (options.openBrowser === false) return;
     if (!shouldOpenWorkspaceBrowser(args, env)) return;
-    const command =
-      process.platform === "darwin"
-        ? "open"
-        : process.platform === "win32"
-          ? "cmd"
-          : "xdg-open";
-    const openArgs =
-      process.platform === "win32" ? ["/c", "start", "", url] : [url];
-    const warn = (reason: string) =>
-      stderr.write(
-        `[workspace] Could not auto-open browser (${reason}). Open ${url} manually.\n`,
-      );
-    try {
-      const child = spawnProcess(command, openArgs, {
-        stdio: "ignore",
-        detached: true,
-      });
-      // Without a listener, a missing opener (ENOENT) crashes the gateway.
-      child.on("error", (err: NodeJS.ErrnoException) =>
-        warn(err.code === "ENOENT" ? `${command} not installed` : err.message),
-      );
-      child.unref();
-    } catch (err) {
-      warn(err instanceof Error ? err.message : String(err));
-    }
+    openUrlInBrowser(url, {
+      spawnProcess,
+      warn: (message) => stderr.write("[workspace] " + message + "\n"),
+    });
   }
 
   const server = http.createServer(async (req, res) => {

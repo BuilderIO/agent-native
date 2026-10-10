@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getNewDeckGenerationRecoveryState,
   nextNewDeckGenerationPhase,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
@@ -10,6 +11,106 @@ import {
 } from "./generation-state";
 
 describe("new deck generation state", () => {
+  const base = {
+    slideCount: 0,
+    hasGenerationContext: true,
+    failureCode: undefined,
+    isNewDeckCreation: true,
+    phase: "started" as const,
+    generating: false,
+    waitingOnQuestions: false,
+  };
+
+  it("offers recovery when a started generation ends without a slide", () => {
+    expect(getNewDeckGenerationRecoveryState(base)).toBe("outcome_unresolved");
+  });
+
+  it("keeps unresolved terminal output distinct from a confirmed failure", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        failureCode: "outcome_unresolved",
+      }),
+    ).toBe("outcome_unresolved");
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        failureCode: "no_output",
+      }),
+    ).toBe("failed");
+  });
+
+  it("does not call a completed deck intentionally emptied later a failure", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({ ...base, isNewDeckCreation: false }),
+    ).toBeNull();
+  });
+
+  it("fails a generation that never started", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        isNewDeckCreation: true,
+        phase: "abandoned",
+      }),
+    ).toBe("failed");
+  });
+
+  it("keeps waiting while the run is live, questions are open, or slides exist", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({ ...base, generating: true }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({ ...base, waitingOnQuestions: true }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({ ...base, slideCount: 2 }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        isNewDeckCreation: true,
+        phase: "pending",
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps stale failure metadata from hiding active or question-waiting progress", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        failureCode: "agent_error",
+        generating: true,
+      }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        failureCode: "agent_error",
+        waitingOnQuestions: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not call a reopened, unprompted empty deck a failure", () => {
+    expect(
+      getNewDeckGenerationRecoveryState({ ...base, phase: "pending" }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        hasGenerationContext: false,
+      }),
+    ).toBeNull();
+    expect(
+      getNewDeckGenerationRecoveryState({
+        ...base,
+        phase: "pending",
+        failureCode: "agent_error",
+      }),
+    ).toBe("failed");
+  });
+
   it("shows the blocking overlay before and during the first slide", () => {
     expect(
       shouldShowNewDeckGeneratingOverlay({

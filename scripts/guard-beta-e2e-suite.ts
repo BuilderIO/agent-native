@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
 
+import ts from "typescript";
 import { parse } from "yaml";
 
 const workflowPath = ".github/workflows/beta-e2e.yml";
 const scheduledWorkflowPath = ".github/workflows/beta-e2e-scheduled.yml";
+const scheduledDigestPath = "scripts/beta-e2e-digest.ts";
 const fleetPath = "e2e/beta/lib/fleet.ts";
 const chatPath = "e2e/beta/lib/chat.ts";
 const sitesPath = "scripts/netlify-beta-sites.json";
@@ -23,8 +25,31 @@ function read(path: string): string {
   }
 }
 
+function findExportedConstDeclaration(
+  source: ts.SourceFile,
+  name: string,
+): ts.VariableDeclaration | undefined {
+  const declarations = source.statements
+    .filter(
+      (statement): statement is ts.VariableStatement =>
+        ts.isVariableStatement(statement) &&
+        (statement.declarationList.flags & ts.NodeFlags.Const) !== 0 &&
+        statement.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+        ) === true,
+    )
+    .flatMap((statement) => statement.declarationList.declarations)
+    .filter(
+      (declaration) =>
+        ts.isIdentifier(declaration.name) && declaration.name.text === name,
+    );
+
+  return declarations.length === 1 ? declarations[0] : undefined;
+}
+
 const workflow = read(workflowPath);
 const scheduledWorkflow = read(scheduledWorkflowPath);
+const scheduledDigest = read(scheduledDigestPath);
 const fleet = read(fleetPath);
 const chat = read(chatPath);
 const config = read(configPath);
@@ -60,10 +85,43 @@ if (sitesRaw) {
 }
 
 if (chat) {
-  const lunaIds = [...chat.matchAll(/gpt-5[.-]6-luna/g)];
-  if (lunaIds.length === 0) {
+  const chatSource = ts.createSourceFile(
+    chatPath,
+    chat,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  for (const name of ["LUNA_OPENAI_MODEL", "LUNA_BUILDER_MODEL"] as const) {
+    const initializer = findExportedConstDeclaration(
+      chatSource,
+      name,
+    )?.initializer;
+    const configured =
+      initializer &&
+      (ts.isStringLiteral(initializer) ||
+        ts.isNoSubstitutionTemplateLiteral(initializer))
+        ? initializer.text
+        : undefined;
+    if (configured !== "gpt-6-luna") {
+      issues.push(
+        `${chatPath} ${name} must be set to gpt-6-luna; found ${JSON.stringify(configured ?? (initializer ? "non-string initializer" : "missing"))}. This suite is budgeted for the current low-cost model.`,
+      );
+    }
+  }
+  const modelPatternDeclaration = findExportedConstDeclaration(
+    chatSource,
+    "LUNA_MODEL_PATTERN",
+  );
+  const modelPatternInitializer = modelPatternDeclaration?.initializer;
+  if (
+    !modelPatternInitializer ||
+    !ts.isRegularExpressionLiteral(modelPatternInitializer) ||
+    modelPatternInitializer.getText(chatSource) !==
+      String.raw`/^(?:openai\/)?gpt-(?:5[.-]6|6)-luna$/i`
+  ) {
     issues.push(
-      `${chatPath} no longer names a luna model id. This suite is budgeted for luna; changing the model changes what every run costs.`,
+      `${chatPath} LUNA_MODEL_PATTERN must accept only the current low-cost model aliases. Loosening the pattern can make the budget guard accept a more expensive model.`,
     );
   }
   if (!chat.includes("assertOnlyLuna")) {
@@ -670,35 +728,78 @@ if (scheduledWorkflow) {
   const requiredFragments = [
     "uses: ./.github/workflows/beta-e2e.yml",
     "lane: public+authed",
-    "issues: write",
-    "[beta-e2e] Scheduled beta health check failing",
-    "gh issue list",
-    "--state open",
-    "gh issue comment",
-    "gh issue create",
-    "gh issue close",
   ];
   for (const fragment of requiredFragments) {
     if (!scheduledWorkflow.includes(fragment)) {
       issues.push(
-        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the full authenticated suite and deduplicate its GitHub issue lifecycle.`,
+        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the full authenticated suite.`,
       );
     }
   }
 
   const reportingFragments = [
     "scripts/beta-e2e-digest.ts",
+    "beta-e2e-digest-",
+    "${{ github.run_attempt }}",
+    "state.json",
+    "current-attempt",
+    "branch=main",
+    "actions/upload-artifact@",
+    "retention-days: 90",
+    "COLLECT_OUTCOME: ${{ steps.collect.outcome }}",
+    "metadata_incomplete=$metadata_incomplete",
+    "Fail after posting an incomplete metadata report",
+    "Findings: 1 total; showing 1; 0 omitted from this Slack message.",
     "QA_SLACK_BOT_TOKEN",
     "method: chat.postMessage",
     "C0C4U4XRT6X",
     "Slack notification not configured",
+    "Verify the Slack report was posted",
+    "::error::$message",
   ];
   for (const fragment of reportingFragments) {
     if (!scheduledWorkflow.includes(fragment)) {
       issues.push(
-        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. A failed run must produce the digest issue and the #qa-agent-native Slack message, and an unconfigured Slack token must be reported rather than skipped silently.`,
+        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. A failed run must preserve the full artifact-backed report and send one rolled-up #qa-agent-native Slack message when its notification is due.`,
       );
     }
+  }
+  if (!scheduledDigest.includes("Full report and Playwright artifacts")) {
+    issues.push(
+      `${scheduledDigestPath} must link the full per-run report from its single Slack summary.`,
+    );
+  }
+  const forbiddenDigestFragments = [
+    "issueNumber",
+    "issueUrl",
+    "ISSUE_TITLE",
+    "ISSUE_LABELS",
+    "issue.md",
+    "beta-e2e-state:v1",
+    "STATE_MARKER_PREFIX",
+    "renderIssueBody",
+  ];
+  for (const fragment of forbiddenDigestFragments) {
+    if (scheduledDigest.includes(fragment)) {
+      issues.push(
+        `${scheduledDigestPath} must use artifact-backed state and reports; found the removed issue fallback ${JSON.stringify(fragment)}.`,
+      );
+    }
+  }
+  const forbiddenFragments = ["issues: write", "gh issue ", "ISSUE_TITLE"];
+  for (const fragment of forbiddenFragments) {
+    if (scheduledWorkflow.includes(fragment)) {
+      issues.push(
+        `${scheduledWorkflowPath} must not use GitHub Issues for beta E2E findings; found ${JSON.stringify(fragment)}.`,
+      );
+    }
+  }
+  if (
+    (scheduledWorkflow.match(/method:\s*chat\.postMessage/g) ?? []).length !== 1
+  ) {
+    issues.push(
+      `${scheduledWorkflowPath} must post one batched Slack message per scheduled report, not one message per finding.`,
+    );
   }
   if (
     !/uses:\s*slackapi\/slack-github-action@[0-9a-f]{40}\s+#\s*v\d/.test(
@@ -709,6 +810,15 @@ if (scheduledWorkflow) {
       `${scheduledWorkflowPath} must pin slackapi/slack-github-action by full commit SHA with a version comment, like every other action in this repository.`,
     );
   }
+  if (
+    !/uses:\s*actions\/upload-artifact@[0-9a-f]{40}\s+#\s*v\d/.test(
+      scheduledWorkflow,
+    )
+  ) {
+    issues.push(
+      `${scheduledWorkflowPath} must pin actions/upload-artifact by full commit SHA with a version comment.`,
+    );
+  }
   try {
     const parsed = parse(scheduledWorkflow) as {
       jobs?: Record<string, { permissions?: Record<string, string> }>;
@@ -717,10 +827,10 @@ if (scheduledWorkflow) {
       .map(([scope, level]) => `${scope}: ${level}`)
       .sort()
       .join(", ");
-    const expected = "actions: read, contents: read, issues: write";
+    const expected = "actions: read, contents: read";
     if (permissions !== expected) {
       issues.push(
-        `${scheduledWorkflowPath} report job permissions must be exactly "${expected}" (read the run's jobs and artifacts, write the issue) and nothing broader; found "${permissions}".`,
+        `${scheduledWorkflowPath} report job permissions must be exactly "${expected}" (read run data and artifacts only) and nothing broader; found "${permissions}".`,
       );
     }
   } catch (error) {

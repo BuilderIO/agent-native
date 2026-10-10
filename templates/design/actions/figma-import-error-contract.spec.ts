@@ -167,7 +167,7 @@ describe("figma import failure contract", () => {
     { status: 404, detail: "Not found", expectedStatus: 404 },
     { status: 500, detail: "Figma is down", expectedStatus: 502 },
   ])(
-    "surfaces Figma's own $status so the user can act on it",
+    "surfaces the provider status so the user can act on it",
     async ({ status, detail, expectedStatus }) => {
       mocks.executeProviderApiRequest.mockResolvedValue({
         response: { ok: false, status, statusText: "Error", text: detail },
@@ -314,9 +314,7 @@ describe("figma import failure contract", () => {
     });
     expect(failure.userFacing).toBe(true);
     expect(failure.errorCode).toBe("figma_storage_unavailable");
-    expect(failure.message).toMatch(
-      /Settings > File uploads|Connect Builder\.io/,
-    );
+    expect(failure.message).toMatch(/Settings > File uploads|Use Builder\.io/);
   });
 
   it("names an unauthenticated import instead of returning a generic 500", async () => {

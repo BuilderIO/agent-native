@@ -69,6 +69,23 @@ export const mcpConnectMessages: McpConnectMessages = {
   couldNotCreate: "No se pudo crear el token.",
   networkError: "Error de red. Inténtalo de nuevo.",
   urlTitle: "Tu URL de MCP",
+  servicePrincipals: "Principales de servicio",
+  principalUngoverned: "Sin gobernanza",
+  principalActive: "Activo",
+  principalSuspended: "Suspendido",
+  principalRetired: "Retirado",
+  principalUngovernedHint:
+    "No hay propietario ni permisos de acciones definidos.",
+  principalOwner: "Propietario",
+  principalRisk: "Riesgo",
+  riskLow: "bajo",
+  riskMedium: "medio",
+  riskHigh: "alto",
+  suspend: "Suspender",
+  resume: "Reanudar",
+  couldNotUpdatePrincipal: "No se pudo actualizar el principal de servicio.",
+  containmentIncomplete:
+    "Actualizado, pero no se pudieron detener algunas ejecuciones o tokens. Inténtalo de nuevo.",
 };
 
 export const mcpSettingsMessages: McpSettingsMessages = {
@@ -92,6 +109,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "Abre la página completa de conexión para crear un token para clientes que no pueden completar OAuth.",
   mcpOpenConnectPage: "Abrir página completa de conexión",
+  mcpIdentityError: "No se pudieron cargar los datos de conexión de esta app.",
+  mcpRetry: "Reintentar",
   mcpConnect: mcpConnectMessages,
 };
 

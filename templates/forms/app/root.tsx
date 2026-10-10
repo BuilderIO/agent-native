@@ -28,6 +28,7 @@ import type { LinksFunction } from "react-router";
 
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { isFormsAskPath } from "@/lib/chat-route";
 import { formsRoutePath } from "@/lib/form-builder-tabs";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -255,12 +256,12 @@ function FormsCommandMenu({
             {t("header.form")}
           </CommandMenu.Item>
         ) : null}
-        {location.pathname === "/ask" ? (
+        {isFormsAskPath(location.pathname) ? (
           <CommandMenu.Item onSelect={() => navigate("/forms")}>
             {t("navigation.allForms")}
           </CommandMenu.Item>
         ) : null}
-        {location.pathname !== "/ask" && !formId ? (
+        {!isFormsAskPath(location.pathname) && !formId ? (
           <CommandMenu.Item onSelect={() => navigate("/ask")}>
             {t("navigation.askForms")}
           </CommandMenu.Item>

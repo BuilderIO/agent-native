@@ -29,6 +29,8 @@ export const documents = table("documents", {
   sourcePath: text("source_path"),
   sourceRootPath: text("source_root_path"),
   sourceUpdatedAt: text("source_updated_at"),
+  creationRequestDigest: text("creation_request_digest"),
+  creationCreativeContext: text("creation_creative_context"),
   trashedAt: text("trashed_at"),
   trashRootId: text("trash_root_id"),
   trashedBy: text("trashed_by"),
@@ -156,6 +158,32 @@ export const documentVersions = table(
       version.bodyRevision,
     ),
   ],
+);
+
+/**
+ * Where an imported page came from. The original file stays in private blob
+ * storage for the page's lifetime so a better importer can re-run it. Undo
+ * compares the page's state with what the import wrote before trashing it, and
+ * a retried import must match the request that wrote these rows.
+ */
+export const documentImports = table(
+  "document_imports",
+  {
+    documentId: text("document_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    importId: text("import_id").notNull(),
+    requestSha256: text("request_sha256").notNull(),
+    sourceName: text("source_name").notNull(),
+    sourceFormat: text("source_format").notNull(),
+    sourceBytes: integer("source_bytes").notNull(),
+    sourceSha256: text("source_sha256").notNull(),
+    originalBlob: text("original_blob").notNull(),
+    importedTitle: text("imported_title").notNull(),
+    importedStateSha256: text("imported_state_sha256").notNull(),
+    reportJson: text("report_json").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (row) => [index("document_imports_import_idx").on(row.importId)],
 );
 
 export const documentPreviewDrafts = table(

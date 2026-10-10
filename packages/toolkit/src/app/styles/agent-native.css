@@ -1061,10 +1061,31 @@
 }
 
 .agent-builder-setup-card--attached {
+  inline-size: min(
+    calc(100% - var(--agent-kit-composer-adjacent-inline-inset) - 0.5rem),
+    var(--agent-kit-conversation-max-width)
+  );
+  min-inline-size: 0;
+  max-inline-size: min(100%, var(--agent-kit-conversation-max-width));
   position: relative;
   z-index: 1;
+  margin-inline: auto;
   margin-bottom: -1.875rem;
   padding-bottom: 0 !important;
+  padding-inline: 0 !important;
+  animation: agent-builder-setup-card-enter 220ms var(--ease-out-strong) both;
+}
+
+@keyframes agent-builder-setup-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .agent-builder-setup-card--attached .agent-builder-setup-card__panel {
@@ -1085,10 +1106,20 @@
   padding-bottom: calc(0.625rem + 1.875rem);
 }
 
-.agent-builder-setup-card--attached:not(.agent-builder-setup-card--sidebar) {
-  max-inline-size: min(100%, var(--agent-kit-conversation-max-width));
-  margin-inline: auto;
-  padding-inline: 0 !important;
+.agent-sidebar-panel .agent-builder-setup-card--attached {
+  inline-size: min(
+    calc(100% - 0.5rem),
+    var(--agent-kit-conversation-max-width)
+  );
+}
+
+@media (max-width: 40rem) {
+  .agentkit-composer-stack .agent-builder-setup-card--attached {
+    inline-size: min(
+      calc(100% - 0.5rem),
+      var(--agent-kit-conversation-max-width)
+    );
+  }
 }
 
 .agent-builder-setup-inline--attached {
@@ -1241,6 +1272,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agent-builder-setup-card--attached {
+    animation: none;
+  }
+
   .agent-builder-setup-card--attached.animate-bounce-once {
     animation: none;
   }
@@ -1250,7 +1285,10 @@
   min-height: var(--agent-kit-composer-min-height);
   border-radius: var(--agent-kit-composer-radius);
   border-color: var(--agent-kit-composer-border-color);
-  background: var(--agent-kit-raised-surface);
+  background: var(
+    --agent-kit-composer-surface,
+    var(--agent-kit-raised-surface)
+  );
   box-shadow: var(--agent-kit-composer-elevation);
 }
 

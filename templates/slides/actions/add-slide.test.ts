@@ -1,4 +1,7 @@
-import { isAgentActionStopError } from "@agent-native/core";
+import {
+  isActionContractError,
+  isAgentActionStopError,
+} from "@agent-native/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hashSlideContent } from "../shared/slide-fit";
@@ -158,15 +161,48 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
+const settingsStore = new Map<string, Record<string, unknown>>();
+vi.mock("@agent-native/core/settings", () => ({
+  getSetting: async (key: string) => settingsStore.get(key) ?? null,
+  mutateSetting: async (
+    key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Record<string, unknown>,
+  ) => {
+    const next = updater(settingsStore.get(key) ?? null);
+    settingsStore.set(key, next);
+    return next;
+  },
+  deleteSettingIfValue: async (
+    key: string,
+    expected: Record<string, unknown>,
+  ) => {
+    if (JSON.stringify(settingsStore.get(key)) !== JSON.stringify(expected)) {
+      return false;
+    }
+    return settingsStore.delete(key);
+  },
+  listSettingsByPrefix: async (prefix: string) =>
+    [...settingsStore]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value })),
+}));
+
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => undefined,
   getRequestRunContext: () => undefined,
+  getRequestUserEmail: () => undefined,
 }));
 
+import { trackGenerationCompletedForRun } from "../server/lib/generation-completion";
 import action from "./add-slide";
+
+const finished = { turnContinues: false };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  settingsStore.clear();
   mockGetGenerationCreativeContext.mockResolvedValue(null);
   mockTrack.mockReset();
   deckData = {
@@ -206,9 +242,276 @@ describe("add-slide", () => {
     });
   });
 
+  it("reports a home-prompt generation once, when the run that wrote its first slide ends", async () => {
+    deckData = {
+      title: "Untitled",
+      slides: [],
+      generationContext: { targetSlideCount: 2, generationAttemptId: "a-1" },
+    };
+    const ctx = { caller: "tool", runId: "run-1", turnId: "turn-1" } as never;
+
+    await action.run(
+      { deckId: "deck-1", slideId: "s-1", content: "<div>One</div>" },
+      ctx,
+    );
+    deckData.slides = [{ id: "s-1", content: "<div>One</div>" }];
+    await action.run(
+      { deckId: "deck-1", slideId: "s-2", content: "<div>Two</div>" },
+      ctx,
+    );
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+
+    const run = {
+      runId: "run-1",
+      turnId: "turn-1",
+      threadId: "thread-1",
+      status: "completed",
+    };
+    await trackGenerationCompletedForRun(run, finished, async () => 2);
+    await trackGenerationCompletedForRun(run, finished, async () => 2);
+
+    const completed = mockTrack.mock.calls.filter(
+      ([name]) => name === "generation_completed",
+    );
+    expect(completed).toHaveLength(1);
+    expect(completed[0]?.[1]).toMatchObject({
+      generation_attempt_id: "a-1",
+      output_id: "deck-1",
+      slide_count: 2,
+      target_slide_count: 2,
+      outcome: "completed",
+      source: "agent_run",
+    });
+  });
+
+  describe("generation_completed only for a finished turn", () => {
+    async function writeFirstSlide(turnId: string, runId: string) {
+      deckData = {
+        title: "Untitled",
+        slides: [],
+        generationContext: {
+          targetSlideCount: 5,
+          generationAttemptId: "a-1",
+          generationStartedAt: 100,
+        },
+      };
+      await action.run(
+        { deckId: "deck-1", slideId: "s-1", content: "<div>One</div>" },
+        { caller: "tool", runId, turnId } as never,
+      );
+    }
+    const reported = () =>
+      mockTrack.mock.calls.filter(([name]) => name === "generation_completed");
+
+    it.each(["errored", "aborted"])(
+      "reports nothing for a %s run",
+      async (status) => {
+        await writeFirstSlide("turn-fail", "run-fail");
+
+        await trackGenerationCompletedForRun(
+          { runId: "run-fail", turnId: "turn-fail", status },
+          finished,
+          async () => 1,
+        );
+
+        expect(reported()).toHaveLength(0);
+      },
+    );
+
+    it("waits for the final chunk of a chained turn and reports its slide count", async () => {
+      await writeFirstSlide("turn-chain", "run-chunk-1");
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-1", turnId: "turn-chain", status: "completed" },
+        { turnContinues: true },
+        async () => 2,
+      );
+      expect(reported()).toHaveLength(0);
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-2", turnId: "turn-chain", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      expect(reported()).toHaveLength(1);
+      expect(reported()[0]?.[1]).toMatchObject({
+        slide_count: 5,
+        outcome: "completed",
+        run_id: "run-chunk-2",
+        started_at_ms: 100,
+        ended_at_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
+      });
+    });
+
+    it("marks a skewed run completion instead of clamping duration", async () => {
+      await writeFirstSlide("turn-skew", "run-skew");
+      vi.spyOn(Date, "now").mockReturnValue(50);
+
+      try {
+        await trackGenerationCompletedForRun(
+          { runId: "run-skew", turnId: "turn-skew", status: "completed" },
+          finished,
+          async () => 2,
+        );
+      } finally {
+        vi.restoreAllMocks();
+      }
+
+      expect(reported()[0]?.[1]).toMatchObject({
+        started_at_ms: 100,
+        ended_at_ms: 50,
+        duration_error: "clock_skew",
+      });
+      expect(reported()[0]?.[1]).not.toHaveProperty("duration_ms");
+    });
+
+    it("ends generation timing before reading the slide count", async () => {
+      await writeFirstSlide("turn-read-latency", "run-read-latency");
+      let now = 500;
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+
+      try {
+        await trackGenerationCompletedForRun(
+          {
+            runId: "run-read-latency",
+            turnId: "turn-read-latency",
+            status: "completed",
+          },
+          finished,
+          async () => {
+            now = 900;
+            return 5;
+          },
+        );
+      } finally {
+        vi.restoreAllMocks();
+      }
+
+      expect(reported()[0]?.[1]).toMatchObject({
+        started_at_ms: 100,
+        ended_at_ms: 500,
+        duration_ms: 400,
+      });
+    });
+
+    it("keeps waiting when an errored chunk chains a continuation, and drops the turn if that fails", async () => {
+      await writeFirstSlide("turn-retry", "run-chunk-1");
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-1", turnId: "turn-retry", status: "errored" },
+        { turnContinues: true },
+        async () => 1,
+      );
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-2", turnId: "turn-retry", status: "errored" },
+        finished,
+        async () => 1,
+      );
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-3", turnId: "turn-retry", status: "completed" },
+        finished,
+        async () => 5,
+      );
+
+      expect(reported()).toHaveLength(0);
+    });
+
+    it("keeps a handed-off turn's marker in shared storage until its final run reports", async () => {
+      await writeFirstSlide("turn-shared", "run-chunk-1");
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-1", turnId: "turn-shared", status: "completed" },
+        { turnContinues: true },
+        async () => 2,
+      );
+      expect([...settingsStore.keys()]).toEqual([
+        "slides-generation-pending:turn-shared",
+      ]);
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-2", turnId: "turn-shared", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      expect(reported()).toHaveLength(1);
+      expect(settingsStore.size).toBe(0);
+    });
+
+    it("drops an expired shared marker instead of reporting it", async () => {
+      settingsStore.set("slides-generation-pending:turn-old", {
+        outputs: [
+          {
+            deckId: "deck-1",
+            generationAttemptId: "a-old",
+            targetSlideCount: null,
+          },
+        ],
+        expiresAt: Date.now() - 1,
+      });
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-late", turnId: "turn-old", status: "completed" },
+        finished,
+        async () => 5,
+      );
+
+      expect(reported()).toHaveLength(0);
+      expect(settingsStore.size).toBe(0);
+    });
+
+    it("keeps the marker when the slide count cannot be read and reports once on a later run", async () => {
+      await writeFirstSlide("turn-read", "run-read");
+
+      await expect(
+        trackGenerationCompletedForRun(
+          { runId: "run-read", turnId: "turn-read", status: "completed" },
+          finished,
+          async () => {
+            throw new Error("database unavailable");
+          },
+        ),
+      ).rejects.toThrow("database unavailable");
+      expect(reported()).toHaveLength(0);
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-read-2", turnId: "turn-read", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      await trackGenerationCompletedForRun(
+        { runId: "run-read-3", turnId: "turn-read", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      expect(reported()).toHaveLength(1);
+    });
+  });
+
+  it("does not report a follow-up edit to an already generated deck", async () => {
+    deckData.generationContext = { generationAttemptId: "a-1" };
+
+    await action.run(
+      { deckId: "deck-1", slideId: "s-3", content: "<div>Three</div>" },
+      { caller: "tool", runId: "run-2" } as never,
+    );
+    await trackGenerationCompletedForRun(
+      { runId: "run-2", status: "completed" },
+      finished,
+      async () => 3,
+    );
+
+    expect(
+      mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
+  });
+
   it("closes an incremental generation on its final slide", async () => {
     deckData.generationContext = {
       generationAttemptId: "attempt-1",
+      generationStartedAt: 100,
       generationMode: "action",
     };
 
@@ -229,7 +532,40 @@ describe("add-slide", () => {
       slide_count: 3,
       generation_mode: "incremental",
       source: "add_slide_action",
+      started_at_ms: 100,
+      ended_at_ms: expect.any(Number),
+      duration_ms: expect.any(Number),
     });
+  });
+
+  it("marks a skewed incremental completion instead of clamping duration", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationStartedAt: 100,
+      generationMode: "action",
+    };
+    vi.spyOn(Date, "now").mockReturnValue(50);
+
+    try {
+      await action.run({
+        deckId: "deck-1",
+        slideId: "slide-final",
+        content: "<div>Final</div>",
+        generationComplete: true,
+      });
+    } finally {
+      vi.restoreAllMocks();
+    }
+
+    const completed = mockTrack.mock.calls.find(
+      ([name]) => name === "generation_completed",
+    );
+    expect(completed?.[1]).toMatchObject({
+      started_at_ms: 100,
+      ended_at_ms: 50,
+      duration_error: "clock_skew",
+    });
+    expect(completed?.[1]).not.toHaveProperty("duration_ms");
   });
 
   it("requires an explicit completion flag for each action-owned incremental write", async () => {
@@ -370,7 +706,7 @@ describe("add-slide", () => {
   });
 
   it.each(["tool", "webmcp"] as const)(
-    "rejects agent additions after the requested slide count for %s callers",
+    "returns a recoverable error when %s callers add after the requested slide count",
     async (caller) => {
       deckData.generationContext = { targetSlideCount: 2 };
 
@@ -385,19 +721,194 @@ describe("add-slide", () => {
         )
         .catch((caught: unknown) => caught);
 
-      expect(isAgentActionStopError(error)).toBe(true);
+      expect(isActionContractError(error)).toBe(true);
       expect(error).toMatchObject({
-        name: "AgentActionStopError",
+        name: "ActionContractError",
         errorCode: "target_slide_count_reached",
+        statusCode: 409,
         details: {
           deckId: "deck-1",
           currentSlideCount: 2,
           targetSlideCount: 2,
         },
       });
+      expect(error).toMatchObject({
+        message: expect.stringContaining("No slide was added"),
+      });
+      expect((error as Error).message).toContain(
+        "targetSlideCountOverride set to the new total of real slides",
+      );
+      expect(isAgentActionStopError(error)).toBe(false);
       expect(updateFn).not.toHaveBeenCalled();
     },
   );
+
+  describe("blank placeholders and the persisted target", () => {
+    const blank = '<div class="fmd-slide"></div>';
+    const withBlanks = (blankCount: number, realCount: number) => [
+      ...Array.from({ length: blankCount }, (_, index) => ({
+        id: `blank-${index + 1}`,
+        content: blank,
+      })),
+      ...Array.from({ length: realCount }, (_, index) => ({
+        id: `real-${index + 1}`,
+        content: `<div>Real ${index + 1}</div>`,
+      })),
+    ];
+    const input = {
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+    };
+
+    it("accepts a slide when default blanks fill the deck but real slides are under the target", async () => {
+      deckData.slides = withBlanks(10, 1);
+      deckData.generationContext = { targetSlideCount: 11 };
+
+      await action.run(input, { caller: "tool" });
+
+      expect(JSON.parse(updatedFields!.data as string).slides).toHaveLength(12);
+    });
+
+    it("still stops once the real slides reach the target, whatever the blank count", async () => {
+      deckData.slides = withBlanks(3, 2);
+      deckData.generationContext = { targetSlideCount: 2 };
+
+      const error = await action
+        .run(input, { caller: "tool" })
+        .catch((caught: unknown) => caught);
+
+      expect(isActionContractError(error)).toBe(true);
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: {
+          currentSlideCount: 5,
+          realSlideCount: 2,
+          targetSlideCount: 2,
+        },
+      });
+      expect(updateFn).not.toHaveBeenCalled();
+    });
+
+    it("validates targetSlideCountOverride against the same real count as the cap", async () => {
+      deckData.slides = withBlanks(2, 1);
+      deckData.generationContext = { targetSlideCount: 2 };
+
+      await expect(
+        action.run(
+          { ...input, targetSlideCountOverride: 4 },
+          { caller: "tool" },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "target_slide_count_override_invalid",
+        details: {
+          currentSlideCount: 3,
+          realSlideCount: 1,
+          targetSlideCount: 2,
+          targetSlideCountOverride: 4,
+        },
+      });
+      expect(updateFn).not.toHaveBeenCalled();
+
+      deckData.slides = withBlanks(2, 2);
+      await action.run(
+        { ...input, targetSlideCountOverride: 3 },
+        { caller: "tool" },
+      );
+      const updated = JSON.parse(updatedFields!.data as string);
+      expect(updated.generationContext.targetSlideCount).toBe(3);
+    });
+
+    it("reports the real slide count after the write alongside the slide count", async () => {
+      deckData.slides = withBlanks(10, 1);
+      deckData.generationContext = { targetSlideCount: 11 };
+
+      const result = await action.run(input, { caller: "tool" });
+
+      expect(result).toMatchObject({ slideCount: 12, realSlideCount: 2 });
+    });
+
+    it("does not count a blank slide it just added as real", async () => {
+      deckData.slides = withBlanks(1, 1);
+      deckData.generationContext = { targetSlideCount: 3 };
+
+      const result = await action.run(
+        { ...input, content: blank },
+        { caller: "tool" },
+      );
+
+      expect(result).toMatchObject({ slideCount: 3, realSlideCount: 1 });
+    });
+
+    it("does not complete generation on a blank final write that leaves the real slides short", async () => {
+      deckData.slides = withBlanks(1, 2);
+      deckData.generationContext = {
+        targetSlideCount: 3,
+        generationAttemptId: "attempt-1",
+        generationMode: "action",
+      };
+
+      await expect(
+        action.run(
+          { ...input, content: blank, generationComplete: true },
+          { caller: "tool" },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "generation_completed_before_target_reached",
+        details: {
+          realSlideCount: 2,
+          postWriteRealSlideCount: 2,
+          targetSlideCount: 3,
+        },
+      });
+      expect(updateFn).not.toHaveBeenCalled();
+    });
+
+    it("omits the real slide count when the deck has no target to compare it with", async () => {
+      deckData.slides = withBlanks(1, 1);
+
+      const result = await action.run(input, { caller: "tool" });
+
+      expect(result).toMatchObject({ slideCount: 3 });
+      expect(result).not.toHaveProperty("realSlideCount");
+    });
+
+    it("counts a slide drawn from excalidraw data toward the target", async () => {
+      deckData.slides = [
+        {
+          id: "drawn-1",
+          content: blank,
+          excalidrawData: JSON.stringify({ elements: [{ id: "rect-1" }] }),
+        },
+      ];
+      deckData.generationContext = { targetSlideCount: 1 };
+
+      await expect(action.run(input, { caller: "tool" })).rejects.toMatchObject(
+        {
+          errorCode: "target_slide_count_reached",
+          details: { realSlideCount: 1, targetSlideCount: 1 },
+        },
+      );
+      expect(updateFn).not.toHaveBeenCalled();
+    });
+
+    it("does not complete generation while real slides are short of the target", async () => {
+      deckData.slides = withBlanks(2, 1);
+      deckData.generationContext = {
+        targetSlideCount: 3,
+        generationAttemptId: "attempt-1",
+        generationMode: "action",
+      };
+
+      await expect(
+        action.run({ ...input, generationComplete: true }, { caller: "tool" }),
+      ).rejects.toMatchObject({
+        errorCode: "generation_completed_before_target_reached",
+        details: { realSlideCount: 1, targetSlideCount: 3 },
+      });
+      expect(updateFn).not.toHaveBeenCalled();
+    });
+  });
 
   it.each([
     {
@@ -562,6 +1073,38 @@ describe("add-slide", () => {
       content: "<div>New</div>",
       notes: "Explain the customer outcome before advancing.",
     });
+  });
+
+  it("returns hygieneWarnings for a slide the sanitizer would strip, and still writes it", async () => {
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-svg",
+      content:
+        '<div class="fmd-slide"><svg viewBox="0 0 4 4"></svg><footer>04 / 12</footer></div>',
+    })) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+
+    expect(JSON.parse(updatedFields!.data as string).slides[2].id).toBe(
+      "slide-svg",
+    );
+    expect(result.hygieneWarnings?.warnings).toEqual([
+      expect.objectContaining({
+        code: "inline-svg",
+        severity: "error",
+        count: 1,
+        slideIds: ["slide-svg"],
+      }),
+      expect.objectContaining({ code: "typed-page-number", count: 1 }),
+    ]);
+  });
+
+  it("leaves the result unchanged for a clean slide", async () => {
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-clean",
+      content: "<div>New</div>",
+    });
+
+    expect(result).not.toHaveProperty("hygieneWarnings");
   });
 
   it("clears source provenance when adding to an imported deck", async () => {

@@ -7,6 +7,7 @@ import {
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import {
   CreativeContextComposerChip,
   useCreativeContextLab,
@@ -28,12 +29,14 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
 import {
   buildSlidesAgentContext,
   getSlidesAgentScopeLabel,
+  haveSameSlidesAgentScope,
   readPublishedSlidesSelection,
   SLIDES_SELECTION_CHANGED_EVENT,
   type SlidesAgentSelection,
@@ -127,6 +130,7 @@ export function Layout({ children }: LayoutProps) {
   const t = useT();
   const { flushDeckSave } = useDecks();
   const creativeContextEnabled = useCreativeContextLab();
+  const mcpAppWidgetEmbed = useIsMcpAppWidgetEmbed();
   const isChatRoute =
     location.pathname === "/chat" || location.pathname.startsWith("/chat/");
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
@@ -220,8 +224,12 @@ export function Layout({ children }: LayoutProps) {
   }, [flushDeckSave, location.pathname]);
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
-      setSlidesSelection(
-        (event as CustomEvent<SlidesAgentSelection | null>).detail ?? null,
+      const nextSelection =
+        (event as CustomEvent<SlidesAgentSelection | null>).detail ?? null;
+      setSlidesSelection((current) =>
+        haveSameSlidesAgentScope(current, nextSelection)
+          ? current
+          : nextSelection,
       );
     };
     window.addEventListener(SLIDES_SELECTION_CHANGED_EVENT, onSelectionChanged);
@@ -259,7 +267,13 @@ export function Layout({ children }: LayoutProps) {
     if (!deckScope) return undefined;
     const deckId = deckScope.id;
     return {
-      beforeStart: () => flushDeckSave(deckId),
+      beforeStart: async () => {
+        try {
+          await flushDeckSave(deckId);
+        } catch {
+          toast.error(t("settings.saveFailed"));
+        }
+      },
       list: {
         action: "list-deck-versions",
         args: (threadId) => ({
@@ -286,7 +300,7 @@ export function Layout({ children }: LayoutProps) {
         beforeRestore: () => flushDeckSave(deckId),
       },
     };
-  }, [deckScope, flushDeckSave]);
+  }, [deckScope, flushDeckSave, t]);
 
   useAgentChatHomeHandoffLinks({
     storageKey: "slides",
@@ -346,6 +360,21 @@ export function Layout({ children }: LayoutProps) {
 
   const showMobileNavigation =
     isChatRoute || (!ownToolbar && !isSlidesHomeRoute(location.pathname));
+  // The MCP App host (ChatGPT, Codex, Claude) owns navigation and chat, so the
+  // widget gets no app chrome for any route.
+  if (mcpAppWidgetEmbed) {
+    return (
+      <HeaderActionsProvider>
+        <MobileSidebarContext.Provider value={null}>
+          <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
+            <main className="agent-native-app-main flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              {children}
+            </main>
+          </div>
+        </MobileSidebarContext.Provider>
+      </HeaderActionsProvider>
+    );
+  }
   const shell = (
     <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
       {showAppSidebar && (
@@ -434,6 +463,10 @@ export function Layout({ children }: LayoutProps) {
             agentPageHref="/settings/agent"
             suppressFirstRunOnboarding={isSlidesEditorRoute(location.pathname)}
             showMissingApiKeySetup={!isSlidesHomeRoute(location.pathname)}
+            setupCardOwner={
+              isSlidesHomeRoute(location.pathname) ? "host" : "chat"
+            }
+            showGuidedQuestions={!isSlidesEditorRoute(location.pathname)}
             onComposerTextChange={setComposerText}
             composerSlot={
               <>

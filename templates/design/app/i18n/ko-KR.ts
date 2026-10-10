@@ -1,4 +1,76 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "관찰된 세션 참조",
+    sessionsOfAll: "세션 {count}개 · 전체의 {percent}",
+    sessionsOfAppRoot:
+      "세션 {count}개 · {app} 코호트의 {percent} (n={rootCount})",
+    sessionsOfPrevious: "세션 {count}개 · 이전 단계의 {percent}",
+    sessionsOfParent: "세션 {count}개 · {label}의 {percent}",
+    observedContinuation: "같은 녹화 · 예시 {fromExample} → 예시 {toExample}",
+    observedContinuationCompact: "예시 {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "세션 {count}개 · 이 단계의 {percent}",
+    partialSample: "부분 샘플",
+    continuedOnUnpictured:
+      "표시되지 않은 경로에서 계속됨: {count} · 이 단계의 {percent}",
+    noLaterStepObserved: "이후 단계가 관찰되지 않음",
+    examplePosition: "갤러리 {current}/{total}",
+    sourceExampleLabel: "출처",
+    showExample: "원본 예시 {current} 표시",
+    screenshotExamples: "스크린샷 예시",
+    screenshotAlt:
+      "{label}, 원본 예시 {source}, 갤러리 위치 {current}/{total}, 캡처일 {date}",
+    screenshotMissing: "스크린샷이 캡처되지 않음",
+    recordingUnavailable: "사용할 수 없음",
+    recordingGap: "기록 공백",
+    recordingGapDuration: "기록 공백 · {duration}",
+    eventTime: "이벤트 시간(UTC)",
+    generationCompletedEvent: "generation_completed 이벤트(UTC)",
+    replayObservation: "리플레이 관찰",
+    utcTimestamp: "UTC 타임스탬프",
+    recordingId: "녹화 ID",
+    replayOffset: "리플레이 오프셋",
+    replayOffsetUnavailable: "사용할 수 없음",
+    replaySeek: "리플레이 탐색",
+    checkpointSeekTarget: "체크포인트 탐색 위치",
+    analyticsCheckpointOffset: "Analytics 체크포인트 오프셋",
+    replayObserved: "리플레이 관찰 시각",
+    screenshotCaptured: "스크린샷 캡처 시각",
+    screenshotExportTimestamp: "스크린샷 내보내기 UTC 시각",
+    output: "결과",
+    outputTitle: "결과 제목",
+    observedState: "관찰된 상태",
+    actorRecording: "행위자(녹화)",
+    actorSource: "행위자 출처",
+    recordingMetadata: "녹화 메타데이터",
+    evidence: "근거",
+    generationCompletedEvidence: "generation_completed 이벤트",
+    renderedOutputEvidence:
+      "렌더링된 결과를 관찰했으며 완료 이벤트는 주장하지 않음",
+    openFullPrompt: "전체 프롬프트 열기",
+    prompt: "프롬프트",
+    promptEnglish: "프롬프트(영어)",
+    promptSource: "프롬프트(원문)",
+    source: "출처",
+    promptNotCaptured: "프롬프트가 캡처되지 않음",
+    actorUnavailable: "행위자 정보를 사용할 수 없음",
+    replayDetails: "리플레이 및 출처 세부정보",
+    sourceApp: "출처 앱",
+    route: "캡처 당시 현재 경로",
+    routeUnavailable: "사용할 수 없음",
+    captureSourceFingerprint: "캡처 소스 지문",
+    captureSourceUnavailable: "제공되지 않음",
+    recordingStarted: "녹화 시작",
+    appBandHeading: "{app} · 세션 {count}개",
+    journeyTitleSummary: "{app} · {from}~{to} · 세션 {count}개{partial}",
+    journeyTitleAppBandsSummary: "{from}~{to} · 앱별 독립 코호트{partial}",
+    sessionCount: "세션 {count}개",
+    otherPaths: "기타 경로",
+    otherBranchesShown: "분기 {total}개 중 {shown}개 표시",
+    otherBranchDetailsUnavailable: "이 여정 트리에는 분기 세부 정보가 없습니다",
+    otherBranchSourceKey: "원본 단계 키: {key}",
+    htmlLanguage: "ko-KR",
+  },
   composer: { menu: { integrations: "연동" } },
   creativeContext: {
     title: "라이브러리",
@@ -213,7 +285,7 @@ export default {
       tokenLabel: "Figma 액세스 토큰",
       tokenPlaceholder: "Figma 액세스 토큰 붙여넣기",
       connecting: "연결 중…",
-      connect: "연결",
+      connect: "Figma 연결",
       getToken: "토큰 받기",
       importFrame: "프레임 가져오기",
       chooseFrame: "프레임 선택",
@@ -221,6 +293,18 @@ export default {
       exportSvg: "SVG 내보내기",
       actionsPrefill: "검토 후 보내기",
       retry: "다시 시도",
+      currentDesign: "현재 Design",
+      chooseDesign: "Design (필요하면 어떤 Design을 사용할지 물어보세요)",
+      importFramePrompt:
+        "이 Figma 프레임을 {{destination}}으로 가져오고, 가져오지 못한 콘텐츠를 알려 주세요: {{url}}",
+      importFilePrompt:
+        "이 Figma 파일을 열고 최상위 프레임을 나열한 다음, 가져올 프레임을 물어보세요: {{url}}",
+      inspectFramePrompt:
+        "이 Figma 프레임의 구조, 구성 요소, 스타일, 재사용 가능한 토큰을 요약하세요: {{url}}",
+      inspectFilePrompt:
+        "이 Figma 파일의 구조, 구성 요소, 스타일, 재사용 가능한 토큰을 요약하세요: {{url}}",
+      exportSvgPrompt:
+        "현재 Design 화면을 Figma에서 사용할 SVG로 내보내고 정적 SVG 콘텐츠가 되는 부분을 알려 주세요.",
     },
   },
   common: {
@@ -689,6 +773,9 @@ export default {
       tools: "도구",
       tokens: "토큰",
       label: "디자인 작업공간",
+      account: "계정",
+      collapse: "사이드바 접기",
+      expand: "사이드바 펼치기",
     },
     breakpointBar: {
       base: "기본",
@@ -780,12 +867,10 @@ export default {
       "{{path}}이(가) 열린 이후 디스크에서 변경되었습니다. 화면을 새로고침한 후 다시 시도하세요.",
     applyToSourceError: "소스에 저장하지 못했습니다: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "토큰 가져오기",
       importTitle: "토큰 가져오기",
       importHint:
@@ -797,6 +882,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "붙여넣은 토큰 가져오기",
       importedCount: "{{count}}개 토큰을 가져왔습니다",
+      count: "토큰 {{count}}개",
+      search: "토큰 검색",
+      noMatches: "일치하는 토큰이 없습니다",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -842,6 +930,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}}개의 이미지{{plural}}를 로드하려면 Figma 접근이 필요합니다.",
       figmaPasteImagesDontShowAgain: "다시 표시하지 않기",
+      figmaPasteUploadImage: "이미지 업로드",
+      figmaPasteUploadImageFor: "“{{name}}” 업로드",
+      figmaPasteImageFallbackName: "이미지 {{index}}",
+      figmaPasteUploadImageSuccess: "이미지를 채웠습니다",
+      figmaPasteUploadImageInvalid:
+        "SVG, PNG, JPG 같은 이미지 파일을 선택하세요.",
+      figmaPasteUploadImageError: "이미지를 채우지 못했습니다",
       figmaHydrationDialogTitle: "Figma를 연결하여 이미지 로드",
       figmaHydrationDialogDescription:
         "Figma 액세스 토큰을 입력하여 가져온 화면{{screensPlural}}의 누락된 이미지 {{count}}개{{plural}}를 로드하세요.",
@@ -929,6 +1024,9 @@ export default {
         figmaPasteFailed: "Figma 붙여넣기 가져오기 실패",
         uploadFailed: "파일 업로드 실패",
         invalidFigFile: ".fig로 끝나는 파일을 선택하세요.",
+        unsupportedFileType: ".fig, .html 또는 .htm 파일을 선택하세요.",
+        importBusy:
+          "다른 가져오기가 진행 중입니다. 먼저 완료하거나 취소하세요.",
         figFileTooLarge:
           "이 .fig 파일은 너무 큽니다. 업로드는 {{max}}MB까지 지원됩니다. Figma에서 원하는 프레임만 새 파일로 복사한 뒤 그 파일을 .fig로 내보내거나, 'Figma에서 붙여넣기'를 사용하세요.",
       },
@@ -941,6 +1039,8 @@ export default {
       "파일을 만들기 전에 생성이 중지되었습니다. 같은 프롬프트에서 계속하려면 다시 시도하세요.",
     generationStoppedCheckAgent:
       "파일을 만들기 전에 생성이 중지되었습니다. 에이전트 메시지를 확인하거나 다시 시도하세요.",
+    invalidCanvasDimensions:
+      "요청한 캔버스 크기는 지원되지 않습니다. 편집기 제한 내의 양수 픽셀 크기를 사용하세요.",
     notFound: "디자인을 찾을 수 없음",
     backToDesigns: "디자인으로 돌아가기",
     designNotFoundDescription: "이 디자인은 존재하지 않거나 삭제되었습니다.",
@@ -968,7 +1068,17 @@ export default {
     saveTemplate: "템플릿 저장",
     templateSaved: "템플릿을 라이브러리에 저장했습니다",
     templateSaveFailed: "이 템플릿을 저장할 수 없습니다",
-    clickToRename: "클릭하여 이름 바꾸기",
+    fileMenu: {
+      pendingEditsBlocked:
+        "복제하기 전에 보류 중인 시각적 편집을 적용하거나 취소하세요.",
+      designs: "디자인",
+      rename: "이름 바꾸기",
+      duplicate: "복제",
+      versionHistory: "버전 기록",
+      import: "가져오기…",
+      delete: "삭제",
+      deleteError: "이 디자인을 삭제할 수 없습니다",
+    },
     collaborators: "공동 작업자",
     share: "공유",
     signUpToSave: "가입",
@@ -990,6 +1100,10 @@ export default {
       interact: "Interact",
       screens: "화면",
     },
+    topBar: {
+      modeDesign: "디자인",
+      modeSwitch: "편집기 모드",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1010,6 +1124,10 @@ export default {
     keyboardShortcuts: {
       title: "키보드 단축키",
       close: "닫다: 키보드 단축키",
+      search: "검색",
+      searchLabel: "키보드 단축키 검색",
+      categoriesLabel: "단축키 카테고리",
+      empty: "“{{query}}”와(과) 일치하는 단축키가 없습니다",
       codeContext: "코드",
       screenContext: "화면",
       nudgeAmount: {
@@ -1042,11 +1160,6 @@ export default {
         leftBracket: "왼쪽 대괄호",
         rightBracket: "오른쪽 대괄호",
       },
-      descriptions: {
-        toggleUi: "지금 눌러 패널을 빠르게 숨기고 작업에 집중하세요",
-        undo: "가장 최근 디자인 변경을 되돌립니다",
-        redo: "방금 실행 취소한 디자인 변경을 복원합니다",
-      },
       categories: {
         essential: "필수",
         tools: "도구",
@@ -1078,6 +1191,7 @@ export default {
         showLayers: "레이어",
         showAssets: "에셋",
         toggleUi: "View",
+        toggleMinimalUi: "최소 UI",
         toggleComments: "댓글 고정",
         zoomIn: "확대",
         zoomOut: "축소",
@@ -1358,6 +1472,16 @@ export default {
         "읽기 전용 미리보기에서는 PNG 캡처를 사용할 수 없음",
       pngSaveError: "PNG를 저장할 수 없음",
       pngExportError: "PNG를 내보낼 수 없음",
+      exportTooLarge:
+        "내보내기 크기가 너무 큽니다. 요청 한도는 5MB입니다. 포함된 리소스나 래스터 크기를 줄이고 다시 시도하세요.",
+      exportResourcesUnavailable:
+        "하나 이상의 이미지, 글꼴 또는 스타일시트를 사용할 수 없어 정확히 렌더링하지 못했습니다. 해당 리소스를 확인하고 다시 시도하세요.",
+      exportTimedOut:
+        "내보내기 시간이 초과되었습니다. 다시 시도하거나 디자인 크기를 줄이세요.",
+      exportBusy:
+        "다른 내보내기를 렌더링 중입니다. 잠시 기다린 후 다시 시도하세요.",
+      exportChromiumUnavailable:
+        "렌더러를 시작할 수 없어 내보내기를 사용할 수 없습니다. 나중에 다시 시도하세요.",
       pdfExportError: "PDF를 내보낼 수 없습니다.",
       pdfDownloaded: "PDF 다운로드됨",
       pdfAllScreensDownloaded: "PDF 다운로드됨 (모든 화면)",
@@ -1482,6 +1606,13 @@ export default {
       permissionPromptSettingsInstructions:
         "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 로컬 네트워크를 허용으로 설정하세요.",
       permissionPromptRetry: "연결 재시도",
+      previewCredentialsUnavailableTitle:
+        "로컬 미리보기 자격 증명을 사용할 수 없습니다",
+      previewCredentialsUnavailableDescription:
+        "검사기에서 이 화면의 localhost 연결을 다시 연결한 후 다시 시도하세요.",
+      publicPreviewUnavailableDescription:
+        "로컬호스트 미리보기는 공개 사용자와 공유되지 않습니다. 이 화면을 보려면 공동작업자로 이 디자인을 여세요.",
+      previewCredentialsRetry: "자격 증명 다시 시도",
     },
   },
   multiScreenCanvas: {
@@ -1491,6 +1622,7 @@ export default {
     fork: "분기",
     fullView: "전체 보기",
     preview: "미리보기",
+    focusScreen: "화면에 포커스",
     openAndDuplicate:
       "{{display}} 선택. 집중 스크롤에는 상호작용 모드를 사용하세요.",
     openAndPreview:
@@ -1565,8 +1697,12 @@ export default {
     assetAdded: "자산이 추가됨",
     assetsNoImageUrl: "Assets에서 이미지 URL을 반환하지 않았습니다.",
     failedToUploadFile: "파일을 업로드하지 못했습니다.",
+    imageAttachmentUnavailable:
+      "이 이미지를 업로드할 수 있도록 준비하지 못했습니다. JPG, PNG, GIF 또는 WebP 이미지를 사용해 보세요.",
+    imageAttachmentTooLarge:
+      "이미지는 각각 최대 {{perFile}}MB, 전체 최대 {{total}}MB까지 첨부할 수 있습니다.",
     attachmentsTooLarge:
-      "첨부 파일이 너무 큽니다. 업로드는 총 {{max}}MB까지 지원됩니다. 파일 수를 줄이거나 더 작은 파일을 첨부하세요.",
+      "이미지는 자동으로 최적화됩니다. 최적화된 이미지와 다른 파일의 총 크기는 {{max}}MB 이하여야 합니다.",
     failedToSubmitPrompt: "프롬프트를 제출하지 못했습니다",
     skipPrompt: "프롬프트 건너뛰기",
     startBlankCanvas: "빈 캔버스로 시작",
@@ -1723,8 +1859,8 @@ export default {
     designPromptTitle: "첫 번째 디자인을 만들어 볼까요?",
     recent: "최근",
     browseAllTemplates: "모두 둘러보기",
-    connectBuilderIo: "Builder.io 연결",
-    connectingBuilder: "Builder.io 연결 중…",
+    connectBuilderIo: "Builder.io 사용",
+    connectingBuilder: "Builder.io 설정 중…",
     pageTitle: "Design",
     searchPlaceholder: "디자인 검색...",
     newDesign: "새로운 Design",
@@ -1734,6 +1870,9 @@ export default {
     allAuthors: "모든 작성자",
     me: "나",
     designFilter: "디자인 필터",
+    ownedByAnyone: "소유자 전체",
+    ownedByMe: "내가 소유",
+    sharedWithMe: "나와 공유됨",
     mine: "내 디자인",
     all: "전체",
     showMineDesigns: "내 디자인 보기",
@@ -1767,6 +1906,7 @@ export default {
     pickStartingPoint: "시작점을 선택하거나 자신만의 프롬프트를 작성하세요.",
     searchNoResultsTitle: "이 검색과 일치하는 디자인이 없습니다",
     searchNoResultsDescription: "다른 검색어를 입력해 보세요.",
+    noDesignsMatchFilter: "현재 필터와 일치하는 디자인이 없습니다.",
     starterSaas: "SaaS 랜딩 페이지",
     starterDashboard: "대시보드",
     starterPricing: "가격 페이지",
@@ -1990,6 +2130,15 @@ export default {
       "코드 및 저장소 색인 생성에는 Builder Enterprise 플랜이 필요합니다",
   },
   designSystems: {
+    comingSoonTitle: "디자인 시스템이 곧 제공됩니다",
+    waitlist: {
+      join: "대기 목록 등록",
+      joining: "등록 중…",
+      joined: "대기 목록에 등록되었습니다",
+      error: "대기 목록에 등록할 수 없습니다. 다시 시도해 주세요.",
+      unavailable:
+        "대기 목록 등록을 지금 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
+    },
     deleteError: "디자인 시스템을 삭제할 수 없습니다.",
     updateSuccess: "디자인 시스템 업데이트",
     updateError: "디자인 시스템을 업데이트할 수 없습니다.",

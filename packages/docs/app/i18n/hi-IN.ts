@@ -669,7 +669,7 @@ const hiIN = {
         "Visual planning को app-backed skill के रूप में install करें। आपका coding agent diagrams, wireframes, prototypes, annotations, comments और shareable review links वाले structured plans खोल सकता है।",
     },
     design: {
-      replaces: "Design prototyping tools को बदलता या बढ़ाता है",
+      replaces: "Agent-Native Design स्टूडियो",
       description:
         "प्रॉम्प्ट को आपके डिज़ाइन सिस्टम के अनुरूप इंटरैक्टिव डिज़ाइन में बदलता है, जबकि एजेंट फ़ीडबैक से हर स्क्रीन बेहतर बनाता है।",
     },
@@ -1427,7 +1427,7 @@ const hiIN = {
       s003: "उत्पन्न करें",
       s004: "परिष्कृत करें",
       s005: "सभी टेम्पलेट",
-      s006: "ओपन-सोर्स AI HTML प्रोटोटाइप स्टूडियो",
+      s006: "ओपन-सोर्स डिज़ाइन वर्कस्पेस",
       s007: "इंटरैक्टिव डिज़ाइन और प्रोटोटाइप बनाएं। जाने-पहचाने टूल से परिष्कृत करें या संवादी संपादन करें। कहीं भी निर्यात करें।",
       s008: "कुछ डिज़ाइन करें",
       s009: "यह कैसे काम करता है",
@@ -1866,7 +1866,6 @@ const hiIN = {
       heroDescription:
         "Plans एक फ्री और ओपन-सोर्स विज़ुअल प्लानिंग टूल है, जिससे आप अपने कोडिंग एजेंट के अप्रोच को रिव्यू कर सकते हैं, फीडबैक दे सकते हैं, और डायग्राम्स, वायरफ्रेम्स व एनोटेटेड कोड के ज़रिए कोड में हुए बदलावों को समझ सकते हैं।",
       heroCta: "विज़ुअली प्लान करें",
-      heroSecondaryCta: "Plans खोलें",
       useCasesHeading: "Plans से आप क्या कर सकते हैं?",
       useCasesBody:
         "अपने AI कोडिंग एजेंट के साथ किसी इम्प्लीमेंटेशन अप्रोच को रिव्यू करें, किसी इंटरफ़ेस पर काम करें, या किसी पूरे हो चुके बदलाव को समझें।",
@@ -2156,6 +2155,8 @@ const hiIN = {
     downloadStarted: "डाउनलोड शुरू हो गया",
     downloadAgain: "काम नहीं किया? फिर से डाउनलोड करें",
     loadError: "नवीनतम desktop installer लोड नहीं हो सका।",
+    mountError:
+      "डेस्कटॉप डाउनलोड पेज को वर्कस्पेस में अपना पाथ नहीं मिला। वर्कस्पेस एडमिन से ऐप के माउंट कॉन्फ़िगरेशन की जाँच करने को कहें।",
     checkingRelease: "नवीनतम desktop release जांच रहे हैं...",
     retry: "फिर कोशिश करें",
     unavailable: "इस platform के लिए installer उपलब्ध नहीं है",
@@ -2576,11 +2577,12 @@ const hiIN = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
-    deploymentAwsLambda: "AWS Lambda",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
-    deploymentKoyeb: "Koyeb",
-    deploymentRender: "Render",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "अन्य Platforms",
     ssrCaching: "SSR कैशिंग",
     deploymentEnvironmentVariables: "Deployment: पर्यावरण चर",
@@ -2670,6 +2672,7 @@ const hiIN = {
     planAutomations: "इवेंट और स्वचालन",
     planLocalAndDesktop: "लोकल फ़ाइलें और डेस्कटॉप",
     planDevelopers: "डेवलपर गाइड",
+    turnIntoApp: "ऐप में बदलें",
     prVisualRecap: "PR visual recap",
     planPluginMarketplace: "Plan plugin और marketplace",
     slides: "स्लाइड",

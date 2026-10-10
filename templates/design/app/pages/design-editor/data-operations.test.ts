@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -15,6 +13,7 @@ import {
   stagePendingDesignDataOperations,
   type DesignDataOperation,
 } from "./data-operations";
+import { readDesignEditorSource } from "./read-design-editor-source";
 
 const frameA = { x: 0, y: 0, width: 400, height: 300 };
 const frameB = { x: 500, y: 0, width: 400, height: 300 };
@@ -269,7 +268,7 @@ describe("Design editor data operations", () => {
   });
 
   it("keeps DesignEditor geometry, duplicate, fusion, and unload writes off legacy data snapshots", () => {
-    const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+    const source = readDesignEditorSource();
 
     expect(source).not.toMatch(
       /updateDesignAsync\(\s*\{\s*id\s*,\s*data\s*[},:]/,

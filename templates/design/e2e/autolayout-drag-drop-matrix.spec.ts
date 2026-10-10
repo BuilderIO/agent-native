@@ -49,6 +49,7 @@ const MATRIX_HTML = `<!doctype html>
     <div data-agent-native-node-id="free-shape" data-agent-native-layer-name="Free shape" style="position:absolute;left:780px;top:60px;width:76px;height:44px;background:#22d3ee;color:#083344">Shape</div>
     <p data-agent-native-node-id="free-text" data-agent-native-layer-name="Free text" style="position:absolute;left:780px;top:140px;margin:0;width:100px;padding:8px;background:#f8fafc;color:#0f172a">Text</p>
     <button data-agent-native-node-id="free-component" data-agent-native-layer-name="Free component" data-agent-native-component="Card" style="position:absolute;left:780px;top:230px;width:110px;height:42px;background:#c4b5fd;color:#2e1065;border:0">Component</button>
+    <img data-agent-native-node-id="free-image" data-agent-native-layer-name="Free image" alt="Free image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='48'%3E%3Crect width='80' height='48' fill='%230ea5e9'/%3E%3C/svg%3E" style="position:absolute;left:900px;top:280px;width:80px;height:48px" />
     <div data-agent-native-node-id="fixed-source" data-agent-native-layer-name="Fixed source" style="position:absolute;left:780px;top:330px;width:72px;height:30px;flex:none;background:#f59e0b;color:#431407">Fixed</div>
     <div data-agent-native-node-id="hug-source" data-agent-native-layer-name="Hug source" style="position:absolute;left:780px;top:370px;width:max-content;min-width:0;padding:4px 8px;background:#86efac;color:#14532d">Hug text</div>
     <div data-agent-native-node-id="fill-source" data-agent-native-layer-name="Fill source" style="position:absolute;left:780px;top:420px;flex:1 1 0%;min-width:0;width:auto;height:28px;background:#fda4af;color:#4c0519">Fill</div>
@@ -95,6 +96,23 @@ const OVERSIZED_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
     style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
 </body></html>`;
 
+const GRID_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
+  <section data-agent-native-node-id="source-grid" style="position:absolute;left:500px;top:300px;width:180px;height:120px;display:grid;grid-template-columns:repeat(3,60px);grid-template-rows:repeat(3,40px)">
+    <div data-agent-native-node-id="grid-source" data-agent-native-layer-name="Grid source"
+      style="grid-column:span 2;grid-row:span 2;background:#ea580c">Source</div>
+  </section>
+</body></html>`;
+
+const GRID_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#111827">
+  <section data-agent-native-node-id="target-grid" data-agent-native-layer-name="Target grid"
+    style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(3,1fr);gap:0;background:#374151">
+    <div data-agent-native-node-id="grid-first" style="grid-column:1;grid-row:1;background:#64748b"></div>
+    <div data-agent-native-node-id="grid-second" style="grid-column:2;grid-row:1;background:#64748b"></div>
+  </section>
+</body></html>`;
+
 const META_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
   <div data-agent-native-node-id="meta-source" data-agent-native-layer-name="Meta Source"
@@ -104,6 +122,18 @@ const META_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
 const META_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;width:1000px;height:780px;background:#111827">
   <section data-agent-native-node-id="meta-target" data-agent-native-layer-name="Empty Flow"
+    style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
+</body></html>`;
+
+const RELEASE_STATE_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
+  <div data-agent-native-node-id="release-source" data-agent-native-layer-name="Release Source"
+    style="position:absolute;left:500px;top:300px;width:120px;height:48px;background:#ea580c">Source</div>
+</body></html>`;
+
+const RELEASE_STATE_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#111827">
+  <section data-agent-native-node-id="release-target" data-agent-native-layer-name="Release Flow"
     style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
 </body></html>`;
 
@@ -615,7 +645,7 @@ function childMoved(
   });
 }
 
-async function dragHeldWithOracle(
+async function dragHeldAndSampleState(
   page: Page,
   request: APIRequestContext,
   designId: string,
@@ -937,7 +967,7 @@ function serializedOrder(html: string, ids: string[]): string[] {
 
 test.use({ viewport: { width: 1600, height: 1100 } });
 
-test.describe("physical Figma auto-layout drag/drop matrix", () => {
+test.describe("auto-layout drag/drop matrix", () => {
   test("held drag previews multiple targets without committing until mouseup", async ({
     page,
     request,
@@ -1122,7 +1152,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         const design = await createDesign(request);
         try {
           await gotoEditor(page, design.id);
-          const evidence = await dragHeldWithOracle(
+          const evidence = await dragHeldAndSampleState(
             page,
             request,
             design.id,
@@ -1243,7 +1273,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     }
   });
 
-  test("text, shape, and component children all flow-insert into the same container", async ({
+  test("text, shape, image, and component children all flow-insert into the same container", async ({
     page,
     request,
   }) => {
@@ -1251,6 +1281,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     const cells = [
       { source: "free-text", name: "Free text", tag: "P" },
       { source: "free-shape", name: "Free shape", tag: "DIV" },
+      { source: "free-image", name: "Free image", tag: "IMG" },
       { source: "free-component", name: "Free component", tag: "BUTTON" },
     ];
     for (const cell of cells) {
@@ -1274,11 +1305,25 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
               tag: node.tagName,
               position: getComputedStyle(node).position,
               component: node.getAttribute("data-agent-native-component"),
+              image:
+                node instanceof HTMLImageElement
+                  ? {
+                      complete: node.complete,
+                      naturalWidth: node.naturalWidth,
+                      naturalHeight: node.naturalHeight,
+                    }
+                  : null,
             }));
           expect(details.tag).toBe(cell.tag);
           expect(details.position).not.toBe("absolute");
           if (cell.source === "free-component")
             expect(details.component).toBe("Card");
+          if (cell.source === "free-image")
+            expect(details.image).toEqual({
+              complete: true,
+              naturalWidth: 80,
+              naturalHeight: 48,
+            });
           await settleReload(page, design.primaryId);
           await expect
             .poll(() => parentId(page, design.primaryId, cell.source))
@@ -1921,7 +1966,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         }),
       ]);
 
-      const result = await dragHeldWithOracle(
+      const result = await dragHeldAndSampleState(
         page,
         request,
         design.id,
@@ -2122,7 +2167,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     }
   });
 
-  test("SCREEN-ROOT horizontal, vertical, wrap, and grid cells keep held oracle evidence", async ({
+  test("SCREEN-ROOT horizontal, vertical, wrap, and grid cells keep sampled held state", async ({
     page,
     request,
   }) => {
@@ -2184,7 +2229,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
         });
         try {
           await gotoEditor(page, design.id);
-          const evidence = await dragHeldWithOracle(
+          const evidence = await dragHeldAndSampleState(
             page,
             request,
             design.id,
@@ -2434,7 +2479,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     });
     try {
       await gotoEditor(page, design.id);
-      await dragHeldWithOracle(
+      await dragHeldAndSampleState(
         page,
         request,
         design.id,
@@ -2670,6 +2715,140 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     }
   });
 
+  test("cross-Screen drop preserves a spanning grid item through preview, undo, redo, and reload", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      secondScreen: true,
+      primaryHtml: GRID_CROSS_SCREEN_PRIMARY_HTML,
+      secondHtml: GRID_CROSS_SCREEN_SECOND_HTML,
+    });
+    try {
+      await gotoEditor(page, design.id);
+      await page.keyboard.press("Shift+1");
+      const source = await boxFor(page, design.primaryId, "grid-source");
+      const grid = await boxFor(page, design.secondId!, "target-grid");
+      const release = {
+        x: grid.x + (grid.width * 3) / 8,
+        y: grid.y + grid.height / 2,
+      };
+      await page.mouse.click(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await expect.poll(() => selectionSourceId(request)).toBe("grid-source");
+      const sourceBefore = await fileHtml(request, design.id, design.primaryId);
+      const destinationBefore = await fileHtml(
+        request,
+        design.id,
+        design.secondId!,
+      );
+
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+      await page.mouse.move(release.x, release.y, { steps: 30 });
+      const guide = page.locator("[data-cross-screen-drop-guide]");
+      await expect(guide).toBeVisible();
+      const guideBox = await guide.boundingBox();
+      expect(guideBox).not.toBeNull();
+      expect(guideBox!.x).toBeCloseTo(grid.x + grid.width / 4, 0);
+      expect(guideBox!.y).toBeCloseTo(grid.y + grid.height / 3, 0);
+      expect(guideBox!.width).toBeCloseTo(grid.width / 2, 0);
+      expect(guideBox!.height).toBeCloseTo((grid.height * 2) / 3, 0);
+      expect(release.x).toBeGreaterThan(guideBox!.x);
+      expect(release.x).toBeLessThan(guideBox!.x + guideBox!.width);
+      expect(release.y).toBeGreaterThan(guideBox!.y);
+      expect(release.y).toBeLessThan(guideBox!.y + guideBox!.height);
+      await expect(page.locator("[data-cross-screen-drag-ghost]")).toHaveCount(
+        1,
+      );
+      expect(await fileHtml(request, design.id, design.primaryId)).toBe(
+        sourceBefore,
+      );
+      expect(await fileHtml(request, design.id, design.secondId!)).toBe(
+        destinationBefore,
+      );
+      await page.mouse.up();
+
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            source: hasNode(from, "grid-source"),
+            destination: hasNode(to, "grid-source"),
+          };
+        })
+        .toEqual({ source: false, destination: true });
+      const persistedPlacement = () =>
+        designFrame(page, design.secondId!)
+          .locator('[data-agent-native-node-id="grid-source"]')
+          .evaluate((node) => {
+            const style = getComputedStyle(node);
+            return {
+              parent: node.parentElement?.getAttribute(
+                "data-agent-native-node-id",
+              ),
+              column: style.gridColumnStart,
+              columnEnd: style.gridColumnEnd,
+              row: style.gridRowStart,
+              rowEnd: style.gridRowEnd,
+            };
+          });
+      await expect.poll(persistedPlacement).toEqual({
+        parent: "target-grid",
+        column: "2",
+        columnEnd: "4",
+        row: "2",
+        rowEnd: "4",
+      });
+
+      await page.keyboard.press(`${COMMAND}+z`);
+      await expect
+        .poll(async () => ({
+          source: hasNode(
+            await fileHtml(request, design.id, design.primaryId),
+            "grid-source",
+          ),
+          destination: hasNode(
+            await fileHtml(request, design.id, design.secondId!),
+            "grid-source",
+          ),
+        }))
+        .toEqual({ source: true, destination: false });
+      await page.keyboard.press(`${COMMAND}+Shift+z`);
+      await expect
+        .poll(async () => ({
+          source: hasNode(
+            await fileHtml(request, design.id, design.primaryId),
+            "grid-source",
+          ),
+          destination: hasNode(
+            await fileHtml(request, design.id, design.secondId!),
+            "grid-source",
+          ),
+        }))
+        .toEqual({ source: false, destination: true });
+      await settleReload(page, design.secondId!);
+      await expect.poll(persistedPlacement).toEqual({
+        parent: "target-grid",
+        column: "2",
+        columnEnd: "4",
+        row: "2",
+        rowEnd: "4",
+      });
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
   test("cross-Screen Ignore Auto Layout oversized drops keep absolute inside placement", async ({
     page,
     request,
@@ -2840,6 +3019,126 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await expect
         .poll(() => parentId(page, design.secondId!, "meta-source"))
         .not.toBe("meta-target");
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("source-frame Ignore Auto Layout keyup is honored before host mouseup", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      secondScreen: true,
+      primaryHtml: RELEASE_STATE_CROSS_SCREEN_PRIMARY_HTML,
+      secondHtml: RELEASE_STATE_CROSS_SCREEN_SECOND_HTML,
+    });
+    try {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, "platform", {
+          configurable: true,
+          value: "Linux x86_64",
+        });
+        if (window !== window.top) return;
+        const modifierStates: boolean[] = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type !== "agent-native:cross-screen-modifiers") {
+            return;
+          }
+          modifierStates.push(event.data.ignoreAutoLayout === true);
+          document.documentElement.dataset.crossScreenModifierStates =
+            JSON.stringify(modifierStates);
+        });
+      });
+      await gotoEditor(page, design.id);
+      await page.keyboard.press("Shift+1");
+      const source = await boxFor(page, design.primaryId, "release-source");
+      const target = await boxFor(page, design.secondId!, "release-target");
+      await page.mouse.click(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await expect
+        .poll(() => selectionSourceId(request))
+        .toBe("release-source");
+      const sourceIframe = page.locator(
+        `iframe[data-screen-iframe-id="${design.primaryId}"]`,
+      );
+      await sourceIframe.focus();
+      await expect
+        .poll(() =>
+          sourceIframe.evaluate((iframe) => document.activeElement === iframe),
+        )
+        .toBe(true);
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+      await page.mouse.move(
+        target.x + target.width / 2,
+        target.y + target.height / 2,
+        { steps: 30 },
+      );
+      await expect
+        .poll(() => page.locator("[data-cross-screen-drag-ghost]").count())
+        .toBeGreaterThan(0);
+      await sourceIframe.focus();
+      await expect
+        .poll(() =>
+          sourceIframe.evaluate((iframe) => document.activeElement === iframe),
+        )
+        .toBe(true);
+
+      await page.keyboard.down("s");
+      await page.mouse.move(
+        target.x + target.width / 2 + 1,
+        target.y + target.height / 2 + 1,
+        { steps: 3 },
+      );
+      await expect
+        .poll(() => page.locator("[data-cross-screen-drop-guide]").count())
+        .toBeGreaterThan(0);
+      await expect
+        .poll(() =>
+          page
+            .locator("html")
+            .getAttribute("data-cross-screen-modifier-states"),
+        )
+        .toBe("[true]");
+      await page.keyboard.up("s");
+      await expect
+        .poll(() =>
+          page
+            .locator("html")
+            .getAttribute("data-cross-screen-modifier-states"),
+        )
+        .toBe("[true,false]");
+      await page.mouse.up();
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "release-source"),
+            destination: hasNode(to, "release-source"),
+          };
+        })
+        .toEqual({ from: false, destination: true });
+      await settleReload(page, design.secondId!);
+      await expect
+        .poll(() => parentId(page, design.secondId!, "release-source"))
+        .toBe("release-target");
+      await expect
+        .poll(() =>
+          designFrame(page, design.secondId!)
+            .locator('[data-agent-native-node-id="release-source"]')
+            .evaluate((node) => getComputedStyle(node).position),
+        )
+        .toBe("static");
     } finally {
       await deleteDesign(request, design.id);
     }

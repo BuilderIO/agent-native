@@ -1,13 +1,22 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabState } from "@agent-native/core/client/labs";
 import {
   IconCalendar,
   IconChevronLeft,
   IconChevronRight,
+  IconGauge,
+  IconPhoto,
   IconRefresh,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -24,7 +33,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -32,24 +43,62 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { cn } from "@/lib/utils";
 
+import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
 import {
   sessionDateBound,
   sessionDateForDisplay,
 } from "../../../shared/session-date-bounds";
 import {
+  readSessionEventFilters,
+  SESSION_DID_EVENT_PARAM,
+  SESSION_DID_NOT_EVENT_PARAM,
+} from "../../../shared/session-events";
+import {
+  isSessionFrictionSignal,
+  isSessionFrictionSort,
+  readSessionFrictionSignals,
+  SESSION_FRICTION_SIGNAL_PARAM,
+  SESSION_FRICTION_SIGNALS,
+  type SessionFriction,
+  type SessionFrictionSignal,
+  type SessionFrictionSort,
+  type SessionRecordingFriction,
+} from "../../../shared/session-friction";
+import {
   readSessionPage,
   SESSION_PAGE_SIZE,
 } from "../../../shared/session-page";
+import {
+  formatPerformanceValue,
+  isSlowSessionFilter,
+  rateWebVital,
+  type SessionPerformanceSummary,
+  type SessionRecordingPerformance,
+  SLOW_SESSION_FILTERS,
+  type SlowSessionFilter,
+} from "../../../shared/session-performance";
+import {
+  SessionEventFilter,
+  type SessionEventConditions,
+} from "./SessionEventFilter";
+import {
+  frictionSignalLabel,
+  SessionFrictionFilter,
+  SessionFrictionStrip,
+} from "./SessionFriction";
+import { SessionReplayStoryboardExportDialog } from "./SessionReplayStoryboardExportDialog";
 import {
   EmptySessionsState,
   formatSessionDuration,
   shouldShowZeroMinuteRecoveryAction,
   useDebouncedUrlFilter,
 } from "./SessionsPage";
+import { SessionStartTime } from "./SessionStartTime";
 
 type Range = "24h" | "7d" | "30d" | "90d" | "all" | "custom";
 type Sort = "newest" | "longest" | "errors" | "events" | "rage";
-type VisitorType = "internal" | "work" | "personal";
+type AnySort = Sort | SessionFrictionSort;
+type VisitorType = "internal" | "work" | "personal" | "anonymous";
 
 type Recording = {
   id: string;
@@ -68,17 +117,26 @@ type Recording = {
   template: string | null;
   path: string | null;
   hostname: string | null;
+  friction?: SessionFriction;
 };
 
 type Page = {
   recordings: Recording[];
   total: number;
   appCounts: { app: string; count: number }[];
+  /** Present when a friction filter or sort applied; null: part uncovered. */
+  frictionCoverageStartedAt?: string | null;
+  /** Present when a speed filter applied; null: nothing measured yet. */
+  performanceCoverageStartedAt?: string | null;
 };
 
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
 const SORTS: Sort[] = ["newest", "longest", "errors", "events", "rage"];
 const DURATIONS = [0, 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
+const LAB_STATE_WAIT_MS = 5_000;
+// Every other search param counts as a filter for Clear all, so a param that
+// is not a filter must be listed here or Clear all will show and drop it.
+const NON_FILTER_PARAMS = new Set(["sort", "page"]);
 
 function validRange(value: string | null): Range {
   return value === "custom" || RANGES.includes(value as Range)
@@ -138,20 +196,73 @@ export function withSessionFilter(
   return next;
 }
 
+export function withSessionEventConditions(
+  current: URLSearchParams,
+  conditions: SessionEventConditions,
+): URLSearchParams {
+  const next = new URLSearchParams(current);
+  next.delete(SESSION_DID_EVENT_PARAM);
+  next.delete(SESSION_DID_NOT_EVENT_PARAM);
+  for (const name of conditions.didEvents) {
+    next.append(SESSION_DID_EVENT_PARAM, name);
+  }
+  for (const name of conditions.didNotEvents) {
+    next.append(SESSION_DID_NOT_EVENT_PARAM, name);
+  }
+  next.delete("page");
+  return next;
+}
+
+/**
+ * True when part of the range predates friction coverage, so a friction
+ * filter there can miss sessions that were never measured.
+ */
+export function rangePredatesCoverage(
+  from: string | undefined,
+  coverageStartedAt: string | null,
+): boolean {
+  if (coverageStartedAt === null) return true;
+  return !from || Date.parse(from) < Date.parse(coverageStartedAt);
+}
+
+export function withSessionFrictionSignals(
+  current: URLSearchParams,
+  signals: readonly SessionFrictionSignal[],
+): URLSearchParams {
+  const next = new URLSearchParams(current);
+  next.delete(SESSION_FRICTION_SIGNAL_PARAM);
+  for (const signal of signals) {
+    next.append(SESSION_FRICTION_SIGNAL_PARAM, signal);
+  }
+  next.delete("page");
+  return next;
+}
+
 export function SessionsTriagePage() {
   const t = useT();
   const [params, setParams] = useSearchParams();
+  const cohortKey = useMemo(() => {
+    const current = new URLSearchParams(params);
+    current.delete("page");
+    return current.toString();
+  }, [params]);
+  const [selectedRecordings, setSelectedRecordings] = useState<
+    Record<string, Recording>
+  >({});
+  const [storyboardOpen, setStoryboardOpen] = useState(false);
+  const selected = Object.values(selectedRecordings).slice(0, 3);
+  useEffect(() => setSelectedRecordings({}), [cohortKey]);
+  const eventsLab = useLabState(ANALYTICS_SESSIONS_TRIAGE_LAB);
+  const eventsLabEnabled = eventsLab.enabled;
   const storageStatus = useReplayStorageStatus();
   const range = validRange(params.get("range"));
   const app = params.get("app") ?? "";
   const query = params.get("q") ?? "";
   const domain = params.get("emailDomain") ?? "";
-  const sort = SORTS.includes(params.get("sort") as Sort)
-    ? (params.get("sort") as Sort)
-    : "newest";
-  const visitorType = (["internal", "work", "personal"] as VisitorType[]).find(
-    (value) => value === params.get("visitorType"),
-  );
+  const requestedSort = params.get("sort");
+  const visitorType = (
+    ["internal", "work", "personal", "anonymous"] as VisitorType[]
+  ).find((value) => value === params.get("visitorType"));
   const hideEmpty = readHideEmptyFilter(params);
   const hideInternal = params.get("hideInternal") === "true";
   const hasErrors = params.get("hasErrors") === "true";
@@ -167,6 +278,50 @@ export function SessionsTriagePage() {
     params.get("from"),
   );
   const toDate = sessionDateForDisplay(params.get("toDate"), params.get("to"));
+  const urlEventConditions = readSessionEventFilters(params);
+  // Event conditions only apply while the Lab is on; otherwise the URL keeps
+  // them without hiding sessions behind a filter the user cannot see.
+  const eventConditions = eventsLabEnabled
+    ? urlEventConditions
+    : { didEvents: [], didNotEvents: [] };
+  const urlHasEventConditions =
+    urlEventConditions.didEvents.length > 0 ||
+    urlEventConditions.didNotEvents.length > 0;
+  const urlFrictionSignals = readSessionFrictionSignals(params);
+  const frictionSignals = eventsLabEnabled ? urlFrictionSignals : [];
+  const urlHasFrictionParams =
+    urlFrictionSignals.length > 0 || isSessionFrictionSort(requestedSort);
+  // Friction sorts, like friction filters, apply only while the Lab is on.
+  const sort: AnySort = SORTS.includes(requestedSort as Sort)
+    ? (requestedSort as Sort)
+    : eventsLabEnabled && isSessionFrictionSort(requestedSort)
+      ? requestedSort
+      : "newest";
+  const frictionApplied =
+    frictionSignals.length > 0 || isSessionFrictionSort(sort);
+  const urlSlow = params.get("slow");
+  const slow: SlowSessionFilter | undefined =
+    eventsLabEnabled && isSlowSessionFilter(urlSlow) ? urlSlow : undefined;
+  const urlHasSlowFilter = isSlowSessionFilter(urlSlow);
+  // A shared link with event, friction, or slow conditions waits briefly for
+  // the Lab state instead of listing unfiltered sessions. Nothing else waits,
+  // and a hung read stops holding the list and reads as failed.
+  const urlHasLabFilters =
+    urlHasEventConditions || urlHasFrictionParams || urlHasSlowFilter;
+  const [labWaitExpired, setLabWaitExpired] = useState(false);
+  const waitsForLab = urlHasLabFilters && eventsLab.isLoading;
+  useEffect(() => {
+    if (!waitsForLab || labWaitExpired) return;
+    const timer = setTimeout(() => setLabWaitExpired(true), LAB_STATE_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [waitsForLab, labWaitExpired]);
+  const waitingForEventsLab = waitsForLab && !labWaitExpired;
+  const labStateFailed =
+    eventsLab.isError || (eventsLab.isLoading && labWaitExpired);
+  const retryLabState = () => {
+    setLabWaitExpired(false);
+    void eventsLab.refetch();
+  };
 
   useEffect(() => {
     if (requestedPage === null || requestedPage === String(page)) return;
@@ -191,6 +346,24 @@ export function SessionsTriagePage() {
     [setParams],
   );
 
+  const setEventConditions = useCallback(
+    (conditions: SessionEventConditions) => {
+      setParams((current) => withSessionEventConditions(current, conditions), {
+        replace: true,
+      });
+    },
+    [setParams],
+  );
+
+  const setFrictionSignals = useCallback(
+    (signals: SessionFrictionSignal[]) => {
+      setParams((current) => withSessionFrictionSignals(current, signals), {
+        replace: true,
+      });
+    },
+    [setParams],
+  );
+
   const setFilter = useCallback(
     (key: string, value: string, resetPage = true) => {
       setParams(
@@ -201,6 +374,9 @@ export function SessionsTriagePage() {
       );
     },
     [setParams],
+  );
+  const hasActiveFilters = [...params.keys()].some(
+    (key) => !NON_FILTER_PARAMS.has(key),
   );
   const commitQuery = useCallback(
     (value: string) => setFilter("q", value),
@@ -215,6 +391,21 @@ export function SessionsTriagePage() {
     domain,
     commitDomain,
   );
+  const clearFilters = useCallback(() => {
+    // A draft that never reached the URL survives the URL reset, and its
+    // pending debounce would write it back, so empty the drafts too.
+    setQueryInput("");
+    setDomainInput("");
+    setParams(
+      (current) => {
+        const next = new URLSearchParams();
+        const currentSort = current.get("sort");
+        if (currentSort) next.set("sort", currentSort);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setParams, setQueryInput, setDomainInput]);
   const dateBounds = useMemo(
     () => ({
       from:
@@ -229,29 +420,90 @@ export function SessionsTriagePage() {
     [range, fromDate, toDate, params],
   );
 
-  const { data, error, isPending, isFetching, refetch } = useActionQuery<Page>(
-    "list-session-recordings",
-    {
-      paginated: true,
-      ...dateBounds,
-      app: app || undefined,
-      query: query || undefined,
-      emailDomain: domain || undefined,
-      visitorType,
-      hideInternal: hideInternal || undefined,
-      minDurationMs: minDurationMs || undefined,
-      hideEmpty: hideEmpty || undefined,
-      hasErrors: hasErrors || undefined,
-      hasNetworkErrors: hasNetworkErrors || undefined,
-      hasRageClicks: hasRageClicks || undefined,
-      sort,
-      offset: (page - 1) * SESSION_PAGE_SIZE,
-      limit: SESSION_PAGE_SIZE,
-    },
-    { staleTime: 30_000 },
-  );
+  const { data, error, isPending, isFetching, isPlaceholderData, refetch } =
+    useActionQuery<Page>(
+      "list-session-recordings",
+      {
+        paginated: true,
+        ...dateBounds,
+        app: app || undefined,
+        query: query || undefined,
+        emailDomain: domain || undefined,
+        visitorType,
+        hideInternal: hideInternal || undefined,
+        minDurationMs: minDurationMs || undefined,
+        hideEmpty: hideEmpty || undefined,
+        hasErrors: hasErrors || undefined,
+        hasNetworkErrors: hasNetworkErrors || undefined,
+        hasRageClicks: hasRageClicks || undefined,
+        didEvents: eventConditions.didEvents.length
+          ? eventConditions.didEvents
+          : undefined,
+        didNotEvents: eventConditions.didNotEvents.length
+          ? eventConditions.didNotEvents
+          : undefined,
+        frictionSignals: frictionSignals.length ? frictionSignals : undefined,
+        includeFriction: frictionApplied || undefined,
+        slow,
+        sort,
+        offset: (page - 1) * SESSION_PAGE_SIZE,
+        limit: SESSION_PAGE_SIZE,
+      },
+      {
+        staleTime: 30_000,
+        enabled: !waitingForEventsLab,
+        // Rows stay put while a friction filter or sort loads; they dim
+        // until its rows arrive.
+        placeholderData: frictionApplied ? (previous) => previous : undefined,
+      },
+    );
   const recordings = data?.recordings ?? [];
+  // Without a friction filter or sort, row friction loads beside the list,
+  // keyed on its rows, so a failed friction read leaves the list in place.
+  const {
+    data: rowFriction,
+    error: rowFrictionError,
+    isFetching: rowFrictionFetching,
+    refetch: refetchRowFriction,
+  } = useActionQuery<SessionRecordingFriction>(
+    "list-session-friction",
+    { recordingIds: recordings.map((recording) => recording.id) },
+    {
+      staleTime: 30_000,
+      enabled: eventsLabEnabled && !frictionApplied && recordings.length > 0,
+    },
+  );
+  const frictionCoverageStartedAt = data?.frictionCoverageStartedAt;
+  const frictionCoverageNote =
+    frictionCoverageStartedAt === undefined
+      ? null
+      : frictionCoverageStartedAt === null
+        ? t("sessions.frictionCoverageIncomplete")
+        : t("sessions.frictionCoverageSince", {
+            date: new Date(frictionCoverageStartedAt).toLocaleDateString(),
+          });
+  const speedCoverageStartedAt = data?.performanceCoverageStartedAt;
+  const speedCoverageNote =
+    speedCoverageStartedAt === undefined
+      ? null
+      : speedCoverageStartedAt === null
+        ? t("sessions.speedCoverageStarting")
+        : t("sessions.speedCoverageSince", {
+            date: new Date(speedCoverageStartedAt).toLocaleDateString(),
+          });
   const total = data?.total ?? 0;
+  // Speed hints load beside the list, keyed on its rows, so turning the Lab
+  // on adds them without fetching the list again.
+  const {
+    data: speed,
+    error: speedError,
+    isFetching: speedFetching,
+    refetch: refetchSpeed,
+  } = useActionQuery<SessionRecordingPerformance>(
+    "list-session-performance",
+    { recordingIds: recordings.map((recording) => recording.id) },
+    { staleTime: 30_000, enabled: eventsLabEnabled && data !== undefined },
+  );
   const lastPage = Math.max(1, Math.ceil(total / SESSION_PAGE_SIZE));
   useEffect(() => {
     if (!data || isPending || isFetching || error || page <= lastPage) return;
@@ -279,6 +531,14 @@ export function SessionsTriagePage() {
       hasErrors: hasErrors || undefined,
       hasNetworkErrors: hasNetworkErrors || undefined,
       hasRageClicks: hasRageClicks || undefined,
+      didEvents: eventConditions.didEvents.length
+        ? eventConditions.didEvents
+        : undefined,
+      didNotEvents: eventConditions.didNotEvents.length
+        ? eventConditions.didNotEvents
+        : undefined,
+      frictionSignals: frictionSignals.length ? frictionSignals : undefined,
+      slow,
       sort,
       limit: 1,
     },
@@ -292,6 +552,20 @@ export function SessionsTriagePage() {
 
   function toggle(key: string, enabled: boolean) {
     setFilter(key, enabled ? "true" : "");
+  }
+
+  function toggleStoryboardSelection(recording: Recording, checked: boolean) {
+    setSelectedRecordings((current) => {
+      if (!checked) {
+        const next = { ...current };
+        delete next[recording.id];
+        return next;
+      }
+      if (current[recording.id] || Object.keys(current).length >= 3) {
+        return current;
+      }
+      return { ...current, [recording.id]: recording };
+    });
   }
 
   return (
@@ -535,6 +809,9 @@ export function SessionsTriagePage() {
                   <SelectItem value="personal">
                     {t("sessions.personalVisitors")}
                   </SelectItem>
+                  <SelectItem value="anonymous">
+                    {t("sessions.anonymous")}
+                  </SelectItem>
                 </SelectContent>
               </Select>
               <CheckFilter
@@ -557,7 +834,184 @@ export function SessionsTriagePage() {
             </div>
           </PopoverContent>
         </Popover>
+        {eventsLabEnabled ? (
+          <SessionEventFilter
+            conditions={eventConditions}
+            from={dateBounds.from}
+            to={dateBounds.to}
+            app={app}
+            catalogHref={eventCatalogHref(range, app)}
+            onChange={setEventConditions}
+          />
+        ) : null}
+        {eventsLabEnabled ? (
+          <SessionFrictionFilter
+            signals={frictionSignals}
+            onChange={setFrictionSignals}
+          />
+        ) : null}
+        {eventsLabEnabled ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={slow ? "secondary" : "outline"}
+                size="sm"
+                className={cn(
+                  "h-8 border border-input font-normal",
+                  !slow && "bg-transparent hover:bg-accent",
+                )}
+              >
+                <IconGauge />
+                {slow ? slowFilterLabel(slow, t) : t("sessions.speed")}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-72">
+              <div className="space-y-3">
+                <Select
+                  value={slow ?? "all"}
+                  onValueChange={(value) =>
+                    setFilter("slow", value === "all" ? "" : value)
+                  }
+                >
+                  <SelectTrigger aria-label={t("sessions.speed")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      {t("sessions.anySpeed")}
+                    </SelectItem>
+                    {SLOW_SESSION_FILTERS.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {slowFilterLabel(value, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {speed || speedError ? (
+                  <p className="text-xs text-muted-foreground">
+                    {!speed
+                      ? t("sessions.speedUnavailable")
+                      : speed.coverageStartedAt
+                        ? t("sessions.speedCoverageSince", {
+                            date: new Date(
+                              speed.coverageStartedAt,
+                            ).toLocaleDateString(),
+                          })
+                        : t("sessions.speedCoverageStarting")}
+                  </p>
+                ) : null}
+                <Button asChild variant="outline" size="sm">
+                  <Link to={routePerformanceHref(range, app)}>
+                    {t("sessions.routePerformance")}
+                  </Link>
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : null}
+        {hasActiveFilters ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 font-normal text-muted-foreground"
+            onClick={clearFilters}
+          >
+            <IconX />
+            {t("sessions.clearFilters")}
+          </Button>
+        ) : null}
       </div>
+      {!eventsLabEnabled && labStateFailed ? (
+        <p
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          {urlHasLabFilters
+            ? t("sessions.labStateUnavailable")
+            : t("sessions.labFeaturesUnavailable")}
+          <Button variant="ghost" size="xs" onClick={retryLabState}>
+            <IconRefresh />
+            {t("sidebar.retry")}
+          </Button>
+        </p>
+      ) : null}
+      {urlHasEventConditions &&
+      !eventsLabEnabled &&
+      !eventsLab.isLoading &&
+      !eventsLab.isError ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {t("sessions.eventFiltersNeedLab")}
+        </p>
+      ) : null}
+      {urlHasFrictionParams &&
+      !eventsLabEnabled &&
+      !eventsLab.isLoading &&
+      !eventsLab.isError ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {t("sessions.frictionFiltersNeedLab")}
+        </p>
+      ) : null}
+      {urlHasSlowFilter &&
+      !eventsLabEnabled &&
+      !eventsLab.isLoading &&
+      !eventsLab.isError ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {t("sessions.speedFilterNeedsLab")}
+        </p>
+      ) : null}
+      {eventsLabEnabled &&
+      !frictionApplied &&
+      rowFrictionError &&
+      !rowFriction ? (
+        <p
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          {t("sessions.frictionUnavailable")}
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => void refetchRowFriction()}
+            disabled={rowFrictionFetching}
+          >
+            <IconRefresh
+              className={cn(rowFrictionFetching && "animate-spin")}
+            />
+            {t("sidebar.retry")}
+          </Button>
+        </p>
+      ) : null}
+      {eventsLabEnabled && speedError && !speed ? (
+        <p
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          {t("sessions.speedUnavailable")}
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => void refetchSpeed()}
+            disabled={speedFetching}
+          >
+            <IconRefresh className={cn(speedFetching && "animate-spin")} />
+            {t("sidebar.retry")}
+          </Button>
+        </p>
+      ) : null}
+      {frictionCoverageStartedAt !== undefined &&
+      recordings.length > 0 &&
+      rangePredatesCoverage(dateBounds.from, frictionCoverageStartedAt) ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {frictionCoverageNote}
+        </p>
+      ) : null}
+      {speedCoverageStartedAt !== undefined &&
+      recordings.length > 0 &&
+      rangePredatesCoverage(dateBounds.from, speedCoverageStartedAt) ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {speedCoverageNote}
+        </p>
+      ) : null}
       <Card>
         <div className="flex items-center justify-between gap-2 border-b px-4 py-2 text-sm">
           <div className="text-muted-foreground" aria-live="polite">
@@ -588,6 +1042,19 @@ export function SessionsTriagePage() {
                     {sortLabel(value, t)}
                   </SelectItem>
                 ))}
+                {eventsLabEnabled ? (
+                  <SelectGroup>
+                    <SelectLabel>{t("sessions.friction")}</SelectLabel>
+                    <SelectItem value="friction">
+                      {t("sessions.sortFriction")}
+                    </SelectItem>
+                    {SESSION_FRICTION_SIGNALS.map((signal) => (
+                      <SelectItem key={signal} value={signal}>
+                        {frictionSignalLabel(signal, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ) : null}
               </SelectContent>
             </Select>
             <Button
@@ -603,7 +1070,10 @@ export function SessionsTriagePage() {
             </Button>
           </div>
         </div>
-        <div>
+        <div
+          className={cn(isPlaceholderData && "opacity-60")}
+          aria-busy={isPlaceholderData || undefined}
+        >
           {error ? (
             <div className="p-6 text-sm text-destructive" role="alert">
               {t("sessions.loadFailed", { message: error.message })}
@@ -617,11 +1087,18 @@ export function SessionsTriagePage() {
           ) : (
             <>
               {recordings.length === 0 &&
-              storageStatus.data?.configured === false ? (
+              (storageStatus.isError ||
+                storageStatus.data?.configured === false) ? (
                 <EmptySessionsState />
               ) : recordings.length === 0 ? (
                 <div className="p-10 text-center text-sm text-muted-foreground">
                   <p>{t("sessions.noSessions")}</p>
+                  {frictionCoverageNote ? (
+                    <p className="mt-1 text-xs">{frictionCoverageNote}</p>
+                  ) : null}
+                  {speedCoverageNote ? (
+                    <p className="mt-1 text-xs">{speedCoverageNote}</p>
+                  ) : null}
                   {showEmptySessionRecovery ? (
                     <Button
                       variant="outline"
@@ -634,84 +1111,173 @@ export function SessionsTriagePage() {
                   ) : null}
                 </div>
               ) : (
-                <div className="divide-y">
-                  {recordings.map((recording) => (
-                    <Link
-                      key={recording.id}
-                      to={`/sessions/${encodeURIComponent(recording.id)}`}
-                      className="grid gap-2 px-4 py-3 hover:bg-muted/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:grid-cols-4"
-                      aria-label={`${t("sessions.watchReplay")}: ${recording.userId || recording.userKey || recording.anonymousId || t("sessions.anonymous")}`}
-                    >
-                      <span className="font-medium text-primary">
-                        {formatSessionDuration(recording.durationMs)}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">
-                          {recording.userId ||
-                            recording.userKey ||
-                            recording.anonymousId ||
-                            t("sessions.anonymous")}
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          {new Date(recording.startedAt).toLocaleString()}
-                        </span>
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm text-primary">
-                          {recording.path ||
-                            recording.hostname ||
-                            recording.sessionId}
-                        </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {recording.app ||
-                            recording.template ||
-                            t("sessions.unknownApp")}
-                        </span>
-                      </span>
-                      <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span>
-                          {t("sessions.eventCountCompact", {
-                            count: recording.eventCount.toLocaleString(),
-                          })}
-                        </span>
-                        {recording.errorCount > 0 && (
-                          <span className="text-destructive">
-                            {t(
-                              recording.errorCount === 1
-                                ? "sessions.errorCountSingular"
-                                : "sessions.errorCount",
-                              { count: recording.errorCount.toLocaleString() },
-                            )}
-                          </span>
-                        )}
-                        <span>
-                          {t(
-                            recording.networkErrorCount === 1
-                              ? "sessions.networkErrorCountSingular"
-                              : "sessions.networkErrorCount",
-                            {
-                              count:
-                                recording.networkErrorCount.toLocaleString(),
-                            },
-                          )}
-                        </span>
-                        {recording.rageClickCount > 0 && (
-                          <span>
-                            {t(
-                              recording.rageClickCount === 1
-                                ? "sessions.rageClickCountSingular"
-                                : "sessions.rageClicks",
-                              {
-                                count:
-                                  recording.rageClickCount.toLocaleString(),
-                              },
-                            )}
-                          </span>
-                        )}
-                      </span>
-                    </Link>
-                  ))}
-                </div>
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+                    <span className="text-xs text-muted-foreground">
+                      {selected.length > 0
+                        ? t("sessions.storyboardSelectionCoverage", {
+                            selected: String(selected.length),
+                            total: total.toLocaleString(),
+                            percent: new Intl.NumberFormat(undefined, {
+                              style: "percent",
+                              maximumFractionDigits: 1,
+                            }).format(total > 0 ? selected.length / total : 0),
+                          })
+                        : t("sessions.storyboardSelectHint")}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {selected.length > 0 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedRecordings({})}
+                        >
+                          {t("sessions.clearStoryboardSelection")}
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={selected.length === 0}
+                        onClick={() => setStoryboardOpen(true)}
+                      >
+                        <IconPhoto />
+                        {t("sessions.createStoryboard")}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="divide-y">
+                    {recordings.map((recording) => (
+                      <SessionRow
+                        key={recording.id}
+                        friction={
+                          !eventsLabEnabled
+                            ? undefined
+                            : frictionApplied
+                              ? recording.friction
+                              : rowFriction?.friction[recording.id]
+                        }
+                        sortSignal={
+                          isSessionFrictionSignal(sort) ? sort : undefined
+                        }
+                        filterSignals={frictionSignals}
+                      >
+                        <div className="flex min-w-0 items-stretch">
+                          <div className="grid shrink-0 place-items-center px-3">
+                            <Checkbox
+                              checked={Boolean(
+                                selectedRecordings[recording.id],
+                              )}
+                              disabled={
+                                !selectedRecordings[recording.id] &&
+                                selected.length >= 3
+                              }
+                              aria-label={t(
+                                "sessions.selectReplayForStoryboard",
+                                { id: recording.id },
+                              )}
+                              onCheckedChange={(value) =>
+                                toggleStoryboardSelection(
+                                  recording,
+                                  value === true,
+                                )
+                              }
+                            />
+                          </div>
+                          <Link
+                            to={`/sessions/${encodeURIComponent(recording.id)}`}
+                            className="grid min-w-0 flex-1 gap-2 px-2 py-3 hover:bg-muted/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:grid-cols-4"
+                            aria-label={`${t("sessions.watchReplay")}: ${visitorType === "anonymous" ? t("sessions.anonymous") : recording.userId || recording.userKey || recording.anonymousId || t("sessions.anonymous")}`}
+                          >
+                            <span className="font-medium text-primary">
+                              {formatSessionDuration(recording.durationMs)}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium">
+                                {visitorType === "anonymous"
+                                  ? t("sessions.anonymous")
+                                  : recording.userId ||
+                                    recording.userKey ||
+                                    recording.anonymousId ||
+                                    t("sessions.anonymous")}
+                              </span>
+                              <span className="block text-xs text-muted-foreground">
+                                <SessionStartTime
+                                  startedAt={recording.startedAt}
+                                />
+                              </span>
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm text-primary">
+                                {recording.path ||
+                                  recording.hostname ||
+                                  recording.sessionId}
+                              </span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {recording.app ||
+                                  recording.template ||
+                                  t("sessions.unknownApp")}
+                              </span>
+                            </span>
+                            <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                              <span>
+                                {t("sessions.eventCountCompact", {
+                                  count: recording.eventCount.toLocaleString(),
+                                })}
+                              </span>
+                              {recording.errorCount > 0 && (
+                                <span className="text-destructive">
+                                  {t(
+                                    recording.errorCount === 1
+                                      ? "sessions.errorCountSingular"
+                                      : "sessions.errorCount",
+                                    {
+                                      count:
+                                        recording.errorCount.toLocaleString(),
+                                    },
+                                  )}
+                                </span>
+                              )}
+                              <span>
+                                {t(
+                                  recording.networkErrorCount === 1
+                                    ? "sessions.networkErrorCountSingular"
+                                    : "sessions.networkErrorCount",
+                                  {
+                                    count:
+                                      recording.networkErrorCount.toLocaleString(),
+                                  },
+                                )}
+                              </span>
+                              {recording.rageClickCount > 0 && (
+                                <span>
+                                  {t(
+                                    recording.rageClickCount === 1
+                                      ? "sessions.rageClickCountSingular"
+                                      : "sessions.rageClicks",
+                                    {
+                                      count:
+                                        recording.rageClickCount.toLocaleString(),
+                                    },
+                                  )}
+                                </span>
+                              )}
+                              <PerformanceHints
+                                performance={
+                                  eventsLabEnabled
+                                    ? speed?.performance[recording.id]
+                                    : undefined
+                                }
+                              />
+                            </span>
+                          </Link>
+                        </div>
+                      </SessionRow>
+                    ))}
+                  </div>
+                </>
               )}
               {total > SESSION_PAGE_SIZE && (
                 <div className="flex items-center justify-between border-t px-4 py-3">
@@ -745,6 +1311,124 @@ export function SessionsTriagePage() {
           )}
         </div>
       </Card>
+      <SessionReplayStoryboardExportDialog
+        open={storyboardOpen}
+        onOpenChange={setStoryboardOpen}
+        recordings={selected}
+        cohortTotal={total}
+      />
+    </div>
+  );
+}
+
+const POOR_VITAL_HINTS = [
+  ["lcp", "lcpMs", "LCP"],
+  ["inp", "inpMs", "INP"],
+  ["cls", "cls", "CLS"],
+  ["ttfb", "ttfbMs", "TTFB"],
+] as const;
+
+/** Null is a session speed never measured, which must not read as fast. */
+function PerformanceHints({
+  performance,
+}: {
+  performance: SessionPerformanceSummary | null | undefined;
+}) {
+  const t = useT();
+  if (performance === null) {
+    return (
+      <span className="text-muted-foreground">
+        {t("sessions.speedNotMeasured")}
+      </span>
+    );
+  }
+  if (!performance) return null;
+  const poor = POOR_VITAL_HINTS.flatMap(([metric, key, name]) => {
+    const value = performance[key];
+    if (value === null || rateWebVital(metric, value) !== "poor") return [];
+    const formatted = formatPerformanceValue(metric, value);
+    return [
+      `${name} ${
+        performance.atLeast.includes(key)
+          ? t("sessions.perfAtLeast", { value: formatted })
+          : formatted
+      }`,
+    ];
+  });
+  const { slowRequests } = performance;
+  return (
+    <>
+      {poor.map((hint) => (
+        <span key={hint} className="text-destructive">
+          {hint}
+        </span>
+      ))}
+      {slowRequests !== null && slowRequests > 0 ? (
+        <span>
+          {t(
+            slowRequests === 1
+              ? "sessions.slowRequestCountSingular"
+              : "sessions.slowRequestCount",
+            { count: slowRequests.toLocaleString() },
+          )}
+        </span>
+      ) : null}
+      {performance.incomplete ? (
+        <span>{t("sessions.speedIncomplete")}</span>
+      ) : null}
+    </>
+  );
+}
+
+function routePerformanceHref(range: Range, app: string): string {
+  const next = new URLSearchParams();
+  if (range === "30d" || range === "90d") next.set("range", range);
+  if (app) next.set("app", app);
+  const query = next.toString();
+  return `/sessions/performance${query ? `?${query}` : ""}`;
+}
+
+function slowFilterLabel(
+  value: SlowSessionFilter,
+  t: ReturnType<typeof useT>,
+): string {
+  if (value === "vitals") return t("sessions.speedPoorVitals");
+  if (value === "requests") return t("sessions.speedSlowRequests");
+  return t("sessions.speedSlowAny");
+}
+
+function eventCatalogHref(range: Range, app: string): string {
+  const next = new URLSearchParams();
+  if (range !== "custom" && range !== "30d") next.set("range", range);
+  if (app) next.set("app", app);
+  const query = next.toString();
+  return `/sessions/events${query ? `?${query}` : ""}`;
+}
+
+/**
+ * The row as it always was, plus the Lab's friction strip below it. The
+ * strip holds issue links, so it sits beside the row link, not inside it.
+ */
+function SessionRow({
+  friction,
+  sortSignal,
+  filterSignals,
+  children,
+}: {
+  friction: SessionFriction | undefined;
+  sortSignal: SessionFrictionSignal | undefined;
+  filterSignals: readonly SessionFrictionSignal[];
+  children: ReactNode;
+}) {
+  if (!friction) return <>{children}</>;
+  return (
+    <div>
+      {children}
+      <SessionFrictionStrip
+        friction={friction}
+        sortSignal={sortSignal}
+        filterSignals={filterSignals}
+      />
     </div>
   );
 }

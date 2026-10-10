@@ -345,6 +345,7 @@ describe("fetchReportPanelData", () => {
     expect(data.get("slow")).toEqual({
       status: "query-failed",
       message: "Panel query timed out after 0s",
+      timedOut: true,
     });
     expect(data.get("fast")).toEqual({
       status: "rows",
@@ -806,5 +807,27 @@ describe("renderReportEmail", () => {
     expect(rendered.attachments).toEqual([]);
     expect(rendered.degradedPanelIds).toEqual(["chart"]);
     expect(rendered.html).toContain("Failed to load native binding");
+  });
+});
+
+describe("reportPanelVariables", () => {
+  it("passes a text filter value through unchanged, even when it matches the multi-select marker", async () => {
+    const { reportPanelVariables } = await import("./dashboard-report-render");
+    const vars = reportPanelVariables({
+      variables: {},
+      filters: { f_query: "__empty__" },
+    } as unknown as Parameters<typeof reportPanelVariables>[0]);
+
+    expect(vars.query).toBe("__empty__");
+  });
+
+  it("keeps a cleared multi-select empty over a dashboard variable of the same name", async () => {
+    const { reportPanelVariables } = await import("./dashboard-report-render");
+    const vars = reportPanelVariables({
+      variables: { plan: "enterprise" },
+      filters: { f_plan: "" },
+    } as unknown as Parameters<typeof reportPanelVariables>[0]);
+
+    expect(vars.plan).toBe("");
   });
 });

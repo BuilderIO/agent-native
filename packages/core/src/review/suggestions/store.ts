@@ -416,7 +416,7 @@ export interface SuggestionDecisionRecord {
   suggestionId: string;
   idempotencyKey: string;
   reviewer: string | null;
-  decision: SuggestionDecision;
+  decision: SuggestionDecision | "withdrawn" | "superseded";
   observedBase: string;
   outcome: string;
   detail: string | null;
@@ -514,19 +514,6 @@ export async function updateSuggestionStatus(
       suggestionId,
       observedRevision ?? 1,
     ],
-  });
-  return result.rowsAffected === 1;
-}
-
-export async function replaceSuggestionStatus(
-  client: DbExec,
-  suggestionId: string,
-  from: SuggestionStatus,
-  to: SuggestionStatus,
-): Promise<boolean> {
-  const result = await client.execute({
-    sql: "UPDATE agent_review_suggestions SET status = ?, updated_at = ? WHERE id = ? AND status = ?",
-    args: [to, new Date().toISOString(), suggestionId, from],
   });
   return result.rowsAffected === 1;
 }

@@ -3,6 +3,9 @@ import { createApp } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const discoverOrgDirectoryAgentsMock = vi.hoisted(() => vi.fn());
+const runWithRequestContextMock = vi.hoisted(() =>
+  vi.fn(async (_context: unknown, run: () => Promise<unknown>) => run()),
+);
 
 vi.mock("@agent-native/core/org", () => ({
   getA2ASecretByDomain: vi.fn(async () => TEST_SECRET),
@@ -14,12 +17,15 @@ vi.mock("@agent-native/core/org", () => ({
   })),
 }));
 
-vi.mock("@agent-native/core/server", () => ({
-  getH3App: vi.fn(),
-  runWithRequestContext: vi.fn(
-    async (_context: unknown, run: () => Promise<unknown>) => run(),
-  ),
-}));
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    ...actual,
+    getH3App: vi.fn(),
+    runWithRequestContext: runWithRequestContextMock,
+  };
+});
 
 vi.mock("@agent-native/core/server/agent-discovery", () => ({
   discoverOrgDirectoryAgents: discoverOrgDirectoryAgentsMock,
@@ -37,25 +43,40 @@ async function authorization(): Promise<string> {
     "operator@example.test",
     "example.test",
     TEST_SECRET,
-    { preferGlobalSecret: false },
+    {
+      preferGlobalSecret: false,
+      audience: "https://dispatch.example.test/_agent-native/org/apps",
+    },
   )}`;
 }
 
-async function request(): Promise<Response> {
+async function request(
+  url = "https://dispatch.example.test/_agent-native/org/apps",
+  extraHeaders: Record<string, string> = {},
+): Promise<Response> {
   const app = createApp();
   app.use(orgAppsHandler);
-  return app.request("https://dispatch.example.test/_agent-native/org/apps", {
-    headers: {
-      authorization: await authorization(),
-      "x-agent-native-include-directory-app": "1",
+  const requestUrl = new URL(url);
+  return app.request(
+    url,
+    {
+      headers: {
+        host: requestUrl.host,
+        "x-forwarded-proto": requestUrl.protocol.slice(0, -1),
+        authorization: await authorization(),
+        "x-agent-native-include-directory-app": "1",
+        ...extraHeaders,
+      },
     },
-  });
+    { clientAddress: "127.0.0.1" },
+  );
 }
 
 describe("org apps directory handler", () => {
   beforeEach(() => {
     _resetOrgAppsDirectoryCache();
     discoverOrgDirectoryAgentsMock.mockReset();
+    runWithRequestContextMock.mockClear();
     vi.spyOn(console, "info").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -81,6 +102,10 @@ describe("org apps directory handler", () => {
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(discoverOrgDirectoryAgentsMock).toHaveBeenCalledTimes(1);
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      { orgId: "org-123" },
+      expect.any(Function),
+    );
     expect(await first.json()).toMatchObject({
       apps: [expect.objectContaining({ id: "content" })],
     });
@@ -110,5 +135,19 @@ describe("org apps directory handler", () => {
 
     expect((await request()).status).toBe(200);
     expect(discoverOrgDirectoryAgentsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("verifies an HTTPS audience when a trusted proxy terminates TLS", async () => {
+    discoverOrgDirectoryAgentsMock.mockResolvedValue({
+      status: "available",
+      agents: [],
+    });
+
+    const response = await request(
+      "http://dispatch.example.test/_agent-native/org/apps",
+      { "x-forwarded-proto": "https, http" },
+    );
+
+    expect(response.status).toBe(200);
   });
 });

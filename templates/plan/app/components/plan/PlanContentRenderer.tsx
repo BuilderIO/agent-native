@@ -10,6 +10,7 @@ import {
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
 import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
+import { nextAutosaveRetryDelayMs } from "@shared/plan-autosave-retry";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type {
   PlanAnnotation,
@@ -35,6 +36,10 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { usePlanPresence } from "@/hooks/use-plan-presence";
+import {
+  PlanBlocksOverlapError,
+  type PlanBlocksRevision,
+} from "@/lib/plan-block-save";
 import { cn } from "@/lib/utils";
 
 import {
@@ -73,7 +78,10 @@ type PlanContentRendererProps = {
   fallbackTitle: string;
   fallbackBrief: string;
   onContentChange?: (content: PlanContent) => Promise<void> | void;
-  onContentPatch?: (patch: PlanContentPatch) => Promise<void> | void;
+  onContentPatch?: (
+    patch: PlanContentPatch,
+    options?: { base?: PlanBlocksRevision | null },
+  ) => Promise<void> | void;
   onOptimisticBlocks?: (blocks: PlanBlock[]) => void;
   onMetadataChange?: (patch: {
     title?: string;
@@ -300,20 +308,30 @@ export function PlanContentRenderer({
   );
 
   const AUTOSAVE_DEBOUNCE_MS = 600;
-  const AUTOSAVE_MAX_RETRIES = 5;
-  const AUTOSAVE_MAX_BACKOFF_MS = 30_000;
   const pendingBlocksRef = useRef<PlanBlock[] | null>(null);
   const savingRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
   const consecutiveFailuresRef = useRef(0);
+  // An overlapping edit by someone else is not fixed by trying again later.
+  const awaitingManualRetryRef = useRef(false);
   const [autosaveFailed, setAutosaveFailed] = useState(false);
 
+  const editorBlocksRef = useRef<
+    ((pending: PlanBlock[]) => PlanBlock[] | null) | null
+  >(null);
+  // The saved revision the pending blocks were edited on top of.
+  const pendingBaseRef = useRef<PlanBlocksRevision | null>(null);
+  const flushCollabUpdatesRef = useRef(collabDoc.flushUpdates);
+  flushCollabUpdatesRef.current = collabDoc.flushUpdates;
   const persistBlocksRef = useRef<
-    (blocks: PlanBlock[]) => void | Promise<void>
+    (
+      blocks: PlanBlock[],
+      base: PlanBlocksRevision | null,
+    ) => void | Promise<void>
   >(() => {});
-  persistBlocksRef.current = (nextBlocks: PlanBlock[]) =>
+  persistBlocksRef.current = (nextBlocks: PlanBlock[], base) =>
     onContentPatch
-      ? onContentPatch({ op: "replace-blocks", blocks: nextBlocks })
+      ? onContentPatch({ op: "replace-blocks", blocks: nextBlocks }, { base })
       : onContentChange?.({ ...content, blocks: nextBlocks });
   const scheduleSaveRef = useRef<(delayMs?: number) => void>(() => {});
   scheduleSaveRef.current = (delayMs = AUTOSAVE_DEBOUNCE_MS) => {
@@ -329,15 +347,36 @@ export function PlanContentRenderer({
     if (savingRef.current) return;
     const next = pendingBlocksRef.current;
     if (next === null) return;
+    const base = pendingBaseRef.current;
     pendingBlocksRef.current = null;
     savingRef.current = true;
     let failed = false;
-    void Promise.resolve(persistBlocksRef.current(next))
+    // Collaborators' editors must receive these edits through the live document
+    // before the saved copy reaches them, or they insert the text twice. The
+    // document, not the snapshot taken at the last local keystroke, is also what
+    // a collaborator's concurrent typing has been merged into.
+    void flushCollabUpdatesRef
+      .current()
+      .then((delivered) => {
+        if (!delivered) {
+          throw new Error("Live edits have not reached the server yet.");
+        }
+        const liveBlocks = editorBlocksRef.current?.(next);
+        if (collabDoc.ydoc && !liveBlocks) {
+          throw new Error(
+            "The live plan editor is unavailable; retry autosave.",
+          );
+        }
+        return persistBlocksRef.current(liveBlocks ?? next, base);
+      })
       .catch((error) => {
         failed = true;
         consecutiveFailuresRef.current += 1;
+        awaitingManualRetryRef.current =
+          error instanceof PlanBlocksOverlapError;
         if (pendingBlocksRef.current === null) {
           pendingBlocksRef.current = next;
+          pendingBaseRef.current = base;
         }
         // eslint-disable-next-line no-console
         console.error("Failed to autosave plan document:", error);
@@ -351,13 +390,11 @@ export function PlanContentRenderer({
         }
         if (pendingBlocksRef.current !== null) {
           if (failed) {
-            if (consecutiveFailuresRef.current < AUTOSAVE_MAX_RETRIES) {
-              const backoffMs = Math.min(
-                1_000 * 2 ** (consecutiveFailuresRef.current - 1),
-                AUTOSAVE_MAX_BACKOFF_MS,
-              );
-              scheduleSaveRef.current(backoffMs);
-            }
+            const retryMs = nextAutosaveRetryDelayMs(
+              consecutiveFailuresRef.current,
+              awaitingManualRetryRef.current,
+            );
+            if (retryMs !== null) scheduleSaveRef.current(retryMs);
           } else {
             flushSaveRef.current();
           }
@@ -367,10 +404,24 @@ export function PlanContentRenderer({
 
   const retryAutosave = () => {
     consecutiveFailuresRef.current = 0;
+    awaitingManualRetryRef.current = false;
     setAutosaveFailed(false);
     flushSaveRef.current();
   };
-  const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
+  const retryAutosaveRef = useRef(retryAutosave);
+  retryAutosaveRef.current = retryAutosave;
+  // The next scheduled retry can be half a minute away; the edits are still
+  // pending, so save them as soon as we are back.
+  useEffect(() => {
+    if (!autosaveFailed) return;
+    const onOnline = () => retryAutosaveRef.current();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [autosaveFailed]);
+  const replaceBlocks = async (
+    nextBlocks: PlanBlock[],
+    base: PlanBlocksRevision | null = null,
+  ) => {
     if (
       onOptimisticBlocks &&
       blockStructureSignature(nextBlocks) !==
@@ -379,6 +430,7 @@ export function PlanContentRenderer({
       onOptimisticBlocks(nextBlocks);
     }
     pendingBlocksRef.current = nextBlocks;
+    pendingBaseRef.current = base;
     scheduleSaveRef.current(AUTOSAVE_DEBOUNCE_MS);
   };
   useEffect(
@@ -803,6 +855,7 @@ export function PlanContentRenderer({
                           collabUser={collabUser}
                           editable
                           onBlocksChange={replaceBlocks}
+                          blocksReaderRef={editorBlocksRef}
                           onVisualQuestionsSubmit={onVisualQuestionsSubmit}
                           sharedCollabDoc={collabDoc}
                         />

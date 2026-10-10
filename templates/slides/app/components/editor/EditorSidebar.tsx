@@ -279,6 +279,7 @@ function PresenceAvatarTip({
 function SortableSlideThumb({
   slide,
   index,
+  slideCount,
   isActive,
   isSelected,
   selectedSlideIds = [],
@@ -306,6 +307,7 @@ function SortableSlideThumb({
 }: {
   slide: Slide;
   index: number;
+  slideCount: number;
   isActive: boolean;
   isSelected: boolean;
   selectedSlideIds?: string[];
@@ -480,6 +482,7 @@ function SortableSlideThumb({
               >
                 <SlideRenderer
                   slide={slide}
+                  slidePosition={{ number: index + 1, count: slideCount }}
                   aspectRatio={aspectRatio}
                   designSystem={designSystem}
                   onOverflowChange={onOverflowChange}
@@ -930,6 +933,7 @@ export default function EditorSidebar({
                 key={slide.id}
                 slide={slide}
                 index={index}
+                slideCount={slides.length}
                 isActive={slide.id === activeSlideId}
                 isSelected={selectedSlideIds.includes(slide.id)}
                 selectedSlideIds={selectedSlideIds}

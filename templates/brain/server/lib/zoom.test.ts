@@ -5,13 +5,18 @@ import {
   downloadZoomTranscript,
   fetchZoomAccessToken,
   hasProcessingTranscript,
+  getZoomMeetingSummary,
+  listZoomAccountRecordings,
+  listZoomMeetingSummaries,
   listZoomRecordings,
-  listZoomUserIds,
   nextZoomCursorFrom,
+  normalizeZoomMeetingSummary,
   normalizeZoomRecording,
   parseZoomVtt,
   zoomExternalId,
+  zoomSummaryMatchesUsers,
   type ZoomMeeting,
+  type ZoomMeetingSummary,
 } from "./zoom.js";
 
 const VTT = `WEBVTT
@@ -144,6 +149,40 @@ describe("downloadZoomTranscript", () => {
       "https://cdn.example.test/file.vtt",
     );
     expect(fetchMock.mock.calls[1][1].headers).toEqual({});
+  });
+});
+
+describe("listZoomAccountRecordings", () => {
+  it("lists every account recording from the account endpoint", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          meetings: [{ ...meeting, uuid: "first" }],
+          next_page_token: "page-2",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ meetings: [{ ...meeting, uuid: "second" }] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onPage = vi.fn(async () => undefined);
+    const meetings = await listZoomAccountRecordings(
+      "token",
+      "2026-09-01",
+      "2026-09-08",
+      onPage,
+    );
+
+    expect(meetings.map((item) => item.uuid)).toEqual(["first", "second"]);
+    const firstUrl = new URL(fetchMock.mock.calls[0][0]);
+    expect(firstUrl.pathname).toBe("/v2/accounts/me/recordings");
+    expect(onPage).toHaveBeenCalledTimes(2);
+    expect(firstUrl.searchParams.get("from")).toBe("2026-09-01");
+    expect(firstUrl.searchParams.get("to")).toBe("2026-09-08");
+    const secondUrl = new URL(fetchMock.mock.calls[1][0]);
+    expect(secondUrl.searchParams.get("next_page_token")).toBe("page-2");
   });
 });
 
@@ -314,7 +353,96 @@ describe("Zoom error detail", () => {
     );
   });
 
-  it("names the user-list step and the missing scope", async () => {
+  it("tells the admin to use a Server-to-Server OAuth app on unsupported_grant_type", () => {
+    const error = new ZoomHttpError(
+      400,
+      null,
+      "token request",
+      "unsupported_grant_type",
+      "The application does not support account_credentials",
+    );
+
+    expect(error.message).toContain(
+      "not from a Zoom Server-to-Server OAuth app",
+    );
+    expect(error.message).toContain("ZOOM_CLIENT_SECRET");
+  });
+
+  it("names the recording-list step and the missing scope", async () => {
+    const scope = "cloud_recording:read:list_account_recordings:admin";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 4711,
+            message: `Invalid access token, does not contain scopes:[${scope}].`,
+          }),
+          { status: 400 },
+        ),
+      ),
+    );
+    const error = await listZoomAccountRecordings(
+      "token",
+      "2026-09-01",
+      "2026-09-08",
+    ).catch((err: unknown) => err);
+    expect((error as Error).message).toContain(
+      "Zoom recording list failed with status 400 (code 4711)",
+    );
+    expect((error as Error).message).toContain(scope);
+  });
+});
+
+const summary = {
+  meeting_uuid: "sum//uuid==",
+  meeting_id: 83124551552,
+  meeting_topic: "  Pricing sync  ",
+  meeting_start_time: "2026-10-06T15:00:00Z",
+  meeting_host_id: "HostId123",
+  meeting_host_email: "Host@Example.test",
+  summary_doc_url: "https://docs.zoom.us/doc/example",
+} satisfies ZoomMeetingSummary;
+
+describe("listZoomMeetingSummaries", () => {
+  it("sends a timestamp window and follows next_page_token", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          summaries: [{ ...summary, meeting_uuid: "first" }],
+          next_page_token: "page-2",
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ summaries: [{ ...summary, meeting_uuid: "second" }] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const onPage = vi.fn(async () => undefined);
+
+    const listed = await listZoomMeetingSummaries(
+      "token",
+      "2026-10-01",
+      "2026-10-07",
+      onPage,
+    );
+
+    expect(listed.map((item) => item.meeting_uuid)).toEqual([
+      "first",
+      "second",
+    ]);
+    const firstUrl = new URL(fetchMock.mock.calls[0][0]);
+    expect(firstUrl.pathname).toBe("/v2/meetings/meeting_summaries");
+    expect(firstUrl.searchParams.get("from")).toBe("2026-10-01T00:00:00Z");
+    expect(firstUrl.searchParams.get("to")).toBe("2026-10-07T23:59:59Z");
+    expect(
+      new URL(fetchMock.mock.calls[1][0]).searchParams.get("next_page_token"),
+    ).toBe("page-2");
+    expect(onPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("names the summary-list step and the missing scope", async () => {
+    const scope = "meeting:read:list_summaries:admin";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -322,16 +450,96 @@ describe("Zoom error detail", () => {
           JSON.stringify({
             code: 4711,
             message:
-              "Invalid access token, does not contain scopes:[user:read:list_users:admin].",
+              "Invalid access token, does not contain scopes:[" + scope + "].",
           }),
           { status: 400 },
         ),
       ),
     );
-    const error = await listZoomUserIds("token").catch((err: unknown) => err);
+    const error = await listZoomMeetingSummaries(
+      "token",
+      "2026-10-01",
+      "2026-10-07",
+    ).catch((err: unknown) => err);
     expect((error as Error).message).toContain(
-      "Zoom user list failed with status 400 (code 4711)",
+      "Zoom summary list failed with status 400 (code 4711)",
     );
-    expect((error as Error).message).toContain("user:read:list_users:admin");
+    expect((error as Error).message).toContain(scope);
+  });
+});
+
+describe("getZoomMeetingSummary", () => {
+  it("double-encodes a UUID containing //", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(summary));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getZoomMeetingSummary("token", summary.meeting_uuid);
+
+    expect(new URL(fetchMock.mock.calls[0][0]).pathname).toBe(
+      "/v2/meetings/sum%252F%252Fuuid%253D%253D/meeting_summary",
+    );
+  });
+});
+
+describe("normalizeZoomMeetingSummary", () => {
+  it("builds a capture from summary_content", () => {
+    const normalized = normalizeZoomMeetingSummary({
+      ...summary,
+      summary_content: "## Decisions\n- Pricing ships Tuesday.",
+    });
+
+    expect(normalized).toMatchObject({
+      externalId: "zoom-summary:sum//uuid==",
+      title: "Pricing sync",
+      capturedAt: "2026-10-06T15:00:00Z",
+      metadata: {
+        provider: "zoom",
+        zoomContent: "ai-companion-summary",
+        zoomMeetingId: "83124551552",
+        zoomMeetingUuid: "sum//uuid==",
+        sourceUrl: "https://docs.zoom.us/doc/example",
+      },
+    });
+    expect(normalized?.content).toBe(
+      "Pricing sync\nDate: 2026-10-06T15:00:00Z\n\nAI Companion summary\n## Decisions\n- Pricing ships Tuesday.",
+    );
+  });
+
+  it("assembles older overview, detail, and next-step fields", () => {
+    const normalized = normalizeZoomMeetingSummary({
+      ...summary,
+      summary_overview: "Team agreed on pricing.",
+      summary_details: [
+        { label: "Launch", summary: "Ships Tuesday." },
+        { label: "Empty", summary: " " },
+      ],
+      next_steps: ["Ada drafts the announcement", " "],
+    });
+
+    expect(normalized?.content).toContain(
+      "AI Companion summary\nTeam agreed on pricing.\n\nLaunch\nShips Tuesday.\n\nNext steps\n- Ada drafts the announcement",
+    );
+    expect(normalized?.content).not.toContain("Empty");
+  });
+
+  it("returns null when the summary has no text", () => {
+    expect(
+      normalizeZoomMeetingSummary({ ...summary, summary_content: "  " }),
+    ).toBeNull();
+  });
+});
+
+describe("zoomSummaryMatchesUsers", () => {
+  it("keeps every summary when no users are configured", () => {
+    expect(zoomSummaryMatchesUsers(summary, null)).toBe(true);
+  });
+
+  it("matches the host ID or email case-insensitively", () => {
+    expect(zoomSummaryMatchesUsers(summary, ["hostid123"])).toBe(true);
+    expect(zoomSummaryMatchesUsers(summary, ["host@example.test"])).toBe(true);
+    expect(zoomSummaryMatchesUsers(summary, ["someone@example.test"])).toBe(
+      false,
+    );
+    expect(zoomSummaryMatchesUsers(summary, [])).toBe(false);
   });
 });

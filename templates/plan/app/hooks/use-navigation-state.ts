@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { isPlanChatPath } from "@/lib/chat-route";
 import { prewarmPlanRoutePath } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -140,7 +141,7 @@ function viewForPath(pathname: string): string {
   ) {
     return "plan";
   }
-  if (normalizedPathname === "/chat") {
+  if (isPlanChatPath(normalizedPathname)) {
     return "chat";
   }
   if (

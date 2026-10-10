@@ -5,10 +5,21 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type {
+  Query,
   UseQueryOptions,
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
+import {
+  ACTION_BROWSER_PERSIST_ALLOW,
+  ACTION_BROWSER_PERSIST_HEADER,
+} from "../shared/action-browser-persist.js";
+import {
+  ACTION_CHANGE_MARKER_FAILED,
+  ACTION_CHANGE_MARKER_HEADER,
+} from "../shared/action-change-marker-header.js";
+import { SLOW_ACTION_RESPONSE_MS } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import {
   actionCircuitRemainingMs,
@@ -24,6 +35,12 @@ import {
   resetActionFailureCircuit,
   resetActionFailureCircuits,
 } from "./action-failure-circuit.js";
+import { fetchActionGet } from "./action-get-batch.js";
+import {
+  ACTION_RESOURCES_META_KEY,
+  actionQueryAffectedByResources,
+  type ActionScopedQuery,
+} from "./action-query-scope.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { trackEvent } from "./analytics.js";
@@ -38,7 +55,11 @@ import {
   clientCompatibilityVersion,
   reloadForClientCompatibilityMismatch,
 } from "./build-compatibility.js";
-import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
+import {
+  ensureEmbedAuthFetchInterceptor,
+  isEmbedAuthActive,
+} from "./embed-auth.js";
+import { currentRouteTemplate } from "./route-template.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
 function actionPrefix(): string {
@@ -206,6 +227,7 @@ export interface ActionFetchOptions {
   timeoutMs?: number;
   keepalive?: boolean;
   serializedBody?: string;
+  responseType?: "blob";
   includeRequestSource?: boolean;
   headers?: Record<string, string>;
 }
@@ -259,6 +281,20 @@ function utf8ByteLength(value: string): number {
   return bytes;
 }
 
+/**
+ * A GET with no per-call headers or blob body can share a request with the
+ * other GETs in its tick. Inside an embed the embed token's scope decides which
+ * requests the server accepts, and a batch POST can be refused where its GETs
+ * would pass, so an embed keeps one request per call.
+ */
+function canBatchActionGet(options?: InternalActionFetchOptions): boolean {
+  return (
+    options?.responseType !== "blob" &&
+    options?.headers === undefined &&
+    !isEmbedAuthActive()
+  );
+}
+
 async function performActionFetch<T>(
   name: string,
   method: string,
@@ -267,6 +303,7 @@ async function performActionFetch<T>(
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
   let url = `${actionPrefix()}/${name}`;
+  let query = "";
   const browserTabId = getBrowserTabId();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -302,8 +339,8 @@ async function performActionFetch<T>(
   };
 
   if (method === "GET" && params && Object.keys(params).length > 0) {
-    const qs = serializeActionQueryParams(params);
-    if (qs) url += `?${qs}`;
+    query = serializeActionQueryParams(params);
+    if (query) url += `?${query}`;
   } else if (method !== "GET" && params) {
     init.body = options?.serializedBody ?? JSON.stringify(params);
   }
@@ -342,11 +379,23 @@ async function performActionFetch<T>(
 
   let res: Response;
   let raw = "";
+  let blob: Blob | undefined;
   let readFailed = false;
   let readError: unknown;
   try {
     try {
-      res = await Promise.race([fetch(url, init), timedOutSignal]);
+      const request =
+        method === "GET" && canBatchActionGet(options)
+          ? fetchActionGet({
+              name,
+              query,
+              url,
+              init,
+              headers,
+              batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
+            })
+          : fetch(url, init);
+      res = await Promise.race([request, timedOutSignal]);
       throwIfAborted(outerSignal);
       options?.onResponse?.(res);
     } catch (err) {
@@ -373,14 +422,25 @@ async function performActionFetch<T>(
       );
       (error as any).status = 409;
       (error as any).code = "client_build_mismatch";
+      (error as any).serverBuildId = serverBuildId;
+      (error as any).requiredCompatibility = requiredCompatibility;
       throw error;
     }
 
     throwIfAborted(outerSignal);
-    if (res.status === 204) return null as T;
+    if (res.status === 204) {
+      if (options?.responseType === "blob") {
+        throw new Error(`Action ${name} did not return a binary response.`);
+      }
+      return null as T;
+    }
 
     try {
-      raw = await Promise.race([res.text(), timedOutSignal]);
+      if (res.ok && options?.responseType === "blob") {
+        blob = await Promise.race([res.blob(), timedOutSignal]);
+      } else {
+        raw = await Promise.race([res.text(), timedOutSignal]);
+      }
     } catch (err) {
       if (timedOut) throwTimeout();
       if (outerSignal?.aborted) throw err;
@@ -486,6 +546,14 @@ async function performActionFetch<T>(
     throw error;
   }
 
+  if (options?.responseType === "blob") {
+    if (blob === undefined) {
+      throw new Error(`Action ${name} did not return a binary response.`);
+    }
+    throwIfAborted(outerSignal);
+    return blob as T;
+  }
+
   if (parseFailed) {
     const error = new Error(
       `Action ${name} returned a non-JSON ${res.status} response: ${raw.slice(0, 200)}`,
@@ -569,12 +637,22 @@ type ActionResponseSampling = {
   sampled: boolean;
 };
 
+function actionTelemetryRoute(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    return currentRouteTemplate() ?? undefined;
+  } catch {
+    // coercion-ok: telemetry never changes the action; the event omits route.
+    return undefined;
+  }
+}
+
 function getActionResponseSampling(
   error: unknown,
   durationMs: number,
   response: Response | undefined,
 ): ActionResponseSampling {
-  if (error || durationMs >= 1_000) {
+  if (error || durationMs >= SLOW_ACTION_RESPONSE_MS) {
     return { track: true, sampleRate: 1, sampled: false };
   }
   if (response && response.status >= 400 && response.status < 500) {
@@ -596,10 +674,11 @@ async function actionFetch<T>(
   name: string,
   method: string,
   params?: Record<string, any>,
-  options?: ActionFetchOptions,
+  options?: InternalActionFetchOptions,
 ): Promise<T> {
   assertAgentNativeApiEnabled(`${method} ${name}`);
   const startedAt = actionTelemetryNow();
+  const routeAtStart = actionTelemetryRoute();
   const hiddenEpochAtStart = pageHiddenEpoch;
   const hiddenAtStart =
     typeof document !== "undefined" && document.visibilityState !== "visible";
@@ -614,6 +693,7 @@ async function actionFetch<T>(
       onResponse: (nextResponse) => {
         response = nextResponse;
         responseAt = actionTelemetryNow();
+        options?.onResponse?.(nextResponse);
       },
     });
   } catch (caught) {
@@ -659,6 +739,7 @@ async function actionFetch<T>(
             response?.headers.get("x-agent-native-request-id") ?? undefined,
           action: name,
           method,
+          route: routeAtStart,
           sample_rate: sampling.sampleRate,
           sample_weight: 1 / sampling.sampleRate,
           sampled: sampling.sampled,
@@ -733,6 +814,20 @@ export function callAction<
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
+  });
+}
+
+export function callActionBlob<TName extends ActionName = ActionName>(
+  actionName: TName,
+  params?: ActionParams<TName>,
+  options: ClientActionCallOptions = {},
+): Promise<Blob> {
+  return actionFetch<Blob>(actionName, options.method ?? "POST", params, {
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
+    includeRequestSource: false,
+    headers: options.headers,
+    responseType: "blob",
   });
 }
 
@@ -986,6 +1081,18 @@ function trackActionCircuitTrip(
   }
 }
 
+// ponytail: one entry per action query this page has fetched; prune on query removal if this ever grows.
+const browserPersistableActionQueryHashes = new Set<string>();
+
+/** @internal read by the persisted query cache; keys are `hashKey` values. */
+export function isBrowserPersistableActionQuery(query: Query): boolean {
+  return (
+    query.queryKey[0] === "action" &&
+    query.state.status === "success" &&
+    browserPersistableActionQueryHashes.has(query.queryHash)
+  );
+}
+
 export function useActionQuery<
   TResult = undefined,
   TName extends ActionName = ActionName,
@@ -995,21 +1102,44 @@ export function useActionQuery<
   options?: Omit<
     UseQueryOptions<TResult extends undefined ? ActionResult<TName> : TResult>,
     "queryKey" | "queryFn"
-  >,
+  > & {
+    queryKeyScope?: readonly unknown[];
+    /**
+     * The resource types this query reads (matching a write's `resources` and a
+     * sync event's `resourceType`). Omit it and every resource-scoped change
+     * still refetches the query.
+     */
+    resources?: readonly string[];
+  },
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   const apiDisabled = Boolean(agentNativeApiDisabledReason());
-  const { refetchInterval, retry: callerRetry, ...restOptions } = options ?? {};
-  const circuitKey = () => hashKey(["action", actionName, params]);
+  const {
+    refetchInterval,
+    retry: callerRetry,
+    queryKeyScope,
+    resources,
+    ...restOptions
+  } = options ?? {};
+  const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
+  const circuitKey = () => hashKey(queryKey);
   return useQuery<R>({
-    queryKey: ["action", actionName, params],
+    queryKey,
     queryFn: async ({ signal }) => {
       const key = circuitKey();
       assertActionCircuitClosed(key);
+      let browserPersist = false;
       const result = await actionFetch<R>(actionName, "GET", params, {
         signal,
+        onResponse: (response) => {
+          browserPersist =
+            response.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
+            ACTION_BROWSER_PERSIST_ALLOW;
+        },
       });
       resetActionFailureCircuit(key);
+      if (browserPersist) browserPersistableActionQueryHashes.add(key);
+      else browserPersistableActionQueryHashes.delete(key);
       return result;
     },
     // The failure circuit counts fetch cycles, so a cycle is recorded where
@@ -1028,11 +1158,33 @@ export function useActionQuery<
     },
     retryDelay: defaultActionQueryRetryDelay,
     ...restOptions,
+    ...(resources
+      ? {
+          meta: {
+            ...restOptions.meta,
+            [ACTION_RESOURCES_META_KEY]: resources,
+          },
+        }
+      : {}),
     ...(refetchInterval !== undefined
       ? { refetchInterval: guardActionQueryRefetchInterval(refetchInterval) }
       : {}),
     ...(apiDisabled ? { enabled: false as const } : {}),
   });
+}
+
+/**
+ * A write that names its resources refreshes only the action queries tagged for
+ * them (and untagged ones, whose reads are unknown). A write that names none
+ * refreshes every action query.
+ */
+function actionQueryInvalidation(resources: readonly string[] | undefined) {
+  if (!resources?.length) return { queryKey: ["action"] };
+  const changed = new Set(resources);
+  return {
+    predicate: (query: ActionScopedQuery) =>
+      actionQueryAffectedByResources(query, changed),
+  };
 }
 
 export function useActionMutation<
@@ -1051,7 +1203,16 @@ export function useActionMutation<
   > & {
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
+    /** The resource types this write changes; see `useActionQuery`. */
+    resources?: readonly string[];
     timeoutMs?: number;
+    headers?:
+      | Record<string, string>
+      | ((
+          variables: TVariables extends undefined
+            ? ActionParams<TName>
+            : TVariables,
+        ) => Record<string, string> | undefined);
   },
 ) {
   const queryClient = useQueryClient();
@@ -1059,7 +1220,9 @@ export function useActionMutation<
     method: methodOpt,
     onSuccess,
     skipActionQueryInvalidation = false,
+    resources,
     timeoutMs,
+    headers,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -1069,10 +1232,30 @@ export function useActionMutation<
 
   return useMutation<D, Error, V>({
     ...restOptions,
-    mutationFn: (params) =>
-      actionFetch<D>(actionName, method, params as Record<string, any>, {
-        timeoutMs,
-      }),
+    mutationFn: async (params) => {
+      let markerFailed = false;
+      const data = await actionFetch<D>(
+        actionName,
+        method,
+        params as Record<string, any>,
+        {
+          timeoutMs,
+          headers: typeof headers === "function" ? headers(params) : headers,
+          onResponse: (response) => {
+            markerFailed =
+              response.headers.get(ACTION_CHANGE_MARKER_HEADER) ===
+              ACTION_CHANGE_MARKER_FAILED;
+          },
+        },
+      );
+      // A normal success already refreshes these queries in onSuccess. A skip
+      // caller manages its own cache, so the failed marker is the only signal
+      // that polling did not see this write.
+      if (markerFailed && skipActionQueryInvalidation) {
+        void queryClient.invalidateQueries(actionQueryInvalidation(resources));
+      }
+      return data;
+    },
     onSuccess: (...args: [any, any, any]) => {
       // A write that succeeded may have fixed whatever was failing reads.
       resetActionFailureCircuits();
@@ -1080,7 +1263,7 @@ export function useActionMutation<
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       }
       if (!skipActionQueryInvalidation) {
-        void queryClient.invalidateQueries({ queryKey: ["action"] });
+        void queryClient.invalidateQueries(actionQueryInvalidation(resources));
       }
       return (onSuccess as Function)?.(...args);
     },

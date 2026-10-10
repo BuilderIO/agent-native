@@ -223,7 +223,9 @@ describe("transcribe-voice Gemini key", () => {
     await expect(post()).resolves.toEqual({ text: "hello there" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain("generativelanguage.googleapis.com");
+    expect(String(url)).toContain(
+      "/models/gemini-3.1-flash-lite:generateContent",
+    );
     expect((init as RequestInit).headers).toMatchObject({
       "x-goog-api-key": value,
     });

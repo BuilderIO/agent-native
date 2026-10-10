@@ -1327,10 +1327,10 @@ function voiceCopy(t: ComposerTranslate): RealtimeVoiceModeCopy {
     }),
     setupDescription: t("agentChat.voiceMode.setupDescription", {
       defaultValue:
-        "Connect Builder.io to use managed voice with free credits, or add your own keys.",
+        "Use Builder.io for managed voice with free credits, or add your own keys.",
     }),
     connectBuilder: t("agentChat.voiceMode.connectBuilder", {
-      defaultValue: "Connect Builder.io",
+      defaultValue: "Use Builder.io",
     }),
     useOpenAiKey: t("agentChat.voiceMode.useOpenAiKey", {
       defaultValue: "Add your own keys",

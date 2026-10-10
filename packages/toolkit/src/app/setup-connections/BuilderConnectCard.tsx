@@ -28,7 +28,10 @@ import {
   type ReactNode,
 } from "react";
 
-import { DeferredBuilderConnectPopover } from "../settings/deferred-builder-connect-popover.js";
+import {
+  DeferredBuilderConnectChoicePanel,
+  DeferredBuilderConnectPopover,
+} from "../settings/deferred-builder-connect-popover.js";
 import type {
   BuilderConnectFlow,
   BuilderConnectionScope,
@@ -252,6 +255,8 @@ export function BuilderConnectionMenu({
 }: BuilderConnectionMenuProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [showConnectChoices, setShowConnectChoices] = useState(false);
+  const provisionAttemptRef = useRef(false);
   const source = credentialSource ?? flow.credentialSource;
   // Disconnect acts on the connection this menu shows; Reconnect goes where
   // this caller may connect (see builderReconnectTarget).
@@ -267,35 +272,64 @@ export function BuilderConnectionMenu({
     defaultValue: "Manage Builder.io connection",
   });
 
-  const handleReconnect = useCallback(() => {
-    setOpen(false);
-    flow.start({
-      trackingSource,
-      trackingFlow,
-      provisionAccount: false,
-      ...(reconnectScope ? { scope: reconnectScope } : {}),
-    });
-  }, [flow, reconnectScope, trackingFlow, trackingSource]);
+  useEffect(() => {
+    if (!flow.connecting && flow.accountExists && provisionAttemptRef.current) {
+      provisionAttemptRef.current = false;
+      setShowConnectChoices(true);
+      setOpen(true);
+    } else if (!flow.connecting) {
+      provisionAttemptRef.current = false;
+    }
+  }, [flow.accountExists, flow.connecting]);
 
   if (flow.connecting) {
     return (
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-8 px-2 text-xs"
-        data-testid="builder-connection-cancel"
-        onClick={flow.cancel}
-      >
-        {t("common.cancel")}
-      </Button>
+      <div className="flex h-8 items-center gap-2" aria-busy="true">
+        <span
+          role="status"
+          aria-live="polite"
+          className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+        >
+          <IconLoader2
+            size={14}
+            className="shrink-0 animate-spin"
+            aria-hidden="true"
+          />
+          <span className="truncate">
+            {provisionAttemptRef.current
+              ? t("agentChat.onboarding.builderProvisioningDescription", {
+                  defaultValue:
+                    "Creating your Builder.io account and activating free credits.",
+                })
+              : t("agentChat.composer.connectingBuilder", {
+                  defaultValue: "Setting up Builder.io…",
+                })}
+          </span>
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 shrink-0 px-2 text-xs"
+          data-testid="builder-connection-cancel"
+          onClick={flow.cancel}
+        >
+          {t("common.cancel")}
+        </Button>
+      </div>
     );
   }
 
   if (!canReconnect && !canDisconnect) return null;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setShowConnectChoices(false);
+      }}
+    >
       <PopoverTrigger asChild>
         {variant === "text" ? (
           <button
@@ -321,34 +355,63 @@ export function BuilderConnectionMenu({
       <PopoverContent
         align="end"
         sideOffset={6}
-        className="w-52 p-1.5"
+        className={showConnectChoices ? "w-80 p-3" : "w-52 p-1.5"}
         aria-label={manageLabel}
       >
-        <div className="space-y-0.5">
-          {canReconnect ? (
-            <button
-              type="button"
-              onClick={handleReconnect}
-              disabled={flow.connecting}
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-xs text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-60"
-            >
-              <IconRefresh size={14} />
-              {flow.connecting
-                ? t("agentChat.recovery.connectingBuilder")
-                : source === "env" ||
-                    (scope !== undefined && !hasBuilderConnection(flow, scope))
+        {showConnectChoices ? (
+          <DeferredBuilderConnectChoicePanel
+            flow={flow}
+            canProvisionAccount={
+              flow.statusResolved &&
+              flow.agentNativeProvisioningEnabled === true
+            }
+            onCreateAndActivate={() => {
+              provisionAttemptRef.current = true;
+              setShowConnectChoices(false);
+              setOpen(false);
+              flow.start({
+                trackingSource,
+                trackingFlow,
+                provisionAccount: true,
+                ...(reconnectScope ? { scope: reconnectScope } : {}),
+              });
+            }}
+            onExistingAccount={() => {
+              setShowConnectChoices(false);
+              setOpen(false);
+              flow.start({
+                trackingSource,
+                trackingFlow,
+                provisionAccount: false,
+                ...(reconnectScope ? { scope: reconnectScope } : {}),
+              });
+            }}
+          />
+        ) : (
+          <div className="space-y-0.5">
+            {canReconnect ? (
+              <button
+                type="button"
+                onClick={() => setShowConnectChoices(true)}
+                disabled={flow.connecting}
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-start text-xs text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-60"
+              >
+                <IconRefresh size={14} />
+                {source === "env" ||
+                (scope !== undefined && !hasBuilderConnection(flow, scope))
                   ? t("agentChat.setup.connectBuilder")
                   : t("agentChat.recovery.reconnectBuilder")}
-            </button>
-          ) : null}
-          {canDisconnect ? (
-            <DisconnectBuilderButton
-              canDisconnect={canDisconnect}
-              scope={scope}
-              onDisconnected={() => setOpen(false)}
-            />
-          ) : null}
-        </div>
+              </button>
+            ) : null}
+            {canDisconnect ? (
+              <DisconnectBuilderButton
+                canDisconnect={canDisconnect}
+                scope={scope}
+                onDisconnected={() => setOpen(false)}
+              />
+            ) : null}
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -435,7 +498,6 @@ export function DefaultBuilderConnectCardView({
                     pending={action.pending}
                     disabled={action.disabled}
                     className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
-                    leadingIcon={<IconPlugConnected className="size-3.5" />}
                   >
                     {action.label}
                   </ActionButton>
@@ -448,7 +510,6 @@ export function DefaultBuilderConnectCardView({
                   pending={action.pending}
                   disabled={action.disabled}
                   className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
-                  leadingIcon={<IconPlugConnected className="size-3.5" />}
                   onPress={() => action.onPress()}
                 >
                   {action.label}

@@ -27,6 +27,7 @@ export function createProgressToolEntries(
 ): Record<string, ActionEntry> {
   return {
     "manage-progress": {
+      confirmsAutomationWork: false,
       tool: {
         description: `Track multi-step task progress visible to the user in the runs tray.
 

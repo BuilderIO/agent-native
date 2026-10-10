@@ -72,6 +72,11 @@ describe("db-patch", () => {
       if (lower.includes("temporary view") || lower.startsWith("drop view")) {
         return [];
       }
+      // The agent-SQL guards' catalog checks; answer like a stock database.
+      if (lower.includes("standard_conforming_strings")) {
+        return [{ value: "on" }];
+      }
+      if (lower.includes("pg_catalog.pg_")) return [];
       if (lower.includes("information_schema.columns")) {
         return introspectRows;
       }

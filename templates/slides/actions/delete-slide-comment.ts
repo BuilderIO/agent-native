@@ -13,6 +13,10 @@ export default defineAction({
     id: z.string().describe("Comment ID"),
     deckId: z.string().describe("Deck ID"),
   }),
+  changeResource: ({ deckId }) => ({
+    resourceType: "deck",
+    resourceId: deckId,
+  }),
   run: async (args) => {
     await assertAccess("deck", args.deckId, "commenter");
     const db = getDb();

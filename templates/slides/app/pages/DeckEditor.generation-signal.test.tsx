@@ -16,21 +16,39 @@ const mocks = vi.hoisted(() => ({
     slides: [] as unknown[],
     generationContext: {
       generationAttemptId: "attempt-1",
+      generationStartedAt: undefined as number | undefined,
       generationMode: undefined as string | undefined,
+      originalPrompt: "" as string,
     },
   },
   broadGenerating: true,
+  showInlineEditTrigger: false,
+  readOnlyWidget: false,
+  writeWidget: false,
+  widgetEmbed: false,
+  guidedQuestionFlowOptions: [] as unknown[],
+  guidedQuestionQuestions: [] as Array<{ id: string; question: string }>,
+  guidedQuestionPayload: null as { threadId?: string } | null,
+  guidedQuestionRefetchPending: vi.fn(),
+  pendingUnloadGuard: vi.fn(),
   attemptGenerating: false,
   attemptObservedRun: false,
   attemptTimedOut: false,
   attemptCanContinueAfterStall: false,
   targetTabId: "target-tab",
+  guidedQuestions: [] as Array<{
+    id: string;
+    type: "freeform";
+    question: string;
+  }>,
+  guidedFlowOptions: null as { threadId?: string } | null,
   scopedCalls: [] as Array<{ attemptId: string | null; tabId: string | null }>,
   startedTabId: null as string | null,
   analyticsSessionId: "session-1",
   updateDeck: vi.fn((_id: string, _changes: Record<string, unknown>) => {}),
   refreshOpenDeck: vi.fn(),
   flushDeckSave: vi.fn(async (_id: string) => {}),
+  hasPendingDeckWrites: false,
   submitAndConfirm: vi.fn(
     async (
       _message: string,
@@ -50,6 +68,10 @@ const mocks = vi.hoisted(() => ({
   revision: 0,
   listeners: new Set<() => void>(),
   sendToAgentChat: vi.fn(),
+  sendToAgentChatAndConfirm: vi.fn(async () => ({
+    tabId: "generation-thread",
+    delivered: true,
+  })),
   abortStalledRun: vi.fn(),
   toastError: vi.fn(),
 }));
@@ -123,6 +145,7 @@ vi.mock("@/context/DeckContext", () => ({
     setDeckSlides: vi.fn(),
     undo: vi.fn(),
     undoAvailability: {},
+    subscribeUndoReveal: vi.fn(() => () => {}),
     loading: false,
     loadError: false,
   }),
@@ -131,7 +154,7 @@ vi.mock("@/context/DeckContext", () => ({
   deckIdFromPathname: vi.fn(),
   defaultSlideContent: { blank: "" },
   flushPendingSaves: vi.fn(),
-  hasUnsavedDeckChanges: vi.fn(() => false),
+  hasUnsavedDeckChanges: () => mocks.hasPendingDeckWrites,
   markSlideEditingActive: vi.fn(),
 }));
 
@@ -143,6 +166,7 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   AGENT_CHAT_SUBMIT_RESULT_EVENT: "agentNative.chatSubmitResult",
   fetchAgentEngineConfiguredState: async () => "unavailable",
   sendToAgentChat: mocks.sendToAgentChat,
+  sendToAgentChatAndConfirm: mocks.sendToAgentChatAndConfirm,
   useAgentEngineConfigured: () => ({
     canChat: false,
     missing: false,
@@ -169,13 +193,25 @@ vi.mock(
     ...(await importOriginal<
       typeof import("@agent-native/toolkit/app/chat/agentkit-chat")
     >()),
-    useGuidedQuestionFlow: () => ({
-      questions: [],
-      handleSubmit: vi.fn(),
-      handleSkip: vi.fn(),
-      refetchPendingQuestion: vi.fn(async () => false),
-    }),
+    useGuidedQuestionFlow: (options: { threadId?: string }) => {
+      mocks.guidedQuestionFlowOptions.push(options);
+      mocks.guidedFlowOptions = options;
+      return {
+        payload: mocks.guidedQuestionPayload,
+        questions: mocks.guidedQuestionQuestions.length
+          ? mocks.guidedQuestionQuestions
+          : mocks.guidedQuestions,
+        handleSubmit: vi.fn(),
+        handleSkip: vi.fn(),
+        refetchPendingQuestionStatus: mocks.guidedQuestionRefetchPending,
+      };
+    },
   }),
+);
+const relayTrack = vi.hoisted(() =>
+  vi.fn(
+    async (_name: string, _properties?: Record<string, unknown>) => undefined,
+  ),
 );
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
 vi.mock("@agent-native/core/client/analytics", async (importOriginal) => {
@@ -186,6 +222,7 @@ vi.mock("@agent-native/core/client/analytics", async (importOriginal) => {
   return {
     ...original,
     getAnalyticsSessionId: () => mocks.analyticsSessionId,
+    track: relayTrack,
     trackEvent: vi.fn(),
   };
 });
@@ -219,6 +256,11 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => {
 });
 vi.mock("@agent-native/core/client/org", () => ({
   useOrg: () => ({ data: null, isLoading: false, isError: false }),
+}));
+vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+  useIsMcpAppWidgetEmbed: () => mocks.widgetEmbed,
+  useIsMcpDirectoryWidgetReadOnlyEmbed: () => mocks.readOnlyWidget,
+  useIsMcpDirectoryWidgetWriteEmbed: () => mocks.writeWidget,
 }));
 
 const resetDeckAccessRequest = vi.hoisted(() => vi.fn());
@@ -264,16 +306,65 @@ vi.mock("@/hooks/use-slide-file-storage-status", () => ({
   }),
 }));
 vi.mock("@/lib/pending-deck-changes", () => ({
-  shouldBlockPendingDeckNavigation: () => false,
-  usePendingDeckUnloadGuard: vi.fn(),
+  shouldBlockPendingDeckNavigation: (args: {
+    hasPendingEdits: boolean;
+    currentPathname: string;
+    nextPathname: string;
+    allowPendingEdits?: boolean;
+  }) =>
+    args.hasPendingEdits &&
+    !args.allowPendingEdits &&
+    args.currentPathname !== args.nextPathname,
+  usePendingDeckUnloadGuard: mocks.pendingUnloadGuard,
 }));
 
-vi.mock("@/components/editor/EditorToolbar", () => ({ default: () => null }));
+vi.mock("@/components/editor/EditorToolbar", () => ({
+  default: ({
+    canEdit,
+    canComment,
+  }: {
+    canEdit?: boolean;
+    canComment?: boolean;
+  }) => (
+    <div
+      data-testid="editor-toolbar"
+      data-can-edit={String(canEdit)}
+      data-can-comment={String(canComment)}
+    />
+  ),
+}));
+vi.mock("@/components/editor/QuestionFlow", () => ({
+  QuestionFlow: () => <div data-testid="question-flow" />,
+}));
 vi.mock("@/components/editor/EditorSidebar", () => ({
-  default: () => null,
+  default: () => <div data-testid="editor-sidebar" />,
   getSlideSelection: () => [],
 }));
-vi.mock("@/components/editor/SlideEditor", () => ({ default: () => null }));
+vi.mock("@/components/editor/SlideEditor", () => ({
+  default: ({
+    onInlineEditStart,
+    readOnly,
+    canComment,
+  }: {
+    onInlineEditStart?: (slideId: string) => void;
+    readOnly?: boolean;
+    canComment?: boolean;
+  }) => (
+    <>
+      <div
+        data-testid="slide-editor"
+        data-read-only={String(readOnly)}
+        data-can-comment={String(canComment)}
+      />
+      {mocks.showInlineEditTrigger ? (
+        <button
+          data-testid="inline-edit-trigger"
+          onClick={() => onInlineEditStart?.("slide-1")}
+        />
+      ) : null}
+    </>
+  ),
+}));
 vi.mock("@/components/editor/GeneratingSlidePreview", () => ({
   default: ({ busy = true }: { busy?: boolean }) => (
     <div data-testid="generating-preview" data-busy={String(busy)} />
@@ -349,8 +440,16 @@ describe("DeckEditor generation signal wiring", () => {
     window.localStorage.clear();
     mocks.deck.slides = [];
     mocks.deck.generationContext.generationMode = undefined;
+    mocks.deck.generationContext.generationAttemptId = "attempt-1";
     Object.assign(mocks, {
       broadGenerating: true,
+      showInlineEditTrigger: false,
+      readOnlyWidget: false,
+      writeWidget: false,
+      widgetEmbed: false,
+      guidedQuestionFlowOptions: [],
+      guidedQuestionQuestions: [],
+      guidedQuestionPayload: null,
       attemptGenerating: false,
       attemptObservedRun: false,
       targetTabId: "target-tab",
@@ -369,17 +468,33 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.submitAndConfirm
       .mockReset()
       .mockResolvedValue({ tabId: "target-tab", delivered: true });
+    mocks.guidedQuestionRefetchPending
+      .mockReset()
+      .mockImplementation(async () =>
+        mocks.guidedQuestionQuestions.length > 0 ||
+        mocks.guidedQuestions.length > 0
+          ? { status: "pending" as const }
+          : { status: "none" as const },
+      );
     mocks.abortStalledRun.mockReset().mockResolvedValue(true);
     mocks.deck.generationContext = {
       generationAttemptId: "attempt-1",
+      generationStartedAt: Date.now(),
       generationMode: undefined,
+      originalPrompt: "",
     };
+    mocks.hasPendingDeckWrites = false;
     mocks.scopedCalls = [];
+    mocks.guidedQuestions = [];
+    mocks.guidedFlowOptions = null;
     mocks.listeners.clear();
     mocks.sendToAgentChat.mockClear();
+    mocks.sendToAgentChatAndConfirm.mockClear();
+    mocks.pendingUnloadGuard.mockClear();
     mocks.toastError.mockClear();
     window.innerWidth = 390;
     vi.mocked(trackEvent).mockClear();
+    relayTrack.mockClear();
   });
 
   afterEach(() => {
@@ -393,6 +508,649 @@ describe("DeckEditor generation signal wiring", () => {
       Reflect.deleteProperty(navigator, "locks");
     }
     vi.restoreAllMocks();
+  });
+
+  it("guards reloads while an inline edit is active", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "draft" }];
+    mocks.showInlineEditTrigger = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => screen.getByTestId("inline-edit-trigger").click());
+
+    expect(mocks.pendingUnloadGuard).toHaveBeenLastCalledWith(true);
+  });
+
+  it("disables editing and comments in a read-only directory widget", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "draft" }];
+    mocks.readOnlyWidget = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-toolbar")).toBeTruthy(),
+    );
+    expect(
+      screen.getByTestId("editor-toolbar").getAttribute("data-can-edit"),
+    ).toBe("false");
+    expect(
+      screen.getByTestId("editor-toolbar").getAttribute("data-can-comment"),
+    ).toBe("false");
+    expect(
+      screen.getByTestId("slide-editor").getAttribute("data-read-only"),
+    ).toBe("true");
+    expect(
+      screen.getByTestId("slide-editor").getAttribute("data-can-comment"),
+    ).toBe("false");
+  });
+
+  it.each([
+    ["read-only", true, "false"],
+    ["writable", false, "true"],
+  ])(
+    "renders the standard deck editor layout in a %s MCP App widget",
+    async (_name, readOnlyWidget, canEdit) => {
+      mocks.deck.slides = [{ id: "slide-1", content: "draft" }];
+      mocks.widgetEmbed = true;
+      mocks.readOnlyWidget = readOnlyWidget;
+      router = createMemoryRouter(
+        [{ path: "/deck/:id", element: <DeckEditor /> }],
+        { initialEntries: ["/deck/deck-1"] },
+      );
+
+      const { container } = render(<RouterProvider router={router} />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("editor-toolbar")).toBeTruthy(),
+      );
+      expect(screen.getByTestId("editor-toolbar").dataset.canEdit).toBe(
+        canEdit,
+      );
+      expect(
+        container.querySelector("[data-context-toolbar-host='narrow']"),
+      ).not.toBeNull();
+      // A pane under 768px collapses the rail behind the toggle, as the app
+      // does at that width; the widget does not force it open.
+      expect(screen.queryByTestId("editor-sidebar")).toBeNull();
+      expect(
+        container
+          .querySelector("[data-slides-editor-root]")
+          ?.hasAttribute("data-slides-widget"),
+      ).toBe(false);
+      expect(screen.getByTestId("slide-editor").dataset.readOnly).toBe(
+        String(readOnlyWidget || false),
+      );
+      // The widget grant carries no comment actions.
+      expect(screen.getByTestId("slide-editor").dataset.canComment).toBe(
+        "false",
+      );
+    },
+  );
+
+  it("shows the slide rail beside the slide in a wide MCP App widget", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "draft" }];
+    mocks.widgetEmbed = true;
+    window.innerWidth = 1040;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-sidebar")).toBeTruthy(),
+    );
+  });
+
+  it("keeps the deck toolbar and a closed rail on a narrow screen outside a widget", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "draft" }];
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    const { container } = render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("editor-toolbar")).toBeTruthy(),
+    );
+    expect(
+      container.querySelector("[data-context-toolbar-host='narrow']"),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("editor-sidebar")).toBeNull();
+  });
+
+  it("saves before leaving an empty generation deck and restores its prompt", async () => {
+    mocks.hasPendingDeckWrites = true;
+    mocks.deck.generationContext.originalPrompt =
+      "Create a product launch deck";
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/home", element: <div>Decks home</div> },
+      ],
+      {
+        initialEntries: [
+          "/home",
+          "/deck/deck-1?generating=1&generationSubmitId=submit-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await act(async () => {
+      void router?.navigate("/home");
+    });
+
+    await waitFor(() => expect(router?.state.location.pathname).toBe("/home"));
+    expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1");
+    expect(router?.state.location.state).toEqual({
+      retryPrompt: "Create a product launch deck",
+    });
+
+    await act(async () => {
+      void router?.navigate(-1);
+    });
+    await waitFor(() => expect(router?.state.location.pathname).toBe("/home"));
+  });
+
+  it("keeps the empty generation deck open when saving before Home fails", async () => {
+    mocks.hasPendingDeckWrites = true;
+    mocks.flushDeckSave.mockRejectedValueOnce(new Error("save failed"));
+    router = createMemoryRouter(
+      [
+        { path: "/deck/:id", element: <DeckEditor /> },
+        { path: "/home", element: <div>Decks home</div> },
+      ],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generationSubmitId=submit-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await act(async () => {
+      void router?.navigate("/home");
+    });
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+    expect(router?.state.location.pathname).toBe("/deck/deck-1");
+  });
+
+  it("reopens chat for a pending deck question on its original thread", async () => {
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "What should the deck focus on?" },
+    ];
+    mocks.guidedQuestionPayload = { threadId: "generation-thread" };
+    mocks.targetTabId = "generation-chat-tab";
+    mocks.attemptGenerating = true;
+    const openChat = vi.fn();
+    window.addEventListener("agent-panel:open", openChat);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generationSubmitId=submit-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(openChat).toHaveBeenCalledOnce());
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: { submitMessageId: "submit-1", tabId: "generation-chat-tab" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            threadId: "generation-thread",
+            tabId: "generation-chat-tab",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(mocks.guidedQuestionFlowOptions.at(-1)).toEqual(
+        expect.objectContaining({ threadId: "generation-thread" }),
+      ),
+    );
+    expect(screen.getByTestId("question-flow")).toBeTruthy();
+    expect(screen.getByTestId("generating-preview")).toBeTruthy();
+    expect(screen.queryByText("deckEditor.tryAgain")).toBeNull();
+    window.removeEventListener("agent-panel:open", openChat);
+  });
+
+  it("does not finalize an empty deck while a guided question is pending", async () => {
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "What should the deck focus on?" },
+    ];
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("question-flow")).toBeTruthy(),
+    );
+
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "generation_failed",
+      expect.anything(),
+    );
+    expect(
+      window.localStorage.getItem(
+        "slides:empty-generation-retry-recovery:deck-1",
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps generation unsettled when the guided-question check fails", async () => {
+    mocks.guidedQuestionRefetchPending.mockImplementation(async () => ({
+      status: "error",
+      error: new Error("question check failed"),
+    }));
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        "generation_outcome_unresolved",
+        expect.objectContaining({ reason: "guided_question_refetch_failed" }),
+      ),
+    );
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(
+      window.localStorage.getItem(
+        "slides:empty-generation-retry-recovery:deck-1",
+      ),
+    ).toBeNull();
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "generation_failed",
+      expect.anything(),
+    );
+    expect(
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeTruthy();
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+    expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(2);
+    expect(mocks.submitAndConfirm).not.toHaveBeenCalled();
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "deckEditor.generationOutcomeUnresolved",
+    );
+  });
+
+  it("rechecks guided questions after saving the retry context", async () => {
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    window.localStorage.setItem(
+      recoveryKey,
+      JSON.stringify({
+        kind: "generation_failure",
+        attemptId: "attempt-1",
+        failureCode: "no_output",
+      }),
+    );
+    Object.assign(mocks.deck.generationContext, {
+      generationAttemptId: "attempt-1",
+      generationStartedAt: Date.now(),
+      originalPrompt: "Original brief",
+      generationFailureCode: "no_output",
+      generationFailureAttemptId: "attempt-1",
+    });
+    let resolveRetryFlush!: () => void;
+    const retryFlush = new Promise<void>((resolve) => {
+      resolveRetryFlush = resolve;
+    });
+    mocks.flushDeckSave
+      .mockResolvedValueOnce(undefined)
+      .mockReturnValueOnce(retryFlush)
+      .mockResolvedValueOnce(undefined);
+    mocks.guidedQuestionRefetchPending
+      .mockReset()
+      .mockResolvedValueOnce({ status: "none" })
+      .mockResolvedValueOnce({ status: "pending" });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(2));
+    expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(1);
+
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "What should the deck focus on?" },
+    ];
+    await act(async () => {
+      resolveRetryFlush();
+      await retryFlush;
+    });
+
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(3));
+    expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(2);
+    expect(mocks.submitAndConfirm).not.toHaveBeenCalled();
+    expect(mocks.deck.generationContext).toMatchObject({
+      generationAttemptId: "attempt-1",
+      generationFailureCode: "no_output",
+      generationFailureAttemptId: "attempt-1",
+    });
+    expect(router.state.location.search).toBe("");
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("rechecks guided questions that arrive while generation refresh is pending", async () => {
+    let resolveRefresh!: (deck: typeof mocks.deck) => void;
+    const refreshPromise = new Promise<typeof mocks.deck>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    mocks.refreshOpenDeck.mockImplementation(() => refreshPromise);
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(mocks.refreshOpenDeck).toHaveBeenCalledWith("deck-1"),
+    );
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "What should the deck focus on?" },
+    ];
+    act(publishAgentGeneratingChange);
+    await act(async () => {
+      resolveRefresh(mocks.deck);
+      await refreshPromise;
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("question-flow")).toBeTruthy(),
+    );
+
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "generation_failed",
+      expect.anything(),
+    );
+    expect(
+      window.localStorage.getItem(
+        "slides:empty-generation-retry-recovery:deck-1",
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeNull();
+  });
+
+  it("rechecks deck output after the guided-question refetch", async () => {
+    const emptySnapshot = { ...mocks.deck, slides: [] };
+    const generatedSnapshot = {
+      ...mocks.deck,
+      slides: [{ id: "slide-created-during-question-check" }],
+    };
+    let questionCheckFinished = false;
+    mocks.refreshOpenDeck.mockImplementation(async () =>
+      questionCheckFinished ? generatedSnapshot : emptySnapshot,
+    );
+    let resolveQuestionCheck!: (result: unknown) => void;
+    const questionCheckPromise = new Promise<unknown>((resolve) => {
+      resolveQuestionCheck = resolve;
+    });
+    mocks.guidedQuestionRefetchPending.mockImplementationOnce(
+      () => questionCheckPromise,
+    );
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(1),
+    );
+    await act(async () => {
+      questionCheckFinished = true;
+      resolveQuestionCheck({ status: "none" });
+      await questionCheckPromise;
+    });
+
+    await waitFor(() =>
+      expect(mocks.refreshOpenDeck.mock.calls.length).toBeGreaterThanOrEqual(2),
+    );
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "generation_failed",
+      expect.anything(),
+    );
+  });
+
+  it("rechecks guided questions after the final deck refresh", async () => {
+    let resolveOutcomeRefresh!: (deck: typeof mocks.deck) => void;
+    const outcomeRefreshPromise = new Promise<typeof mocks.deck>((resolve) => {
+      resolveOutcomeRefresh = resolve;
+    });
+    let outcomeRefreshStarted = false;
+    mocks.refreshOpenDeck.mockImplementation(() => {
+      if (mocks.guidedQuestionRefetchPending.mock.calls.length > 0) {
+        outcomeRefreshStarted = true;
+        return outcomeRefreshPromise;
+      }
+      return Promise.resolve(mocks.deck);
+    });
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() => expect(outcomeRefreshStarted).toBe(true));
+    expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(1);
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "What should the deck focus on?" },
+    ];
+    await act(async () => {
+      resolveOutcomeRefresh(mocks.deck);
+      await outcomeRefreshPromise;
+    });
+
+    await waitFor(() =>
+      expect(mocks.guidedQuestionRefetchPending).toHaveBeenCalledTimes(2),
+    );
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "generation_failed",
+      expect.anything(),
+    );
+    expect(
+      window.localStorage.getItem(
+        "slides:empty-generation-retry-recovery:deck-1",
+      ),
+    ).toBeNull();
+  });
+
+  it("routes a reopened deck answer to its original chat thread", async () => {
+    window.sessionStorage.setItem(
+      "slides:new-deck-generation-active:deck-1",
+      JSON.stringify({
+        submitMessageId: "submit-restored-question",
+        tabId: "generation-chat-tab",
+        conversationThreadId: "generation-thread",
+      }),
+    );
+    mocks.guidedQuestionQuestions = [
+      { id: "q1", question: "What should the deck focus on?" },
+    ];
+    mocks.guidedQuestionPayload = { threadId: "generation-thread" };
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    const options = mocks.guidedQuestionFlowOptions.at(-1) as {
+      onSubmitMessage: (input: {
+        message: string;
+        context: string;
+      }) => Promise<{ delivered: boolean }>;
+    };
+    await act(async () => {
+      await options.onSubmitMessage({
+        message: "Here are my answers.",
+        context: "Audience: executives",
+      });
+    });
+
+    expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Here are my answers.",
+        context: "Audience: executives",
+        submit: true,
+        chatTarget: "local",
+        targetTabId: "generation-chat-tab",
+      }),
+      expect.objectContaining({ submitMessageId: expect.any(String) }),
+    );
   });
 
   it("emits one content-free output view after the deck has slides", async () => {
@@ -617,10 +1375,200 @@ describe("DeckEditor generation signal wiring", () => {
       expect(params.has("generating")).toBe(false);
       expect(params.has("generation_attempt_id")).toBe(false);
       expect(mocks.broadGenerating).toBe(true);
-      expect(
-        screen.getByTestId("generating-preview").getAttribute("data-busy"),
-      ).toBe("false");
+      // The run ended without a slide: a failure with Try again, not an idle
+      // empty canvas that reads as still working.
+      expect(screen.getByRole("alert").querySelector("button")).toBeTruthy();
+      expect(screen.queryByTestId("generating-preview")).toBeNull();
     });
+  });
+
+  it("shows recovery guidance without claiming an unresolved run failed", async () => {
+    mocks.refreshOpenDeck.mockResolvedValue(null);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        "generation_outcome_unresolved",
+        expect.objectContaining({
+          generation_attempt_id: "attempt-1",
+          outcome: "unresolved",
+          reason: "deck_not_visible_after_refresh",
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(mocks.deck.generationContext).toMatchObject({
+        generationFailureCode: "outcome_unresolved",
+        generationFailureAttemptId: "attempt-1",
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1"),
+    );
+    expect(
+      screen.getByText("deckEditor.generationOutcomeUnresolved"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeTruthy();
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    await waitFor(() =>
+      expect(window.localStorage.getItem(recoveryKey)).toBeNull(),
+    );
+
+    cleanup();
+    router?.dispose();
+    router = undefined;
+    mocks.broadGenerating = false;
+    mocks.deck.generationContext = structuredClone(
+      mocks.deck.generationContext,
+    );
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(
+      screen.getByText("deckEditor.generationOutcomeUnresolved"),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeTruthy();
+  });
+
+  it("does not mark an unresolved run as empty when output arrives during refresh", async () => {
+    let rejectRefresh!: (error: Error) => void;
+    const refreshPromise = new Promise<null>((_resolve, reject) => {
+      rejectRefresh = reject;
+    });
+    mocks.refreshOpenDeck.mockImplementation(() => refreshPromise);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          "/deck/deck-1?generating=1&generation_attempt_id=attempt-1",
+        ],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: "attempt-1",
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+
+    await waitFor(() =>
+      expect(mocks.refreshOpenDeck).toHaveBeenCalledWith("deck-1"),
+    );
+    mocks.deck.slides = [{ id: "slide-1", content: "Generated output" }];
+    act(publishAgentGeneratingChange);
+    await act(async () => {
+      rejectRefresh(new Error("refresh failed"));
+      await refreshPromise.catch(() => undefined);
+    });
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      "generation_outcome_unresolved",
+      expect.objectContaining({
+        generation_attempt_id: "attempt-1",
+        outcome: "unresolved",
+        reason: "deck_refresh_failed",
+      }),
+    );
+    expect(mocks.deck.generationContext).not.toHaveProperty(
+      "generationFailureCode",
+    );
+    expect(
+      window.localStorage.getItem(
+        "slides:empty-generation-retry-recovery:deck-1",
+      ),
+    ).toBeNull();
+    expect(mocks.flushDeckSave).not.toHaveBeenCalled();
+  });
+
+  it("restores a pending guided question and opens its owning chat on a plain deck route", async () => {
+    const submitMessageId = "submit-pending-question";
+    const tabId = "pending-question-tab";
+    const threadId = "pending-question-thread";
+    window.sessionStorage.setItem(
+      `slides:new-deck-generation-active:deck-1`,
+      JSON.stringify({
+        submitMessageId,
+        tabId,
+        conversationThreadId: threadId,
+      }),
+    );
+    mocks.guidedQuestions = [
+      {
+        id: "deck-style",
+        type: "freeform",
+        question: "What style should the deck use?",
+      },
+    ];
+    const dispatchEvent = vi.spyOn(window, "dispatchEvent");
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => {
+      expect(mocks.guidedFlowOptions?.threadId).toBe(threadId);
+      expect(
+        dispatchEvent.mock.calls.some(
+          ([event]) =>
+            event.type === "agent-chat:open-thread" &&
+            (event as CustomEvent).detail?.threadId === tabId,
+        ),
+      ).toBe(true);
+      expect(
+        dispatchEvent.mock.calls.some(
+          ([event]) => event.type === "agent-panel:open",
+        ),
+      ).toBe(true);
+    });
+    expect(
+      screen.queryByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeNull();
   });
 
   it("does not carry the prior tab into a retry or enable its stale failure", async () => {
@@ -1080,6 +2028,36 @@ describe("DeckEditor generation signal wiring", () => {
     expect(screen.queryByTestId("generating-preview")).toBeNull();
   });
 
+  it("explains when an agent run failed before creating slides", () => {
+    Object.assign(mocks.deck.generationContext, {
+      generationFailureCode: "agent_error",
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText("deckEditor.agentRunFailed")).toBeTruthy();
+    expect(screen.queryByText("deckEditor.deckHasNoSlides")).toBeNull();
+  });
+
+  it("explains when generation ends without creating slides", () => {
+    Object.assign(mocks.deck.generationContext, {
+      generationFailureCode: "no_output",
+    });
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByText("deckEditor.generationFailed")).toBeTruthy();
+    expect(screen.queryByText("deckEditor.deckHasNoSlides")).toBeNull();
+  });
+
   it("recovers an empty-deck failure after its terminal save fails and reloads", async () => {
     mocks.flushDeckSave.mockRejectedValueOnce(new Error("failure save failed"));
     router = createMemoryRouter(
@@ -1125,7 +2103,9 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.attemptObservedRun = false;
     mocks.deck.generationContext = {
       generationAttemptId: "attempt-1",
+      generationStartedAt: Date.now(),
       generationMode: undefined,
+      originalPrompt: "",
     };
     mocks.flushDeckSave.mockReset().mockResolvedValue(undefined);
     router = createMemoryRouter(
@@ -1154,12 +2134,165 @@ describe("DeckEditor generation signal wiring", () => {
     ).toBe(false);
   });
 
+  it.each([
+    {
+      name: "generation failure",
+      recovery: {
+        kind: "generation_failure",
+        attemptId: "attempt-1",
+        failureCode: "outcome_unresolved",
+      },
+      generationContext: {
+        generationAttemptId: "attempt-1",
+        generationFailureCode: "outcome_unresolved",
+        generationFailureAttemptId: "attempt-1",
+      },
+    },
+    {
+      name: "accepted retry",
+      recovery: {
+        kind: "retry_accepted",
+        retryAttemptId: "retry-attempt-1",
+      },
+      generationContext: {
+        generationAttemptId: "retry-attempt-1",
+        generationFailureCode: null,
+        generationFailureAttemptId: null,
+      },
+    },
+    {
+      name: "accepted retry with same-attempt failure",
+      recovery: {
+        kind: "retry_accepted",
+        retryAttemptId: "retry-attempt-1",
+      },
+      generationContext: {
+        generationAttemptId: "retry-attempt-1",
+        generationFailureCode: "no_output",
+        generationFailureAttemptId: "retry-attempt-1",
+      },
+    },
+  ])(
+    "keeps a matching $name journal when flush fails",
+    async ({ recovery, generationContext }) => {
+      const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+      const serializedRecovery = JSON.stringify(recovery);
+      window.localStorage.setItem(recoveryKey, serializedRecovery);
+      mocks.deck.generationContext = {
+        generationStartedAt: Date.now(),
+        generationMode: undefined,
+        originalPrompt: "",
+        ...generationContext,
+      };
+      mocks.flushDeckSave.mockRejectedValueOnce(new Error("save failed"));
+      router = createMemoryRouter(
+        [{ path: "/deck/:id", element: <DeckEditor /> }],
+        { initialEntries: ["/deck/deck-1"] },
+      );
+
+      render(<RouterProvider router={router} />);
+
+      await waitFor(() =>
+        expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1"),
+      );
+      await waitFor(() =>
+        expect(mocks.toastError).toHaveBeenCalledWith("settings.saveFailed"),
+      );
+      expect(window.localStorage.getItem(recoveryKey)).toBe(serializedRecovery);
+      expect(mocks.deck.generationContext).toMatchObject(generationContext);
+    },
+  );
+
+  it("keeps a newer retry journal and its in-memory guard when an older flush settles", async () => {
+    const recoveryKey = "slides:empty-generation-retry-recovery:deck-1";
+    const recovery = {
+      kind: "generation_failure",
+      attemptId: "attempt-1",
+      failureCode: "outcome_unresolved",
+    };
+    const serializedRecovery = JSON.stringify(recovery);
+    window.localStorage.setItem(recoveryKey, serializedRecovery);
+    Object.assign(mocks.deck.generationContext, {
+      generationAttemptId: recovery.attemptId,
+      generationStartedAt: Date.now(),
+      generationMode: undefined,
+      originalPrompt: "",
+      generationFailureCode: recovery.failureCode,
+      generationFailureAttemptId: recovery.attemptId,
+    });
+    let resolveFlush!: () => void;
+    const flushPromise = new Promise<void>((resolve) => {
+      resolveFlush = resolve;
+    });
+    let resolveRetryFlush!: () => void;
+    const retryFlushPromise = new Promise<void>((resolve) => {
+      resolveRetryFlush = resolve;
+    });
+    mocks.flushDeckSave
+      .mockReturnValueOnce(flushPromise)
+      .mockReturnValueOnce(retryFlushPromise);
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() =>
+      expect(mocks.flushDeckSave).toHaveBeenCalledWith("deck-1"),
+    );
+    act(() => {
+      screen.getByRole("button", { name: "deckEditor.tryAgain" }).click();
+    });
+    await waitFor(() => expect(mocks.flushDeckSave).toHaveBeenCalledTimes(2));
+    const retryAttemptId = mocks.deck.generationContext.generationAttemptId;
+    expect(retryAttemptId).not.toBe(recovery.attemptId);
+    const retryRecovery = JSON.parse(
+      window.localStorage.getItem(recoveryKey) ?? "null",
+    );
+    expect(retryRecovery).toMatchObject({
+      kind: "retry_rollback",
+      retryAttemptId,
+    });
+
+    await act(async () => {
+      resolveFlush();
+      await flushPromise;
+    });
+
+    expect(window.localStorage.getItem(recoveryKey)).toBe(
+      JSON.stringify(retryRecovery),
+    );
+    act(() => {
+      mocks.updateDeck("deck-1", {
+        generationContext: {
+          ...mocks.deck.generationContext,
+          originalPrompt: "Refreshed context",
+        },
+      });
+    });
+    expect(mocks.deck.generationContext.generationAttemptId).toBe(
+      retryAttemptId,
+    );
+    expect(mocks.toastError).not.toHaveBeenCalledWith("settings.saveFailed");
+
+    await act(async () => {
+      resolveRetryFlush();
+      await retryFlushPromise;
+    });
+    await waitFor(() =>
+      expect(window.localStorage.getItem(recoveryKey)).toBeNull(),
+    );
+  });
+
   it("restores retry run tracking from the persisted submit-to-tab mapping", async () => {
     const submitMessageId = "retry-submit";
     const tabId = "retry-tab";
     mocks.deck.generationContext = {
       generationAttemptId: "retry-attempt",
+      generationStartedAt: Date.now(),
       generationMode: undefined,
+      originalPrompt: "",
     };
     mocks.targetTabId = tabId;
     mocks.attemptGenerating = true;
@@ -1202,6 +2335,110 @@ describe("DeckEditor generation signal wiring", () => {
         failure_code: "no_output",
       }),
     );
+  });
+
+  it("reports the owner's first view of a ready deck once per attempt", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "<p>Ready</p>" }];
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+
+    await settleNewDeckAttempt("attempt-first-view");
+    await waitFor(() =>
+      expect(relayTrack).toHaveBeenCalledWith("deck_ready_viewed", {
+        generation_attempt_id: "attempt-first-view",
+        output_id: "deck-1",
+        output_type: "deck",
+        slide_count: 1,
+        view_mode: "live",
+        app_name: "slides",
+        template_name: "slides",
+      }),
+    );
+
+    cleanup();
+    router?.dispose();
+    mocks.refreshOpenDeck.mockClear();
+    mocks.attemptGenerating = true;
+    await settleNewDeckAttempt("attempt-first-view");
+
+    expect(
+      relayTrack.mock.calls.filter(([name]) => name === "deck_ready_viewed"),
+    ).toHaveLength(1);
+  });
+
+  async function settleNewDeckAttempt(attemptId: string) {
+    mocks.deck.generationContext.generationAttemptId = attemptId;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      {
+        initialEntries: [
+          `/deck/deck-1?generating=1&generation_attempt_id=${attemptId}`,
+        ],
+      },
+    );
+    render(<RouterProvider router={router} />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(SLIDES_GENERATION_STARTED_EVENT, {
+          detail: {
+            generationAttemptId: attemptId,
+            outputId: "deck-1",
+            tabId: mocks.targetTabId,
+          },
+        }),
+      );
+      publishAgentGeneratingChange();
+    });
+    mocks.attemptGenerating = false;
+    act(publishAgentGeneratingChange);
+    await waitFor(() => expect(mocks.refreshOpenDeck).toHaveBeenCalled());
+    await act(async () => {
+      await lockTail;
+    });
+  }
+
+  it("treats a finished turn with fewer slides than asked as a completed deck", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "<p>Ready</p>" }];
+    (mocks.deck.generationContext as Record<string, unknown>).targetSlideCount =
+      3;
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    try {
+      await settleNewDeckAttempt("attempt-fewer");
+
+      await waitFor(() =>
+        expect(relayTrack).toHaveBeenCalledWith(
+          "deck_ready_viewed",
+          expect.objectContaining({
+            generation_attempt_id: "attempt-fewer",
+            slide_count: 1,
+            target_slide_count: 3,
+          }),
+        ),
+      );
+    } finally {
+      delete (mocks.deck.generationContext as Record<string, unknown>)
+        .targetSlideCount;
+    }
+  });
+
+  it("sends no ready view when the turn did not finish", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "<p>Ready</p>" }];
+    mocks.attemptGenerating = true;
+    mocks.attemptObservedRun = true;
+    mocks.attemptTimedOut = true;
+    try {
+      await settleNewDeckAttempt("attempt-timeout");
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      });
+
+      expect(
+        relayTrack.mock.calls.filter(([name]) => name === "deck_ready_viewed"),
+      ).toHaveLength(0);
+    } finally {
+      mocks.attemptTimedOut = false;
+    }
   });
 
   it("offers a stalled action-owned generation in its original chat", async () => {
@@ -1289,6 +2526,9 @@ describe("DeckEditor generation signal wiring", () => {
       expect.objectContaining({
         generation_attempt_id: "attempt-1",
         reason: "page_exit",
+        started_at_ms: expect.any(Number),
+        ended_at_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
       }),
     );
   });
@@ -1312,6 +2552,9 @@ describe("DeckEditor generation signal wiring", () => {
         generation_attempt_id: "attempt-1",
         outcome: "unresolved",
         reason: "page_exit_before_submit",
+        started_at_ms: expect.any(Number),
+        ended_at_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
       }),
     );
   });
@@ -1339,6 +2582,9 @@ describe("DeckEditor generation signal wiring", () => {
           generation_attempt_id: "attempt-1",
           outcome: "unresolved",
           reason: "route_exit_before_submit",
+          started_at_ms: expect.any(Number),
+          ended_at_ms: expect.any(Number),
+          duration_ms: expect.any(Number),
         }),
       ),
     );
@@ -1381,6 +2627,9 @@ describe("DeckEditor generation signal wiring", () => {
         expect.objectContaining({
           generation_attempt_id: "attempt-1",
           reason: "route_exit",
+          started_at_ms: expect.any(Number),
+          ended_at_ms: expect.any(Number),
+          duration_ms: expect.any(Number),
         }),
       ),
     );

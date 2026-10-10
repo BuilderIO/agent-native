@@ -1,11 +1,10 @@
 import {
-  AgentActionStopError,
   ActionContractError,
   defineAction,
   embedApp,
   fail,
 } from "@agent-native/core";
-import { buildDeepLink } from "@agent-native/core/server";
+import { buildDeepLink, getRequestContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import {
@@ -27,7 +26,15 @@ import {
   deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
+import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
+import {
+  HYGIENE_ACTION_DESCRIPTION,
+  slideHygieneResult,
+} from "../server/lib/slide-hygiene.js";
+import { trackSlides } from "../server/lib/slides-tracking.js";
+import { isRealSlide } from "../shared/blank-slide.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
+import { generationTimingFields } from "../shared/generation-timing.js";
 import {
   createLayoutFitRevision,
   hashSlideContent,
@@ -110,12 +117,13 @@ export default defineAction({
     "Add a single slide to the real editable Agent-Native Slides deck. This is the primary Slides MCP edit action: use it after create-deck instead of creating or publishing a standalone HTML artifact. " +
     "For a short, fully planned deck, pass all slides to create-deck in one call. Use add-slide sequentially only for long or live in-app generation, where slides are authored over time; each write preserves per-slide Creative Context provenance. Never issue independent parallel writes to the same deck. " +
     "For action-owned incremental generations created with slides: [], pass generationComplete=false on every intermediate add-slide call and true on the final call so the lifecycle cannot be left open. " +
-    "For an agent-generated deck with a persisted target slide count, stop once that count is reached. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total on the first add-slide call. " +
+    "For an agent-generated deck with a persisted target slide count, stop once that many real (non-blank) slides exist. If the user explicitly asks for more slides after the target, re-read the deck and set targetSlideCountOverride to the new total of real slides on the first add-slide call. " +
     "Before the first slide you add to an existing deck, call `get-deck` with compact=true once and use its `designSystem`, `deckStyle`, and `representativeSlideId`; if designSystem.scope is summary, call `get-design-system` once with its id. Reuse that context for every following slide. Never use generic slide styling from an id alone. " +
     "Pass presenter-only speaker notes in `notes`; keep them out of the slide HTML. " +
     "Every new slide must be a fully styled composition with the exact padded `fmd-slide` wrapper, a clear type hierarchy, intentional alignment, readable contrast, and at least one visual or structural treatment beyond plain text. If no design system is linked, follow one deliberate deck-level visual contract expressed with semantic --deck-* values on every slide; keep the canvas, type system, spacing, surfaces, and accent treatment consistent instead of alternating themes or using a stock provider/brand palette. " +
     "Use `patch-deck` for edits to existing slides or deck structure, not for appending newly generated slides in this workflow. " +
-    "Returns the new slide ID, 1-based slideNumber, updated slide count, and pending layoutFit identity. Do not check fit after each write: finish all slide edits, then call get-layout-overflows once, and once more only after a repair. If measurements are unknown, report the unmeasured slides and do not recheck this turn unless the editor has produced a new measurement. If the slide is saved but client notification fails, the result includes notificationStatus='failed' and notificationErrorType; the write already succeeded, so do not retry it.",
+    "Returns the new slide ID, 1-based slideNumber, updated slide count, realSlideCount (real non-blank slides after the write, present when the deck has a target slide count; compare it, not slideCount, with the target), and pending layoutFit identity. Do not check fit after each write: finish all slide edits, then call get-layout-overflows once, and once more only after a repair. If measurements are unknown, report the unmeasured slides and do not recheck this turn unless the editor has produced a new measurement. If the slide is saved but client notification fails, the result includes notificationStatus='failed' and notificationErrorType; the write already succeeded, so do not retry it." +
+    HYGIENE_ACTION_DESCRIPTION,
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
     content: z.string().describe("Full HTML content of the new slide"),
@@ -160,7 +168,7 @@ export default defineAction({
       .min(1)
       .optional()
       .describe(
-        "New total slide target. Set only when the user explicitly asks for more slides after the persisted target.",
+        "New total of real slides. Set only when the user explicitly asks for more slides after the persisted target.",
       ),
     generationComplete: z
       .boolean()
@@ -264,6 +272,13 @@ export default defineAction({
         generationContext.targetSlideCount > 0
           ? generationContext.targetSlideCount
           : null;
+      // Counting parses slide HTML, so only a deck with a target pays for it.
+      const realSlideCount =
+        targetSlideCount === null ? null : slides.filter(isRealSlide).length;
+      const postWriteRealSlideCount =
+        realSlideCount === null
+          ? null
+          : realSlideCount + (isRealSlide({ content }) ? 1 : 0);
       if (targetSlideCountOverride !== undefined) {
         if (!isAgentPatchCaller(ctx?.caller)) {
           throw new ActionContractError(
@@ -273,21 +288,23 @@ export default defineAction({
         }
         if (
           targetSlideCount === null ||
+          realSlideCount === null ||
           targetSlideCountOverride <= targetSlideCount ||
-          slides.length < targetSlideCount ||
-          targetSlideCountOverride <= slides.length
+          realSlideCount < targetSlideCount ||
+          targetSlideCountOverride <= realSlideCount
         ) {
           throw new ActionContractError(
-            targetSlideCount === null
+            targetSlideCount === null || realSlideCount === null
               ? "targetSlideCountOverride requires a persisted target slide count."
-              : slides.length < targetSlideCount
-                ? `targetSlideCountOverride is only valid after the deck reaches its persisted target of ${targetSlideCount} slides.`
-                : `targetSlideCountOverride must extend both the persisted target of ${targetSlideCount} and the current deck size of ${slides.length}.`,
+              : realSlideCount < targetSlideCount
+                ? `targetSlideCountOverride is only valid after the deck reaches its persisted target of ${targetSlideCount} slides; it has ${realSlideCount} real slides (blank placeholders do not count).`
+                : `targetSlideCountOverride must extend both the persisted target of ${targetSlideCount} and the current real slide count of ${realSlideCount}.`,
             {
               errorCode: "target_slide_count_override_invalid",
               details: {
                 deckId,
                 currentSlideCount: slides.length,
+                realSlideCount,
                 targetSlideCount,
                 targetSlideCountOverride,
               },
@@ -298,16 +315,19 @@ export default defineAction({
       if (
         isAgentPatchCaller(ctx?.caller) &&
         targetSlideCount !== null &&
-        slides.length >= targetSlideCount &&
+        realSlideCount !== null &&
+        realSlideCount >= targetSlideCount &&
         targetSlideCountOverride === undefined
       ) {
-        throw new AgentActionStopError(
-          `Cannot add a slide: this deck already has ${slides.length} slides and its requested target is ${targetSlideCount}. Re-read the deck and stop adding slides unless the user explicitly changes the target.`,
+        fail(
+          `No slide was added: this deck already has ${realSlideCount} real slides against its requested target of ${targetSlideCount}. Re-read the deck. If the target is satisfied, stop authoring and finish the response; do not retry. Only if the user explicitly asked for more than ${targetSlideCount} slides, call add-slide again with targetSlideCountOverride set to the new total of real slides.`,
           {
             errorCode: "target_slide_count_reached",
+            statusCode: 409,
             details: {
               deckId,
               currentSlideCount: slides.length,
+              realSlideCount,
               targetSlideCount,
             },
           },
@@ -319,15 +339,18 @@ export default defineAction({
       if (
         generationComplete &&
         effectiveTargetSlideCount !== null &&
-        slides.length + 1 < effectiveTargetSlideCount
+        postWriteRealSlideCount !== null &&
+        postWriteRealSlideCount < effectiveTargetSlideCount
       ) {
         throw new ActionContractError(
-          `Cannot complete generation before reaching its target of ${effectiveTargetSlideCount} slides.`,
+          `Cannot complete generation before reaching its target of ${effectiveTargetSlideCount} slides; this write would leave ${postWriteRealSlideCount} real slides (blank placeholders do not count).`,
           {
             errorCode: "generation_completed_before_target_reached",
             details: {
               deckId,
               currentSlideCount: slides.length,
+              realSlideCount,
+              postWriteRealSlideCount,
               postWriteSlideCount: slides.length + 1,
               targetSlideCount: effectiveTargetSlideCount,
             },
@@ -551,12 +574,30 @@ export default defineAction({
         typeof generationContext?.generationAttemptId === "string"
           ? generationContext.generationAttemptId
           : undefined;
+      const generationStartedAt =
+        typeof generationContext?.generationStartedAt === "number" &&
+        Number.isFinite(generationContext.generationStartedAt) &&
+        generationContext.generationStartedAt >= 0
+          ? generationContext.generationStartedAt
+          : undefined;
+      const browserSessionId = getRequestContext()?.browserSessionId;
+      if (
+        shouldRepairTitle &&
+        generationAttemptId &&
+        generationContext?.generationMode !== "action"
+      ) {
+        noteGenerationFirstOutput(ctx?.turnId || ctx?.runId, {
+          deckId,
+          generationAttemptId,
+          targetSlideCount,
+          ...(browserSessionId ? { sessionId: browserSessionId } : {}),
+          ...(generationStartedAt !== undefined ? { generationStartedAt } : {}),
+        });
+      }
 
-      track(
+      trackSlides(
         "deck_edited",
         {
-          app_name: "slides",
-          template_name: "slides",
           output_id: deckId,
           output_type: "deck",
           slide_id: newSlideId,
@@ -591,6 +632,7 @@ export default defineAction({
         generationAttemptId &&
         generationContext?.generationMode === "action"
       ) {
+        const generationEndedAt = Date.now();
         track(
           "generation_completed",
           {
@@ -602,6 +644,7 @@ export default defineAction({
             slide_count: slides.length,
             generation_mode: "incremental",
             outcome: "completed",
+            ...generationTimingFields(generationStartedAt, generationEndedAt),
             source: "add_slide_action",
           },
           ctx,
@@ -614,6 +657,9 @@ export default defineAction({
         slideNumber: insertIndex + 1,
         position: insertIndex,
         slideCount: slides.length,
+        ...(postWriteRealSlideCount === null
+          ? {}
+          : { realSlideCount: postWriteRealSlideCount }),
         appUrl: getDeckUrl(deckId),
         deepLink: deckDeepLink(deckId),
         contextMode,
@@ -629,6 +675,9 @@ export default defineAction({
           contentHash: hashSlideContent(newSlide.content),
           layoutFitRevision: newSlide.layoutFitRevision,
         },
+        ...slideHygieneResult([
+          { slideId: newSlideId, html: newSlide.content },
+        ]),
       };
 
       return base;

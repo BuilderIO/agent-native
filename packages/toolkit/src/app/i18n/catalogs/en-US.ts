@@ -36,6 +36,12 @@ const messages = {
   "agent.queued": "queued",
   "agent.completed": "finished",
   "agent.failed": "needs attention",
+  "agent.failureReason.failed": "Couldn't finish",
+  "agent.failureReason.setup": "Needs setup first",
+  "agent.failureReason.auth": "Access was rejected",
+  "agent.failureReason.timeout": "Took too long",
+  "agent.failureReason.budget": "Ran out of time",
+  "agent.failureReason.response": "No usable result",
   "agent.closed": "closed",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
@@ -82,6 +88,8 @@ const messages = {
     "Optional text to check for in the reply…",
   "observability.promoteMustContainLabel":
     "Text to check for in the promoted eval reply",
+  "observability.promoteReviewedPromptLabel":
+    "Manually reviewed prompt (never copied from production)",
   "observability.promoteNeedsContains":
     "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.viewDetails": "View details",
@@ -121,32 +129,43 @@ const messages = {
   "onboarding.roleOtherInputLabel": "Describe your role",
   "onboarding.skipForNow": "Skip for now",
   "onboarding.saveRoleError": "Could not save your role.",
-  "onboarding.builderCreateAccount": "Create Builder.io account",
-  "onboarding.builderSignInWithAccount": "Sign in with Builder.io account",
+  "onboarding.builderCreateAccount": "Use Builder.io",
+  "onboarding.builderSignInWithAccount": "Use Builder.io",
   "onboarding.builderActivateDescription":
     "Create or reuse your Builder.io account and activate its free credits in one click.",
   "onboarding.builderActiveCredits":
     "Included with active Builder.io free credits",
   "onboarding.builderCredits": "Included with Builder.io free credits",
+  "onboarding.builderIncludedFreeWithAccount":
+    "Included free with a Builder.io account",
+  "onboarding.builderMonthlyCredits": "60 monthly Agent Credits",
+  "onboarding.builderIncludedFree": "Included free",
+  "onboarding.builderMoreServices": "+ {{count}} more services",
+  "onboarding.builderLlmCredits": "LLM credits",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM credits + {{count}} more services",
+  "onboarding.builderAccountCreated":
+    "Builder.io account created and connected.",
+  "onboarding.builderIncludedServices": "Included services",
   "onboarding.builderActivateTitle": "Activate free credits",
   "onboarding.builderAccountExistsTitle":
     "You already have a Builder.io account",
-  "onboarding.builderAccountExistsDescription": "Log in to connect it.",
+  "onboarding.builderAccountExistsDescription": "Log in to use your account.",
   "onboarding.builderActivationDescription":
-    "We'll automatically create your Builder.io account for you in one click.",
+    "Create or connect a Builder.io account in one click to get free credits.",
   "onboarding.builderOrgActivationDescription":
-    "We'll create your Builder.io account in one click and connect it for your organization.",
+    "We'll create your Builder.io account in one click so your organization can use it.",
   "onboarding.builderCreateAndActivate": "Create and activate",
   "onboarding.builderConsentPrefix":
     "By creating a Builder.io account, you agree to our",
   "onboarding.builderTerms": "Terms of Service",
   "onboarding.builderPrivacy": "Privacy Policy",
   "onboarding.builderConsentAnd": "and",
-  "onboarding.builderExistingAccount": "I have a Builder.io account",
+  "onboarding.builderExistingAccount": "Use Builder.io",
   "onboarding.builderActivating": "Activating Builder.io free credits",
-  "onboarding.builderConnecting": "Connecting Builder.io free credits",
+  "onboarding.builderConnecting": "Setting up Builder.io credits",
   "onboarding.builderProvisioningDescription":
-    "Creating or reusing your Builder.io account. This usually takes a few seconds.",
+    "Creating your Builder.io account and activating free credits.",
   "onboarding.builderConnectionDescription":
     "Finish the one-click connection in the new window.",
   "onboarding.builderReadyWithCodeChanges":
@@ -156,11 +175,15 @@ const messages = {
   "onboarding.openBackgroundAgentSettings": "Open Background Agent settings",
   "onboarding.capability.llm.keySummary": "Connect your own AI model",
   "onboarding.capability.fileStorage.keySummary": "File uploads and storage",
+  "onboarding.capability.llm.why":
+    "The agent uses a language model to understand requests and produce answers.",
+  "onboarding.capability.fileStorage.why":
+    "Stores uploaded images and files so the agent can reuse them in your thread.",
   "onboarding.fileStorage.title": "Connect storage to upload files",
   "onboarding.fileStorage.statusUnavailable": "Couldn't check storage",
   "onboarding.fileStorage.description":
-    "Connect Builder.io (free) or configure your own S3-compatible object storage.",
-  "onboarding.fileStorage.reconnectBuilder": "Reconnect Builder.io",
+    "Use Builder.io (free) or configure your own S3-compatible object storage.",
+  "onboarding.fileStorage.reconnectBuilder": "Use Builder.io",
   "onboarding.fileStorage.custom": "Use custom keys",
   "onboarding.fileStorage.customDescription":
     "Configure an S3-compatible bucket with a stable public URL.",
@@ -172,6 +195,8 @@ const messages = {
   "onboarding.capability.embeddings.keySummary": "Embeddings",
   "onboarding.capability.embeddings.why":
     "Embeddings improve semantic search. Keyword search still works without them.",
+  "onboarding.capability.systemOne.why":
+    "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request.",
   "onboarding.capability.assetsImageGeneration.label": "Image generation",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder credits or an image provider key",
@@ -185,7 +210,7 @@ const messages = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder storage or an S3-compatible bucket",
   "onboarding.capability.clipsObjectStorage.why":
-    "Recorded videos need durable object storage before they can be played back or shared.",
+    "You can record, preview, and download Clips without storage. Connect durable object storage to keep recordings available across devices and share them.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Speech-to-text provider key",
   "onboarding.capability.about": "About {{label}}",
@@ -388,9 +413,10 @@ const messages = {
   "composer.configureProviderKeys":
     "Configure Anthropic, OpenAI, or another provider",
   "composer.connectAbove": "Connect AI above to continue...",
-  "composer.connectBuilder": "Connect Builder.io",
+  "composer.connectBuilder": "Use Builder.io",
   "composer.connectKeys": "Connect keys",
-  "composer.connectingBuilder": "Connecting Builder.io…",
+  "composer.connectAgent": "Connect agent",
+  "composer.connectingBuilder": "Setting up Builder.io…",
   "composer.costHigher": "Higher cost",
   "composer.costLower": "Lower cost",
   "composer.costMedium": "Medium cost",
@@ -483,6 +509,20 @@ const messages = {
   "composer.skill.uploadFile": "Upload skill file",
   "composer.upload": "Upload",
   "composer.uploadFailed": "Could not upload the selected file.",
+  "composer.fileTooLarge":
+    "This file is larger than the {{size}} MB upload limit.",
+  "composer.sessionExpired":
+    "Your session expired. Sign in again, then send your message.",
+  "composer.unsupportedFileType": "This file type isn't supported.",
+  "composer.uploadUnavailable":
+    "File uploads are unavailable right now. Try again in a moment.",
+  "composer.uploadOffline":
+    "The upload couldn't reach the server. Check your connection and try again.",
+  "composer.submissionNotReady":
+    "Chat isn't ready to send yet. Wait a moment, then send again.",
+  "composer.submissionScopeChanged":
+    "This chat changed before your message was sent. Send it again.",
+  "composer.attachmentNotSaved": "Not saved with this chat",
   "composer.useAttachedContext": "Use the attached context.",
   "mentions.commands": "Commands",
   "mentions.learnMore": "Learn more",
@@ -510,7 +550,7 @@ const messages = {
   "voice.dictation.start": "Dictate ({{shortcut}})",
   "voice.dictation.stopRecording": "Stop recording",
   "voice.dictation.transcribing": "Transcribing…",
-  "voiceMode.connectBuilder": "Connect Builder.io",
+  "voiceMode.connectBuilder": "Use Builder.io",
   "voiceMode.end": "End voice mode",
   "voiceMode.entryButtonLabel": "Use microphone",
   "voiceMode.errors.channelDisconnected":
@@ -565,7 +605,15 @@ const messages = {
   "voiceMode.settings.voiceDescriptions.verse": "Expressive and versatile",
   "voiceMode.settings.voiceStyle": "Voice style",
   "voiceMode.setupDescription":
-    "Connect Builder.io to use managed voice with free credits, or add your own keys.",
+    "Use Builder.io for managed voice with free credits, or add your own keys.",
+  "transcription.builderCtaDescription":
+    "Use Builder.io for higher-quality transcription with free credits and no API key.",
+  "voiceMode.googleRealtimeDescription":
+    "Google credentials are set. Use Builder.io (free tier available) to mint the managed realtime session.",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "Service-account JSON is set. Use Builder.io (free tier available) to mint the managed realtime WebSocket session.",
+  "voiceMode.builderGeminiDescription":
+    "Use Builder.io for Gemini Flash-Lite transcription and Luna text cleanup. No Google key needed.",
   "voiceMode.setupTitle": "Set up voice mode",
   "voiceMode.showChat": "Show chat",
   "voiceMode.start": "Start voice chat",
@@ -588,7 +636,7 @@ const messages = {
     "Your ChatGPT plan usage limit has been reached.",
   "error.chatgptPlanUsageUnavailable":
     "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
-  "error.failed": "The agent hit an error",
+  "error.failed": "The agent run failed before it finished.",
   "error.render": "This content couldn’t be displayed.",
   "error.stopped": "The agent stopped before finishing",
   "errorMessages.agentConnection":
@@ -596,7 +644,7 @@ const messages = {
   "errorMessages.attachmentPasswordProtected":
     "This PDF is password-protected, so it can't be read. Remove the password protection or paste the relevant text, then retry.",
   "errorMessages.builderAuthentication":
-    "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
+    "Builder rejected the connected credentials. Use Builder.io in Settings again, then retry.",
   "errorMessages.builderModelUnauthorized":
     "The provider behind this model rejected the request. Pick a different model, then retry.",
   "errorMessages.errorPrefix": "Error: {{message}}",
@@ -611,6 +659,8 @@ const messages = {
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
   "errorMessages.malformedRequest":
     "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+  "errorMessages.requestTooLarge":
+    "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
   "errorMessages.runInterrupted": "The agent stopped before finishing.",
   "errorMessages.runFailed": "The agent run failed.",
   "errorMessages.runUnverified":
@@ -619,8 +669,10 @@ const messages = {
     "You're signed out, so this chat can't follow the agent. Sign in again, then reload.",
   "errorMessages.malformedRequestAttachment":
     "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.",
+  "errorMessages.invalidAttachment":
+    "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.",
   "errorMessages.noProviderConnected":
-    "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.",
+    "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",
   "errorMessages.providerAuthentication":
     "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
@@ -644,6 +696,10 @@ const messages = {
   "feedback.thumbsDown": "Thumbs down",
   "feedback.thumbsUp": "Thumbs up",
   "feedback.tooSlow": "Too slow",
+  "feedback.reasonMisread": "Misread my ask",
+  "feedback.reasonNotDone": "Said done, but wasn't",
+  "feedback.reasonWrongNumbers": "Wrong numbers",
+  "feedback.copyDetails": "Copy details",
   "feedback.whatWentWrong": "What went wrong?",
   "feedback.wrongTool": "Wrong tool",
   "header.switchToCli": "Switch to CLI",
@@ -988,6 +1044,20 @@ const messages = {
   "message.actions": "Message actions",
   "message.copyMessage": "Copy message",
   "message.copyRequestId": "Copy request ID",
+  "message.usage": "Usage",
+  "message.usageLoading": "Loading usage…",
+  "message.usageUnavailable": "Usage unavailable",
+  "message.usageNotRecorded": "Usage not recorded",
+  "message.usageIncomplete":
+    "Some usage could not be classified; totals are hidden.",
+  "message.usageReportedCost": "Cost {{amount}}",
+  "message.usageEstimatedCost": "Estimated cost {{amount}}",
+  "message.usageBuilderCredits": "Builder credits used {{amount}}",
+  "message.usageEstimatedBuilderCredits":
+    "Estimated Builder credits {{amount}}",
+  "message.usageMixedCost": "Reported and estimated cost {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "Reported and estimated Builder credits {{amount}}",
   "message.requestIdUnavailable": "Request ID unavailable",
   "message.unavailable":
     "The message is no longer available in this conversation.",
@@ -1086,14 +1156,18 @@ const messages = {
   "queue.followUpWithCount": "{{count}} queued — send a follow-up...",
   "queue.remove": "Remove from queue",
   "queue.sendNow": "Send now",
-  "queue.sendNowHint": "Send now (stops the current response)",
-  "queue.steer": "Steer",
-  "queue.steerHint": "Send this message next",
+  "queue.sendNowHint": "Stops the current response, then sends this message.",
+  "queue.sendNext": "Send next",
+  "queue.sendNextHint": "Send after the current response finishes",
   "queue.moreActions": "More actions",
-  "queue.moveToTop": "Move to top",
-  "recovery.connectingBuilder": "Connecting Builder.io",
+  "recovery.connectingBuilder": "Setting up Builder.io",
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",
+  "recovery.continueUnavailable":
+    "This run can't be continued anymore. Send a message to keep going.",
+  "errorMessages.invalidAttachmentNamed":
+    "The model provider rejected {{name}} because its format or size is unsupported. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported format or paste the relevant text, then retry.",
+  "recovery.retryWithoutAttachment": "Retry without attachment",
   "recovery.retryAttachmentUnavailable":
     "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
   "recovery.deferredSubmissionFailed":
@@ -1101,7 +1175,7 @@ const messages = {
   "recovery.credentialRejected":
     "The model provider rejected the saved credentials. Update your Builder.io connection or provider key, then retry this message.",
   "codeRequired.builderAgentNotConnected":
-    "Builder Cloud Agents aren't connected. Connect Builder.io in Setup to run this hosted code-change operation. Model-provider keys still work for chat and other AI features, but they don't authorize the Builder Cloud Agent.",
+    "Builder Cloud Agents aren't connected. Use Builder.io in Setup to run this hosted code-change operation. Model-provider keys still work for chat and other AI features, but they don't authorize the Builder Cloud Agent.",
   "recovery.diagnoseRetry": "Diagnose and retry",
   "recovery.forkDescription":
     "Fork this conversation into a separate chat thread.",
@@ -1119,11 +1193,16 @@ const messages = {
   "recovery.stuckWithDuration":
     "No progress for {{seconds}}s. The agent may have hit a server timeout or lost its connection.",
   "recovery.stuckRetrying": "Retrying automatically now.",
+  "recovery.statusUnreadable":
+    "Can't reach the server to check this chat. It may have finished. We'll keep trying.",
+  "recovery.statusMismatch":
+    "The server says this chat is no longer running. Reload to see its result.",
+  "recovery.reload": "Reload",
   "recovery.statusCheckFailed":
     "Couldn't reach the server to check whether the agent is still working. Send your message again to retry.",
   "recovery.streamEnded":
     "The previous agent stream ended while the run was recovering. Continue or retry to reconnect to the run.",
-  "recovery.reconnectBuilder": "Reconnect Builder.io",
+  "recovery.reconnectBuilder": "Use Builder.io",
   "secrets.addCustomKeyNamed": "Add “{{name}}” as a custom key",
   "secrets.chooseKey": "Choose a key",
   "secrets.customKey": "Custom key",
@@ -1166,10 +1245,13 @@ const messages = {
   "setup.builderOrOwnKeys":
     "Use Builder.io (free credits), or add your own provider keys.",
   "setup.connectAi": "Connect AI",
-  "setup.connectBuilder": "Connect Builder.io",
+  "setup.connectBuilder": "Use Builder.io",
+  "setup.connectionsDescription":
+    "Manage setup status, Builder.io access, app secrets, and workspace connections from one standard surface.",
   "setup.connectPlaceholder": "Connect AI to start chatting...",
   "setup.connectToChat": "Connect AI to chat",
   "setup.connectToStart": "Connect AI to start chatting",
+  "setup.modelListUnavailable": "Couldn't load models.",
   "setup.providerStatusUnavailable": "Couldn't confirm AI is ready.",
   "agentNativeClips.meetingAsk.placeholder": "Ask anything",
   "agentNativeClips.meetingAsk.ariaLabel": "Ask anything about this meeting",
@@ -1181,6 +1263,49 @@ const messages = {
   "setup.keyProvider": "API key provider",
   "setup.keySaveFailed": "Could not save the key.",
   "setup.storedSecurely": "Stored securely for this app only.",
+  "accessGate.deniedTitle": "You don't have access",
+  "accessGate.deniedDescription": "Ask the owner to share it with you.",
+  "accessGate.missingTitle": "This doesn't exist",
+  "accessGate.missingDescription":
+    "The link may be wrong, or it may have been deleted.",
+  "accessGate.trashedTitle": "This is in the trash",
+  "accessGate.trashedDescription": "Restore it to open it again.",
+  "accessGate.signedOutTitle": "Sign in to continue",
+  "accessGate.signedOutDescription": "Sign in with an account that has access.",
+  "accessGate.signIn": "Sign in",
+  "accessGate.signedInAs": "You're signed in as {{email}}",
+  "accessGate.switchAccount": "Switch account",
+  "accessGate.requestDescription":
+    "Request access and the owner will be notified.",
+  "accessGate.requestSent": "Request sent. The owner has been notified.",
+  "accessGate.requestAccess": "Request access",
+  "accessGate.requestNoteLabel": "Note (optional)",
+  "accessGate.requestNotePlaceholder": "Add a note for the owner",
+  "accessGate.sendRequest": "Send request",
+  "accessGate.cancel": "Cancel",
+  "accessGate.requestRateLimited":
+    "Too many requests right now. Try again later.",
+  "accessGate.requestFailed": "Couldn't send your request. Try again.",
+  "accessGate.signedOutRequestDescription": "Sign in to request access.",
+  "accessRequest.title": "{{name}} is asking for access",
+  "accessRequest.approvedTitle": "Access allowed",
+  "accessRequest.declinedTitle": "Request declined",
+  "accessRequest.allow": "Allow",
+  "accessRequest.decline": "Decline",
+  "accessRequest.unavailableTitle": "You can't review this request",
+  "accessRequest.unavailableDescription":
+    "It may have been withdrawn, or this account can't manage access.",
+  "accessRequest.loadFailed": "Couldn't load this request.",
+  "accessRequest.retry": "Retry",
+  "accessRequest.decisionFailed": "Couldn't save your decision. Try again.",
+  "accessRequest.stale": "Someone already handled this request, or it changed.",
+  "share.accessRequests": "Access requests",
+  "share.accessRequestsLoadFailed": "Couldn't load access requests.",
+  "share.accessRequestsNewest": "Showing the {{count}} newest requests.",
+  "accessRequest.emailFailed":
+    "{{name}} has access, but we couldn't email them.",
+  "share.allowRequestFrom": "Allow {{name}}",
+  "share.declineRequestFrom": "Decline {{name}}",
   "share.add": "Add",
   "share.addPeopleEmail": "Add people by email",
   "share.addPeopleOrganization": "Add people from your organization",
@@ -1266,6 +1391,9 @@ const messages = {
   "tool.failedWithoutDetails": "No error details are available.",
   "tool.input": "Input",
   "tool.inputWithLabel": "Input - {{label}}",
+  "tool.identifierHidden": "[Identifier hidden]",
+  "tool.contentOmitted": "[Content omitted]",
+  "tool.circularReference": "[Circular reference]",
   "tool.interrupted":
     "Interrupted before this finished reporting — it may or may not have completed. Check before retrying.",
   "tool.longRunning": "Still working. Large updates can take a minute or two.",
@@ -1564,6 +1692,7 @@ const messages = {
   "settings.usage.appFilterLabel": "App",
   "settings.usage.allApps": "All apps",
   "settings.usage.unattributedApp": "Unattributed",
+  "settings.usage.unclassifiedUsage": "Unclassified usage",
   "settings.usage.peopleFilterLabel": "People",
   "settings.usage.everyone": "Everyone",
   "settings.usage.justYou": "Just you",
@@ -1689,6 +1818,7 @@ const messages = {
   "settings.storage.adminOnly":
     "Only organization owners and admins can change file storage.",
   "settings.audit.action": "Action",
+  "settings.audit.agentVia": "Agent via {{protocol}}",
   "settings.audit.allApps": "All apps",
   "settings.audit.app": "App",
   "settings.audit.changedBy": "Changed by",
@@ -1948,6 +2078,8 @@ const messages = {
   "settingsShell.appGroup.labsFootnote":
     "These new, unstable features may have bugs.",
   "settingsShell.appGroup.labsLoadError": "Couldn't load your labs.",
+  "settingsShell.appGroup.labsReadError":
+    "Couldn't read this saved choice. Choose On or Off to set it again.",
   "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",
@@ -1964,7 +2096,7 @@ const messages = {
   "settingsShell.appGroup.whatsNewViewAll": "View all updates",
   "settingsShell.backToApp": "Back to {{app}}",
   "settingsShell.breadcrumbLabel": "Breadcrumb",
-  "settingsShell.builder.connect": "Connect",
+  "settingsShell.builder.connect": "Use Builder.io",
   "settingsShell.builder.connected": "Connected",
   "settingsShell.builder.connectedTo": "Connected · {{space}}",
   "settingsShell.builder.connection": "Connection",
@@ -1975,7 +2107,13 @@ const messages = {
   "settingsShell.builder.disconnectFailed": "Couldn't disconnect Builder.io.",
   "settingsShell.builder.disconnectTitle": "Disconnect Builder.io?",
   "settingsShell.builder.grantsFailed":
-    "Couldn't read the Builder.io connections.",
+    "Connection status is unavailable. Retry to check again.",
+  "settingsShell.builder.setupStartFailed":
+    "Couldn't start Builder.io setup. Refresh this page and try again.",
+  "settingsShell.builder.setupHostFailed":
+    "Couldn't open Builder from this chat host. Open this app in a browser tab and retry Builder.io setup (free tier available).",
+  "settingsShell.builder.setupFailed":
+    "Builder.io setup didn't finish. Try again, or use your own keys.",
   "settingsShell.builder.loss.defaultStops":
     "Chats stop until you add an organization provider.",
   "settingsShell.builder.loss.defaultSwitches":
@@ -1991,9 +2129,9 @@ const messages = {
   "settingsShell.builder.needsReconnect": "Needs to be reconnected.",
   "settingsShell.builder.orgFallback": "your organization",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "Not connected. When you connect it, everyone in {{org}} can use it.",
+    "Not connected. Use Builder.io to enable access for everyone in {{org}}.",
   "settingsShell.builder.orgNotConnectedMember":
-    "Not connected. An owner or admin can connect it.",
+    "Not connected. An owner or admin can enable Builder.io for everyone.",
   "settingsShell.builder.organization": "Organization",
   "settingsShell.builder.personal": "Personal",
   "settingsShell.builder.personalConnected": "Connected. Only you use it.",
@@ -2004,7 +2142,7 @@ const messages = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "Connected · {{space}}. Only you use it, instead of the organization's connection.",
   "settingsShell.builder.personalNotConnected":
-    "Connect your own account. Only you use it.",
+    "Use your own Builder.io account. Only you use it.",
   "settingsShell.builder.personalRestricted":
     "Owners and admins restricted personal API keys.",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2413,7 +2551,7 @@ const messages = {
   "settingsShell.integrations.builderDescription":
     "Model access, browser automation, file storage, and workspace identity. Free tier available.",
   "settingsShell.integrations.builderStatusFailed":
-    "Couldn't check the Builder.io connection.",
+    "Connection status is unavailable. Retry to check again.",
   "settingsShell.integrations.category.analytics": "Analytics",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Engineering",
@@ -2561,7 +2699,16 @@ const messages = {
   "settingsInfra.builderConnected":
     "Connected. Your account credits power every service marked Builder.io.",
   "settingsInfra.builderNotConnected":
-    "Not connected. Set up each service yourself, or connect Builder.io to use your account credits.",
+    "Not connected. Set up each service yourself, or use Builder.io to apply your account credits.",
+  "settingsInfra.builderOverrideDescription":
+    "Deployment fallback is available. Use your own Builder.io account to override it.",
+  "settingsInfra.builderStorageHint":
+    "Object storage keeps uploaded files durable and their URLs reusable throughout the thread. Use Builder.io or an S3-compatible bucket below.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io is connected, but it can't store uploaded files yet. Reconnect it for upload access, or configure a bucket below.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Couldn't verify Builder.io upload access. Retry or configure a bucket below.",
+  "settingsInfra.reconnectBuilderUploads": "Grant upload access",
   "settingsInfra.builderUnknown": "Couldn't check the Builder.io connection.",
   "settingsInfra.manage": "Manage",
   "settingsInfra.connect": "Connect",
@@ -2728,13 +2875,13 @@ const messages = {
   "settingsModel.builderConnected": "Connected · {{space}}",
   "settingsModel.builderConnectedPlain": "Connected",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "Not connected. When you connect it, everyone in {{org}} can use it.",
+    "Not connected. Use Builder.io to enable access for everyone in {{org}}.",
   "settingsModel.builderOrgNotConnectedMember":
-    "Not connected. An owner or admin can connect it.",
+    "Not connected. An owner or admin can enable Builder.io for everyone.",
   "settingsModel.builderPersonalConnect":
-    "Connect your own account to use your Builder.io credits.",
+    "Use your own Builder.io account to access its credits.",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "Connect your own account to use it instead of the organization's.",
+    "Use your own Builder.io account instead of the organization's connection.",
   "settingsModel.builderPersonalOverOrg":
     "Connected · {{space}}. Used instead of the organization's connection.",
   "settingsModel.builderPersonalOverOrgPlain":
@@ -2779,8 +2926,6 @@ const messages = {
   "settingsModel.checkingSaved": "Checking the saved key",
   "settingsModel.chooseModel": "Choose a model",
   "settingsModel.clear": "Clear",
-  "settingsModel.connect": "Connect",
-  "settingsModel.connecting": "Connecting…",
   "settingsModel.defaultModelDescription":
     "Used in every app unless the app sets its own.",
   "settingsModel.defaultModelNeedsProvider":

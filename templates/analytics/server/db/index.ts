@@ -1,5 +1,6 @@
 import { registerDataProgramsShareable } from "@agent-native/core/data-programs";
 import { createGetDb } from "@agent-native/core/db";
+import { registerIdentityColumns } from "@agent-native/core/org";
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 import {
@@ -14,6 +15,24 @@ export const getDb = createGetDb(schema);
 export { schema };
 
 registerDataProgramsShareable();
+
+registerIdentityColumns([
+  {
+    table: "session_recordings",
+    column: "session_id",
+    emailChange: "retain",
+    offboard: "retain",
+    reason:
+      "Legacy last-known session pointer for recordings predating association history.",
+  },
+  {
+    table: "session_recording_session_associations",
+    column: "session_id",
+    emailChange: "retain",
+    offboard: "retain",
+    reason: "Observed session ids preserve replay association history.",
+  },
+]);
 
 registerShareableResource({
   type: "dashboard",

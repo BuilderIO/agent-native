@@ -23,6 +23,7 @@
     "./browser-context": ["dist/browser-context/index.js"],
     "./search-utils": ["dist/search-utils/index.js"],
     "./search": ["dist/search/index.js"],
+    "./search-query": ["dist/search/query-parser.js"],
     "./embeddings": ["dist/embeddings/index.js"],
     "./automation": ["dist/automation/index.js"],
     "./brand-kit": ["dist/brand-kit/index.js"],

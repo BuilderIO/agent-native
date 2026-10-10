@@ -37,6 +37,7 @@ export {
   type BuilderConnectFlowOptions,
   type BuilderConnectionScope,
   type BuilderConnectStartOptions,
+  type BuilderConnectTransport,
   type BuilderEffectiveConnection,
   type BuilderGrantStatus,
   type BuilderGrantsStatus,
@@ -111,4 +112,9 @@ export {
   type ProviderDialogMode,
   type ProviderDialogProps,
 } from "./model/ProviderDialog.js";
+export { WhoField } from "./WhoField.js";
+export {
+  useCredentialSaveScope,
+  type CredentialSaveScope,
+} from "./use-credential-save-scope.js";
 export { ApiKeySettings } from "./ApiKeySettings.js";

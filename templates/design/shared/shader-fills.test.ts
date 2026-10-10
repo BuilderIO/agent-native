@@ -477,7 +477,7 @@ describe("element annotation", () => {
     expect(mounts[0]).toMatchObject({ shaderId: "an-shader-b", mode: "fill" });
   });
 
-  it("a fill and an effect coexist on the same element (Figma stacking)", () => {
+  it("a fill and an effect coexist on the same element", () => {
     const withFill = annotateNodeWithShader(DOC, {
       nodeId: "hero",
       shaderId: "an-shader-a",

@@ -1,11 +1,16 @@
 /**
  * Reading `GET /_agent-native/agents/probe`.
  *
- * `authorized` is a three-state field, not a boolean: `true` and `false` are
- * decisive answers from the peer, and an absent `authorized` means the check
- * did not finish (a timeout, a 5xx, a card with no JSON-RPC endpoint). The
- * probe sets `authError` to the reason in that case. Reading absent as "not
- * authorized" blamed a missing signing secret for a check that never completed.
+ * The route only checks authorization when the caller names a saved
+ * hosted-agent connection (`auth` or `kind`); a plain `?url=` probe of a
+ * first-party peer fetches its agent card and stops. So `authorized` is a
+ * three-state field: `true` and `false` are decisive answers from the peer, and
+ * an absent `authorized` means authorization was not verified (here, always),
+ * with `authError` giving the reason when a check started and did not finish.
+ * Reading absent as "not authorized" blamed a missing signing secret for a
+ * check that never ran. What a plain probe does establish is that the peer is
+ * reachable and serves a card that advertises signed (jwtBearer) calls; the
+ * authenticated delegation itself is the delegation test's job.
  */
 
 export interface PeerProbeResponse {
@@ -18,6 +23,7 @@ export interface PeerProbeVerdict {
   authorized?: boolean;
   authError?: string;
   cardStatus?: string;
+  securitySchemes?: string[];
   error?: string;
 }
 
@@ -25,6 +31,7 @@ export type PeerProbeOutcome =
   | "authorized"
   | "rejected"
   | "unreachable"
+  | "card-problem"
   | "undecided"
   | "probe-error";
 
@@ -39,9 +46,22 @@ export function classifyPeerProbe(
     return "probe-error";
   }
   if (verdict.reachable !== true) return "unreachable";
+  if (verdict.authorized === false || verdict.cardStatus === "auth-rejected") {
+    return "rejected";
+  }
   if (verdict.authorized === true) return "authorized";
-  if (verdict.authorized === false) return "rejected";
+  if (
+    verdict.cardStatus !== "reachable" ||
+    !verdict.securitySchemes?.includes("jwtBearer")
+  ) {
+    return "card-problem";
+  }
   return "undecided";
+}
+
+/** `undecided` is a pass: reachable, signed-call card, authorization not verified by this route. */
+export function peerProbePasses(outcome: PeerProbeOutcome): boolean {
+  return outcome === "authorized" || outcome === "undecided";
 }
 
 export interface SettledPeerProbe {
@@ -51,9 +71,10 @@ export interface SettledPeerProbe {
 }
 
 /**
- * Probe until the peer gives a decisive answer. Only `authorized` and
- * `rejected` are decisive; everything else can be a timeout on a cold peer, so
- * it is retried a bounded number of times and then reported as what it was.
+ * Probe until the peer gives a decisive answer. `authorized`, `rejected`, and
+ * `undecided` are decisive; everything else can be a timeout or a half-built
+ * card on a cold peer, so it is retried a bounded number of times and then
+ * reported as what it was.
  */
 export async function settlePeerProbe(
   read: () => Promise<PeerProbeResponse>,
@@ -74,7 +95,13 @@ export async function settlePeerProbe(
     const response = await read();
     history.push(response);
     outcome = classifyPeerProbe(response);
-    if (outcome === "authorized" || outcome === "rejected") break;
+    if (
+      outcome === "authorized" ||
+      outcome === "rejected" ||
+      outcome === "undecided"
+    ) {
+      break;
+    }
     if (attempt < attempts) await sleep(delayMs);
   }
   return { outcome, attempts: history };
@@ -96,7 +123,8 @@ export function explainPeerProbe(
     authorized: `${from} is authorized at ${to} (${url}).`,
     rejected: `${from} reaches ${to} at ${url} and ${to} rejected its signed call, so every delegated call fails. The apps do not share a signing secret, or the credential was refused.`,
     unreachable: `${from} cannot reach ${to} at ${url}.`,
-    undecided: `${from} reaches ${to} at ${url} but the authorization check never finished, so this is neither a pass nor a rejection. authError is the reason the probe gave.`,
+    "card-problem": `${from} reaches ${to} at ${url} but ${to}'s agent card is not usable for signed calls: the probe needs cardStatus "reachable" (a card with a JSON-RPC endpoint) and a jwtBearer security scheme.`,
+    undecided: `${from} reaches ${to} at ${url} and ${to}'s card advertises signed (jwtBearer) calls. Authorization was not verified: this route only does that for a saved hosted-agent connection, so the delegation test covers the signed call.`,
     "probe-error": `${from}'s own probe endpoint failed before it asked ${to} anything (url ${url}).`,
   }[settled.outcome];
   return `${lead}\nProbe responses (${settled.attempts.length}):\n${raw}`;

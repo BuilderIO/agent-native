@@ -421,8 +421,11 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
         statusCode: 503,
         message: "Identity removal succeeded but local cleanup is pending.",
       });
+    } finally {
+      // Also on failure: a commit whose reply is lost has already removed the
+      // membership rows, and cached memberships would keep granting access.
+      invalidateMemberOrgCaches();
     }
-    invalidateMemberOrgCaches();
 
     const nextOrg = await e.execute({
       sql: `SELECT org_id AS "orgId" FROM org_members
@@ -805,6 +808,7 @@ async function inviteOne(
         text,
         templateId: CORE_INVITE_EMAIL_ID,
         orgId: ctx.orgId,
+        authCritical: true,
       });
       emailSent = true;
     } catch (err) {
@@ -1228,8 +1232,11 @@ export const removeMemberHandler = defineEventHandler(
         message:
           "The member was revoked from the identity authority but local cleanup is pending.",
       });
+    } finally {
+      // Also on failure: a commit whose reply is lost has already removed the
+      // membership rows, and cached memberships would keep granting access.
+      invalidateMemberOrgCaches();
     }
-    invalidateMemberOrgCaches();
 
     return { success: true };
   },
@@ -1881,6 +1888,14 @@ export const revealA2ASecretHandler = defineEventHandler(
   },
 );
 
+// An org secret equal to the deploy-wide A2A_SECRET makes the receiver treat
+// every verified user call from that org as an organization principal.
+async function isDeploymentA2ASecret(secret: string): Promise<boolean> {
+  const { getGlobalA2ASecret } = await import("../a2a/client.js");
+  const deploymentSecret = getGlobalA2ASecret();
+  return deploymentSecret !== undefined && secret.trim() === deploymentSecret;
+}
+
 /** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner only) */
 export const setA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
@@ -1904,6 +1919,13 @@ export const setA2ASecretHandler = defineEventHandler(
     if (!secret) {
       const { randomBytes } = await import("node:crypto");
       secret = randomBytes(32).toString("base64url");
+    }
+    if (await isDeploymentA2ASecret(secret)) {
+      throw createError({
+        statusCode: 400,
+        message:
+          "The organization A2A secret must differ from this app's A2A_SECRET, otherwise verified user calls from this organization are downgraded to organization-level access. Choose a different secret.",
+      });
     }
 
     const e = await exec();
@@ -1979,7 +2001,7 @@ export const syncA2ASecretHandler = defineEventHandler(
     }
     const orgRow = orgRes.rows[0] as any;
     const secret = String(orgRow.a2a_secret ?? "") || null;
-    const orgDomain = String(orgRow.allowed_domain ?? "") || null;
+    const orgDomain = String(orgRow.allowed_domain ?? "");
 
     if (!secret) {
       throw createError({
@@ -1998,7 +2020,11 @@ export const syncA2ASecretHandler = defineEventHandler(
     const signSecret = overrideSignSecret || secret;
 
     const { discoverAgents } = await import("../server/agent-discovery.js");
-    const { signA2AToken } = await import("../a2a/client.js");
+    const [{ signA2AOrganizationToken }, { canonicalA2AAudience }] =
+      await Promise.all([
+        import("../a2a/client.js"),
+        import("../a2a/audience.js"),
+      ]);
 
     const agents = await discoverAgents();
 
@@ -2014,9 +2040,16 @@ export const syncA2ASecretHandler = defineEventHandler(
     await Promise.all(
       agents.map(async (agent) => {
         try {
-          const token = await signA2AToken(ctx.email, orgDomain, signSecret);
-
           const target = `${agent.url.replace(/\/$/, "")}/_agent-native/org/a2a-secret/receive`;
+          const token = await signA2AOrganizationToken(
+            orgDomain,
+            signSecret,
+            undefined,
+            {
+              preferGlobalSecret: false,
+              audience: canonicalA2AAudience(agent.url),
+            },
+          );
           const protectionHeaders =
             resolveVercelDeploymentProtectionHeaders(target);
           const res = await ssrfSafeFetch(
@@ -2083,6 +2116,7 @@ export const receiveA2ASecretHandler = defineEventHandler(
   async (event: H3Event) => {
     const { getRequestHeader } = await import("h3");
     const jose = await import("jose");
+    const { verifyA2AToken } = await import("../a2a/server.js");
 
     const authHeader = getRequestHeader(event, "authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -2153,12 +2187,33 @@ export const receiveA2ASecretHandler = defineEventHandler(
       });
     }
 
+    let verified;
     try {
-      await jose.jwtVerify(token, new TextEncoder().encode(existingSecret));
+      verified = await verifyA2AToken(token, event, {
+        globalSecretOnly: true,
+        verificationSecret: existingSecret,
+      });
     } catch {
+      verified = null;
+    }
+    if (
+      !verified ||
+      verified.orgId !== localOrgId ||
+      verified.orgDomain?.trim().toLowerCase() !== orgDomain
+    ) {
       throw createError({
         statusCode: 401,
-        message: "Invalid or expired JWT signature",
+        message: "Invalid or expired organization token",
+      });
+    }
+
+    // Checked only after the caller is verified so an unauthenticated request
+    // cannot probe whether a value equals this deployment's A2A_SECRET.
+    if (await isDeploymentA2ASecret(newSecret)) {
+      throw createError({
+        statusCode: 409,
+        message:
+          "The pushed organization A2A secret equals this app's A2A_SECRET, so verified user calls from this organization would be downgraded to organization-level access. Use a distinct organization secret.",
       });
     }
 

@@ -160,7 +160,7 @@ async function extractThumbnailFrame(
   } catch (error) {
     if (
       !(error instanceof VideoFrameExtractionError) ||
-      error.code !== "NO_VIDEO"
+      error.code !== "NO_FRAME_AT_TIMESTAMP"
     ) {
       throw error;
     }

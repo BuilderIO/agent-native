@@ -6,9 +6,69 @@ const { renderToReadableStream } = ReactDOMServer;
 
 import { isbot } from "isbot";
 
+import { ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT } from "../shared/route-chunk-recovery-bootstrap.js";
+import {
+  getSsrSessionBootstrapScriptTag,
+  SsrSessionBootstrapContext,
+} from "../shared/ssr-session-bootstrap-slot.js";
 import { wrapWithAnalytics } from "./analytics.js";
 
 export const streamTimeout = 5_000;
+
+const HEAD_OPEN_PATTERN = /<head\b[^>]*>/i;
+const CHUNK_RECOVERY_BOOTSTRAP_TAG = `<script data-agent-native-chunk-recovery-bootstrap>${ROUTE_CHUNK_RECOVERY_BOOTSTRAP_SCRIPT}</script>`;
+
+// Inline scripts placed first in <head> run before any stylesheet or module
+// preload is requested; anywhere after a stylesheet they wait for it to load.
+function installEarlyHeadScripts(
+  body: ReadableStream<Uint8Array>,
+  tags: string,
+): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let pending = "";
+  let injected = false;
+
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        pending += decoder.decode(chunk, { stream: true });
+
+        if (!injected) {
+          const headOpenMatch = HEAD_OPEN_PATTERN.exec(pending);
+          if (!headOpenMatch || headOpenMatch.index === undefined) return;
+
+          const headEnd = headOpenMatch.index + headOpenMatch[0].length;
+          controller.enqueue(encoder.encode(pending.slice(0, headEnd) + tags));
+          pending = pending.slice(headEnd);
+          injected = true;
+        }
+
+        if (pending) {
+          controller.enqueue(encoder.encode(pending));
+          pending = "";
+        }
+      },
+      flush(controller) {
+        pending += decoder.decode();
+
+        if (!injected) {
+          const headOpenMatch = HEAD_OPEN_PATTERN.exec(pending);
+          if (headOpenMatch && headOpenMatch.index !== undefined) {
+            const headEnd = headOpenMatch.index + headOpenMatch[0].length;
+            controller.enqueue(
+              encoder.encode(pending.slice(0, headEnd) + tags),
+            );
+            pending = pending.slice(headEnd);
+            injected = true;
+          }
+        }
+
+        if (pending) controller.enqueue(encoder.encode(pending));
+      },
+    }),
+  );
+}
 
 type ServerRouterComponent = (props: {
   context: EntryContext;
@@ -52,9 +112,19 @@ export function createDocumentRequestHandler(
     const abortController = new AbortController();
     const timeoutId = setTimeout(() => abortController.abort(), streamTimeout);
 
+    let sessionPath: string | null = null;
+    const recordSessionBootstrap = (path: string) => {
+      sessionPath = path;
+    };
+
     try {
+      // The shell, which renders the app's providers, is complete once this
+      // resolves, so the session read it records is known before any byte of
+      // <head> is sent.
       const body = await renderToReadableStream(
-        <ServerRouter context={routerContext} url={request.url} />,
+        <SsrSessionBootstrapContext.Provider value={recordSessionBootstrap}>
+          <ServerRouter context={routerContext} url={request.url} />
+        </SsrSessionBootstrapContext.Provider>,
         {
           signal: abortController.signal,
           onError(error: unknown) {
@@ -70,11 +140,17 @@ export function createDocumentRequestHandler(
         await body.allReady;
       }
 
-      responseHeaders.set("Content-Type", "text/html");
-      return new Response(wrapWithAnalytics(body), {
-        headers: responseHeaders,
-        status: responseStatusCode,
-      });
+      responseHeaders.set("Content-Type", "text/html; charset=utf-8");
+      const headScripts =
+        CHUNK_RECOVERY_BOOTSTRAP_TAG +
+        (sessionPath ? getSsrSessionBootstrapScriptTag(sessionPath) : "");
+      return new Response(
+        wrapWithAnalytics(installEarlyHeadScripts(body, headScripts)),
+        {
+          headers: responseHeaders,
+          status: responseStatusCode,
+        },
+      );
     } finally {
       clearTimeout(timeoutId);
     }

@@ -10,6 +10,7 @@ import {
   IconArchive,
   IconBrandGithub,
   IconBrandSlack,
+  IconBrandZoom,
   IconChecks,
   IconChevronDown,
   IconCircleCheck,
@@ -132,8 +133,19 @@ import {
   validateSlackChannelInput,
   type SourceConfigIssue,
 } from "../../shared/source-config-validation";
+import {
+  invalidZoomMeetingIds,
+  zoomFilterLines,
+} from "../../shared/zoom-meeting-filter";
 
-type Provider = "manual" | "generic" | "clips" | "slack" | "granola" | "github";
+type Provider =
+  | "manual"
+  | "generic"
+  | "clips"
+  | "slack"
+  | "granola"
+  | "github"
+  | "zoom";
 type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
 type BrainT = ReturnType<typeof useT>;
 
@@ -144,6 +156,11 @@ interface SourceFormState {
   historyLimit: string;
   granolaPageSize: string;
   granolaUpdatedAfter: string;
+  zoomMeetingIds: string;
+  zoomMeetingTopics: string;
+  zoomLookbackDays: string;
+  zoomIncludeSummaries: boolean;
+  zoomConfigExtras: Record<string, unknown>;
   githubRepos: string;
   githubLimit: string;
   githubState: "open" | "closed" | "all";
@@ -173,6 +190,12 @@ const providers: Array<{
     label: "Granola",
     detail: "Enterprise API Team-space notes",
     icon: IconNotes,
+  },
+  {
+    value: "zoom",
+    label: "Zoom",
+    detail: "Cloud-recording transcripts from chosen meetings",
+    icon: IconBrandZoom,
   },
   {
     value: "github",
@@ -206,6 +229,8 @@ function defaultTitle(provider: Provider, t?: ReturnType<typeof useT>) {
       return t?.("sources.defaultTitle.slack") ?? "Slack knowledge channels";
     case "granola":
       return t?.("sources.defaultTitle.granola") ?? "Granola team notes";
+    case "zoom":
+      return t?.("sources.defaultTitle.zoom") ?? "Zoom meeting transcripts";
     case "github":
       return t?.("sources.defaultTitle.github") ?? "GitHub product repos";
     case "clips":
@@ -231,6 +256,11 @@ function defaultForm(
     historyLimit: "15",
     granolaPageSize: "10",
     granolaUpdatedAfter: "",
+    zoomMeetingIds: "",
+    zoomMeetingTopics: "",
+    zoomLookbackDays: "7",
+    zoomIncludeSummaries: false,
+    zoomConfigExtras: {},
     githubRepos: "",
     githubLimit: "25",
     githubState: "all",
@@ -240,8 +270,37 @@ function defaultForm(
     pollMinutes: "60",
     sourceKey: provider === "generic" || provider === "clips" ? provider : "",
     autoSync:
-      provider === "slack" || provider === "granola" || provider === "github",
+      provider === "slack" ||
+      provider === "granola" ||
+      provider === "github" ||
+      provider === "zoom",
     includePublicChannels: false,
+  };
+}
+
+function zoomConfigFromSource(config: Record<string, unknown>) {
+  const zoom =
+    config.zoom &&
+    typeof config.zoom === "object" &&
+    !Array.isArray(config.zoom)
+      ? (config.zoom as Record<string, unknown>)
+      : {};
+  const {
+    meetingIds,
+    meetingTopics,
+    lookbackDays,
+    includeSummaries,
+    ...extras
+  } = zoom;
+  return {
+    zoomMeetingIds: listValue(meetingIds),
+    zoomMeetingTopics: listValue(meetingTopics),
+    zoomLookbackDays:
+      typeof lookbackDays === "number" || typeof lookbackDays === "string"
+        ? String(lookbackDays)
+        : "7",
+    zoomIncludeSummaries: includeSummaries === true,
+    zoomConfigExtras: extras,
   };
 }
 
@@ -270,6 +329,7 @@ function formFromSource(source: BrainSource): SourceFormState {
         : "10",
     granolaUpdatedAfter:
       typeof config.updatedAfter === "string" ? config.updatedAfter : "",
+    ...zoomConfigFromSource(config),
     githubRepos: listValue(config.repositories ?? config.repos),
     githubLimit:
       typeof config.limit === "number" || typeof config.limit === "string"
@@ -330,6 +390,15 @@ function buildConfig(form: SourceFormState) {
     if (form.granolaUpdatedAfter.trim()) {
       config.updatedAfter = form.granolaUpdatedAfter.trim();
     }
+  }
+  if (form.provider === "zoom") {
+    config.zoom = {
+      ...form.zoomConfigExtras,
+      meetingIds: zoomFilterLines(form.zoomMeetingIds),
+      meetingTopics: zoomFilterLines(form.zoomMeetingTopics),
+      lookbackDays: numberValue(form.zoomLookbackDays, 7, 1, 30),
+      includeSummaries: form.zoomIncludeSummaries,
+    };
   }
   if (form.provider === "github") {
     config.repositories = splitLines(form.githubRepos);
@@ -2143,8 +2212,12 @@ export default function SourcesRoute() {
   );
   const githubRepoIssues =
     form.provider === "github" ? validateGitHubRepoInput(form.githubRepos) : [];
+  const zoomMeetingIdIssues =
+    form.provider === "zoom" ? invalidZoomMeetingIds(form.zoomMeetingIds) : [];
   const formConfigInvalid =
-    slackChannelIssues.length > 0 || githubRepoIssues.length > 0;
+    slackChannelIssues.length > 0 ||
+    githubRepoIssues.length > 0 ||
+    zoomMeetingIdIssues.length > 0;
   const formMissingCredentialKeys =
     formProviderMetadata?.credentialHealth?.status === "missing"
       ? formProviderMetadata.credentialHealth.missingCredentialKeys
@@ -2198,6 +2271,7 @@ export default function SourcesRoute() {
       provider ??
       (type === "slack" ||
       type === "granola" ||
+      type === "zoom" ||
       type === "github" ||
       type === "clips" ||
       type === "manual" ||
@@ -2744,7 +2818,9 @@ export default function SourcesRoute() {
                             })
                           }
                         >
-                          {enqueueDistillation.isPending ? (
+                          {enqueueDistillation.isPending &&
+                          enqueueDistillation.variables?.captureId ===
+                            capture.id ? (
                             <IconLoader2 className="size-4 animate-spin" />
                           ) : (
                             <IconSend className="size-4 rtl:-scale-x-100" />
@@ -3177,6 +3253,107 @@ export default function SourcesRoute() {
                     {t("sources.granolaDescription")}
                   </p>
                 </div>
+              </div>
+            )}
+
+            {form.provider === "zoom" && (
+              <div className="grid gap-4 rounded-md border border-border p-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="zoom-meeting-ids">
+                    {t("sources.zoomMeetingIds")}
+                  </Label>
+                  <Textarea
+                    id="zoom-meeting-ids"
+                    value={form.zoomMeetingIds}
+                    onChange={(event) =>
+                      updateForm({ zoomMeetingIds: event.target.value })
+                    }
+                    aria-invalid={zoomMeetingIdIssues.length > 0}
+                    aria-describedby={
+                      zoomMeetingIdIssues.length > 0
+                        ? "zoom-meeting-ids-error"
+                        : undefined
+                    }
+                    placeholder={"123 4567 8901\n98765432101"}
+                  />
+                  {zoomMeetingIdIssues.length > 0 ? (
+                    <p
+                      id="zoom-meeting-ids-error"
+                      className="text-xs leading-5 text-destructive"
+                    >
+                      {t("sources.invalidZoomMeetingIds", {
+                        entries: zoomMeetingIdIssues
+                          .map((entry) => `"${entry}"`)
+                          .join(", "),
+                      })}
+                    </p>
+                  ) : null}
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t("sources.zoomMeetingIdsDescription")}
+                  </p>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="zoom-meeting-topics">
+                    {t("sources.zoomMeetingTopics")}
+                  </Label>
+                  <Textarea
+                    id="zoom-meeting-topics"
+                    value={form.zoomMeetingTopics}
+                    onChange={(event) =>
+                      updateForm({ zoomMeetingTopics: event.target.value })
+                    }
+                    placeholder={"Weekly Sync\nMarketing Standup"}
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t("sources.zoomMeetingTopicsDescription")}
+                  </p>
+                </div>
+                <label className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
+                  <span className="text-sm font-medium">
+                    {t("sources.zoomIncludeSummaries")}
+                  </span>
+                  <Switch
+                    checked={form.zoomIncludeSummaries}
+                    onCheckedChange={(zoomIncludeSummaries) =>
+                      updateForm({ zoomIncludeSummaries })
+                    }
+                  />
+                </label>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="zoom-lookback-days">
+                      {t("sources.zoomLookbackDays")}
+                    </Label>
+                    <Input
+                      id="zoom-lookback-days"
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={form.zoomLookbackDays}
+                      onChange={(event) =>
+                        updateForm({ zoomLookbackDays: event.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="zoom-poll-minutes">
+                      {t("sources.pollMinutes")}
+                    </Label>
+                    <Input
+                      id="zoom-poll-minutes"
+                      type="number"
+                      min={5}
+                      max={1440}
+                      value={form.pollMinutes}
+                      onChange={(event) =>
+                        updateForm({ pollMinutes: event.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {t("sources.zoomDescription")}
+                </p>
               </div>
             )}
 

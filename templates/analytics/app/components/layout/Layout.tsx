@@ -20,6 +20,7 @@ import {
 import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
 import { InvitationBanner } from "@agent-native/toolkit/app/org";
 import { isSettingsPathname } from "@agent-native/toolkit/app/settings";
+import { analyticsAskThreadPath, isAnalyticsAskPath } from "@shared/ask-route";
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -39,6 +40,7 @@ import { TAB_ID } from "@/lib/tab-id";
 import { AgentCompletionSound } from "../AgentCompletionSound";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
+import { isSessionReplayRoute } from "./layout-route-policy";
 import { MobileNav } from "./MobileNav";
 import { Sidebar } from "./Sidebar";
 
@@ -160,11 +162,11 @@ function InteractiveLayout({ children }: LayoutProps) {
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
-  const isSessionDetailRoute = /^\/sessions\/[^/]+/.test(location.pathname);
+  const isSessionDetailRoute = isSessionReplayRoute(location.pathname);
   const isMonitoringRoute =
     location.pathname === "/monitoring" ||
     location.pathname.startsWith("/monitoring/");
-  const isAskRoute = location.pathname === "/ask";
+  const isAskRoute = isAnalyticsAskPath(location.pathname);
   // Settings brings its own navigation, header, and agent toggle, so it
   // renders full width.
   const settingsOwnsChrome = isSettingsPathname(location.pathname);
@@ -183,7 +185,7 @@ function InteractiveLayout({ children }: LayoutProps) {
     });
   useAgentChatHomeHandoffLinks({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
-    chatPath: "/ask",
+    isChatPath: isAnalyticsAskPath,
     ttlMs: ANALYTICS_RECENT_CHAT_HANDOFF_TTL_MS,
     enabled: true,
     requireActiveHandoff: true,
@@ -208,7 +210,7 @@ function InteractiveLayout({ children }: LayoutProps) {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
       if (typeof detail?.isRunning !== "boolean") return;
-      if (location.pathname === "/ask") markAnalyticsChatActivity();
+      if (isAnalyticsAskPath(location.pathname)) markAnalyticsChatActivity();
       updateAnalyticsChatHandoffForRun(
         runningRuns.current,
         detail,
@@ -221,9 +223,12 @@ function InteractiveLayout({ children }: LayoutProps) {
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
   }, [location.pathname]);
 
-  function openAskAgentFullscreen() {
+  function openAskAgentFullscreen(threadId?: string) {
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/ask");
+    navigateWithAgentChatViewTransition(
+      navigate,
+      analyticsAskThreadPath(threadId ?? null),
+    );
   }
 
   if (BARE_ROUTES.has(location.pathname)) {

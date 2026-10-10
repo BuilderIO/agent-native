@@ -1,13 +1,45 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import {
   DOCKED_RIGHT_INSPECTOR_CLASSNAME,
   FLOATING_RIGHT_INSPECTOR_CLASSNAME,
   hasMinimalInspectorSelection,
+  rightInspectorCanvasInset,
   rightInspectorPanelClassName,
 } from "./minimal-inspector";
+import { readDesignEditorSource } from "./read-design-editor-source";
+
+describe("rightInspectorCanvasInset", () => {
+  it("reserves the panel width for a visible docked inspector", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: true,
+        width: 240,
+        minimalUi: false,
+      }),
+    ).toBe(240);
+  });
+
+  it("reserves nothing when the inspector is hidden", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: false,
+        width: 240,
+        minimalUi: false,
+      }),
+    ).toBe(0);
+  });
+
+  it("reserves nothing when minimal UI floats the inspector over the canvas, so a selection never refits the screen", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: true,
+        width: 240,
+        minimalUi: true,
+      }),
+    ).toBe(0);
+  });
+});
 
 describe("hasMinimalInspectorSelection", () => {
   it("is false when nothing is selected", () => {
@@ -64,20 +96,23 @@ describe("rightInspectorPanelClassName", () => {
     expect(rightInspectorPanelClassName(true)).toBe(
       FLOATING_RIGHT_INSPECTOR_CLASSNAME,
     );
-    expect(rightInspectorPanelClassName(true)).toContain(
-      "top-3 right-3 bottom-3",
-    );
+    expect(rightInspectorPanelClassName(true)).toContain("top-3 right-3");
     expect(rightInspectorPanelClassName(true)).toContain("rounded-2xl");
     expect(rightInspectorPanelClassName(true)).toContain("shadow-xl");
     expect(rightInspectorPanelClassName(true)).not.toContain("inset-y-0");
   });
+
+  it("shows the floating card at every width instead of handing off to a drawer", () => {
+    const classes = rightInspectorPanelClassName(true).split(" ");
+    expect(classes).not.toContain("hidden");
+    expect(classes.some((name) => name.endsWith(":flex"))).toBe(false);
+    expect(classes).toContain("flex");
+    expect(classes).toContain("max-w-[calc(100%-1.5rem)]");
+  });
 });
 
 describe("DesignEditor minimal inspector wiring", () => {
-  const editorSource = readFileSync(
-    new URL("../DesignEditor.tsx", import.meta.url),
-    "utf8",
-  );
+  const editorSource = readDesignEditorSource();
 
   it("hides the manual right-sidebar toggle in minimal mode", () => {
     expect(editorSource).not.toContain('data-design-minimal-toggle="right"');

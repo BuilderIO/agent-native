@@ -1,5 +1,6 @@
 import type { ProviderKeyPolicyStatus } from "@agent-native/core/agent/actions/manage-provider-key-policy";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
+import { upgradeModelForProvider } from "@agent-native/core/agent/model-version";
 import {
   setAgentEngineDefaultModel,
   type AgentEngineKeyScope,
@@ -41,7 +42,16 @@ import {
 } from "@agent-native/toolkit/ui/tooltip";
 import { IconCpu, IconLock, IconPlus } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { useLocation, useNavigate } from "react-router";
 
 import { ErrorRow, SettingsEmpty } from "../../resources/index.js";
 import { DeferredBuilderConnectPopover } from "../deferred-builder-connect-popover.js";
@@ -88,6 +98,11 @@ const LOOP_QUERY_KEY = [
 type DialogState =
   | { mode: "add" }
   | { mode: "manage"; provider: AgentProviderId; scope: AgentEngineKeyScope };
+
+type ActiveDialogState = {
+  dialog: DialogState;
+  trackingFlow: "chat_setup" | "settings";
+};
 
 type ChatGPTSubscriptionStatusRead = {
   connected: boolean;
@@ -155,6 +170,12 @@ function useChatGPTModels(
  */
 export default function ModelSettingsPage(_props: SettingsPageProps) {
   const t = useT();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const chatSetupTrackingPending = useRef(
+    (location.state as { providerSetupTrackingFlow?: unknown } | null)
+      ?.providerSetupTrackingFlow === "chat_setup",
+  );
   const org = useOrg();
   const listing = useActionQuery<ModelProvidersListing>(
     "list-model-providers" as never,
@@ -167,8 +188,42 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
     trackingSource: "settings_model",
     trackingFlow: "connect_llm",
   });
-  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [dialog, setDialog] = useState<ActiveDialogState | null>(null);
   const [removing, setRemoving] = useState<ProviderKeyRow | null>(null);
+  const openProviderDialog = useCallback(
+    (nextDialog: DialogState) => {
+      const trackingFlow = chatSetupTrackingPending.current
+        ? "chat_setup"
+        : "settings";
+      if (chatSetupTrackingPending.current) {
+        chatSetupTrackingPending.current = false;
+        const locationState =
+          location.state && typeof location.state === "object"
+            ? Object.fromEntries(
+                Object.entries(location.state).filter(
+                  ([key]) => key !== "providerSetupTrackingFlow",
+                ),
+              )
+            : null;
+        navigate(
+          {
+            pathname: location.pathname,
+            search: location.search,
+            hash: location.hash,
+          },
+          {
+            replace: true,
+            state:
+              locationState && Object.keys(locationState).length > 0
+                ? locationState
+                : null,
+          },
+        );
+      }
+      setDialog({ dialog: nextDialog, trackingFlow });
+    },
+    [location.hash, location.pathname, location.search, navigate],
+  );
 
   const chatgptLab = useLabState("chatgpt-subscription");
   const chatgptStatus = useActionQuery<ChatGPTSubscriptionStatusRead>(
@@ -211,10 +266,12 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
     () => ({
       action:
         canAdd && !needsProvider ? (
-          <AddProviderButton onClick={() => setDialog({ mode: "add" })} />
+          <AddProviderButton
+            onClick={() => openProviderDialog({ mode: "add" })}
+          />
         ) : undefined,
     }),
-    [canAdd, needsProvider],
+    [canAdd, needsProvider, openProviderDialog],
   );
   useSettingsPageHeader(header);
 
@@ -239,7 +296,11 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
       : { status: "loading" };
   const orgName = org.data?.orgName ?? "";
   const openManage = (row: ProviderKeyRow) =>
-    setDialog({ mode: "manage", provider: row.provider, scope: row.key.scope });
+    openProviderDialog({
+      mode: "manage",
+      provider: row.provider,
+      scope: row.key.scope,
+    });
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -250,7 +311,7 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
               listing={data}
               canAdd={canAdd}
               builder={builder}
-              onAdd={() => setDialog({ mode: "add" })}
+              onAdd={() => openProviderDialog({ mode: "add" })}
             />
           </SettingsGroup>
         ) : data.hasOrganization ? (
@@ -294,12 +355,16 @@ export default function ModelSettingsPage(_props: SettingsPageProps) {
       </div>
       <ProviderDialog
         open={dialog !== null}
+        trackingFlow={dialog?.trackingFlow ?? "settings"}
         onOpenChange={(open) => {
           if (!open) setDialog(null);
         }}
-        mode={dialog?.mode ?? "add"}
-        {...(dialog?.mode === "manage"
-          ? { provider: dialog.provider, scope: dialog.scope }
+        mode={dialog?.dialog.mode ?? "add"}
+        {...(dialog?.dialog.mode === "manage"
+          ? {
+              provider: dialog.dialog.provider,
+              scope: dialog.dialog.scope,
+            }
           : {})}
       />
       {removing ? (
@@ -347,6 +412,9 @@ function hasAnyProvider(
   builder: BuilderConnectFlow,
   chatgptConnected: boolean | null,
 ): boolean {
+  if (listing.providers.some((provider) => provider.deploymentConfigured)) {
+    return true;
+  }
   if (chatgptConnected !== false || !builder.hasFetchedStatus) return true;
   if (!listing.hasOrganization) {
     return builder.configured || rows.personal.length > 0;
@@ -397,7 +465,7 @@ function NoProviderEmpty({
       <Button type="button" size="sm" disabled={builder.connecting}>
         {builder.connecting ? <Spinner /> : null}
         {builder.connecting
-          ? t(`${K}connecting`)
+          ? t("agentChat.composer.connectingBuilder")
           : t("agentChat.setup.connectBuilder")}
       </Button>
     </DeferredBuilderConnectPopover>
@@ -608,7 +676,9 @@ function BuilderRow({
             disabled={flow.connecting}
           >
             {flow.connecting ? <Spinner /> : null}
-            {flow.connecting ? t(`${K}connecting`) : t(`${K}connect`)}
+            {flow.connecting
+              ? t("agentChat.composer.connectingBuilder")
+              : t("agentChat.setup.connectBuilder")}
           </Button>
         </DeferredBuilderConnectPopover>
       );
@@ -785,16 +855,30 @@ function DefaultModelRow({
     chatgpt: chatgpt.status === "ready" ? chatgpt.catalog : undefined,
   });
   const stored = listing.defaultModel
-    ? {
-        engine: listing.defaultModel.engine,
-        model:
-          listing.defaultModel.model ??
-          groups.find((group) => group.engine === listing.defaultModel?.engine)
-            ?.models[0] ??
-          "",
-      }
+    ? (() => {
+        const group = groups.find(
+          (candidate) => candidate.engine === listing.defaultModel?.engine,
+        );
+        const supportedModels = group?.models ?? [];
+        const preserveCustomModels = group?.preserveCustomModels;
+        const model = listing.defaultModel.model ?? supportedModels[0] ?? "";
+        return {
+          engine: listing.defaultModel.engine,
+          model:
+            (!preserveCustomModels &&
+              upgradeModelForProvider(
+                model,
+                supportedModels,
+                listing.defaultModel.engine,
+              )) ||
+            model,
+        };
+      })()
     : null;
-  const current = pending ?? stored;
+  const storedGroup = stored
+    ? groups.find((group) => group.engine === stored.engine)
+    : undefined;
+  const current = pending ?? (storedGroup ? stored : null);
   const engineLabel = (engine: string) => {
     const provider = providerForEngine(engine);
     if (provider === "builder") return BUILDER_LABEL;
@@ -809,8 +893,8 @@ function DefaultModelRow({
         })
       : engineLabel(current.engine)
     : t(`${K}notSet`);
-  // A stored default no longer offered (personal, rejected, or unchecked)
-  // still shows as the value, so the select never reads blank.
+  // Keep a stored model visible if its provider is available but the model is
+  // no longer in that provider's checked list.
   const offered =
     current &&
     groups.some(
@@ -882,7 +966,13 @@ function DefaultModelRow({
               aria-label={t(DEFAULT_MODEL_LABEL)}
             >
               <SelectValue
-                placeholder={current ? currentLabel : t(`${K}chooseModel`)}
+                placeholder={
+                  current
+                    ? currentLabel
+                    : waitingForProvider
+                      ? ""
+                      : t(`${K}chooseModel`)
+                }
               />
             </SelectTrigger>
           </Select>

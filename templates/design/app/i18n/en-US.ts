@@ -1,4 +1,7 @@
+import { enUSJourneyCanvasMessages } from "../../shared/journey-canvas-messages.js";
+
 export default {
+  journeyCanvas: enUSJourneyCanvasMessages,
   composer: { menu: { integrations: "Integrations" } },
   creativeContext: {
     title: "Library",
@@ -214,7 +217,7 @@ export default {
       tokenLabel: "Figma access token",
       tokenPlaceholder: "Paste Figma access token",
       connecting: "Connecting…",
-      connect: "Connect",
+      connect: "Connect Figma",
       getToken: "Get token",
       importFrame: "Import frame",
       chooseFrame: "Choose frame",
@@ -222,6 +225,18 @@ export default {
       exportSvg: "Export SVG",
       actionsPrefill: "Review, then send",
       retry: "Retry",
+      currentDesign: "the current Design",
+      chooseDesign: "a Design (ask me which Design to use if needed)",
+      importFramePrompt:
+        "Import this Figma frame into {{destination}} and identify any content the importer could not carry over: {{url}}",
+      importFilePrompt:
+        "Open this Figma file, list its top-level frames, and ask me which frame to import: {{url}}",
+      inspectFramePrompt:
+        "Inspect this Figma frame and summarize its structure, components, styles, and reusable tokens: {{url}}",
+      inspectFilePrompt:
+        "Inspect this Figma file and summarize its structure, components, styles, and reusable tokens: {{url}}",
+      exportSvgPrompt:
+        "Export the current Design screen as SVG for use in Figma and identify which parts become static SVG content.",
     },
   },
   common: {
@@ -689,12 +704,15 @@ export default {
     },
     leftRail: {
       file: "File",
-      agent: "Agent",
+      agent: "Agents",
       assets: "Assets",
       import: "Import",
       tools: "Tools",
       tokens: "Tokens",
       label: "Design workspace",
+      account: "Account",
+      collapse: "Collapse sidebar",
+      expand: "Expand sidebar",
     },
     breakpointBar: {
       base: "Base",
@@ -785,12 +803,10 @@ export default {
       "{{path}} changed on disk since it was opened. Reload the screen and try again.",
     applyToSourceError: "Couldn't save to source: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Import tokens",
       importTitle: "Import tokens",
       importHint:
@@ -802,6 +818,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Import pasted tokens",
       importedCount: "Imported {{count}} tokens",
+      count: "{{count}} tokens",
+      search: "Search tokens",
+      noMatches: "No matching tokens",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -848,6 +867,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
       figmaPasteImagesDontShowAgain: "Don't show again",
+      figmaPasteUploadImage: "Upload image",
+      figmaPasteUploadImageFor: "Upload “{{name}}”",
+      figmaPasteImageFallbackName: "Image {{index}}",
+      figmaPasteUploadImageSuccess: "Image filled in",
+      figmaPasteUploadImageInvalid:
+        "Choose an image file, like SVG, PNG, or JPG.",
+      figmaPasteUploadImageError: "Couldn't fill in that image",
       figmaHydrationDialogTitle: "Fill in the missing images",
       figmaHydrationDialogDescription:
         "{{count}} image{{plural}} in the imported screen{{screensPlural}} couldn't come through the paste — Figma's clipboard leaves image data out. Fill from the original .fig, or fetch the exact images from the copied frame.",
@@ -935,6 +961,8 @@ export default {
         figmaPasteFailed: "Figma paste import failed",
         uploadFailed: "File upload failed",
         invalidFigFile: "Choose a file ending in .fig.",
+        unsupportedFileType: "Choose a .fig, .html, or .htm file.",
+        importBusy: "Another import is in progress. Finish or cancel it first.",
         figFileTooLarge:
           "That .fig is too large — uploads are limited to {{max}} MB. In Figma, copy just the frame you want into a new file and export that as .fig, or use Paste from Figma instead.",
       },
@@ -947,6 +975,8 @@ export default {
       "Generation stopped before creating files. Try again to continue from the same prompt.",
     generationStoppedCheckAgent:
       "Generation stopped before creating files. Check the agent message or try again.",
+    invalidCanvasDimensions:
+      "The requested canvas size isn't supported. Use positive pixel dimensions within the editor limits.",
     notFound: "Design not found",
     backToDesigns: "Back to designs",
     designNotFoundDescription:
@@ -975,7 +1005,17 @@ export default {
     saveTemplate: "Save template",
     templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
-    clickToRename: "Click to rename",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Apply or discard your pending visual edits before duplicating.",
+      designs: "Designs",
+      rename: "Rename",
+      duplicate: "Duplicate",
+      versionHistory: "Version history",
+      import: "Import…",
+      delete: "Delete",
+      deleteError: "Could not delete this design",
+    },
     collaborators: "Collaborators",
     share: "Share",
     signUpToSave: "Sign up",
@@ -995,6 +1035,10 @@ export default {
       draw: "Draw",
       interact: "Interact",
       screens: "Screens",
+    },
+    topBar: {
+      modeDesign: "Design",
+      modeSwitch: "Editor mode",
     },
     fileTabs: "Files",
     tools: {
@@ -1016,6 +1060,10 @@ export default {
     keyboardShortcuts: {
       title: "Keyboard shortcuts",
       close: "Close keyboard shortcuts",
+      search: "Search",
+      searchLabel: "Search keyboard shortcuts",
+      categoriesLabel: "Shortcut categories",
+      empty: "No shortcuts match “{{query}}”",
       codeContext: "Code",
       screenContext: "Screen",
       nudgeAmount: {
@@ -1048,12 +1096,6 @@ export default {
         leftBracket: "Left Bracket",
         rightBracket: "Right Bracket",
       },
-      descriptions: {
-        toggleUi:
-          "Press it now to quickly hide the panes and focus on your work",
-        undo: "Step back through your most recent design change",
-        redo: "Restore the design change you just undid",
-      },
       categories: {
         essential: "Essential",
         tools: "Tools",
@@ -1085,6 +1127,7 @@ export default {
         showLayers: "Show layers",
         showAssets: "Show assets",
         toggleUi: "Show/Hide UI",
+        toggleMinimalUi: "Minimal UI",
         toggleComments: "Show or hide comments",
         zoomIn: "Zoom in",
         zoomOut: "Zoom out",
@@ -1368,6 +1411,15 @@ export default {
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
       pngExportError: "Could not export PNG",
+      exportTooLarge:
+        "Export is too large. Requests are limited to 5 MB; reduce embedded assets or raster dimensions and try again.",
+      exportResourcesUnavailable:
+        "The export could not be rendered accurately because one or more images, fonts, or stylesheets are unavailable. Check those resources and try again.",
+      exportTimedOut:
+        "Export timed out. Try again, or reduce the design's size.",
+      exportBusy: "Another export is rendering. Wait a moment and try again.",
+      exportChromiumUnavailable:
+        "Export is unavailable because the renderer could not start. Try again later.",
       pdfExportError: "Could not export PDF",
       pdfDownloaded: "PDF downloaded",
       pdfAllScreensDownloaded: "PDF downloaded (all screens)",
@@ -1486,6 +1538,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
       permissionPromptRetry: "Retry connection",
+      previewCredentialsUnavailableTitle:
+        "Local preview credentials are unavailable",
+      previewCredentialsUnavailableDescription:
+        "Reconnect this Screen's localhost connection in the inspector, then retry.",
+      publicPreviewUnavailableDescription:
+        "Localhost previews are not shared with public viewers. Open this Design as a collaborator to view this Screen.",
+      previewCredentialsRetry: "Retry credentials",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",
       connectionNotConfirmed:
@@ -1500,6 +1559,7 @@ export default {
     fork: "Fork",
     fullView: "Full view",
     preview: "Preview",
+    focusScreen: "Focus screen",
     openAndDuplicate: "Select {{display}}. Use Interact for focused scrolling.",
     openAndPreview: "Select {{display}}. Use Interact for focused scrolling.",
     doubleClickToEdit: "Use Interact for focused scrolling",
@@ -1572,8 +1632,12 @@ export default {
     assetAdded: "Asset added",
     assetsNoImageUrl: "Assets did not return an image URL.",
     failedToUploadFile: "Failed to upload file",
+    imageAttachmentUnavailable:
+      "We couldn't prepare this image for upload. Try a JPG, PNG, GIF, or WebP image.",
+    imageAttachmentTooLarge:
+      "Images can be up to {{perFile}} MB each, with {{total}} MB total.",
     attachmentsTooLarge:
-      "Those attachments are too large. Uploads are limited to {{max}} MB in total — attach fewer or smaller files.",
+      "Images are optimized automatically. Optimized images and other files must fit within {{max}} MB total.",
     failedToSubmitPrompt: "Failed to submit prompt",
     skipPrompt: "Skip prompt",
     startBlankCanvas: "Start with a blank canvas",
@@ -1731,8 +1795,8 @@ export default {
     designPromptTitle: "Let's create your first design",
     recent: "Recent",
     browseAllTemplates: "Browse all",
-    connectBuilderIo: "Connect Builder.io",
-    connectingBuilder: "Connecting Builder.io…",
+    connectBuilderIo: "Use Builder.io",
+    connectingBuilder: "Setting up Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "Search designs...",
     newDesign: "New Design",
@@ -1742,6 +1806,9 @@ export default {
     allAuthors: "All authors",
     me: "Me",
     designFilter: "Design filter",
+    ownedByAnyone: "Owned by anyone",
+    ownedByMe: "Owned by me",
+    sharedWithMe: "Shared with me",
     mine: "Mine",
     all: "All",
     showMineDesigns: "Show my designs",
@@ -1775,6 +1842,7 @@ export default {
     pickStartingPoint: "Pick a starting point or write your own prompt.",
     searchNoResultsTitle: "No designs match your search",
     searchNoResultsDescription: "Try a different search.",
+    noDesignsMatchFilter: "No designs match the current filter.",
     starterSaas: "SaaS landing page",
     starterDashboard: "Dashboard",
     starterPricing: "Pricing page",
@@ -1996,6 +2064,15 @@ export default {
       "Code and repository indexing requires the Builder Enterprise plan",
   },
   designSystems: {
+    comingSoonTitle: "Design systems are coming soon",
+    waitlist: {
+      join: "Join waitlist",
+      joining: "Joining…",
+      joined: "You're on the waitlist",
+      error: "Could not join the waitlist. Please try again.",
+      unavailable:
+        "Waitlist sign-up isn't available right now. Please try again later.",
+    },
     deleteError: "Could not delete design system",
     updateSuccess: "Design system updated",
     updateError: "Could not update design system",

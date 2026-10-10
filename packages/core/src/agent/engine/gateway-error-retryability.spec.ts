@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
+import { BUILDER_CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
 import { isRetryableError } from "../production-agent.js";
 import { createBuilderEngine } from "./builder-engine.js";
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "./credential-errors.js";
@@ -65,7 +65,7 @@ function jsonErrorResponse(status: number, body: unknown): Response {
 }
 
 const BASE_OPTS: EngineStreamOptions = {
-  model: CLAUDE_SONNET_MODEL_ID,
+  model: BUILDER_CLAUDE_SONNET_MODEL_ID,
   systemPrompt: "You are helpful.",
   messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
   tools: [],
@@ -225,6 +225,34 @@ describe("Builder gateway error retryability", () => {
         label: "in-stream error with no detail",
         response: () => jsonlResponse([{ type: "stop", reason: "error" }]),
         retryable: true,
+      },
+      {
+        label: "in-stream no-detail invalid_request",
+        response: () =>
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "error",
+              code: "invalid_request",
+              requestId: "req_invalid_request",
+            },
+          ]),
+        retryable: false,
+        expectedErrorCode: "invalid_request",
+      },
+      {
+        label: "in-stream invalid_request with transient wording",
+        response: () =>
+          jsonlResponse([
+            {
+              type: "stop",
+              reason: "error",
+              code: "invalid_request",
+              error: "Request timed out while validating the payload",
+            },
+          ]),
+        retryable: false,
+        expectedErrorCode: "invalid_request",
       },
       {
         label: "in-stream gateway internal error envelope",

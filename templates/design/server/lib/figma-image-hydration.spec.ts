@@ -206,6 +206,25 @@ describe("hydrateFileImagesFromFig", () => {
     expect(mocks.agentLeaveDocument).toHaveBeenCalledWith("file-1");
   });
 
+  it("treats a screen without metadata as already applied so the saved fill is not reported as a conflict", async () => {
+    await hydrateFileImagesFromFig({
+      fileId: "file-1",
+      figImages: figImageMap([{ hash: "aaa", ext: "png" }]),
+      ownerEmail: "user@example.com",
+    });
+
+    const { mutate, isApplied } = mocks.mutateDesignData.mock.calls[0]![0];
+    for (const data of [{}, { screenMetadata: { "other-file": {} } }]) {
+      expect(isApplied(mutate(data, { updatedAt: "" }))).toBe(true);
+    }
+    const tracked = mutate(
+      { screenMetadata: { "file-1": { unresolvedImageRefs: ["aaa"] } } },
+      { updatedAt: "" },
+    );
+    expect(tracked.screenMetadata["file-1"]).toEqual({});
+    expect(isApplied(tracked)).toBe(true);
+  });
+
   it("does not write when the .fig has none of the referenced images", async () => {
     const result = await hydrateFileImagesFromFig({
       fileId: "file-1",

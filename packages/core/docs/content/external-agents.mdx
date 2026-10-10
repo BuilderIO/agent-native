@@ -128,8 +128,8 @@ https://<your-app>.agent-native.com/mcp
 
 Every hosted app also has a helper page at
 `https://&lt;app&gt;/mcp/connect` with the copyable URL and
-host-specific tabs for Claude, ChatGPT, Cursor, Claude Code, Codex, Grok, and
-Other.
+host-specific tabs for Claude, ChatGPT, Cursor, VS Code, Claude Code, Codex,
+Grok, and Other.
 
 ## Private Content links {#private-content-links}
 
@@ -202,9 +202,35 @@ Dispatch does not rewrite ChatGPT or Claude's cached Calendar/Mail/etc.
 snapshots. The `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` scopes are the same ones
 covered in [Standard remote MCP OAuth](#standard-oauth) below.
 
-Cursor, Goose, Postman, MCPJam, and VS Code GitHub Copilot use the same remote
-MCP URL through their own MCP-server UIs when their build supports remote OAuth
-MCP servers.
+### Cursor, VS Code, and Codex {#install-links}
+
+The **Cursor** and **VS Code** tabs in **Settings → MCP server** and on
+`/mcp/connect` have install buttons. **Add to Cursor** opens Cursor's
+**Install MCP server?** prompt. **Add to VS Code** and **Add to VS Code
+Insiders** open a server page with an **Install** button. A link carries only
+the server name, the transport, and the MCP URL; it never carries a token,
+header, or account detail. The client runs its own OAuth sign-in the first time
+it connects. In VS Code, the tools then appear in the Chat view in Agent mode.
+
+For Codex, run `codex mcp add <server-name> --url <mcp-url>`, then
+`codex mcp login <server-name>` to sign in with OAuth. The **Codex** tab fills
+in both values.
+
+Goose, Postman, MCPJam, and other clients use the same remote MCP URL through
+their own MCP-server UIs when their build supports remote OAuth MCP servers.
+
+### Server names {#server-names}
+
+The app names its MCP server, and every surface uses that name: the install
+links, the copyable commands, and `npx @agent-native/core@latest connect`.
+Production uses the bare name, such as `agent-native-mail`. Beta, preview, and
+local deployments put the environment first, such as `beta-agent-native-mail`,
+so one client can keep a production entry and a beta entry side by side. The
+prefixes are reserved: `mcp.serverName` cannot start with `beta-`, `preview-`,
+or `local-`, so a beta name never matches another app's production name.
+Scripts can read the name from `GET /mcp/connect/identity`, which needs no sign-in and
+returns the server name, app name, app URL, MCP URL, and environment, plus a
+`connect` flag that is `false` when `mcp.connect` is off.
 
 ### Quick test prompt {#quick-test}
 
@@ -299,7 +325,9 @@ The connection is **per-user, scoped, and revocable**. In the OAuth path, the ho
 
 ### Re-authenticating after a 401 {#reconnect}
 
-Once connected, auth should persist long-term — access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`) with a sliding 365-day refresh window, so random 401s should be rare. When one does happen, use the lightweight reconnect command rather than reinstalling:
+The OAuth owner-binding update requires every existing OAuth connection to [reconnect once](/docs/external-agents#reconnect). Old OAuth access tokens are refused after rollout. Unbound legacy refresh tokens return `invalid_grant`, and pending old authorization codes must restart consent. Newly issued access tokens use their configured lifetime and live membership checks. Legacy A2A-format `mcp-connect` credentials and cross-app A2A tokens are unchanged by this cutover. Connections using old OAuth-format Connect tokens must reconnect too.
+
+Once connected, auth should persist long-term. Access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`), and refresh grants have no fixed expiry, so random 401s should be rare while the user remains authorized. When one does happen, use the lightweight reconnect command rather than reinstalling:
 
 ```bash
 npx @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
@@ -347,7 +375,7 @@ This is the same URL-only entry that `npx @agent-native/core@latest connect http
 https://dispatch.agent-native.com/mcp
 ```
 
-The OAuth flow is authorization-code + PKCE with refresh-token rotation. Access tokens are audience-bound to the exact MCP resource URL and carry the signed user/org identity, so tool calls, `resources/read`, and MCP App iframe-initiated `tools/call` all run through the same `runWithRequestContext` tenant scoping as the existing connect-minted JWT path. The iframe never receives raw OAuth tokens; the host mediates calls through the authenticated MCP connection.
+The OAuth flow is authorization-code + PKCE with refresh tokens, which are not rotated. Access tokens are audience-bound to the exact MCP resource URL and carry the signed user/org identity, so tool calls, `resources/read`, and MCP App iframe-initiated `tools/call` all run through the same `runWithRequestContext` tenant scoping as the existing connect-minted JWT path. The iframe never receives raw OAuth tokens; the host mediates calls through the authenticated MCP connection.
 
 Current scopes are:
 

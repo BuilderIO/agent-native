@@ -1,4 +1,7 @@
-import { getAppBasePath } from "@agent-native/core/server";
+import {
+  getAppBasePath,
+  getForwardedRequestURL,
+} from "@agent-native/core/server";
 import { resolveSsrCacheHeaders } from "@agent-native/core/server/ssr-handler";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -12,7 +15,7 @@ import {
   withAgentNativeSocialImageCacheBuster,
 } from "@agent-native/core/shared";
 import { eq } from "drizzle-orm";
-import { getMethod, getRequestURL, type H3Event } from "h3";
+import { getMethod, type H3Event } from "h3";
 
 import { isConditionalFieldVisible } from "../../shared/conditional.js";
 import { SENSITIVE_QUERY_PARAMS } from "../../shared/page-url.js";
@@ -360,7 +363,7 @@ export async function renderPublicFormHtml(
 }
 
 export async function renderPublicForm(event: H3Event) {
-  const reqUrl = getRequestURL(event);
+  const reqUrl = getForwardedRequestURL(event);
   const url = reqUrl.toString();
   const { html, status } = await renderPublicFormHtml(url);
 

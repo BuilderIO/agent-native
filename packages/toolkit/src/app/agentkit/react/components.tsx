@@ -68,6 +68,8 @@ import {
   Surface,
   TextField,
   agentSuggestionPrompt,
+  createChatAttachmentAdapter,
+  formatAttachmentError,
   type PromptComposerFile,
   type PromptComposerProps,
   type TiptapComposerHandle,
@@ -87,6 +89,7 @@ import {
 } from "./composer-submission.js";
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
+import { splitAgentKitMessageContext } from "@agent-native/agentkit";
 import type { AgentThreadState } from "@agent-native/agentkit/client";
 import {
   AgentKitCapabilityError,
@@ -115,6 +118,7 @@ import {
 } from "@agent-native/agentkit/protocol";
 
 import {
+  defaultAgentKitLabels,
   useAgentCapability,
   useAgentConnection,
   useAgentKit,
@@ -122,15 +126,22 @@ import {
   useAgentKitMutation,
   useAgentThread,
   type AgentConnectionErrorRenderProps,
+  type AgentKitLabels,
   type AgentKitQueueRenderProps,
   type AgentKitRegistry,
   type AgentKitRenderProps,
   type AgentKitRenderSurface,
+  type AgentKitRunUsage,
   type AgentKitSlots,
   type AgentKitSuggestionsRenderProps,
   type AgentRunFailureRenderProps,
 } from "./context.js";
 import { AgentStreamingText } from "./streaming-text.js";
+
+// AgentKit React installs without @agent-native/core, so it repeats core's
+// replay markers. Its specs assert core's attribute names.
+const SESSION_REPLAY_MASK_PROPS = { "data-an-mask": "" } as const;
+const SESSION_REPLAY_BLOCK_PROPS = { "data-an-block": "" } as const;
 
 export interface AgentKitErrorBoundaryProps {
   children: ReactNode;
@@ -446,10 +457,13 @@ function interactionIcon(kind: string): ReactNode {
 export function AgentObjectReferenceView({
   value: object,
 }: AgentKitRenderProps<AgentObjectReference>) {
-  const { onOpenObject } = useAgentKit();
+  const { onOpenObject, labels } = useAgentKit();
+  const thread = useAgentThread();
   const content = (
     <>
-      <span className="agentkit-object-label">{object.label}</span>
+      <span className="agentkit-object-label">
+        {resolveObjectLabel(object, thread, labels.assistant)}
+      </span>
       {typeof object.metadata?.added === "number" ? (
         <span className="agentkit-diff-added">+{object.metadata.added}</span>
       ) : null}
@@ -476,24 +490,334 @@ export function AgentObjectReferenceView({
 export function AgentParticipantView({
   value: agent,
 }: AgentKitRenderProps<AgentParticipant>) {
+  const { labels } = useAgentKit();
+  const thread = useAgentThread();
   return (
     <AgentIdentityChip
       id={agent.id}
-      name={agent.name}
+      name={resolveAgentName(
+        thread,
+        agent.id,
+        [agent.origin],
+        labels.assistant,
+        agent.name,
+      )}
+      fallbackName={labels.assistant}
       kind={agent.kind}
       status={agent.status}
     />
   );
 }
 
+const UUID_PATTERN =
+  /(^|[^0-9a-f])([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=$|[^0-9a-f])/gi;
+const ACTIVITY_TOOL_VALUE_LIMIT = 2_000;
+const ACTIVITY_TOOL_NODE_LIMIT = 160;
+const ACTIVITY_TOOL_DEPTH_LIMIT = 8;
+
+function isUuid(value: string): boolean {
+  if (value.length > 64) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value.trim(),
+  );
+}
+
+function hideUuids(value: string): string {
+  return value.replace(UUID_PATTERN, "$1");
+}
+
+function readableText(value: string | undefined): string {
+  if (!value) return "";
+  return hideUuids(value)
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/[,.;:!?]\s*$/g, "")
+    .trim();
+}
+
+function humanizeAgentKind(kind: string): string {
+  const readableKind = readableText(
+    kind.replace(/^agent-native\//i, "").replace(/^mcp__/i, ""),
+  );
+  if (!readableKind) return "";
+  return readableKind
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function humanizeAgentLabel(value: string): string {
+  const label = readableText(value);
+  if (!label) return "";
+  if (label.toLowerCase() === "agent-native") return "Agent-Native";
+  return /\s/.test(label) ? label : humanizeAgentKind(label);
+}
+
+function resolveAgentName(
+  thread: AgentThreadState,
+  agentId: string | undefined,
+  references: readonly (AgentObjectReference | undefined)[],
+  fallback: string,
+  preferredName?: string,
+): string {
+  const participant = agentId ? thread.agents[agentId] : undefined;
+  const names = [
+    preferredName,
+    participant?.name,
+    participant?.origin?.label,
+    ...references
+      .filter(
+        (reference) => reference?.kind === "agent" && reference.id === agentId,
+      )
+      .map((reference) => reference?.label),
+    participant?.description,
+  ];
+  for (const name of names) {
+    const label = name ? humanizeAgentLabel(name) : "";
+    if (label) return label;
+  }
+  return fallback;
+}
+
+function resolveObjectLabel(
+  object: AgentObjectReference,
+  thread: AgentThreadState,
+  fallback: string,
+): string {
+  if (object.kind === "agent") {
+    return resolveAgentName(thread, object.id, [object], fallback);
+  }
+  if (object.kind === "task") {
+    const title = humanizeAgentLabel(thread.tasks[object.id]?.title ?? "");
+    if (title) return title;
+  }
+  return (
+    humanizeAgentLabel(object.label) ||
+    humanizeAgentKind(object.kind) ||
+    fallback
+  );
+}
+
+// A delegated participant's id is its call id; the app it runs is its origin,
+// and that is what a source reference names.
+function sourceObjectUnlessRepresented(
+  source: AgentObjectReference | undefined,
+  thread: AgentThreadState,
+  displayedAgentIds: readonly (string | undefined)[],
+): AgentObjectReference | undefined {
+  if (
+    source?.kind === "agent" &&
+    displayedAgentIds.some(
+      (id) =>
+        id !== undefined &&
+        (id === source.id || thread.agents[id]?.origin?.id === source.id),
+    )
+  ) {
+    return undefined;
+  }
+  return source;
+}
+
+type ActivityToolValueBudget = {
+  nodes: number;
+  remainingCharacters: number;
+  ancestors: WeakSet<object>;
+  truncated: boolean;
+};
+
+type ActivityValueLabels = Pick<
+  AgentKitLabels,
+  | "activityValueIdentifierHidden"
+  | "activityValueOmitted"
+  | "activityValueCircular"
+>;
+
+function resolveActivityValueLabels(
+  labels: Partial<AgentKitLabels> = {},
+): Required<ActivityValueLabels> {
+  return {
+    activityValueIdentifierHidden:
+      labels.activityValueIdentifierHidden ??
+      defaultAgentKitLabels.activityValueIdentifierHidden!,
+    activityValueOmitted:
+      labels.activityValueOmitted ??
+      defaultAgentKitLabels.activityValueOmitted!,
+    activityValueCircular:
+      labels.activityValueCircular ??
+      defaultAgentKitLabels.activityValueCircular!,
+  };
+}
+
+function activityToolValue(
+  value: unknown,
+  budget: ActivityToolValueBudget,
+  labels: Required<ActivityValueLabels>,
+  depth = 0,
+): unknown {
+  if (budget.nodes >= ACTIVITY_TOOL_NODE_LIMIT) {
+    budget.truncated = true;
+    return undefined;
+  }
+  budget.nodes++;
+  if (depth > ACTIVITY_TOOL_DEPTH_LIMIT) {
+    budget.truncated = true;
+    return labels.activityValueOmitted;
+  }
+  if (typeof value === "string") {
+    if (isUuid(value)) return labels.activityValueIdentifierHidden;
+    const sourceLimit = budget.remainingCharacters + 36;
+    let text = hideUuids(value.slice(0, sourceLimit));
+    if (value.length > sourceLimit) {
+      text = text.slice(0, Math.max(0, text.length - 36));
+      budget.truncated = true;
+    }
+    const safeText = text.slice(0, budget.remainingCharacters);
+    budget.remainingCharacters -= safeText.length;
+    if (text.length > safeText.length) budget.truncated = true;
+    if (text.length > 0 && safeText.length === 0) {
+      return labels.activityValueOmitted;
+    }
+    return safeText;
+  }
+  if (value && typeof value === "object") {
+    if (budget.ancestors.has(value)) {
+      budget.truncated = true;
+      return labels.activityValueCircular;
+    }
+    budget.ancestors.add(value);
+    if (Array.isArray(value)) {
+      const items: unknown[] = [];
+      let visited = 0;
+      for (let index = 0; index < value.length; index++) {
+        if (budget.nodes >= ACTIVITY_TOOL_NODE_LIMIT) break;
+        budget.nodes++;
+        visited++;
+        const descriptor = Object.getOwnPropertyDescriptor(
+          value,
+          String(index),
+        );
+        if (!descriptor || !("value" in descriptor)) continue;
+        const safeValue = activityToolValue(
+          descriptor.value,
+          budget,
+          labels,
+          depth + 1,
+        );
+        if (safeValue !== undefined) items.push(safeValue);
+      }
+      if (visited < value.length) {
+        budget.truncated = true;
+        items.push(labels.activityValueOmitted);
+      }
+      budget.ancestors.delete(value);
+      return items.length ? items : undefined;
+    }
+
+    const result: Record<string, unknown> = Object.create(null);
+    let included = 0;
+    for (const key in value) {
+      if (budget.nodes >= ACTIVITY_TOOL_NODE_LIMIT) {
+        budget.truncated = true;
+        break;
+      }
+      budget.nodes++;
+      if (!Object.hasOwn(value, key) || isUuid(key)) continue;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor)) continue;
+      const keyLimit = budget.remainingCharacters + 36;
+      let safeKey = hideUuids(key.slice(0, keyLimit));
+      if (key.length > keyLimit) {
+        safeKey = safeKey.slice(0, Math.max(0, safeKey.length - 36));
+        budget.truncated = true;
+      }
+      const boundedKey = safeKey.slice(0, budget.remainingCharacters);
+      if (safeKey.length > boundedKey.length) budget.truncated = true;
+      safeKey = boundedKey;
+      if (!safeKey.trim()) continue;
+      budget.remainingCharacters -= safeKey.length;
+      const safeValue = activityToolValue(
+        descriptor.value,
+        budget,
+        labels,
+        depth + 1,
+      );
+      if (safeValue === undefined) continue;
+      result[safeKey] = safeValue;
+      included++;
+    }
+    budget.ancestors.delete(value);
+    return included ? result : undefined;
+  }
+  return value;
+}
+
+function createActivityToolValueBudget(): ActivityToolValueBudget {
+  return {
+    nodes: 0,
+    remainingCharacters: ACTIVITY_TOOL_VALUE_LIMIT - 64,
+    ancestors: new WeakSet(),
+    truncated: false,
+  };
+}
+
+function formatActivityText(
+  value: string,
+  labels: Partial<AgentKitLabels> = {},
+): string {
+  const budget = createActivityToolValueBudget();
+  const safeValue = activityToolValue(
+    value,
+    budget,
+    resolveActivityValueLabels(labels),
+  );
+  if (typeof safeValue !== "string") return "";
+  return budget.truncated ? `${safeValue}…` : safeValue;
+}
+
+function formatActivityToolValue(
+  value: unknown,
+  labels: Partial<AgentKitLabels> = {},
+): string | undefined {
+  const budget = createActivityToolValueBudget();
+  const valueLabels = resolveActivityValueLabels(labels);
+  const safeValue = activityToolValue(value, budget, valueLabels);
+  if (safeValue === undefined) {
+    return budget.truncated ? valueLabels.activityValueOmitted : undefined;
+  }
+  const formatted = formatToolDiagnostic(safeValue);
+  if (!formatted?.trim()) {
+    return budget.truncated ? valueLabels.activityValueOmitted : undefined;
+  }
+  if (!budget.truncated && formatted.length <= ACTIVITY_TOOL_VALUE_LIMIT) {
+    return formatted;
+  }
+  const omissionMarker = `\n${valueLabels.activityValueOmitted}`;
+  const contentLimit = Math.max(
+    0,
+    ACTIVITY_TOOL_VALUE_LIMIT - omissionMarker.length - 1,
+  );
+  return `${formatted.slice(0, contentLimit).trimEnd()}…${omissionMarker}`;
+}
+
+function activityLabel(activity: AgentActivity, workingLabel: string): string {
+  const label = readableText(activity.label);
+  if (label.toLowerCase() === "processing") return workingLabel;
+  return (
+    humanizeAgentLabel(label) ||
+    humanizeAgentKind(activity.kind) ||
+    workingLabel
+  );
+}
+
 function AgentIdentityChip({
   id,
   name,
+  fallbackName = "Agent",
   kind,
   status,
 }: {
   id: string;
   name: string;
+  fallbackName?: string;
   kind?: string;
   status?: AgentParticipant["status"];
 }) {
@@ -504,7 +828,9 @@ function AgentIdentityChip({
       data-agent-kind={kind}
       data-status={status}
     >
-      <span className="agentkit-agent-name">{name}</span>
+      <span className="agentkit-agent-name">
+        {readableText(name) || fallbackName}
+      </span>
     </span>
   );
 }
@@ -532,7 +858,7 @@ function defaultInteractionLabel(
     case "closed":
       return labels.agentClosed;
     default:
-      return interaction.kind;
+      return humanizeAgentKind(interaction.kind) || labels.working;
   }
 }
 
@@ -557,7 +883,29 @@ export function AgentInteractionItem({
       AgentParticipantView)
     : undefined;
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
-  const object = interaction.object ?? interaction.source;
+  const agentName = resolveAgentName(
+    thread,
+    interaction.agentId,
+    [interaction.source],
+    labels.assistant,
+  );
+  const targetName = resolveAgentName(
+    thread,
+    interaction.targetAgentId,
+    [interaction.object],
+    labels.assistant,
+  );
+  const object =
+    interaction.object ??
+    sourceObjectUnlessRepresented(interaction.source, thread, [
+      interaction.agentId,
+      interaction.targetAgentId,
+    ]);
+  const label = readableText(interaction.label);
+  const visibleLabel =
+    humanizeAgentLabel(label) ||
+    defaultInteractionLabel({ ...interaction, label: undefined }, labels);
+  const detail = readableText(interaction.detail);
   return (
     <div
       className="agentkit-agent-interaction"
@@ -570,25 +918,29 @@ export function AgentInteractionItem({
       ) : (
         <AgentIdentityChip
           id={interaction.agentId}
-          name={interaction.agentId}
+          name={agentName}
+          fallbackName={labels.assistant}
         />
       )}
-      <span className="agentkit-agent-interaction-label">
-        {defaultInteractionLabel(interaction, labels)}
-      </span>
+      <span className="agentkit-agent-interaction-label">{visibleLabel}</span>
       {target && TargetRenderer ? (
         <TargetRenderer value={target} threadId={threadId} />
       ) : interaction.targetAgentId ? (
         <AgentIdentityChip
           id={interaction.targetAgentId}
-          name={interaction.targetAgentId}
+          name={targetName}
+          fallbackName={labels.assistant}
         />
       ) : null}
-      {object ? (
-        <ObjectRenderer value={object} threadId={threadId} />
-      ) : interaction.detail ? (
-        <span className="agentkit-agent-interaction-detail">
-          {interaction.detail}
+      {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      {detail && (!object || interaction.kind === "failed") ? (
+        <span
+          {...(interaction.kind === "failed"
+            ? SESSION_REPLAY_MASK_PROPS
+            : { title: detail })}
+          className="agentkit-agent-interaction-detail"
+        >
+          {detail}
         </span>
       ) : null}
     </div>
@@ -602,14 +954,36 @@ export function AgentActivityItem({
   const { slots, registry, labels } = useAgentKit();
   const thread = useAgentThread();
   const [open, setOpen] = useState(false);
-  const expandable = Boolean(activity.summary?.length);
   const agent = activity.agentId ? thread.agents[activity.agentId] : undefined;
+  const agentName = resolveAgentName(
+    thread,
+    activity.agentId,
+    [activity.source, activity.object],
+    labels.assistant,
+  );
+  const tool = thread.tools[activity.id];
+  const toolInput = tool
+    ? formatActivityToolValue(tool.input, labels)
+    : undefined;
+  const toolResult = tool
+    ? formatActivityToolValue(tool.output, labels)
+    : undefined;
+  const toolInputLabel = labels.toolInput ?? defaultAgentKitLabels.toolInput!;
+  const toolResultLabel =
+    labels.toolResult ?? defaultAgentKitLabels.toolResult!;
+  const expandable = Boolean(
+    activity.summary?.length || toolInput || toolResult,
+  );
   const AgentRenderer = agent
     ? (registry.agents?.[agent.kind ?? ""] ??
       slots.agent ??
       AgentParticipantView)
     : undefined;
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
+  const object =
+    activity.object ??
+    sourceObjectUnlessRepresented(activity.source, thread, [activity.agentId]);
+  const detail = tool ? "" : readableText(activity.detail);
   return (
     <div
       className="agentkit-activity-item"
@@ -621,16 +995,26 @@ export function AgentActivityItem({
         {agent && AgentRenderer ? (
           <AgentRenderer value={agent} threadId={threadId} />
         ) : activity.agentId ? (
-          <AgentIdentityChip id={activity.agentId} name={activity.agentId} />
+          <AgentIdentityChip
+            id={activity.agentId}
+            name={agentName}
+            fallbackName={labels.assistant}
+          />
         ) : null}
-        <span className="agentkit-activity-label">{activity.label}</span>
-        {activity.object ? (
-          <ObjectRenderer value={activity.object} threadId={threadId} />
-        ) : null}
-        {!activity.object && activity.source ? (
-          <ObjectRenderer value={activity.source} threadId={threadId} />
-        ) : !activity.object && activity.detail ? (
-          <span className="agentkit-activity-detail">{activity.detail}</span>
+        <span className="agentkit-activity-label">
+          {activityLabel(activity, labels.working)}
+        </span>
+        {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+        {detail ? (
+          // Replays mask text but record attributes, so failure text gets no title.
+          <span
+            {...(activity.status === "failed"
+              ? SESSION_REPLAY_MASK_PROPS
+              : { title: detail })}
+            className="agentkit-activity-detail"
+          >
+            {detail}
+          </span>
         ) : null}
         {expandable ? (
           <button
@@ -649,14 +1033,59 @@ export function AgentActivityItem({
         ) : null}
       </div>
       {open ? (
-        <div className="agentkit-activity-summary">
-          {activity.summary?.map((part, index) => (
-            <AgentMessagePartView
-              key={`${activity.id}-summary-${index}`}
-              value={part}
-              threadId={threadId}
-            />
-          ))}
+        // Summary parts can render links, and replays keep their attributes.
+        <div
+          {...(activity.status === "failed" ? SESSION_REPLAY_BLOCK_PROPS : {})}
+          className="agentkit-activity-summary"
+        >
+          {activity.summary?.map((part, index) => {
+            const safePart =
+              part.type === "text"
+                ? {
+                    ...part,
+                    text: part.text.trim()
+                      ? formatActivityText(part.text, labels)
+                      : "",
+                  }
+                : part;
+            return safePart.type === "text" && !safePart.text ? null : (
+              <AgentMessagePartView
+                key={`${activity.id}-summary-${index}`}
+                value={safePart}
+                threadId={threadId}
+              />
+            );
+          })}
+          {toolInput ? (
+            <div className="agentkit-activity-summary-section">
+              <div className="agentkit-activity-summary-label">
+                {toolInputLabel}
+              </div>
+              <pre
+                role="region"
+                aria-label={toolInputLabel}
+                tabIndex={0}
+                className="agentkit-activity-summary-value"
+              >
+                {toolInput}
+              </pre>
+            </div>
+          ) : null}
+          {toolResult ? (
+            <div className="agentkit-activity-summary-section">
+              <div className="agentkit-activity-summary-label">
+                {toolResultLabel}
+              </div>
+              <pre
+                role="region"
+                aria-label={toolResultLabel}
+                tabIndex={0}
+                className="agentkit-activity-summary-value"
+              >
+                {toolResult}
+              </pre>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -709,18 +1138,27 @@ function RepeatedActivityCluster({
   activities: AgentActivity[];
   threadId: string;
 }) {
-  const { slots, registry } = useAgentKit();
+  const { slots, registry, labels } = useAgentKit();
   const thread = useAgentThread();
   const [open, setOpen] = useState(false);
   const activity = activities[0];
   if (!activity) return null;
   const agent = activity.agentId ? thread.agents[activity.agentId] : undefined;
+  const agentName = resolveAgentName(
+    thread,
+    activity.agentId,
+    [activity.source, activity.object],
+    labels.assistant,
+  );
   const AgentRenderer = agent
     ? (registry.agents?.[agent.kind ?? ""] ??
       slots.agent ??
       AgentParticipantView)
     : undefined;
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
+  const object =
+    activity.object ??
+    sourceObjectUnlessRepresented(activity.source, thread, [activity.agentId]);
   return (
     <details
       className="agentkit-activity-cluster"
@@ -738,15 +1176,16 @@ function RepeatedActivityCluster({
         {agent && AgentRenderer ? (
           <AgentRenderer value={agent} threadId={threadId} />
         ) : activity.agentId ? (
-          <AgentIdentityChip id={activity.agentId} name={activity.agentId} />
+          <AgentIdentityChip
+            id={activity.agentId}
+            name={agentName}
+            fallbackName={labels.assistant}
+          />
         ) : null}
-        <span className="agentkit-activity-label">{activity.label}</span>
-        {activity.object ? (
-          <ObjectRenderer value={activity.object} threadId={threadId} />
-        ) : null}
-        {!activity.object && activity.source ? (
-          <ObjectRenderer value={activity.source} threadId={threadId} />
-        ) : null}
+        <span className="agentkit-activity-label">
+          {activityLabel(activity, labels.working)}
+        </span>
+        {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
         <span className="agentkit-activity-cluster-count">
           ×{activities.length}
         </span>
@@ -775,12 +1214,17 @@ function formatToolDiagnostic(value: unknown): string | undefined {
   }
 }
 
-function toolToActivity(tool: AgentToolCall): AgentActivity {
+function toolToActivity(
+  tool: AgentToolCall,
+  labels: Partial<AgentKitLabels> = {},
+): AgentActivity {
   const failed = tool.status === "failed";
   const errorMessage = failed
-    ? ((tool.error?.message?.trim() ? tool.error.message : undefined) ??
-      formatToolDiagnostic(tool.output) ??
-      formatToolDiagnostic(tool.error?.details))
+    ? ((tool.error?.message?.trim()
+        ? formatActivityToolValue(tool.error.message, labels)
+        : undefined) ??
+      formatActivityToolValue(tool.output, labels) ??
+      formatActivityToolValue(tool.error?.details, labels))
     : undefined;
   return {
     id: tool.id,
@@ -1031,6 +1475,68 @@ export function AgentActivityGroup({
   );
   const firstSequence = new Map<string, number>();
   const latestEventOrder = new Map<string, number>();
+  const isInternalActivity = (activity: AgentActivity) =>
+    activity.id.startsWith("agentkit:internal:") ||
+    activity.id === "activity:Starting agent" ||
+    activity.id === "activity:Contacting model";
+  const delegatedActivityIds = new Set<string>();
+  const delegatedToolIds = new Set<string>();
+  if (excludeAgentActivities) {
+    for (const event of runEvents) {
+      if (
+        event.type === "activity.started" ||
+        event.type === "activity.updated" ||
+        event.type === "activity.completed"
+      ) {
+        const activity = thread.activities[event.activity.id] ?? event.activity;
+        if (event.activity.agentId || activity.agentId) {
+          delegatedActivityIds.add(event.activity.id);
+        }
+      }
+      if (event.type === "tool.started" || event.type === "tool.updated") {
+        const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
+        if (event.toolCall.agentId || tool.agentId) {
+          delegatedToolIds.add(event.toolCall.id);
+        }
+      }
+      if (
+        event.type === "tool.delta" &&
+        thread.tools[event.toolCallId]?.agentId
+      ) {
+        delegatedToolIds.add(event.toolCallId);
+      }
+    }
+  }
+  let latestUsefulActivity:
+    | { activity: AgentActivity; sequence: number; eventOrder: number }
+    | undefined;
+  const usefulActivities = new Map<
+    string,
+    { activity: AgentActivity; sequence: number; eventOrder: number }
+  >();
+  const rememberUsefulActivity = (
+    activity: AgentActivity,
+    sequence: number,
+    eventOrder: number,
+  ) => {
+    if (
+      isInternalActivity(activity) ||
+      activity.label.trim().toLowerCase() ===
+        labels.reasoning.trim().toLowerCase()
+    ) {
+      return;
+    }
+    const candidate = { activity, sequence, eventOrder };
+    usefulActivities.set(activity.id, candidate);
+    if (
+      !latestUsefulActivity ||
+      (runId === undefined
+        ? latestUsefulActivity.eventOrder <= eventOrder
+        : latestUsefulActivity.sequence <= sequence)
+    ) {
+      latestUsefulActivity = candidate;
+    }
+  };
   const itemOrder: string[] = [];
   const seenItems = new Set<string>();
   const remember = (id: string, sequence: number) => {
@@ -1053,39 +1559,61 @@ export function AgentActivityGroup({
     ) {
       const id = `reasoning:${message.id}`;
       reasoningMap.set(id, message);
-      activityMap.set(id, {
+      const activity: AgentActivity = {
         id,
         kind: "reasoning",
         label: labels.reasoning,
         status: message.status === "streaming" ? "running" : "completed",
-      });
+      };
+      activityMap.set(id, activity);
       remember(id, event.sequence);
       latestEventOrder.set(id, eventOrder);
+      rememberUsefulActivity(activity, event.sequence, eventOrder);
     }
     if (
       event.type === "activity.started" ||
       event.type === "activity.updated" ||
       event.type === "activity.completed"
     ) {
-      if (excludeAgentActivities && event.activity.agentId) continue;
-      activityMap.set(
-        event.activity.id,
-        thread.activities[event.activity.id] ?? event.activity,
-      );
+      const activity = thread.activities[event.activity.id] ?? event.activity;
+      if (
+        excludeAgentActivities &&
+        delegatedActivityIds.has(event.activity.id)
+      ) {
+        continue;
+      }
+      activityMap.set(event.activity.id, activity);
       remember(event.activity.id, event.sequence);
       latestEventOrder.set(event.activity.id, eventOrder);
+      rememberUsefulActivity(activity, event.sequence, eventOrder);
     }
     if (event.type === "tool.started" || event.type === "tool.updated") {
-      toolMap.set(
-        event.toolCall.id,
-        thread.tools[event.toolCall.id] ?? event.toolCall,
-      );
+      const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
+      if (excludeAgentActivities && delegatedToolIds.has(event.toolCall.id)) {
+        continue;
+      }
+      toolMap.set(event.toolCall.id, tool);
       remember(event.toolCall.id, event.sequence);
       latestEventOrder.set(event.toolCall.id, eventOrder);
+      rememberUsefulActivity(
+        toolToActivity(tool, labels),
+        event.sequence,
+        eventOrder,
+      );
     }
     if (event.type === "tool.delta") {
+      if (excludeAgentActivities && delegatedToolIds.has(event.toolCallId)) {
+        continue;
+      }
       const tool = thread.tools[event.toolCallId];
-      if (tool) toolMap.set(tool.id, tool);
+      if (tool) {
+        toolMap.set(tool.id, tool);
+        rememberUsefulActivity(
+          toolToActivity(tool, labels),
+          event.sequence,
+          eventOrder,
+        );
+      }
       remember(event.toolCallId, event.sequence);
       latestEventOrder.set(event.toolCallId, eventOrder);
     }
@@ -1102,7 +1630,7 @@ export function AgentActivityGroup({
     const activity = activityMap.get(id);
     if (activity) return [activity];
     const tool = toolMap.get(id);
-    return tool ? [toolToActivity(tool)] : [];
+    return tool ? [toolToActivity(tool, labels)] : [];
   });
   const durableToolResults = items.flatMap((activity) => {
     const tool = toolMap.get(activity.id);
@@ -1117,27 +1645,23 @@ export function AgentActivityGroup({
   const durableToolResultIds = new Set(
     durableToolResults.map(({ tool }) => tool.id),
   );
-  const isInternalActivity = (activity: AgentActivity) =>
-    activity.id.startsWith("agentkit:internal:") ||
-    activity.id === "activity:Starting agent" ||
-    activity.id === "activity:Contacting model";
   const activityItems = items.filter(
     (activity) =>
       !durableToolResultIds.has(activity.id) && !isInternalActivity(activity),
   );
-  const latestRunningActivity = items.reduce<AgentActivity | undefined>(
-    (current, activity) => {
-      if (activity.status !== "running" || isInternalActivity(activity)) {
-        return current;
-      }
-      if (!current) return activity;
-      return (latestEventOrder.get(activity.id) ?? -1) >=
-        (latestEventOrder.get(current.id) ?? -1)
-        ? activity
-        : current;
-    },
-    undefined,
-  );
+  const hasUsefulActivity =
+    activityItems.length > 0 || durableToolResults.length > 0;
+  const latestRunningUsefulActivity = [...usefulActivities.values()].reduce<
+    typeof latestUsefulActivity | undefined
+  >((current, candidate) => {
+    if (candidate.activity.status !== "running") return current;
+    return !current ||
+      (runId === undefined
+        ? candidate.eventOrder > current.eventOrder
+        : candidate.sequence > current.sequence)
+      ? candidate
+      : current;
+  }, undefined);
   const running = items.some((item) => item.status === "running");
   const run = runId ? thread.runs[runId] : undefined;
   const segmentStartedEvent = firstWorkEvents(runEvents).find(
@@ -1175,6 +1699,7 @@ export function AgentActivityGroup({
     isCurrentSegment &&
     (run ? run.status === "running" : running && !hasTerminalRunEvent);
   const completedRunSummary =
+    hasUsefulActivity &&
     !activelyWorking &&
     (throughSequence !== undefined ||
       (items.length > 0 && !running) ||
@@ -1182,16 +1707,25 @@ export function AgentActivityGroup({
       (afterSequence === undefined &&
         run !== undefined &&
         ["completed", "failed", "cancelled"].includes(run.status)));
-  if (items.length === 0 && !activelyWorking) return null;
+  if (
+    activityItems.length === 0 &&
+    durableToolResults.length === 0 &&
+    !activelyWorking
+  ) {
+    return null;
+  }
   const currentActivity = activelyWorking
-    ? (latestRunningActivity ?? {
+    ? (latestRunningUsefulActivity?.activity ??
+      latestUsefulActivity?.activity ?? {
         id: `thinking:${runId ?? thread.id}`,
         kind: "model",
         label: labels.reasoning,
         status: "running",
       })
     : undefined;
-  const currentActivityLabel = currentActivity?.label;
+  const currentActivityLabel = currentActivity
+    ? activityLabel(currentActivity, labels.working)
+    : undefined;
   const displayGroups: AgentActivity[][] = [];
   const clusterIdentity = (activity: AgentActivity) => {
     const tool = toolMap.get(activity.id);
@@ -1230,13 +1764,17 @@ export function AgentActivityGroup({
       minute: labels.durationMinuteShort,
       second: labels.durationSecondShort,
     });
-  const summaryLabel = activelyWorking
-    ? ""
-    : completedRunSummary
-      ? durationMs !== undefined && durationMs >= 1_000
-        ? labels.workedFor.replace("{{duration}}", formatDuration(durationMs))
-        : labels.worked
-      : labels.activities;
+  const summaryLabel =
+    activelyWorking ||
+    (activityItems.length === 0 && durableToolResults.length > 0)
+      ? ""
+      : completedRunSummary
+        ? durationMs !== undefined && durationMs >= 1_000
+          ? labels.workedFor.replace("{{duration}}", formatDuration(durationMs))
+          : labels.worked
+        : hasUsefulActivity
+          ? labels.activities
+          : "";
   const visiblyRunning = activelyWorking;
   return (
     <>
@@ -1282,7 +1820,7 @@ export function AgentActivityGroup({
               const reasoningMessage = reasoningMap.get(activity.id);
               if (reasoningMessage) {
                 return (
-                  <li key={activity.id} className="agentkit-activity-row">
+                  <li key={activity.id}>
                     <AgentReasoningParts
                       message={reasoningMessage}
                       threadId={threadId}
@@ -1295,10 +1833,7 @@ export function AgentActivityGroup({
               }
               if (activities.length > 1) {
                 return (
-                  <li
-                    key={`cluster:${activity.id}`}
-                    className="agentkit-activity-row"
-                  >
+                  <li key={`cluster:${activity.id}`}>
                     <RepeatedActivityCluster
                       activities={activities}
                       threadId={threadId}
@@ -1312,7 +1847,7 @@ export function AgentActivityGroup({
                 : undefined;
               if (sourceTool && ToolRenderer) {
                 return (
-                  <li key={sourceTool.id} className="agentkit-activity-row">
+                  <li key={sourceTool.id}>
                     <ToolRenderer value={sourceTool} threadId={threadId} />
                   </li>
                 );
@@ -1322,7 +1857,7 @@ export function AgentActivityGroup({
                 slots.activity ??
                 AgentActivityItem;
               return (
-                <li key={activity.id} className="agentkit-activity-row">
+                <li key={activity.id}>
                   <Renderer value={activity} threadId={threadId} />
                 </li>
               );
@@ -1466,6 +2001,19 @@ export function AgentCollaborationFeed({
     | { type: "interaction"; value: AgentInteraction }
     | { type: "activity"; value: AgentActivity }
   >();
+  const delegatedAgentIds = new Map<string, string>();
+  for (const event of thread.events) {
+    if (runId && event.runId !== runId) continue;
+    if (
+      event.type === "activity.started" ||
+      event.type === "activity.updated" ||
+      event.type === "activity.completed"
+    ) {
+      const activity = thread.activities[event.activity.id] ?? event.activity;
+      const agentId = event.activity.agentId ?? activity.agentId;
+      if (agentId) delegatedAgentIds.set(event.activity.id, agentId);
+    }
+  }
   const firstSequence = new Map<string, number>();
   const order: string[] = [];
   const remember = (
@@ -1490,14 +2038,16 @@ export function AgentCollaborationFeed({
       });
     }
     if (
-      (event.type === "activity.started" ||
-        event.type === "activity.updated" ||
-        event.type === "activity.completed") &&
-      event.activity.agentId
+      event.type === "activity.started" ||
+      event.type === "activity.updated" ||
+      event.type === "activity.completed"
     ) {
+      const agentId = delegatedAgentIds.get(event.activity.id);
+      if (!agentId) continue;
+      const activity = thread.activities[event.activity.id] ?? event.activity;
       remember(`activity:${event.activity.id}`, event.sequence, {
         type: "activity",
-        value: event.activity,
+        value: { ...activity, agentId },
       });
     }
   }
@@ -1539,12 +2089,18 @@ export function AgentTaskItem({
   value: task,
   threadId,
 }: AgentKitRenderProps<AgentTask>) {
-  const { slots, registry } = useAgentKit();
+  const { slots, registry, labels } = useAgentKit();
   const thread = useAgentThread();
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
   const agent = task.assignedAgentId
     ? thread.agents[task.assignedAgentId]
     : undefined;
+  const agentName = resolveAgentName(
+    thread,
+    task.assignedAgentId,
+    [task.source, task.object],
+    labels.assistant,
+  );
   const AgentRenderer = agent
     ? (registry.agents?.[agent.kind ?? ""] ??
       slots.agent ??
@@ -1553,25 +2109,34 @@ export function AgentTaskItem({
   const progress = task.progress
     ? `${task.progress.completed}/${task.progress.total}`
     : undefined;
+  const title =
+    humanizeAgentLabel(task.title) ||
+    (task.assignedAgentId ? agentName : labels.tasks);
+  const detail = readableText(task.detail);
+  const object =
+    task.object ??
+    sourceObjectUnlessRepresented(task.source, thread, [task.assignedAgentId]);
+  const showAgent =
+    task.assignedAgentId &&
+    title.toLocaleLowerCase() !== agentName.toLocaleLowerCase();
   return (
     <div className="agentkit-task-row" data-status={task.status}>
       <IconChecklist aria-hidden="true" className="agentkit-icon" />
-      {agent && AgentRenderer ? (
+      {showAgent && agent && AgentRenderer ? (
         <AgentRenderer value={agent} threadId={threadId} />
-      ) : task.assignedAgentId ? (
+      ) : showAgent && task.assignedAgentId ? (
         <AgentIdentityChip
           id={task.assignedAgentId}
-          name={task.assignedAgentId}
+          name={agentName}
+          fallbackName={labels.assistant}
         />
       ) : null}
-      <span className="agentkit-task-title">{task.title}</span>
-      {task.object ? (
-        <ObjectRenderer value={task.object} threadId={threadId} />
-      ) : null}
-      {!task.object && task.source ? (
-        <ObjectRenderer value={task.source} threadId={threadId} />
-      ) : !task.object && task.detail ? (
-        <span className="agentkit-task-detail">{task.detail}</span>
+      <span className="agentkit-task-title">{title}</span>
+      {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      {detail ? (
+        <span className="agentkit-task-detail" title={detail}>
+          {detail}
+        </span>
       ) : null}
       {progress ? (
         <span className="agentkit-task-progress">{progress}</span>
@@ -1795,7 +2360,11 @@ export function AgentApprovalPrompt({
         )}
       </div>
       {resolution.error ? (
-        <p className="agentkit-command-error" role="alert">
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {resolution.error.message}
         </p>
       ) : null}
@@ -1916,7 +2485,7 @@ export function AgentConnectionRequestCard({
       {resolution.error ? (
         <div className="agentkit-command-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{resolution.error.message}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{resolution.error.message}</span>
         </div>
       ) : null}
     </Surface>
@@ -1965,7 +2534,11 @@ function AgentWidgetActionButton({
         {action.label}
       </ActionButton>
       {invocation.error ? (
-        <span className="agentkit-command-error" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {invocation.error.message}
         </span>
       ) : null}
@@ -2037,51 +2610,29 @@ function AgentMentionIcon({ icon }: { icon: string }) {
   }
 }
 
+// Only the composer's serialized `@[label|icon]` form is a mention. A bare
+// "@word" is whatever the user typed — an address, a handle, "@3pm" — and
+// rendering it as a chip claims a reference the message never carried.
 function renderUserMessageText(text: string): ReactNode[] {
   const richMatches = Array.from(text.matchAll(/@\[([^\]|]+)\|([^\]]+)\]/g));
-  if (richMatches.length) {
-    const parts: ReactNode[] = [];
-    let lastIndex = 0;
-    richMatches.forEach((match, index) => {
-      const start = match.index ?? 0;
-      if (start > lastIndex) parts.push(text.slice(lastIndex, start));
-      const label = match[1] ?? "";
-      parts.push(
-        <span
-          key={`rich-mention:${start}:${index}`}
-          className="agentkit-mention"
-          data-mention-label={label}
-        >
-          <AgentMentionIcon icon={match[2] ?? ""} />
-          <span className="agentkit-mention-label">{label}</span>
-        </span>,
-      );
-      lastIndex = start + match[0].length;
-    });
-    if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-    return parts;
-  }
-
-  const plainMatches = Array.from(text.matchAll(/(^|\s)@(\w+)/g));
-  if (!plainMatches.length) return [text];
+  if (!richMatches.length) return [text];
   const parts: ReactNode[] = [];
   let lastIndex = 0;
-  plainMatches.forEach((match, index) => {
-    const matchIndex = match.index ?? 0;
-    const start = matchIndex + (match[1]?.length ?? 0);
-    const end = matchIndex + match[0].length;
+  richMatches.forEach((match, index) => {
+    const start = match.index ?? 0;
     if (start > lastIndex) parts.push(text.slice(lastIndex, start));
-    const label = match[2] ?? "";
+    const label = match[1] ?? "";
     parts.push(
       <span
-        key={`plain-mention:${start}:${index}`}
-        className="agentkit-mention agentkit-mention--plain"
+        key={`rich-mention:${start}:${index}`}
+        className="agentkit-mention"
         data-mention-label={label}
       >
-        @{label}
+        <AgentMentionIcon icon={match[2] ?? ""} />
+        <span className="agentkit-mention-label">{label}</span>
       </span>,
     );
-    lastIndex = end;
+    lastIndex = start + match[0].length;
   });
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
   return parts;
@@ -2092,7 +2643,10 @@ function AgentUserMessageText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const [expandable, setExpandable] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
-  const content = useMemo(() => renderUserMessageText(text), [text]);
+  const content = useMemo(
+    () => renderUserMessageText(splitAgentKitMessageContext(text).message),
+    [text],
+  );
 
   useLayoutEffect(() => {
     const element = contentRef.current;
@@ -2178,11 +2732,15 @@ export function AgentMessagePartView({
 }: AgentMessagePartViewProps) {
   const { labels, slots, registry } = useAgentKit();
   if (part.type === "reasoning" && part.visibility === "hidden") return null;
+  const displayPart =
+    part.type === "text"
+      ? { ...part, text: splitAgentKitMessageContext(part.text).message }
+      : part;
   const RegisteredRenderer = registry.messageParts?.[part.type];
   if (RegisteredRenderer) {
     return (
       <RegisteredRenderer
-        value={part}
+        value={displayPart}
         threadId={threadId}
         active={active}
         resetKey={resetKey}
@@ -2191,19 +2749,23 @@ export function AgentMessagePartView({
   }
   switch (part.type) {
     case "text": {
+      const textPart = displayPart as Extract<
+        AgentMessagePart,
+        { type: "text" }
+      >;
       const Renderer = userMessage ? undefined : slots.text;
       return Renderer ? (
         <Renderer
-          value={part}
+          value={textPart}
           threadId={threadId}
           active={active}
           resetKey={resetKey}
         />
       ) : userMessage ? (
-        <AgentUserMessageText text={part.text} />
-      ) : part.format === "markdown" ? (
+        <AgentUserMessageText text={textPart.text} />
+      ) : textPart.format === "markdown" ? (
         <AgentStreamingText
-          text={part.text}
+          text={textPart.text}
           active={active}
           resetKey={resetKey}
         >
@@ -2212,7 +2774,7 @@ export function AgentMessagePartView({
       ) : (
         <p data-format="plain">
           <AgentStreamingText
-            text={part.text}
+            text={textPart.text}
             active={active}
             resetKey={resetKey}
           />
@@ -2302,7 +2864,10 @@ export function AgentMessagePartView({
           <span>{part.name}</span>
         </a>
       ) : (
-        <span className="agentkit-file">
+        <span
+          className="agentkit-file"
+          title={part.omitted ? labels.attachmentNotSaved : undefined}
+        >
           <IconFile aria-hidden="true" className="agentkit-icon" />
           <span>{part.name}</span>
         </span>
@@ -2478,6 +3043,10 @@ async function forkAndResubmitMessage({
   if (previousMessage === null) {
     throw new Error(messageUnavailable);
   }
+  const engine = metadata?.engine ?? options?.metadata?.engine;
+  await controller.assertAiSetupReady({
+    engine: typeof engine === "string" ? engine : undefined,
+  });
   const forkedThread = await controller.forkThread(
     threadId,
     previousMessage?.id,
@@ -2502,14 +3071,16 @@ export function AgentMessageActions({
     slots,
     onThreadForked,
     onCopyMessage,
+    buildFeedbackReport,
     branchNavigation,
+    loadRunUsage,
   } = useAgentKit();
   const thread = useAgentThread(threadId);
   const feedbackCapability = useAgentCapability("feedback");
   const forkingCapability = useAgentCapability("threadForking");
   const control = useAgentKitControl(threadId);
   const editContext = useContext(AgentMessageEditContext);
-  const text = messageText(message);
+  const text = splitAgentKitMessageContext(messageText(message)).message;
   const previousUserMessage =
     message.role === "assistant"
       ? findPreviousUserMessage(thread.messages, message.id)
@@ -2525,7 +3096,23 @@ export function AgentMessageActions({
   const [feedbackReasonSubmitted, setFeedbackReasonSubmitted] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [requestIdCopied, setRequestIdCopied] = useState(false);
+  const [feedbackDetailsCopied, setFeedbackDetailsCopied] = useState(false);
+  const feedbackDetailsCopiedTimer = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [usageDetails, setUsageDetails] = useState<
+    | { runId: string; status: "loading" }
+    | { runId: string; status: "error" }
+    | { runId: string; status: "loaded"; data: AgentKitRunUsage | null }
+    | null
+  >(null);
+  const usageCacheRef = useRef<{
+    runId: string;
+    fetchedAt: number;
+    runFinished: boolean;
+    data: AgentKitRunUsage;
+  } | null>(null);
   const requestIdCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -2533,13 +3120,68 @@ export function AgentMessageActions({
     () => resolveAgentMessageRequestId(message, thread.events),
     [message, thread.events],
   );
-  const hasMessageMenuActions = Boolean(
-    requestId || (forkingCapability.visible && onThreadForked),
-  );
   const runId = useMemo(
     () => resolveAgentMessageRunId(message, thread.events),
     [message, thread.events],
   );
+  const hasRunUsage =
+    message.role === "assistant" && Boolean(runId) && Boolean(loadRunUsage);
+  const runFinished = useMemo(
+    () =>
+      Boolean(
+        runId &&
+        thread.events.some(
+          (event) =>
+            event.runId === runId &&
+            (event.type === "run.completed" ||
+              event.type === "run.failed" ||
+              event.type === "run.cancelled" ||
+              (event.type === "run.status" &&
+                (event.status === "completed" ||
+                  event.status === "failed" ||
+                  event.status === "cancelled"))),
+        ),
+      ),
+    [runId, thread.events],
+  );
+  const hasMessageMenuActions = Boolean(
+    requestId || hasRunUsage || (forkingCapability.visible && onThreadForked),
+  );
+  useEffect(() => {
+    if (!actionsMenuOpen || !hasRunUsage || !runId || !loadRunUsage) return;
+    const cached = usageCacheRef.current;
+    if (
+      cached?.runId === runId &&
+      cached.runFinished === runFinished &&
+      Date.now() - cached.fetchedAt < 5 * 60_000
+    ) {
+      setUsageDetails({ runId, status: "loaded", data: cached.data });
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    setUsageDetails({ runId, status: "loading" });
+    void loadRunUsage({ runId, signal: controller.signal })
+      .then((data) => {
+        if (!active) return;
+        if (data)
+          usageCacheRef.current = {
+            runId,
+            fetchedAt: Date.now(),
+            runFinished,
+            data,
+          };
+        setUsageDetails({ runId, status: "loaded", data });
+      })
+      .catch(() => {
+        if (!active || controller.signal.aborted) return;
+        setUsageDetails({ runId, status: "error" });
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [actionsMenuOpen, hasRunUsage, loadRunUsage, runFinished, runId]);
   const messageSeq = thread.messages.findIndex(
     (item) => item.id === message.id,
   );
@@ -2548,6 +3190,8 @@ export function AgentMessageActions({
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       if (requestIdCopiedTimer.current)
         clearTimeout(requestIdCopiedTimer.current);
+      if (feedbackDetailsCopiedTimer.current)
+        clearTimeout(feedbackDetailsCopiedTimer.current);
     },
     [message.id],
   );
@@ -2601,6 +3245,25 @@ export function AgentMessageActions({
     },
     `${threadId}:${message.id}:request-id:${requestId ?? "unavailable"}`,
   );
+  const copyFeedbackDetailsAction = useAgentKitMutation(async () => {
+    if (!buildFeedbackReport) throw new Error(labels.copyUnavailable);
+    const report = buildFeedbackReport({
+      threadId,
+      ...(runId ? { runId } : {}),
+      messageId: message.id,
+      note: feedbackReason,
+    });
+    if (!(await writeClipboardText(report))) {
+      throw new Error(labels.copyUnavailable);
+    }
+    setFeedbackDetailsCopied(true);
+    if (feedbackDetailsCopiedTimer.current)
+      clearTimeout(feedbackDetailsCopiedTimer.current);
+    feedbackDetailsCopiedTimer.current = setTimeout(
+      () => setFeedbackDetailsCopied(false),
+      1_400,
+    );
+  }, `${threadId}:${message.id}:feedback-details`);
   const forkAction = useAgentKitMutation(async () => {
     const thread = await control.fork(message.id);
     onThreadForked?.(thread);
@@ -2615,7 +3278,7 @@ export function AgentMessageActions({
       text: messageText(previousUserMessage),
       attachments: previousUserMessage.parts.filter(
         (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file",
+          part.type === "file" && !part.omitted,
       ),
       options: messageRunOptions(previousUserMessage),
       metadata: previousUserMessage.metadata,
@@ -2633,6 +3296,12 @@ export function AgentMessageActions({
       setFeedback(previous);
     }
   };
+  const addFeedbackReason = (reason: string) =>
+    setFeedbackReason((current) => {
+      if (current.includes(reason)) return current;
+      const trimmed = current.trim();
+      return (trimmed ? `${trimmed}. ${reason}` : reason).slice(0, 2_000);
+    });
   const submitFeedbackReason = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const reason = feedbackReason.trim();
@@ -2651,8 +3320,144 @@ export function AgentMessageActions({
     feedbackAction.error ??
     branchNavigationAction.error ??
     requestIdAction.error ??
+    copyFeedbackDetailsAction.error ??
     forkAction.error ??
     regenerateAction.error;
+  const usageMenuItems = hasRunUsage
+    ? (() => {
+        const result = usageDetails?.runId === runId ? usageDetails : null;
+        if (!result || result.status === "loading") {
+          return [
+            {
+              id: "usage-loading",
+              label: labels.usageLoading,
+              disabled: true,
+            },
+          ];
+        }
+        if (result.status === "error") {
+          return [
+            {
+              id: "usage-unavailable",
+              label: labels.usageUnavailable,
+              disabled: true,
+            },
+          ];
+        }
+        const usage = result.data;
+        if (!usage) {
+          return [
+            {
+              id: "usage-not-recorded",
+              label: labels.usageNotRecorded,
+              disabled: true,
+            },
+          ];
+        }
+        const rows = [];
+        if (usage.durationMs !== null) {
+          rows.push({
+            id: "usage-duration",
+            label: labels.workedFor.replace(
+              "{{duration}}",
+              formatAgentKitDuration(usage.durationMs, {
+                hour: labels.durationHourShort,
+                minute: labels.durationMinuteShort,
+                second: labels.durationSecondShort,
+              }),
+            ),
+            disabled: true,
+          });
+        }
+        if (usage.billing.incomplete) {
+          rows.push({
+            id: "usage-incomplete",
+            label: labels.usageIncomplete,
+            disabled: true,
+          });
+        }
+        if (usage.billing.providerCostUsd !== null) {
+          const usd = usage.billing.providerCostUsd;
+          const amount =
+            usd > 0 && usd < 0.0001
+              ? "<$0.0001"
+              : usd.toLocaleString(undefined, {
+                  style: "currency",
+                  currency: "USD",
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 4,
+                });
+          rows.push({
+            id: "usage-provider-cost",
+            label: (usage.billing.providerCostSource === "reported"
+              ? labels.usageReportedCost
+              : usage.billing.providerCostSource === "estimated"
+                ? labels.usageEstimatedCost
+                : labels.usageMixedCost
+            ).replace("{{amount}}", amount),
+            disabled: true,
+          });
+        }
+        if (usage.billing.builderCredits !== null) {
+          const amount = usage.billing.builderCredits.toLocaleString(
+            undefined,
+            { minimumFractionDigits: 1, maximumFractionDigits: 1 },
+          );
+          rows.push({
+            id: "usage-builder-credits",
+            label: (usage.billing.builderCreditsSource === "reported"
+              ? labels.usageBuilderCredits
+              : usage.billing.builderCreditsSource === "estimated"
+                ? labels.usageEstimatedBuilderCredits
+                : labels.usageMixedBuilderCredits
+            ).replace("{{amount}}", amount),
+            disabled: true,
+          });
+        }
+        if (rows.length === 0) {
+          rows.push({
+            id: "usage-unavailable",
+            label: labels.usageUnavailable,
+            disabled: true,
+          });
+        }
+        return rows;
+      })()
+    : [];
+  const actionMenuItems = [
+    ...(requestId
+      ? [
+          {
+            id: "copy-request-id",
+            label: requestIdCopied ? labels.copied : labels.copyRequestId,
+            icon: requestIdCopied ? (
+              <IconCircleCheck size={14} aria-hidden="true" />
+            ) : (
+              <IconId size={14} aria-hidden="true" />
+            ),
+            disabled: requestIdAction.pending,
+          },
+        ]
+      : []),
+    ...(forkingCapability.visible && onThreadForked
+      ? [
+          {
+            id: "fork-chat",
+            label: <span title={forkingCapability.reason}>{labels.fork}</span>,
+            icon: <IconGitBranch size={14} aria-hidden="true" />,
+            disabled: !forkingCapability.enabled || forkAction.pending,
+          },
+        ]
+      : []),
+  ];
+  const messageMenuSections = [
+    ...(actionMenuItems.length > 0
+      ? [{ id: "actions", items: actionMenuItems }]
+      : []),
+    ...(usageMenuItems.length > 0
+      ? [{ id: "usage", label: labels.usage, items: usageMenuItems }]
+      : []),
+  ];
   return (
     <div
       className="agentkit-message-actions"
@@ -2729,6 +3534,25 @@ export function AgentMessageActions({
                       disabled={feedbackAction.pending}
                       className="agentkit-feedback-textarea"
                     />
+                    <div className="agentkit-feedback-reasons">
+                      {[
+                        labels.feedbackReasonMisread,
+                        labels.feedbackReasonNotDone,
+                        labels.feedbackReasonWrongNumbers,
+                        labels.feedbackReasonTooSlow,
+                      ].map((reason) => (
+                        <ActionButton
+                          key={reason}
+                          type="button"
+                          size="compact"
+                          emphasis="outline"
+                          disabled={feedbackAction.pending}
+                          onPress={() => addFeedbackReason(reason)}
+                        >
+                          {reason}
+                        </ActionButton>
+                      ))}
+                    </div>
                     <div className="agentkit-feedback-footer">
                       <span>
                         {labels.feedbackKeyboardHint.replace(
@@ -2739,17 +3563,43 @@ export function AgentMessageActions({
                             : "Ctrl",
                         )}
                       </span>
-                      <ActionButton
-                        type="submit"
-                        intent="primary"
-                        size="compact"
-                        pending={feedbackAction.pending}
-                        disabled={
-                          feedbackAction.pending || !feedbackReason.trim()
-                        }
-                      >
-                        {labels.feedbackSubmit}
-                      </ActionButton>
+                      <div className="agentkit-feedback-actions">
+                        {buildFeedbackReport ? (
+                          <ActionButton
+                            type="button"
+                            size="compact"
+                            emphasis="ghost"
+                            leadingIcon={
+                              feedbackDetailsCopied ? (
+                                <IconCircleCheck size={14} aria-hidden="true" />
+                              ) : (
+                                <IconCopy size={14} aria-hidden="true" />
+                              )
+                            }
+                            pending={copyFeedbackDetailsAction.pending}
+                            onPress={() =>
+                              void copyFeedbackDetailsAction
+                                .execute()
+                                .catch(() => undefined)
+                            }
+                          >
+                            {feedbackDetailsCopied
+                              ? labels.copied
+                              : labels.feedbackCopyDetails}
+                          </ActionButton>
+                        ) : null}
+                        <ActionButton
+                          type="submit"
+                          intent="primary"
+                          size="compact"
+                          pending={feedbackAction.pending}
+                          disabled={
+                            feedbackAction.pending || !feedbackReason.trim()
+                          }
+                        >
+                          {labels.feedbackSubmit}
+                        </ActionButton>
+                      </div>
                     </div>
                   </form>
                 </Popover>
@@ -2837,7 +3687,7 @@ export function AgentMessageActions({
             ) : null}
             {slots.messageActionsTrailing ? (
               <slots.messageActionsTrailing
-                value={message}
+                value={stripAgentMessageContext(message)}
                 threadId={threadId}
               />
             ) : null}
@@ -2850,7 +3700,7 @@ export function AgentMessageActions({
                 }}
                 placement="bottom"
                 align="end"
-                className="agentkit-message-menu w-48"
+                className="agentkit-message-menu w-56"
                 trigger={
                   <IconButton
                     label={labels.messageActions}
@@ -2860,39 +3710,7 @@ export function AgentMessageActions({
                     title={labels.messageActions}
                   />
                 }
-                items={[
-                  ...(requestId
-                    ? [
-                        {
-                          id: "copy-request-id",
-                          label: requestIdCopied
-                            ? labels.copied
-                            : labels.copyRequestId,
-                          icon: requestIdCopied ? (
-                            <IconCircleCheck size={14} aria-hidden="true" />
-                          ) : (
-                            <IconId size={14} aria-hidden="true" />
-                          ),
-                          disabled: requestIdAction.pending,
-                        },
-                      ]
-                    : []),
-                  ...(forkingCapability.visible && onThreadForked
-                    ? [
-                        {
-                          id: "fork-chat",
-                          label: (
-                            <span title={forkingCapability.reason}>
-                              {labels.fork}
-                            </span>
-                          ),
-                          icon: <IconGitBranch size={14} aria-hidden="true" />,
-                          disabled:
-                            !forkingCapability.enabled || forkAction.pending,
-                        },
-                      ]
-                    : []),
-                ]}
+                sections={messageMenuSections}
                 onAction={(id) => {
                   if (id === "copy-request-id") {
                     void requestIdAction.execute().catch(() => undefined);
@@ -2921,6 +3739,7 @@ export function AgentMessageActions({
               onPress={() => void copyAction.execute().catch(() => undefined)}
             />
             {editContext?.enabled &&
+            message.metadata?.pendingSubmission !== true &&
             forkingCapability.visible &&
             text.trim() ? (
               <IconButton
@@ -2950,7 +3769,11 @@ export function AgentMessageActions({
         </>
       )}
       {actionError ? (
-        <span className="agentkit-command-error" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {actionError.message}
         </span>
       ) : null}
@@ -2964,6 +3787,7 @@ export function AgentMessageView({
 }: AgentKitRenderProps<AgentMessage>) {
   const { labels, slots } = useAgentKit();
   const thread = useAgentThread(threadId);
+  const visibleMessage = stripAgentMessageContext(message);
   const Supplement = slots.messageSupplement;
   const Actions = slots.messageActions ?? AgentMessageActions;
   const embeddedWidgetIds = new Set(
@@ -2992,7 +3816,7 @@ export function AgentMessageView({
     !attachedAnnotations.length
   ) {
     return Supplement ? (
-      <Supplement value={message} threadId={threadId} />
+      <Supplement value={visibleMessage} threadId={threadId} />
     ) : null;
   }
   return (
@@ -3004,7 +3828,7 @@ export function AgentMessageView({
       aria-busy={message.status === "streaming"}
     >
       <div className="agentkit-message-content">
-        {message.parts.map((part, index) => (
+        {visibleMessage.parts.map((part, index) => (
           <AgentMessagePartView
             key={`${message.id}-${index}`}
             value={part}
@@ -3032,11 +3856,38 @@ export function AgentMessageView({
             ))}
           </div>
         ) : null}
-        {Supplement ? <Supplement value={message} threadId={threadId} /> : null}
+        {Supplement ? (
+          <Supplement value={visibleMessage} threadId={threadId} />
+        ) : null}
       </div>
-      <Actions value={message} threadId={threadId} />
+      <Actions
+        value={slots.messageActions ? visibleMessage : message}
+        threadId={threadId}
+      />
     </article>
   );
+}
+
+function stripAgentMessageContext(message: AgentMessage): AgentMessage {
+  const metadata = stripAgentContextMetadata(message.metadata);
+  return {
+    ...message,
+    ...(metadata ? { metadata } : {}),
+    parts: message.parts.map((part) =>
+      part.type === "text"
+        ? { ...part, text: splitAgentKitMessageContext(part.text).message }
+        : part,
+    ),
+  };
+}
+
+function stripAgentContextMetadata(
+  metadata?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (!metadata) return metadata;
+  const visibleMetadata = { ...metadata };
+  delete visibleMetadata.contextItems;
+  return visibleMetadata;
 }
 
 export function AgentRunFailure({
@@ -3045,6 +3896,28 @@ export function AgentRunFailure({
   threadId,
 }: AgentRunFailureRenderProps) {
   const { labels } = useAgentKit();
+  const control = useAgentKitControl(threadId);
+  const thread = useAgentThread(threadId);
+  const [continuing, setContinuing] = useState(false);
+  const [continueFailed, setContinueFailed] = useState(false);
+  // Continuing resumes the stopped run's own turn, so only that turn's newest
+  // run can be continued; once anything ran after it, the card is history.
+  const startedAt = thread.runs[runId]?.startedAt;
+  const superseded = Object.values(thread.runs).some(
+    (run) =>
+      run.id !== runId &&
+      Boolean(run.startedAt && startedAt && run.startedAt > startedAt),
+  );
+  const canContinue =
+    error.retryable === true && control.canContinueRun && !superseded;
+  const continueRun = () => {
+    setContinuing(true);
+    setContinueFailed(false);
+    control.continueRun(runId).catch(() => {
+      setContinuing(false);
+      setContinueFailed(true);
+    });
+  };
   return (
     <div
       className="agentkit-run-failure"
@@ -3056,7 +3929,24 @@ export function AgentRunFailure({
       <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
       <div className="agentkit-run-failure-copy">
         <strong>{labels.runFailed}</strong>
-        <span>{error.message}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS}>{error.message}</span>
+        {canContinue ? (
+          <div className="agentkit-error-actions">
+            <ActionButton
+              emphasis="outline"
+              size="compact"
+              pending={continuing}
+              onPress={continueRun}
+            >
+              {labels.continueRun}
+            </ActionButton>
+          </div>
+        ) : null}
+        {continueFailed ? (
+          <span className="agentkit-command-error">
+            {labels.continueRunUnavailable}
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -3078,7 +3968,7 @@ export function AgentConnectionErrorView({
       role="alert"
     >
       <strong>{labels.error}</strong>
-      <span>{error.message}</span>
+      <span {...SESSION_REPLAY_MASK_PROPS}>{error.message}</span>
       {error.retryable ? (
         <div className="agentkit-error-actions">
           <ActionButton
@@ -3092,7 +3982,9 @@ export function AgentConnectionErrorView({
         </div>
       ) : null}
       {recoveryError ? (
-        <span className="agentkit-command-error">{recoveryError.message}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS} className="agentkit-command-error">
+          {recoveryError.message}
+        </span>
       ) : null}
     </div>
   );
@@ -3110,6 +4002,7 @@ export interface AgentKitComposerProps extends Omit<
     | "voiceEnabled"
     | "autoFocus"
     | "disabled"
+    | "isReferenceTarget"
     | "submissionDisabled"
     | "onDisabledClick"
     | "initialText"
@@ -3132,7 +4025,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onAgentChange"
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
-    | "requireAgentEngine"
+    | "showMissingApiKeySetup"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
     | "contextButtonTooltipDisabled"
@@ -3146,7 +4039,6 @@ export interface AgentKitComposerProps extends Omit<
     | "inlineTextAttachments"
     | "extraActionButton"
     | "onSubmit"
-    | "onBeforeSubmit"
     | "onSubmissionPendingChange"
     | "onAttachmentError"
     | "interceptBuildRequestsForBuilder"
@@ -3158,6 +4050,8 @@ export interface AgentKitComposerProps extends Omit<
 > {
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
+  /** Opt in to Agent-Native provider UI when this host owns that setup flow. */
+  requireAgentEngine?: boolean;
   beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>;
   composerRef?: { current: TiptapComposerHandle | null };
   threadId?: string;
@@ -3199,6 +4093,7 @@ export function AgentKitComposer({
   onModeChange,
   toolbarSlot,
   disabled,
+  isReferenceTarget,
   submissionDisabled,
   onDisabledClick,
   placeholder,
@@ -3221,7 +4116,8 @@ export function AgentKitComposer({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
-  requireAgentEngine,
+  requireAgentEngine = false,
+  showMissingApiKeySetup,
   attachmentsEnabled,
   onAttachmentRequest,
   contextButtonTooltipDisabled,
@@ -3231,7 +4127,6 @@ export function AgentKitComposer({
   onRemoveContextItem,
   extraActionButton,
   onSubmit: onSubmitOverride,
-  onBeforeSubmit,
   onSubmissionPendingChange,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
@@ -3321,10 +4216,14 @@ export function AgentKitComposer({
   }, []);
   const [uncontrolledMode, setUncontrolledMode] = useState(defaultMode);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const composerAttachmentAdapter = useMemo(
+    () => attachmentAdapter ?? createChatAttachmentAdapter(),
+    [attachmentAdapter],
+  );
   const executionMode = mode ?? uncontrolledMode;
   const active = hasActiveRuns(thread);
   const composerInitialText = editingMessage
-    ? messageText(editingMessage)
+    ? splitAgentKitMessageContext(messageText(editingMessage)).message
     : initialText;
   const composerInitialTextKey = editingMessage
     ? `edit:${editingMessage.id}`
@@ -3351,12 +4250,13 @@ export function AgentKitComposer({
         await composer.addAttachment(file);
         setAttachmentError(null);
       } catch (error) {
-        const message = error instanceof Error ? error.message : labels.error;
-        reportAttachmentError(message);
+        reportAttachmentError(
+          `${file.name}: ${formatAttachmentError(error, labels.dropFileFailed)}`,
+        );
         throw error;
       }
     },
-    [labels.error, reportAttachmentError],
+    [labels.dropFileFailed, labels.error, reportAttachmentError],
   );
   useEffect(() => {
     const receiveAttachments = (event: Event) => {
@@ -3420,6 +4320,11 @@ export function AgentKitComposer({
       options.onLocalSubmit?.();
     };
     if (!editingMessage && onSubmitOverride) {
+      const readinessEngine = options.engine ?? selectedEngine;
+      await controller.assertAiSetupReady({
+        engine:
+          typeof readinessEngine === "string" ? readinessEngine : undefined,
+      });
       const submitOptions = {
         ...(suggestion ? { ...options, suggestion } : options),
         onLocalSubmit,
@@ -3478,6 +4383,10 @@ export function AgentKitComposer({
       if (previousMessage === null) {
         throw new Error(labels.messageUnavailable);
       }
+      const selectedEngine = metadata.engine ?? runOptions.metadata?.engine;
+      await controller.assertAiSetupReady({
+        engine: typeof selectedEngine === "string" ? selectedEngine : undefined,
+      });
       const forkedThread = await controller.forkThread(
         threadId,
         previousMessage?.id,
@@ -3489,7 +4398,7 @@ export function AgentKitComposer({
         : [];
       const previousAttachments = editingMessage.parts.filter(
         (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file",
+          part.type === "file" && !part.omitted,
       );
       const draft = createAgentKitComposerSubmission({
         threadId: forkedThread.id,
@@ -3565,25 +4474,22 @@ export function AgentKitComposer({
       attachments: [...payload.attachments],
       options: payload.options,
       metadata: sendMetadata,
+      queueWhileRunning,
+      ...(options.steer ? { interruptActiveRun: true } : {}),
       onLocalSubmit,
     };
-    if (payload.intent === "queued") {
-      await control.queueMessage({
-        ...message,
-        queuedWhileRunActive: activeAtSubmit,
-      });
-    } else {
-      await control.sendMessage(message);
-    }
+    await control.sendMessage({
+      ...message,
+      queuedWhileRunActive: activeAtSubmit,
+    });
   };
-  const prepareHostSubmit = async () => {
+  const prepareHostSubmit = () => {
     if (disabled) {
       onDisabledClick?.();
       return false;
     }
     if (submissionDisabled) return false;
-    if (editingMessage) return true;
-    return !onBeforeSubmit || (await onBeforeSubmit());
+    return true;
   };
   const steerQueued: AgentKitQueueRenderProps["onSteer"] =
     !disabled && !submissionDisabled
@@ -3591,15 +4497,7 @@ export function AgentKitComposer({
           void command
             .execute(async () => {
               if (!(await prepareHostSubmit())) return;
-              if (onSubmitOverride) {
-                await submitMessage(item.text, [], [], {
-                  intent: "immediate",
-                  attachments: item.attachments,
-                });
-                await control.removeQueued(item.id);
-              } else {
-                await control.steerQueued(item.id);
-              }
+              await control.steerQueued(item.id, { interruptActiveRun: true });
             })
             .catch(() => undefined)
             .finally(focusComposer)
@@ -3655,7 +4553,14 @@ export function AgentKitComposer({
       {queueCapability.visible ? (
         Queue ? (
           <Queue
-            items={thread.queuedMessages}
+            items={thread.queuedMessages.map((message) => {
+              const metadata = stripAgentContextMetadata(message.metadata);
+              return {
+                ...message,
+                text: splitAgentKitMessageContext(message.text).message,
+                ...(metadata ? { metadata } : {}),
+              };
+            })}
             threadId={threadId}
             active={active}
             pending={command.pending || Boolean(disabled)}
@@ -3667,7 +4572,7 @@ export function AgentKitComposer({
             variant="recessed"
             items={thread.queuedMessages.map((message) => ({
               id: message.id,
-              text: message.text,
+              text: splitAgentKitMessageContext(message.text).message,
               images: (message.attachments ?? []).flatMap((attachment) => {
                 if (!attachment.mediaType?.startsWith("image/")) return [];
                 const src = safeAgentImageSrc(attachment.url);
@@ -3695,25 +4600,30 @@ export function AgentKitComposer({
               region: labels.queue,
               steer: labels.queueSteer,
               steerHint: labels.queueSteerHint,
+              sendNow: labels.queueSendNow,
+              sendNowHint: labels.queueSendNowHint,
               remove: labels.queueRemove,
               moreActions: labels.queueMore,
             }}
             getItemActions={
               supportsQueueReordering
-                ? (item) => [
-                    {
-                      id: "move-to-top",
-                      label: labels.queueMoveToTop,
-                      icon: <IconArrowUp aria-hidden="true" size={14} />,
-                      disabled:
-                        item.id === thread.queuedMessages[0]?.id ||
-                        moveQueuedToTop.pending,
-                      onSelect: (selected) =>
-                        void command
-                          .execute(() => moveQueuedToTop.execute(selected.id))
-                          .catch(() => undefined),
-                    },
-                  ]
+                ? (item) => {
+                    if (item.id === thread.queuedMessages[0]?.id) return [];
+
+                    return [
+                      {
+                        id: "move-to-top",
+                        label: labels.queueSendNext,
+                        hint: labels.queueSendNextHint,
+                        icon: <IconArrowUp aria-hidden="true" size={14} />,
+                        disabled: moveQueuedToTop.pending,
+                        onSelect: (selected) =>
+                          void command
+                            .execute(() => moveQueuedToTop.execute(selected.id))
+                            .catch(() => undefined),
+                      },
+                    ];
+                  }
                 : undefined
             }
           />
@@ -3748,13 +4658,19 @@ export function AgentKitComposer({
         onInspectContextItem={onInspectContextItem}
         onRetryContextItem={onRetryContextItem}
         contextMenuItems={contextMenuItems}
-        attachmentAdapter={attachmentAdapter}
+        attachmentAdapter={composerAttachmentAdapter}
         inlineTextAttachments={inlineTextAttachments}
         rootClassName="agentkit-composer"
+        className={
+          queueCapability.visible && thread.queuedMessages.length > 0
+            ? "agent-composer-area--attached-above"
+            : undefined
+        }
         draftScope={`agentkit:${threadId}${editingMessage ? `:edit:${editingMessage.id}` : ""}`}
         ariaLabel={labels.composerLabel}
         placeholder={placeholder ?? labels.composerPlaceholder}
         disabled={disabled}
+        isReferenceTarget={isReferenceTarget}
         submissionDisabled={submissionBlocked}
         onDisabledClick={onDisabledClick}
         onConnectProvider={onConnectProvider}
@@ -3763,6 +4679,10 @@ export function AgentKitComposer({
         autoFocus={autoFocus}
         composerRef={composerRef}
         willQueue={active && queueWhileRunning && canQueue}
+        onEmptySubmit={() => {
+          const next = thread.queuedMessages[0];
+          if (next) steerQueued?.(next);
+        }}
         showModelSelector={showModelSelector && canSelectModel}
         availableModels={availableModels}
         modelListLoading={modelListLoading}
@@ -3778,6 +4698,7 @@ export function AgentKitComposer({
         onModelSelectorOpenChange={onModelSelectorOpenChange}
         modelStatusChecksEnabled={modelStatusChecksEnabled}
         requireAgentEngine={requireAgentEngine}
+        showMissingApiKeySetup={showMissingApiKeySetup}
         layoutVariant={layoutVariant}
         toolbarSlot={composerToolbarSlot}
         initialText={composerInitialText}
@@ -3785,7 +4706,6 @@ export function AgentKitComposer({
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
         sendButtonDisabled={submissionPending}
-        onBeforeSubmit={onBeforeSubmit}
         onSubmissionPendingChange={handleSubmissionPendingChange}
         getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         clearOnSubmitImmediately
@@ -3834,13 +4754,13 @@ export function AgentKitComposer({
       {command.error ? (
         <div className="agentkit-composer-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{command.error.message}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{command.error.message}</span>
         </div>
       ) : null}
       {attachmentError ? (
         <div className="agentkit-composer-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{attachmentError}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{attachmentError}</span>
         </div>
       ) : null}
     </div>
@@ -4378,12 +5298,86 @@ export function AgentKitChat({
       />
     </AgentKitSurfaceBoundary>
   );
+  const renderRunTail = (runId: RunId) => {
+    const items: ReactNode[] = [];
+    if (pendingRuns.has(runId)) {
+      const boundary = lastAssistantMessagesByRun.get(runId);
+      items.push(
+        renderRunWork({
+          runId,
+          anchor: boundary?.id ?? "start",
+          afterSequence: boundary?.sequence,
+        }),
+      );
+    }
+    if (failedRuns.has(runId)) {
+      items.push(
+        <AgentKitSurfaceBoundary
+          key={`run-failure:${runId}`}
+          surface="activity"
+          resetKey={`${runId}:${thread.events.length}`}
+        >
+          {renderRunFailure(runId)}
+        </AgentKitSurfaceBoundary>,
+      );
+    }
+    return items;
+  };
+  // A run's work after its last reply, and its failure, belong to its turn: a
+  // finished run's tail goes before the first message written after it ended.
+  const runEndedAt = new Map<RunId, number>();
+  for (const event of thread.events) {
+    const occurredAt = Date.parse(event.occurredAt);
+    if (!Number.isFinite(occurredAt)) continue;
+    runEndedAt.set(
+      event.runId,
+      Math.max(runEndedAt.get(event.runId) ?? occurredAt, occurredAt),
+    );
+  }
+  const tailRunIds = Array.from(
+    new Set([
+      ...pendingRunIds,
+      ...Array.from(failedRuns.keys()).filter(
+        (runId) => !lastAssistantMessagesByRun.has(runId),
+      ),
+    ]),
+  );
+  const tailsBeforeMessage = new Map<number, RunId[]>();
+  const tailsAtEnd: RunId[] = [];
+  for (const runId of tailRunIds) {
+    const status = thread.runs[runId]?.status;
+    const endedAt = runEndedAt.get(runId);
+    const lastOwnMessage = thread.messages.findLastIndex(
+      (message) => messageRunIds.get(message.id) === runId,
+    );
+    const before =
+      endedAt !== undefined &&
+      (status === "completed" || status === "failed" || status === "cancelled")
+        ? thread.messages.findIndex(
+            (message, index) =>
+              index > lastOwnMessage &&
+              messageRunIds.get(message.id) !== runId &&
+              Date.parse(message.createdAt ?? "") > endedAt,
+          )
+        : -1;
+    if (before === -1) {
+      tailsAtEnd.push(runId);
+    } else {
+      tailsBeforeMessage.set(before, [
+        ...(tailsBeforeMessage.get(before) ?? []),
+        runId,
+      ]);
+    }
+  }
   const transcriptItems: ReactNode[] = [];
   const previousAssistantByRun = new Map<
     RunId,
     { id: string; sequence: number }
   >();
-  for (const message of thread.messages) {
+  for (const [messageIndex, message] of thread.messages.entries()) {
+    for (const runId of tailsBeforeMessage.get(messageIndex) ?? []) {
+      transcriptItems.push(...renderRunTail(runId));
+    }
     const runId = messageRunIds.get(message.id);
     const sequence = messageBoundarySequences.get(message.id);
     const isAssistantBoundary =
@@ -4451,13 +5445,16 @@ export function AgentKitChat({
         </AgentWorkDisclosure>,
       );
     }
+    const messageValue = messageRenderer
+      ? stripAgentMessageContext(displayMessage)
+      : displayMessage;
     transcriptItems.push(
       <AgentKitSurfaceBoundary
         key={`message:${threadId}:${message.id}`}
         surface="message"
         resetKey={`${message.id}:${thread.events.length}`}
       >
-        <Message value={displayMessage} threadId={threadId} />
+        <Message value={messageValue} threadId={threadId} />
       </AgentKitSurfaceBoundary>,
     );
     if (isAssistantBoundary && runId) {
@@ -4479,40 +5476,8 @@ export function AgentKitChat({
       );
     }
   }
-  for (const runId of pendingRunIds) {
-    const boundary = lastAssistantMessagesByRun.get(runId);
-    transcriptItems.push(
-      renderRunWork({
-        runId,
-        anchor: boundary?.id ?? "start",
-        afterSequence: boundary?.sequence,
-      }),
-    );
-    if (failedRuns.has(runId)) {
-      transcriptItems.push(
-        <AgentKitSurfaceBoundary
-          key={`run-failure:${runId}`}
-          surface="activity"
-          resetKey={`${runId}:${thread.events.length}`}
-        >
-          {renderRunFailure(runId)}
-        </AgentKitSurfaceBoundary>,
-      );
-    }
-  }
-  for (const [runId] of failedRuns) {
-    if (lastAssistantMessagesByRun.has(runId) || pendingRuns.has(runId)) {
-      continue;
-    }
-    transcriptItems.push(
-      <AgentKitSurfaceBoundary
-        key={`run-failure:${runId}`}
-        surface="activity"
-        resetKey={`${runId}:${thread.events.length}`}
-      >
-        {renderRunFailure(runId)}
-      </AgentKitSurfaceBoundary>,
-    );
+  for (const runId of tailsAtEnd) {
+    transcriptItems.push(...renderRunTail(runId));
   }
   return (
     <AgentMessageEditContext.Provider value={messageEditContext}>
@@ -4649,3 +5614,5 @@ export function AgentKitChat({
     </AgentMessageEditContext.Provider>
   );
 }
+
+export { useAgentKitStopButton } from "./stop-button.js";

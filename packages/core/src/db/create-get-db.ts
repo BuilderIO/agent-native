@@ -19,16 +19,22 @@ import {
   guardNeonPool,
   withDbTimeout,
   retryOnConnectionError,
+  hasRetryBudgetFor,
   dbOpTimeoutMs,
   sharedDbPool,
   toPostgresParams,
   withDbExec,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  onDbClientsClosing,
   postgresStatementTimeoutMs,
   assertHostedRuntimeDatabase,
 } from "./client.js";
 import type { DbExec, DbExecStatement } from "./client.js";
+import {
+  assertPoolConnectionAvailable,
+  runHoldingPoolConnection,
+} from "./pool-self-deadlock.js";
 
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
 function getPgDrizzle() {
@@ -654,6 +660,7 @@ function drizzleTransactionExec(
 function scopeDbExecToDrizzleTransactions<T extends object>(
   db: T,
   queryQueue?: DrizzleTransactionQueryQueue,
+  pool?: object,
 ): T {
   return new Proxy(db, {
     get(target, prop, receiver) {
@@ -676,19 +683,21 @@ function scopeDbExecToDrizzleTransactions<T extends object>(
                   return await withTransactionStatementTimeout(
                     transaction,
                     () =>
-                      withDbExec(
-                        drizzleTransactionExec(transaction, transactionQueue),
-                        () =>
-                          runInActiveDrizzleTransactionScope(
-                            { queue: transactionQueue, transaction },
-                            () =>
-                              (run as (transaction: any) => unknown)(
-                                scopeDbExecToDrizzleTransactions(
-                                  transaction,
-                                  transactionQueue,
+                      runHoldingPoolConnection(pool, () =>
+                        withDbExec(
+                          drizzleTransactionExec(transaction, transactionQueue),
+                          () =>
+                            runInActiveDrizzleTransactionScope(
+                              { queue: transactionQueue, transaction },
+                              () =>
+                                (run as (transaction: any) => unknown)(
+                                  scopeDbExecToDrizzleTransactions(
+                                    transaction,
+                                    transactionQueue,
+                                  ),
                                 ),
-                              ),
-                          ),
+                            ),
+                        ),
                       ),
                   );
                 } finally {
@@ -732,6 +741,22 @@ function scopeDbExecToDrizzleTransactions<T extends object>(
       return typeof value === "function" ? value.bind(receiver) : value;
     },
   });
+}
+
+/**
+ * Routes `getDb()` and `getDbExec()` calls made inside a root transaction of
+ * `db` onto that transaction, and marks the transaction as holding `pool`'s
+ * connection. `pool` is the shared pool `db` was built over.
+ *
+ * TRAP: every Drizzle instance built over a shared pool needs this. One that
+ * does not leaves a callback inside its transaction asking the same pool for a
+ * second connection, which on a one-connection pool never arrives.
+ */
+export function scopeDbToPoolTransactions<T extends object>(
+  db: T,
+  pool: object,
+): T {
+  return scopeDbExecToDrizzleTransactions(db, undefined, pool);
 }
 
 /**
@@ -803,11 +828,13 @@ export function buildResilientNeonPool<
           ? sql.text
           : "";
     const isRead = isSqlRead(sqlText);
+    const startedAt = Date.now();
 
     const runAttempt = async (): Promise<{
       rows: unknown[];
       rowCount?: number;
     }> => {
+      assertPoolConnectionAvailable(pool, "A database query");
       let acquireTimedOut = false;
       const client = await withDbTimeout(
         "connect",
@@ -858,7 +885,11 @@ export function buildResilientNeonPool<
     try {
       return await runAttempt();
     } catch (err) {
-      if (isConnectionError(err) && (err as any)?.code === "CONNECT_TIMEOUT") {
+      if (
+        isConnectionError(err) &&
+        (err as any)?.code === "CONNECT_TIMEOUT" &&
+        hasRetryBudgetFor(startedAt)
+      ) {
         return runAttempt();
       }
       throw err;
@@ -871,6 +902,7 @@ export function buildResilientNeonPool<
       if (prop === "connect") {
         return (...args: any[]) =>
           retryOnConnectionError(async () => {
+            assertPoolConnectionAvailable(target, "A database connection");
             let acquireTimedOut = false;
             const client = await withDbTimeout<any>(
               "connect",
@@ -902,6 +934,7 @@ export function buildResilientPostgresJsClient<
     const isRead = isSqlRead(query);
 
     const runAttempt = (mode: "rows" | "values") => async (): Promise<any> => {
+      assertPoolConnectionAvailable(client, "A database query");
       const pending = client.unsafe(query, params, options);
       return withDbTimeout(
         "query",
@@ -920,12 +953,14 @@ export function buildResilientPostgresJsClient<
 
     const execute = async (mode: "rows" | "values"): Promise<any> => {
       if (isRead) return retryOnConnectionError(runAttempt(mode));
+      const startedAt = Date.now();
       try {
         return await runAttempt(mode)();
       } catch (err) {
         if (
           isConnectionError(err) &&
-          (err as any)?.code === "CONNECT_TIMEOUT"
+          (err as any)?.code === "CONNECT_TIMEOUT" &&
+          hasRetryBudgetFor(startedAt)
         ) {
           return runAttempt(mode)();
         }
@@ -958,6 +993,7 @@ export function isNeonUrl(url: string): boolean {
 export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;
   let _dbReady: Promise<any> | undefined;
+  let _dbGeneration = 0;
 
   // The Drizzle instance is bound to a shared pool, so a `closeDbExec()` (test
   // teardown, script cleanup) must invalidate it rather than leave this store
@@ -965,19 +1001,52 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   // branches only — `createGetDb` is called at module scope by every store, and
   // core's specs widely mock `db/client.js`.
   let _closeHookRegistered = false;
+  let _dbExecCloseHookRegistered = false;
+  const resetDbHandle = () => {
+    _dbGeneration += 1;
+    _db = undefined;
+    _dbReady = undefined;
+  };
   function resetOnPoolClose(driver?: string, url?: string): void {
     if (_closeHookRegistered) return;
     _closeHookRegistered = true;
-    onSharedDbPoolsClosed(() => {
-      _db = undefined;
-      _dbReady = undefined;
-    });
+    onSharedDbPoolsClosed(resetDbHandle);
     if (driver && url) {
-      onSharedDbPoolReplaced(driver, url, () => {
-        _db = undefined;
-        _dbReady = undefined;
-      });
+      onSharedDbPoolReplaced(driver, url, resetDbHandle);
     }
+  }
+  function resetOnDbExecClose(): void {
+    if (_dbExecCloseHookRegistered) return;
+    _dbExecCloseHookRegistered = true;
+    // Nitro can close this worker's PGlite client before the process exits.
+    onDbClientsClosing(() => {
+      resetDbHandle();
+      _dbExecCloseHookRegistered = false;
+    });
+  }
+
+  function trackInit(
+    initialize: (isCurrent: () => boolean) => Promise<any>,
+  ): Promise<any> {
+    const generation = _dbGeneration;
+    let ready!: Promise<any>;
+    const isCurrent = () => generation === _dbGeneration && _dbReady === ready;
+    ready = Promise.resolve()
+      .then(() => initialize(isCurrent))
+      .then((db) => {
+        if (!isCurrent()) {
+          throw new Error("Database initialization was invalidated by reset");
+        }
+        _db = db;
+        return db;
+      })
+      .catch((err) => {
+        if (isCurrent()) _dbReady = undefined;
+        throw err;
+      });
+    _dbReady = ready;
+    ready.catch(() => {});
+    return ready;
   }
 
   function startInit(): Promise<any> {
@@ -986,25 +1055,33 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     try {
       assertHostedRuntimeDatabase();
     } catch (err) {
-      _dbReady = Promise.reject(err);
-      _dbReady.catch(() => {});
-      return _dbReady;
+      return trackInit(() => Promise.reject(err));
     }
 
     const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
 
     if (isPgliteUrl(url)) {
-      _dbReady = loadPgliteDrizzle().then(async ({ drizzle }) => {
+      resetOnDbExecClose();
+      return trackInit(async (isCurrent) => {
+        const { drizzle } = await loadPgliteDrizzle();
+        if (!isCurrent()) {
+          throw new Error("Database initialization was invalidated by reset");
+        }
         const client = await getPgliteClient(url);
-        _db = drizzle({ client: pgliteDrizzleClient(url, client), schema });
-        return _db;
+        if (!isCurrent()) {
+          throw new Error("Database initialization was invalidated by reset");
+        }
+        return drizzle({ client: pgliteDrizzleClient(url, client), schema });
       });
-      return _dbReady;
     }
 
     if (isNeonUrl(url)) {
-      _dbReady = getNeonServerlessDrizzle().then(({ drizzle, Pool }) => {
-        resetOnPoolClose("neon", url);
+      resetOnPoolClose("neon", url);
+      return trackInit(async (isCurrent) => {
+        const { drizzle, Pool } = await getNeonServerlessDrizzle();
+        if (!isCurrent()) {
+          throw new Error("Database initialization was invalidated by reset");
+        }
         const rawPool = sharedDbPool(
           "neon",
           url,
@@ -1012,22 +1089,24 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         );
         guardNeonPool(rawPool, url);
         const pool = buildResilientNeonPool(rawPool);
-        _db = scopeDbExecToDrizzleTransactions(drizzle(pool, { schema }));
-        return _db;
-      });
-    } else {
-      _dbReady = getPgDrizzle().then(({ drizzle, postgres }) => {
-        resetOnPoolClose("postgres-js", url);
-        const client = sharedDbPool("postgres-js", url, () =>
-          postgres(url, pgPoolOptions(url)),
-        );
-        _db = scopeDbExecToDrizzleTransactions(
-          drizzle(buildResilientPostgresJsClient(client), { schema }),
-        );
-        return _db;
+        return scopeDbToPoolTransactions(drizzle(pool, { schema }), rawPool);
       });
     }
-    return _dbReady;
+
+    resetOnPoolClose("postgres-js", url);
+    return trackInit(async (isCurrent) => {
+      const { drizzle, postgres } = await getPgDrizzle();
+      if (!isCurrent()) {
+        throw new Error("Database initialization was invalidated by reset");
+      }
+      const client = sharedDbPool("postgres-js", url, () =>
+        postgres(url, pgPoolOptions(url)),
+      );
+      return scopeDbToPoolTransactions(
+        drizzle(buildResilientPostgresJsClient(client), { schema }),
+        client,
+      );
+    });
   }
 
   function createLazyProxy(

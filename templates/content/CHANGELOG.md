@@ -3,14 +3,158 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-09
+
+### Improved
+
+- Format Content documents directly in ChatGPT widgets
+- Pages without a collection open faster.
+
+### Fixed
+
+- Content widget documents remain editable after reopening a chat.
+- Document icons save when edited from a ChatGPT widget.
+
+## 2026-10-08
+
+### Improved
+
+- The Content editor fits ChatGPT's panel sizes and supports direct edits to documents and database rows in the widget.
+- Edits an agent makes now show up in an open page about two seconds sooner when you aren't typing.
+
+### Fixed
+
+- New blank documents open ready to edit without an unrelated collection prompt.
+- The sidebar hides empty Pinned sections and aligns the workspace selector and search with the navigation sections.
+- Unsaved edits stay attached to the latest title when another tab renames a page
+
+## 2026-10-07
+
+### Improved
+
+- Documents opened in a chat side pane now fill the whole pane, with no sidebar, menu, or toolbar above the page.
+
+### Fixed
+
+- A page moved to Trash now shows as trashed for everyone who has it open, without a reload.
+- Keep the latest peer title with an unsaved page recovery draft.
+- ChatGPT widgets identify a stalled Content editor instead of keeping its body skeleton onscreen.
+- ChatGPT widgets open document content without a cookie session
+- Content documents now open in ChatGPT widgets with their full body
+- Text two people type at the same spot now reaches the saved page for both of them, so readers and agents see it
+- ChatGPT widget previews show saved document bodies without a Content session.
+- Documents opened in ChatGPT show their saved content right away.
+- ChatGPT widgets show saved document bodies in read-only mode without a Content session.
+- Fixed Content pages that opened to an error in ChatGPT widgets
+
+## 2026-10-06
+
+### Added
+
+- External agents can now move a page and its sub-pages to recoverable Trash, list Trash, and restore it through Content's MCP tools.
+
+### Improved
+
+- Opening Content from Home shows your last page sooner
+- Pages you open from Home appear without waiting on the unsaved-draft check
+- ChatGPT can open Content document and database editors in the existing workspace, and document links use the right label.
+
+### Fixed
+
+- Connecting Notion no longer leaves its used authorization code in the address bar.
+- Documents and databases opened from ChatGPT load in the Content editor without a separate sign-in.
+- ChatGPT Content widgets load database views correctly.
+- Reopening a ChatGPT Content widget restores the editor for its saved document or collection.
+- Content preserves collaborator renames when a save is delayed
+- Filtered collection views work after you reopen the ChatGPT app.
+- Generated documents from ChatGPT open in the full Content editor.
+- Keep adopted collaborator titles when recovering an unsaved page
+- Keep collaborator title recovery aligned across rapid renames and local journal failures
+- Page recovery keeps local title edits when a collaborator renames the page.
+- Preserve the editor's authored base until external edits reach the editor, and hold database saves when collaboration delivery is pending
+- Sign-in pages show the ocean wave without a fallback flash and keep it clear of the marketing copy.
+
+## 2026-10-05
+
+### Improved
+
+- A page opened from a link or a refresh starts loading sooner
+- On phones, a collection's sort and filter chips stay on one line you can swipe, so the table no longer jumps when they load
+- Commenting on text you suggested now replies on that suggestion instead of leaving a comment that loses its place.
+- Collection pages keep selected rows visible through failed refreshes, and review space stays in place while comments refresh.
+
+### Fixed
+
+- Content keeps its text column readable as panels open; sharing and keyboard focus remain available when toolbar controls fold or panels move.
+- A paragraph suggested just before a heading, list, quote, or code block now shows as a suggestion.
+- Accepting a suggestion whose surrounding text changed now says so and keeps it pending, and separately saved suggestions on the same line now all land.
+- Agent links copied from a document are shorter, so Claude can fetch them without hitting its URL length limit.
+- Editing a page an agent wrote in two tabs no longer drops one tab's words or files them in Version History.
+- Long comments now scroll inside their card instead of jumping the page or running off the screen
+- Refreshing a page after a save failed no longer asks which of two identical versions to keep.
+- Sign-in and signup pages now share the animated Agent-Native wave.
+- Suggested edits now save as you type, so they no longer disappear when you stay in Suggesting mode.
+- Suggested edits that rewrite a phrase show as one replacement instead of scattered letters
+- Suggesting mode now stays on until you switch it off, a reload reopens the page in the mode you left it in, and a change from another tab or an agent while you suggest no longer turns your suggestions into direct page edits.
+- Typing in two tabs on one page no longer shows "This page changed elsewhere" when the tabs' edits merge cleanly.
+- Typing in two tabs on one page, or switching between them, no longer loses or doubles words.
+- Collection view context now survives quick page changes when the saved summary fits.
+- Exact saved-view links keep the collection retry available when rows fail to load
+- Expanding a Files folder now shares one navigation read across open branches, and legacy owner shares retain their row controls.
+- Files navigation retries temporary failures consistently
+- Shared page owners keep edit and manage controls in Files, and newly opened folders populate faster.
+- Tagging an AI in a comment works again instead of failing right away with "AI request failed".
+- The home loading shell keeps the layout of your last opened page.
+- Typing `>` and a space, or inserting a toggle or callout, no longer freezes and crashes the page on a Mac.
+
+## 2026-10-03
+
+### Fixed
+
+- A malformed Lab preference no longer blocks unrelated editor commands.
+
+## 2026-10-02
+
+### Added
+
+- You and agents can now suggest edits to the text inside tables, callouts, toggles, and columns, including new paragraphs in callouts, toggles, and columns, while their rows, icons, and titles stay as they are.
+- You can now request access to a page you don't have access to, with an optional note. The owner gets a notification and an email, and can allow you with the role they choose or decline, from the request link or the page's Share dialog. Once they allow it, the page opens for you without a reload.
+
+### Improved
+
+- The sidebar, comments and agent panel share the window: the sidebar folds to a rail, then a drawer, before the page or an open comments list runs out of room, comments stay beside the text instead of covering it or the agent panel, and the header keeps the page title readable
+- A page link you can't open now says whether the page exists. "You don't have access to this page" means it does and hasn't been shared with you; "This page doesn't exist" means there's nothing there. If you could open a page that's in the trash, its link says so, with Restore when you're allowed to restore it.
+- Collections fit phones, tablets, and open side panels: view tabs use the full width, narrow column headers stay readable, and a long press selects rows on touch screens
+- After a refresh, the Files sidebar shows the open page's folders in one load instead of one level at a time
+- Builder.io setup instructions now use consistent action language across editor workflows.
+- Large collections open faster
+- Pages with open comments and collections with sorted or filtered views no longer jump while they load
+
+### Fixed
+
+- Comment and suggestion headers keep the author's name and time readable in narrow columns
+- While you suggest edits, images and other blocks that suggestions don't support yet are read-only, and an agent that tries to suggest a change to one gets a clear message instead of "Internal server error".
+- A page link you can't open now says so, with the account you're signed in as, instead of opening another page. People who can open a private share link no longer see "This document is private" first.
+- Comment edits and deletions now refresh collaborators with the document open.
+- Pages stay inside the window at every width: long inline code and links wrap, and wide tables scroll inside their own frame instead of crushing their columns
+- Suggest edits works on pages written by agents, including pages with Markdown tables, instead of refusing to start or rejecting each edit; suggestions inside a table cell are still not supported
+- While you suggest edits, tables and other blocks that suggestions don't support yet are read-only, and an agent that tries to suggest a change inside one gets a clear message instead of "Internal server error".
+
 ## 2026-10-01
 
 ### Improved
 
+- Home opens the page you were last on sooner
 - Pages and the sidebar load in place instead of jumping around
 
 ### Fixed
 
+- Fixed Content's ChatGPT connector guidance so it refers only to available actions.
+- Accepting or rejecting suggested edits keeps desktop comments in place without opening an extra panel.
+- Suggested edits stay visible across paragraphs, and Suggesting opens without false formatting warnings.
+- Suggestion retries keep desktop comments open and failed decisions restore each draft change only once.
+- Suggested edits replace whole words on pages with bold, italic, code, or links, so a changed date reads as one word instead of scattered letters
+- Accepted suggestions stay visible once after another person edits the page, and reviewing your amended suggestion no longer shows a false conflict.
 - The editor no longer shifts focus to another document when you switch away from suggested edits.
 
 ## 2026-09-30
@@ -19,10 +163,21 @@ time from the command menu (Cmd+K → "What's new").
 
 - Connect ChatGPT to draft documents and organize workspace records in Content.
 
+### Improved
+
+- Search stays fast in large workspaces and finds parts of code names and links, plus Japanese, Chinese, and Korean text.
+
 ### Fixed
 
+- Pending suggested edits keep their highlights when nearby edits are accepted
+- Recent page icons update immediately when changed or removed
+- Suggestion review controls remain reachable beside long author names.
 - Chat stays ready for your next draft while a message is being sent.
 - Page edits and comments save reliably
+
+### Changed
+
+- Search matches page text from the start of each word. Titles and descriptions still match anywhere.
 
 ## 2026-09-29
 

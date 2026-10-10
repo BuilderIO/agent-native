@@ -1,8 +1,10 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
-import type {
-  CanvasFrameGeometry,
-  CanvasFrameGeometryById,
+import {
+  numericDesignDataWriteError,
+  type CanvasFrameGeometry,
+  type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
+import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
 import type { QueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import { toast } from "sonner";
@@ -11,6 +13,7 @@ import {
   getCanonicalScreenStack,
   getInitialFrameGeometry,
 } from "@/components/design/multi-screen/frame-geometry";
+import { requestPreviewParses } from "@/components/design/multi-screen/preview-parse-warmer";
 import type {
   DuplicateMode,
   FrameGeometry,
@@ -41,6 +44,13 @@ import {
 import type { DesignFile } from "@/pages/design-editor/types";
 
 const DUPLICATE_SCREEN_GAP = 56;
+const WIDGET_DUPLICATE_SCREEN_METADATA_KEYS = [
+  "width",
+  "height",
+  "heightPinned",
+  "heightMode",
+  "breakpointHeights",
+] as const;
 
 interface DuplicateBatchState {
   sourceIds: Set<string>;
@@ -116,6 +126,37 @@ function isCompleteFrameGeometry(
       (value) => typeof value === "number" && Number.isFinite(value),
     )
   );
+}
+
+function widgetDuplicateScreenMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata) return undefined;
+  const result: Record<string, unknown> = {};
+  for (const key of WIDGET_DUPLICATE_SCREEN_METADATA_KEYS) {
+    const value = metadata[key];
+    if (key === "width" || key === "height") {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        result[key] = value;
+      }
+    } else if (key === "heightPinned") {
+      if (typeof value === "boolean") result[key] = value;
+    } else if (key === "heightMode") {
+      if (value === "auto" || value === "fixed" || value === "hug") {
+        result[key] = value;
+      }
+    } else if (
+      key === "breakpointHeights" &&
+      value !== undefined &&
+      numericDesignDataWriteError(
+        ["screenMetadata", "duplicate", "breakpointHeights"],
+        value,
+      ) === null
+    ) {
+      result[key] = value;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function rebaseDispatchedCanvasGeometry(
@@ -333,6 +374,7 @@ function duplicateStackDataOperations(
 
 export interface DuplicateScreenArgs {
   canEditDesign: boolean;
+  widgetEmbed: boolean;
   createFileAsync: ReturnType<
     typeof useActionMutation<undefined, undefined, "create-file">
   >["mutateAsync"];
@@ -343,6 +385,9 @@ export interface DuplicateScreenArgs {
   duplicateRecoveryRef: RefObject<Map<string, DuplicateScreenRecoveryEntry>>;
   displayedCanvasFrameGeometryById?: CanvasFrameGeometryById;
   files: DesignFile[];
+  getCurrentScreenContentForDuplicate?: (
+    screenId: string,
+  ) => string | undefined;
   focusCreatedScreen: (
     screenId: string,
     geometry: FrameGeometry,
@@ -383,12 +428,14 @@ export interface DuplicateScreenArgs {
 export function runDuplicateScreen(
   {
     canEditDesign,
+    widgetEmbed,
     createFileAsync,
     deleteFileAsync,
     designDataJsonRef,
     duplicateRecoveryRef,
     displayedCanvasFrameGeometryById,
     files,
+    getCurrentScreenContentForDuplicate,
     focusCreatedScreen,
     id,
     liveFrameGeometryRef,
@@ -482,7 +529,10 @@ export function runDuplicateScreen(
   }
   duplicateInFlightRef.current.add(filename);
   const content =
-    recoveryState?.content ?? reassignDuplicatedNodeIds(source.content);
+    recoveryState?.content ??
+    reassignDuplicatedNodeIds(
+      getCurrentScreenContentForDuplicate?.(screenId) ?? source.content,
+    );
   const fileType =
     recoveryState?.fileType ?? normalizedDesignFileType(source.fileType);
   const sourceOverviewScreen = overviewScreens.find(
@@ -643,14 +693,20 @@ export function runDuplicateScreen(
     Object.keys(currentLocalhostScreen).length > 0
       ? { ...currentLocalhostScreen }
       : undefined;
-  const screenMetadata =
+  const copiedOrRecoveredScreenMetadata =
     recoveryState && "screenMetadata" in recoveryState
       ? recoveryState.screenMetadata
       : currentScreenMetadata;
-  const localhostScreen =
+  const screenMetadata = widgetEmbed
+    ? widgetDuplicateScreenMetadata(copiedOrRecoveredScreenMetadata)
+    : copiedOrRecoveredScreenMetadata;
+  const copiedOrRecoveredLocalhostScreen =
     recoveryState && "localhostScreen" in recoveryState
       ? recoveryState.localhostScreen
       : currentLocalhostMetadata;
+  const localhostScreen = widgetEmbed
+    ? undefined
+    : copiedOrRecoveredLocalhostScreen;
   let createdFileId: string | undefined;
   let duplicateBatchCopyId: string | undefined;
   let appliedDuplicateStackChange: DuplicateStackHistoryChange | undefined;
@@ -661,6 +717,7 @@ export function runDuplicateScreen(
       filename,
       content,
       fileType,
+      ...(!widgetEmbed ? { duplicateSourceFileId: screenId } : {}),
     } as any);
   const callCreateFile = () => {
     try {
@@ -669,6 +726,11 @@ export function runDuplicateScreen(
       return Promise.reject(error);
     }
   };
+  // The copy's markup is known before the server answers, so its annotation and
+  // parse run during the round trip instead of in the frame that inserts it.
+  setTimeout(() => {
+    requestPreviewParses([annotateScreenHtmlForPersist(content, fileType)]);
+  }, 0);
   const createPromise = !recoveryEntry
     ? callCreateFile()
     : Promise.resolve().then(() => {
@@ -875,18 +937,24 @@ export function runDuplicateScreen(
         },
       ];
       if (screenMetadata) {
-        dataOperations.push({
-          op: "set",
-          path: ["screenMetadata", nextId],
-          value: screenMetadata,
-        });
+        for (const [field, value] of Object.entries(screenMetadata)) {
+          if (field === "connectionId") continue;
+          dataOperations.push({
+            op: "set",
+            path: ["screenMetadata", nextId, field],
+            value,
+          });
+        }
       }
       if (localhostScreen) {
-        dataOperations.push({
-          op: "set",
-          path: ["localhostScreens", nextId],
-          value: localhostScreen,
-        });
+        for (const [field, value] of Object.entries(localhostScreen)) {
+          if (field === "connectionId") continue;
+          dataOperations.push({
+            op: "set",
+            path: ["localhostScreens", nextId, field],
+            value,
+          });
+        }
       }
       const nextData = applyDesignDataOperations(
         designDataJsonRef.current,
@@ -897,7 +965,10 @@ export function runDuplicateScreen(
         if (!old || typeof old !== "object") return old;
         return { ...old, data: JSON.stringify(nextData) };
       });
-      await updateDesignAsync({ id, dataOperations } as any);
+      await updateDesignAsync({
+        id,
+        dataOperations,
+      } as any);
       optimisticallyInsertCreatedFile({
         fileId: nextId,
         filename,

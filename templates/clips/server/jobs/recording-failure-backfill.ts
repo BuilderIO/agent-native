@@ -16,6 +16,7 @@ let running = false;
 export const LEGACY_FAILURE_CODE_CASE = `CASE
   WHEN failure_reason IN ('Recording cancelled by user', 'Recording cancelled during countdown', 'Upload cancelled') THEN 'user_cancelled'
   WHEN failure_reason = 'Upload stopped sending data before the recording finished saving.' THEN 'upload_timed_out'
+  WHEN failure_reason IN ('Recording interruption has unknown cause', 'The recorder page closed before the recording finished saving.') THEN 'recording_interrupted'
   WHEN failure_reason ILIKE 'Recording exceeds the % MB size limit. Please record a shorter clip.' THEN 'recording_too_large'
   WHEN failure_reason ILIKE 'Recording is too large to process after automatic compression.%' THEN 'recording_too_large'
   WHEN failure_reason ILIKE 'Recording is too large to upload (%mb%, limit is %mb) after automatic compression. Try a shorter recording.' THEN 'recording_too_large'

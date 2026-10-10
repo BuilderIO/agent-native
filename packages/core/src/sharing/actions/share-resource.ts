@@ -1,46 +1,33 @@
-import { and, eq, ne, sql, type SQL } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { defineAction, fail } from "../../action.js";
+import { defineAction } from "../../action.js";
 import { getAppConfig } from "../../app-config/index.js";
-import { getDbExec } from "../../db/client.js";
 import {
   CORE_RESOURCE_SHARED_EMAIL_ID,
   renderTransactionalEmail,
 } from "../../email-catalog/templates.js";
-import { isOrgMember } from "../../org/membership.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
-import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
-import { isAutozQaEmail } from "../../shared/qa-test-email.js";
 import { track } from "../../tracking/registry.js";
 import { getUserProfile } from "../../user-profile/store.js";
-import { assertWorkspaceUserGroupIds } from "../../workspace-connections/groups.js";
-import { assertAccess, ForbiddenError } from "../access.js";
+import { assertAccess } from "../access.js";
+import {
+  announceResourceAccessChange,
+  grantResourceAccess,
+  isEmailPrincipalId,
+  isOrgMemberOrInvited,
+  normalizePrincipalId,
+  principalIdMatches,
+} from "../grant.js";
 import { requireShareableResource } from "../registry.js";
 import type { ShareEmailExtras } from "../registry.js";
-import { resourceSharingChange } from "./change-result.js";
 import {
-  getExtensionShareChangeTargets,
-  notifyExtensionShareChanged,
-} from "./extension-change.js";
-
-export function isSyntheticQaEmail(email: string): boolean {
-  const trimmed = email.trim().toLowerCase();
-  if (isAutozQaEmail(trimmed)) return true;
-  const at = trimmed.lastIndexOf("@");
-  if (at <= 0) return false;
-  const local = trimmed.slice(0, at);
-  const domain = trimmed.slice(at + 1);
-  return (
-    local.includes("+qa") &&
-    (domain === "example.test" ||
-      domain.endsWith(".test") ||
-      domain === "example.invalid" ||
-      domain.endsWith(".invalid"))
-  );
-}
+  assertWidgetShareWriteGrant,
+  widgetShareMessage,
+} from "../widget-grant.js";
+import { resourceSharingChange } from "./change-result.js";
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -91,53 +78,6 @@ export function resolveShareNotificationUrl(
     if (url) return url;
   }
   return appUrl;
-}
-
-function nanoid(size = 12): string {
-  const chars =
-    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  let id = "";
-  const bytes = crypto.getRandomValues(new Uint8Array(size));
-  for (const byte of bytes) id += chars[byte % chars.length];
-  return id;
-}
-
-function normalizePrincipalId(
-  principalType: "user" | "group" | "org",
-  principalId: string,
-): string {
-  return principalType === "user"
-    ? principalId.trim().toLowerCase()
-    : principalId;
-}
-
-function isEmailPrincipalId(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+$/.test(value.trim());
-}
-
-function principalIdMatches(
-  sharesTable: any,
-  principalType: "user" | "group" | "org",
-  principalId: string,
-): SQL {
-  return principalType === "user"
-    ? sql`lower(${sharesTable.principalId}) = ${principalId}`
-    : eq(sharesTable.principalId, principalId);
-}
-
-async function isOrgMemberOrInvited(
-  orgId: string,
-  email: string,
-): Promise<boolean> {
-  const lower = email.trim().toLowerCase();
-  if (!lower || !orgId) return false;
-  const client = getDbExec();
-  if (await isOrgMember(orgId, lower)) return true;
-  const invited = await client.execute({
-    sql: `SELECT 1 FROM org_invitations WHERE org_id = ? AND LOWER(email) = ? AND status = 'pending' LIMIT 1`,
-    args: [orgId, lower],
-  });
-  return invited.rows.length > 0;
 }
 
 async function needsExternalShareApproval(args: {
@@ -237,175 +177,32 @@ export default defineAction({
       ),
   }),
   needsApproval: needsExternalShareApproval,
-  run: async (args) => {
+  run: async (args, ctx) => {
+    assertWidgetShareWriteGrant(ctx, "share-resource", args);
     const reg = requireShareableResource(args.resourceType);
-    const access = await assertAccess(
+    const grant = await grantResourceAccess({
+      resourceType: args.resourceType,
+      resourceId: args.resourceId,
+      principalType: args.principalType,
+      principalId: args.principalId,
+      role: args.role,
+    });
+    const actor = getRequestUserEmail()!;
+    const { id, principalId, resource: accessResource } = grant;
+    await announceResourceAccessChange(
       args.resourceType,
       args.resourceId,
-      "admin",
+      grant.extensionTargetsBefore,
     );
-    const actor = getRequestUserEmail();
-    if (!actor) throw new ForbiddenError("Not signed in");
-    const principalId = normalizePrincipalId(
-      args.principalType,
-      args.principalId,
-    );
-    if (args.principalType === "group" && reg.supportsGroupShares !== true) {
-      throw new ForbiddenError(
-        `${reg.displayName} does not support organization groups yet.`,
-      );
-    }
-    if (args.principalType === "user" && !isEmailPrincipalId(principalId)) {
-      fail("User shares must use an email address, not an internal user id.", {
-        errorCode: "invalid_user_share_principal",
-      });
-    }
-    if (args.principalType === "group") {
-      const resourceOrgId = access.resource?.orgId as string | undefined | null;
-      if (!resourceOrgId) {
-        throw new ForbiddenError(
-          `${reg.displayName} can only be shared with a group from within an organization.`,
-        );
-      }
-      try {
-        await assertWorkspaceUserGroupIds([principalId], resourceOrgId);
-      } catch {
-        throw new ForbiddenError(
-          `${reg.displayName} can only be shared with a group from its own organization.`,
-        );
-      }
-    }
-    const beforeExtensionTargets = await getExtensionShareChangeTargets(
-      args.resourceType,
-      args.resourceId,
-    );
-
-    if (reg.requireOrgMemberForUserShares) {
-      const resourceOrgId = access.resource?.orgId as string | undefined | null;
-      if (!resourceOrgId) {
-        throw new ForbiddenError(
-          `${reg.displayName} can only be shared from within an organization. Create or join an organization first.`,
-        );
-      }
-      if (args.principalType === "user") {
-        const ok = await isOrgMemberOrInvited(resourceOrgId, principalId);
-        if (!ok) {
-          throw new ForbiddenError(
-            `${principalId} is not in your organization. Invite them to the organization first, then share.`,
-          );
-        }
-      } else if (args.principalType === "org") {
-        if (principalId !== resourceOrgId) {
-          throw new ForbiddenError(
-            `${reg.displayName} can only be shared with its own organization, not a different one.`,
-          );
-        }
-      } else if (args.principalType === "group") {
-        // Group ownership was validated above against the resource org.
-      }
-    }
-
-    const db = reg.getDb() as any;
-    const [existing] = await db
-      .select()
-      .from(reg.sharesTable)
-      .where(
-        and(
-          eq(reg.sharesTable.resourceId, args.resourceId),
-          eq(reg.sharesTable.principalType, args.principalType),
-          principalIdMatches(reg.sharesTable, args.principalType, principalId),
-        ),
-      );
-
-    if (existing) {
-      const [updated] = await db
-        .update(reg.sharesTable)
-        .set({ role: args.role })
-        .where(
-          and(
-            eq(reg.sharesTable.id, existing.id),
-            ne(reg.sharesTable.role, args.role),
-          ),
-        )
-        .returning({ id: reg.sharesTable.id });
-      invalidateCollabAccessCache(args.resourceType, args.resourceId);
-      await notifyExtensionShareChanged(
-        args.resourceType,
-        args.resourceId,
-        beforeExtensionTargets,
-      );
+    if (!grant.created) {
       return {
-        id: existing.id,
-        updated: Boolean(updated),
-        ...(updated
-          ? {
-              change: resourceSharingChange(
-                reg,
-                access.resource,
-                "updated",
-                `${args.principalType}:${principalId} · ${args.role}`,
-              ).change,
-            }
-          : {}),
-      };
-    }
-
-    const id = nanoid();
-    const [inserted] = await db
-      .insert(reg.sharesTable)
-      .values({
         id,
-        resourceId: args.resourceId,
-        principalType: args.principalType,
-        principalId,
-        role: args.role,
-        createdBy: actor,
-        createdAt: new Date().toISOString(),
-      })
-      .onConflictDoNothing()
-      .returning({ id: reg.sharesTable.id });
-    if (!inserted) {
-      const [existingAfterConflict] = await db
-        .select()
-        .from(reg.sharesTable)
-        .where(
-          and(
-            eq(reg.sharesTable.resourceId, args.resourceId),
-            eq(reg.sharesTable.principalType, args.principalType),
-            principalIdMatches(
-              reg.sharesTable,
-              args.principalType,
-              principalId,
-            ),
-          ),
-        );
-      if (!existingAfterConflict) {
-        throw new Error("Share conflict could not be resolved.");
-      }
-      const [updated] = await db
-        .update(reg.sharesTable)
-        .set({ role: args.role })
-        .where(
-          and(
-            eq(reg.sharesTable.id, existingAfterConflict.id),
-            ne(reg.sharesTable.role, args.role),
-          ),
-        )
-        .returning({ id: reg.sharesTable.id });
-      invalidateCollabAccessCache(args.resourceType, args.resourceId);
-      await notifyExtensionShareChanged(
-        args.resourceType,
-        args.resourceId,
-        beforeExtensionTargets,
-      );
-      return {
-        id: existingAfterConflict.id,
-        updated: Boolean(updated),
-        ...(updated
+        updated: grant.updated,
+        ...(grant.updated
           ? {
               change: resourceSharingChange(
                 reg,
-                access.resource,
+                accessResource,
                 "updated",
                 `${args.principalType}:${principalId} · ${args.role}`,
               ).change,
@@ -413,18 +210,12 @@ export default defineAction({
           : {}),
       };
     }
-    invalidateCollabAccessCache(args.resourceType, args.resourceId);
-    await notifyExtensionShareChanged(
-      args.resourceType,
-      args.resourceId,
-      beforeExtensionTargets,
-    );
+    const db = reg.getDb() as any;
 
     const shouldNotify =
       args.notify !== false &&
       args.principalType === "user" &&
-      (await isEmailConfigured()) &&
-      !isSyntheticQaEmail(principalId);
+      (await isEmailConfigured());
     let notified = false;
     if (shouldNotify) {
       try {
@@ -530,13 +321,13 @@ export default defineAction({
               url: notificationUrl,
             },
             role: args.role,
-            message: args.message,
+            message: widgetShareMessage(ctx, args.message),
             app: { name: brandName, logoUrl: brandLogoUrl },
             heroHtml,
             extras,
           },
         );
-        await sendEmail({
+        const sent = await sendEmail({
           to: principalId,
           subject,
           html,
@@ -545,7 +336,7 @@ export default defineAction({
           replyTo,
           templateId: CORE_RESOURCE_SHARED_EMAIL_ID,
         });
-        notified = true;
+        notified = sent.status === "sent";
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",
@@ -590,7 +381,7 @@ export default defineAction({
       updated: false,
       change: resourceSharingChange(
         reg,
-        access.resource,
+        accessResource,
         "created",
         `${args.principalType}:${principalId} · ${args.role}`,
       ).change,

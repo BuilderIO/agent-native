@@ -10,6 +10,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   checkpointSkippedResultField,
   snapshotDesignBeforeAgentEdit,
@@ -29,6 +30,10 @@ import {
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
+import {
+  assertDesignWidgetWriteScope,
+  designWidgetWriteDesignId,
+} from "./widget-write-scope.js";
 
 function logSaveConflictDebug(
   event: string,
@@ -76,12 +81,13 @@ export default defineAction({
         .string()
         .optional()
         .describe(
-          "Optional optimistic-concurrency guard for content updates: the " +
+          "Optimistic-concurrency guard for content updates: the " +
             "sourceContentHash of the live content this write was computed " +
             "from (same semantics as apply-source-edit / read-source-file). " +
             "When provided and the file changed since that read, the write " +
             "fails loud instead of silently merging a stale full document " +
-            "into the collaboration state.",
+            "into the collaboration state. Required for content updates from " +
+            "a scoped Design widget.",
         ),
       operationSource: z
         .string()
@@ -179,6 +185,7 @@ export default defineAction({
       throw new Error("Invalid filename: path traversal not allowed");
     }
 
+    const widgetDesignId = designWidgetWriteDesignId(context, "update-file");
     const db = getDb();
     const now = new Date().toISOString();
 
@@ -200,6 +207,9 @@ export default defineAction({
       .where(
         and(
           eq(schema.designFiles.id, id),
+          ...(widgetDesignId
+            ? [eq(schema.designFiles.designId, widgetDesignId)]
+            : []),
           accessFilter(schema.designs, schema.designShares),
         ),
       )
@@ -209,6 +219,13 @@ export default defineAction({
       // The row is gone or out of access scope — retry can't succeed.
       throw fileNotFound(id);
     }
+
+    assertDesignWidgetWriteScope(file.designId, context, {
+      actionName: "update-file",
+      content,
+      expectedVersionHash,
+      syncCollab,
+    });
 
     await assertAccess("design", file.designId, "editor");
     const checkpoint = await snapshotDesignBeforeAgentEdit(
@@ -244,6 +261,7 @@ export default defineAction({
       });
       return {
         id,
+        designId: file.designId,
         updated: true,
         versionHash: write.versionHash,
         ...checkpointField,
@@ -628,7 +646,9 @@ export default defineAction({
       await (content !== undefined
         ? withPreparedSourceFileMutation(
             id,
-            syncCollab ? "agent" : undefined,
+            syncCollab
+              ? context?.requestHeaders?.get("x-request-source") || "agent"
+              : undefined,
             runMutation,
           )
         : withSourceFileWriteLock(id, runMutation));
@@ -644,6 +664,7 @@ export default defineAction({
     if (skippedStaleMirror) {
       return {
         id,
+        designId: file.designId,
         updated: true,
         skippedStaleMirror: true,
         ...checkpointField,
@@ -652,6 +673,7 @@ export default defineAction({
     if (operationSource !== undefined && operationRevision !== undefined) {
       return {
         id,
+        designId: file.designId,
         updated: true,
         ...(skippedStaleOperation ? { skippedStaleOperation: true } : {}),
         versionHash: persistedVersionHash,
@@ -659,6 +681,8 @@ export default defineAction({
         ...checkpointField,
       };
     }
-    return { id, updated: true, ...checkpointField };
+    return { id, designId: file.designId, updated: true, ...checkpointField };
   },
+  changeResource: (_input, result) =>
+    designChangeResource(result.designId, result),
 });

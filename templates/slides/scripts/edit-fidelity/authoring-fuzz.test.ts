@@ -1,14 +1,766 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import {
   assertAuthoringPersistence,
   assertByteIdenticalHtml,
+  assertShortcutMarkupAdded,
   assertSlideIsScaled,
+  AUTHORING_FUZZ_STYLE_PROPERTIES,
+  authoringFuzzLineNavigationKeys,
+  authoringFuzzProfileIndex,
+  authoringFuzzUnavailableExitCode,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
+  formatAuthoringFuzzCleanupIssue,
+  formatAuthoringFuzzUnavailable,
+  findAuthoringFuzzScratchDeckId,
+  resolveAuthoringFuzzScratchDeck,
+  retryAuthoringFuzzScratchDeckLookup,
   formatAuthoringFuzzFailure,
+  isConflictResourceConsoleError,
+  isBrowserSessionPath,
+  isCaretScrollOnlyChange,
+  isExpectedSaveReloadBrowserSessionPollConsoleError,
+  isExpectedSaveReloadWatchedRequestAbort,
+  isExpectedSaveReloadWatchedRequestCorsConsoleError,
+  isExpectedCleanupBrowserSessionPollConsoleError,
+  isExpectedCleanupNavigationError,
+  isExpectedWatchedRequestCorsError,
+  lineNavigationKeys,
+  outsideAuthoringChangesFor,
   runAuthoringFuzz,
 } from "./authoring-fuzz.ts";
+import type { Snapshot } from "./lib/in-page.ts";
+import {
+  canReuseAuthoringFuzzCleanupPage,
+  ActionHttpError,
+  ActionRequestTimeoutError,
+  ActionTransportError,
+  CouldNotRun,
+  getHarnessUnavailableError,
+  isPlaywrightTimeoutFailure,
+  isPlaywrightTargetTransportFailure,
+  rethrowIfHarnessUnavailable,
+  runSetupActionAsCouldNotRun,
+  runSetupAsCouldNotRun,
+  shouldLookUpAuthoringFuzzScratchDeck,
+  shouldUseFreshBrowserPageForCleanup,
+  withTimeout,
+} from "./run-outcomes.ts";
+
+it("keeps authoring page setup errors out of seed regression results", async () => {
+  const browserError = new Error("Target crashed");
+  let caught: unknown;
+
+  try {
+    await runSetupAsCouldNotRun(
+      "could not create authoring fuzz page",
+      async () => {
+        throw browserError;
+      },
+    );
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught).toBeInstanceOf(CouldNotRun);
+  expect(caught).toMatchObject({
+    message: "could not create authoring fuzz page: Error: Target crashed",
+  });
+  expect(() => rethrowIfHarnessUnavailable(caught)).toThrow(caught);
+
+  const setupError = new CouldNotRun("sign-in request timed out");
+  await expect(
+    runSetupAsCouldNotRun("could not create authoring fuzz page", async () => {
+      throw setupError;
+    }),
+  ).rejects.toBe(setupError);
+});
+
+it("classifies fuzz action transport failures as could-not-run", () => {
+  const transportFailure = new ActionTransportError(
+    "get-slide-content request failed",
+  );
+  expect(getHarnessUnavailableError(transportFailure)).toMatchObject({
+    message:
+      "authoring action transport failed: Error: get-slide-content request failed",
+  });
+
+  let caught: unknown;
+  try {
+    rethrowIfHarnessUnavailable(transportFailure);
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught).toBeInstanceOf(CouldNotRun);
+  expect(caught).toMatchObject({
+    message:
+      "authoring action transport failed: Error: get-slide-content request failed",
+  });
+  expect(() =>
+    rethrowIfHarnessUnavailable(
+      new Error("get-slide-content returned HTTP 500"),
+    ),
+  ).not.toThrow();
+  expect(
+    getHarnessUnavailableError(
+      new Error("get-slide-content returned HTTP 500"),
+    ),
+  ).toBeNull();
+});
+
+it("keeps authoring action and canvas timeouts as seed failures", () => {
+  const actionTimeout = new ActionRequestTimeoutError(
+    "patch-deck request timed out after 30000ms",
+  );
+  expect(getHarnessUnavailableError(actionTimeout)).toBeNull();
+  expect(() => rethrowIfHarnessUnavailable(actionTimeout)).not.toThrow();
+
+  const canvasTimeout = Object.assign(
+    new Error("Timeout 45000ms exceeded while waiting for slide canvas"),
+    { name: "TimeoutError" },
+  );
+  expect(isPlaywrightTimeoutFailure(canvasTimeout)).toBe(true);
+  expect(getHarnessUnavailableError(canvasTimeout)).toBeNull();
+});
+
+it("preserves earlier authoring regressions when the harness becomes unavailable", () => {
+  expect(formatAuthoringFuzzUnavailable("browser transport failed", [])).toBe(
+    "browser transport failed",
+  );
+  expect(
+    formatAuthoringFuzzUnavailable("browser transport failed", [
+      "seed 1: caret moved",
+      "seed 2: saved HTML did not match",
+    ]),
+  ).toBe(
+    "browser transport failed\n" +
+      "Earlier authoring regression(s) before the harness became unavailable (2):\n" +
+      "- seed 1: caret moved\n" +
+      "- seed 2: saved HTML did not match",
+  );
+});
+
+it("keeps cleanup issues separate from earlier regressions", () => {
+  expect(
+    formatAuthoringFuzzUnavailable(
+      "browser transport failed",
+      ["seed 1: caret moved"],
+      ["seed 2: scratch deck cleanup failed (HTTP 500)"],
+    ),
+  ).toBe(
+    "browser transport failed\n" +
+      "Earlier authoring regression(s) before the harness became unavailable (1):\n" +
+      "- seed 1: caret moved\n" +
+      "Authoring fuzz cleanup issue(s) (1):\n" +
+      "- seed 2: scratch deck cleanup failed (HTTP 500)",
+  );
+});
+
+it("classifies raw Playwright target failures as could-not-run", () => {
+  const targetError = new Error(
+    "Protocol error (Runtime.callFunctionOn): Target closed",
+  );
+  let caught: unknown;
+  try {
+    rethrowIfHarnessUnavailable(targetError);
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught).toBeInstanceOf(CouldNotRun);
+  expect(caught).toMatchObject({
+    message: `Playwright target transport failed: ${String(targetError)}`,
+  });
+  expect(() =>
+    rethrowIfHarnessUnavailable(new Error("canvas not found")),
+  ).not.toThrow();
+  expect(() =>
+    rethrowIfHarnessUnavailable(new Error("Timeout 45000ms exceeded")),
+  ).not.toThrow();
+});
+
+it("recognizes Playwright selector timeouts without treating app errors as setup failures", () => {
+  expect(
+    isPlaywrightTimeoutFailure(new Error("Timeout 45000ms exceeded")),
+  ).toBe(true);
+  expect(
+    isPlaywrightTimeoutFailure(
+      Object.assign(new Error("waiting for selector"), {
+        name: "TimeoutError",
+      }),
+    ),
+  ).toBe(true);
+  expect(
+    isPlaywrightTimeoutFailure(
+      new Error("create-deck request timed out after 30000ms"),
+    ),
+  ).toBe(false);
+});
+
+it("classifies authoring sign-in transport failures as setup errors", async () => {
+  await expect(
+    runSetupAsCouldNotRun("could not sign in authoring fuzz page", async () => {
+      throw new TypeError("Failed to fetch");
+    }),
+  ).rejects.toMatchObject({
+    message:
+      "could not sign in authoring fuzz page: TypeError: Failed to fetch",
+  });
+});
+
+it("classifies authoring action transport failures without masking HTTP errors", async () => {
+  const setupFailure = await runSetupActionAsCouldNotRun(
+    "could not create authoring fuzz deck",
+    async () => {
+      throw new ActionTransportError(
+        "create-deck request transport failure: Failed to fetch",
+      );
+    },
+  ).catch((error) => error);
+  expect(setupFailure).toBeInstanceOf(CouldNotRun);
+  expect(setupFailure).toMatchObject({
+    message:
+      "could not create authoring fuzz deck: Error: create-deck request transport failure: Failed to fetch",
+  });
+
+  const setupTimeout = new ActionRequestTimeoutError(
+    "create-deck request timed out after 30000ms",
+  );
+  await expect(
+    runSetupActionAsCouldNotRun(
+      "could not create authoring fuzz deck",
+      async () => {
+        throw setupTimeout;
+      },
+    ),
+  ).rejects.toBe(setupTimeout);
+
+  const applicationError = new Error("create-deck returned HTTP 500");
+  await expect(
+    runSetupActionAsCouldNotRun(
+      "could not create authoring fuzz deck",
+      async () => {
+        throw applicationError;
+      },
+    ),
+  ).rejects.toBe(applicationError);
+
+  const unexpectedError = new Error("unexpected action failure");
+  await expect(
+    runSetupActionAsCouldNotRun(
+      "could not create authoring fuzz deck",
+      async () => {
+        throw unexpectedError;
+      },
+    ),
+  ).rejects.toBe(unexpectedError);
+});
+
+it("recognizes Playwright target transport failures only", () => {
+  expect(
+    isPlaywrightTargetTransportFailure(
+      new Error(
+        "Execution context was destroyed, most likely because of a navigation",
+      ),
+    ),
+  ).toBe(true);
+  expect(
+    isPlaywrightTargetTransportFailure(
+      new Error("Protocol error (Runtime.callFunctionOn): Target closed"),
+    ),
+  ).toBe(true);
+  expect(
+    isPlaywrightTargetTransportFailure(
+      new Error("create-deck returned HTTP 500"),
+    ),
+  ).toBe(false);
+  expect(
+    isPlaywrightTargetTransportFailure(new Error("canvas not found")),
+  ).toBe(false);
+  expect(
+    isPlaywrightTargetTransportFailure(
+      new Error("Target page, context or browser has been closed"),
+    ),
+  ).toBe(true);
+  expect(isPlaywrightTargetTransportFailure(new Error("Target crashed"))).toBe(
+    true,
+  );
+  expect(isPlaywrightTargetTransportFailure(new Error("Page crashed"))).toBe(
+    true,
+  );
+  expect(
+    isPlaywrightTargetTransportFailure(
+      new Error("Navigation failed because page crashed!"),
+    ),
+  ).toBe(true);
+  expect(
+    isPlaywrightTargetTransportFailure(new Error("Timeout 45000ms exceeded")),
+  ).toBe(false);
+});
+
+it("uses a fresh browser page only after the cleanup target is unavailable", () => {
+  expect(
+    shouldUseFreshBrowserPageForCleanup(new Error("Target crashed"), false),
+  ).toBe(true);
+  expect(
+    shouldUseFreshBrowserPageForCleanup(new Error("ordinary app error"), true),
+  ).toBe(true);
+  expect(
+    shouldUseFreshBrowserPageForCleanup(
+      new Error("get-slide-content returned HTTP 500"),
+      false,
+    ),
+  ).toBe(false);
+});
+
+it("does not reuse closed or crashed authoring cleanup pages", () => {
+  expect(canReuseAuthoringFuzzCleanupPage(false, false)).toBe(true);
+  expect(canReuseAuthoringFuzzCleanupPage(true, false)).toBe(false);
+  expect(canReuseAuthoringFuzzCleanupPage(false, true)).toBe(false);
+});
+
+it("only retries scratch-deck lookup when a create failure could have committed", () => {
+  expect(shouldLookUpAuthoringFuzzScratchDeck(false, null, null)).toBe(false);
+  expect(shouldLookUpAuthoringFuzzScratchDeck(true, "deck-1", null)).toBe(
+    false,
+  );
+  expect(
+    shouldLookUpAuthoringFuzzScratchDeck(
+      true,
+      null,
+      new ActionHttpError("create-deck", 422),
+    ),
+  ).toBe(false);
+  expect(
+    shouldLookUpAuthoringFuzzScratchDeck(
+      true,
+      null,
+      new ActionHttpError("create-deck", 500),
+    ),
+  ).toBe(true);
+  expect(
+    shouldLookUpAuthoringFuzzScratchDeck(
+      true,
+      null,
+      new ActionRequestTimeoutError("create-deck request timed out"),
+    ),
+  ).toBe(true);
+  expect(
+    shouldLookUpAuthoringFuzzScratchDeck(
+      true,
+      null,
+      new ActionTransportError("create-deck transport failure"),
+    ),
+  ).toBe(true);
+});
+
+it("bounds failure diagnostics when a browser evaluation never resolves", async () => {
+  vi.useFakeTimers();
+  try {
+    const diagnostics = withTimeout(
+      "authoring diagnostics",
+      10,
+      new Promise<never>(() => {}),
+    );
+    const rejected = expect(diagnostics).rejects.toThrow(
+      "authoring diagnostics timed out after 10ms",
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("requires a markdown shortcut to add its result markup", () => {
+  expect(() => assertShortcutMarkupAdded("bullet", 0, 1)).not.toThrow();
+  expect(() => assertShortcutMarkupAdded("bullet", 1, 1)).toThrow(
+    "markdown shortcut did not produce bullet",
+  );
+});
+
+it("recovers only the exact authoring fuzz scratch deck", () => {
+  const title = "[edit-fidelity] authoring fuzz 1 unique-run-id";
+  expect(
+    findAuthoringFuzzScratchDeckId(
+      [
+        { id: "older", title: `${title} retry` },
+        { id: "scratch", title },
+      ],
+      title,
+    ),
+  ).toBe("scratch");
+  expect(
+    findAuthoringFuzzScratchDeckId(
+      [{ id: "older", title: `${title} retry` }],
+      title,
+    ),
+  ).toBeNull();
+});
+
+it("distinguishes an absent deck list from a missing scratch deck", () => {
+  const title = "[edit-fidelity] authoring fuzz 1 unique-run-id";
+  expect(
+    resolveAuthoringFuzzScratchDeck(
+      { decks: [{ id: "scratch", title }] },
+      title,
+    ),
+  ).toEqual({
+    status: "found",
+    deckId: "scratch",
+  });
+  expect(resolveAuthoringFuzzScratchDeck({ decks: [] }, title)).toEqual({
+    status: "not-found",
+  });
+  expect(resolveAuthoringFuzzScratchDeck({}, title)).toEqual({
+    status: "missing-decks",
+  });
+});
+
+it("retries an ambiguous scratch-deck lookup until the created deck appears", async () => {
+  const title = "[edit-fidelity] authoring fuzz 1 unique-run-id";
+  let lookups = 0;
+  let waits = 0;
+  let now = 0;
+
+  const recovery = await retryAuthoringFuzzScratchDeckLookup(
+    async () => {
+      lookups += 1;
+      if (lookups === 1) return { decks: [] };
+      if (lookups === 2) throw new Error("list-decks transport failure");
+      return { decks: [{ id: "scratch", title }] };
+    },
+    title,
+    {
+      now: () => now,
+      intervalMs: 5_000,
+      wait: async (ms) => {
+        waits += 1;
+        now += ms;
+      },
+    },
+  );
+
+  expect(recovery).toEqual({ status: "found", deckId: "scratch" });
+  expect(lookups).toBe(3);
+  expect(waits).toBe(2);
+});
+
+it("bounds scratch-deck recovery for the full late-create window", async () => {
+  let lookups = 0;
+  let waits = 0;
+  let now = 0;
+
+  const recovery = await retryAuthoringFuzzScratchDeckLookup(
+    async () => {
+      lookups += 1;
+      return { decks: [] };
+    },
+    "missing scratch deck",
+    {
+      intervalMs: 5_000,
+      now: () => now,
+      wait: async (ms) => {
+        waits += 1;
+        now += ms;
+      },
+    },
+  );
+
+  expect(recovery).toEqual({ status: "not-found" });
+  expect(lookups).toBe(12);
+  expect(waits).toBe(12);
+});
+
+it("preserves a final scratch-deck lookup error after a missing result", async () => {
+  const failure = new Error("list-decks request timed out");
+  let lookups = 0;
+  let now = 0;
+
+  await expect(
+    retryAuthoringFuzzScratchDeckLookup(
+      async () => {
+        lookups += 1;
+        if (lookups === 1) return { decks: [] };
+        throw failure;
+      },
+      "missing scratch deck",
+      {
+        windowMs: 10_000,
+        intervalMs: 5_000,
+        now: () => now,
+        wait: async (ms) => {
+          now += ms;
+        },
+      },
+    ),
+  ).rejects.toBe(failure);
+  expect(lookups).toBe(2);
+});
+
+it("keeps the cleanup action and scratch deck id in failure diagnostics", () => {
+  expect(
+    formatAuthoringFuzzCleanupIssue(
+      "could not delete scratch deck",
+      "deck-123",
+      new Error("Target closed"),
+    ),
+  ).toBe(
+    "could not delete scratch deck [deckId=deck-123]: Error: Target closed",
+  );
+  expect(
+    formatAuthoringFuzzCleanupIssue(
+      "could not look up scratch deck",
+      null,
+      new Error("Target closed"),
+    ),
+  ).toBe(
+    "could not look up scratch deck [deckId=unknown]: Error: Target closed",
+  );
+});
+
+it("recognizes resource conflicts with or without browser status text", () => {
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 409 ()",
+    ),
+  ).toBe(true);
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 409 (Conflict)",
+    ),
+  ).toBe(true);
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 404 ()",
+    ),
+  ).toBe(false);
+  expect(
+    isConflictResourceConsoleError(
+      "Failed to load resource: the server responded with a status of 503 ()",
+    ),
+  ).toBe(false);
+});
+
+const authoringSnapshot = (
+  y: number,
+  color: string,
+  props: Record<string, string> = {},
+): Snapshot => ({
+  records: [
+    {
+      key: "box:div#0",
+      kind: "box",
+      inside: false,
+      props: { color, ...props },
+      rect: { x: 0, y, width: 100, height: 80 },
+    },
+  ],
+  inventory: { elements: 1, visible: 1, hidden: 0, svg: 0, img: 0, style: 0 },
+  text: "",
+  editedRect: null,
+  editedBoxRect: null,
+  editedText: null,
+});
+
+const protectedMarkerSnapshot = (
+  className: string,
+  inlineStyle: string,
+  props: Record<string, string>,
+  protectedStructure = false,
+): Snapshot => ({
+  ...authoringSnapshot(64, "rgb(0, 0, 0)"),
+  records: [
+    {
+      key: "box:span#0",
+      kind: "box",
+      inside: true,
+      protectedStyle: true,
+      ...(protectedStructure ? { protectedStructure: true } : {}),
+      className,
+      inlineStyle,
+      props,
+      rect: { x: 0, y: 0, width: 12, height: 12 },
+    },
+  ],
+});
+
+it("gates outside style changes and unmodeled geometry changes", () => {
+  const movement = outsideAuthoringChangesFor(
+    authoringSnapshot(64, "rgb(0, 0, 0)"),
+    authoringSnapshot(-456, "rgb(0, 0, 0)"),
+  );
+  expect(movement).toHaveLength(1);
+  expect(movement[0]).toMatchObject({ prop: "y", inside: false });
+  expect(
+    outsideAuthoringChangesFor(
+      authoringSnapshot(64, "rgb(0, 0, 0)"),
+      authoringSnapshot(64, "rgb(255, 0, 0)"),
+    ),
+  ).toHaveLength(1);
+});
+
+it("tracks computed style properties beyond typography and box paint", () => {
+  expect(AUTHORING_FUZZ_STYLE_PROPERTIES).toEqual(
+    expect.arrayContaining([
+      "filter",
+      "position",
+      "text-decoration-color",
+      "text-decoration-style",
+      "text-underline-offset",
+      "transform",
+      "vertical-align",
+    ]),
+  );
+});
+
+it("gates styled bullet marker restyles inside the edited row", () => {
+  const changes = outsideAuthoringChangesFor(
+    protectedMarkerSnapshot("marker", "color: red", {
+      color: "rgb(255, 0, 0)",
+    }),
+    protectedMarkerSnapshot("marker-changed", "color: blue", {
+      color: "rgb(0, 0, 255)",
+    }),
+  );
+
+  expect(
+    changes.flatMap((change) =>
+      "prop" in change ? [{ prop: change.prop, inside: change.inside }] : [],
+    ),
+  ).toEqual(
+    expect.arrayContaining([
+      { prop: "class", inside: false },
+      { prop: "style", inside: false },
+      { prop: "color", inside: false },
+    ]),
+  );
+});
+
+it("gates removal or replacement of a marker the edit must preserve", () => {
+  const marker = protectedMarkerSnapshot(
+    "marker",
+    "color: red",
+    { color: "rgb(255, 0, 0)" },
+    true,
+  );
+  const empty = { ...protectedMarkerSnapshot("", "", {}), records: [] };
+
+  expect(outsideAuthoringChangesFor(marker, empty)).toHaveLength(1);
+  expect(outsideAuthoringChangesFor(empty, marker)).toHaveLength(1);
+});
+
+it("allows a block conversion to remove a marker when the row may change", () => {
+  const marker = protectedMarkerSnapshot("marker", "color: red", {
+    color: "rgb(255, 0, 0)",
+  });
+  const empty = { ...protectedMarkerSnapshot("", "", {}), records: [] };
+
+  expect(outsideAuthoringChangesFor(marker, empty)).toHaveLength(0);
+});
+
+it("ignores one CSS pixel-quantization step in anchored position styles", () => {
+  const before = authoringSnapshot(64, "rgb(0, 0, 0)", {
+    top: "386.938px",
+    "transform-origin": "135px 74.875px",
+    transform: "matrix(1, 0, 0, 1, 0, -74.875)",
+  });
+  const after = authoringSnapshot(64, "rgb(0, 0, 0)", {
+    top: "386.922px",
+    "transform-origin": "135px 74.883px",
+    transform: "matrix(1, 0, 0, 1, 0, -74.883)",
+  });
+
+  expect(outsideAuthoringChangesFor(before, after)).toHaveLength(0);
+  expect(
+    outsideAuthoringChangesFor(
+      before,
+      authoringSnapshot(64, "rgb(0, 0, 0)", {
+        top: "386.8125px",
+        "transform-origin": "135px 74.875px",
+        transform: "matrix(1, 0, 0, 1, 0, -74.875)",
+      }),
+    ),
+  ).toHaveLength(1);
+});
+
+it.each(["transform", "filter", "position", "--fmd-fit-scale"])(
+  "gates outside computed-style changes to %s",
+  (property) => {
+    const before = authoringSnapshot(64, "rgb(0, 0, 0)", {
+      [property]: "before",
+    });
+    const after = authoringSnapshot(64, "rgb(0, 0, 0)", {
+      [property]: "after",
+    });
+
+    expect(outsideAuthoringChangesFor(before, after)).toContainEqual(
+      expect.objectContaining({ prop: property, inside: false }),
+    );
+  },
+);
+
+it("allows only the matching native caret scroll in an overflowing slide", () => {
+  const change = [
+    {
+      key: "box:div.fmd-autofit-scale#0",
+      prop: "y",
+      a: "64",
+      b: "-300",
+    },
+  ];
+  const options = {
+    scrollDelta: 364,
+    contentGrew: true,
+    containerOverflows: true,
+    containerStationary: true,
+    fitPositionStylesUnchanged: true,
+    fitSizeUnchanged: true,
+  };
+  expect(isCaretScrollOnlyChange(change, options)).toBe(true);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, scrollDelta: 362 }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange([{ ...change[0], b: "-118" }], {
+      ...options,
+      scrollDelta: 182,
+    }),
+  ).toBe(true);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, contentGrew: false }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      containerOverflows: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      containerStationary: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, {
+      ...options,
+      fitPositionStylesUnchanged: false,
+    }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(change, { ...options, fitSizeUnchanged: false }),
+  ).toBe(false);
+  expect(
+    isCaretScrollOnlyChange(
+      [...change, { key: "box:p#0", prop: "y", a: "0", b: "1" }],
+      options,
+    ),
+  ).toBe(false);
+});
 
 function pageAtScale(scale: number) {
   const element = {
@@ -40,7 +792,7 @@ it("requires corpus authoring output to be changed, saved, and reloaded", () => 
       savedHtml: "source",
       reloadedHtml: "source",
     }),
-  ).toThrow("saved HTML differed from the post-edit live slide");
+  ).toThrow("authoring flow did not change the persisted slide HTML");
   expect(() =>
     assertAuthoringPersistence({
       originalHtml: "source",
@@ -56,15 +808,17 @@ it("requires corpus authoring output to be changed, saved, and reloaded", () => 
       savedHtml: "edited",
       reloadedHtml: "source",
     }),
-  ).toThrow("reloaded slide HTML differed from the saved HTML");
+  ).toThrow("reloaded slide HTML differed from the post-edit live slide");
   expect(() =>
     assertAuthoringPersistence({
       originalHtml: "source",
-      liveHtml: '<p class="a b">edited</p>',
-      savedHtml: '<p class="b a">edited</p>',
-      reloadedHtml: '<p class="b a">edited</p>',
+      liveHtml:
+        '<a href="https://example.com" rel="noopener noreferrer" target="_blank">edited</a>',
+      savedHtml: '<a href="https://example.com">edited</a>',
+      reloadedHtml:
+        '<a href="https://example.com" rel="noopener noreferrer" target="_blank">edited</a>',
     }),
-  ).toThrow("saved HTML differed from the post-edit live slide");
+  ).not.toThrow();
 });
 
 it("canonicalizes every rendered and stored persistence snapshot", async () => {
@@ -138,11 +892,592 @@ it("creates reproducible authoring plans with full command coverage", () => {
   ]);
   expect(first.slice(26, 61).map((step) => step.kind)).toContain("paste-rich");
   expect(first.map((step) => step.kind)).toContain("quote-exit");
+  expect(first.map((step) => step.kind)).toContain("backspace-block-edge");
+  expect(first.map((step) => step.kind)).toContain("delete-block-edge");
+  const slashPosition = first.findIndex(
+    (step) => step.kind === "slash-position",
+  );
+  expect(slashPosition).toBeGreaterThanOrEqual(0);
+  expect(
+    first.slice(slashPosition, slashPosition + 3).map((step) => step.kind),
+  ).toEqual(["slash-position", "slash-outside", "shortcut-undo"]);
   expect(first.map((step) => step.kind)).toContain("copy-inline");
   expect(() =>
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),
   ).toThrow("safe integer");
   expect(() => createAuthoringFuzzPlan(42, 0)).toThrow("positive integer");
+});
+
+it("runs vertical caret fidelity in the committed absolute profile", () => {
+  expect(createAuthoringFuzzPlan(2, 1)).toEqual([
+    { kind: "vertical-navigation" },
+  ]);
+});
+
+it("ends each fuzz plan with an edit after undo and redo operations", () => {
+  for (const steps of [51, 52, 61, 500]) {
+    for (const seed of [1, 42, 1337]) {
+      expect(["undo", "redo", "shortcut-undo", "slash-undo"]).not.toContain(
+        createAuthoringFuzzPlan(seed, steps).at(-1)?.kind,
+      );
+    }
+  }
+});
+
+it.each([
+  ["darwin", "Meta+ArrowLeft", "Meta+ArrowRight"],
+  ["linux", "Home", "End"],
+  ["win32", "Home", "End"],
+])("uses platform line navigation keys on %s", (platform, start, end) => {
+  expect(lineNavigationKeys(platform)).toEqual({ start, end });
+});
+
+it("uses the caller's line navigation keys for fuzz operations", () => {
+  const macKeys = lineNavigationKeys("darwin");
+  expect(authoringFuzzLineNavigationKeys("linux", macKeys)).toEqual(macKeys);
+  expect(authoringFuzzLineNavigationKeys("linux")).toEqual(
+    lineNavigationKeys("linux"),
+  );
+});
+
+it("captures failed browser-session registration and subroute requests", () => {
+  expect(isBrowserSessionPath("/_agent-native/browser-sessions")).toBe(true);
+  expect(
+    isBrowserSessionPath("/_agent-native/browser-sessions/abc/claim"),
+  ).toBe(true);
+  expect(isBrowserSessionPath("/_agent-native/browser-sessions-extra")).toBe(
+    false,
+  );
+  expect(isBrowserSessionPath("/_agent-native/actions/patch-deck")).toBe(false);
+});
+
+it("ignores registration aborts only when reload navigation cancels an in-flight request", () => {
+  for (const errorText of [
+    "Load request cancelled",
+    "cancelled",
+    "NS_BINDING_ABORTED",
+    "net::ERR_ABORTED",
+  ]) {
+    expect(
+      isExpectedSaveReloadWatchedRequestAbort(
+        "/_agent-native/browser-sessions",
+        errorText,
+        "save/reload",
+        "POST",
+        true,
+        100,
+      ),
+    ).toBe(true);
+  }
+
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      9_000,
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "GET",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions",
+      "Failed to fetch",
+      "save/reload",
+      "POST",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions",
+      "NS_BINDING_ABORTED",
+      "step 12",
+      "POST",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/heartbeat",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+    ),
+  ).toBe(false);
+});
+
+it("ignores only known aborts for requests pending at reload navigation", () => {
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/actions/get-lab-states",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      undefined,
+      true,
+      100,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      undefined,
+      true,
+      100,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/claim",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "save/reload",
+      "POST",
+      true,
+      100,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      100,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "cancelled",
+      "save/reload",
+      "POST",
+      true,
+      100,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "net::ERR_ABORTED",
+      "save/reload",
+      "POST",
+      true,
+      100,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "step 12",
+      "POST",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim-extra",
+      "Load request cancelled",
+      "save/reload",
+      "POST",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
+      "Load request cancelled",
+      "save/reload",
+      "GET",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/actions/get-lab-states",
+      "NS_BINDING_ABORTED",
+      "step 12",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/actions/get-lab-states-extra",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/actions/get-lab-states",
+      "NS_BINDING_ABORTED",
+      "save/reload",
+      undefined,
+      true,
+      100,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "save/reload",
+      undefined,
+      true,
+      100,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/actions/get-deck-access-status",
+      "net::ERR_ABORTED",
+      "step 12",
+    ),
+  ).toBe(false);
+  for (const requestAgeMs of [9_000, 10_000]) {
+    expect(
+      isExpectedSaveReloadWatchedRequestAbort(
+        "/_agent-native/browser-sessions/session-id/requests/claim",
+        "Load request cancelled",
+        "save/reload",
+        "POST",
+        true,
+        requestAgeMs,
+      ),
+    ).toBe(false);
+  }
+});
+
+it("ignores only WebKit CORS console errors for requests canceled by reload", () => {
+  const url =
+    "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim";
+  const message = `Fetch API cannot load ${url} due to access control checks.`;
+  const candidate = {
+    url,
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtReloadNavigation: true,
+  };
+
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      candidate,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `${message}\n    at fetch (native)`,
+      "save/reload",
+      [candidate],
+    ),
+  ).toBe(true);
+  const actionUrl =
+    "http://localhost:45715/_agent-native/actions/get-lab-states";
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${actionUrl} due to access control checks.\n    at fetch (native)`,
+      "save/reload",
+      [
+        {
+          url: actionUrl,
+          pathname: "/_agent-native/actions/get-lab-states",
+          method: "POST",
+          ageMs: 100,
+          requestWasPendingAtReloadNavigation: true,
+        },
+      ],
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "step 12", [
+      candidate,
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${url} because of a CORS error.`,
+      "save/reload",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      {
+        ...candidate,
+        url: `${url}-extra`,
+        pathname: `${candidate.pathname}-extra`,
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      { ...candidate, method: "GET" },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      { ...candidate, requestWasPendingAtReloadNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      {
+        url,
+        pathname: candidate.pathname,
+        method: "POST",
+        ageMs: 100,
+      },
+    ]),
+  ).toBe(false);
+});
+
+it("ignores only an in-flight browser-session claim canceled by cleanup navigation", () => {
+  const url =
+    "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim";
+  const message = `Fetch API cannot load ${url} due to access control checks.`;
+  const candidate = {
+    url,
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      candidate,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "step 12", [candidate]),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      message,
+      "cleanup/navigation",
+      [
+        {
+          ...candidate,
+          requestWasPendingAtReloadNavigation: true,
+        },
+      ],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/actions/get-deck-access-status due to access control checks.",
+      "cleanup/navigation",
+      [
+        {
+          url: "http://localhost:45715/_agent-native/actions/get-deck-access-status",
+          pathname: "/_agent-native/actions/get-deck-access-status",
+          method: "GET",
+          ageMs: 100,
+          requestWasPendingAtNavigation: true,
+        },
+      ],
+    ),
+  ).toBe(false);
+});
+
+it("ignores the browser-session poll warning only for a canceled cleanup claim", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+  const warning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [candidate]),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      { ...candidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      { ...candidate, ageMs: 9_000 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      {
+        ...candidate,
+        pathname: "/_agent-native/browser-sessions/session-id/requests/other",
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError("another poll error", [
+      candidate,
+    ]),
+  ).toBe(false);
+});
+
+it("ignores the browser-session poll warning only for a recent claim canceled by save/reload navigation", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 8_999,
+    requestWasPendingAtNavigation: true,
+  };
+  const warning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      candidate,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(
+      warning,
+      "cleanup/navigation",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "step 79", [
+      candidate,
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      { ...candidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      { ...candidate, ageMs: 9_000 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      { ...candidate, ageMs: -1 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      { ...candidate, method: "GET" },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      {
+        ...candidate,
+        pathname: "/_agent-native/browser-sessions/session-id/requests/other",
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(
+      "another poll error",
+      "save/reload",
+      [candidate],
+    ),
+  ).toBe(false);
+});
+
+it("accepts cleanup request cancellations only while navigation is pending", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+  const message = `Fetch API cannot load ${candidate.url} due to access control checks.`;
+
+  expect(isExpectedCleanupNavigationError(message, [candidate], true)).toBe(
+    true,
+  );
+  expect(isExpectedCleanupNavigationError(message, [candidate], false)).toBe(
+    false,
+  );
+  expect(
+    isExpectedCleanupNavigationError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [candidate],
+      false,
+    ),
+  ).toBe(false);
+});
+
+it("does not hide aged browser-session registration CORS errors", () => {
+  const url = "http://localhost:45715/_agent-native/browser-sessions";
+  const message = `Fetch API cannot load ${url} due to access control checks.`;
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      {
+        url,
+        pathname: "/_agent-native/browser-sessions",
+        method: "POST",
+        ageMs: 9_000,
+        requestWasPendingAtReloadNavigation: true,
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
+      {
+        url,
+        pathname: "/_agent-native/browser-sessions",
+        method: "POST",
+        ageMs: 10_000,
+        requestWasPendingAtReloadNavigation: true,
+      },
+    ]),
+  ).toBe(false);
+});
+
+it("keeps a prior authoring regression's failure exit when a later seed cannot run", () => {
+  expect(authoringFuzzUnavailableExitCode(0)).toBe(2);
+  expect(authoringFuzzUnavailableExitCode(1)).toBe(1);
+});
+
+it("maps absolute seeds to stable synthetic and committed layout profiles", () => {
+  expect([0, 1, 3, 5, 7, 9, 11, 13].map(authoringFuzzProfileIndex)).toEqual(
+    Array(8).fill(null),
+  );
+  expect([2, 4, 6, 8, 10, 12, 14].map(authoringFuzzProfileIndex)).toEqual([
+    0, 1, 2, 3, 4, 5, 0,
+  ]);
+  expect(() => authoringFuzzProfileIndex(-1)).toThrow(
+    "non-negative safe integer",
+  );
 });
 
 it("requires the scaled profile to render below 0.99 after viewport setup", async () => {
@@ -164,6 +1499,7 @@ it("checks the rendered slide scale when the scaled profile is requested", async
   const page = {
     on: () => {},
     off: () => {},
+    evaluate: async () => {},
     locator: (selector: string) =>
       selector === "#editor"
         ? { waitFor: async () => {} }
@@ -204,6 +1540,7 @@ it("prints a bounded failure excerpt with a deterministic seed and replay step c
     "step 499",
     plan,
     "caret left the editor",
+    "firefox",
   );
   const logHeader = failure.message.indexOf("Failure log:");
   const jsonStart = failure.message.indexOf("\n", logHeader) + 1;
@@ -213,6 +1550,7 @@ it("prints a bounded failure excerpt with a deterministic seed and replay step c
   }>;
 
   expect(failure.message).toContain("--authoring-fuzz --seed 42 --steps 500");
+  expect(failure.message).toContain("--browser firefox");
   expect(failure.message).toContain(
     "Failure log: steps 480-499 of 500 replay steps",
   );

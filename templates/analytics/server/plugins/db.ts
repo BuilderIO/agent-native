@@ -14,6 +14,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
+import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -31,7 +32,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v75-v83 incident documented on v75 below.
-const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
+const ANALYTICS_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
 
 function getAnalyticsMigrationDatabaseUrl(): string {
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
@@ -53,41 +54,68 @@ async function ensureAnalyticsDashboardCreatedByColumn(): Promise<void> {
   return;
 }
 
-async function repairAnalyticsEventCursorIndexes(): Promise<
-  void | typeof MIGRATION_DEFERRED
-> {
-  const repairIndexes = [
-    {
-      name: "analytics_events_org_received_id_non_http_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
-        ON analytics_events (org_id, received_at, id)
-        WHERE event_name IS DISTINCT FROM 'http.response'`,
-    },
-    {
-      name: "analytics_events_owner_received_id_non_http_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
-        ON analytics_events (owner_email, received_at, id)
-        WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
-    },
-    {
-      name: "analytics_event_daily_rollups_org_event_date_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_event_daily_rollups_org_event_date_idx
-        ON analytics_event_daily_rollups (org_id, event_date)`,
-    },
-    {
-      name: "analytics_user_days_org_event_date_idx",
-      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_user_days_org_event_date_idx
-        ON analytics_user_days (org_id, event_date)`,
-    },
-  ];
+type AnalyticsIndexRepair = { name: string; createSql: string };
 
+const ANALYTICS_INDEX_REPAIRS: AnalyticsIndexRepair[] = [
+  {
+    name: "analytics_events_org_received_id_non_http_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
+      ON analytics_events (org_id, received_at, id)
+      WHERE event_name IS DISTINCT FROM 'http.response'`,
+  },
+  {
+    name: "analytics_events_owner_received_id_non_http_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
+      ON analytics_events (owner_email, received_at, id)
+      WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
+  },
+  {
+    name: "analytics_event_daily_rollups_org_event_date_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_event_daily_rollups_org_event_date_idx
+      ON analytics_event_daily_rollups (org_id, event_date)`,
+  },
+  {
+    name: "analytics_user_days_org_event_date_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_user_days_org_event_date_idx
+      ON analytics_user_days (org_id, event_date)`,
+  },
+  {
+    name: "session_recordings_client_started_idx",
+    createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS session_recordings_client_started_idx
+      ON session_recordings (client_recording_id, started_at)`,
+  },
+];
+
+const SESSION_RECORDING_CLIENT_STARTED_AT_INDEX: AnalyticsIndexRepair = {
+  name: "session_recordings_client_started_at_idx",
+  createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS session_recordings_client_started_at_idx
+    ON session_recordings (client_recording_id, client_started_at)`,
+};
+
+async function repairNamedAnalyticsIndexes(
+  repairIndexes: readonly AnalyticsIndexRepair[],
+): Promise<void | typeof MIGRATION_DEFERRED> {
   const exec = await createDbExec({ url: getAnalyticsMigrationDatabaseUrl() });
   const query = (sql: string) =>
     exec.execute({
       sql,
-      timeoutMs: ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS,
+      timeoutMs: ANALYTICS_INDEX_REPAIR_TIMEOUT_MS,
       maxAttempts: 1,
     });
+
+  const readReadyIndexes = async () => {
+    const { rows } = await query(`
+      SELECT c.relname, i.indisvalid, i.indisready
+      FROM pg_class c
+      JOIN pg_index i ON i.indexrelid = c.oid
+      WHERE c.relname IN (${repairIndexes.map(({ name }) => `'${name}'`).join(", ")})
+    `);
+    return new Set(
+      rows
+        .filter((row) => row.indisvalid === true && row.indisready === true)
+        .map((row) => String(row.relname)),
+    );
+  };
 
   try {
     const lockResult = await query(
@@ -95,19 +123,8 @@ async function repairAnalyticsEventCursorIndexes(): Promise<
     );
     if (lockResult.rows[0]?.acquired !== true) return deferMigration();
 
-    let lockHeld = true;
     try {
-      const { rows } = await query(`
-      SELECT c.relname, i.indisvalid, i.indisready
-      FROM pg_class c
-      JOIN pg_index i ON i.indexrelid = c.oid
-      WHERE c.relname IN (${repairIndexes.map(({ name }) => `'${name}'`).join(", ")})
-    `);
-      const readyIndexes = new Set(
-        rows
-          .filter((row) => row.indisvalid === true && row.indisready === true)
-          .map((row) => String(row.relname)),
-      );
+      const readyIndexes = await readReadyIndexes();
       const expectedIndexes = repairIndexes.map(({ name }) => name);
       if (expectedIndexes.every((name) => readyIndexes.has(name))) return;
 
@@ -116,17 +133,33 @@ async function repairAnalyticsEventCursorIndexes(): Promise<
         await query(`DROP INDEX CONCURRENTLY IF EXISTS ${name}`);
         await query(createSql);
       }
-    } finally {
-      if (lockHeld) {
-        await query(
-          `SELECT pg_advisory_unlock(${ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK})`,
-        );
-        lockHeld = false;
+      const repairedIndexes = await readReadyIndexes();
+      if (!expectedIndexes.every((name) => repairedIndexes.has(name))) {
+        throw new Error("Analytics index repair did not create every index");
       }
+    } finally {
+      await query(
+        `SELECT pg_advisory_unlock(${ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK})`,
+      );
     }
   } finally {
     await exec.close?.();
   }
+}
+
+async function repairAnalyticsIndexes(): Promise<
+  void | typeof MIGRATION_DEFERRED
+> {
+  return repairNamedAnalyticsIndexes(ANALYTICS_INDEX_REPAIRS);
+}
+
+async function repairAnalyticsReplayLinkIndexes(): Promise<
+  void | typeof MIGRATION_DEFERRED
+> {
+  return repairNamedAnalyticsIndexes([
+    ...ANALYTICS_INDEX_REPAIRS,
+    SESSION_RECORDING_CLIENT_STARTED_AT_INDEX,
+  ]);
 }
 
 export const runAnalyticsMigrations = runMigrations(
@@ -1378,7 +1411,7 @@ export const runAnalyticsMigrations = runMigrations(
     {
       version: 145,
       name: "analytics-events-backfill-filtered-cursor-index-direct-repair",
-      run: repairAnalyticsEventCursorIndexes,
+      run: repairAnalyticsIndexes,
       sql: {
         postgres: "SELECT 1",
       },
@@ -1386,7 +1419,7 @@ export const runAnalyticsMigrations = runMigrations(
     {
       version: 146,
       name: "analytics-events-purge-inventory-index-direct-repair",
-      run: repairAnalyticsEventCursorIndexes,
+      run: repairAnalyticsIndexes,
       sql: {
         postgres: "SELECT 1",
       },
@@ -1473,6 +1506,298 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
       VALUES ('analytics-memory-capture')
       ON CONFLICT (lease_id) DO NOTHING`,
       },
+    },
+    // Ingest stores events unindexed until analytics_session_event_coverage
+    // exists, so it must stay the last table this migration creates.
+    {
+      version: 153,
+      name: "analytics-session-event-index",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_session_events (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      event_count INTEGER NOT NULL DEFAULT 0,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_events_key_idx
+      ON analytics_session_events (tenant_key, session_id, event_name);
+    CREATE INDEX IF NOT EXISTS analytics_session_events_tenant_last_at_idx
+      ON analytics_session_events (tenant_key, last_at);
+    CREATE TABLE IF NOT EXISTS analytics_event_catalog_daily (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      event_count INTEGER NOT NULL DEFAULT 0,
+      last_seen_at TEXT NOT NULL,
+      property_keys TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_catalog_daily_key_idx
+      ON analytics_event_catalog_daily (tenant_key, event_date, event_name, app);
+    CREATE TABLE IF NOT EXISTS analytics_event_catalog_latest (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_name TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      last_seen_at TEXT NOT NULL,
+      property_keys TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_event_catalog_latest_key_idx
+      ON analytics_event_catalog_latest (tenant_key, event_name, app);
+    CREATE TABLE IF NOT EXISTS analytics_session_event_gaps (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      recorded_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_event_gaps_key_idx
+      ON analytics_session_event_gaps (tenant_key, session_id);
+    CREATE TABLE IF NOT EXISTS analytics_session_event_coverage (
+      tenant_key TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      started_at TEXT NOT NULL
+    )`,
+      },
+    },
+    {
+      version: 154,
+      name: "error-capture-test-identity-flags",
+      sql: `ALTER TABLE error_issues ADD COLUMN IF NOT EXISTS test_identity_only BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE error_events ADD COLUMN IF NOT EXISTS test_identity BOOLEAN NOT NULL DEFAULT false`,
+    },
+    {
+      version: 155,
+      name: "dashboard-views-default",
+      sql: `ALTER TABLE dashboard_views ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false;
+CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
+  ON dashboard_views (dashboard_id) WHERE is_default = true`,
+    },
+    {
+      // The coverage table comes last: ingest and reads take its existence
+      // as proof that every friction table and index exists.
+      version: 156,
+      name: "analytics-session-friction",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS session_recording_friction (
+      recording_id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      processed_chunks INTEGER NOT NULL DEFAULT 0,
+      dead_clicks INTEGER NOT NULL DEFAULT 0,
+      error_toasts INTEGER NOT NULL DEFAULT 0,
+      retry_loops INTEGER NOT NULL DEFAULT 0,
+      error_then_leave INTEGER NOT NULL DEFAULT 0,
+      stalled_requests INTEGER NOT NULL DEFAULT 0,
+      http_4xx INTEGER NOT NULL DEFAULT 0,
+      http_5xx INTEGER NOT NULL DEFAULT 0,
+      issue_errors INTEGER,
+      score INTEGER NOT NULL DEFAULT 0,
+      detector_state TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS session_recording_friction_updated_at_idx
+      ON session_recording_friction (updated_at);
+    CREATE TABLE IF NOT EXISTS analytics_session_friction (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      failed_actions INTEGER NOT NULL DEFAULT 0,
+      stuck_chats INTEGER NOT NULL DEFAULT 0,
+      thumbs_down INTEGER NOT NULL DEFAULT 0,
+      cancelled_runs INTEGER NOT NULL DEFAULT 0,
+      agent_failures INTEGER NOT NULL DEFAULT 0,
+      quick_backs INTEGER NOT NULL DEFAULT 0,
+      agent_signals_measured BOOLEAN NOT NULL DEFAULT false,
+      agent_signals_missing BOOLEAN NOT NULL DEFAULT false,
+      score INTEGER NOT NULL DEFAULT 0,
+      nav_state TEXT,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_friction_key_idx
+      ON analytics_session_friction (tenant_key, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_session_friction_last_at_idx
+      ON analytics_session_friction (last_at);
+    CREATE TABLE IF NOT EXISTS analytics_session_trouble (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      label TEXT NOT NULL,
+      status TEXT,
+      cause TEXT,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS analytics_session_trouble_session_idx
+      ON analytics_session_trouble (tenant_key, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_session_trouble_last_at_idx
+      ON analytics_session_trouble (last_at);
+    CREATE TABLE IF NOT EXISTS analytics_session_friction_gaps (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      recorded_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_friction_gaps_key_idx
+      ON analytics_session_friction_gaps (tenant_key, session_id);
+    CREATE INDEX IF NOT EXISTS error_events_client_recording_idx
+      ON error_events (client_recording_id);
+    CREATE INDEX IF NOT EXISTS error_issues_last_session_recording_idx
+      ON error_issues (last_session_recording_id);
+    CREATE TABLE IF NOT EXISTS analytics_session_friction_coverage (
+      tenant_key TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      started_at TEXT NOT NULL
+    )`,
+      },
+    },
+    {
+      version: 157,
+      name: "analytics-performance-aggregates",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_route_performance_daily (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      route TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      histogram_version INTEGER NOT NULL DEFAULT 1,
+      bucket INTEGER NOT NULL,
+      weight DOUBLE PRECISION NOT NULL DEFAULT 0
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_route_performance_daily_key_idx
+      ON analytics_route_performance_daily (tenant_key, event_date, app, route, metric, histogram_version, bucket);
+    CREATE TABLE IF NOT EXISTS analytics_session_performance (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      page_views INTEGER NOT NULL DEFAULT 0,
+      max_ttfb_ms DOUBLE PRECISION,
+      max_lcp_ms DOUBLE PRECISION,
+      max_inp_ms DOUBLE PRECISION,
+      max_cls DOUBLE PRECISION,
+      slow_requests INTEGER NOT NULL DEFAULT 0,
+      max_request_ms DOUBLE PRECISION,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_performance_key_idx
+      ON analytics_session_performance (tenant_key, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_session_performance_tenant_last_at_idx
+      ON analytics_session_performance (tenant_key, last_at);
+    CREATE TABLE IF NOT EXISTS analytics_performance_gaps (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      session_id TEXT NOT NULL DEFAULT '',
+      recorded_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_performance_gaps_key_idx
+      ON analytics_performance_gaps (tenant_key, event_date, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_performance_gaps_session_idx
+      ON analytics_performance_gaps (tenant_key, session_id);
+    CREATE TABLE IF NOT EXISTS analytics_performance_coverage (
+      tenant_key TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      started_at TEXT NOT NULL
+    )`,
+      },
+    },
+    {
+      version: 158,
+      name: "bigquery-cache-refresh-fence",
+      sql: `ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS generation INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS refresh_in_progress BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS refresh_started_at TEXT`,
+    },
+    {
+      version: 159,
+      name: "bigquery-cache-fence-token",
+      sql: `ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS fence_token TEXT`,
+    },
+    {
+      version: 160,
+      name: "bigquery-cache-forced-refresh-kind",
+      sql: `ALTER TABLE bigquery_cache ADD COLUMN IF NOT EXISTS refresh_forced BOOLEAN NOT NULL DEFAULT FALSE`,
+    },
+    {
+      version: 161,
+      name: "session-recording-session-associations",
+      sql: `CREATE TABLE IF NOT EXISTS session_recording_session_associations (
+      id TEXT PRIMARY KEY,
+      recording_id TEXT NOT NULL REFERENCES session_recordings(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS session_recording_session_associations_recording_session_idx
+      ON session_recording_session_associations (recording_id, session_id);
+    CREATE INDEX IF NOT EXISTS session_recording_session_associations_session_recording_idx
+      ON session_recording_session_associations (session_id, recording_id)`,
+    },
+    {
+      version: 162,
+      name: "session-recordings-client-started-index",
+      run: repairAnalyticsIndexes,
+      sql: { postgres: "SELECT 1" },
+    },
+    {
+      version: 163,
+      name: "session-recordings-client-started-at",
+      sql: "ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS client_started_at TEXT",
+    },
+    {
+      version: 164,
+      name: "session-recordings-client-started-at-index",
+      run: repairAnalyticsReplayLinkIndexes,
+      sql: { postgres: "SELECT 1" },
+    },
+    {
+      version: 165,
+      name: "dashboard-github-sync-state",
+      sql: `ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS github_sync_state TEXT`,
+    },
+    {
+      version: 166,
+      name: "dashboard-folder-github-sync",
+      sql: `ALTER TABLE dashboard_folders ADD COLUMN IF NOT EXISTS github_sync TEXT`,
+    },
+    {
+      version: 167,
+      name: "source-index-runs-table",
+      sql: SOURCE_INDEX_RUNS_MIGRATION_SQL.join(";\n"),
     },
   ],
   { table: "analytics_migrations" },

@@ -14,16 +14,51 @@ import {
   isPausedByFramework,
   isPseudoOwner,
   isReservedIdentityBlocked,
-  isReservedTestIdentity,
   pauseNow,
   PRECONDITION_PAUSE_AFTER,
   RUNTIME_PAUSE_AFTER,
   runtimeFailureNextRun,
+  pausedMessage,
   withDeliveryNote,
   type AutomationFailure,
 } from "./automation-outcome.js";
 
 const NOW = new Date("2026-10-01T12:00:00.000Z");
+
+it("keeps confirmed delivery evidence when a long runtime error is truncated", () => {
+  const deliveryNote =
+    "Completed steps confirmed by the run journal: send-test-email. Unfinished steps were not confirmed.";
+  const error = Object.assign(new Error("Failure ".repeat(100)), {
+    errorCode: "http_502",
+    deliveryNote,
+  });
+  const failure = classifyAutomationFailure(error);
+  const transition = applyAutomationFailure({ enabled: true }, failure, NOW);
+  expect(transition.patch.lastError).toContain(deliveryNote);
+  expect(transition.patch.lastError!.length).toBeLessThanOrEqual(500);
+  expect(transition.patch.lastError).not.toContain("No delivery was confirmed");
+  const paused = applyAutomationFailure(
+    {
+      enabled: true,
+      lastErrorCode: "http_502",
+      consecutiveFailures: RUNTIME_PAUSE_AFTER - 1,
+    },
+    failure,
+    NOW,
+  );
+  expect(paused.pause).toBe(true);
+  expect(paused.patch.lastError).toContain(deliveryNote);
+  expect(paused.patch.lastError!.length).toBeLessThanOrEqual(500);
+  expect(pausedMessage("http_502", 3, failure.message, deliveryNote)).toContain(
+    deliveryNote,
+  );
+});
+
+it("does not duplicate a persisted delivery note when recovery reapplies a failure", () => {
+  const note = "Completed steps confirmed by the run journal: send-test-email.";
+  const recorded = withDeliveryNote("Worker stopped", note);
+  expect(withDeliveryNote(recorded, note)).toBe(recorded);
+});
 
 function codedError(message: string, errorCode: string): Error {
   return Object.assign(new Error(message), { errorCode });
@@ -41,6 +76,7 @@ describe("classifyAutomationFailure", () => {
     ["missing_tools", "missing_tools", true],
     ["config_invalid", "config_invalid", true],
     ["owner_missing", "owner_missing", true],
+    ["connection_required", "connection_required", true],
     // The pre-typed runner code is read as the typed one.
     ["background_automation_mcp_tools_unavailable", "missing_tools", true],
     // A rejected or unpermitted credential needs a person; a bare HTTP status
@@ -157,6 +193,33 @@ describe("applyAutomationFailure", () => {
     expect(last.patch.lastError).toContain("No LLM provider is connected");
   });
 
+  it("pauses an automation that keeps asking for a connection nobody is there to give", () => {
+    const failure = classifyAutomationFailure(
+      codedError(
+        "The run stopped because hubspot is not connected.",
+        "connection_required",
+      ),
+    );
+    let meta: Parameters<typeof applyAutomationFailure>[0] = { ...fresh };
+    let last = applyAutomationFailure(meta, failure, NOW);
+    for (let i = 1; i < PRECONDITION_PAUSE_AFTER; i += 1) {
+      expect(last.pause).toBe(false);
+      meta = {
+        enabled: true,
+        lastErrorCode: String(last.patch.lastErrorCode),
+        consecutiveFailures: Number(last.patch.consecutiveFailures),
+      };
+      last = applyAutomationFailure(meta, failure, NOW);
+    }
+    expect(last.pause).toBe(true);
+    expect(last.patch).toMatchObject({
+      enabled: false,
+      lastStatus: "paused",
+      lastErrorCode: "connection_required",
+      pausedReason: "connection_required",
+    });
+  });
+
   it("gives ordinary runtime errors more attempts before pausing", () => {
     const runtime: AutomationFailure = {
       code: "http_502",
@@ -257,11 +320,10 @@ describe("reserved test identities", () => {
     "dev@agent-native.test",
     "x@something.invalid",
     "x@host.example",
-    "a@example.com",
-    "a@Example.ORG",
-    "a@mail.example.net",
-  ])("treats %s as reserved", (email) => {
-    expect(isReservedTestIdentity(email)).toBe(true);
+    "qa+autoz-run@builder.io",
+  ])("blocks %s in production", (email) => {
+    deployEnvironmentMock.mockReturnValue("production");
+    expect(isReservedIdentityBlocked(email)).toBe(true);
   });
 
   it.each([
@@ -271,8 +333,9 @@ describe("reserved test identities", () => {
     "__shared__",
     "__organization__:acme",
     "",
-  ])("treats %s as a real identity", (email) => {
-    expect(isReservedTestIdentity(email)).toBe(false);
+  ])("never blocks %s", (email) => {
+    deployEnvironmentMock.mockReturnValue("production");
+    expect(isReservedIdentityBlocked(email)).toBe(false);
   });
 
   it("only blocks them in production", () => {

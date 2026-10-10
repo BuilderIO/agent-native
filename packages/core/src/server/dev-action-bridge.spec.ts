@@ -12,8 +12,15 @@ const mockResolveDevUserEmail = vi.hoisted(() =>
 );
 
 vi.mock("h3", () => ({
+  createError: (input: { statusMessage?: string }) =>
+    Object.assign(new Error(input.statusMessage), input),
   defineEventHandler: (handler: any) => handler,
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
+  getRequestHeader: (event: any, name: string) =>
+    event._headers?.[name.toLowerCase()],
+  getRequestIP: () => "127.0.0.1",
+  getRequestURL: (event: any) =>
+    new URL(`http://${event._headers?.host ?? "localhost"}/`),
   readBody: async (event: any) => event._body,
   setResponseStatus: (event: any, status: number) => {
     event._status = status;
@@ -45,8 +52,23 @@ vi.mock("../scripts/db/query.js", () => ({
   runDbQuery: (...args: unknown[]) => mockRunDbQuery(...args),
 }));
 
+const mockGetPgliteClient = vi.hoisted(() => vi.fn());
+const mockDrizzle = vi.hoisted(() => vi.fn());
+const mockMigrate = vi.hoisted(() => vi.fn());
+vi.mock("../db/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/client.js")>()),
+  getPgliteClient: (...args: unknown[]) => mockGetPgliteClient(...args),
+}));
+vi.mock("drizzle-orm/pglite", () => ({
+  drizzle: (...args: unknown[]) => mockDrizzle(...args),
+}));
+vi.mock("drizzle-orm/pglite/migrator", () => ({
+  migrate: (...args: unknown[]) => mockMigrate(...args),
+}));
+
 import {
   DEV_ACTION_ROUTE,
+  DEV_DB_MIGRATE_ROUTE,
   DEV_DB_QUERY_ROUTE,
   DEV_ACTION_ORG_HEADER,
   DEV_ACTION_TOKEN_HEADER,
@@ -55,12 +77,17 @@ import {
   hashDatabaseKey,
   isValidDevActionHandoffUrl,
   mountDevActionForwardRoute,
+  mountDevDbMigrateForwardRoute,
   mountDevDbQueryForwardRoute,
   readDevActionDiscoveryFile,
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "./dev-action-bridge.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "./request-context.js";
 
 describe("dev action browser handoff validation", () => {
   it("accepts only the relative embed path or a loopback APP_URL origin", () => {
@@ -305,6 +332,7 @@ describe("mountDevActionForwardRoute", () => {
     const run = vi.fn(async (params: unknown, ctx: unknown) => ({
       params,
       ctx,
+      requestOrigin: getRequestContext()?.requestOrigin,
     }));
     const handler = mountedHandler(
       { "do-thing": { run, readOnly: false } as any },
@@ -312,6 +340,7 @@ describe("mountDevActionForwardRoute", () => {
     );
     const event: any = {
       _headers: {
+        host: "localhost:8100",
         [DEV_ACTION_TOKEN_HEADER]: token,
         [DEV_ACTION_USER_HEADER]: "owner@example.test",
         [DEV_ACTION_ORG_HEADER]: "org_1",
@@ -321,6 +350,9 @@ describe("mountDevActionForwardRoute", () => {
 
     const response = await handler(event);
     expect(response.ok).toBe(true);
+    // Actions that mint credentials bind them to this origin, as on the HTTP
+    // action routes; without it they fall back to a guessed URL.
+    expect(response.result.requestOrigin).toBe("http://localhost:8100");
     expect(run).toHaveBeenCalledTimes(1);
     const [params, ctx] = run.mock.calls[0]!;
     expect(params).toEqual({ a: 1 });
@@ -573,6 +605,165 @@ describe("mountDevDbQueryForwardRoute", () => {
   });
 });
 
+describe("mountDevDbMigrateForwardRoute", () => {
+  let tmpDir: string;
+
+  function mountedMigrateHandler() {
+    const mounted: Array<{ path: string; handler: any }> = [];
+    mountDevDbMigrateForwardRoute({
+      use: (routePath: string, handler: any) =>
+        mounted.push({ path: routePath, handler }),
+    });
+    expect(mounted[0]!.path).toBe(DEV_DB_MIGRATE_ROUTE);
+    return mounted[0]!.handler;
+  }
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-db-migrate-route-"));
+    vi.stubEnv("DATABASE_URL", undefined);
+    mockIsLoopbackRequest.mockReset();
+    mockIsLoopbackRequest.mockReturnValue(true);
+    mockResolveDeployEnvironment.mockReset();
+    mockResolveDeployEnvironment.mockReturnValue("local");
+    mockGetPgliteClient.mockReset().mockResolvedValue({ id: "client" });
+    mockDrizzle.mockReset().mockImplementation((client) => ({ client }));
+    mockMigrate.mockReset().mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    removeDevActionDiscoveryFile(tmpDir);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("rejects with 401 on a production deploy", async () => {
+    mockResolveDeployEnvironment.mockReturnValue("production");
+    const event: any = { _headers: {} };
+    await expect(mountedMigrateHandler()(event)).resolves.toMatchObject({
+      ok: false,
+    });
+    expect(event._status).toBe(401);
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-loopback request with 401", async () => {
+    mockIsLoopbackRequest.mockReturnValue(false);
+    const event: any = { _headers: {} };
+    await expect(mountedMigrateHandler()(event)).resolves.toMatchObject({
+      ok: false,
+    });
+    expect(event._status).toBe(401);
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing or wrong dev token with 401", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const handler = mountedMigrateHandler();
+    const noToken: any = { _headers: {}, _body: { migrationsFolder: "m" } };
+    await handler(noToken);
+    expect(noToken._status).toBe(401);
+    const wrongToken: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: "wrong" },
+      _body: { migrationsFolder: "m" },
+    };
+    await handler(wrongToken);
+    expect(wrongToken._status).toBe(401);
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a body with no migrationsFolder", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: {},
+    };
+    const response = await mountedMigrateHandler()(event);
+    expect(response.ok).toBe(false);
+    expect(event._status).toBe(500);
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
+
+  it.each(["../outside", "/etc", "a/../../outside"])(
+    "rejects migrationsFolder %s that resolves outside the app root",
+    async (migrationsFolder) => {
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const event: any = {
+        _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+        _body: { migrationsFolder },
+      };
+      const response = await mountedMigrateHandler()(event);
+      expect(response).toMatchObject({ ok: false });
+      expect(event._status).toBe(500);
+      expect(mockMigrate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows a migrationsFolder whose name starts with two dots", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: { migrationsFolder: "..foo/migrations" },
+    };
+    await expect(mountedMigrateHandler()(event)).resolves.toEqual({ ok: true });
+    expect(mockMigrate).toHaveBeenCalledWith(expect.anything(), {
+      migrationsFolder: path.resolve(process.cwd(), "..foo/migrations"),
+    });
+  });
+
+  it("responds 400 when the dev server database is not PGlite", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    vi.stubEnv("DATABASE_URL", "postgres://localhost/db");
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: { migrationsFolder: "drizzle/migrations" },
+    };
+    await expect(mountedMigrateHandler()(event)).resolves.toEqual({
+      ok: false,
+      error:
+        "The dev server database is not PGlite; run drizzle-kit migrate directly.",
+    });
+    expect(event._status).toBe(400);
+    expect(mockGetPgliteClient).not.toHaveBeenCalled();
+    expect(mockMigrate).not.toHaveBeenCalled();
+  });
+
+  it("migrates through the dev server's own PGlite client", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: {
+        migrationsFolder: "./drizzle/migrations",
+        migrationsTable: "t",
+        migrationsSchema: "s",
+      },
+    };
+    await expect(mountedMigrateHandler()(event)).resolves.toEqual({ ok: true });
+    expect(mockGetPgliteClient).toHaveBeenCalledWith("pglite:./data/pglite");
+    expect(mockMigrate).toHaveBeenCalledWith(
+      { client: { id: "client" } },
+      {
+        migrationsFolder: path.resolve(process.cwd(), "drizzle/migrations"),
+        migrationsTable: "t",
+        migrationsSchema: "s",
+      },
+    );
+  });
+
+  it("returns 500 with the thrown message when migration fails", async () => {
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    mockMigrate.mockRejectedValue(new Error("relation already exists"));
+    const event: any = {
+      _headers: { [DEV_ACTION_TOKEN_HEADER]: getDevActionToken()! },
+      _body: { migrationsFolder: "drizzle/migrations" },
+    };
+    await expect(mountedMigrateHandler()(event)).resolves.toEqual({
+      ok: false,
+      error: "relation already exists",
+    });
+    expect(event._status).toBe(500);
+  });
+});
+
 describe("auth guard exemption", () => {
   function expectLoopbackBypass(route: string) {
     const source = fs.readFileSync(
@@ -592,5 +783,9 @@ describe("auth guard exemption", () => {
 
   it("keeps the loopback dev-db-query bypass in auth.ts", () => {
     expectLoopbackBypass(DEV_DB_QUERY_ROUTE);
+  });
+
+  it("keeps the loopback dev-db-migrate bypass in auth.ts", () => {
+    expectLoopbackBypass(DEV_DB_MIGRATE_ROUTE);
   });
 });

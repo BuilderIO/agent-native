@@ -9,9 +9,8 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccess, type ShareRole } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
-import { parseHTML } from "linkedom/worker";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -22,6 +21,7 @@ import {
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
 import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
+import { isRealSlide, stripHtml } from "../shared/blank-slide.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { summarizeDeckStyle } from "../shared/representative-slide.js";
@@ -42,6 +42,7 @@ async function readDeck(
   reviewOrgId?: string,
 ) {
   let row;
+  let accessRole: "owner" | ShareRole;
   if (reviewPreview) {
     const orgId = getRequestOrgId();
     if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
@@ -75,18 +76,20 @@ async function readDeck(
       fail("Deck not found.", { statusCode: 404 });
     }
     row = access.resource;
+    accessRole = access.role;
   } else {
     const access = await resolveAccess("deck", deckId);
     if (!access) {
       throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
     }
     row = access.resource;
+    accessRole = access.role;
   }
   const data = JSON.parse(row.data);
   const normalized = ensureUniqueSlideIds(
     Array.isArray(data?.slides) ? data.slides : [],
   );
-  return { row, data, ...normalized };
+  return { row, data, accessRole, ...normalized };
 }
 
 async function loadDeckWithUniqueSlideIds(
@@ -148,160 +151,6 @@ async function loadDeckWithUniqueSlideIds(
   }
 
   throw new Error(`Could not repair duplicate slide IDs for deck ${deckId}.`);
-}
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&[a-z]+;/gi, " ")
-    .replace(/&#x[0-9a-f]+;/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function hasVisibleBackgroundClass(html: string): boolean {
-  const { document } = parseHTML(html);
-  const attributeMatches = (
-    type: string,
-    value: string | null | undefined,
-    expected: string,
-  ) =>
-    type.toLowerCase() === "aria"
-      ? value?.toLowerCase() === expected.toLowerCase()
-      : value === expected;
-
-  return Array.from(document.querySelectorAll("*")).some((element) => {
-    const classNames =
-      element.getAttribute("class") ?? element.getAttribute("className") ?? "";
-    return classNames.split(/\s+/).some((className) => {
-      const variants =
-        className.match(
-          /^(?:(?:[\w-]+(?:-\[[^\]]+\])?(?:\/[\w-]+)?|\[[^\]]+\]):)+/,
-        )?.[0] ?? "";
-      const variantNames =
-        variants.slice(0, -1).match(/(?:\[[^\]]*\]|[^:])+/g) ?? [];
-      const hasInactiveState = variantNames.some((variant) => {
-        const selectorVariant = variant.match(/^(has|not)-\[(.+)\]$/i);
-        if (selectorVariant) {
-          const [, mode, selector] = selectorVariant;
-          let matches: boolean;
-          try {
-            matches =
-              mode.toLowerCase() === "has"
-                ? element.matches(`:has(${selector.replaceAll("_", " ")})`)
-                : element.matches(selector.replaceAll("_", " "));
-          } catch {
-            // coercion-ok: invalid variants stay active.
-            return false;
-          }
-          return mode.toLowerCase() === "has" ? !matches : matches;
-        }
-
-        const relatedAttribute = variant.match(
-          /^(group|peer)-(aria|data)-\[([\w-]+)=([^\]]+)\](?:\/([\w-]+))?$/i,
-        );
-        if (relatedAttribute) {
-          const [
-            ,
-            relation,
-            attributeType,
-            attributeName,
-            rawExpected,
-            relationName,
-          ] = relatedAttribute;
-          const attributeNameWithType = `${attributeType}-${attributeName}`;
-          const relationClass = `${relation.toLowerCase()}${relationName ? `/${relationName}` : ""}`;
-          const expected = rawExpected.replace(/^['"]|['"]$/g, "");
-          const matches = (candidate: Element | null | undefined) =>
-            attributeMatches(
-              attributeType,
-              candidate?.getAttribute(attributeNameWithType),
-              expected,
-            );
-          if (relation.toLowerCase() === "group") {
-            for (
-              let ancestor = element.parentElement;
-              ancestor;
-              ancestor = ancestor.parentElement
-            ) {
-              if (
-                ancestor.classList.contains(relationClass) &&
-                matches(ancestor)
-              ) {
-                return false;
-              }
-            }
-            return true;
-          }
-
-          for (
-            let sibling = element.previousElementSibling;
-            sibling;
-            sibling = sibling.previousElementSibling
-          ) {
-            if (sibling.classList.contains(relationClass) && matches(sibling)) {
-              return false;
-            }
-          }
-          return true;
-        }
-
-        // ponytail: dynamic group/peer pseudo states remain unknown; extend related-node checks as needed.
-        if (
-          /^(?:hover|focus(?:-visible|-within)?|active|visited|disabled|enabled|checked|indeterminate|required|optional|valid|invalid|in-range|out-of-range|placeholder-shown|autofill|read-only|read-write|open|modal|fullscreen|target|group-.+|peer-.+|has-.+|not-.+)$/i.test(
-            variant,
-          )
-        ) {
-          return true;
-        }
-
-        const aria = variant.match(/^aria-([\w-]+)$/i);
-        if (aria) {
-          const name = `aria-${aria[1]}`;
-          const expected =
-            aria[1].toLowerCase() === "current" ? "page" : "true";
-          return !attributeMatches(
-            "aria",
-            element.getAttribute(name),
-            expected,
-          );
-        }
-
-        const attribute = variant.match(/^(aria|data)-\[([\w-]+)=([^\]]+)\]$/i);
-        if (attribute) {
-          const name = `${attribute[1]}-${attribute[2]}`;
-          const expected = attribute[3].replace(/^['"]|['"]$/g, "");
-          return !attributeMatches(
-            attribute[1],
-            element.getAttribute(name),
-            expected,
-          );
-        }
-
-        return /^(?:aria|data)-/i.test(variant);
-      });
-      if (hasInactiveState) {
-        return false;
-      }
-      return /^bg-(?!(?:none|transparent)(?:\/|$)|opacity-|clip-|origin-|blend-|repeat(?:-|\/|$)|size-|position-|attachment-|(?:auto|cover|contain|fixed|local|scroll|center|top|bottom|left|right|no-repeat)(?:\/|$))\S+/i.test(
-        className.slice(variants.length),
-      );
-    });
-  });
-}
-
-function isBlankSlideContent(html: string): boolean {
-  if (stripHtml(html)) return false;
-  return !(
-    hasVisibleBackgroundClass(html) ||
-    /<(?:img|svg|video|canvas|table|iframe|object|embed)\b|data-slide-object-id|fmd-img-placeholder/i.test(
-      html,
-    ) ||
-    /(?:background(?:-color|-image)?|border(?:-(?:top|right|bottom|left))?(?:-(?:width|style|color))?|box-shadow)\s*:\s*(?!none\b|transparent\b)/i.test(
-      html,
-    )
-  );
 }
 
 function compactAnimationSummary(value: unknown, content: string) {
@@ -444,6 +293,8 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (args, ctx) => {
+    const isWidgetCaller =
+      ctx?.caller === "mcp-widget" || ctx?.caller === "mcp-widget-write";
     const deckId = args.deckId ?? args.id;
     if (!deckId) {
       fail("Pass the deck id as `id` or `deckId`.", {
@@ -451,11 +302,14 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const { row, data, slides } = await loadDeckWithUniqueSlideIds(
-      deckId,
-      args.reviewPreview,
-      args.reviewOrgId,
-    );
+    const { row, data, slides, accessRole } =
+      ctx?.caller === "mcp-widget"
+        ? await readDeck(deckId)
+        : await loadDeckWithUniqueSlideIds(
+            deckId,
+            args.reviewPreview,
+            args.reviewOrgId,
+          );
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
@@ -505,9 +359,16 @@ export default defineAction({
       slides.map((slide: any) => slide.id),
     );
     const linkedDesignSystemId = resolveDeckDesignSystemId(row, data);
+    const designSystemReader =
+      ctx?.caller === "mcp-widget"
+        ? {
+            run: (args: { id: string; compact?: "true" | "false" }) =>
+              getDesignSystem.run(args, ctx),
+          }
+        : getDesignSystem;
     const designSystem = await loadAgentDesignSystemContext(
       linkedDesignSystemId,
-      getDesignSystem,
+      designSystemReader,
     );
     const { deckStyle, representativeSlideId } = summarizeDeckStyle(
       slides as any,
@@ -519,6 +380,7 @@ export default defineAction({
         id: row.id,
         title: row.title || data?.title,
         visibility: row.visibility,
+        ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
         designSystemId: linkedDesignSystemId,
         designSystem,
         ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
@@ -549,9 +411,7 @@ export default defineAction({
           id: s.id,
           layout: s.layout ?? null,
           transition: s.transition ?? null,
-          isBlank: isBlankSlideContent(
-            typeof s.content === "string" ? s.content : "",
-          ),
+          isBlank: !isRealSlide(s),
           animations: compactAnimationSummary(
             s.animations,
             typeof s.content === "string" ? s.content : "",
@@ -588,6 +448,7 @@ export default defineAction({
       createdByMe:
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+      ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
       designSystemId: linkedDesignSystemId,
       designSystem,
       ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),

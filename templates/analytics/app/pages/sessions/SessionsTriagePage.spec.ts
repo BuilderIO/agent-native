@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { readSessionEventFilters } from "../../../shared/session-events";
+import { readSessionFrictionSignals } from "../../../shared/session-friction";
 import {
   readHideEmptyFilter,
   withCustomDate,
+  withSessionEventConditions,
   withSessionFilter,
+  withSessionFrictionSignals,
 } from "./SessionsTriagePage";
 
 describe("Sessions filter links", () => {
@@ -58,5 +62,65 @@ describe("Sessions filter links", () => {
     expect(preset.has("to")).toBe(false);
     expect(preset.get("app")).toBe("clips");
     expect(preset.has("triage")).toBe(false);
+  });
+});
+
+describe("Sessions event condition links", () => {
+  it("round-trips did and didn't conditions and resets the page", () => {
+    const next = withSessionEventConditions(
+      new URLSearchParams("app=clips&page=4&event=old_event"),
+      {
+        didEvents: ["recording_started", "clip_shared"],
+        didNotEvents: ["clip_viewed"],
+      },
+    );
+
+    expect(next.getAll("event")).toEqual(["recording_started", "clip_shared"]);
+    expect(next.getAll("noEvent")).toEqual(["clip_viewed"]);
+    expect(next.get("app")).toBe("clips");
+    expect(next.has("page")).toBe(false);
+    expect(readSessionEventFilters(next)).toEqual({
+      didEvents: ["recording_started", "clip_shared"],
+      didNotEvents: ["clip_viewed"],
+    });
+
+    const cleared = withSessionEventConditions(next, {
+      didEvents: [],
+      didNotEvents: [],
+    });
+    expect(cleared.has("event")).toBe(false);
+    expect(cleared.has("noEvent")).toBe(false);
+  });
+
+  it("trims, de-duplicates, and caps conditions read from a shared link", () => {
+    const params = new URLSearchParams();
+    for (const name of [" a ", "a", "b", "c", "d", "e", "f", ""]) {
+      params.append("event", name);
+    }
+    expect(readSessionEventFilters(params).didEvents).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+    ]);
+  });
+});
+
+describe("Sessions friction links", () => {
+  it("round-trips friction signals and resets the page", () => {
+    const next = withSessionFrictionSignals(
+      new URLSearchParams("app=clips&page=3&sort=friction&signal=http_4xx"),
+      ["dead_clicks", "thumbs_down"],
+    );
+
+    expect(readSessionFrictionSignals(next)).toEqual([
+      "dead_clicks",
+      "thumbs_down",
+    ]);
+    expect(next.get("app")).toBe("clips");
+    expect(next.get("sort")).toBe("friction");
+    expect(next.has("page")).toBe(false);
+    expect(withSessionFrictionSignals(next, []).has("signal")).toBe(false);
   });
 });

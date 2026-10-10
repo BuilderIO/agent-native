@@ -117,6 +117,30 @@ describe("useSession", () => {
     );
   });
 
+  it("publishes the server's test-identity flag with the session identity", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              userId: "user-qa",
+              email: "lead@qa.acme.co",
+              testIdentity: true,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    await renderConsumers(["only"]);
+
+    expect(analyticsMocks.setSentryUser).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "lead@qa.acme.co", testIdentity: true }),
+      null,
+    );
+  });
+
   it("reports the definitive session state to an embedding host", async () => {
     const postMessage = vi.fn();
     const parentWindow = { postMessage };
@@ -1051,6 +1075,70 @@ describe("one session read per page load", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(container.textContent).toBe("bootstrap@example.com");
+  });
+});
+
+describe("isSessionFromFirstRead", () => {
+  async function resolveFresh(
+    fetchMock: ReturnType<typeof vi.fn>,
+    before?: (module: Awaited<ReturnType<typeof freshSessionModule>>) => void,
+  ) {
+    const module = await freshSessionModule();
+    vi.stubGlobal("fetch", fetchMock);
+    before?.(module);
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return module;
+  }
+
+  it("holds for the answer to the page load's own read", async () => {
+    const { isSessionFromFirstRead } = await resolveFresh(
+      vi.fn(async () => jsonResponse({ userId: "user-a", email: "a@x.test" })),
+    );
+
+    expect(isSessionFromFirstRead()).toBe(true);
+  });
+
+  it("ends when a retry answers instead", async () => {
+    vi.useFakeTimers();
+    const module = await freshSessionModule();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 503 }))
+        .mockResolvedValueOnce(
+          jsonResponse({ userId: "user-b", email: "b@x.test" }),
+        ),
+    );
+    function Probe() {
+      module.useSession();
+      return null;
+    }
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+
+    expect(module.isSessionFromFirstRead()).toBe(false);
+  });
+
+  it("ends when an invalidation lands before the first answer is read", async () => {
+    const { isSessionFromFirstRead } = await resolveFresh(
+      vi.fn(async () => jsonResponse({ userId: "user-b", email: "b@x.test" })),
+      (module) => module.notifySessionInvalidated(),
+    );
+
+    expect(isSessionFromFirstRead()).toBe(false);
   });
 });
 

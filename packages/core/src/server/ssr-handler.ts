@@ -5,10 +5,15 @@ import { getAppConfig, resolveAppHomePath } from "../app-config/index.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
+  resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import {
+  CHUNK_RECOVERY_PATH_SUFFIX,
+  isLegacyChunkRecoveryRequest,
+} from "../shared/route-chunk-recovery-bootstrap.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -44,6 +49,7 @@ export {
   isSsrCacheEnabled,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
+  resolveSsrNetlifyQueryVary,
   SSR_CACHE_ENV_VAR,
 } from "../shared/cache-control.js";
 
@@ -53,6 +59,67 @@ function getAppBasePath(): string {
 
 function stripAppBasePath(pathname: string): string {
   return canonicalStripAppBasePath(pathname, getAppBasePath());
+}
+
+function splitReactRouterDataPathname(pathname: string): {
+  routePath: string;
+  dataSuffix: string;
+  trailingSlash: string;
+} {
+  const trailingSlash = pathname.endsWith("/") ? "/" : "";
+  const pathWithoutTrailingSlash = trailingSlash
+    ? pathname.slice(0, -trailingSlash.length)
+    : pathname;
+  if (pathWithoutTrailingSlash.endsWith("/_.data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -"/_.data".length),
+      dataSuffix: "/_.data",
+      trailingSlash,
+    };
+  }
+  if (pathWithoutTrailingSlash.endsWith(".data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -".data".length),
+      dataSuffix: ".data",
+      trailingSlash,
+    };
+  }
+  return {
+    routePath: pathWithoutTrailingSlash,
+    dataSuffix: "",
+    trailingSlash,
+  };
+}
+
+function stripChunkRecoveryPathSuffix(pathname: string): string {
+  const { routePath, dataSuffix, trailingSlash } =
+    splitReactRouterDataPathname(pathname);
+  const routeHasTrailingSlash = routePath.endsWith("/");
+  const routePathWithoutTrailingSlash = routeHasTrailingSlash
+    ? routePath.slice(0, -1)
+    : routePath;
+  if (!routePathWithoutTrailingSlash.endsWith(CHUNK_RECOVERY_PATH_SUFFIX)) {
+    return pathname;
+  }
+
+  const routePathWithoutAlias =
+    routePathWithoutTrailingSlash.slice(
+      0,
+      -CHUNK_RECOVERY_PATH_SUFFIX.length,
+    ) || "/";
+  const separator =
+    routePathWithoutAlias === "/" && dataSuffix.startsWith("/")
+      ? dataSuffix.slice(1)
+      : dataSuffix;
+  const suffix = `${separator}${trailingSlash}`;
+  return routePathWithoutAlias === "/" && suffix === "/"
+    ? "/"
+    : `${routePathWithoutAlias}${suffix}`;
+}
+
+function isChunkRecoveryPath(pathname: string): boolean {
+  const { routePath } = splitReactRouterDataPathname(pathname);
+  return routePath.replace(/\/+$/, "").endsWith(CHUNK_RECOVERY_PATH_SUFFIX);
 }
 
 function stripBasePath(pathname: string, basePath: string): string {
@@ -228,12 +295,14 @@ function isSsrHtmlOrDataResponse(
  * ┌──────────────────────────────────────────────────────────────────────────┐
  * │ SSR IS A PUBLIC, HARD-CDN-CACHED SHELL — SERVED IDENTICALLY TO EVERYONE.   │
  * │                                                                            │
- * │ Every SSR HTML / React Router `.data` response gets the same public        │
- * │ stale-while-revalidate policy for ALL visitors, authenticated or not, so   │
- * │ the edge serves one shared copy and never stampedes origin.                │
+ * │ Normal SSR HTML / React Router `.data` responses get the same public      │
+ * │ stale-while-revalidate policy for ALL visitors, authenticated or not, so  │
+ * │ the edge serves one shared copy and never stampedes origin. Recovery via │
+ * │ the fixed path or exact legacy marker revalidates in browsers and bypasses│
+ * │ CDN storage so the reload always gets the current shell.                  │
  * │                                                                            │
  * │ DO NOT reintroduce per-user / cookie-based cache variation here (no        │
- * │ `private`, no `no-store`, no `Vary: Cookie`, no "authenticated → don't     │
+ * │ `private`, no `Vary: Cookie`, no "authenticated → don't                    │
  * │ cache" branch). That makes pages uncacheable for every logged-in visitor,  │
  * │ which is slow and expensive — exactly the regression this guardrail        │
  * │ prevents. The reason it is SAFE to hard-cache is that the SSR response is  │
@@ -247,9 +316,9 @@ function isSsrHtmlOrDataResponse(
  * │ HOW LONG the shell is cached is deployment-wide and configurable through   │
  * │ AGENT_NATIVE_SSR_CACHE (see `resolveSsrCacheHeaders`), for hosts that do   │
  * │ not purge their CDN on deploy. What remains forbidden is PER-REQUEST /     │
- * │ PER-USER variation — no `private`, no `Vary: Cookie`, no per-route escape  │
- * │ hatch — because that is what poisons a shared CDN cache key. A value fixed │
- * │ for the whole deployment cannot.                                           │
+ * │ PER-USER response variation — no `private`, no `Vary: Cookie`, and no     │
+ * │ request-specific content. Recovery keeps a bounded alias and never adds  │
+ * │ arbitrary query-key variation to the normally cached shell.               │
  * └──────────────────────────────────────────────────────────────────────────┘
  *
  * The same sharing rule governs any DIAGNOSTIC header on this response. A
@@ -264,11 +333,19 @@ function applyDefaultSsrCacheHeader(
   headers: Headers,
   status: number,
   pathname: string,
+  isRecoveryAlias = false,
+  isLegacyRecovery = false,
 ) {
-  const varyByQuery =
+  const responseRequestsQueryVary =
     headers.get(SSR_QUERY_CACHE_KEY_HEADER)?.trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
+
+  // Current recovery uses one fixed path alias. Still-deployed clients use the
+  // exact legacy marker below, which varies only on that allowlisted query key.
+  // Do not cache recovery responses at the CDN: a stale alias shell can make
+  // the recovery reload repeat the same missing-chunk failure.
+  const varyByQuery = responseRequestsQueryVary;
 
   // A public shell must never set a viewer cookie or vary by credentials.
   // Preserve harmless content-negotiation dimensions such as Accept-Encoding.
@@ -294,14 +371,20 @@ function applyDefaultSsrCacheHeader(
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     headers.set(name, value);
   }
-  const cacheKeyHeaders = resolveSsrCacheKeyHeaders();
-  const netlifyVary = varyByQuery
-    ? cacheKeyHeaders["netlify-vary"]
-      ? "query"
-      : undefined
-    : cacheKeyHeaders["netlify-vary"];
+  const cacheKeyHeaders = resolveSsrCacheKeyHeaders(undefined, {
+    varyByQuery,
+    varyByLegacyRecovery: isLegacyRecovery,
+  });
+  const netlifyVary = cacheKeyHeaders["netlify-vary"];
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");
+  if (isRecoveryAlias || isLegacyRecovery) {
+    for (const [name, value] of Object.entries(
+      resolveChunkRecoveryCacheHeaders(),
+    )) {
+      headers.set(name, value);
+    }
+  }
 }
 
 function applyDefaultSpeculationRulesHeader(
@@ -359,6 +442,8 @@ async function rewriteMountedResponse(
   basePath: string,
   pathname: string,
   requestUrl: string,
+  isRecoveryAlias = false,
+  isLegacyRecovery = false,
 ): Promise<Response> {
   const clientConfigScript =
     [
@@ -379,7 +464,13 @@ async function rewriteMountedResponse(
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(
+    headers,
+    response.status,
+    pathname,
+    isRecoveryAlias,
+    isLegacyRecovery,
+  );
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
@@ -426,7 +517,10 @@ export function createH3SSRHandler(getBuild: () => unknown) {
   const handler = createRequestHandler(getBuild as any);
   return defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
-    const p = stripAppBasePath(event.url.pathname);
+    const appPath = stripAppBasePath(event.url.pathname);
+    const isRecoveryAlias = isChunkRecoveryPath(appPath);
+    const isLegacyRecovery = isLegacyChunkRecoveryRequest(event.url);
+    const p = stripChunkRecoveryPathSuffix(appPath);
     if (isFrameworkOrAssetPath(p)) {
       return new Response(null, { status: 404 });
     }
@@ -453,6 +547,8 @@ export function createH3SSRHandler(getBuild: () => unknown) {
           basePath,
           p,
           request.url,
+          isRecoveryAlias,
+          isLegacyRecovery,
         );
       }
       return await rewriteMountedResponse(
@@ -460,6 +556,8 @@ export function createH3SSRHandler(getBuild: () => unknown) {
         basePath,
         p,
         request.url,
+        isRecoveryAlias,
+        isLegacyRecovery,
       );
     } catch (err) {
       console.error("[ssr-handler] SSR error:", err);

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { EngineContentPart } from "../agent/engine/types.js";
 import type { AgentEngine } from "../agent/engine/types.js";
+import { JPEG_BASE64 } from "../file-upload/test-image-fixtures.js";
 import {
   buildCodeAgentSystemPrompt,
   buildRepoInstructionsBlock,
@@ -120,6 +121,58 @@ describe("executeCodeAgentRun", () => {
     expect(
       listCodeAgentTranscriptEvents(run.id).map((event) => event.kind),
     ).toEqual(expect.arrayContaining(["user", "status", "system", "status"]));
+  });
+
+  it("normalizes image/jpg before forwarding CLI run images to vision", async () => {
+    useTempCodeAgentsHome();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Describe a screenshot",
+      status: "queued",
+      cwd: process.cwd(),
+    });
+    let messages: unknown[] = [];
+    const engine: AgentEngine = {
+      name: "image-capture",
+      label: "Image Capture",
+      defaultModel: "image-capture",
+      supportedModels: ["image-capture"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options) {
+        messages = options.messages;
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "Describe this image",
+      attachments: [
+        {
+          name: "screen.jpg",
+          dataUrl: `data:IMAGE/JPG;charset=binary;base64,${JPEG_BASE64}`,
+        },
+      ],
+      engine,
+    });
+
+    expect(messages).toContainEqual({
+      role: "user",
+      content: [
+        { type: "image", data: JPEG_BASE64, mediaType: "image/jpeg" },
+        { type: "text", text: "Describe this image" },
+      ],
+    });
   });
 
   it("pauses with a credential hint when no provider key is available", async () => {
@@ -399,6 +452,7 @@ describe("executeCodeAgentRun", () => {
 
       expect(getCodeAgentRunRecord(run.id)?.status).toBe("completed");
       const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+      expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5-5");
       const configPath = args[args.indexOf("--mcp-config") + 1];
       expect(path.isAbsolute(configPath)).toBe(true);
       expect(args).toContain("--strict-mcp-config");

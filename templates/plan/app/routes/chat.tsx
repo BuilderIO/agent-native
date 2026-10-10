@@ -1,7 +1,7 @@
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
+import { useParams } from "react-router";
 
 import { APP_TITLE } from "@/lib/app-config";
-import { PlanChatPage } from "@/pages/PlanChatPage";
+import { PlanChatHydrateFallback, PlanChatPage } from "@/pages/PlanChatPage";
 
 const SEO_TITLE = `${APP_TITLE} - Open Source visual planning and PR recaps for coding agents`;
 const SEO_DESCRIPTION =
@@ -23,9 +23,13 @@ export function meta() {
 }
 
 export function HydrateFallback() {
-  return <DefaultSpinner />;
+  return <PlanChatHydrateFallback />;
 }
 
+// `/chat` and `/chat/:threadId` (chat.$threadId.tsx re-exports this module)
+// must render this same component, so a submit that moves the URL does not
+// remount the chat.
 export default function ChatRoute() {
-  return <PlanChatPage />;
+  const { threadId } = useParams();
+  return <PlanChatPage threadId={threadId ?? null} />;
 }

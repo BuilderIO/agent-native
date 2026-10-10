@@ -2,6 +2,7 @@ import { type BuiltinLocaleCode as LocaleCode } from "@agent-native/core/client/
 import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { commentAttributionMessagesByLocale } from "../shared/comment-attribution-messages";
+import { importMessagesByLocale } from "./import-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
@@ -220,7 +221,7 @@ const databaseMessages = {
   attached: "Attached",
   bodyDiff: "Body diff",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder isn’t connected. Go back to connect your account first.",
+    "Builder isn’t connected. Go back and use Builder.io first.",
   calculate: "Calculate",
   calendarBy: "Calendar by",
   cancel: "Cancel",
@@ -237,7 +238,7 @@ const databaseMessages = {
   collapseAllGroups: "Collapse all groups",
   color: "Color",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Connect your Builder account (free tier available) to browse its spaces and models.",
+    "Use your Builder account (free tier available) to browse its spaces and models.",
   connectedSources: "Connected sources",
   couldntSyncRetry: "Couldn’t sync · Retry",
   databasePagePreview: "Collection page preview",
@@ -786,6 +787,8 @@ const editorToolbarMessages = {
   openInClaude: "Open in Claude",
   openInClaudeCode: "Open in Claude Code",
   openInCodex: "Open in Codex",
+  connectContent: "Connect Content",
+  otherAgents: "Other agents",
   agentCopyAccessNote:
     "Agents can use Content MCP with your existing permissions",
   temporaryAgentLink: "Temporary agent link",
@@ -846,6 +849,7 @@ const editorToolbarMessages = {
   localAndNotionChanged:
     "Local and Notion changed since the last sync. Choose which version wins.",
   morePageActions: "More page actions",
+  formatting: "Formatting",
   suggestEdits: "Suggest edits",
   suggesting: "Suggesting",
   stopSuggesting: "Stop suggesting",
@@ -855,6 +859,7 @@ const editorToolbarMessages = {
   notionPageUrlOrId: "Notion page URL or page ID",
   open: "Open",
   openInNotion: "Open in Notion",
+  openInAgentNative: "Open in Agent-Native",
   orgCanFindAndView: "Anyone in your organization can find and view",
   orgLinkCanView: "Anyone in your organization with the link can view",
   pageBreadcrumb: "Page breadcrumb",
@@ -1106,8 +1111,6 @@ const enUS = {
   landing: {
     previousPageUnavailable:
       "Your previous page is no longer available, so we opened Welcome.",
-    requestedPageUnavailable:
-      "That page is not available to your account, so we opened Welcome.",
     saveFailed: "Your place could not be saved",
     workspaceWelcomeUnavailableTitle: "Nothing is open here yet",
     workspaceWelcomeUnavailableDescription:
@@ -1176,18 +1179,32 @@ const enUS = {
     documentUnavailable: "Document unavailable",
     documentUnavailableDescription:
       "This page may have been deleted, or it has not been shared with your account.",
+    pageNoAccess: "You don't have access to this page",
+    pageMissing: "This page doesn't exist",
+    pageInTrash: "This page is in the trash",
+    pageInTrashAskOwner: "Ask the owner to restore it.",
+    openTrash: "Open Trash",
+    goToMyPages: "Go to my pages",
     documentNotFound: "Document not found",
     newPage: "New page",
     createFailed: "Failed to create page",
     genericError: "Something went wrong",
   },
   editor: {
+    widgetLoadStalled: "Still waiting for {{stage}}. Request: {{action}}.",
+    widgetDocumentLoadStage: "the saved page body",
+    widgetDraftCheckStage: "page draft recovery",
+    widgetEditorInitStage: "the rich-text editor to initialize",
     suggestionFormattingUnsupported:
       "This formatting cannot be suggested safely. Your draft is kept. Undo the last edit to continue.",
     suggestionFormattingBaselineUnsupported:
       "Some page formatting cannot be suggested safely. An editor can update it before you retry.",
     suggestionAmendmentEmpty:
       "This edit matches the current page. Reject the suggestion to remove it.",
+    suggestionUnplaceable:
+      "The text around this suggestion changed, so it can't be applied. It's still pending: reject it, or suggest the edit again.",
+    proposalUnplaceable:
+      "One of these suggestions can't be applied because the text around it changed, so none were applied. They're all still pending: accept or reject them one at a time.",
     suggestionAmendmentFailed: "Could not save suggestion",
     suggestionAmendmentResolved:
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
@@ -1291,7 +1308,6 @@ const enUS = {
     reorderField: "Reorder {{name}}",
     title: "Title",
     toggleField: "Toggle {{name}}",
-    createCollection: "Create collection",
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
     emptyBlockPlaceholder: "Press ‘/’ for commands",
@@ -1466,6 +1482,9 @@ const enUS = {
     aiUndo: "Undo",
     aiDone: "Done",
     aiMoreChanges: "+{{count}} more",
+    suggestionReplaced: "Replaced",
+    suggestionWithdrawn: "Withdrawn",
+    suggestedChange: "Suggested change",
     aiUndoUnavailable: "Removed text can't be restored automatically",
     aiUndoFailed: "Couldn't undo the change",
     aiResolvedByAi: "Resolved by AI",
@@ -1636,6 +1655,11 @@ const enUS = {
     deletePermanently: "Delete permanently",
     failedCreateDatabase: "Failed to create collection",
     failedCreatePage: "Failed to create page",
+    failedCreatePageDraftDescription:
+      "Your draft is saved in this browser. You can retry page creation or discard the draft.",
+    discardFailedCreatePageQuestion: "Discard pending creation?",
+    discardFailedCreatePageDescription:
+      "This clears the pending creation and any unsaved draft. If the page was already saved, it will remain in your workspace.",
     failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
     failedPermanentDeleteDatabase: "Failed to permanently delete collection",
@@ -1728,6 +1752,7 @@ const enUS = {
     workspaces: "Workspaces",
   },
   trash: trashMessagesByLocale["en-US"],
+  contentImport: importMessagesByLocale["en-US"],
 };
 
 type Messages = typeof enUS;
@@ -1790,6 +1815,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     localFiles: { ...enUS.localFiles, ...overrides.localFiles },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
     trash: enUS.trash,
+    contentImport: enUS.contentImport,
     creativeContext: {
       ...enUS.creativeContext,
       ...overrides.creativeContext,
@@ -2004,6 +2030,10 @@ const esESRawLiteralOverrides: PartialMessages = {
     documentNotFound: "Documento no encontrado",
   },
   editor: {
+    widgetLoadStalled: "Aún se espera {{stage}}. Solicitud: {{action}}.",
+    widgetDocumentLoadStage: "el cuerpo de la página guardada",
+    widgetDraftCheckStage: "la recuperación del borrador de la página",
+    widgetEditorInitStage: "la inicialización del editor de texto enriquecido",
     suggestionCreateFailed: "No se pudo crear la sugerencia",
     suggestionsCount: "{{count}} sugerencias",
     acceptSuggestion: "Aceptar",
@@ -2303,6 +2333,7 @@ function mergeMessagesForLocale(
     },
     sidebar: { ...base.sidebar, ...rawLiteralOverrides.sidebar },
     trash: trashMessagesByLocale[locale],
+    contentImport: importMessagesByLocale[locale],
   };
 }
 

@@ -6,6 +6,11 @@ import { describe, expect, it } from "vitest";
 
 const ALLOW_LIST: Array<[string, string, string]> = [
   [
+    "context-menu.tsx",
+    "slides",
+    "Slides menus disable animation and transition for instant opening",
+  ],
+  [
     "toolkit-provider.tsx",
     "chat",
     "AgentKit bootstrap uses the narrow Toolkit provider entrypoint",
@@ -48,6 +53,19 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "clips",
     "line-variant tabs with underline active state for Clips surfaces",
   ],
+  ["tabs.tsx", "design", "line-variant tabs for the Design home library"],
+  ["tabs.tsx", "slides", "line-variant tabs for the Slides home library"],
+
+  [
+    "tabs.tsx",
+    "design",
+    "line-variant tabs with underline active state for Design home filters",
+  ],
+  [
+    "tabs.tsx",
+    "slides",
+    "line-variant tabs with underline active state for Slides home filters",
+  ],
 
   ["textarea.tsx", "assets", "autoGrow behavior for asset forms"],
   [
@@ -60,6 +78,11 @@ const ALLOW_LIST: Array<[string, string, string]> = [
 const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
   [template: string, primitive: string, reason: string]
 > = [
+  [
+    "slides",
+    "context-menu.tsx",
+    "disables animation and transition so custom menus open instantly",
+  ],
   ["assets", "textarea.tsx", "adds auto-grow behavior for asset forms"],
   [
     "brain",
@@ -89,6 +112,18 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
     "tabs.tsx",
     "uses the shadcn line variant with an underline active state",
   ],
+  [
+    "design",
+    "tabs.tsx",
+    "uses the shadcn line variant with an underline active state for Design home filters and library tabs",
+  ],
+  [
+    "slides",
+    "tabs.tsx",
+    "uses the shadcn line variant with an underline active state for Slides home filters and library tabs",
+  ],
+  ["design", "tabs.tsx", "uses line-variant tabs in the Design home library"],
+  ["slides", "tabs.tsx", "uses line-variant tabs in the Slides home library"],
 ];
 
 function workspaceRoot(): string {
@@ -345,6 +380,7 @@ describe("ui-primitives sync guard", () => {
       ).toBe(true);
       if (fs.existsSync(file)) {
         expect(
+          // source-read-ok: This architecture check verifies the UI adapter form.
           isToolkitPrimitiveReExport(fs.readFileSync(file, "utf-8")),
           `LOCAL_IMPLEMENTATION_ALLOW_LIST entry ${template}:${primitive} is now a Toolkit re-export; remove it`,
         ).toBe(false);

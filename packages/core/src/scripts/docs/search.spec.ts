@@ -13,11 +13,11 @@ import { captureCliOutput } from "../../server/cli-capture.js";
 
 const mocks = vi.hoisted(() => ({
   loadAgentsBundle: vi.fn<() => Promise<AgentsBundle>>(),
-  getUserLabs: vi.fn(),
+  getUserLabStates: vi.fn(),
 }));
 
 vi.mock("../../labs/store.js", () => ({
-  getUserLabs: (...args: unknown[]) => mocks.getUserLabs(...args),
+  getUserLabStates: (...args: unknown[]) => mocks.getUserLabStates(...args),
 }));
 
 vi.mock("../../server/agents-bundle.js", async () => {
@@ -67,6 +67,15 @@ describe("docs-search: skill reference sub-files are reachable end-to-end", () =
   afterEach(() => {
     fs.rmSync(tplDir, { recursive: true, force: true });
     vi.clearAllMocks();
+  });
+
+  it("prints the supported commands when no search option is provided", async () => {
+    const output = await runDocsSearch([]);
+
+    expect(output).toContain('pnpm action docs-search --query "<feature>"');
+    expect(output).toContain("pnpm action docs-search --slug <slug>");
+    expect(output).toContain("pnpm action docs-search --list");
+    expect(output).not.toContain("Use --help");
   });
 
   it("populates Skill.files with the reference sub-file content", () => {
@@ -122,10 +131,22 @@ describe("docs-search: skill reference sub-files are reachable end-to-end", () =
       ].join("\n"),
     );
     mocks.loadAgentsBundle.mockResolvedValue(readAgentsBundleFromFs(tplDir));
-    mocks.getUserLabs.mockImplementation(async (email: string) =>
+    mocks.getUserLabStates.mockImplementation(async (email: string) =>
       email === "enabled@example.test"
-        ? { "content.creative-context": true }
-        : { "content.creative-context": false },
+        ? {
+            "content.creative-context": {
+              enabled: true,
+              source: "choice",
+              mixed: false,
+            },
+          }
+        : {
+            "content.creative-context": {
+              enabled: false,
+              source: "choice",
+              mixed: false,
+            },
+          },
     );
 
     const disabledDocs = await loadAllDocs("disabled@example.test");
@@ -137,7 +158,7 @@ describe("docs-search: skill reference sub-files are reachable end-to-end", () =
     expect(enabledDocs.map((doc) => doc.slug)).toContain(
       "skill-creative-context",
     );
-    expect(mocks.getUserLabs.mock.calls.map(([email]) => email)).toEqual([
+    expect(mocks.getUserLabStates.mock.calls.map(([email]) => email)).toEqual([
       "disabled@example.test",
       "enabled@example.test",
     ]);
@@ -156,7 +177,9 @@ describe("docs-search: skill reference sub-files are reachable end-to-end", () =
       "---\nname: creative-context\nrequires-lab: content.creative-context\n---\nbody",
     );
     mocks.loadAgentsBundle.mockResolvedValue(readAgentsBundleFromFs(tplDir));
-    mocks.getUserLabs.mockRejectedValue(new Error("Labs settings unavailable"));
+    mocks.getUserLabStates.mockRejectedValue(
+      new Error("Labs settings unavailable"),
+    );
 
     await expect(loadAllDocs("user@example.test")).rejects.toThrow(
       "Labs settings unavailable",

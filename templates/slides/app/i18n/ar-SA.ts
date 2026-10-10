@@ -56,6 +56,7 @@ const messages = {
     commentsAndReplies: "التعليقات والردود",
     commentsAndRepliesDescription: "عندما يعلّق شخص على عرضك أو يرد فيه.",
     retry: "إعادة المحاولة",
+    reload: "إعادة تحميل",
     mcpAbout:
       "اربط Slides بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Slides نيابةً عنك: إنشاء العروض التقديمية وإضافة الشرائح والتصدير إلى PowerPoint. ولا يرى إلا ما يمكنك رؤيته.",
     workspaceTitle: "مساحة العمل",
@@ -123,7 +124,7 @@ const messages = {
     googleOAuthNotConfigured:
       "Google OAuth não está configurado para esta implantação.",
     googlePickerNeedsKeys:
-      "Google Picker precisa de GOOGLE_PICKER_API_KEY e GOOGLE_PICKER_APP_ID.",
+      "لم يتم إعداد تصفح ملفات Google Drive. لا يزال بإمكانك استيراد المستند بلصق رابطه.",
     imageUploadFailed: "Falha ao enviar imagem",
     imageUploadNeedsBuilder:
       "اربط تخزين الكائنات لتحميل الصور: اربط Builder.io (مجانًا) أو أضف مفاتيح التخزين المتوافقة مع S3 ضمن الإعدادات ← تحميل الملفات.",
@@ -240,6 +241,7 @@ const messages = {
     importCompleteFile: "تم استيراد الملف من {{fileName}}.",
     backToDecks: "العودة إلى العروض",
     toggleSlideList: "تبديل قائمة الشرائح",
+    openInAgentNative: "فتح في Agent-Native",
     designSystem: "نظام التصميم",
     usingDesignSystem: "يتم استخدام {{title}}",
     usingLinkedDesignSystem: "يتم استخدام نظام تصميم مرتبط",
@@ -254,6 +256,16 @@ const messages = {
     generateImage: "إنشاء صورة",
     assetLibrary: "مكتبة الأصول",
     imageOptions: "خيارات الصورة",
+    videoPlayback: "تشغيل الفيديو",
+    autoplayVideo: "تشغيل تلقائي",
+    loopVideo: "تكرار الفيديو",
+    videoUploading: "جارٍ رفع الفيديو…",
+    videoAdded: "تمت إضافة الفيديو",
+    videoUploadFailed: "تعذّر رفع الفيديو",
+    videoUploadError: "تعذّر رفع هذا الفيديو.",
+    videoFormatUnsupported: "تتوافق المنصة مع فيديوهات MP4 وWebM فقط.",
+    videoTooLarge: "يجب ألا يتجاوز حجم الفيديو 50 ميغابايت.",
+    videoUploadNeedsBuilder: "لم يتم إعداد تخزين الفيديو.",
     cropImage: "اقتصاص الصورة",
     cropHandle: "اقتصاص الصورة {{position}}",
     diagrams: "المخططات",
@@ -305,6 +317,9 @@ const messages = {
     downloadBackup: "تنزيل نسخة احتياطية",
     conflictStatus: "تعارض في النص",
     conflictStatusDescription: "راجع النص المتعارض قبل حفظ تغييرات أخرى.",
+    accessLost: "فُقد الوصول",
+    accessLostDescription:
+      "تغيّر وصولك إلى هذا العرض. تبقى تعديلاتك على الشاشة؛ أعد المحاولة عند استعادة الوصول أو نزّل نسخة احتياطية.",
     reviewConflict: "مراجعة التعارض",
     conflictTitle: "تعارض نصي في الشريحة {{number}}",
     conflictDescription: "غيّر إصدار آخر هذه الشريحة أثناء تحرير النص.",
@@ -351,6 +366,7 @@ const messages = {
     googleSlidesCreated: "تم الفتح في Google Slides",
     googleSlidesCreatedHint:
       "تم إنشاء نسخة من هذا العرض في Google Drive الخاص بك.",
+    googleSlidesGoTo: "الانتقال إلى Google Slides",
     duplicateDeck: "تكرار العرض",
   },
   share: {
@@ -437,7 +453,12 @@ const messages = {
     resolveThread: "حل المحادثة",
     reopenThread: "إعادة فتح المحادثة",
     hideReplies: "إخفاء الردود",
-    replyCount: "{{count}} ردود",
+    replyCount_zero: "{{count}} ردود",
+    replyCount_one: "{{count}} رد",
+    replyCount_two: "{{count}} ردان",
+    replyCount_few: "{{count}} ردود",
+    replyCount_many: "{{count}} ردًا",
+    replyCount_other: "{{count}} رد",
     title: "التعليقات",
     addComment: "إضافة تعليق",
     close: "إغلاق",
@@ -770,6 +791,12 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "فشل تشغيل الوكيل قبل إنشاء أي شرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
+    generationFailed:
+      "لم يتم إنشاء الشرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
+    generationOutcomeUnresolved:
+      "تعذر علينا التأكد مما إذا كانت الشرائح قد أُنشئت. تحقق من العرض أو الدردشة، ثم حاول مرة أخرى.",
     deckHasNoSlides: "لا توجد شرائح في هذا العرض التقديمي.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",
@@ -975,8 +1002,8 @@ const messages = {
           "اقرأ موقع الشركة المقدم وأنشئ عرضًا عن الشركة. أبلغ عن تعذر الوصول بدلًا من اختلاق الحقائق.",
       },
     },
-    connectBuilderIo: "ربط Builder.io",
-    connectingBuilder: "جارٍ ربط Builder.io…",
+    connectBuilderIo: "استخدم Builder.io",
+    connectingBuilder: "جارٍ إعداد Builder.io…",
     recent: "الأخيرة",
     starters: {
       pitch: {
@@ -1014,9 +1041,13 @@ const messages = {
     all: "الكل",
     showMineDecks: "إظهار العروض التي أنشأتها",
     mine: "عروضي",
+    ownedByAnyone: "مملوك لأي شخص",
+    ownedByMe: "مملوك لي",
+    sharedWithMe: "تمت مشاركته معي",
     createDeckOrVisual: "إنشاء عرض تقديمي",
     noMineDecks: "لم تنشئ أي عروض بعد.",
     noDecksMatchSearch: "لا تتطابق أي عروض مع بحثك.",
+    noDecksMatchFilter: "لا تتطابق أي عروض مع عامل التصفية الحالي.",
     deleteDeckTitle: "حذف العرض؟",
     deleteDeckDescription:
       "سيؤدي هذا إلى حذف هذا العرض وكل شرائحه نهائيًا. لا يمكن التراجع عن هذا الإجراء.",

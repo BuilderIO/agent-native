@@ -1,5 +1,6 @@
+import { runErrorTelemetryProperties } from "../agent/engine/error-telemetry.js";
+import { isToolDoneFailure } from "../agent/tool-done-error.js";
 import { sendPostHogEvent } from "../tracking/providers.js";
-import { boundedText } from "../tracking/redaction.js";
 
 export const MAX_AI_CONTENT_BYTES = 128 * 1024;
 export const MAX_AI_SPANS_PER_RUN = 100;
@@ -9,18 +10,24 @@ export interface AiErrorDetail {
   terminal_code?: string;
   terminal_state?: string;
   retryable?: boolean;
+  cause?: string;
 }
-
-const UNREPORTED_ERROR: AiErrorDetail = {
-  message: "failed without a reported error message",
-};
 
 export function resolveAiError(
   isError: boolean,
   error: AiErrorDetail | undefined,
+  failure = "Agent run failed",
 ): AiErrorDetail | undefined {
   if (!isError) return undefined;
-  return error ?? UNREPORTED_ERROR;
+  return failureErrorDetail(
+    error?.message,
+    {
+      state: error?.terminal_state,
+      code: error?.terminal_code,
+      retryable: error?.retryable,
+    },
+    failure,
+  );
 }
 
 function trackAiEvent(
@@ -169,7 +176,12 @@ export function toPostHogMessages(value: unknown): unknown {
             ...(typeof part.toolName === "string"
               ? { name: part.toolName }
               : {}),
-            content: part.content,
+            content: isToolDoneFailure({
+              isError: part.isError,
+              result: part.content,
+            })
+              ? "[tool error message omitted from telemetry]"
+              : part.content,
           });
           break;
         case "tool-call":
@@ -298,7 +310,7 @@ export function emitAiSpanEvent(input: AiSpanEventInput): void {
       $ai_span_name: input.spanName,
       $ai_latency: input.latencySeconds,
       $ai_is_error: input.isError,
-      $ai_error: resolveAiError(input.isError, input.error),
+      $ai_error: resolveAiError(input.isError, input.error, "Tool call failed"),
       $ai_error_type: input.isError
         ? (input.errorType ?? "tool_error")
         : undefined,
@@ -375,15 +387,29 @@ export function toAiErrorDetail(
   },
 ): AiErrorDetail | undefined {
   if (!errorMessage && !terminalOutcome?.code) return undefined;
+  return failureErrorDetail(errorMessage, terminalOutcome);
+}
+
+function failureErrorDetail(
+  errorMessage: string | null | undefined,
+  terminalOutcome?: {
+    state?: string;
+    code?: string;
+    retryable?: boolean;
+  },
+  failure = "Agent run failed",
+): AiErrorDetail {
+  const { error_code, error_cause } = runErrorTelemetryProperties(
+    terminalOutcome?.code,
+    errorMessage,
+  );
   return {
-    message: boundedText(
-      errorMessage ?? terminalOutcome?.code ?? "error",
-      1000,
-    ),
+    message: `${failure} (${error_code})`,
+    cause: error_cause,
     ...(terminalOutcome?.state
       ? { terminal_state: terminalOutcome.state }
       : {}),
-    ...(terminalOutcome?.code ? { terminal_code: terminalOutcome.code } : {}),
+    terminal_code: error_code,
     ...(terminalOutcome?.retryable !== undefined
       ? { retryable: terminalOutcome.retryable }
       : {}),

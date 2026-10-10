@@ -677,7 +677,7 @@ const jaJP = {
         "ビジュアル計画を app-backed skill としてインストールします。コーディングエージェントは図、ワイヤーフレーム、プロトタイプ、注釈、コメント、共有レビューリンク付きの構造化プランを開けます。",
     },
     design: {
-      replaces: "デザインプロトタイピングツールを置き換えまたは拡張",
+      replaces: "Agent-Native Design スタジオ",
       description:
         "プロンプトをデザインシステムに沿ったインタラクティブなデザインに変え、エージェントがフィードバックで各画面を磨き上げます。",
     },
@@ -1360,7 +1360,7 @@ const jaJP = {
       s003: "生成する",
       s004: "絞り込む",
       s005: "すべてのテンプレート",
-      s006: "オープンソースの AI HTML プロトタイピング スタジオ",
+      s006: "オープンソースのデザインワークスペース",
       s007: "インタラクティブなデザインとプロトタイプを作成できます。使い慣れたツールで調整するか、会話の編集で仕上げられます。どこへでもエクスポートできます。",
       s008: "何かをデザインする",
       s009: "仕組み",
@@ -1818,7 +1818,6 @@ const jaJP = {
       heroDescription:
         "Plans は無料・オープンソースのビジュアル計画ツールです。図、ワイヤーフレーム、注釈付きコードを通じて、コーディングエージェントの進め方をレビューし、フィードバックを送り、コードの変更内容を理解できます。",
       heroCta: "ビジュアルで計画",
-      heroSecondaryCta: "Plans を開く",
       useCasesHeading: "Plans でできること",
       useCasesBody:
         "実装アプローチをレビューしたり、画面案を検討したり、AI コーディングエージェントと一緒に完了した変更を理解したりできます。",
@@ -2174,6 +2173,8 @@ const jaJP = {
     downloadStarted: "ダウンロードを開始しました",
     downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
     loadError: "最新のデスクトップインストーラーを読み込めませんでした。",
+    mountError:
+      "デスクトップのダウンロードページでワークスペース内のパスを特定できませんでした。ワークスペース管理者にアプリのマウント設定を確認してもらってください。",
     checkingRelease: "最新のデスクトップリリースを確認しています...",
     retry: "再試行",
     unavailable: "このプラットフォームではインストーラーを利用できません",
@@ -2598,11 +2599,12 @@ const jaJP = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
-    deploymentAwsLambda: "AWS Lambda",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
-    deploymentKoyeb: "Koyeb",
-    deploymentRender: "Render",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "その他のプラットフォーム",
     ssrCaching: "SSRキャッシュ",
     deploymentEnvironmentVariables: "デプロイ: 環境変数",
@@ -2692,6 +2694,7 @@ const jaJP = {
     planAutomations: "イベントと自動化",
     planLocalAndDesktop: "ローカルファイルとデスクトップ",
     planDevelopers: "開発者ガイド",
+    turnIntoApp: "アプリに変換",
     prVisualRecap: "PR ビジュアル回顧",
     planPluginMarketplace: "Plan プラグインとマーケットプレイス",
     slides: "スライド",

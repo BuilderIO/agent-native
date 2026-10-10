@@ -36,7 +36,7 @@ Analytics result or direct the user to an Extensions page.
 
 ### Step 1: Understand the Question (catalog-first, clarify-first)
 
-Orient before gathering data. Consult the injected `<data-dictionary>` and data-source status first to see which sources are configured and which one owns each fact, then settle scope:
+Orient before gathering data. Consult the preloaded `<resource scope="analytics-catalog">` references (else one `find-data`) and data-source status first to see which sources are configured and which one owns each fact, then settle scope:
 
 - What is being analyzed? (deals, users, campaigns, errors, etc.)
 - What time range?
@@ -98,6 +98,18 @@ Don't just dump raw data. Synthesize findings:
 - Make the evidence trail explicit enough to audit: source(s), time window,
   filters, sample size or row count, join/match method, caveats/gaps, and
   recommended next action when useful.
+- Unstructured source records (Pylon tickets, Jira issues, Gong calls and
+  transcripts, Slack messages) are valid evidence: code them for themes, mention
+  counts, sentiment, and objections, state the inspected sample size, and do not
+  imply unsupported statistical certainty.
+- The words all, total, or exact do not by themselves call for cross-source
+  validation when one structured query fully covers the requested source and
+  filters.
+- If the user challenges coverage, asks why more records were not included, or
+  asks for the updated answer, rerun the source query or revise from the
+  corrected cohort and put the updated answer in the response. Do not claim a
+  dashboard was revised unless the revised answer is saved with
+  `update-dashboard` or `mutate-dashboard`.
 
 ### Step 4: Generate Charts (when useful)
 
@@ -253,8 +265,13 @@ iteration independent.
 
 ## After Completing an Analysis — Record Discoveries
 
-After completing a significant analysis, update `LEARNINGS.md` (via the
-`resources` tool) or `save-memory` with newly confirmed:
+After completing a significant analysis, record newly confirmed findings when
+they will help future work. First check whether a finding applies to the user's
+setup or to the whole organization. Keep setup-specific findings in personal
+memory or the current analysis. Ask the user and get approval before writing
+anything to shared `LEARNINGS.md` or organization memory.
+
+Record approved findings such as:
 
 - Metric definitions (how a metric is actually calculated in this dataset)
 - Provider gotchas discovered during the analysis

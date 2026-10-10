@@ -1,4 +1,4 @@
-import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconExternalLink, IconPlugConnected } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
@@ -8,6 +8,7 @@ import { AppIcon } from "../../components/app-icon";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import { Skeleton } from "../../components/ui/skeleton";
 import {
   buildIdentityConnectUrl,
   fetchConnectAgentCard,
@@ -106,9 +107,34 @@ function ConnectCard({
 }
 
 export default function ConnectRoute() {
-  const enabled = useFeatureFlag(DISPATCH_CONNECT_APPS_FLAG.key);
-  if (!enabled) return null;
+  const flag = useFeatureFlagState(DISPATCH_CONNECT_APPS_FLAG.key);
+  if (flag.status === "loading") return <ConnectAppsSkeleton />;
+  if (!flag.enabled) return null;
   return <ConnectAppsContent />;
+}
+
+function ConnectAppsSkeleton() {
+  return (
+    <DispatchShell title="" loading>
+      <div className="max-w-2xl space-y-6" aria-busy="true">
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Skeleton className="size-4" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+          <Skeleton className="h-16 w-full rounded-lg" />
+        </section>
+        <section className="space-y-3">
+          <Skeleton className="h-4 w-36" />
+          <div className="flex gap-2">
+            <Skeleton className="h-9 flex-1 rounded-md" />
+            <Skeleton className="h-9 w-24 rounded-md" />
+          </div>
+          <Skeleton className="h-3 w-2/3" />
+        </section>
+      </div>
+    </DispatchShell>
+  );
 }
 
 function ConnectAppsContent() {

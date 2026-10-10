@@ -7,12 +7,14 @@ export {
 export {
   useAgentRouteState,
   useSemanticNavigationState,
+  type AgentRouteTarget,
   type AgentRouteLocation,
   type SemanticNavigationCommandEnvelope,
   type UseAgentRouteStateOptions,
   type UseAgentRouteStateResult,
   type UseSemanticNavigationStateOptions,
   type UseSemanticNavigationStateResult,
+  type WorkspaceAppRouteTarget,
 } from "../route-state.js";
 export {
   AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE,

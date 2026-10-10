@@ -14,13 +14,20 @@ import {
 } from "../agent/engine/error-detail.js";
 import { organizationIdFromResourceOwner } from "../resources/store.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
+import { isTestIdentity } from "../server/test-identity.js";
 import type { JobFrontmatter, JobFrontmatterPatch } from "./frontmatter.js";
 
 /**
- * Failures a retry cannot fix: the run never started because something the
- * automation depends on is absent. They are typed outcomes of their own, never
- * folded into a generic "errored", so the owner sees the real cause and the
- * scheduler can stop re-failing every tick.
+ * Failures a retry cannot fix because something the automation depends on is
+ * absent. They are typed outcomes of their own, never folded into a generic
+ * "errored", so the owner sees the real cause and the scheduler can stop
+ * re-failing every tick.
+ *
+ * Most are caught before a run starts. `connection_required` is only known
+ * after the run has yielded to a connection request, so every failed attempt
+ * already has a thread. It skips the runtime backoff like the rest, pauses
+ * after `PRECONDITION_PAUSE_AFTER` identical failures, and the pause is not
+ * transient: it lasts until the owner enables the automation again.
  */
 export const AUTOMATION_PRECONDITION_CODES = [
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -28,12 +35,14 @@ export const AUTOMATION_PRECONDITION_CODES = [
   "owner_missing",
   "owner_reserved",
   "config_invalid",
+  "connection_required",
 ] as const;
 
 export type AutomationPreconditionCode =
   (typeof AUTOMATION_PRECONDITION_CODES)[number];
 
 export const MISSING_TOOLS_ERROR_CODE = "missing_tools";
+export const CONNECTION_REQUIRED_ERROR_CODE = "connection_required";
 export const OWNER_MISSING_ERROR_CODE = "owner_missing";
 export const OWNER_RESERVED_ERROR_CODE = "owner_reserved";
 export const CONFIG_INVALID_ERROR_CODE = "config_invalid";
@@ -118,6 +127,7 @@ export function isTransientAutomationFailureCode(
 }
 
 export interface AutomationFailure {
+  deliveryNote?: string;
   /** Typed code persisted as `lastErrorCode` and the run's `error_code`. */
   code: string;
   /** The real cause, never a generic status sentence. */
@@ -159,6 +169,11 @@ export function classifyAutomationFailure(error: unknown): AutomationFailure {
   return {
     code,
     message,
+    ...(error instanceof Error &&
+    "deliveryNote" in error &&
+    typeof error.deliveryNote === "string"
+      ? { deliveryNote: error.deliveryNote }
+      : {}),
     precondition:
       isAutomationPreconditionCode(code) || isCredentialPreconditionCode(code),
   };
@@ -179,34 +194,12 @@ export function isPseudoOwner(owner: string): boolean {
 const MISSING_TOOLS_MESSAGE =
   /^Configured MCP tools are unavailable in this run\b/;
 
-const RESERVED_TEST_TLDS = ["test", "invalid", "example"];
-const RESERVED_TEST_DOMAINS = ["example.com", "example.org", "example.net"];
-
-export function isReservedTestIdentity(email: string): boolean {
-  const at = email.lastIndexOf("@");
-  if (at < 1) return false;
-  const domain = email
-    .slice(at + 1)
-    .trim()
-    .toLowerCase();
-  return (
-    RESERVED_TEST_TLDS.some(
-      (tld) => domain === tld || domain.endsWith(`.${tld}`),
-    ) ||
-    RESERVED_TEST_DOMAINS.some(
-      (reserved) => domain === reserved || domain.endsWith(`.${reserved}`),
-    )
-  );
-}
-
 /**
  * QA fixtures such as `qa-*@local.test` are expected on local and beta
  * deployments; in production they only burn LLM runs against real sinks.
  */
 export function isReservedIdentityBlocked(email: string): boolean {
-  return (
-    isReservedTestIdentity(email) && resolveDeployEnvironment() === "production"
-  );
+  return isTestIdentity(email) && resolveDeployEnvironment() === "production";
 }
 
 export function reservedIdentityMessage(email: string): string {
@@ -237,30 +230,40 @@ export function isPausedByFramework(
   return !meta.enabled && Boolean(meta.pausedReason);
 }
 
-function truncate(value: string): string {
-  return value.length > MAX_RECORDED_ERROR_CHARS
-    ? `${value.slice(0, MAX_RECORDED_ERROR_CHARS - 1)}…`
-    : value;
+function truncate(value: string, limit = MAX_RECORDED_ERROR_CHARS): string {
+  return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 }
 
 export function pausedMessage(
   code: string,
   count: number,
   message: string,
+  deliveryNote?: string,
 ): string {
   const next = isTransientAutomationFailureCode(code)
     ? "It retries on its own and resumes once this clears."
     : "Fix the cause, then enable the automation again.";
-  return truncate(
-    `Paused after ${count} consecutive ${code} failures: ${message} ${next}`,
-  );
+  const detail = `Paused after ${count} consecutive ${code} failures: ${message} ${next}`;
+  return deliveryNote
+    ? withDeliveryNote(detail, deliveryNote)
+    : truncate(detail);
 }
 
 /** The cause first, then the delivery note owners already know. */
-export function withDeliveryNote(message: string): string {
-  return truncate(
-    `${message.trim().replace(/\.$/, "")}. No delivery was confirmed.`,
+export function withDeliveryNote(
+  message: string,
+  deliveryNote = "No delivery was confirmed.",
+): string {
+  const note = truncate(deliveryNote, 300);
+  const detail = message.trim();
+  const cause = truncate(
+    (detail.endsWith(note) && note
+      ? detail.slice(0, -note.length).trim()
+      : detail
+    ).replace(/\.$/, ""),
+    MAX_RECORDED_ERROR_CHARS - note.length - 2,
   );
+  return `${cause}. ${note}`;
 }
 
 /**
@@ -283,7 +286,10 @@ export function applyAutomationFailure(
   now: Date,
   options: { countTowardPause?: boolean; eventId?: string } = {},
 ): FailureTransition {
-  const recordedMessage = withDeliveryNote(failure.message);
+  const recordedMessage = withDeliveryNote(
+    failure.message,
+    failure.deliveryNote,
+  );
   const retryOfCountedEvent =
     options.eventId !== undefined && options.eventId === meta.lastFailedEventId;
   if (options.countTowardPause === false || retryOfCountedEvent) {
@@ -312,7 +318,12 @@ export function applyAutomationFailure(
     patch: {
       lastStatus: pause ? "paused" : "error",
       lastError: pause
-        ? pausedMessage(failure.code, count, failure.message)
+        ? pausedMessage(
+            failure.code,
+            count,
+            failure.message,
+            failure.deliveryNote,
+          )
         : recordedMessage,
       lastErrorCode: failure.code,
       consecutiveFailures: count,

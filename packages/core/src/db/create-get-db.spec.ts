@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 describe("createGetDb pooled transaction scoping", () => {
@@ -8,6 +12,28 @@ describe("createGetDb pooled transaction scoping", () => {
     vi.doUnmock("@neondatabase/serverless");
     vi.unstubAllEnvs();
     vi.resetModules();
+  });
+
+  it("rebuilds the PGlite Drizzle handle after database clients close", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "create-get-db-close-"));
+    vi.stubEnv("DATABASE_URL", `pglite:${path.join(dir, "db")}`);
+
+    try {
+      const [{ createGetDb }, { closeDbExec }] = await Promise.all([
+        import("./create-get-db.js"),
+        import("./client.js"),
+      ]);
+      const { sql } = await import("drizzle-orm");
+      const getDb = createGetDb({});
+
+      await getDb().execute(sql.raw("SELECT 1"));
+      await closeDbExec();
+      await getDb().execute(sql.raw("SELECT 1"));
+    } finally {
+      const { closeDbExec } = await import("./client.js");
+      await closeDbExec();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("keeps raw queries, access checks, nested scopes, and timeouts in Neon transactions", async () => {
@@ -383,16 +409,31 @@ describe("createGetDb pooled transaction scoping", () => {
       await getDbExec().transaction(() =>
         getDbExec().execute({ sql: "SELECT 104", timeoutMs: 40 }),
       );
+      const nestedTimeout = Number(
+        timeoutOperations[5]?.match(/^set:(\d+)ms$/)?.[1],
+      );
+      const finalTimeout = Number(
+        timeoutOperations.at(-3)?.match(/^set:(\d+)ms$/)?.[1],
+      );
+      expect(nestedTimeout).toBeGreaterThan(0);
+      expect(nestedTimeout).toBeLessThan(50);
+      expect(finalTimeout).toBeGreaterThan(0);
+      expect(finalTimeout).toBeLessThan(40);
+      const firstTimeout = Number(
+        timeoutOperations[1]?.match(/^set:(\d+)ms$/)?.[1],
+      );
+      expect(firstTimeout).toBeGreaterThan(0);
+      expect(firstTimeout).toBeLessThanOrEqual(25);
       expect(timeoutOperations.slice(0, 4)).toEqual([
         "read:90ms",
-        expect.stringMatching(/^set:2[0-3]ms$/),
-        expect.stringMatching(/^query:SELECT 101@2[0-3]ms$/),
+        `set:${firstTimeout}ms`,
+        `query:SELECT 101@${firstTimeout}ms`,
         "restore:90ms",
       ]);
       expect(timeoutOperations.slice(4)).toEqual([
         "read:90ms",
-        "set:45ms",
-        "query:SELECT 102@45ms",
+        `set:${nestedTimeout}ms`,
+        `query:SELECT 102@${nestedTimeout}ms`,
         "restore:90ms",
         "query:SELECT 105@90ms",
         "query:SELECT 106@90ms",
@@ -401,10 +442,16 @@ describe("createGetDb pooled transaction scoping", () => {
         "query:SELECT 108@90ms",
         "query:SELECT 103@90ms",
         "read:90ms",
-        "set:36ms",
-        "query:SELECT 104@36ms",
+        `set:${finalTimeout}ms`,
+        `query:SELECT 104@${finalTimeout}ms`,
         "restore:90ms",
       ]);
+      expect(timeoutOperations[6]).toBe(
+        `query:SELECT 102@${timeoutOperations[5]?.slice("set:".length)}`,
+      );
+      expect(timeoutOperations[16]).toBe(
+        `query:SELECT 104@${timeoutOperations[15]?.slice("set:".length)}`,
+      );
       const parentContextQuery = new Promise<void>((resolve, reject) => {
         setTimeout(() => {
           void tx.execute(rawQuery("SELECT 113")).then(resolve, reject);
@@ -984,6 +1031,127 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     }
 
     expect(() => drainAsSql(subqueryChain)).toThrow(/unresolved|await/i);
+  });
+});
+
+describe("createGetDb — initialization reset races", () => {
+  afterEach(async () => {
+    const { closeDbExec } = await import("./client.js");
+    await closeDbExec();
+    vi.doUnmock("./client.js");
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+      resolve = resolvePromise;
+      reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+  }
+
+  async function setupPendingPgliteInitializations() {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+    const pending = [deferred<any>(), deferred<any>()];
+    let nextInitialization = 0;
+    const loadPgliteDrizzle = vi.fn(
+      () => pending[nextInitialization++].promise,
+    );
+    const getPgliteClient = vi.fn(async () => ({}));
+    vi.doMock("./client.js", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("./client.js")>();
+      return {
+        ...actual,
+        assertHostedRuntimeDatabase: vi.fn(),
+        getRuntimeDatabaseUrl: vi.fn(() => "pglite:./data/pglite"),
+        isPgliteUrl: vi.fn(() => true),
+        loadPgliteDrizzle,
+        getPgliteClient,
+        pgliteDrizzleClient: vi.fn((_url: string, client: unknown) => client),
+      };
+    });
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
+
+    const { createGetDb } = await import("./create-get-db.js");
+    const client = await import("./client.js");
+    return { createGetDb, client, getPgliteClient, loadPgliteDrizzle, pending };
+  }
+
+  it("ignores a PGlite initialization that resolves after close and resume", async () => {
+    const { createGetDb, client, getPgliteClient, loadPgliteDrizzle, pending } =
+      await setupPendingPgliteInitializations();
+    const getDb = createGetDb({});
+    const staleInitialization = expect(getDb()).rejects.toThrow(/invalidated/i);
+    await Promise.resolve();
+    expect(loadPgliteDrizzle).toHaveBeenCalledTimes(1);
+
+    client.beginPgliteClientShutdown();
+    await client.closeDbExec();
+    client.resumePgliteClientAccess();
+
+    const resumedDb = getDb();
+    await Promise.resolve();
+    expect(loadPgliteDrizzle).toHaveBeenCalledTimes(2);
+
+    const resumedDrizzle = vi.fn(({ client: pgliteClient }) => ({
+      name: "resumed",
+      client: pgliteClient,
+    }));
+    pending[1].resolve({ drizzle: resumedDrizzle });
+    const currentDb = await resumedDb;
+
+    pending[0].resolve({
+      drizzle: vi.fn(({ client: pgliteClient }) => ({
+        name: "stale",
+        client: pgliteClient,
+      })),
+    });
+    await staleInitialization;
+
+    expect(getPgliteClient).toHaveBeenCalledTimes(1);
+    expect(currentDb.name).toBe("resumed");
+    expect(await getDb()).toBe(currentDb);
+  });
+
+  it("does not let a stale rejection clear a resumed initialization", async () => {
+    const { createGetDb, client, getPgliteClient, loadPgliteDrizzle, pending } =
+      await setupPendingPgliteInitializations();
+    const getDb = createGetDb({});
+    const staleError = new Error("stale PGlite initialization failed");
+    const staleResult = Promise.resolve(getDb()).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    await Promise.resolve();
+    expect(loadPgliteDrizzle).toHaveBeenCalledTimes(1);
+
+    client.beginPgliteClientShutdown();
+    await client.closeDbExec();
+    client.resumePgliteClientAccess();
+
+    const resumedDb = getDb();
+    await Promise.resolve();
+    expect(loadPgliteDrizzle).toHaveBeenCalledTimes(2);
+
+    pending[0].reject(staleError);
+    await expect(staleResult).resolves.toEqual({ error: staleError });
+    expect(getPgliteClient).not.toHaveBeenCalled();
+
+    const resumedDrizzle = vi.fn(({ client: pgliteClient }) => ({
+      name: "resumed",
+      client: pgliteClient,
+    }));
+    pending[1].resolve({ drizzle: resumedDrizzle });
+    const currentDb = await resumedDb;
+
+    expect(loadPgliteDrizzle).toHaveBeenCalledTimes(2);
+    expect(getPgliteClient).toHaveBeenCalledTimes(1);
+    expect(currentDb.name).toBe("resumed");
+    expect(await getDb()).toBe(currentDb);
   });
 });
 

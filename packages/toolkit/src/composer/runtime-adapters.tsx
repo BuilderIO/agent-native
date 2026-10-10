@@ -10,6 +10,19 @@ import {
 
 import type { MentionItemMedia } from "./types.js";
 
+const referenceEventTargets = new WeakMap<Event, HTMLElement>();
+
+export function setComposerReferenceEventTarget(
+  event: Event,
+  target: HTMLElement,
+) {
+  referenceEventTargets.set(event, target);
+}
+
+export function getComposerReferenceEventTarget(event: Event) {
+  return referenceEventTargets.get(event);
+}
+
 export type ComposerTranslate = (
   key: string,
   options?: Record<string, unknown>,
@@ -148,7 +161,7 @@ export interface ComposerRuntimeAdapters {
     };
     fetchAgentEngineConfiguredState?: (
       enabled: boolean,
-      options: { timeoutMs: number },
+      options: { fresh?: boolean; timeoutMs?: number },
     ) => Promise<ComposerAgentEngineState>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
@@ -238,9 +251,9 @@ const fallbackModels = {
   }),
   useAgentEngineConfigured: () => ({
     missing: false,
-    state: "configured" as const,
+    state: "unknown" as const,
   }),
-  fetchAgentEngineConfiguredState: async () => "configured" as const,
+  fetchAgentEngineConfiguredState: async () => "unavailable" as const,
 };
 const FragmentBoundary: ComponentType<{ children?: ReactNode }> = ({
   children,
@@ -353,9 +366,9 @@ export function resolveReasoningEffortSelection(
 }
 
 export const AGENT_CHAT_INSERT_REFERENCE_EVENT =
-  "agent-native:insert-composer-reference";
+  "agentNative:insert-composer-reference";
 export const AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE =
-  "agent-native:insert-composer-reference";
+  "agentNative.insertComposerReference";
 
 export function formatPromptContextItems(
   items: readonly AgentChatContextItem[] | undefined,

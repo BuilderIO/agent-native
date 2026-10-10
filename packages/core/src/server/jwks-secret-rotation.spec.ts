@@ -1,10 +1,14 @@
+import { betterAuth } from "better-auth";
+import { memoryAdapter } from "better-auth/adapters/memory";
 import { symmetricEncrypt } from "better-auth/crypto";
+import { jwt } from "better-auth/plugins/jwt";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import {
   healUndecryptableJwks,
   isJwksDecryptError,
+  readNewestJwks,
   resetJwksSecretRotationStateForTests,
   withJwksRotationRecovery,
 } from "./jwks-secret-rotation.js";
@@ -140,6 +144,38 @@ describe("healUndecryptableJwks", () => {
     const callsAfterFirst = executeCalls;
     await expect(healUndecryptableJwks()).resolves.toBe(false);
     expect(executeCalls).toBe(callsAfterFirst);
+  });
+});
+
+describe("readNewestJwks", () => {
+  it("keeps the live key published once over 100 stale keys sit ahead of it", async () => {
+    const store: Record<string, any[]> = { jwks: [] };
+    const auth = betterAuth({
+      baseURL: "http://localhost:3000",
+      secret: NEW_SECRET,
+      database: memoryAdapter(store),
+      plugins: [
+        jwt({
+          adapter: { getJwks: (ctx) => readNewestJwks(ctx.context.adapter) },
+        }),
+      ],
+    });
+    await auth.api.getJwks();
+    const live = store.jwks[0];
+    const pastGrace = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+    store.jwks.unshift(
+      ...Array.from({ length: 100 }, (_, index) => ({
+        ...live,
+        id: `rotated-${index}`,
+        createdAt: new Date(pastGrace.getTime() - index),
+        expiresAt: pastGrace,
+      })),
+    );
+
+    const { keys } = await auth.api.getJwks();
+    expect(keys.map((key) => key.kid)).toEqual([live.id]);
+    await auth.api.signJWT({ body: { payload: { sub: "user-1" } } });
+    expect(store.jwks).toHaveLength(101);
   });
 });
 

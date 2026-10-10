@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentKitClient } from "../../../agentkit/src/client/client.js";
 import { selectAgentSuggestions } from "../../../agentkit/src/client/state.js";
 import type { AgentThreadSnapshot } from "../../../agentkit/src/protocol/index.js";
+import {
+  agentEngineStatusUrlForChatApi,
+  ensureAgentEngineReadiness,
+  resetAgentEngineReadinessForTests,
+} from "../client/agent-engine-readiness.js";
 import { createAgentKitProtocolAdapter } from "../client/chat/agentkit-protocol.js";
 import { createAgentNativeChatRuntime } from "../client/chat/runtime.js";
 import * as contextTransforms from "./engine/context-directives-transform.js";
@@ -15,6 +20,7 @@ import type {
 } from "./engine/types.js";
 import {
   FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+  FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT,
   FOLLOW_UP_SUGGESTIONS_INSTRUCTION,
   FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
 } from "./follow-up-suggestions.js";
@@ -22,6 +28,7 @@ import { TripWire } from "./processors.js";
 import {
   actionsToEngineTools,
   runAgentLoop,
+  runAgentLoopWithMainChatInternalContinuations,
   type ActionEntry,
 } from "./production-agent.js";
 import * as runStore from "./run-store.js";
@@ -119,6 +126,13 @@ function setup(
   return { events, requests, controller, opts };
 }
 
+function digestText(request: EngineStreamOptions): string {
+  return request.messages
+    .flatMap((message) => message.content)
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("\n");
+}
+
 function published(events: AgentChatEvent[]) {
   return events.filter(
     (event) => event.type === "suggestions" && event.suggestions.length > 0,
@@ -141,70 +155,62 @@ const readCall: EngineContentPart = {
 };
 
 describe("native agent follow-up publication", () => {
-  it.each(["success", "failure", "cancel"])(
-    "includes the completion reminder in context processing (%s)",
-    async (mode) => {
-      const { opts, requests, events, controller } = setup([
-        step([reply()]),
-        step([call()], "tool_use"),
-      ]);
-      opts.threadId = "thread-fixture";
-      const transform = vi
-        .spyOn(contextTransforms, "applyContextXrayTransformForIteration")
-        .mockImplementation(async ({ messages }) => {
-          if (
-            messages
-              .at(-1)
-              ?.content.some(
-                (part) =>
-                  part.type === "text" &&
-                  part.text === FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
-              )
-          ) {
-            if (mode === "failure") throw new Error("Context unavailable");
-            if (mode === "cancel") controller.abort();
-          }
-          return messages;
-        });
-      const readJournal = vi
-        .spyOn(journal, "loadPriorTurnToolCallJournal")
-        .mockResolvedValue({
-          status: "read",
-          toolCallJournal: null,
-          priorToolCalls: [],
-          priorToolCallSequence: [],
-          priorToolResults: [],
-        });
-      const clearLedger = vi
-        .spyOn(runStore, "clearLedgerForThread")
-        .mockResolvedValue();
-      try {
-        await runAgentLoop(opts);
-        expect(transform).toHaveBeenCalledTimes(2);
-        expect(transform.mock.calls[1][0].messages.at(-1)).toEqual({
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
-            },
-          ],
-        });
-        expect(requests).toHaveLength(mode === "success" ? 2 : 1);
-        if (mode === "failure")
-          expect(events.at(-2)).toMatchObject({
-            type: "rich_event",
-            event: { data: { code: "context_error" } },
-          });
-        if (mode === "cancel")
-          expect(events.some((event) => event.type === "done")).toBe(false);
-      } finally {
-        transform.mockRestore();
-        readJournal.mockRestore();
-        clearLedger.mockRestore();
-      }
-    },
-  );
+  it("keeps full-conversation context processing off the bounded completion call", async () => {
+    const { opts, requests } = setup([
+      step([reply()]),
+      step([call()], "tool_use"),
+    ]);
+    opts.threadId = "thread-fixture";
+    const transformed: unknown[] = [];
+    const transform = vi
+      .spyOn(contextTransforms, "applyContextXrayTransformForIteration")
+      .mockImplementation(async ({ messages }) => {
+        transformed.push(structuredClone(messages));
+        return messages;
+      });
+    const readJournal = vi
+      .spyOn(journal, "loadPriorTurnToolCallJournal")
+      .mockResolvedValue({
+        status: "read",
+        toolCallJournal: null,
+        priorToolCalls: [],
+        priorToolCallSequence: [],
+        priorToolResults: [],
+      });
+    const clearLedger = vi
+      .spyOn(runStore, "clearLedgerForThread")
+      .mockResolvedValue();
+    try {
+      await runAgentLoop(opts);
+      expect(requests).toHaveLength(2);
+      expect(transform).toHaveBeenCalledTimes(1);
+      expect(transformed).toEqual([[opts.messages[0]]]);
+    } finally {
+      transform.mockRestore();
+      readJournal.mockRestore();
+      clearLedger.mockRestore();
+    }
+  });
+
+  it("reports the follow-up call's cost through the main-chat wrapper", async () => {
+    const { opts } = setup([
+      [
+        ...step([reply()]),
+        { type: "usage", inputTokens: 100, outputTokens: 30 },
+      ],
+      [
+        ...step([call()], "tool_use"),
+        { type: "usage", inputTokens: 200, outputTokens: 40 },
+      ],
+    ]);
+    const usage = await runAgentLoopWithMainChatInternalContinuations(opts);
+    expect(usage).toMatchObject({
+      llmCalls: 2,
+      inputTokens: 300,
+      followUpInputTokens: 200,
+    });
+    expect(usage.followUpMs).toBeGreaterThanOrEqual(0);
+  });
 
   it.each([undefined, 512, 128, 32_768])(
     "respects the metadata cap and supported output floor for %s",
@@ -222,6 +228,7 @@ describe("native agent follow-up publication", () => {
   );
 
   it("replenishes model-authored chips after using a chip when the next reply omits metadata", async () => {
+    resetAgentEngineReadinessForTests();
     const next = {
       label: "Review mobile",
       prompt: "Review this refined design at mobile sizes.",
@@ -234,9 +241,26 @@ describe("native agent follow-up publication", () => {
       ]),
     ];
     const requests: { message: string; history: unknown[] }[] = [];
+    const apiUrl = "https://example.test/agent-chat";
+    const readinessUrl = agentEngineStatusUrlForChatApi(apiUrl);
+    await expect(
+      ensureAgentEngineReadiness({
+        fresh: true,
+        source: {
+          statusUrl: readinessUrl,
+          fetch: async (input) => {
+            expect(String(input)).toBe(readinessUrl);
+            return Response.json({ configured: true, chatEligible: true });
+          },
+        },
+      }),
+    ).resolves.toBe("configured");
     const runtime = createAgentNativeChatRuntime({
-      apiUrl: "https://example.test/agent-chat",
+      apiUrl,
       fetch: async (_url, init) => {
+        if (String(_url) === readinessUrl) {
+          return Response.json({ configured: true, chatEligible: true });
+        }
         const body = JSON.parse(String(init?.body));
         requests.push(body);
         const turn = turns[requests.length - 1];
@@ -275,8 +299,14 @@ describe("native agent follow-up publication", () => {
     transport.persistThreadSnapshot = async (input) => {
       snapshot = structuredClone(input.snapshot);
     };
-    const client = new AgentKitClient({ transport });
-    const cold = new AgentKitClient({ transport });
+    const client = new AgentKitClient({
+      transport,
+      aiSetupReadiness: "not-applicable",
+    });
+    const cold = new AgentKitClient({
+      transport,
+      aiSetupReadiness: "not-applicable",
+    });
     try {
       await client.loadThread("thread-1");
       await (
@@ -304,12 +334,13 @@ describe("native agent follow-up publication", () => {
           ?.id,
       );
       expect(turns.map((turn) => turn.requests.length)).toEqual([1, 2]);
-      expect(turns[1].requests[1].messages).toEqual(
-        expect.arrayContaining([
-          { role: "user", content: [{ type: "text", text: followUp.prompt }] },
-          { role: "assistant", content: [reply("Refined the layout.")] },
-        ]),
-      );
+      expect(turns[1].requests[1].messages.map((m) => m.role)).toEqual([
+        "user",
+        "assistant",
+        "user",
+      ]);
+      expect(digestText(turns[1].requests[1])).toContain(followUp.prompt);
+      expect(digestText(turns[1].requests[1])).toContain("Refined the layout.");
       await cold.loadThread("thread-1");
       expect(selectAgentSuggestions(cold.getThread("thread-1"))).toEqual(
         second,
@@ -317,6 +348,7 @@ describe("native agent follow-up publication", () => {
     } finally {
       client.dispose();
       cold.dispose();
+      resetAgentEngineReadinessForTests();
     }
   });
 
@@ -373,19 +405,39 @@ describe("native agent follow-up publication", () => {
     expect(requests[1].tools.map((tool) => tool.name)).toEqual([
       FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
     ]);
-    expect(requests[1].messages.at(-1)).toEqual({
-      role: "user",
-      content: [
-        { type: "text", text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION },
-      ],
-    });
+    expect(requests[1].systemPrompt).toBe(
+      FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT,
+    );
+    expect(requests[1].messages).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<user-request>\nCreate a design. <current-screen>canvas</current-screen>\n</user-request>",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Created your design." }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION },
+        ],
+      },
+    ]);
     expect(usage).toMatchObject({
       llmCalls: 2,
       inputTokens: 300,
       outputTokens: 70,
       cacheReadTokens: 80,
       builderCreditsUsed: 1,
+      followUpInputTokens: 200,
     });
+    expect(usage.followUpMs).toBeGreaterThanOrEqual(0);
     expect(opts.onUsage).toHaveBeenCalledTimes(2);
     expect(processor.processOutputStep).toHaveBeenCalledTimes(2);
     expect(processor.processOutputResult).toHaveBeenCalledWith(
@@ -398,6 +450,39 @@ describe("native agent follow-up publication", () => {
     ).toEqual([{ type: "text", text: "Created your design." }]);
     expect(published(events)).toHaveLength(1);
     expect(opts.messages).toHaveLength(2);
+  });
+
+  it("sends a bounded digest however large the turn grew, naming the tools it used", async () => {
+    const bulk = "BULK-RESULT".repeat(20_000);
+    const { opts, requests } = setup(
+      [
+        step([readCall], "tool_use"),
+        step([reply("r".repeat(10_000))]),
+        step([call()], "tool_use"),
+      ],
+      { "read-artifact": { ...read, run: async () => ({ bulk }) } },
+    );
+    opts.messages[0].content = [
+      { type: "text", text: `Create a design. ${"q".repeat(5_000)}` },
+    ];
+    await runAgentLoop(opts);
+    expect(requests).toHaveLength(3);
+    expect(JSON.stringify(requests[1].messages)).toContain("BULK-RESULT");
+    expect(requests[2].tools.map((tool) => tool.name)).toEqual([
+      FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+    ]);
+    expect(requests[2].messages.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+    ]);
+    expect(JSON.stringify(requests[2].messages).length).toBeLessThan(8_000);
+    expect(JSON.stringify(requests[2])).not.toContain("BULK-RESULT");
+    expect(digestText(requests[2])).toContain("Create a design.");
+    expect(digestText(requests[2])).toContain(
+      "<tools-used>read-artifact</tools-used>",
+    );
+    expect(requests[2].systemPrompt).not.toContain(opts.systemPrompt);
   });
 
   it.each([
@@ -565,6 +650,8 @@ describe("native agent follow-up publication", () => {
     ]);
     const usage = await runAgentLoop(opts);
     expect(usage.llmCalls).toBe(1);
+    expect(usage.followUpMs).toBeUndefined();
+    expect(usage.followUpInputTokens).toBeUndefined();
     expect(requests).toHaveLength(1);
     expect(requests[0].systemPrompt).toBe(
       `${opts.systemPrompt}\n\n${FOLLOW_UP_SUGGESTIONS_INSTRUCTION}`,

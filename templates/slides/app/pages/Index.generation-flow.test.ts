@@ -56,6 +56,29 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("recoverFromGenerationSetupFailure");
   });
 
+  it("defers new empty deck persistence until generation setup is ready", () => {
+    const createIndex = flow.indexOf("deck = createDeck(undefined, {");
+    const hydrationIndex = flow.indexOf("await hydrateReferenceDocuments(");
+    const contextIndex = flow.indexOf(
+      "updateDeck(deckId, { generationContext:",
+    );
+    const latePersistenceIndex = flow.indexOf(
+      "const persisted = await ensureDeckPersisted(deckId)",
+      contextIndex,
+    );
+
+    expect(createIndex).toBeGreaterThan(-1);
+    expect(flow.slice(createIndex, createIndex + 260)).toContain(
+      "deferPersistence: true",
+    );
+    expect(flow.slice(createIndex, createIndex + 260)).toContain(
+      "undoableCreation: false",
+    );
+    expect(contextIndex).toBeGreaterThan(hydrationIndex);
+    expect(latePersistenceIndex).toBeGreaterThan(contextIndex);
+    expect(flow).toContain("if (sourceImprovementRequest)");
+  });
+
   it("restores the complete reference selection after a failed generation", () => {
     expect(source).toContain(
       "retryReferenceSelection?: NewDeckReferenceSelection",
@@ -63,10 +86,10 @@ describe("new deck generation flow", () => {
     expect(source).toContain("retryReferenceSelection: referenceSelection");
     expect(source).toContain("setNewDeckRetryRequiresExactPrompt(true)");
     expect(source).toContain(
-      "setNewDeckRetryReferenceSelection(state.retryReferenceSelection)",
+      "withoutAutomaticReferenceDeck(state.retryReferenceSelection)",
     );
     expect(source).toContain("...(retryReferenceSelection ?? {})");
-    expect(source).toContain("retryReferenceSelection?.composerContext");
+    expect(source).toContain("retryReferenceSelection.composerContext");
     expect(source).toContain("retryReferenceSelection?.referenceFilePaths");
     expect(source).toContain("referenceSelection.referenceSource");
     expect(source).toContain("resolveRetryReferenceDeckSelection");
@@ -271,13 +294,13 @@ describe("new deck generation flow", () => {
 
   it("keeps unreferenced decks coherent instead of inventing text-covering boxes", () => {
     expect(flow).toContain(
-      "When no reference deck or hydrated design system is available, choose a subject-appropriate editorial direction",
+      "No design system or style reference was selected. Call `get-workspace-defaults`",
     );
     expect(flow).toContain(
-      "semantic --deck-* values on every fmd-slide wrapper",
+      "If no workspace default exists, choose a background family, text and surface roles, one accent, a type pairing, spacing, radius, and image treatment",
     );
     expect(flow).toContain(
-      "Keep the canvas and type system consistent across slides",
+      "record semantic --deck-* values on every fmd-slide wrapper and reuse them throughout",
     );
   });
 

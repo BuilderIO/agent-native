@@ -139,6 +139,13 @@ function toolButton(page: Page, name: string): Locator {
   return page.locator(`button[aria-label="${name}"]`).first();
 }
 
+function modeButton(
+  page: Page,
+  mode: "annotate" | "edit" | "interact",
+): Locator {
+  return page.locator(`[data-design-top-bar] [data-design-mode="${mode}"]`);
+}
+
 function selectedLayerRow(page: Page): Locator {
   return page.locator('[role="treeitem"][aria-selected="true"]').first();
 }
@@ -1122,50 +1129,50 @@ function expectCloseToFrameSize(
   expect(Math.abs(viewport.height - frame.height)).toBeLessThanOrEqual(2);
 }
 
-test("toolbar modes toggle the editor mode buttons", async ({ page }) => {
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
+test("top bar modes toggle the editor mode buttons", async ({ page }) => {
+  await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(toolButton(page, "Interact")).toHaveAttribute(
+  await expect(modeButton(page, "interact")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
 
-  await toolButton(page, "Interact").click();
+  await modeButton(page, "interact").click();
   const exitInteract = page.getByRole("button", {
     name: "Exit responsive preview",
   });
   await expect(exitInteract).toBeVisible();
   await expect(page.locator("[data-design-bottom-toolbar]")).toHaveCount(0);
   await exitInteract.click();
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
+  await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
 
-  await toolButton(page, "Annotate").click();
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await modeButton(page, "annotate").click();
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(toolButton(page, "Interact")).toHaveAttribute(
+  await expect(modeButton(page, "interact")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
 
-  await toolButton(page, "Edit").click();
-  await expect(toolButton(page, "Edit")).toHaveAttribute(
+  await modeButton(page, "edit").click();
+  await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
 });
 
-test("keyboard shortcuts dock opens without remounting the overview iframe", async ({
+test("keyboard shortcuts dialog opens without remounting the overview iframe", async ({
   page,
 }) => {
   const railBox = await page
@@ -1193,6 +1200,14 @@ test("keyboard shortcuts dock opens without remounting the overview iframe", asy
     });
   });
 
+  // A tool other than the default, so a stray Escape or hotkey that resets it
+  // to Move is observable.
+  await toolButton(page, "Text").click();
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
   await page.evaluate(() => {
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -1206,70 +1221,107 @@ test("keyboard shortcuts dock opens without remounting the overview iframe", asy
     );
   });
 
-  const panel = page.locator("[data-keyboard-shortcuts-panel]");
-  await expect(panel).toBeVisible();
-  await expect(panel.getByRole("tab", { name: "Essential" })).toBeFocused();
-  const panelBox = await panel.boundingBox();
-  expect(panelBox?.height).toBeGreaterThanOrEqual(240);
-  expect(panelBox?.height).toBeLessThanOrEqual(242);
-  expect(panelBox?.x).toBe(0);
-  const essentialTabBox = await panel
-    .getByRole("tab", { name: "Essential" })
-    .boundingBox();
-  expect(essentialTabBox?.x).toBeGreaterThanOrEqual(124);
-  expect(essentialTabBox?.x).toBeLessThanOrEqual(126);
-  const tabRowBox = await panel
-    .locator("[data-shortcuts-tab-row]")
-    .boundingBox();
-  expect(tabRowBox?.height).toBe(38);
-  expect(tabRowBox?.y).toBe(panelBox!.y + 1);
-  const essentialPanelBox = await panel
-    .locator('[data-shortcuts-tabpanel="essential"]')
-    .boundingBox();
-  expect(essentialPanelBox?.y).toBe(tabRowBox!.y + 38);
-  const essentialColumnBox = await panel
-    .locator(
-      '[data-shortcuts-tabpanel="essential"] [data-shortcuts-content-column]',
-    )
-    .boundingBox();
-  expect(essentialColumnBox?.width).toBe(400);
+  const dialog = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(dialog).toBeVisible();
+  const search = dialog.getByRole("searchbox", {
+    name: "Search keyboard shortcuts",
+  });
+  await expect(search).toBeFocused();
+  const dialogBox = await dialog.boundingBox();
+  const viewport = page.viewportSize()!;
+  expect(dialogBox?.width).toBeLessThanOrEqual(760);
+  expect(dialogBox?.width).toBeGreaterThanOrEqual(700);
   expect(
-    Math.abs(
-      essentialColumnBox!.x +
-        essentialColumnBox!.width / 2 -
-        (panelBox!.x + panelBox!.width / 2),
-    ),
+    Math.abs(dialogBox!.x + dialogBox!.width / 2 - viewport.width / 2),
   ).toBeLessThanOrEqual(1);
-  await expect(panel.getByRole("tab")).toHaveCount(13);
-  await expect(panel.locator("[data-essential-shortcuts-heading]")).toHaveText(
-    "Essential keyboard shortcuts",
-  );
-  await expect(panel.locator("[data-essential-shortcut-card]")).toHaveCount(3);
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
+  await expect(
+    dialog.locator('[data-shortcut-section="essential"] [data-shortcut-id]'),
+  ).toHaveCount(3);
+  await expect(dialog.locator("[data-essential-shortcut-card]")).toHaveCount(0);
 
-  expect(panelBox).not.toBeNull();
+  // The drawer pushed the toolbar up by 241px; the dialog must not.
+  const toolbarBox = await page
+    .locator("[data-design-bottom-toolbar]")
+    .boundingBox();
+  expect(
+    Math.abs(toolbarBox!.y + toolbarBox!.height - (viewport.height - 16)),
+  ).toBeLessThanOrEqual(1);
+
+  // Typing in the search field must not reach the editor hotkeys: "rect"
+  // would otherwise arm the Rectangle tool via "r".
+  await search.pressSequentially("rect");
+  await expect(search).toHaveValue("rect");
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(
+    dialog.locator('[data-shortcut-section="shape"] [data-shortcut-id]'),
+  ).not.toHaveCount(0);
+  await expect(dialog.locator('[data-shortcut-id="move-tool"]')).toHaveCount(0);
+  await expect(
+    dialog.locator('[data-shortcuts-category="essential"]'),
+  ).toHaveCount(0);
+
+  await search.fill("zzzzzz");
+  await expect(dialog.locator("[data-shortcuts-empty]")).toHaveText(
+    "No shortcuts match “zzzzzz”",
+  );
+  await search.fill("");
+  await expect(dialog.locator("[data-shortcuts-category]")).toHaveCount(13);
+
+  // A category click scrolls the one list to that section.
+  const list = dialog.locator("[data-shortcuts-list]");
+  expect(await list.evaluate((el) => el.scrollTop)).toBe(0);
+  const zoomCategory = dialog.locator('[data-shortcuts-category="zoom"]');
+  await zoomCategory.click();
+  await expect(zoomCategory).toHaveAttribute("aria-current", "true");
   await expect
     .poll(async () => {
-      const toolbarBox = await page
-        .locator("[data-design-bottom-toolbar]")
-        .boundingBox();
-      return toolbarBox
-        ? toolbarBox.y + toolbarBox.height
-        : Number.POSITIVE_INFINITY;
+      const [sectionBox, listBox] = await Promise.all([
+        dialog.locator('[data-shortcut-section="zoom"]').boundingBox(),
+        list.boundingBox(),
+      ]);
+      return sectionBox && listBox ? sectionBox.y - listBox.y : null;
     })
-    .toBeLessThanOrEqual(panelBox!.y);
+    .toBeLessThanOrEqual(16);
+  expect(await list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
 
-  await panel.getByRole("tab", { name: "Edit" }).click();
+  // Focus on a button inside the dialog is still modal: "v" would switch the
+  // Text tool to Move if the editor hotkeys saw it.
+  await zoomCategory.focus();
+  await page.keyboard.press("v");
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await dialog.locator('[data-shortcuts-category="edit"]').click();
   await expect(
-    panel.locator('[data-code-shortcut-id="workbench.save"]'),
+    dialog.locator('[data-code-shortcut-id="workbench.save"]'),
   ).toBeVisible();
-  await panel.getByRole("tab", { name: "Tools" }).click();
-  const toolsTable = panel.locator('[data-shortcut-grid="tools"]');
-  const toolsTableBox = await toolsTable.boundingBox();
-  expect(toolsTableBox?.width).toBeLessThanOrEqual(400);
-  expect(toolsTableBox?.x).toBeGreaterThan(panelBox!.x + 200);
+  await dialog.locator('[data-shortcuts-category="cursor"]').click();
+  const bigNudge = dialog.locator('[data-nudge-amount="big"]');
+  await expect(bigNudge).toBeVisible();
+  await bigNudge.fill("25");
+  await expect(bigNudge).toHaveValue("25");
 
   await page.keyboard.press("Escape");
-  await expect(panel).toHaveCount(0);
+  await expect(dialog).toHaveCount(0);
+  // Escape from the dialog closes it only: the editor's own Escape handler
+  // would have reset the Text tool to Move.
+  await expect(toolButton(page, "Text")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  // Positive partner for the checks above: with the dialog closed the same
+  // key does reach the editor.
+  await page.keyboard.press("v");
+  await expect(toolButton(page, "Move")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   await expect
     .poll(() =>
       iframe.evaluate((element) => {
@@ -1286,11 +1338,46 @@ test("keyboard shortcuts dock opens without remounting the overview iframe", asy
 
   await page.getByRole("button", { name: "More" }).click();
   await page.getByRole("menuitem", { name: /Keyboard shortcuts/ }).click();
-  await expect(panel).toBeVisible();
-  await expect(panel.getByRole("tab", { name: "Essential" })).toBeFocused();
-  await page.locator("[data-keyboard-shortcuts-close]").click();
-  await expect(panel).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(search).toBeFocused();
+  // The nudge size set above survived the close and reopen.
+  await expect(dialog.locator('[data-nudge-amount="big"]')).toHaveValue("25");
+  await dialog.locator("[data-keyboard-shortcuts-close]").click();
+  await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("button", { name: "More" })).toBeFocused();
+});
+
+test("keyboard shortcuts dialog fits a narrow window and stacks its categories", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 420, height: 720 });
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "?",
+        code: "Slash",
+        ctrlKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  const dialog = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(dialog).toBeVisible();
+  const dialogBox = await dialog.boundingBox();
+  expect(dialogBox!.x).toBeGreaterThanOrEqual(0);
+  expect(dialogBox!.x + dialogBox!.width).toBeLessThanOrEqual(420);
+  expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(720);
+  const [categoriesBox, listBox] = await Promise.all([
+    dialog.locator("[data-shortcuts-categories]").boundingBox(),
+    dialog.locator("[data-shortcuts-list]").boundingBox(),
+  ]);
+  expect(categoriesBox!.y + categoriesBox!.height).toBeLessThanOrEqual(
+    listBox!.y + 1,
+  );
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
 });
 
 test("overview Annotate draws around screens with stable iframes and stroke undo redo", async ({
@@ -1319,8 +1406,8 @@ test("overview Annotate draws around screens with stable iframes and stroke undo
       };
     });
 
-  await toolButton(page, "Annotate").click();
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await modeButton(page, "annotate").click();
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -1364,7 +1451,7 @@ test("overview Annotate draws around screens with stable iframes and stroke undo
     "true",
   );
   await expect(page.locator("[data-draw-overlay]")).toHaveClass(/invisible/);
-  await expect(toolButton(page, "Annotate")).toHaveAttribute(
+  await expect(modeButton(page, "annotate")).toHaveAttribute(
     "aria-pressed",
     "false",
   );
@@ -1386,9 +1473,8 @@ test("overview pan and cursor-anchored zoom retain a continuously painted iframe
   await installIframePaintProbe(iframe, "overview-navigation-stable");
 
   const world = page.locator("[data-multi-screen-canvas-world]");
-  const surface = world.locator("..");
-  const surfaceBox = await surface.boundingBox();
-  if (!surfaceBox) throw new Error("missing overview canvas surface");
+  const initialIframeBox = await iframe.boundingBox();
+  if (!initialIframeBox) throw new Error("missing overview iframe bounds");
   const initialTransform = await world.evaluate(
     (element) => (element as HTMLElement).style.transform,
   );
@@ -1399,8 +1485,8 @@ test("overview pan and cursor-anchored zoom retain a continuously painted iframe
     "true",
   );
   const start = {
-    x: surfaceBox.x + Math.min(40, surfaceBox.width / 4),
-    y: surfaceBox.y + Math.min(40, surfaceBox.height / 4),
+    x: initialIframeBox.x + initialIframeBox.width / 2,
+    y: initialIframeBox.y + initialIframeBox.height / 2,
   };
   await dragBetween(page, start, { x: start.x + 80, y: start.y + 56 });
   await expect
@@ -1413,9 +1499,11 @@ test("overview pan and cursor-anchored zoom retain a continuously painted iframe
   const beforeZoom = await world.evaluate(
     (element) => (element as HTMLElement).style.transform,
   );
+  const zoomIframeBox = await iframe.boundingBox();
+  if (!zoomIframeBox) throw new Error("missing overview iframe after pan");
   await page.mouse.move(
-    surfaceBox.x + surfaceBox.width / 2,
-    surfaceBox.y + surfaceBox.height / 2,
+    zoomIframeBox.x + zoomIframeBox.width / 2,
+    zoomIframeBox.y + zoomIframeBox.height / 2,
   );
   await page.keyboard.down(process.platform === "darwin" ? "Meta" : "Control");
   await page.mouse.wheel(0, -240);
@@ -3424,6 +3512,10 @@ test("overview undo does not restore ghost geometry for deleted screens", async 
     content: FIXTURE_HTML.replace("E2E Fixture", "E2E Second Fixture"),
     fileType: "html",
   });
+  // The 48px top bar shortens the canvas, which lowers the fit zoom until
+  // Home's bottom hit area overlaps About's title strip, where this test
+  // grabs it. Add the bar's height back so the canvas keeps its original size.
+  await page.setViewportSize({ width: 1440, height: 1000 + 48 });
   await gotoEditor(page, designId);
   await expect(screenShell(page, "About")).toBeVisible();
 

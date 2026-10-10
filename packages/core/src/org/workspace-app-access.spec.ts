@@ -1,6 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/index.js";
+import {
+  __resetProcessMemberOrgCacheForTests,
+  invalidateMemberOrgCaches,
+} from "./request-org-cache.js";
 
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
@@ -28,9 +32,16 @@ import {
 } from "./workspace-app-access.js";
 
 describe("isWorkspaceAppAccessAllowed", () => {
+  beforeEach(() => {
+    // The app row, member row, and registry answers are process-level caches;
+    // each case scripts its own database and registry, so none may carry over.
+    __resetProcessMemberOrgCacheForTests();
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
     resetAppConfigForTests();
+    __resetProcessMemberOrgCacheForTests();
     vi.unstubAllGlobals();
     mocks.execute.mockReset();
     mocks.includeUser.mockReset();
@@ -335,6 +346,9 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(false);
 
     mocks.execute.mockReset();
+    // A second scripted database starts from an empty app-row cache, as a new
+    // instance would; otherwise the first case's row answers this one.
+    __resetProcessMemberOrgCacheForTests();
     mocks.execute
       .mockResolvedValueOnce({
         rows: [
@@ -481,14 +495,10 @@ describe("isWorkspaceAppAccessAllowed", () => {
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
+    // The second call for the same caller is answered by the registry read the
+    // first call made, so the only other request is the ownerless-app claim.
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify([{ id: "allowed-app" }, { id: "another-app" }]),
-          { headers: { "content-type": "application/json" } },
-        ),
-      )
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify([{ id: "allowed-app" }, { id: "another-app" }]),
@@ -515,7 +525,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       }),
     ).resolves.toBe(false);
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
       "https://dispatch.example.test/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
     );
@@ -528,16 +538,75 @@ describe("isWorkspaceAppAccessAllowed", () => {
         }),
       }),
     );
-    expect(String(fetchMock.mock.calls[2]?.[0])).toBe(
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
       "https://dispatch.example.test/_agent-native/actions/claim-workspace-app-organization",
     );
-    expect(fetchMock.mock.calls[2]?.[1]).toEqual(
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ appId: "private-app" }),
       }),
     );
     expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("omits the sender-local organization ID from registry auth tokens", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ allowed_domain: "example.test" }] });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "analytics" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: "sender-local-org",
+      }),
+    ).resolves.toBe(true);
+
+    const authorization = (fetchMock.mock.calls[0]?.[1] as RequestInit)
+      .headers as Record<string, string>;
+    const token = authorization.Authorization.replace(/^Bearer /, "");
+    const claims = JSON.parse(
+      Buffer.from(token.split(".")[1]!, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    expect(claims).toMatchObject({
+      sub: "member@example.com",
+      org_domain: "example.test",
+      aud: "https://dispatch.example.test",
+      jti: expect.any(String),
+    });
+    expect(claims).not.toHaveProperty("org_id");
+  });
+
+  it("does not call the registry with an unscoped token when the active org has no domain", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: "sender-local-org",
+      }),
+    ).resolves.toBe(WORKSPACE_APP_ACCESS_UNAVAILABLE);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("preserves a same-origin Dispatch registry mounted below the app path", async () => {
@@ -761,7 +830,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
     );
   });
 
-  it("shares pending registry lists across apps and rechecks settled access", async () => {
+  it("shares pending registry lists across apps and rechecks after invalidation", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv(
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
@@ -806,9 +875,19 @@ describe("isWorkspaceAppAccessAllowed", () => {
       Promise.all([...concurrent, otherApp, otherUser]),
     ).resolves.toEqual([...Array(20).fill(true), false, true]);
 
+    // A settled registry answers this caller until it is invalidated.
     fetchMock.mockImplementation(() =>
       Promise.resolve(responseFor([{ id: "analytics", orgEnabled: false }])),
     );
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    invalidateMemberOrgCaches();
     await expect(
       isWorkspaceAppAccessAllowed("analytics", {
         email: "member@example.com",
@@ -824,6 +903,11 @@ describe("isWorkspaceAppAccessAllowed", () => {
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : [],
+    }));
     const pendingResponses: Array<(response: Response) => void> = [];
     const fetchMock = vi.fn(
       () =>
@@ -905,6 +989,11 @@ describe("isWorkspaceAppAccessAllowed", () => {
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : [],
+    }));
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -943,6 +1032,11 @@ describe("isWorkspaceAppAccessAllowed", () => {
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
+    mocks.execute.mockImplementation(async (query: any) => ({
+      rows: query?.sql?.includes("SELECT allowed_domain")
+        ? [{ allowed_domain: "example.test" }]
+        : [],
+    }));
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([{ id: "analytics", orgEnabled: false }]), {
         headers: { "content-type": "application/json" },

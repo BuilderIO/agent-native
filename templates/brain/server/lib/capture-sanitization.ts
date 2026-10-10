@@ -9,6 +9,8 @@ import type {
 } from "../../shared/types.js";
 import {
   classifyWithJev,
+  isTransientJevFailure,
+  jevFailureHttpStatus,
   resolveClassifierPreference,
   type JevClassificationOutcome,
 } from "./jev-classifier.js";
@@ -18,6 +20,7 @@ import {
 } from "./search-index-contracts.js";
 import {
   classifierDecisionSchema,
+  type DeterministicScreenScope,
   deterministicQuarantineDecision,
   fallbackSensitivityDecision,
   MAX_CLASSIFIER_OUTPUT_CHARS,
@@ -91,12 +94,43 @@ export interface CaptureSanitizationResult {
   decision?: BrainSensitivityDecision;
 }
 
+export const CLASSIFIER_TRANSIENT_RETRY_MS = 10 * 60 * 1000;
+
+function classifierFailureMessage(reason: string): string {
+  const nothingLost =
+    "Items Jev could not screen were not stored and nothing was skipped";
+  if (reason === "jev-credential-unavailable") {
+    return `Jev can't screen this source: its owner has no Builder connection and no JEV_API_KEY is set. Connect Builder or add a workspace JEV_API_KEY. ${nothingLost}; the next scheduled sync picks them up.`;
+  }
+  if (reason === "jev-credential-lookup-failed") {
+    return `Brain could not look up the Jev credential for the source owner because the vault or connection lookup failed. ${nothingLost}; Brain retries this source in about 10 minutes.`;
+  }
+  const status = jevFailureHttpStatus(reason);
+  if (status === 401 || status === 403) {
+    return `Jev rejected the source owner's credential (HTTP ${status}). Reconnect Builder or replace JEV_API_KEY. ${nothingLost}; Brain retries at the next scheduled sync.`;
+  }
+  const cause =
+    reason === "jev-timeout"
+      ? "timed out"
+      : reason === "jev-invalid-response"
+        ? "returned an unreadable response"
+        : status
+          ? `returned HTTP ${status}`
+          : "could not be reached";
+  return isTransientJevFailure(reason)
+    ? `Jev sensitivity check ${cause} after 3 attempts. ${nothingLost}; Brain retries this source in about 10 minutes.`
+    : `Jev sensitivity check ${cause}. ${nothingLost}; Brain retries at the next scheduled sync.`;
+}
+
 export class BrainClassifierUnavailableError extends Error {
+  readonly retryAfterMs: number | null;
+
   constructor(readonly reason: string) {
-    super(
-      `Jev sensitivity classifier unavailable (${reason}); capture not stored, will retry next sync.`,
-    );
+    super(classifierFailureMessage(reason));
     this.name = "BrainClassifierUnavailableError";
+    this.retryAfterMs = isTransientJevFailure(reason)
+      ? CLASSIFIER_TRANSIENT_RETRY_MS
+      : null;
   }
 }
 
@@ -526,6 +560,18 @@ async function classifyWithApprovedModel(
   };
 }
 
+const unlessAllowed = (decision: BrainSensitivityDecision) =>
+  decision.disposition === "allowed" ? null : decision;
+
+const deterministicPreScreen = (
+  input: CaptureSanitizationInput,
+  capturedAt: string,
+  scope: DeterministicScreenScope,
+): BrainSensitivityDecision | null =>
+  deterministicQuarantineDecision(input.title, capturedAt, scope) ??
+  unlessAllowed(fallbackSensitivityDecision(input.title, capturedAt, scope)) ??
+  deterministicQuarantineDecision(input.content, capturedAt, scope);
+
 export async function sanitizeCaptureForStorage(
   input: CaptureSanitizationInput,
 ): Promise<CaptureSanitizationResult> {
@@ -533,11 +579,11 @@ export async function sanitizeCaptureForStorage(
   const { metadata: sanitizedMetadata, strippedKeys } =
     sanitizeMetadata(metadata);
   const capturedAt = input.capturedAt ?? new Date(0).toISOString();
-  const titleDecision = fallbackSensitivityDecision(input.title, capturedAt);
-  let decision =
-    deterministicQuarantineDecision(input.title, capturedAt) ??
-    (titleDecision.disposition === "allowed" ? null : titleDecision) ??
-    deterministicQuarantineDecision(input.content, capturedAt);
+  const preJevScope: DeterministicScreenScope =
+    resolveClassifierPreference(input.settings) === "jev"
+      ? "credentials"
+      : "all";
+  let decision = deterministicPreScreen(input, capturedAt, preJevScope);
   const sanitizationRequested = shouldSanitizeCaptureBeforeStorage(input);
   let fallbackReason: string | undefined;
   let classifierOutageFallback = false;
@@ -555,6 +601,9 @@ export async function sanitizeCaptureForStorage(
     throw new BrainClassifierUnavailableError(jev.failureReason);
   }
   decision ??= jev.decision ?? null;
+  if (preJevScope === "credentials") {
+    decision ??= deterministicPreScreen(input, capturedAt, "all");
+  }
   const classifierConfigured =
     jev.configured || Boolean(approvedModelSettings(input.settings));
   let classifierFailed = false;
