@@ -7597,52 +7597,71 @@ export async function runAgentLoop(opts: {
             throw new Error("Run aborted");
           }
           const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
+          // Only the invoked wording marks a write as possibly run (see
+          // isToolCallTimeoutResult); a timeout before invocation must not use it.
+          let actionInvoked = false;
+          const timeoutMessage = () =>
+            actionInvoked
+              ? `Tool call timed out after ${toolTimeoutMs / 1000} seconds`
+              : `Tool call timed out before the action started after ${toolTimeoutMs / 1000} seconds`;
           const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
           const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
-          const appAuthorization = await resolveTurnAppAuthorization(
-            actionUserEmail ?? undefined,
-            actionOrgId,
-          );
-          const actionContext = {
-            send,
-            userEmail: actionUserEmail ?? undefined,
-            orgId: actionOrgId,
-            appId: opts.appId,
-            ...(appAuthorization
-              ? {
-                  appRoles: appAuthorization.roles,
-                  appPermissions: Object.entries(appAuthorization.permissions)
-                    .filter(([, roles]) =>
-                      roles.some((role) =>
-                        appAuthorization.roles.includes(role),
-                      ),
-                    )
-                    .map(([permission]) => permission),
-                }
-              : {}),
-            caller: opts.actionCaller ?? "tool",
-            automation: opts.automation,
-            networkProtocol: opts.networkProtocol,
-            networkId: opts.networkId,
-            networkPeer: opts.networkPeer,
-            delegationDepth: opts.delegationDepth,
-            visitedApps: opts.visitedApps,
-            blockedA2ATargets,
-            attachments: opts.attachments,
-            signal,
-            actionName: toolCall.name,
-            toolCallId: toolCall.id,
-            ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
-            ...(opts.threadId ? { threadId: opts.threadId } : {}),
-            ...(opts.runId ? { runId: opts.runId } : {}),
-            ...(opts.turnId ? { turnId: opts.turnId } : {}),
-          };
           const requestContext = getRequestContext();
-          const invokeAction = () =>
-            actionEntry.run(
+          // The app-authorization lookup must stay inside the raced action. If it
+          // were awaited before the race, a deadline firing during the await would
+          // reject nothing: the abort listener is attached only inside the race,
+          // and listeners added after an AbortSignal fires never run.
+          const invokeAction = async () => {
+            const appAuthorization = await resolveTurnAppAuthorization(
+              actionUserEmail ?? undefined,
+              actionOrgId,
+            );
+            if (timeoutSignal.aborted) {
+              throw new Error(timeoutMessage());
+            }
+            if (signal.aborted) {
+              throw new Error("Run aborted");
+            }
+            const actionContext = {
+              send,
+              userEmail: actionUserEmail ?? undefined,
+              orgId: actionOrgId,
+              appId: opts.appId,
+              ...(appAuthorization
+                ? {
+                    appRoles: appAuthorization.roles,
+                    appPermissions: Object.entries(appAuthorization.permissions)
+                      .filter(([, roles]) =>
+                        roles.some((role) =>
+                          appAuthorization.roles.includes(role),
+                        ),
+                      )
+                      .map(([permission]) => permission),
+                  }
+                : {}),
+              caller: opts.actionCaller ?? "tool",
+              automation: opts.automation,
+              networkProtocol: opts.networkProtocol,
+              networkId: opts.networkId,
+              networkPeer: opts.networkPeer,
+              delegationDepth: opts.delegationDepth,
+              visitedApps: opts.visitedApps,
+              blockedA2ATargets,
+              attachments: opts.attachments,
+              signal,
+              actionName: toolCall.name,
+              toolCallId: toolCall.id,
+              ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
+              ...(opts.threadId ? { threadId: opts.threadId } : {}),
+              ...(opts.runId ? { runId: opts.runId } : {}),
+              ...(opts.turnId ? { turnId: opts.turnId } : {}),
+            };
+            actionInvoked = true;
+            return actionEntry.run(
               toolCall.input as Record<string, string>,
               actionContext,
             );
+          };
           const actionPromise = Promise.resolve(
             runWithRequestContext(
               {
@@ -7719,11 +7738,7 @@ export async function runAgentLoop(opts: {
             actionPromise,
             new Promise<never>((_, reject) => {
               timeoutSignal.addEventListener("abort", () =>
-                reject(
-                  new Error(
-                    `Tool call timed out after ${toolTimeoutMs / 1000} seconds`,
-                  ),
-                ),
+                reject(new Error(timeoutMessage())),
               );
             }),
             new Promise<never>((_, reject) => {
