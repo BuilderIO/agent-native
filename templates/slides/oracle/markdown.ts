@@ -1,4 +1,4 @@
-import type { OracleRow } from "./schema";
+import type { OracleExpect, OracleRow } from "./schema";
 
 export interface MarkdownLedgerRow {
   id: string;
@@ -102,6 +102,63 @@ export function diffLedgerContent(
       if (markdownValue !== jsonValue) {
         problems.push(
           `${md.id}: ${name} differs (markdown ${JSON.stringify(markdownValue)}, json ${JSON.stringify(jsonValue)})`,
+        );
+      }
+    }
+  }
+  return problems;
+}
+
+// How a ledger result words each hit value. These are presence checks: they
+// catch a result that describes a different outcome, not every rewording.
+const HIT_WORDING: Record<NonNullable<OracleExpect["hit"]>, RegExp> = {
+  nothing: /\bnothing\b|\bdeselect/i,
+  object:
+    /\bselect|\bhit|\bmulti-selection|\btopmost|\bstarts a move|\bblocks\b|\badds\b/i,
+  group: /\bgroup\b/i,
+  text: /\bcaret\b|\bedit\b|\bword\b|\bparagraph\b/i,
+  child: /\bchild\b/i,
+  sibling: /\bsibling\b|\bneighbou?r\b/i,
+};
+
+const OUTLINE_PRESENT = /\boutline\b/i;
+const OUTLINE_ABSENT = /\bno\b[^;,.]*\boutline\b/i;
+
+/**
+ * Each JSON expect must agree with the ledger result it mirrors. A cursor is
+ * checked by name, a hit by its wording, and outlineVisible by whether the
+ * result describes an outline or says there is none. A row whose id is not in
+ * the markdown is left to the id-coverage test.
+ */
+export function diffLedgerExpectations(
+  markdownRows: MarkdownLedgerRow[],
+  jsonRows: OracleRow[],
+): string[] {
+  const byId = new Map(markdownRows.map((row) => [row.id, row]));
+  const problems: string[] = [];
+  for (const json of jsonRows) {
+    const expect = json.expect;
+    if (expect === undefined) continue;
+    const md = byId.get(json.id);
+    if (md === undefined) continue;
+    if (
+      expect.cursor !== undefined &&
+      !new RegExp(`\\b${expect.cursor}\\b`, "i").test(md.result)
+    ) {
+      problems.push(
+        `${json.id}: cursor "${expect.cursor}" is not named in the result`,
+      );
+    }
+    if (expect.hit !== undefined && !HIT_WORDING[expect.hit].test(md.result)) {
+      problems.push(
+        `${json.id}: hit "${expect.hit}" is not described in the result`,
+      );
+    }
+    if (expect.outlineVisible !== undefined) {
+      const wording = expect.outlineVisible ? OUTLINE_PRESENT : OUTLINE_ABSENT;
+      if (!wording.test(md.result)) {
+        problems.push(
+          `${json.id}: outlineVisible ${expect.outlineVisible} is not described in the result`,
         );
       }
     }

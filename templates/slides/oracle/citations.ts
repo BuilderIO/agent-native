@@ -21,7 +21,23 @@ const TEST_MODIFIERS = new Set([
 // evidence that a row is covered. Its descendants are excluded too.
 const NOT_RUNNABLE = new Set(["skip", "todo", "skipIf", "runIf"]);
 
+const FUNCTION_TYPES = new Set([
+  "ArrowFunctionExpression",
+  "FunctionExpression",
+  "FunctionDeclaration",
+]);
+
 type AstNode = Record<string, unknown>;
+
+type Registration = {
+  base: string;
+  title: string | undefined;
+  hasOnly: boolean;
+  skipped: boolean;
+  focused: boolean;
+};
+
+type Scope = { skipped: boolean; focused: boolean; callback: boolean };
 
 /**
  * Row ids cited from the title argument of test calls that can run, in one
@@ -35,73 +51,91 @@ export function titleCitations(source: string, fileName: string): string[] {
     syntax: "typescript",
     tsx: fileName.endsWith(".tsx"),
   });
-  // Vitest runs only the focused tests of a file that has a focused one.
-  const fileFocused = hasFocusedDeclaration(ast);
-  const ids: string[] = [];
-  collectTitleCitations(
+  const registrations: Registration[] = [];
+  collectRegistrations(
     ast,
-    { skipped: false, focused: false },
-    fileFocused,
-    ids,
+    { skipped: false, focused: false, callback: false },
+    registrations,
   );
+  // Vitest runs only the focused tests of a file that has a focused one.
+  const fileFocused = registrations.some((r) => r.hasOnly);
+  const ids: string[] = [];
+  for (const registration of registrations) {
+    const runs =
+      !registration.skipped && (!fileFocused || registration.focused);
+    // A suite title is not a test, so only it() and test() titles cite rows.
+    if (!runs || registration.base === "describe") continue;
+    if (registration.title === undefined) continue;
+    for (const match of registration.title.matchAll(CITATION_PATTERN)) {
+      ids.push(match[1]);
+    }
+  }
   return ids;
 }
 
-type Scope = { skipped: boolean; focused: boolean };
-
-function collectTitleCitations(
+/**
+ * Every test declaration the file registers. A function body is entered only
+ * when it is the callback of a declaration, so a helper that defines tests
+ * without being called, or a function that is never invoked, registers nothing
+ * and cannot satisfy coverage. A function that is called later is also left
+ * out, which fails closed: its rows stay uncited until a visible test names them.
+ */
+function collectRegistrations(
   value: unknown,
   scope: Scope,
-  fileFocused: boolean,
-  ids: string[],
+  out: Registration[],
 ): void {
   if (Array.isArray(value)) {
-    for (const item of value) {
-      collectTitleCitations(item, scope, fileFocused, ids);
-    }
+    for (const item of value) collectRegistrations(item, scope, out);
     return;
   }
   if (typeof value !== "object" || value === null) return;
   const node = value as AstNode;
-  let inner = scope;
+  if (typeof node.type === "string" && FUNCTION_TYPES.has(node.type)) {
+    if (!scope.callback) return;
+  }
+  const inner: Scope = { ...scope, callback: false };
   if (node.type === "CallExpression") {
     const declaration = testDeclaration(node.callee);
     if (declaration !== undefined) {
       const skipped =
         scope.skipped || declaration.modifiers.some((m) => NOT_RUNNABLE.has(m));
-      const focused = scope.focused || declaration.modifiers.includes("only");
-      inner = { skipped, focused };
-      const title = titleText(firstArgument(node));
-      // A suite title is not a test, so only it() and test() titles cite rows.
-      const runs = !skipped && (!fileFocused || focused);
-      if (runs && declaration.base !== "describe" && title !== undefined) {
-        for (const match of title.matchAll(CITATION_PATTERN)) {
-          ids.push(match[1]);
-        }
+      const hasOnly = declaration.modifiers.includes("only");
+      const focused = scope.focused || hasOnly;
+      out.push({
+        base: declaration.base,
+        title: titleText(firstArgument(node)),
+        hasOnly,
+        skipped,
+        focused,
+      });
+      const body: Scope = { skipped, focused, callback: false };
+      // The arguments of a declaration are its title and its callback.
+      for (const argument of argumentsOf(node)) {
+        collectRegistrations(
+          argument.expression,
+          { ...body, callback: true },
+          out,
+        );
       }
+      collectRegistrations(node.callee, body, out);
+      return;
     }
   }
   for (const child of Object.values(node)) {
-    collectTitleCitations(child, inner, fileFocused, ids);
+    collectRegistrations(child, inner, out);
   }
 }
 
-function hasFocusedDeclaration(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(hasFocusedDeclaration);
-  if (typeof value !== "object" || value === null) return false;
-  const node = value as AstNode;
-  if (node.type === "CallExpression") {
-    const declaration = testDeclaration(node.callee);
-    if (declaration?.modifiers.includes("only")) return true;
-  }
-  return Object.values(node).some(hasFocusedDeclaration);
+function argumentsOf(call: AstNode): AstNode[] {
+  const args = call.arguments;
+  if (!Array.isArray(args)) return [];
+  return args as AstNode[];
 }
 
 function firstArgument(call: AstNode): AstNode | undefined {
-  const args = call.arguments;
-  if (!Array.isArray(args) || args.length === 0) return undefined;
-  const first = args[0] as AstNode;
-  return first.expression as AstNode | undefined;
+  const first = argumentsOf(call)[0];
+  return first?.expression as AstNode | undefined;
 }
 
 function titleText(node: AstNode | undefined): string | undefined {

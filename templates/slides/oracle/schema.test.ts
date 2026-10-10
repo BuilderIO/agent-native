@@ -11,7 +11,11 @@ import {
   readOracleFile,
   type OracleFileName,
 } from "./load";
-import { diffLedgerContent, readMarkdownLedger } from "./markdown";
+import {
+  diffLedgerContent,
+  diffLedgerExpectations,
+  readMarkdownLedger,
+} from "./markdown";
 import {
   ORACLE_ID_PATTERN,
   OracleFileSchema,
@@ -102,6 +106,13 @@ describe("interaction oracle files", () => {
       readFileSync(MARKDOWN_PATH, "utf8"),
     );
     expect(diffLedgerContent(markdownRows, readAllRows())).toEqual([]);
+  });
+
+  it("every JSON expect agrees with the ledger result it mirrors", () => {
+    const markdownRows = readMarkdownLedger(
+      readFileSync(MARKDOWN_PATH, "utf8"),
+    );
+    expect(diffLedgerExpectations(markdownRows, readAllRows())).toEqual([]);
   });
 
   it("every gap row has status gap", () => {

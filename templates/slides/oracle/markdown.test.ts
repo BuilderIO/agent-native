@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { diffLedgerContent, readMarkdownLedger } from "./markdown";
+import {
+  diffLedgerContent,
+  diffLedgerExpectations,
+  readMarkdownLedger,
+} from "./markdown";
 import type { OracleRow } from "./schema";
 
 const HEADER = "| id | action | observed | measurements | conf |";
@@ -165,5 +169,81 @@ describe("diffLedgerContent", () => {
     expect(diffLedgerContent([markdownRow], [jsonRow({ id: "9.9" })])).toEqual(
       [],
     );
+  });
+});
+
+describe("diffLedgerExpectations", () => {
+  function markdownResult(id: string, result: string) {
+    return {
+      id,
+      probe: "probe",
+      result,
+      notes: "",
+      confidence: "high",
+    };
+  }
+
+  it("accepts a cursor expectation the result names", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("1.1", "`default`")],
+      [jsonRow({ id: "1.1", expect: { cursor: "default" } })],
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it("reports a cursor expectation the result does not quote", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("1.1", "`default`")],
+      [jsonRow({ id: "1.1", expect: { cursor: "text" } })],
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/^1\.1: cursor "text" is not named/);
+  });
+
+  it("accepts an outlineVisible true expectation the result describes as an outline", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("1.10", "1 px outline at the box bounds while hovered")],
+      [jsonRow({ id: "1.10", expect: { outlineVisible: true } })],
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it("reports an outlineVisible false expectation the result does not deny", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("1.11", "1 px outline at the box bounds")],
+      [jsonRow({ id: "1.11", expect: { outlineVisible: false } })],
+    );
+    expect(problems).toHaveLength(1);
+  });
+
+  it("accepts an outlineVisible false expectation the result denies", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("1.11", "`default`, no hover outline at any distance")],
+      [jsonRow({ id: "1.11", expect: { outlineVisible: false } })],
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it("reports a hit expectation the result does not describe", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("3.7", "selects Beta")],
+      [jsonRow({ id: "3.7", expect: { hit: "nothing" } })],
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/^3\.7: hit "nothing" is not described/);
+  });
+
+  it("accepts a hit expectation the result describes", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("3.7", "nothing created, nothing selected")],
+      [jsonRow({ id: "3.7", expect: { hit: "nothing" } })],
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it("ignores rows that carry no expect", () => {
+    expect(
+      diffLedgerExpectations([markdownResult("1.5", "anything")], [jsonRow()]),
+    ).toEqual([]);
   });
 });

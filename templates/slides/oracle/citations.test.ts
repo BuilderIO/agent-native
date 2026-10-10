@@ -164,4 +164,33 @@ describe("titleCitations counts only test titles", () => {
     ].join("\n");
     expect(titleCitations(source, "a.test.ts")).toEqual(["5.1"]);
   });
+
+  it("ignores a test declared inside an uncalled function", () => {
+    const source = [
+      `function unused() {`,
+      `  it("moves (oracle 1.1)", () => {});`,
+      `}`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("ignores a test declared inside a helper that is only defined, not registered", () => {
+    const source = [
+      `const registerCases = () => {`,
+      `  it("snaps (oracle 1.2)", () => {});`,
+      `};`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("counts a test declared in a describe callback, however deeply it is nested", () => {
+    const source = [
+      `describe("outer", () => {`,
+      `  describe("inner", () => {`,
+      `    it("moves (oracle 1.3)", () => {});`,
+      `  });`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["1.3"]);
+  });
 });
