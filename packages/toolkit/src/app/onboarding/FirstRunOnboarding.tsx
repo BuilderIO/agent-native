@@ -528,7 +528,10 @@ export function FirstRunOnboarding({
 
   if (!firstRun) return null;
 
-  if (error) {
+  const canRenderRoleWithoutProfile =
+    initialFirstRun && screen === "role" && (loading || error != null);
+
+  if (error && !canRenderRoleWithoutProfile) {
     return (
       <OnboardingShell
         profile={profile}
@@ -554,9 +557,7 @@ export function FirstRunOnboarding({
     );
   }
 
-  const canRenderRoleWhileLoading =
-    initialFirstRun && loading && screen === "role";
-  if ((loading || !profile) && !canRenderRoleWhileLoading) {
+  if ((loading || !profile) && !canRenderRoleWithoutProfile) {
     return <OnboardingSkeleton />;
   }
 

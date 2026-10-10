@@ -286,6 +286,55 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.querySelector("[data-onboarding-loading]")).toBeNull();
   });
 
+  it("keeps the role selection visible if the onboarding summary fails", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: true,
+      error: null,
+      profile: null,
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector('[data-testid="first-run-role-developer"] input')
+        ?.click();
+    });
+
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: new Error("summary unavailable"),
+      profile: null,
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-onboarding-screen="role"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="first-run-role-developer"] input'),
+    ).toHaveProperty("checked", true);
+  });
+
   it("does not show a close button during first-run setup", async () => {
     await act(async () => {
       root.render(
