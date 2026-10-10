@@ -860,14 +860,14 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     const fillOption = page.getByRole("menuitem", { name: /^Fill/i }).first();
     await expect(fillOption).toBeVisible({ timeout: 5_000 });
     await fillOption.click();
-    await page.waitForTimeout(400);
-    html = await fileContent(request, designId);
-    expect(
-      html,
-      "Fill sizing on album-art should author stretch/auto sizing rather than a fixed px width",
-    ).toMatch(
-      /(?:flex(-grow)?:\s*1|width:\s*(?:100%|auto)[\s\S]*align-self:\s*stretch)/,
-    );
+    await expect
+      .poll(() => fileContent(request, designId), {
+        message:
+          "Fill sizing on album-art should author stretch/auto sizing rather than a fixed px width",
+      })
+      .toMatch(
+        /(?:flex(-grow)?:\s*1|width:\s*(?:100%|auto)[\s\S]*align-self:\s*stretch)/,
+      );
 
     await expandAllLayers(page);
     await selectLayerRowById(page, cardId!);
