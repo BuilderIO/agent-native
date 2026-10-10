@@ -118,6 +118,37 @@ describe("transactions on a one-connection Neon pool", () => {
     expect(stats.maxWaiting).toBe(0);
   });
 
+  it("detects a Drizzle query on the Neon facade inside a getDbExec Worker transaction", async () => {
+    const { stats } = await bootWorkerPool();
+    const { createGetDb } = await import("./create-get-db.js");
+    const { getDbExec } = await import("./client.js");
+    const { sql } = await import("drizzle-orm");
+    const { runWithRequestDbPoolScope } =
+      await import("./request-pool-context.js");
+    const { DbPoolSelfDeadlockError } = await import("./pool-self-deadlock.js");
+    const getDb = createGetDb({});
+
+    await runWithRequestDbPoolScope(true, undefined, async () => {
+      await getDb().execute(sql.raw("SELECT 1"));
+
+      const startedAt = Date.now();
+      const failure = await getDbExec()
+        .transaction(async () => {
+          await getDb().execute(sql.raw("SELECT 2"));
+        })
+        .then(
+          () => undefined,
+          (error) => error,
+        );
+      expect(failure).toMatchObject({
+        cause: expect.any(DbPoolSelfDeadlockError),
+      });
+
+      expect(Date.now() - startedAt).toBeLessThan(200);
+      expect(stats.maxWaiting).toBe(0);
+    });
+  });
+
   it("keeps getDbExec() inside a getDb() transaction on that transaction's connection", async () => {
     const { pglite, stats } = await bootPool();
     await pglite.exec(`CREATE TABLE audit_rows (id INT PRIMARY KEY)`);

@@ -22,6 +22,7 @@ import {
   hasRetryBudgetFor,
   dbOpTimeoutMs,
   sharedDbPool,
+  resolveSharedDbPool,
   toPostgresParams,
   withDbExec,
   onSharedDbPoolsClosed,
@@ -661,6 +662,7 @@ function scopeDbExecToDrizzleTransactions<T extends object>(
   db: T,
   queryQueue?: DrizzleTransactionQueryQueue,
   pool?: object,
+  getActivePool?: () => object,
 ): T {
   return new Proxy(db, {
     get(target, prop, receiver) {
@@ -683,7 +685,7 @@ function scopeDbExecToDrizzleTransactions<T extends object>(
                   return await withTransactionStatementTimeout(
                     transaction,
                     () =>
-                      runHoldingPoolConnection(pool, () =>
+                      runHoldingPoolConnection(getActivePool?.() ?? pool, () =>
                         withDbExec(
                           drizzleTransactionExec(transaction, transactionQueue),
                           () =>
@@ -755,8 +757,9 @@ function scopeDbExecToDrizzleTransactions<T extends object>(
 export function scopeDbToPoolTransactions<T extends object>(
   db: T,
   pool: object,
+  getActivePool?: () => object,
 ): T {
-  return scopeDbExecToDrizzleTransactions(db, undefined, pool);
+  return scopeDbExecToDrizzleTransactions(db, undefined, pool, getActivePool);
 }
 
 /**
@@ -816,7 +819,7 @@ export function buildResilientNeonPool<
     end(): Promise<void>;
     on(event: string, listener: (...args: any[]) => void): unknown;
   },
->(pool: T): T {
+>(pool: T, getActivePool: () => object = () => pool): T {
   const resilientQuery = async (
     sql: string | { text?: unknown },
     args?: any[],
@@ -834,7 +837,7 @@ export function buildResilientNeonPool<
       rows: unknown[];
       rowCount?: number;
     }> => {
-      assertPoolConnectionAvailable(pool, "A database query");
+      assertPoolConnectionAvailable(getActivePool(), "A database query");
       let acquireTimedOut = false;
       const client = await withDbTimeout(
         "connect",
@@ -902,7 +905,10 @@ export function buildResilientNeonPool<
       if (prop === "connect") {
         return (...args: any[]) =>
           retryOnConnectionError(async () => {
-            assertPoolConnectionAvailable(target, "A database connection");
+            assertPoolConnectionAvailable(
+              getActivePool(),
+              "A database connection",
+            );
             let acquireTimedOut = false;
             const client = await withDbTimeout<any>(
               "connect",
@@ -929,12 +935,12 @@ export function buildResilientPostgresJsClient<
   T extends {
     unsafe(query: string, params?: any[], options?: any): any;
   },
->(client: T): T {
+>(client: T, getActivePool: () => object = () => client): T {
   const wrapUnsafe = (query: string, params?: any[], options?: any) => {
     const isRead = isSqlRead(query);
 
     const runAttempt = (mode: "rows" | "values") => async (): Promise<any> => {
-      assertPoolConnectionAvailable(client, "A database query");
+      assertPoolConnectionAvailable(getActivePool(), "A database query");
       const pending = client.unsafe(query, params, options);
       return withDbTimeout(
         "query",
@@ -1087,9 +1093,14 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           url,
           () => new Pool({ connectionString: url, ...neonPoolOptions() }),
         );
+        const getActivePool = () => resolveSharedDbPool("neon", url, rawPool);
         guardNeonPool(rawPool, url);
-        const pool = buildResilientNeonPool(rawPool);
-        return scopeDbToPoolTransactions(drizzle(pool, { schema }), rawPool);
+        const pool = buildResilientNeonPool(rawPool, getActivePool);
+        return scopeDbToPoolTransactions(
+          drizzle(pool, { schema }),
+          rawPool,
+          getActivePool,
+        );
       });
     }
 
@@ -1102,9 +1113,14 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
       const client = sharedDbPool("postgres-js", url, () =>
         postgres(url, pgPoolOptions(url)),
       );
+      const getActivePool = () =>
+        resolveSharedDbPool("postgres-js", url, client);
       return scopeDbToPoolTransactions(
-        drizzle(buildResilientPostgresJsClient(client), { schema }),
+        drizzle(buildResilientPostgresJsClient(client, getActivePool), {
+          schema,
+        }),
         client,
+        getActivePool,
       );
     });
   }
