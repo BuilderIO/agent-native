@@ -6,6 +6,7 @@ import {
 } from "./owned-attachment.js";
 import { JPEG_BASE64 } from "./test-image-fixtures.js";
 import {
+  canonicalImageReferenceUrl,
   MAX_PRIOR_THREAD_IMAGE_CACHE_ENTRIES,
   PRIOR_THREAD_IMAGE_CACHE_TTL_MS,
   hydratePriorThreadImages,
@@ -241,6 +242,48 @@ describe("hydratePriorThreadImages", () => {
     expect(result.contextNote).toContain(
       "1 retained image attachment was not readable from configured upload storage",
     );
+  });
+
+  it("does not restore a query-string image that structured history already rejected", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(Buffer.from(JPEG_BASE64, "base64"), {
+          headers: { "content-type": "image/jpeg" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const signedUrl = "https://storage.example/signed.jpg?sig=abc";
+    const excludeUrls = new Set([canonicalImageReferenceUrl(signedUrl)]);
+
+    const result = await hydratePriorThreadImages(
+      JSON.stringify({ messages: [storedImage("signed.jpg", signedUrl)] }),
+      { excludeUrls },
+    );
+
+    expect(result.attachments).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("names the request-wide budget when no candidate budget is left", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const budget = createOwnedAttachmentHydrationBudget();
+    budget.remainingCandidates = 0;
+
+    const result = await hydratePriorThreadImages(
+      JSON.stringify({
+        messages: [
+          storedImage("earlier.jpg", "https://storage.example/earlier.jpg"),
+        ],
+      }),
+      { budget },
+    );
+
+    expect(result.attachments).toEqual([]);
+    expect(result.contextNote).toContain(
+      "request-wide image hydration budget is exhausted",
+    );
+    expect(result.contextNote).not.toContain("Only the 0 most recent");
   });
 
   it("keeps the six most recent images and reports older images omitted", async () => {

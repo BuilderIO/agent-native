@@ -79,6 +79,7 @@ import {
   type OwnedImageReadFailureCode,
 } from "../file-upload/owned-attachment.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
+import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
@@ -2994,8 +2995,7 @@ function attemptedStructuredHistoryImageUrls(
         structuredHistoryImageReferenceKey(part),
       );
       if (!resolution) continue;
-      const url = durableStructuredHistoryImageUrl(part.url);
-      if (url) urls.add(url);
+      urls.add(canonicalImageReferenceUrl(part.url));
     }
   }
   return [...urls];

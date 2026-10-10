@@ -21,7 +21,7 @@ interface PriorImageCandidates {
   neverRetainedCount: number;
 }
 
-function canonicalImageReferenceUrl(value: string): string {
+export function canonicalImageReferenceUrl(value: string): string {
   try {
     const url = new URL(value);
     if (url.protocol === "https:" && !url.username && !url.password) {
@@ -349,8 +349,8 @@ export async function hydratePriorThreadImages(
   const { retained: candidates, neverRetainedCount } =
     candidatesFromThreadData(threadData);
   const remainingCandidates = candidates.filter((candidate) => {
-    const url = durableHistoryImageUrl(candidate.url);
-    return !url || !options.excludeUrls?.has(url);
+    // Candidates are canonical, so exclusion sets must use the same form.
+    return !options.excludeUrls?.has(candidate.url);
   });
   const budget = options.budget ?? createOwnedAttachmentHydrationBudget();
   const candidateLimit = Math.max(
@@ -438,7 +438,9 @@ export async function hydratePriorThreadImages(
   }
   if (omittedCount > 0) {
     notes.push(
-      `Only the ${selected.length} most recent earlier images with retained upload URLs fit the bounded vision history; ${omittedCount} older retained image attachment${omittedCount === 1 ? " was" : "s were"} omitted.`,
+      candidateLimit > 0
+        ? `Only the ${selected.length} most recent earlier images with retained upload URLs fit the bounded vision history; ${omittedCount} older retained image attachment${omittedCount === 1 ? " was" : "s were"} omitted.`
+        : `${omittedCount} retained image attachment${omittedCount === 1 ? " was" : "s were"} omitted because the request-wide image hydration budget is exhausted.`,
     );
   }
 
