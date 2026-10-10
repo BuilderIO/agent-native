@@ -9,13 +9,15 @@ import {
 import { ScreenHistoryScrubber } from "../../../shared/screen-history-scrubber";
 import {
   AlertDialog,
+  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
+  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../components/ui/alert-dialog";
-import { Button } from "../components/ui/button";
+import { Button, buttonVariants } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
 import type { RecordingContextItem } from "./context-api";
 import {
@@ -30,6 +32,8 @@ export interface LookbackEditDialogProps {
   onOpenChange: (open: boolean) => void;
   // Rejects when the window is not saved, so the dialog stays open for a retry.
   onSave: (next: ScreenHistoryWindow) => Promise<void>;
+  // Rejects when the item is not removed, so the dialog stays open with an error.
+  onRemove: () => Promise<void>;
   // Defaults to the Tauri bridge. Must stay the same function across renders,
   // because a new one reloads the preview.
   invoke?: RewindInvoke;
@@ -40,6 +44,7 @@ export function LookbackEditDialog({
   open,
   onOpenChange,
   onSave,
+  onRemove,
   invoke,
 }: LookbackEditDialogProps) {
   return (
@@ -49,6 +54,7 @@ export function LookbackEditDialog({
           item={item}
           onOpenChange={onOpenChange}
           onSave={onSave}
+          onRemove={onRemove}
           invoke={invoke}
         />
       </AlertDialogContent>
@@ -66,10 +72,11 @@ function LookbackEditForm({
   item,
   onOpenChange,
   onSave,
+  onRemove,
   invoke,
 }: Pick<
   LookbackEditDialogProps,
-  "item" | "onOpenChange" | "onSave" | "invoke"
+  "item" | "onOpenChange" | "onSave" | "onRemove" | "invoke"
 >) {
   const t = useT();
   const original: ScreenHistoryWindow = {
@@ -82,6 +89,8 @@ function LookbackEditForm({
     endedAt: item.endedAt,
   });
   const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -135,6 +144,27 @@ function LookbackEditForm({
       setError(t("lookbackContext.editFailed"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (removing || saving) return;
+    setRemoving(true);
+    setError(null);
+    try {
+      await onRemove();
+      setConfirmingRemove(false);
+      // Closing unmounts this form, and its cleanup discards the cut it loaded.
+      onOpenChange(false);
+    } catch (removeError) {
+      console.warn(
+        "[record-pill] remove earlier screen time failed:",
+        removeError,
+      );
+      setConfirmingRemove(false);
+      setError(t("lookbackContext.removeFailed"));
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -235,11 +265,15 @@ function LookbackEditForm({
         original={original}
         value={value}
         onChange={setValue}
-        disabled={saving}
+        disabled={saving || removing}
         playhead={playhead}
         labels={{
-          start: t("lookbackContext.scrubberStart"),
-          end: t("lookbackContext.scrubberEnd"),
+          fromBefore: (duration) =>
+            t("lookbackContext.scrubberFromBefore", { offset: duration }),
+          fromStart: t("lookbackContext.scrubberFromStart"),
+          toBefore: (duration) =>
+            t("lookbackContext.scrubberToBefore", { offset: duration }),
+          toStart: t("lookbackContext.scrubberToStart"),
           length: t("lookbackContext.scrubberLength"),
           startHandle: t("lookbackContext.scrubberStartHandle"),
           endHandle: t("lookbackContext.scrubberEndHandle"),
@@ -250,31 +284,71 @@ function LookbackEditForm({
           {error}
         </p>
       ) : null}
+      <div className="flex">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="text-destructive"
+          disabled={saving || removing}
+          onClick={() => setConfirmingRemove(true)}
+        >
+          {t("lookbackContext.removeAction")}
+        </Button>
+      </div>
       <AlertDialogFooter className="flex-row items-center justify-between">
         <Button
           type="button"
           variant="outline"
           size="sm"
-          disabled={!playable || saving}
+          disabled={!playable || saving || removing}
           onClick={playSelection}
         >
           <IconPlayerPlay size={14} stroke={1.75} aria-hidden />
           {t("lookbackContext.playSelection")}
         </Button>
         <div className="flex gap-2">
-          <AlertDialogCancel disabled={saving}>
+          <AlertDialogCancel disabled={saving || removing}>
             {t("common.cancel")}
           </AlertDialogCancel>
           <Button
             type="button"
             size="sm"
-            disabled={saving || unchanged}
+            disabled={saving || removing || unchanged}
             onClick={() => void save()}
           >
             {saving ? t("common.saving") : t("lookbackContext.editSave")}
           </Button>
         </div>
       </AlertDialogFooter>
+      <AlertDialog open={confirmingRemove} onOpenChange={setConfirmingRemove}>
+        <AlertDialogContent className="max-w-[300px] gap-3 p-5">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("lookbackContext.removeConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("lookbackContext.removeConfirmBody")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removing}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className={buttonVariants({ variant: "destructive" })}
+              disabled={removing}
+              onClick={(event) => {
+                // Keeps the confirmation open until the removal settles.
+                event.preventDefault();
+                void remove();
+              }}
+            >
+              {t("lookbackContext.removeConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

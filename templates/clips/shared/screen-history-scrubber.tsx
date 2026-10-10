@@ -11,9 +11,12 @@ import {
 // The words default to English; pass `labels` to localize them. The length
 // unit ("5 min") still comes from lookbackLabel.
 
+// Offset phrases take the distance before the recording start, such as "1:30".
 export interface ScreenHistoryScrubberLabels {
-  start: string;
-  end: string;
+  fromBefore: (duration: string) => string;
+  fromStart: string;
+  toBefore: (duration: string) => string;
+  toStart: string;
   length: string;
   startHandle: string;
   endHandle: string;
@@ -32,8 +35,10 @@ export interface ScreenHistoryScrubberProps {
 type Edge = "start" | "end";
 
 const DEFAULT_LABELS: ScreenHistoryScrubberLabels = {
-  start: "Starts",
-  end: "Ends",
+  fromBefore: (duration) => `From ${duration} before`,
+  fromStart: "From recording start",
+  toBefore: (duration) => `To ${duration} before`,
+  toStart: "To recording start",
   length: "Length",
   startHandle: "Window start",
   endHandle: "Window end",
@@ -61,11 +66,30 @@ export function screenHistoryOffsetSeconds(
   );
 }
 
-export function formatScreenHistoryOffset(seconds: number): string {
+export function formatScreenHistoryDuration(seconds: number): string {
   if (seconds <= 0) return "0:00";
   const minutes = Math.floor(seconds / 60);
   const rest = String(seconds % 60).padStart(2, "0");
-  return `−${minutes}:${rest}`;
+  return `${minutes}:${rest}`;
+}
+
+export function formatScreenHistoryOffset(seconds: number): string {
+  if (seconds <= 0) return "0:00";
+  return `−${formatScreenHistoryDuration(seconds)}`;
+}
+
+// The start reads as its distance before the recording start. The end does
+// too, because the end handle can be trimmed earlier than the recording start.
+function screenHistoryEdgeReadout(
+  labels: ScreenHistoryScrubberLabels,
+  edge: Edge,
+  seconds: number,
+): string {
+  const duration = formatScreenHistoryDuration(seconds);
+  if (edge === "start") {
+    return seconds === 0 ? labels.fromStart : labels.fromBefore(duration);
+  }
+  return seconds === 0 ? labels.toStart : labels.toBefore(duration);
 }
 
 export function screenHistoryPercent(
@@ -161,12 +185,12 @@ export function ScreenHistoryScrubber(props: ScreenHistoryScrubberProps) {
   const playheadPercent = playhead
     ? screenHistoryPlayheadPercent(original, playhead)
     : null;
-  const startOffset = formatScreenHistoryOffset(
-    screenHistoryOffsetSeconds(original, value.startedAt),
-  );
-  const endOffset = formatScreenHistoryOffset(
-    screenHistoryOffsetSeconds(original, value.endedAt),
-  );
+  const startSeconds = screenHistoryOffsetSeconds(original, value.startedAt);
+  const endSeconds = screenHistoryOffsetSeconds(original, value.endedAt);
+  const startOffset = formatScreenHistoryOffset(startSeconds);
+  const endOffset = formatScreenHistoryOffset(endSeconds);
+  const startReadout = screenHistoryEdgeReadout(labels, "start", startSeconds);
+  const endReadout = screenHistoryEdgeReadout(labels, "end", endSeconds);
 
   function commit(edge: Edge, targetMs: number) {
     const next = moveScreenHistoryEdge(original, value, edge, targetMs);
@@ -267,15 +291,11 @@ export function ScreenHistoryScrubber(props: ScreenHistoryScrubberProps) {
         )}
       </div>
       <div className="flex items-center justify-between gap-2 text-xs tabular-nums text-muted-foreground">
-        <span>
-          {labels.start} {startOffset}
-        </span>
+        <span>{startReadout}</span>
         <span>
           {labels.length} {lookbackLabel(lengthSeconds)}
         </span>
-        <span>
-          {labels.end} {endOffset}
-        </span>
+        <span>{endReadout}</span>
       </div>
     </div>
   );

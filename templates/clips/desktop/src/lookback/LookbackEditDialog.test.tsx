@@ -103,6 +103,7 @@ function renderDialog(overrides: Partial<LookbackEditDialogProps> = {}) {
     open: true,
     onOpenChange: vi.fn(),
     onSave: vi.fn(async () => {}),
+    onRemove: vi.fn(async () => {}),
     invoke: previewInvoke(),
     ...overrides,
   };
@@ -320,5 +321,102 @@ describe("LookbackEditDialog", () => {
       "Couldn't save the window. Try again.",
     );
     expect(saveButton()?.disabled).toBe(false);
+  });
+
+  it("reads the window against the recording start", () => {
+    renderDialog();
+
+    // The saved window starts 30 s before the recording start and ends at it.
+    expect(document.body.textContent).toContain("From 0:30 before");
+    expect(document.body.textContent).toContain("To recording start");
+  });
+});
+
+describe("LookbackEditDialog removal", () => {
+  function removeAction(): HTMLButtonElement | undefined {
+    return buttonWithText("Remove earlier screen time");
+  }
+
+  function confirmRemove(): HTMLButtonElement | undefined {
+    return buttonWithText("Remove");
+  }
+
+  it("asks for confirmation in the app before removing anything", async () => {
+    const onRemove = vi.fn(async () => {});
+    renderDialog({ onRemove });
+    await flush();
+
+    act(() => {
+      removeAction()?.click();
+    });
+
+    expect(document.body.textContent).toContain("Remove earlier screen time?");
+    expect(document.body.textContent).toContain(
+      "The footage is moved to Trash and the clip no longer includes it.",
+    );
+    expect(onRemove).not.toHaveBeenCalled();
+  });
+
+  it("removes the item and closes the dialog once the removal succeeds", async () => {
+    const onRemove = vi.fn(async () => {});
+    const props = renderDialog({ onRemove });
+    await flush();
+    act(() => {
+      removeAction()?.click();
+    });
+
+    await act(async () => {
+      confirmRemove()?.click();
+    });
+    await flush();
+
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(props.onOpenChange).toHaveBeenCalledWith(false);
+    expect(document.body.textContent).not.toContain(
+      "Remove earlier screen time?",
+    );
+  });
+
+  it("discards the cut when a removal closes the dialog", async () => {
+    const invoke = previewInvoke();
+    const props = renderDialog({ invoke });
+    await flush();
+    act(() => {
+      removeAction()?.click();
+    });
+    await act(async () => {
+      confirmRemove()?.click();
+    });
+
+    setOpen(props, false);
+    await flush();
+
+    expect(invoke).toHaveBeenCalledWith("rewind_preview_discard", {
+      path: PREVIEW_PATH,
+    });
+  });
+
+  it("stays open with the error when the removal is rejected", async () => {
+    const onRemove = vi.fn(async () => {
+      throw new Error("server 500");
+    });
+    const props = renderDialog({ onRemove });
+    await flush();
+    act(() => {
+      removeAction()?.click();
+    });
+
+    await act(async () => {
+      confirmRemove()?.click();
+    });
+    await flush();
+
+    expect(props.onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      "Couldn't remove earlier screen time for the discarded recording.",
+    );
+    expect(document.body.textContent).not.toContain(
+      "Remove earlier screen time?",
+    );
   });
 });

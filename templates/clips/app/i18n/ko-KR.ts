@@ -36,8 +36,17 @@ const messages = {
     retry: "다시 시도",
     playSelection: "선택 영역 재생",
     removeFailed: "삭제한 녹화의 이전 화면 시간을 제거할 수 없습니다.",
-    scrubberStart: "시작",
-    scrubberEnd: "끝",
+    removeFailedAction: "이전 화면 시간을 제거할 수 없습니다. 다시 시도하세요.",
+    removeAction: "이전 화면 시간 제거",
+    removeConfirmTitle: "이전 화면 시간을 제거할까요?",
+    removeConfirmBody:
+      "영상은 휴지통으로 이동되며 이 클립에는 더 이상 포함되지 않습니다.",
+    removeConfirm: "제거",
+    removed: "이전 화면 시간을 제거했습니다",
+    scrubberFromBefore: "{{offset}} 전부터",
+    scrubberFromStart: "녹화 시작부터",
+    scrubberToBefore: "{{offset}} 전까지",
+    scrubberToStart: "녹화 시작까지",
     scrubberLength: "길이",
     scrubberStartHandle: "구간 시작",
     scrubberEndHandle: "구간 끝",
@@ -49,6 +58,7 @@ const messages = {
     empty: "이 클립에 첨부된 이전 화면 시간이 없습니다.",
     larger: "확대",
     editHint: "Clips Desktop에서 구간을 편집하세요.",
+    waitingOtherDevice: "이 클립을 녹화한 기기 대기 중",
   },
   agentChat: {
     setup: {
@@ -2207,21 +2217,6 @@ const messages = {
     guideStartTitle: "Click Start notes (현지화됨)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (현지화됨)",
-  },
-  rewindExtension: {
-    title: "이전에 있었던 내용 추가",
-    description:
-      "로컬 Rewind에서 특정 구간을 선택해 이 클립의 시작 부분에 추가합니다. 자동으로 추가되는 내용은 없습니다.",
-    progressLabel: "Rewind 기록 처리 진행률",
-    privateFirstTitle: "먼저 이 클립을 비공개로 설정",
-    privateFirstDescription:
-      "로컬 Rewind 기록에는 녹화를 시작하기 전의 맥락이 포함될 수 있습니다. 이 작업은 클립을 비공개로 바꿉니다. 누군가 직접 접근 권한을 갖고 있으면 공유에서 먼저 제거할 수 있도록 Clips가 중지합니다.",
-    makePrivateContinue: "비공개로 설정하고 계속",
-    add30Seconds: "이전 30초 추가",
-    add5Minutes: "이전 5분 추가",
-    add5MinutesDescription: "긴 설명의 도입부를 복구할 때 유용합니다.",
-    privateReady:
-      "이 클립은 비공개입니다. 이제 로컬 Rewind 기록을 추가할 수 있습니다.",
   },
   browserDiagnostics: {
     debug: "디버그",
