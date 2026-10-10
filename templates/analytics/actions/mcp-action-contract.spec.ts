@@ -39,6 +39,9 @@ const DIRECT_MCP_READS = [
   "account-deep-dive",
   "builder-blog-articles",
   "data-source-status",
+  "estimate-onboarding-journey-cost",
+  "find-data",
+  "query-dbt-semantic-metric",
   "get-analysis",
   "get-data-program",
   "get-error-issue",
@@ -76,6 +79,7 @@ const VETOED = [
   "bigquery",
   "create-session-replay-agent-link",
   "db-admin-federated-read",
+  "import-data-dictionary-index",
   "query-agent-native-analytics",
   "search-bigquery-schema",
 ];

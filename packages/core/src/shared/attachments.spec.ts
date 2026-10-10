@@ -79,4 +79,34 @@ describe("stripInlineAttachmentPayloads", () => {
       }),
     ).toEqual({ attachments: [{ name: "reference.png" }] });
   });
+
+  it("drops signed and malformed attachment URLs before persistence", () => {
+    expect(
+      stripInlineAttachmentPayloads({
+        attachments: [
+          {
+            type: "image",
+            name: "signed.png",
+            url: "https://files.example.test/a.png?token=secret",
+          },
+          { type: "file", name: "raw.png", url: "AQID" },
+          {
+            type: "image",
+            name: "safe.png",
+            url: "https://files.example.test/safe.png",
+          },
+        ],
+      }),
+    ).toEqual({
+      attachments: [
+        { type: "image", name: "signed.png" },
+        { type: "file", name: "raw.png" },
+        {
+          type: "image",
+          name: "safe.png",
+          url: "https://files.example.test/safe.png",
+        },
+      ],
+    });
+  });
 });

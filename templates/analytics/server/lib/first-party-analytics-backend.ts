@@ -10,6 +10,7 @@ import { getDbExec } from "@agent-native/core/db";
 import { getOrgSetting } from "@agent-native/core/settings";
 
 import {
+  BigQueryQueryTimeoutError,
   getBigQueryProjectId,
   runQuery,
   type BigQueryTableRef,
@@ -17,7 +18,11 @@ import {
 import { requireRequestCredentialContext } from "./credentials-context.js";
 import { firstPartyEventPushdownPredicates } from "./first-party-analytics-pushdown.js";
 import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
-import { fetchGoogleWithRetry, getAccessToken } from "./gcloud.js";
+import {
+  fetchGoogleWithRetry,
+  getAccessToken,
+  raceWithAbort,
+} from "./gcloud.js";
 import {
   getScopedSettingRecord,
   putScopedSettingRecord,
@@ -176,19 +181,28 @@ function normalizeSink(value: unknown): FirstPartyAnalyticsSink {
 
 export async function getFirstPartyAnalyticsBackend(
   scope: FirstPartyAnalyticsScope,
+  signal?: AbortSignal,
 ): Promise<FirstPartyAnalyticsBackendConfig> {
+  if (signal?.aborted) {
+    throw new DOMException("The operation was aborted", "AbortError");
+  }
   const cacheKey = backendScopeKey(scope);
   const cached = backendConfigCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.config;
 
-  const setting = (await (scope.credentialScope === "org"
-    ? scope.orgId
-      ? getOrgSetting(scope.orgId, FIRST_PARTY_ANALYTICS_BACKEND_SETTING)
-      : null
-    : getScopedSettingRecord(
-        { email: scope.userEmail, orgId: scope.orgId },
-        FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
-      ))) as FirstPartyAnalyticsBackendSetting | null;
+  const settingRead =
+    scope.credentialScope === "org"
+      ? scope.orgId
+        ? getOrgSetting(scope.orgId, FIRST_PARTY_ANALYTICS_BACKEND_SETTING)
+        : null
+      : getScopedSettingRecord(
+          { email: scope.userEmail, orgId: scope.orgId },
+          FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
+        );
+  const setting = (await raceWithAbort(
+    Promise.resolve(settingRead),
+    signal,
+  )) as FirstPartyAnalyticsBackendSetting | null;
   const config = {
     sink: normalizeSink(setting?.sink),
     table: typeof setting?.table === "string" ? setting.table : null,
@@ -233,8 +247,9 @@ export function resetFirstPartyAnalyticsBackendCacheForTests(): void {
 
 export async function getFirstPartyAnalyticsTable(
   configuredTable?: string | null,
+  signal?: AbortSignal,
 ): Promise<BigQueryTableRef> {
-  const projectId = await getBigQueryProjectId();
+  const projectId = await getBigQueryProjectId(signal);
   return parseTableRef(configuredTable, projectId);
 }
 
@@ -1259,27 +1274,55 @@ function qualifyQuerySources(sql: string, table: BigQueryTableRef): string {
   });
 }
 
+function onboardingEventDatePredicates(eventDateRange?: {
+  startDate: string;
+  endDate: string;
+}): string[] {
+  if (!eventDateRange) return [];
+  for (const value of [eventDateRange.startDate, eventDateRange.endDate]) {
+    const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+      Number.isNaN(timestamp) ||
+      new Date(timestamp).toISOString().slice(0, 10) !== value
+    ) {
+      throw new Error("First-party event date bounds must be calendar dates");
+    }
+  }
+  return [
+    `event_date >= DATE '${eventDateRange.startDate}'`,
+    `event_date <= DATE '${eventDateRange.endDate}'`,
+  ];
+}
+
 function addPartitionPrunedEventDeduplication(
   sql: string,
   table: BigQueryTableRef,
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+  } = {},
 ): string {
   const quote = String.fromCharCode(96);
-  const source =
-    "SELECT * FROM " +
-    quote +
-    firstPartyAnalyticsRawTable(table) +
-    quote +
-    " WHERE";
+  const rawSource = `${quote}${firstPartyAnalyticsRawTable(table)}${quote}`;
+  const sourcePattern = /\bSELECT\s+\*\s+FROM\s+(`[^`]+`)\s+WHERE\b/gi;
   let result = "";
   let cursor = 0;
   let searchStart = 0;
   const code = maskSqlLiterals(sql, "bigquery");
   while (cursor < sql.length) {
-    const sourceIndex = sql.indexOf(source, searchStart);
-    if (sourceIndex === -1) return result + sql.slice(cursor);
-    searchStart = sourceIndex + source.length;
-    if (!code.startsWith("SELECT * FROM ", sourceIndex)) continue;
-    const predicateStart = sourceIndex + source.length;
+    sourcePattern.lastIndex = searchStart;
+    const sourceMatch = sourcePattern.exec(sql);
+    if (!sourceMatch) return result + sql.slice(cursor);
+    const sourceIndex = sourceMatch.index;
+    searchStart = sourcePattern.lastIndex;
+    if (
+      sourceMatch[1] !== rawSource ||
+      !/^SELECT\s+\*\s+FROM\b/i.test(code.slice(sourceIndex))
+    ) {
+      continue;
+    }
+    const predicateStart = sourcePattern.lastIndex;
     let depth = 0;
     let predicateEnd = sql.length;
     for (let index = predicateStart; index < sql.length; index++) {
@@ -1303,11 +1346,21 @@ function addPartitionPrunedEventDeduplication(
     }
     // ponytail: insertAll is at-least-once; staging + MERGE is the upgrade path
     // for physical exactly-once if the warehouse contract requires it.
-    const predicates = firstPartyEventPushdownPredicates(sql, sourceIndex);
+    const predicates = [
+      ...onboardingEventDatePredicates(options.eventDateRange),
+      ...firstPartyEventPushdownPredicates(sql, sourceIndex),
+    ].filter(
+      (predicate, index, all) =>
+        all.findIndex(
+          (candidate) => candidate.toLowerCase() === predicate.toLowerCase(),
+        ) === index,
+    );
+    // Combined org and owner scans must keep their independent latest receipts.
+    const dedupPartition = options.scopedEventsSingleScan ? "id, org_id" : "id";
     result +=
       sql.slice(cursor, predicateEnd) +
       predicates.map((predicate) => ` AND (${predicate})`).join("") +
-      " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
+      ` QUALIFY ROW_NUMBER() OVER (PARTITION BY ${dedupPartition} ORDER BY received_at DESC) = 1` +
       (predicateEnd < sql.length ? " " : "");
     cursor = predicateEnd;
     searchStart = cursor;
@@ -1323,6 +1376,10 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+  } = {},
 ): string {
   // The Postgres scope builder uses a text fallback for nullable event
   // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
@@ -1337,7 +1394,7 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   const translated =
     translateFirstPartyAnalyticsBigQuerySql(normalizedScopeSql);
   const bound = bindSqlArguments(translated, args);
-  assertBigQuerySourceProvenance(translated, bound);
+  assertBigQuerySourceProvenance(scopedSql, bound);
   validateAnalyticsSqlFunctions(
     readAgentSqlQuery(bound, { dialect: "bigquery" }),
     "bigquery",
@@ -1345,23 +1402,70 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   return addPartitionPrunedEventDeduplication(
     coerceDateComparisonOperands(qualifyQuerySources(bound, table)),
     table,
+    options,
   );
+}
+
+export function renderFirstPartyAnalyticsBigQueryRequestSql(
+  scopedSql: string,
+  args: Array<string | null>,
+  table: BigQueryTableRef,
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+  } = {},
+): string {
+  return `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, options)}) AS first_party_analytics_query LIMIT 5000`;
 }
 
 export async function queryFirstPartyAnalyticsInBigQuery(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
-  options: { maxBytesBilled?: number } = {},
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+    maxBytesBilled?: number;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<{
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
   truncated?: boolean;
 }> {
-  const result = await runQuery(
-    `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table)}) AS first_party_analytics_query LIMIT 5000`,
-    { maxBytesBilled: options.maxBytesBilled },
-  );
+  const timeoutMs = options.timeoutMs;
+  if (
+    timeoutMs !== undefined &&
+    (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000)
+  ) {
+    throw new Error(
+      "First-party BigQuery timeout is outside the allowed range",
+    );
+  }
+  const timeoutSignal =
+    timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs);
+  const signal =
+    options.signal && timeoutSignal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : (options.signal ?? timeoutSignal);
+  let result: Awaited<ReturnType<typeof runQuery>>;
+  try {
+    result = await runQuery(
+      renderFirstPartyAnalyticsBigQueryRequestSql(scopedSql, args, table, {
+        eventDateRange: options.eventDateRange,
+        scopedEventsSingleScan: options.scopedEventsSingleScan,
+      }),
+      {
+        maxBytesBilled: options.maxBytesBilled,
+        ...(signal ? { signal } : {}),
+      },
+    );
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    if (timeoutSignal?.aborted) throw new BigQueryQueryTimeoutError();
+    throw error;
+  }
   return {
     rows: result.rows,
     schema: result.schema,

@@ -64,6 +64,7 @@ export function DesignBottomToolbar({
   onScale,
   onMediaFiles,
   onCommentPin,
+  canComment,
   onModeChange,
   showModeTabs,
 }: {
@@ -86,6 +87,8 @@ export function DesignBottomToolbar({
   onScale: () => void;
   onMediaFiles: (files: File[]) => void;
   onCommentPin: () => void;
+  /** Comments and annotation drawing need a signed-in commenter; a widget's write ticket covers neither. */
+  canComment: boolean;
   onModeChange: (mode: EditorMode) => void;
   /**
    * The Interact / Design / Annotate switch lives in the editor top bar. Shells
@@ -326,15 +329,20 @@ export function DesignBottomToolbar({
           active: activeTool === "pen",
           onSelect: onPen,
         },
-        {
-          key: "draw",
-          label: t("designEditor.modes.draw"),
-          icon: <IconBrush className="size-4" />,
-          shortcut: "⇧Y",
-          active: activeTool === "draw" && mode === "annotate" && drawMode,
-          disabled: !hasActiveFile,
-          onSelect: onDraw,
-        },
+        ...(canComment
+          ? [
+              {
+                key: "draw",
+                label: t("designEditor.modes.draw"),
+                icon: <IconBrush className="size-4" />,
+                shortcut: "⇧Y",
+                active:
+                  activeTool === "draw" && mode === "annotate" && drawMode,
+                disabled: !hasActiveFile,
+                onSelect: onDraw,
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -354,24 +362,29 @@ export function DesignBottomToolbar({
         },
       ],
     },
-    {
-      key: "comment",
-      active: activeTool === "comment" && mode === "annotate" && pinMode,
-      label: t("designEditor.pinComment"),
-      icon: <IconMessage className="size-[18px]" />,
-      onClick: onCommentPin,
-      options: [
-        {
-          key: "comment",
-          label: t("designEditor.pinComment"),
-          icon: <IconMessage className="size-4" />,
-          shortcut: "C",
-          active: activeTool === "comment" && mode === "annotate" && pinMode,
-          disabled: !hasActiveFile || isOverview,
-          onSelect: onCommentPin,
-        },
-      ],
-    },
+    ...(canComment
+      ? [
+          {
+            key: "comment",
+            active: activeTool === "comment" && mode === "annotate" && pinMode,
+            label: t("designEditor.pinComment"),
+            icon: <IconMessage className="size-[18px]" />,
+            onClick: onCommentPin,
+            options: [
+              {
+                key: "comment",
+                label: t("designEditor.pinComment"),
+                icon: <IconMessage className="size-4" />,
+                shortcut: "C",
+                active:
+                  activeTool === "comment" && mode === "annotate" && pinMode,
+                disabled: !hasActiveFile || isOverview,
+                onSelect: onCommentPin,
+              },
+            ],
+          },
+        ]
+      : []),
   ];
 
   const modes: Array<{
@@ -381,13 +394,17 @@ export function DesignBottomToolbar({
     icon: ReactNode;
     onClick: () => void;
   }> = [
-    {
-      key: "annotate",
-      active: mode === "annotate",
-      label: t("designEditor.modes.annotate"),
-      icon: <IconScribble className="size-[18px]" />,
-      onClick: () => onModeChange("annotate"),
-    },
+    ...(canComment
+      ? [
+          {
+            key: "annotate" as const,
+            active: mode === "annotate",
+            label: t("designEditor.modes.annotate"),
+            icon: <IconScribble className="size-[18px]" />,
+            onClick: () => onModeChange("annotate"),
+          },
+        ]
+      : []),
     {
       key: "edit",
       active: mode === "edit",

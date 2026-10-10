@@ -82,6 +82,8 @@ const messages = {
     "Optional text to check for in the reply…",
   "observability.promoteMustContainLabel":
     "Text to check for in the promoted eval reply",
+  "observability.promoteReviewedPromptLabel":
+    "Manually reviewed prompt (never copied from production)",
   "observability.promoteNeedsContains":
     "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.viewDetails": "View details",

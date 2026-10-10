@@ -13,6 +13,8 @@ const INLINE_REFERENCE_FIELDS = new Set([
   "src",
   "thumbnail",
   "url",
+  "uploadurl",
+  "dataurl",
 ]);
 
 const ATTACHMENT_TYPES = new Set(["document", "file", "image"]);
@@ -27,6 +29,24 @@ const ATTACHMENT_CONTEXT_FIELDS = new Set([
   "references",
   "requestattachments",
 ]);
+
+export function isInlineDataUrl(value: unknown): value is string {
+  return typeof value === "string" && /^\s*data:/i.test(value);
+}
+
+export function isPersistableAttachmentUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !value.trim()) return false;
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" &&
+    Boolean(url.hostname) &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}
 
 function isBase64Payload(value: unknown): value is string {
   return (
@@ -102,14 +122,20 @@ export function stripInlineAttachmentPayloads(
     if (
       isAttachmentRecord &&
       INLINE_REFERENCE_FIELDS.has(normalizedKey) &&
-      isInlineReferencePayload(entry)
+      (isInlineReferencePayload(entry) ||
+        (typeof entry === "string" &&
+          entry.trim().length > 0 &&
+          !isPersistableAttachmentUrl(entry)))
     ) {
       continue;
     }
     if (
       isAttachmentRecord &&
       normalizedKey === "image" &&
-      isInlineAttachmentPayload(entry)
+      (isInlineAttachmentPayload(entry) ||
+        (typeof entry === "string" &&
+          entry.trim().length > 0 &&
+          !isPersistableAttachmentUrl(entry)))
     ) {
       continue;
     }

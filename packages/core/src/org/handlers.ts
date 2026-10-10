@@ -421,8 +421,11 @@ export const retryPendingFederatedRemovalHandler = defineEventHandler(
         statusCode: 503,
         message: "Identity removal succeeded but local cleanup is pending.",
       });
+    } finally {
+      // Also on failure: a commit whose reply is lost has already removed the
+      // membership rows, and cached memberships would keep granting access.
+      invalidateMemberOrgCaches();
     }
-    invalidateMemberOrgCaches();
 
     const nextOrg = await e.execute({
       sql: `SELECT org_id AS "orgId" FROM org_members
@@ -1229,8 +1232,11 @@ export const removeMemberHandler = defineEventHandler(
         message:
           "The member was revoked from the identity authority but local cleanup is pending.",
       });
+    } finally {
+      // Also on failure: a commit whose reply is lost has already removed the
+      // membership rows, and cached memberships would keep granting access.
+      invalidateMemberOrgCaches();
     }
-    invalidateMemberOrgCaches();
 
     return { success: true };
   },

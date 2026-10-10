@@ -26,6 +26,7 @@ import type {
 import { buildChatModelGroups } from "@agent-native/core/client/chat-model-groups";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { invalidateClientStatusRequests } from "@agent-native/core/client/status-requests";
+import { ComposerContextError } from "@agent-native/toolkit/composer";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -73,6 +74,7 @@ const chatHandleMocks = vi.hoisted(() => ({
   implementPlan: vi.fn(() => false),
   prefillMessage: vi.fn(),
   setComposerContextItem: vi.fn(),
+  canStageComposerContextItem: vi.fn(() => true),
   removeComposerContextItem: vi.fn(),
   clearComposerContextItems: vi.fn(),
   sendRecoveryMessage: vi.fn(),
@@ -103,7 +105,12 @@ const assistantChatMockState = vi.hoisted(() => ({
           messageCount: number;
           titleSource?: "fallback";
         },
-      ) => void)
+        context?: { signal?: AbortSignal },
+        source?: "transport" | "metadata" | "host-fallback",
+      ) => boolean | void | Promise<boolean | void>)
+    | undefined,
+  onThreadSnapshotPersisted: undefined as
+    | ((threadId: string, messageCount: number) => void)
     | undefined,
   branchNavigation: undefined as
     | {
@@ -142,6 +149,8 @@ const threadMocks = vi.hoisted(() => ({
   searchThreads: vi.fn(async () => []),
   refreshThreads: vi.fn(async () => undefined),
   isNewThread: vi.fn(() => false),
+  isThreadPersisted: vi.fn(() => true),
+  confirmThreadSnapshotPersisted: vi.fn(),
   pinThread: vi.fn(async () => true),
   renameThread: vi.fn(async () => true),
 }));
@@ -391,6 +400,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         onForkedThread?: (threadId: string) => void;
         onGenerateTitle?: typeof assistantChatMockState.onGenerateTitle;
         onSaveThread?: typeof assistantChatMockState.onSaveThread;
+        onThreadSnapshotPersisted?: typeof assistantChatMockState.onThreadSnapshotPersisted;
         branchNavigation?: typeof assistantChatMockState.branchNavigation;
       };
       assistantChatMockState.onThreadRestoreNotFound =
@@ -400,12 +410,16 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
       assistantChatMockState.onForkedThread = props.onForkedThread;
       assistantChatMockState.onGenerateTitle = props.onGenerateTitle;
       assistantChatMockState.onSaveThread = props.onSaveThread;
+      assistantChatMockState.onThreadSnapshotPersisted =
+        props.onThreadSnapshotPersisted;
       assistantChatMockState.branchNavigation = props.branchNavigation;
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
         implementPlan: chatHandleMocks.implementPlan,
         prefillMessage: chatHandleMocks.prefillMessage,
         setComposerContextItem: chatHandleMocks.setComposerContextItem,
+        canStageComposerContextItem:
+          chatHandleMocks.canStageComposerContextItem,
         removeComposerContextItem: chatHandleMocks.removeComposerContextItem,
         clearComposerContextItems: chatHandleMocks.clearComposerContextItems,
         sendRecoveryMessage: chatHandleMocks.sendRecoveryMessage,
@@ -459,6 +473,7 @@ function resetThreadMocks() {
   assistantChatMockState.onForkedThread = undefined;
   assistantChatMockState.onGenerateTitle = undefined;
   assistantChatMockState.onSaveThread = undefined;
+  assistantChatMockState.onThreadSnapshotPersisted = undefined;
   assistantChatMockState.branchNavigation = undefined;
   threadMocks.activeThreadId = "thread-1";
   threadMocks.isLoading = false;
@@ -483,6 +498,11 @@ function resetThreadMocks() {
   threadMocks.switchThread.mockReset();
   threadMocks.isNewThread.mockReset();
   threadMocks.isNewThread.mockReturnValue(false);
+  threadMocks.isThreadPersisted.mockReset();
+  threadMocks.isThreadPersisted.mockReturnValue(true);
+  threadMocks.confirmThreadSnapshotPersisted.mockReset();
+  threadMocks.saveThreadData.mockReset();
+  threadMocks.saveThreadData.mockResolvedValue(true);
   threadMocks.pinThread.mockReset();
   threadMocks.pinThread.mockImplementation(async () => true);
   threadMocks.renameThread.mockReset();
@@ -579,17 +599,24 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
-    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", snapshot);
+    });
 
     expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
       ...snapshot,
       threadData: "",
+    });
+    expect(window.location.search).toBe("");
+    await act(async () => {
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-1", 1);
     });
     expect(window.location.search).toBe("?thread=thread-1");
 
     const createTransport = (() => ({}) as never) as NonNullable<
       MultiTabAssistantChatProps["createTransport"]
     >;
+    window.history.replaceState(null, "", "/");
     await act(async () => {
       root.render(
         <MultiTabAssistantChat
@@ -601,15 +628,22 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
-    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", snapshot);
+    });
 
     expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
       ...snapshot,
       threadData: "",
     });
+    expect(window.location.search).toBe("");
+    await act(async () => {
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-1", 1);
+    });
     expect(window.location.search).toBe("?thread=thread-1");
 
     const runtime = {} as NonNullable<MultiTabAssistantChatProps["runtime"]>;
+    window.history.replaceState(null, "", "/");
     await act(async () => {
       root.render(
         <MultiTabAssistantChat
@@ -621,11 +655,71 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
-    act(() => assistantChatMockState.onSaveThread?.("thread-1", snapshot));
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", snapshot);
+    });
 
     expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith("thread-1", {
       ...snapshot,
       threadData: "",
+    });
+    expect(window.location.search).toBe("");
+    await act(async () => {
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-1", 1);
+    });
+    expect(window.location.search).toBe("?thread=thread-1");
+  });
+
+  it("persists full thread data through the host fallback", async () => {
+    const snapshot = {
+      threadData: JSON.stringify({ messages: [{ id: "fallback-message" }] }),
+      title: "Fallback chat",
+      preview: "Fallback request",
+      messageCount: 1,
+    };
+
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.(
+        "thread-1",
+        snapshot,
+        undefined,
+        "host-fallback",
+      );
+    });
+
+    expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith(
+      "thread-1",
+      snapshot,
+    );
+  });
+
+  it("publishes a thread URL only after its first save succeeds", async () => {
+    window.history.replaceState(null, "", "/");
+    threadMocks.saveThreadData.mockResolvedValueOnce(false);
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat storageKey="bridge-test" threadUrlSync />,
+      );
+      await Promise.resolve();
+    });
+
+    const snapshot = {
+      threadData: "{}",
+      title: "Saved chat",
+      preview: "First message",
+      messageCount: 1,
+    };
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", snapshot);
+    });
+    expect(window.location.search).toBe("");
+
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", snapshot);
+    });
+    expect(window.location.search).toBe("");
+    await act(async () => {
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-1", 1);
     });
     expect(window.location.search).toBe("?thread=thread-1");
   });
@@ -652,7 +746,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
   });
 
-  it("prefills the active composer without submitting when submit is false", () => {
+  it("prefills the active composer with hidden context when submit is false", () => {
     act(() => {
       dispatchSubmitChat({
         message: "Review this before sending",
@@ -663,9 +757,301 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
-      'Review this before sending\n\n<context data-agentkit-context-encoding="entities-v1">\nSelected rows: a, b\n</context>',
+      "Review this before sending",
+    );
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "agent-chat-prefill-context",
+        title: "Active app context",
+        context: "Selected rows: a, b",
+      }),
+      { focus: false, threadScoped: true },
     );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("titles a context prefill with the contextLabel it was given", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Tell me more",
+        context: '{"movieId":969681}',
+        contextLabel: "Spider-Man: Brand New Day",
+        submit: false,
+      });
+    });
+
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "agent-chat-prefill-context",
+        title: "Spider-Man: Brand New Day",
+        context: '{"movieId":969681}',
+      }),
+      { focus: false, threadScoped: true },
+    );
+  });
+
+  it("refuses a prefill the composer cannot hold alongside its current context", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.canStageComposerContextItem.mockReturnValueOnce(false);
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+        submitMessageId: "refused-prefill",
+      });
+    });
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.setComposerContextItem).not.toHaveBeenCalled();
+    expect(results).toContainEqual({
+      submitMessageId: "refused-prefill",
+      delivered: false,
+      reason: "context-too-large",
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("alongside the composer's existing context"),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("reports a prefill whose staging check cannot run yet as composer-not-ready", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.canStageComposerContextItem.mockImplementationOnce(() => {
+      throw new ComposerContextError("not-ready");
+    });
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+        submitMessageId: "pending-prefill",
+      });
+    });
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(results).toContainEqual({
+      submitMessageId: "pending-prefill",
+      delivered: false,
+      reason: "composer-not-ready",
+    });
+    consoleError.mockRestore();
+  });
+
+  it("waits for thread context persistence before prefilling", async () => {
+    const persisted = Promise.withResolvers<void>();
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+      persisted.promise,
+    );
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        submitMessageId: "prefill-persisted",
+      });
+    });
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    await act(async () => {
+      persisted.resolve();
+      await persisted.promise;
+    });
+
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+      "Review this before sending",
+    );
+    expect(results).toEqual([
+      { submitMessageId: "prefill-persisted", delivered: true },
+    ]);
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+  });
+
+  it("removes persisted thread context when its prefill is cancelled", async () => {
+    const persisted = Promise.withResolvers<{ stagingId: string }>();
+    chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+      persisted.promise,
+    );
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        submitMessageId: "prefill-cancelled-after-persist",
+      });
+    });
+    cancelAgentChatSubmit("prefill-cancelled-after-persist");
+
+    await act(async () => {
+      persisted.resolve({ stagingId: "staged-7" });
+      await persisted.promise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.removeComposerContextItem).toHaveBeenCalledWith(
+      "agent-chat-prefill-context",
+      { threadScoped: true, stagingId: "staged-7" },
+    );
+  });
+
+  it("does not remove by key alone when the staged prefill's identity is unknown", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const persisted = Promise.withResolvers<undefined>();
+    chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+      persisted.promise,
+    );
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        submitMessageId: "prefill-cancelled-without-identity",
+      });
+    });
+    cancelAgentChatSubmit("prefill-cancelled-without-identity");
+
+    await act(async () => {
+      persisted.resolve(undefined);
+      await persisted.promise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatHandleMocks.removeComposerContextItem).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Could not identify the staged prefill context"),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("reports a failed context write without saving the draft", async () => {
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.setComposerContextItem.mockImplementationOnce(() =>
+      Promise.reject(new Error("offline")),
+    );
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        submitMessageId: "prefill-persist-failed",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(results).toEqual([
+      {
+        submitMessageId: "prefill-persist-failed",
+        delivered: false,
+        reason: "context-persistence-failed",
+      },
+    ]);
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+  });
+
+  it("replaces the staged context when prefilled again", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+      });
+    });
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: c, d",
+        submit: false,
+        openSidebar: true,
+      });
+    });
+
+    const calls = chatHandleMocks.setComposerContextItem.mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.[0].key).toBe("agent-chat-prefill-context");
+    expect(calls[1]?.[0].key).toBe(calls[0]?.[0].key);
+    expect(calls[1]?.[0].context).toBe("Selected rows: c, d");
+    expect(calls[0]?.[1]).toEqual({ focus: false, threadScoped: true });
+    expect(calls[1]?.[1]).toEqual({ focus: false, threadScoped: true });
+  });
+
+  it("uses the current context namespace for a prefilled context", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "desktop-app",
+            id: "calendar",
+            contextKey: "desktop-app:calendar",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "desktop-app",
+            id: "mail",
+            contextKey: "desktop-app:mail",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected message: hello",
+        submit: false,
+      });
+    });
+
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: "Selected message: hello",
+        contextNamespace: "desktop-app:mail",
+      }),
+      { focus: false, threadScoped: true },
+    );
   });
 
   it("reports a rejected queued submission instead of leaving it unhandled", async () => {
@@ -1878,6 +2264,156 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-clear"]);
   });
 
+  it("keeps route-backed drafts out of persisted-thread header state until full snapshot save succeeds", async () => {
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(true);
+
+    threadMocks.createThread.mockImplementationOnce(async () => {
+      const id = "thread-new";
+      threadMocks.activeThreadId = id;
+      threadMocks.threads = [
+        {
+          id,
+          title: "",
+          preview: "",
+          messageCount: 0,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          scope: null,
+        },
+        ...threadMocks.threads,
+      ];
+      return id;
+    });
+
+    await act(async () => {
+      await headerProps?.addTab();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.activeTabId).toBe("thread-new");
+    expect(headerProps?.activeTabIsPersisted).toBe(false);
+
+    threadMocks.saveThreadData.mockResolvedValueOnce(false);
+    await act(async () => {
+      assistantChatMockState.onSaveThread?.("thread-new", {
+        threadData: "{}",
+        title: "Draft thread",
+        preview: "first message",
+        messageCount: 0,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(false);
+
+    threadMocks.saveThreadData.mockResolvedValueOnce(true);
+    await act(async () => {
+      assistantChatMockState.onSaveThread?.("thread-new", {
+        threadData: "{}",
+        title: "Draft thread",
+        preview: "first message",
+        messageCount: 0,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(false);
+
+    await act(async () => {
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-new", 1);
+    });
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(true);
+  });
+
+  it("requires server confirmation before showing persisted-thread actions", async () => {
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    threadMocks.isThreadPersisted.mockReturnValue(false);
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(false);
+
+    threadMocks.isThreadPersisted.mockReturnValue(true);
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+
+    expect(headerProps?.activeTabIsPersisted).toBe(true);
+  });
+
   it("keeps a chat mounted when scoped navigation has no saved open tabs", async () => {
     let tabs: Array<{ id: string }> = [];
     const renderHeader = (props: { tabs: Array<{ id: string }> }) => {
@@ -2314,6 +2850,73 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(container.textContent).not.toContain("Previous chats for this form");
   });
 
+  it("adopts the thread route on its first accepted save, not on submit", async () => {
+    const navigate = vi.fn();
+    window.history.replaceState(null, "", "/chat");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+            navigate,
+          }}
+        />,
+      );
+    });
+
+    expect(navigate).not.toHaveBeenCalled();
+
+    threadMocks.saveThreadData.mockResolvedValueOnce(true);
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", {
+        threadData: JSON.stringify({ messages: [{ id: "message-1" }] }),
+        title: "New chat",
+        preview: "Hello",
+        messageCount: 1,
+        titleSource: "fallback",
+      });
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-1", 1);
+    });
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith("/chat/thread-1", { replace: false });
+  });
+
+  it("does not move the route when a background chat is first saved", async () => {
+    const navigate = vi.fn();
+    window.history.replaceState(null, "", "/chat");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+            navigate,
+          }}
+        />,
+      );
+    });
+
+    act(() => {
+      assistantChatMockState.onSaveThread?.("thread-2", {
+        threadData: JSON.stringify({ messages: [{ id: "message-2" }] }),
+        title: "Background chat",
+        preview: "Hello",
+        messageCount: 1,
+        titleSource: "fallback",
+      });
+    });
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it("syncs selected and new chat states to the URL when enabled", async () => {
     let headerProps: MultiTabAssistantChatHeaderProps | null = null;
     threadMocks.threads = [
@@ -2437,6 +3040,31 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       null,
       expect.objectContaining({ routeThreadId: "thread-1" }),
     );
+  });
+
+  it("rewrites a shared query thread on the route-owned home to its thread path", async () => {
+    const navigate = vi.fn();
+    window.history.replaceState(null, "", "/chat?thread=thread-1");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+            navigate,
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith("/chat/thread-1", { replace: true });
   });
 
   it("accepts a route-owned thread id for path-based chat routes", async () => {

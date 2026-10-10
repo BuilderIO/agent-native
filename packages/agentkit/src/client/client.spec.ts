@@ -784,6 +784,7 @@ describe("AgentKitClient", () => {
           name: "reference.png",
           contentType: "image/png",
           data: "data:image/png;base64,SGVsbG8=",
+          url: "https://storage.example.test/original.png?token=temporary",
           referenceUrl: "https://storage.example.test/original.png",
         },
       ],
@@ -804,44 +805,78 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
-  it("validates queued image size limits before decoding inline bytes", async () => {
-    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
+  it("uploads queued images above the inline limit before persisting the request", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async (input) => ({
+        message: {
+          id: input.id ?? "queued-large-image",
+          threadId: input.threadId,
+          text: input.text,
+          createdAt: "2026-10-08T00:00:00.000Z",
+          requestAttachments: input.requestAttachments,
+        },
+      }),
+    );
     const upload = vi.fn(async () => undefined);
+    const completeUpload = vi.fn(async () => ({
+      type: "file" as const,
+      name: "oversized.png",
+      mediaType: "image/png",
+      url: "https://storage.example.test/oversized.png",
+    }));
     const client = new AgentKitClient({
       transport: {
         ...createTransport([]),
-        capabilities: { attachments: true, messageQueue: true, uploads: true },
+        capabilities: {
+          attachments: true,
+          messageQueue: true,
+          uploads: true,
+        },
         queueMessage,
+        async createUpload() {
+          return {
+            uploadId: "upload-large",
+            method: "PUT",
+            url: "https://upload.example.test/large.png",
+          };
+        },
+        completeUpload,
       },
       upload,
     });
-    const atobMock = vi.spyOn(globalThis, "atob");
 
-    try {
-      await expect(
-        client.queueMessage({
-          threadId: "thread-1",
-          text: "Describe this",
-          requestAttachments: [
-            {
-              type: "image",
-              name: "oversized.png",
-              data: `data:image/png;base64,${"A".repeat(3_000_000)}`,
-            },
-          ],
-        }),
-      ).rejects.toThrow("bounded base64 raster image data URL");
+    await client.queueMessage({
+      threadId: "thread-1",
+      text: "Describe this",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "oversized.png",
+          data: `data:image/png;base64,${"A".repeat(3_000_000)}`,
+        },
+      ],
+    });
 
-      expect(atobMock).not.toHaveBeenCalled();
-      expect(upload).not.toHaveBeenCalled();
-      expect(queueMessage).not.toHaveBeenCalled();
-    } finally {
-      atobMock.mockRestore();
-      await client.shutdown();
-    }
+    expect(upload).toHaveBeenCalledOnce();
+    expect(completeUpload).toHaveBeenCalledOnce();
+    expect(queueMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestAttachments: [
+          expect.objectContaining({
+            name: "oversized.png",
+            url: "https://storage.example.test/oversized.png",
+          }),
+        ],
+      }),
+      expect.anything(),
+    );
+    expect(JSON.stringify(queueMessage.mock.calls[0]?.[0])).not.toContain(
+      "A".repeat(128),
+    );
+    await client.shutdown();
   });
 
-  it("validates aggregate queued image bytes before decoding any attachment", async () => {
+  it("bounds aggregate queued image uploads before decoding inline bytes", async () => {
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
     const upload = vi.fn(async () => undefined);
     const client = new AgentKitClient({
@@ -862,10 +897,10 @@ describe("AgentKitClient", () => {
           requestAttachments: Array.from({ length: 3 }, (_, index) => ({
             type: "image" as const,
             name: `image-${index}.png`,
-            data: `data:image/png;base64,${"A".repeat(2_000_000)}`,
+            data: `data:image/png;base64,${"A".repeat(12_000_000)}`,
           })),
         }),
-      ).rejects.toThrow("aggregate inline image data exceeds");
+      ).rejects.toThrow("aggregate image uploads exceed");
 
       expect(atobMock).not.toHaveBeenCalled();
       expect(upload).not.toHaveBeenCalled();
@@ -950,7 +985,7 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
-  it("shows no queued row until AI setup is ready and never queues when it fails", async () => {
+  it("shows the optimistic queue row during readiness and removes it if readiness fails", async () => {
     const ready = Promise.withResolvers<void>();
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
     const client = new AgentKitClient({
@@ -969,7 +1004,9 @@ describe("AgentKitClient", () => {
     });
 
     await Promise.resolve();
-    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    expect(client.getThread("thread-1").queuedMessages).toEqual([
+      expect.objectContaining({ text: "Next" }),
+    ]);
     expect(onLocalSubmit).not.toHaveBeenCalled();
     const setupRequired = Object.assign(new Error("Connect AI first."), {
       code: "AGENT_CHAT_AI_SETUP_REQUIRED",
@@ -3260,6 +3297,153 @@ describe("AgentKitClient", () => {
     );
     await client.shutdown();
   });
+
+  it("leaves snapshot persistence to the host when the transport lacks support", async () => {
+    const client = new AgentKitClient({ transport: createTransport([]) });
+
+    await expect(
+      client.persistThreadSnapshotWithResult("thread-1"),
+    ).resolves.toBeUndefined();
+    await expect(
+      client.persistThreadSnapshot("thread-1"),
+    ).resolves.toBeUndefined();
+
+    await client.shutdown();
+  });
+
+  it("reports snapshot persistence failures through the legacy API", async () => {
+    const transport = createTransport([]);
+    transport.persistThreadSnapshot = async () => {
+      throw new Error("History storage is unavailable.");
+    };
+    const client = new AgentKitClient({ transport });
+
+    await expect(
+      client.persistThreadSnapshotWithResult("thread-1"),
+    ).resolves.toBe(false);
+    await expect(client.persistThreadSnapshot("thread-1")).rejects.toThrow(
+      "Thread snapshot persistence failed.",
+    );
+    expect(client.getSnapshot()).toMatchObject({
+      connection: "error",
+      error: {
+        code: "thread_snapshot_persist_failed",
+        message: "History storage is unavailable.",
+      },
+    });
+    await client.shutdown();
+  });
+
+  it.each([
+    ["request_aborted", { code: "request_aborted" }],
+    ["AbortError", { name: "AbortError" }],
+    ["thread_snapshot_queue_full", { code: "thread_snapshot_queue_full" }],
+    [
+      "thread_snapshot_queue_stalled",
+      { code: "thread_snapshot_queue_stalled" },
+    ],
+  ] as const)(
+    "keeps legacy snapshot persistence nonfatal for expected deferral (%s)",
+    async (_label, properties) => {
+      const transport = createTransport([]);
+      const error = Object.assign(
+        new Error("Snapshot persistence did not complete."),
+        properties,
+      );
+      transport.persistThreadSnapshot = async () => {
+        throw error;
+      };
+      const onError = vi.fn();
+      const client = new AgentKitClient({ transport, onError });
+      const initialConnection = client.getSnapshot().connection;
+
+      await expect(client.persistThreadSnapshot("thread-1")).resolves.toBe(
+        undefined,
+      );
+
+      expect(client.getSnapshot().connection).toBe(initialConnection);
+      expect(client.getSnapshot()).not.toHaveProperty("error");
+      expect(onError).not.toHaveBeenCalled();
+      await client.shutdown();
+    },
+  );
+
+  it.each(["caller abort", "checkpoint timeout"] as const)(
+    "does not fail the client for a snapshot %s",
+    async (cancellation) => {
+      let transportSignal: AbortSignal | undefined;
+      const persistThreadSnapshot = vi.fn(
+        (_input: unknown, context?: { signal?: AbortSignal }) =>
+          new Promise<void>((_resolve, reject) => {
+            transportSignal = context?.signal;
+            transportSignal?.addEventListener(
+              "abort",
+              () => reject(transportSignal?.reason),
+              { once: true },
+            );
+          }),
+      );
+      const transport = createTransport([]);
+      transport.persistThreadSnapshot = persistThreadSnapshot;
+      const onError = vi.fn();
+      const client = new AgentKitClient({ transport, onError });
+      const abortController = new AbortController();
+
+      const saving = client.persistThreadSnapshotWithResult(
+        "thread-1",
+        undefined,
+        {
+          signal: abortController.signal,
+        },
+      );
+      await vi.waitFor(() =>
+        expect(persistThreadSnapshot).toHaveBeenCalledOnce(),
+      );
+      if (cancellation === "checkpoint timeout") {
+        const timeout = new Error(
+          "Chat thread snapshot persistence timed out.",
+        );
+        timeout.name = "TimeoutError";
+        abortController.abort(timeout);
+      } else {
+        abortController.abort();
+      }
+
+      await expect(saving).resolves.toBe(false);
+      expect(persistThreadSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: "thread-1" }),
+        expect.objectContaining({ signal: expect.anything() }),
+      );
+      expect(transportSignal?.aborted).toBe(true);
+      expect(client.getSnapshot()).toMatchObject({ connection: "idle" });
+      expect(client.getSnapshot()).not.toHaveProperty("error");
+      expect(onError).not.toHaveBeenCalled();
+      await client.shutdown();
+    },
+  );
+
+  it.each(["thread_snapshot_queue_full", "thread_snapshot_queue_stalled"])(
+    "does not fail the client for a deferred snapshot queue (%s)",
+    async (name) => {
+      const transport = createTransport([]);
+      transport.persistThreadSnapshot = async () => {
+        const error = new Error("Snapshot persistence is deferred.");
+        Object.assign(error, { code: name });
+        throw error;
+      };
+      const onError = vi.fn();
+      const client = new AgentKitClient({ transport, onError });
+      const initialConnection = client.getSnapshot().connection;
+
+      await expect(
+        client.persistThreadSnapshotWithResult("thread-1"),
+      ).resolves.toBe(false);
+
+      expect(client.getSnapshot().connection).toBe(initialConnection);
+      expect(onError).not.toHaveBeenCalled();
+      await client.shutdown();
+    },
+  );
 
   it("reloads the durable annotation after a concurrent snapshot update", async () => {
     const original = {

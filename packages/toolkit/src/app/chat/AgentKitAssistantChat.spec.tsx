@@ -4,6 +4,7 @@ import {
   AgentKitClient,
   AgentKitUploadError,
 } from "@agent-native/agentkit/client";
+import { MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS } from "@agent-native/agentkit/protocol";
 import type {
   FilePart,
   AgentMessage,
@@ -12,6 +13,7 @@ import type {
 import { compareAndSetClientAppState } from "@agent-native/core/client/application-state";
 import React, { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
@@ -40,6 +42,7 @@ const chatMocks = vi.hoisted(() => ({
   appState: new Map<string, unknown>(),
   composerDrafts: new Map<string, string>(),
   threadId: "thread-1",
+  contextItems: [] as any[],
   renderEmptyState: false,
   pendingFiles: [] as File[],
   pendingReferences: [] as any[],
@@ -98,10 +101,16 @@ const chatMocks = vi.hoisted(() => ({
   useRealRoot: false,
   realComposerController: null as AgentKitClient | null,
   useRealChat: false,
+  routeControllerPersistenceThroughTransport: false,
+  omitSnapshotPersistenceResult: false,
+  snapshotPersistenceUnavailable: false,
   omitSuggestionsSlot: false,
   voiceTranscriptRegistration: null as any,
   runtime: { kind: "runtime" },
-  transport: { kind: "transport" },
+  transport: {
+    kind: "transport",
+    persistThreadSnapshot: vi.fn(async () => undefined),
+  },
   transportOptions: null as any,
   renderMarkdownToClipboardHtml: vi.fn(),
   writeClipboardText: vi.fn(),
@@ -276,7 +285,60 @@ vi.mock("../agentkit/react/index.js", async () => {
             requestComposerFocus: chatMocks.requestComposerFocus,
             controller: {
               getThread: () => chatMocks.readThread(),
-              persistThreadSnapshot: chatMocks.persistThreadSnapshot,
+              persistThreadSnapshot: (
+                threadId: string,
+                messages?: AgentMessage[],
+              ) => {
+                const persist =
+                  chatMocks.routeControllerPersistenceThroughTransport
+                    ? chatMocks.rootProps?.transport?.persistThreadSnapshot
+                    : undefined;
+                if (typeof persist === "function") {
+                  return persist({
+                    threadId,
+                    snapshot: {
+                      messages: messages ?? [],
+                      events: [],
+                      runs: [],
+                    },
+                  });
+                }
+                return chatMocks.persistThreadSnapshot(threadId, messages);
+              },
+              ...(!chatMocks.omitSnapshotPersistenceResult && {
+                persistThreadSnapshotWithResult: async (
+                  threadId: string,
+                  messages?: AgentMessage[],
+                  context?: { signal?: AbortSignal },
+                ) => {
+                  if (chatMocks.snapshotPersistenceUnavailable)
+                    return undefined;
+                  try {
+                    const persist =
+                      chatMocks.routeControllerPersistenceThroughTransport
+                        ? chatMocks.rootProps?.transport?.persistThreadSnapshot
+                        : undefined;
+                    if (typeof persist === "function") {
+                      await persist(
+                        {
+                          threadId,
+                          snapshot: {
+                            messages: messages ?? [],
+                            events: [],
+                            runs: [],
+                          },
+                        },
+                        context,
+                      );
+                    } else {
+                      await chatMocks.persistThreadSnapshot(threadId, messages);
+                    }
+                    return true;
+                  } catch {
+                    return false;
+                  }
+                },
+              }),
               assertAiSetupReady: async () => {
                 const state = await chatMocks.fetchProviderState();
                 if (state === "configured") return;
@@ -341,6 +403,7 @@ vi.mock("@agent-native/toolkit/composer", async () => {
       promptAttachments.AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
     readAgentPromptAttachment: promptAttachments.readAgentPromptAttachment,
     snapshotComposerContextItems: contextItems.snapshotComposerContextItems,
+    composerContextFits: contextItems.composerContextFits,
     AgentSuggestionBar: (props: any) => {
       chatMocks.suggestionBarProps = props;
       if (chatMocks.realComposerController) {
@@ -571,11 +634,30 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
       ["codex-cli", "claude-cli", "pi-cli", "opencode-cli"].includes(
         engine ?? "",
       ),
-    filterAgentChatContextItems: (items: unknown[]) => items,
+    filterAgentChatContextItems: actual.filterAgentChatContextItems,
     formatAgentChatContextItemsForPrompt:
       actual.formatAgentChatContextItemsForPrompt,
-    getAgentChatContextState: () => ({ items: [], updatedAt: 0 }),
-    publishAgentChatContextItems: vi.fn(),
+    getAgentChatContextState: () => ({
+      items: chatMocks.contextItems,
+      updatedAt: 0,
+    }),
+    publishAgentChatContextItems: vi.fn((items: unknown[]) => {
+      chatMocks.contextItems = items;
+    }),
+    setAgentChatContextItemAndPersist: async (item: unknown) => {
+      const staged = await actual.setAgentChatContextItemAndPersist(
+        item as Parameters<typeof actual.setAgentChatContextItemAndPersist>[0],
+      );
+      chatMocks.contextItems = actual.getAgentChatContextState().items;
+      return staged;
+    },
+    removeAgentChatContextItemAndPersist: async (
+      key: string,
+      options?: { stagingId?: string },
+    ) => {
+      await actual.removeAgentChatContextItemAndPersist(key, options);
+      chatMocks.contextItems = actual.getAgentChatContextState().items;
+    },
     refreshAgentChatContext: vi.fn(async () => undefined),
     subscribeAgentChatContext: vi.fn(() => () => undefined),
   };
@@ -822,6 +904,7 @@ beforeEach(() => {
   chatMocks.appState.clear();
   chatMocks.composerDrafts.clear();
   chatMocks.threadId = "thread-1";
+  chatMocks.contextItems = [];
   chatMocks.renderEmptyState = false;
   chatMocks.pendingFiles = [];
   chatMocks.pendingReferences = [];
@@ -863,6 +946,9 @@ beforeEach(() => {
   chatMocks.thinkingDisplay = null;
   chatMocks.requestComposerFocus.mockReset();
   chatMocks.persistThreadSnapshot.mockReset().mockResolvedValue(undefined);
+  chatMocks.transport.persistThreadSnapshot
+    .mockReset()
+    .mockResolvedValue(undefined);
   chatMocks.readiness = {
     canChat: true,
     missing: false,
@@ -887,6 +973,9 @@ beforeEach(() => {
   chatMocks.useRealRoot = false;
   chatMocks.realComposerController = null;
   chatMocks.useRealChat = false;
+  chatMocks.routeControllerPersistenceThroughTransport = false;
+  chatMocks.omitSnapshotPersistenceResult = false;
+  chatMocks.snapshotPersistenceUnavailable = false;
   chatMocks.omitSuggestionsSlot = false;
   chatMocks.voiceTranscriptRegistration = null;
   chatMocks.control.sendMessage.mockReset().mockResolvedValue(undefined);
@@ -920,6 +1009,256 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("reports whether a composer can hold a prefill with its current context", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "agent-chat-prefill-context",
+        title: "Selected rows",
+        context: "Selected rows: a, b",
+      }),
+    ).toBe(true);
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "agent-chat-prefill-context",
+        title: "Selected rows",
+        context: "x".repeat(64 * 1024 + 1),
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps a replacement prefill staged while an earlier send was in flight", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const stage = (context: string) =>
+      act(async () =>
+        ref.current!.setComposerContextItem(
+          {
+            key: "agent-chat-prefill-context",
+            title: "Selected rows",
+            context,
+          },
+          { focus: false, threadScoped: true },
+        ),
+      );
+    await stage("Selected rows: a, b");
+    let finishSend: (value: unknown) => void = () => {};
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSend = resolve;
+        }),
+    );
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Tell me more", [], [], {
+        intent: "immediate",
+      });
+    });
+
+    await stage("Selected rows: c, d");
+    await act(async () => finishSend(undefined));
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "agent-chat-prefill-context:thread-1",
+        context: "Selected rows: c, d",
+      }),
+    ]);
+  });
+
+  it("keeps a replacement staged on the shared path while an earlier send was in flight", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const stage = (context: string) =>
+      act(async () =>
+        ref.current!.setComposerContextItem(
+          { key: "shared-reference", title: "Reference", context },
+          { focus: false },
+        ),
+      );
+    await stage("Reference: a");
+    let finishSend: (value: unknown) => void = () => {};
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSend = resolve;
+        }),
+    );
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Use the reference", [], [], {
+        intent: "immediate",
+      });
+    });
+
+    await stage("Reference: b");
+    await act(async () => finishSend(undefined));
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "shared-reference",
+        context: "Reference: b",
+      }),
+    ]);
+  });
+
+  it("restaging a read-back item during an in-flight send keeps the replacement", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "shared-reference",
+          title: "Reference",
+          context: "Reference: a",
+        },
+        { focus: false },
+      ),
+    );
+    const [readBack] = chatMocks.composerProps.contextItems;
+    let finishSend: (value: unknown) => void = () => {};
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSend = resolve;
+        }),
+    );
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Use the reference", [], [], {
+        intent: "immediate",
+      });
+    });
+
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        { ...readBack, context: "Reference: b" },
+        { focus: false },
+      ),
+    );
+    await act(async () => finishSend(undefined));
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "shared-reference",
+        context: "Reference: b",
+      }),
+    ]);
+  });
+
+  it("counts provider-owned context against the prefill capacity", async () => {
+    const providerItem = {
+      key: "provider-reference",
+      title: "Provider",
+      context: "p".repeat(60 * 1024),
+    };
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: [providerItem],
+      onRemoveContextItem: vi.fn(),
+      onRetryContextItem: vi.fn(),
+      onInspectContextItem: vi.fn(),
+      dialogs: <div />,
+      prepareSubmission: vi.fn(async () => [providerItem]),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps({ composerContextProvider: Provider }), ref);
+
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "prefill",
+        title: "Prefill",
+        context: "x".repeat(1024),
+      }),
+    ).toBe(true);
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "prefill",
+        title: "Prefill",
+        context: "x".repeat(8 * 1024),
+      }),
+    ).toBe(false);
+  });
+
+  it("removing a superseded prefill leaves the replacement that took its key", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const stage = (context: string) =>
+      ref.current!.setComposerContextItem(
+        { key: "agent-chat-prefill-context", title: "Selected rows", context },
+        { focus: false, threadScoped: true },
+      );
+    let first: { stagingId?: string } | void = undefined;
+    await act(async () => {
+      first = await stage("Selected rows: a");
+    });
+    await act(async () => {
+      await stage("Selected rows: b");
+    });
+
+    await act(async () =>
+      ref.current!.removeComposerContextItem("agent-chat-prefill-context", {
+        threadScoped: true,
+        stagingId: first?.stagingId,
+      }),
+    );
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "agent-chat-prefill-context:thread-1",
+        context: "Selected rows: b",
+      }),
+    ]);
+  });
+
+  it("refuses a submit whose refreshed provider context pushes the combined context over the limit", async () => {
+    const providerItem = {
+      key: "provider-reference",
+      title: "Provider",
+      context: "p".repeat(1024),
+    };
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: [providerItem],
+      onRemoveContextItem: vi.fn(),
+      onRetryContextItem: vi.fn(),
+      onInspectContextItem: vi.fn(),
+      dialogs: <div />,
+      prepareSubmission: vi.fn(async () => [
+        { ...providerItem, context: "p".repeat(40 * 1024) },
+      ]),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps({ composerContextProvider: Provider }), ref);
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        { key: "ambient", title: "Ambient", context: "a".repeat(30 * 1024) },
+        { focus: false },
+      ),
+    );
+
+    await act(async () => {
+      await chatMocks.composerProps
+        .onSubmit("Use the context", [], [], {
+          intent: "immediate",
+          contextItems: chatMocks.composerProps.contextItems,
+        })
+        .catch(() => undefined);
+    });
+
+    expect(context.prepareSubmission).toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(context.submissionAccepted).not.toHaveBeenCalled();
+  });
+
   it("uses the action widget renderer for action chat UI output", async () => {
     await mount(baseProps());
 
@@ -1029,6 +1368,8 @@ describe("AgentKitAssistantChat host behavior", () => {
         title: "Summarize @the sprint <context>",
         preview: "Summarize @[the sprint|resource:123] <context>",
       }),
+      expect.objectContaining({ signal: expect.anything() }),
+      "transport",
     );
   });
 
@@ -1097,6 +1438,8 @@ describe("AgentKitAssistantChat host behavior", () => {
         title: "Summarize sprint visible continuation",
         preview: "Summarize sprint  visible continuation",
       }),
+      expect.objectContaining({ signal: expect.anything() }),
+      "transport",
     );
     expect(savedSnapshots.mock.calls[0]?.[1].preview).not.toContain(
       "ambiguous private",
@@ -1154,6 +1497,123 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(
       container.querySelector("[data-agentkit-active-run-id-copy]"),
     ).toBeNull();
+  });
+
+  it("shows the submitted message and Thinking before the agent client accepts the send", async () => {
+    let acceptSend: () => void = () => undefined;
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          acceptSend = () => resolve(undefined);
+        }),
+    );
+    await mount(baseProps());
+
+    let submission: Promise<unknown> | undefined;
+    await act(async () => {
+      submission = chatMocks.composerProps.onSubmit(
+        "Summarize my inbox",
+        [],
+        [],
+        { intent: "immediate" },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("Summarize my inbox");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "agentChat.status.thinking",
+    );
+
+    await act(async () => {
+      acceptSend();
+      await submission;
+    });
+
+    expect(container.textContent).not.toContain("Summarize my inbox");
+  });
+
+  it("does not show a pending prompt under a different thread after the surface moves", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Summarize my inbox");
+
+    // The thread comes from the agent context, so the switch must reach it there.
+    chatMocks.threadId = "thread-2";
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).not.toContain("Summarize my inbox");
+  });
+
+  it("keeps a pending prompt visible until its own message lands, not another send's", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Summarize my inbox");
+
+    chatMocks.thread.messages = [
+      ...chatMocks.thread.messages,
+      {
+        id: "other-send",
+        role: "user",
+        parts: [{ type: "text", text: "Another prompt" }],
+        status: "complete",
+      },
+    ];
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).toContain("Summarize my inbox");
+  });
+
+  it("does not take a longer message that quotes the prompt for its own", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    chatMocks.thread.messages = [
+      ...chatMocks.thread.messages,
+      {
+        id: "quoting-send",
+        role: "user",
+        parts: [{ type: "text", text: "Summarize my inbox, then archive it" }],
+        status: "complete",
+      },
+    ];
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).toContain("Summarize my inbox");
   });
 
   it("copies the active run ID from its action menu", async () => {
@@ -2044,7 +2504,10 @@ describe("AgentKitAssistantChat host behavior", () => {
       context: "Core selection",
     };
     await act(async () => ref.current!.setComposerContextItem(ambient));
-    expect(chatMocks.composerProps.contextItems).toEqual([ambient, item]);
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      { ...ambient, stagingId: expect.any(String) },
+      item,
+    ]);
     expect(chatMocks.composerProps.contextMenuItems).toBe(context.menuItems);
     expect(chatMocks.composerProps.onInspectContextItem).toBeUndefined();
     expect(chatMocks.composerProps.plusMenuMode).toBe("full");
@@ -2102,6 +2565,62 @@ describe("AgentKitAssistantChat host behavior", () => {
       chatMocks.composerProps.onRemoveContextItem(item.key),
     );
     expect(context.onRemoveContextItem).toHaveBeenCalledWith(item.key);
+  });
+
+  it("keeps staged prefill context in its target thread", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    const props = baseProps();
+    await mount(props, ref);
+
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "agent-chat-prefill-context",
+          title: "Active app context",
+          context: "Selected rows: a, b",
+        },
+        { focus: false, threadScoped: true },
+      ),
+    );
+
+    const staged = {
+      key: "agent-chat-prefill-context:thread-1",
+      title: "Active app context",
+      context: "Selected rows: a, b",
+      targetThreadId: "thread-1",
+      stagingId: expect.any(String),
+    };
+    expect(
+      (
+        chatMocks.appState.get("agent-chat-context") as {
+          items: unknown[];
+        }
+      ).items,
+    ).toEqual([staged]);
+    expect(chatMocks.contextItems).toEqual([staged]);
+    expect(chatMocks.composerProps.contextItems).toEqual([staged]);
+
+    await act(async () =>
+      ref.current!.removeComposerContextItem("agent-chat-prefill-context", {
+        threadScoped: true,
+      }),
+    );
+    expect(
+      (
+        chatMocks.appState.get("agent-chat-context") as {
+          items: unknown[];
+        }
+      ).items,
+    ).toEqual([]);
+    expect(chatMocks.composerProps.contextItems).toEqual([]);
+
+    chatMocks.threadId = "thread-2";
+    await act(async () =>
+      root.render(
+        <AgentKitAssistantChat {...baseProps({ threadId: "thread-2" })} />,
+      ),
+    );
+    expect(chatMocks.composerProps.contextItems).toEqual([]);
   });
 
   it.each(["schedule", "automation", "skill"])(
@@ -2665,6 +3184,20 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(
       composer?.querySelector(".agentkit-after-composer-slot"),
     ).not.toBeNull();
+  });
+
+  it("anchors the composer at the bottom while restoring a persisted thread", async () => {
+    await mount(
+      baseProps({
+        centerComposerWhenEmpty: true,
+        isNewThread: false,
+        isThreadStateLoading: true,
+      }),
+    );
+
+    expect(chatMocks.chatProps.hasRenderedMessages).toBe(false);
+    expect(chatMocks.chatProps.emptyComposerPlacement).toBe("bottom");
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
   });
 
   it("keeps transient voice messages scoped to the active thread", async () => {
@@ -3855,6 +4388,25 @@ describe("AgentKitAssistantChat host behavior", () => {
             mediaType: "image/png",
             url: "https://files.example.test/durable.png",
           },
+          {
+            type: "file",
+            name: "opaque-id.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/opaque-id.png?token=secret",
+            fileId: "4b1f4cc034da4c8c8fe4a5d20fa87a32",
+          },
+          {
+            type: "file",
+            name: "raw.png",
+            mediaType: "image/png",
+            url: "AQID",
+          },
+          {
+            type: "file",
+            name: "signed.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/signed.png?token=secret",
+          },
         ],
       },
     ];
@@ -3877,6 +4429,12 @@ describe("AgentKitAssistantChat host behavior", () => {
             mediaType: "image/png",
             url: dataUrl,
           },
+          {
+            type: "file",
+            name: "queued-signed.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/queued.png?token=secret",
+          },
         ],
         requestAttachments: [
           { type: "image", name: "pending.png", data: dataUrl },
@@ -3885,6 +4443,11 @@ describe("AgentKitAssistantChat host behavior", () => {
             name: "resized.png",
             data: dataUrl,
             url: "https://files.example.test/resized.png",
+          },
+          {
+            type: "image",
+            name: "signed.png",
+            url: "https://files.example.test/signed.png?token=secret",
           },
         ],
       },
@@ -3901,6 +4464,8 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     expect(threadData).not.toContain("base64,");
     expect(threadData).not.toContain("data:image");
+    expect(threadData).not.toContain("AQID");
+    expect(threadData).not.toContain("token=secret");
     expect(saved.agentKit.messages[0].parts).toEqual([
       { type: "text", text: "Use this image" },
       {
@@ -3914,6 +4479,24 @@ describe("AgentKitAssistantChat host behavior", () => {
         name: "durable.png",
         mediaType: "image/png",
         url: "https://files.example.test/durable.png",
+      },
+      {
+        type: "file",
+        name: "opaque-id.png",
+        mediaType: "image/png",
+        fileId: "4b1f4cc034da4c8c8fe4a5d20fa87a32",
+      },
+      {
+        type: "file",
+        name: "raw.png",
+        mediaType: "image/png",
+        omitted: "unsafe-url",
+      },
+      {
+        type: "file",
+        name: "signed.png",
+        mediaType: "image/png",
+        omitted: "unsafe-url",
       },
     ]);
     expect(saved.queuedMessages[0].requestAttachments).toEqual([
@@ -4445,6 +5028,137 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("keeps deferred image options with a durable ref during legacy cleanup", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    const inlineImageUrl = "data:image/png;base64,LEGACY_DEFERRED_IMAGE_BYTES";
+    const referenceUrl = "https://files.example.test/reference.png";
+    vi.mocked(compareAndSetClientAppState).mockClear();
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "legacy-deferred-image-with-durable-ref",
+          threadId,
+          text: "Describe this image",
+          fileParts: [
+            {
+              type: "file",
+              name: "reference.png",
+              mediaType: "image/png",
+              url: referenceUrl,
+            },
+          ],
+          requestAttachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              url: referenceUrl,
+            },
+          ],
+          references: [],
+          composerOptions: {},
+          options: {
+            deferredFileParts: [
+              {
+                type: "file",
+                name: "reference.png",
+                mediaType: "image/png",
+                url: referenceUrl,
+                data: inlineImageUrl,
+              },
+            ],
+            deferredRequestAttachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                contentType: "image/png",
+                referenceUrl,
+                data: inlineImageUrl,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    await mount(baseProps());
+    await flush();
+
+    const stateWrites = vi
+      .mocked(compareAndSetClientAppState)
+      .mock.calls.filter(([key]) => key === stateKey);
+    expect(stateWrites.length).toBeGreaterThan(0);
+    expect(JSON.stringify(stateWrites.map(([, , next]) => next))).not.toContain(
+      "data:image",
+    );
+    expect(chatMocks.appState.has(stateKey)).toBe(false);
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request.attachments).toContainEqual({
+      type: "file",
+      name: "reference.png",
+      mediaType: "image/png",
+      url: referenceUrl,
+    });
+    expect(request.requestAttachments).toContainEqual({
+      type: "image",
+      name: "reference.png",
+      contentType: "image/png",
+      url: referenceUrl,
+    });
+  });
+
+  it("still marks inline bytes in unrelated deferred options as unrecoverable", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    const inlineImageUrl = "data:image/png;base64,LEGACY_OPTION_IMAGE_BYTES";
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "legacy-deferred-unrelated-option-payload",
+          threadId,
+          text: "Describe this image",
+          fileParts: [],
+          references: [],
+          composerOptions: {},
+          options: {
+            deferredRequestAttachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                url: "https://files.example.test/reference.png",
+                data: inlineImageUrl,
+              },
+            ],
+            unrelatedPayload: { image: inlineImageUrl },
+          },
+        },
+      ],
+    });
+
+    await mount(baseProps());
+    await flush();
+
+    expect(chatMocks.appState.get(stateKey)).toMatchObject({
+      submissions: [{ failed: true, attachmentRestoreRequired: true }],
+    });
+    expect(JSON.stringify(chatMocks.appState.get(stateKey))).not.toContain(
+      "data:image",
+    );
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("marks a legacy inline reference lost when only an unrelated file remains", async () => {
     const threadId = chatMocks.threadId;
     const encodedThreadId = Array.from(threadId, (character) =>
@@ -4932,6 +5646,93 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     expect(queuedRequest?.requestAttachments?.[0]).not.toHaveProperty("data");
     expect(JSON.stringify(queuedRequest)).not.toContain(imageDataUrl);
+  });
+
+  it("uploads oversized queued inline images before applying request limits", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    const imageDataUrl = `data:image/png;base64,${"A".repeat(
+      MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS + 4,
+    )}`;
+    const uploadedImage: FilePart = {
+      type: "file",
+      name: "image-1",
+      mediaType: "image/png",
+      url: "https://files.example.test/queued-image.png",
+    };
+    const steps: string[] = [];
+    chatMocks.control.uploadFiles.mockImplementation(async () => {
+      steps.push("upload");
+      return [uploadedImage];
+    });
+    chatMocks.control.queueMessage.mockImplementation(async () => {
+      steps.push("queue");
+      return undefined;
+    });
+    await mount(baseProps(), ref);
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(new Blob(["image pixels"], { type: "image/png" })),
+      );
+
+    try {
+      let result:
+        | Awaited<ReturnType<AssistantChatHandle["queueMessage"]>>
+        | undefined;
+      await act(async () => {
+        result = await ref.current!.queueMessage("Describe this later", [
+          imageDataUrl,
+        ]);
+      });
+
+      const queuedRequest = chatMocks.control.queueMessage.mock.calls[0]?.[0];
+      expect(result).toEqual({ status: "submitted" });
+      expect(steps).toEqual(["upload", "queue"]);
+      expect(queuedRequest?.requestAttachments).toEqual([
+        {
+          type: "image",
+          name: "image-1",
+          contentType: "image/png",
+          url: uploadedImage.url,
+        },
+      ]);
+      expect(JSON.stringify(queuedRequest)).not.toContain(imageDataUrl);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it("sends a small inline image immediately when file storage is unavailable", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    const imageDataUrl = "data:image/png;base64,SGVsbG8=";
+    chatMocks.fileUploadStatus = {
+      data: { configured: false },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    await mount(baseProps(), ref);
+
+    const result = await ref.current!.sendMessage("Describe this image", [
+      imageDataUrl,
+    ]);
+
+    expect(result).toEqual({ status: "submitted" });
+    expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request.attachments).toEqual([]);
+    expect(request.requestAttachments).toEqual([
+      expect.objectContaining({
+        type: "image",
+        contentType: "image/png",
+        data: imageDataUrl,
+      }),
+    ]);
+    expect(request.metadata.custom).toEqual({
+      agentNativeRetryAttachmentsUnavailable: true,
+    });
+    expect(JSON.stringify(request.metadata)).not.toContain(imageDataUrl);
   });
 
   it("rolls back and displays an error when imperative image storage fails", async () => {
@@ -5684,6 +6485,8 @@ describe("AgentKitAssistantChat host behavior", () => {
         title: "Keep this transcript visible",
         titleSource: "fallback",
       }),
+      expect.objectContaining({ signal: expect.anything() }),
+      "transport",
     );
     const fetch = vi.fn(async () => new Response(null, { status: 404 }));
     const runtime = {
@@ -6034,6 +6837,42 @@ describe("AgentKitAssistantChat host behavior", () => {
     );
   });
 
+  it("shows a visible error when retrying without an attachment fails", async () => {
+    chatMocks.failureError = {
+      code: "invalid_attachment",
+      message: "The provider rejected this attachment.",
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-invalid-attachment",
+        role: "user",
+        parts: [
+          { type: "text", text: "Use this reference" },
+          {
+            type: "file",
+            name: "reference.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/reference.png",
+          },
+        ],
+      },
+    ];
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("transport unavailable"),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      chatMocks.failureProps.onRetryWithoutAttachment();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "agentChat.recovery.deferredSubmissionFailed",
+    );
+  });
+
   it("strips appended context from Retry and preserves request metadata", async () => {
     const requestText = appendAgentChatContextToMessage(
       "Retry the export",
@@ -6147,6 +6986,43 @@ describe("AgentKitAssistantChat host behavior", () => {
         agentNativeRecoveryOfRunId: "run-1",
       },
     });
+  });
+
+  it("shows a visible error when retrying without attachments fails", async () => {
+    chatMocks.failureError = {
+      code: "invalid_attachment",
+      message: "The provider rejected this attachment.",
+      retryable: false,
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-attachment",
+        role: "user",
+        parts: [
+          { type: "text", text: "Use this reference" },
+          {
+            type: "file",
+            name: "reference.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/reference.png",
+          },
+        ],
+      },
+    ];
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("transport unavailable"),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      chatMocks.failureProps.onRetryWithoutAttachments();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "agentChat.recovery.deferredSubmissionFailed",
+    );
   });
 
   it("offers no attachment-free retry when the failed request had no attachments", async () => {
@@ -7140,6 +8016,1430 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(onSaveThread).toHaveBeenCalledOnce();
   });
 
+  it("uses the app save when the transport does not support snapshots", async () => {
+    const createTransport = () => chatMocks.transport;
+    chatMocks.snapshotPersistenceUnavailable = true;
+    const onSaveThread = vi.fn().mockResolvedValue(true);
+    const onThreadSnapshotPersisted = vi.fn();
+    await mount(
+      baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+    );
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: null,
+      messages: [
+        {
+          id: "host-saved-message",
+          role: "user",
+          status: "complete",
+          createdAt: "2026-10-07T12:00:00.000Z",
+          parts: [{ type: "text", text: "Save through the host" }],
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            createTransport,
+            onSaveThread,
+            onThreadSnapshotPersisted,
+          })}
+        />,
+      );
+    });
+    await flush();
+
+    expect(onSaveThread).toHaveBeenCalledOnce();
+    expect(onSaveThread).toHaveBeenCalledWith(
+      "thread-1",
+      expect.objectContaining({ threadData: expect.any(String) }),
+      expect.anything(),
+      "host-fallback",
+    );
+    expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
+  });
+
+  it("uses the host fallback after a legacy controller save resolves", async () => {
+    const createTransport = () => chatMocks.transport;
+    chatMocks.omitSnapshotPersistenceResult = true;
+    chatMocks.snapshotPersistenceUnavailable = true;
+    let resolveSave: (() => void) | undefined;
+    chatMocks.persistThreadSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    const onSaveThread = vi.fn().mockResolvedValue(true);
+    const onThreadSnapshotPersisted = vi.fn();
+    await mount(
+      baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+    );
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [
+        {
+          id: "legacy-controller-message",
+          role: "user",
+          status: "complete",
+          createdAt: "2026-10-07T12:00:00.000Z",
+          parts: [{ type: "text", text: "Save through the old controller" }],
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            createTransport,
+            onSaveThread,
+            onThreadSnapshotPersisted,
+          })}
+        />,
+      );
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledOnce();
+    expect(onSaveThread).not.toHaveBeenCalled();
+    expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSave?.();
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+    expect(onSaveThread).toHaveBeenCalledOnce();
+    expect(onSaveThread).toHaveBeenCalledWith(
+      "thread-1",
+      expect.objectContaining({ threadData: expect.any(String) }),
+      expect.anything(),
+      "host-fallback",
+    );
+    expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
+  });
+
+  it("does not confirm legacy controller snapshots when the save rejects", async () => {
+    const createTransport = () => chatMocks.transport;
+    chatMocks.omitSnapshotPersistenceResult = true;
+    chatMocks.persistThreadSnapshot.mockRejectedValueOnce(
+      new Error("The legacy controller did not save."),
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const onSaveThread = vi.fn().mockResolvedValue(true);
+    const onThreadSnapshotPersisted = vi.fn();
+    try {
+      await mount(
+        baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+      );
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        messages: [
+          {
+            id: "legacy-controller-failed-message",
+            role: "user",
+            status: "complete",
+            createdAt: "2026-10-07T12:00:00.000Z",
+            parts: [{ type: "text", text: "This save should fail" }],
+          },
+        ],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(onSaveThread).not.toHaveBeenCalled();
+      expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.render(null));
+      consoleError.mockRestore();
+    }
+  });
+
+  it("does not report a transcript save when transport persistence fails", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi.fn().mockResolvedValue(true);
+    const onThreadSnapshotPersisted = vi.fn();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    chatMocks.persistThreadSnapshot
+      .mockRejectedValueOnce(new Error("History storage is unavailable."))
+      .mockResolvedValue(undefined);
+    await mount(
+      baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+    );
+
+    vi.useFakeTimers();
+    try {
+      const message = {
+        id: "transport-failure-user-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Retry the transcript" }],
+      };
+      chatMocks.thread = { ...chatMocks.thread, messages: [message] };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(onSaveThread).not.toHaveBeenCalled();
+      expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
+      expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
+      expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+      consoleError.mockRestore();
+    }
+  });
+
+  it("retries an unchanged snapshot after the previous save fails", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    vi.useFakeTimers();
+    try {
+      const message = {
+        id: "retry-user-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Retry this save" }],
+      };
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        activeRunIds: ["retry-run"],
+        messages: [message],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(onSaveThread).toHaveBeenCalledTimes(2);
+      expect(onSaveThread.mock.calls[1]?.[1].threadData).toBe(
+        onSaveThread.mock.calls[0]?.[1].threadData,
+      );
+    } finally {
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps older save callbacks that return response objects compatible", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 500 }));
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    const message = {
+      id: "legacy-save-user-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: [{ type: "text", text: "Keep the existing callback contract" }],
+    };
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      activeRunIds: ["legacy-save-run"],
+      messages: [message],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ createTransport, onSaveThread })}
+        />,
+      );
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(onSaveThread).toHaveBeenCalledOnce();
+  });
+
+  it("serializes snapshot saves so an older completion cannot overwrite a newer one", async () => {
+    const createTransport = () => chatMocks.transport;
+    let resolveFirstSave: ((saved: boolean) => void) | undefined;
+    const firstSave = new Promise<boolean>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const onSaveThread = vi
+      .fn()
+      .mockReturnValueOnce(firstSave)
+      .mockResolvedValue(true);
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    const firstMessage = {
+      id: "ordered-save-first-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: [{ type: "text", text: "First snapshot" }],
+    };
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      activeRunIds: ["ordered-save-run"],
+      messages: [firstMessage],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ createTransport, onSaveThread })}
+        />,
+      );
+      await Promise.resolve();
+    });
+    expect(onSaveThread).toHaveBeenCalledOnce();
+
+    const secondMessage = {
+      id: "ordered-save-second-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:01:00.000Z",
+      parts: [{ type: "text", text: "Newer snapshot" }],
+    };
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [firstMessage, secondMessage],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({ createTransport, onSaveThread })}
+        />,
+      );
+      await Promise.resolve();
+    });
+    expect(onSaveThread).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      resolveFirstSave?.(true);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSaveThread).toHaveBeenCalledTimes(2);
+    expect(onSaveThread.mock.calls[1]?.[1].threadData).not.toBe(
+      onSaveThread.mock.calls[0]?.[1].threadData,
+    );
+  });
+
+  it("forwards snapshot cancellation through custom and core persistence", async () => {
+    let customSignal: AbortSignal | undefined;
+    let coreSignal: AbortSignal | undefined;
+    const waitForAbort =
+      (capture: (signal: AbortSignal) => void) =>
+      (_input: unknown, context?: { signal?: AbortSignal }) =>
+        new Promise<void>((_resolve, reject) => {
+          const signal = context?.signal;
+          if (!signal) throw new Error("Expected a persistence signal.");
+          capture(signal);
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+    const customPersist = vi.fn(
+      waitForAbort((signal) => {
+        customSignal = signal;
+      }),
+    );
+    const corePersist = vi.fn(
+      waitForAbort((signal) => {
+        coreSignal = signal;
+      }),
+    );
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(corePersist);
+    const transport = {
+      persistThreadSnapshot: customPersist,
+    } as unknown as AgentTransport;
+    const createTransport = () => transport;
+
+    await mount(baseProps({ createTransport }));
+    const abortController = new AbortController();
+    const saving = chatMocks.rootProps.transport.persistThreadSnapshot(
+      {
+        threadId: "thread-1",
+        snapshot: { messages: [] },
+      },
+      { signal: abortController.signal },
+    );
+    await vi.waitFor(() => {
+      expect(customPersist).toHaveBeenCalledOnce();
+      expect(corePersist).toHaveBeenCalledOnce();
+    });
+
+    abortController.abort();
+    await expect(saving).rejects.toBeDefined();
+
+    expect(customSignal?.aborted).toBe(true);
+    expect(coreSignal?.aborted).toBe(true);
+  });
+
+  it("bounds queued transport snapshot writes per thread", async () => {
+    let resolveFirstWrite: (() => void) | undefined;
+    let writeCount = 0;
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(() => {
+      writeCount += 1;
+      if (writeCount === 1) {
+        return new Promise<void>((resolve) => {
+          resolveFirstWrite = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+    await mount(baseProps({ createTransport: () => chatMocks.transport }));
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 404 }));
+    const persistThreadSnapshot = chatMocks.rootProps.transport
+      .persistThreadSnapshot as (input: unknown) => Promise<void>;
+    const writes = Array.from({ length: 8 }, (_, index) =>
+      persistThreadSnapshot({
+        threadId: "bounded-snapshot-queue-thread",
+        snapshot: {
+          messages: [
+            {
+              id: `bounded-snapshot-message-${index}`,
+              role: "user",
+              status: "complete",
+              parts: [],
+            },
+          ],
+        },
+      }),
+    );
+
+    try {
+      await vi.waitFor(() =>
+        expect(
+          chatMocks.transport.persistThreadSnapshot,
+        ).toHaveBeenCalledOnce(),
+      );
+      await expect(
+        persistThreadSnapshot({
+          threadId: "bounded-snapshot-queue-thread",
+          snapshot: { messages: [] },
+        }),
+      ).rejects.toMatchObject({ name: "ThreadSnapshotQueueFullError" });
+
+      resolveFirstWrite?.();
+      await Promise.allSettled(writes);
+      expect(chatMocks.transport.persistThreadSnapshot).toHaveBeenCalledTimes(
+        8,
+      );
+    } finally {
+      resolveFirstWrite?.();
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("keeps canceled queued transport writes within the per-thread limit", async () => {
+    let resolveFirstWrite: (() => void) | undefined;
+    let writeCount = 0;
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(() => {
+      writeCount += 1;
+      if (writeCount === 1) {
+        return new Promise<void>((resolve) => {
+          resolveFirstWrite = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+    await mount(baseProps({ createTransport: () => chatMocks.transport }));
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 404 }));
+    const persistThreadSnapshot = chatMocks.rootProps.transport
+      .persistThreadSnapshot as (
+      input: unknown,
+      context?: { signal?: AbortSignal },
+    ) => Promise<void>;
+    const input = {
+      threadId: "canceled-snapshot-queue-thread",
+      snapshot: { messages: [] },
+    };
+    const first = persistThreadSnapshot(input);
+    const abortControllers = Array.from(
+      { length: 7 },
+      () => new AbortController(),
+    );
+    const queuedWrites = abortControllers.map((abortController) =>
+      persistThreadSnapshot(input, { signal: abortController.signal }),
+    );
+
+    try {
+      await vi.waitFor(() =>
+        expect(
+          chatMocks.transport.persistThreadSnapshot,
+        ).toHaveBeenCalledOnce(),
+      );
+      abortControllers.forEach((abortController) => abortController.abort());
+      const canceledResults = await Promise.allSettled(queuedWrites);
+      expect(
+        canceledResults.every((result) => result.status === "rejected"),
+      ).toBe(true);
+      await expect(persistThreadSnapshot(input)).rejects.toMatchObject({
+        name: "ThreadSnapshotQueueFullError",
+      });
+      expect(writeCount).toBe(1);
+
+      await act(async () => {
+        resolveFirstWrite?.();
+        for (let i = 0; i < 64; i++) await Promise.resolve();
+      });
+      await expect(first).resolves.toBeUndefined();
+      await expect(persistThreadSnapshot(input)).resolves.toBeUndefined();
+      expect(writeCount).toBe(2);
+    } finally {
+      resolveFirstWrite?.();
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("times out transport snapshot writes while waiting behind a stalled write", async () => {
+    let resolveFirstWrite: (() => void) | undefined;
+    let writeCount = 0;
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(() => {
+      writeCount += 1;
+      if (writeCount === 1) {
+        return new Promise<void>((resolve) => {
+          resolveFirstWrite = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+    await mount(baseProps({ createTransport: () => chatMocks.transport }));
+
+    vi.useFakeTimers();
+    try {
+      const persistThreadSnapshot = chatMocks.rootProps.transport
+        .persistThreadSnapshot as (input: unknown) => Promise<void>;
+      const input = {
+        threadId: "stalled-snapshot-queue-thread",
+        snapshot: { messages: [] },
+      };
+      const first = persistThreadSnapshot(input);
+      const firstResult = first.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await act(async () => {
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      const second = persistThreadSnapshot(input);
+      const secondResult = second.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+
+      expect(await firstResult).toMatchObject({ name: "TimeoutError" });
+      expect(await secondResult).toMatchObject({ name: "TimeoutError" });
+      expect(writeCount).toBe(1);
+
+      resolveFirstWrite?.();
+      await act(async () => {
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+      expect(writeCount).toBe(1);
+    } finally {
+      resolveFirstWrite?.();
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives transport snapshot writes a full timeout after queue wait", async () => {
+    let resolveFirstWrite: (() => void) | undefined;
+    let resolveSecondWrite: (() => void) | undefined;
+    let secondSignal: AbortSignal | undefined;
+    let writeCount = 0;
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(
+      (_input: unknown, context?: { signal?: AbortSignal }) => {
+        writeCount += 1;
+        if (writeCount === 1) {
+          return new Promise<void>((resolve) => {
+            resolveFirstWrite = resolve;
+          });
+        }
+        secondSignal = context?.signal;
+        return new Promise<void>((resolve) => {
+          resolveSecondWrite = resolve;
+        });
+      },
+    );
+    await mount(baseProps({ createTransport: () => chatMocks.transport }));
+
+    vi.useFakeTimers();
+    try {
+      const persistThreadSnapshot = chatMocks.rootProps.transport
+        .persistThreadSnapshot as (input: unknown) => Promise<void>;
+      const input = {
+        threadId: "snapshot-queue-timeout-thread",
+        snapshot: { messages: [] },
+      };
+      const first = persistThreadSnapshot(input);
+      const firstResult = first.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await act(async () => {
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      const second = persistThreadSnapshot(input);
+      const secondResult = second.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+        resolveFirstWrite?.();
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      expect(writeCount).toBe(2);
+      expect(secondSignal?.aborted).toBe(false);
+      expect(await firstResult).toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(secondSignal?.aborted).toBe(false);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(secondSignal?.aborted).toBe(true);
+      expect(await secondResult).toMatchObject({ name: "TimeoutError" });
+
+      await act(async () => {
+        resolveSecondWrite?.();
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+    } finally {
+      resolveFirstWrite?.();
+      resolveSecondWrite?.();
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails fast while a timed-out transport write remains unsettled", async () => {
+    let resolveFirstWrite: (() => void) | undefined;
+    let writeCount = 0;
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(() => {
+      writeCount += 1;
+      if (writeCount === 1) {
+        return new Promise<void>((resolve) => {
+          resolveFirstWrite = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+    await mount(baseProps({ createTransport: () => chatMocks.transport }));
+
+    vi.useFakeTimers();
+    try {
+      const persistThreadSnapshot = chatMocks.rootProps.transport
+        .persistThreadSnapshot as (input: unknown) => Promise<void>;
+      const input = {
+        threadId: "stalled-snapshot-queue-thread",
+        snapshot: { messages: [] },
+      };
+      const first = persistThreadSnapshot(input);
+      const firstResult = first.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await act(async () => {
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+      expect(writeCount).toBe(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+      expect(await firstResult).toMatchObject({ name: "TimeoutError" });
+
+      const rejectedWrites = await Promise.allSettled(
+        Array.from({ length: 16 }, () => persistThreadSnapshot(input)),
+      );
+      expect(
+        rejectedWrites.every(
+          (result) =>
+            result.status === "rejected" &&
+            (result.reason as Error).name === "ThreadSnapshotQueueStalledError",
+        ),
+      ).toBe(true);
+      expect(writeCount).toBe(1);
+
+      resolveFirstWrite?.();
+      await act(async () => {
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      await expect(persistThreadSnapshot(input)).resolves.toBeUndefined();
+      expect(writeCount).toBe(2);
+    } finally {
+      resolveFirstWrite?.();
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
+  it("checkpoints changed snapshots during default transport runs", async () => {
+    const onSaveThread = vi.fn().mockResolvedValue(true);
+    const onMessageCountChange = vi.fn();
+    const props = baseProps({ onSaveThread, onMessageCountChange });
+    await mount(props);
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+
+    try {
+      const message = {
+        id: "default-transport-checkpoint-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Checkpoint this run" }],
+      } as AgentMessage;
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        activeRunIds: ["default-transport-checkpoint-run"],
+        runs: {
+          "default-transport-checkpoint-run": {
+            id: "default-transport-checkpoint-run",
+            status: "running",
+            lastSequence: 0,
+          },
+        },
+        messages: [message],
+      };
+      await act(async () => {
+        root.render(<AgentKitAssistantChat {...props} />);
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      const intervalCallbacks = () =>
+        setIntervalSpy.mock.calls
+          .filter(([, delay]) => delay === 5_000)
+          .map(([callback]) => callback);
+      expect(intervalCallbacks().at(-1)).toEqual(expect.any(Function));
+      await flush();
+      const saveCount = chatMocks.persistThreadSnapshot.mock.calls.length;
+      const metadataSaveCount = onSaveThread.mock.calls.length;
+      expect(saveCount).toBeGreaterThan(0);
+
+      await act(async () => {
+        chatMocks.thread = {
+          ...chatMocks.thread,
+          messages: [
+            ...chatMocks.thread.messages,
+            {
+              id: "default-transport-checkpoint-assistant",
+              role: "assistant",
+              status: "streaming",
+              parts: [{ type: "text", text: "Still working" }],
+            },
+          ],
+          runs: {
+            "default-transport-checkpoint-run": {
+              id: "default-transport-checkpoint-run",
+              status: "running",
+              lastSequence: 2,
+            },
+          },
+        };
+        root.render(
+          <AgentKitAssistantChat {...props} isActiveComposer={false} />,
+        );
+        for (let i = 0; i < 32; i++) await Promise.resolve();
+      });
+      await act(async () => {
+        const periodicSave = intervalCallbacks().at(-1);
+        if (typeof periodicSave === "function") periodicSave();
+        for (let i = 0; i < 32; i++) await Promise.resolve();
+      });
+      await flush();
+
+      expect(chatMocks.persistThreadSnapshot.mock.calls.length).toBeGreaterThan(
+        saveCount,
+      );
+      expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledWith(
+        chatMocks.threadId,
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "default-transport-checkpoint-assistant",
+            parts: [{ type: "text", text: "Still working" }],
+            status: "streaming",
+          }),
+        ]),
+      );
+      expect(onSaveThread.mock.calls.length).toBeGreaterThan(metadataSaveCount);
+      expect(onMessageCountChange).toHaveBeenCalledWith(2);
+      expect(onSaveThread).toHaveBeenCalledWith(
+        chatMocks.threadId,
+        expect.objectContaining({
+          threadData: expect.stringContaining('"lastSequence":2'),
+        }),
+        expect.anything(),
+        "transport",
+      );
+    } finally {
+      chatMocks.thread = { ...chatMocks.thread, messages: [] };
+      await act(async () => {
+        root.render(<AgentKitAssistantChat {...props} />);
+        await Promise.resolve();
+      });
+      await act(async () => root.render(null));
+      setIntervalSpy.mockRestore();
+    }
+  });
+
+  it("serializes transport and metadata saves across remounts", async () => {
+    let resolveFirstTransport: (() => void) | undefined;
+    const firstTransportSave = new Promise<void>((resolve) => {
+      resolveFirstTransport = resolve;
+    });
+    const saveOrder: string[] = [];
+    const persistThreadSnapshot = vi.fn(
+      async (input: { snapshot: { messages: AgentMessage[] } }) => {
+        const lastMessageId = input.snapshot.messages.at(-1)?.id;
+        saveOrder.push(`transport:${lastMessageId}`);
+        if (lastMessageId === "remount-first-message") {
+          await firstTransportSave;
+        }
+      },
+    );
+    const transport = {
+      persistThreadSnapshot,
+    } as unknown as AgentTransport;
+    const createTransport = () => transport;
+    const firstOnSaveThread = vi.fn(() => {
+      saveOrder.push("thread:first");
+      return true;
+    });
+    const secondOnSaveThread = vi.fn(() => {
+      saveOrder.push("thread:second");
+      return true;
+    });
+    chatMocks.routeControllerPersistenceThroughTransport = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "GET") {
+          return new Response(null, { status: 404 });
+        }
+        if (init?.method === "POST") {
+          return Response.json({
+            id: "thread-1",
+            ownerEmail: "first@example.test",
+            title: "",
+            preview: "",
+            threadData: JSON.stringify({ messages: [], agentKit: {} }),
+            messageCount: 0,
+            createdAt: "2026-10-07T12:00:00.000Z",
+            updatedAt: "2026-10-07T12:00:00.000Z",
+            scope: null,
+          });
+        }
+        return Response.json([]);
+      }),
+    );
+
+    const firstMessage = {
+      id: "remount-first-message",
+      role: "user",
+      status: "complete",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      parts: [{ type: "text", text: "First persisted snapshot" }],
+    } as AgentMessage;
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [firstMessage],
+    };
+
+    try {
+      await mount(
+        baseProps({ createTransport, onSaveThread: firstOnSaveThread }),
+      );
+      await flush();
+      expect(saveOrder).toEqual(["transport:remount-first-message"]);
+      expect(firstOnSaveThread).not.toHaveBeenCalled();
+
+      await unmount();
+      const secondMessage = {
+        id: "remount-second-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:01:00.000Z",
+        parts: [{ type: "text", text: "Newer persisted snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        messages: [firstMessage, secondMessage],
+      };
+      await mount(
+        baseProps({ createTransport, onSaveThread: secondOnSaveThread }),
+      );
+      await flush();
+
+      expect(saveOrder).toEqual(["transport:remount-first-message"]);
+      expect(secondOnSaveThread).not.toHaveBeenCalled();
+
+      resolveFirstTransport?.();
+      await flush();
+      await flush();
+
+      expect(saveOrder).toEqual([
+        "transport:remount-first-message",
+        "transport:remount-second-message",
+        "thread:second",
+      ]);
+      expect(firstOnSaveThread).not.toHaveBeenCalled();
+      expect(secondOnSaveThread).toHaveBeenCalledOnce();
+    } finally {
+      resolveFirstTransport?.();
+      await unmount();
+    }
+  });
+
+  it("retries the latest snapshot after a transport save times out", async () => {
+    const onSaveOrder: string[] = [];
+    const onSaveThread = vi.fn(
+      (_threadId: string, data: { preview: string }) => {
+        onSaveOrder.push(data.preview);
+        return Promise.resolve(true);
+      },
+    );
+    const transportSaveOrder: string[] = [];
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(
+      (
+        input: { snapshot: { messages: AgentMessage[] } },
+        context?: { signal?: AbortSignal },
+      ) => {
+        transportSaveOrder.push(input.snapshot.messages.at(-1)?.id ?? "empty");
+        return transportSaveOrder.length === 1
+          ? new Promise<void>((_resolve, reject) => {
+              context?.signal?.addEventListener(
+                "abort",
+                () => reject(context.signal?.reason),
+                { once: true },
+              );
+            })
+          : Promise.resolve();
+      },
+    );
+    chatMocks.routeControllerPersistenceThroughTransport = true;
+    const createTransport = () => chatMocks.transport;
+    const onThreadSnapshotPersisted = vi.fn();
+    await mount(
+      baseProps({
+        createTransport,
+        onSaveThread,
+        onThreadSnapshotPersisted,
+      }),
+    );
+
+    vi.useFakeTimers();
+    try {
+      const firstMessage = {
+        id: "timeout-first-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Old snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = { ...chatMocks.thread, messages: [firstMessage] };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      const secondMessage = {
+        id: "timeout-latest-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:01:00.000Z",
+        parts: [{ type: "text", text: "Latest snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        messages: [firstMessage, secondMessage],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(transportSaveOrder).toEqual(["timeout-first-message"]);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+
+      expect(onSaveOrder).toEqual(["Latest snapshot"]);
+      expect(transportSaveOrder).toEqual([
+        "timeout-first-message",
+        "timeout-latest-message",
+      ]);
+      expect(onThreadSnapshotPersisted).toHaveBeenCalledWith("thread-1", 2);
+    } finally {
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives queued host snapshot saves a full timeout after queue wait", async () => {
+    const createTransport = () => chatMocks.transport;
+    let resolveFirstSave: ((saved: boolean) => void) | undefined;
+    let resolveSecondSave: ((saved: boolean) => void) | undefined;
+    let secondSignal: AbortSignal | undefined;
+    const firstSave = new Promise<boolean>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const secondSave = new Promise<boolean>((resolve) => {
+      resolveSecondSave = resolve;
+    });
+    const onSaveThread = vi.fn(
+      (
+        _threadId: string,
+        data: { preview: string },
+        context?: { signal?: AbortSignal },
+      ) => {
+        if (data.preview === "Older snapshot") return firstSave;
+        secondSignal = context?.signal;
+        return secondSave;
+      },
+    );
+    chatMocks.persistThreadSnapshot.mockResolvedValue(undefined);
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    vi.useFakeTimers();
+    try {
+      const firstMessage = {
+        id: "queue-timeout-first-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Older snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = { ...chatMocks.thread, messages: [firstMessage] };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      const secondMessage = {
+        id: "queue-timeout-second-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:01:00.000Z",
+        parts: [{ type: "text", text: "Latest snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        messages: [firstMessage, secondMessage],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+        resolveFirstSave?.(true);
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      expect(onSaveThread).toHaveBeenCalledTimes(2);
+      expect(secondSignal?.aborted).toBe(false);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(secondSignal?.aborted).toBe(false);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(secondSignal?.aborted).toBe(true);
+
+      await act(async () => {
+        resolveSecondSave?.(true);
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+    } finally {
+      resolveFirstSave?.(true);
+      resolveSecondSave?.(true);
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a timed-out legacy metadata write ahead of the latest snapshot", async () => {
+    const createTransport = () => chatMocks.transport;
+    const saveOrder: string[] = [];
+    let resolveFirstSave: ((saved: boolean) => void) | undefined;
+    const firstSave = new Promise<boolean>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const onSaveThread = vi.fn(
+      (_threadId: string, data: { preview: string }) => {
+        saveOrder.push(`thread:${data.preview}`);
+        return data.preview === "Older snapshot"
+          ? firstSave
+          : Promise.resolve(true);
+      },
+    );
+    chatMocks.persistThreadSnapshot.mockImplementation(
+      async (_threadId: string, messages?: AgentMessage[]) => {
+        saveOrder.push(`transport:${messages?.at(-1)?.id ?? "empty"}`);
+      },
+    );
+    const onThreadSnapshotPersisted = vi.fn();
+    await mount(
+      baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+    );
+
+    vi.useFakeTimers();
+    try {
+      const firstMessage = {
+        id: "legacy-timeout-first-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Older snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = { ...chatMocks.thread, messages: [firstMessage] };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      const latestMessage = {
+        id: "legacy-timeout-latest-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:01:00.000Z",
+        parts: [{ type: "text", text: "Latest snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        messages: [firstMessage, latestMessage],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({
+              createTransport,
+              onSaveThread,
+              onThreadSnapshotPersisted,
+            })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(saveOrder).toEqual([
+        "transport:legacy-timeout-first-message",
+        "thread:Older snapshot",
+      ]);
+      expect(onSaveThread).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
+
+      await act(async () => {
+        resolveFirstSave?.(true);
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      expect(saveOrder).toEqual([
+        "transport:legacy-timeout-first-message",
+        "thread:Older snapshot",
+        "transport:legacy-timeout-latest-message",
+        "thread:Latest snapshot",
+      ]);
+      expect(onThreadSnapshotPersisted).toHaveBeenCalledWith("thread-1", 2);
+    } finally {
+      resolveFirstSave?.(true);
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds retries when a snapshot cannot be saved", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi.fn().mockResolvedValue(false);
+    const toastError = vi.spyOn(toast, "error").mockImplementation(() => "");
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    vi.useFakeTimers();
+    try {
+      const message = {
+        id: "bounded-retry-user-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Retry this save" }],
+      };
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        activeRunIds: ["bounded-retry-run"],
+        messages: [message],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000);
+      });
+      expect(onSaveThread).toHaveBeenCalledTimes(4);
+      expect(toastError).toHaveBeenCalledOnce();
+      expect(toastError).toHaveBeenCalledWith("agentChat.common.saveFailed");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(onSaveThread).toHaveBeenCalledTimes(4);
+      await act(async () => root.render(null));
+      expect(onSaveThread).toHaveBeenCalledTimes(5);
+      expect(toastError).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => root.render(null));
+      toastError.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries one extra bounded epoch when a completed snapshot exhausts", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi.fn().mockResolvedValue(false);
+    const toastError = vi.spyOn(toast, "error").mockImplementation(() => "");
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    vi.useFakeTimers();
+    try {
+      const userMessage = {
+        id: "completed-retry-user-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Retry this completed save" }],
+      };
+      const assistantMessage = {
+        id: "completed-retry-assistant-message",
+        role: "assistant",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:01.000Z",
+        parts: [{ type: "text", text: "The run is complete" }],
+      };
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        activeRunIds: [],
+        messages: [userMessage, assistantMessage],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      for (const delay of [1_000, 2_000, 4_000]) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(delay);
+        });
+      }
+      expect(onSaveThread).toHaveBeenCalledTimes(5);
+      expect(toastError).not.toHaveBeenCalled();
+      const completedThreadData = onSaveThread.mock.calls[0]?.[1].threadData;
+      expect(onSaveThread.mock.calls[4]?.[1].threadData).toBe(
+        completedThreadData,
+      );
+
+      for (const delay of [1_000, 2_000, 4_000]) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(delay);
+        });
+      }
+      expect(onSaveThread).toHaveBeenCalledTimes(8);
+      expect(toastError).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        await Promise.resolve();
+      });
+      expect(onSaveThread).toHaveBeenCalledTimes(8);
+    } finally {
+      await act(async () => root.render(null));
+      toastError.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not retry an in-flight snapshot save after the chat unmounts", async () => {
+    const createTransport = () => chatMocks.transport;
+    let resolveFirstSave: ((saved: boolean) => void) | undefined;
+    const firstSave = new Promise<boolean>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const onSaveThread = vi
+      .fn()
+      .mockReturnValueOnce(firstSave)
+      .mockResolvedValue(true);
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    vi.useFakeTimers();
+    try {
+      const message = {
+        id: "unmount-retry-user-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Retry after unmount" }],
+      };
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        activeRunIds: ["unmount-retry-run"],
+        messages: [message],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      await act(async () => root.render(null));
+      await act(async () => {
+        resolveFirstSave?.(false);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
   it("removes inline image bodies from every persisted thread snapshot path", async () => {
     const createTransport = () => chatMocks.transport;
     const onSaveThread = vi.fn();
@@ -7231,12 +9531,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(repository.queuedMessages[0].attachments[0]).not.toHaveProperty(
       "url",
     );
-    expect(
-      repository.queuedMessages[0].requestAttachments[0],
-    ).not.toHaveProperty("data");
-    expect(
-      repository.queuedMessages[0].requestAttachments[0],
-    ).not.toHaveProperty("url");
+    expect(repository.queuedMessages[0].requestAttachments).toEqual([]);
     expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledWith("thread-1", [
       expect.objectContaining({ id: "user-with-inline-image" }),
     ]);

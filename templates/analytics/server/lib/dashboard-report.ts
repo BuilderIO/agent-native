@@ -76,7 +76,8 @@ function defaultFilterValues(
 }
 
 // The page reads multi-select values through normalizeMultiSelectValue, so a
-// report must too: a cleared or comma-only selection queries like the page.
+// report must too. A cleared selection stays an empty override, as on the page,
+// so a dashboard variable with the same name cannot fill it.
 function normalizeReportFilters(
   filters: DashboardFilter[] | undefined,
   values: Record<string, string>,
@@ -85,9 +86,7 @@ function normalizeReportFilters(
   for (const f of filters ?? []) {
     if (f.type !== "multi-select") continue;
     const key = `f_${f.id}`;
-    const normalized = normalizeMultiSelectValue(out[key] ?? "");
-    if (normalized) out[key] = normalized;
-    else delete out[key];
+    out[key] = normalizeMultiSelectValue(out[key] ?? "");
   }
   return out;
 }

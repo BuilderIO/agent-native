@@ -25,6 +25,9 @@ export interface WorkspaceConnectionProviderSummary {
   hasWorkspaceConnection: boolean;
   hasGrantedWorkspaceConnection: boolean;
   hasActiveWorkspaceConnection: boolean;
+  statuses?: Array<
+    "connected" | "checking" | "needs_reauth" | "error" | "disabled"
+  >;
 }
 
 export interface DataSourceProviderStatus {
@@ -56,7 +59,9 @@ export type SharedConnectionStatusKind =
   | "ready"
   | "needs_grant"
   | "needs_credentials"
-  | "local_credentials";
+  | "local_credentials"
+  | "needs_reauth"
+  | "error";
 
 export interface SharedConnectionStatus {
   kind: SharedConnectionStatusKind;
@@ -93,7 +98,10 @@ export function shouldShowWorkspaceOAuthSetup(
 ): boolean {
   return (
     canManageOrg &&
-    (status?.kind === "needs_credentials" || status?.kind === "needs_grant") &&
+    (status?.kind === "needs_credentials" ||
+      status?.kind === "needs_grant" ||
+      status?.kind === "needs_reauth" ||
+      status?.kind === "error") &&
     isWorkspaceOAuthSource(source)
   );
 }
@@ -172,6 +180,8 @@ const sharedConnectionLabels: Record<SharedConnectionStatusKind, string> = {
   needs_grant: "Available in workspace",
   needs_credentials: "Not connected",
   local_credentials: "Configured in this app",
+  needs_reauth: "Reconnect needed",
+  error: "Connection error",
 };
 
 function normalizeCredentialKey(key: string): string {
@@ -273,6 +283,10 @@ export function getSharedConnectionStatus(
   let kind: SharedConnectionStatusKind;
   if (connection?.grantState === "connected") {
     kind = "ready";
+  } else if (connection?.statuses?.includes("needs_reauth")) {
+    kind = "needs_reauth";
+  } else if (connection?.statuses?.includes("error")) {
+    kind = "error";
   } else if (connection?.grantState === "needs_grant") {
     kind = "needs_grant";
   } else if (localConfigured) {

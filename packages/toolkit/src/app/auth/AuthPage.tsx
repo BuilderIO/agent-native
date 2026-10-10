@@ -24,6 +24,7 @@ import { toPublicFrameworkPath } from "@agent-native/core/shared/framework-route
 import { isTestIdentityEmail } from "@agent-native/core/shared/qa-test-email";
 import { DEPLOY_SETTINGS_REQUIRED_CODE } from "@agent-native/core/shared/runtime-config";
 import {
+  decodeContinuation,
   isVerificationLinkInvalid,
   signInJourney,
   type SignInJourney,
@@ -69,6 +70,20 @@ const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
 export { isVerificationLinkInvalid };
+
+export function hasInvalidVerificationLinkInSearch(search: string): boolean {
+  const params = new URLSearchParams(search);
+  if (isVerificationLinkInvalid(params.get("error"))) return true;
+
+  const continuation = decodeContinuation(params.get("c"));
+  return continuation
+    ? isVerificationLinkInvalid(
+        new URL(continuation, "https://agent-native.invalid").searchParams.get(
+          "error",
+        ),
+      )
+    : false;
+}
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -604,7 +619,7 @@ export function shouldStartWithLocalDev(
   return (
     !params.has("tab") &&
     !params.has("verified") &&
-    !isVerificationLinkInvalid(params.get("error")) &&
+    !hasInvalidVerificationLinkInSearch(search) &&
     !path.endsWith("/login") &&
     !path.endsWith("/signup")
   );
@@ -869,7 +884,9 @@ export function AuthPage(props: AuthPageProps) {
     if (googleOnly) return;
     const path = window.location.pathname.replace(/\/+$/, "") || "/";
     const params = new URLSearchParams(window.location.search);
-    const verificationError = isVerificationLinkInvalid(params.get("error"));
+    const verificationError = hasInvalidVerificationLinkInSearch(
+      window.location.search,
+    );
     if (params.get("verified") || verificationError) {
       setView("login");
       const rememberedEmail = readPendingSignupEmail();

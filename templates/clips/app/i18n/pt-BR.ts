@@ -2,6 +2,68 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Redimensionar ou fechar as respostas",
   },
+  lookbackContext: {
+    includeLast: "Incluir os últimos",
+    whatIsThis: "O que é isto?",
+    off: "Desativado",
+    custom: "Personalizado…",
+    customLabel: "Duração personalizada",
+    customAmount: "Duração",
+    customUnit: "Unidade",
+    unitSeconds: "segundos",
+    unitMinutes: "minutos",
+    customSave: "Usar duração",
+    customErrorEmpty: "Informe uma duração.",
+    customErrorInvalid: "Informe um número inteiro de segundos ou minutos.",
+    customErrorTooLong: "Use no máximo 5 min.",
+    turnOnRewind: "Ativar o Rewind",
+    rewindOffTitle: "Ativar o Rewind",
+    rewindOffBody:
+      "O Rewind mantém um histórico local da sua tela para que você possa incluir os últimos minutos antes de uma gravação. As imagens só são enviadas quando você as inclui ou aprova.",
+    requestFailed:
+      "Não foi possível incluir o tempo de tela anterior. A gravação continua sem ele.",
+    localOnlyUnavailable:
+      "O tempo de tela anterior não é salvo em gravações somente locais.",
+    saving: "Salvando {{window}} antes…",
+    ready: "Com {{window}} antes",
+    failed: "Não foi possível salvar o tempo de tela anterior",
+    unreadable: "Não foi possível verificar o tempo de tela anterior",
+    edit: "Editar",
+    editTitle: "Tempo de tela anterior",
+    editSave: "Salvar",
+    editFailed: "Não foi possível salvar a janela. Tente novamente.",
+    previewPreparing: "Preparando a prévia…",
+    previewFailed: "Não foi possível preparar a prévia.",
+    previewLabel: "Prévia do tempo de tela anterior",
+    retry: "Tentar novamente",
+    playSelection: "Reproduzir seleção",
+    removeFailed:
+      "Não foi possível remover o tempo de tela anterior da gravação descartada.",
+    removeFailedAction:
+      "Não foi possível remover o tempo de tela anterior. Tente novamente.",
+    removeAction: "Remover tempo de tela anterior",
+    removeConfirmTitle: "Remover o tempo de tela anterior?",
+    removeConfirmBody:
+      "As imagens são movidas para a lixeira, e o clipe deixa de incluí-las.",
+    removeConfirm: "Remover",
+    removed: "Tempo de tela anterior removido",
+    scrubberFromBefore: "De {{offset}} antes",
+    scrubberFromStart: "Desde o início da gravação",
+    scrubberToBefore: "Até {{offset}} antes",
+    scrubberToStart: "Até o início da gravação",
+    scrubberLength: "Duração",
+    scrubberStartHandle: "Início da janela",
+    scrubberEndHandle: "Fim da janela",
+    tab: "Contexto",
+    label: "Tela antes da gravação",
+    window: "{{start}}–{{end}} antes da gravação",
+    savingEarlierTime: "Salvando o tempo de tela anterior…",
+    loadFailed: "Não foi possível carregar o tempo de tela anterior.",
+    empty: "Nenhum tempo de tela anterior está anexado a este clipe.",
+    larger: "Ampliar",
+    editHint: "Edite a janela no Clips Desktop.",
+    waitingOtherDevice: "Aguardando o dispositivo que gravou este clipe",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Usar Builder.io",
@@ -770,6 +832,8 @@ const messages = {
     switchToNightly: "Mudar para builds Nightly",
     switchToStable: "Mudar para builds estáveis",
     retry: "Tentar novamente",
+    mountError:
+      "O Clips não conseguiu encontrar seu caminho neste workspace. Peça ao administrador do workspace para verificar a configuração do caminho do app.",
     heroDescription:
       "Um gravador de barra de menu para tela, câmera e tela + câmera. Iniciar com um clique, bolha de câmera arrastável, link de compartilhamento instantâneo quando você parar.",
     versionReleased: "Versão {{version}} — lançada {{date}}",
@@ -833,6 +897,9 @@ const messages = {
     labWisprFlow: "Ditado por voz",
     labWisprFlowDescription:
       "Mostre ou oculte o ditado por voz no Clips Desktop.",
+    labLookbackContext: "Incluir o tempo de tela anterior",
+    labLookbackContextDescription:
+      "Anexe até cinco minutos de tempo de tela anteriores a uma gravação como contexto passivo. Desativado por padrão.",
     uploadWorkspaceTitle: "Espaço ativo",
     uploadWorkspaceDescription:
       "Escolha o espaço que o Clips usará para novas gravações, incluindo uploads do desktop.",
@@ -2185,22 +2252,6 @@ const messages = {
     guideStartTitle: "Click Start notes",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.",
-  },
-  rewindExtension: {
-    title: "Adicionar o que aconteceu antes",
-    description:
-      "Escolha um intervalo do Rewind local e adicione-o ao início deste clipe. Nada é adicionado automaticamente.",
-    progressLabel: "Progresso do processamento do histórico do Rewind",
-    privateFirstTitle: "Primeiro, torne este clipe privado",
-    privateFirstDescription:
-      "O histórico local do Rewind pode conter contexto anterior ao início da gravação. Isso tornará o clipe privado. Se alguém ainda tiver acesso direto, o Clips vai parar para você remover esse acesso em Compartilhar.",
-    makePrivateContinue: "Tornar privado e continuar",
-    add30Seconds: "Adicionar os 30 segundos anteriores",
-    add5Minutes: "Adicionar os 5 minutos anteriores",
-    add5MinutesDescription:
-      "Útil para recuperar o começo de uma explicação mais longa.",
-    privateReady:
-      "Este clipe é privado. Agora você pode adicionar o histórico local do Rewind.",
   },
   browserDiagnostics: {
     debug: "Depuração",

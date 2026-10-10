@@ -91,11 +91,21 @@ pnpm dev
 
 ### 화면 메모리(Rewind)
 
-| Action                                                                                                                          | What it does                                         |
-| ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | 로컬 Rewind 버퍼 읽기                                |
-| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | 클립에 Rewind 기록을 추가하기 위한 검토 및 승인 흐름 |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | 승인된 확장 적용, 먼저 클립을 강제로 비공개 처리     |
+| Action                                                                                                                          | What it does                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | 로컬 Rewind 버퍼 읽기                                                                                                                           |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | 사용 중단된 호환성 액션입니다. 이를 사용하던 편집기 옵션은 제거되었습니다. 이전 화면 시간에는 `request-recording-context`를 사용하세요          |
+| `apply-rewind-extension`                                                                                                        | 사용 중단된 호환성 액션입니다. 제거된 편집기 옵션의 승인된 확장을 적용합니다                                                                    |
+| `make-recording-private-for-rewind`                                                                                             | 먼저 클립을 강제로 비공개 처리                                                                                                                  |
+| `request-recording-context`                                                                                                     | 소유자 전용. 녹화 시작 전의 이전 화면 시간을 요청하며, 클립은 비공개로 전환됨                                                                   |
+| `request-recording-context` (`deviceId`)                                                                                        | 선택 사항. 클립을 녹화한 기기를 항목에 기록하여 그 기기의 데스크톱 앱만 내보내도록 합니다. 생략하면 기록된 기기가 없다는 뜻입니다               |
+| `list-recording-context`                                                                                                        | 클립의 활성 이전 화면 시간 항목: 구간과 상태 (뷰어 접근)                                                                                        |
+| `list-pending-recording-context`                                                                                                | 내가 소유한 클립의 대기 중 항목, 데스크톱 내보내기 워커용                                                                                       |
+| `list-pending-recording-context` (`deviceId`)                                                                                   | 선택 사항. `deviceId`를 주면 이 기기가 캡처한 항목과 기록된 기기가 없는 항목만 반환합니다. 없으면 목록을 필터링하지 않습니다(이전 클라이언트용) |
+| `update-recording-context`                                                                                                      | 데스크톱 워커가 항목을 `processing`, `ready`, `failed` 중 하나로 보고                                                                           |
+| `set-recording-context-window`                                                                                                  | 원래 5분 구간 안에서 항목 자르기. `pending`으로 돌아가 다시 내보내짐                                                                            |
+| `remove-recording-context`                                                                                                      | 소유자 전용. 항목을 제거하고 해당 영상 녹화를 휴지통으로 이동. 데스크톱 편집 보기와 전사 탭의 패널이 모두 이 액션을 호출합니다                  |
+| `rewind_preview_window`, `rewind_preview_discard`                                                                               | 데스크톱 앱 전용(액션이 아닌 Tauri 명령). 창의 로컬 미리보기 생성 또는 삭제. 업로드되지 않음                                                    |
 
 ### 앱 간 연동 및 인사이트
 

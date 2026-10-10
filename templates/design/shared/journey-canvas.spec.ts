@@ -7,6 +7,11 @@ import {
   JOURNEY_BOARD_ID_PREFIX,
   JOURNEY_FILE_ID_PREFIX,
   JOURNEY_FILENAME_PREFIX,
+  MAX_JOURNEY_COUNT,
+  MAX_JOURNEY_KEY_CHARS,
+  MAX_JOURNEY_LABEL_CHARS,
+  MAX_OTHER_BRANCH_SUMMARIES_PER_TREE,
+  MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE,
   REPLAY_SCREENSHOT_ROUTE,
   createJourneyCanvasInputSchema,
   formatPercent,
@@ -15,7 +20,11 @@ import {
   replaceJourneyBoardObjects,
   type CreateJourneyCanvasInput,
 } from "./journey-canvas.js";
-import { CARD_PROVENANCE_HEADER_HEIGHT } from "./journey-layout.js";
+import {
+  CARD_HEADER_HEIGHT,
+  CARD_PROVENANCE_HEADER_HEIGHT,
+  STUB_HEIGHT,
+} from "./journey-layout.js";
 
 type RawInput = z.input<typeof createJourneyCanvasInputSchema>;
 type RawJourneyNode = RawInput["tree"]["nodes"][number];
@@ -239,26 +248,52 @@ function problems(raw: unknown): string[] {
 }
 
 describe("create-journey-canvas input", () => {
-  it("plans up to 1,000 journey nodes and rejects larger trees", () => {
-    const root = node("root", null, 1000);
-    const nodes = [
-      root,
-      ...Array.from({ length: 999 }, (_, index) =>
-        node(`root > branch-${index}`, "root", 1),
+  it("plans 2,000 app-band nodes with screenshot examples and rejects larger trees", () => {
+    const nodes = Array.from({ length: 2_000 }, (_, index) =>
+      node(
+        `clips::node-${index}`,
+        index === 0 ? null : `clips::node-${index - 1}`,
+        1_000,
+        {
+          depth: index + 1,
+          pctOfRoot: 100,
+          pctOfParent: 100,
+        },
       ),
-    ];
+    );
     const raw = rawInput({
+      layoutMode: "appBands",
       includeScreenshotless: true,
-      frames: [],
-      tree: { ...rawInput().tree, nodes },
+      tree: {
+        ...rawInput().tree,
+        app: "all",
+        rootN: 1_000,
+        appRootN: { clips: 1_000 },
+        nodes,
+      },
+      frames: nodes.slice(0, 900).map((candidate) => frame(candidate.key, 0)),
     });
 
-    expect(planJourneyCanvas(parse(raw), "design-1").nodeCount).toBe(1000);
+    const result = planJourneyCanvas(parse(raw), "design-1");
+    expect(result.nodeCount).toBe(2_000);
+    expect(result.screens).toHaveLength(2_000);
+    expect(
+      result.screens.filter((screen) =>
+        screen.html.includes("https://img.example.test/"),
+      ),
+    ).toHaveLength(900);
     const oversized = createJourneyCanvasInputSchema.safeParse({
       ...raw,
       tree: {
         ...raw.tree,
-        nodes: [...nodes, node("root > overflow", "root", 1)],
+        nodes: [
+          ...nodes,
+          node("clips::overflow", "clips::node-1999", 1_000, {
+            depth: 2_001,
+            pctOfRoot: 100,
+            pctOfParent: 100,
+          }),
+        ],
       },
     });
     expect(oversized.success).toBe(false);
@@ -280,6 +315,324 @@ describe("create-journey-canvas input", () => {
     expect(input.observedContinuations).toEqual([]);
     expect(input.observedRecordingGaps).toEqual([]);
     expect(input.tree.nodes[0]?.referenceOnly).toBe(false);
+  });
+
+  it("validates bounded branch summaries against their aggregate", () => {
+    const raw = rawInput();
+    const other = {
+      ...node("signup > other", "signup", 800, {
+        pctOfRoot: 80,
+        pctOfParent: 80,
+      }),
+      kind: "other" as const,
+      label: "Other (3 branches)",
+      examples: [],
+      otherBranchCount: 3,
+      otherBranches: [
+        {
+          path: ["signup", "Workspace"],
+          key: "signup > workspace",
+          n: 500,
+          pctOfParent: 50,
+        },
+        {
+          path: ["signup", "Workspace"],
+          key: "signup > workspace_alternate",
+          n: 200,
+          pctOfParent: 20,
+        },
+      ],
+    };
+    const input = rawInput({
+      tree: { ...raw.tree, nodes: [...raw.tree.nodes.slice(0, 4), other] },
+    });
+
+    expect(problems(input)).toEqual([]);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? { ...candidate, otherBranchCount: 1 }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/cannot exceed the total branch count/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? {
+                  ...candidate,
+                  otherBranches: Array.from(
+                    { length: 21 },
+                    () => other.otherBranches[0],
+                  ),
+                  otherBranchCount: 21,
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/otherBranches/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? {
+                  ...candidate,
+                  n: 2,
+                  otherBranchCount: 3,
+                  otherBranches: [
+                    { ...other.otherBranches[0], n: 1, pctOfParent: 50 },
+                  ],
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/branch count cannot exceed the aggregate session count/);
+  });
+
+  it("validates partial markers and tree-wide summary budgets", () => {
+    const raw = rawInput();
+    const summary = (index: number) => ({
+      ...node(`other-${index}`, null, 1, {
+        pctOfRoot: 0.1,
+        pctOfParent: 0.1,
+      }),
+      kind: "other" as const,
+      examples: [],
+      otherBranchCount: 1,
+      otherBranches: [
+        {
+          path: [`branch-${index}`],
+          key: `branch-${index}`,
+          n: 1,
+          pctOfParent: 0.1,
+        },
+      ],
+    });
+    const withTooManySummaries = rawInput({
+      tree: {
+        ...raw.tree,
+        nodes: [
+          ...raw.tree.nodes.slice(0, 4),
+          ...Array.from(
+            { length: MAX_OTHER_BRANCH_SUMMARIES_PER_TREE + 1 },
+            (_, index) => summary(index),
+          ),
+        ],
+      },
+    });
+    expect(problems(withTooManySummaries).join("\n")).toMatch(
+      /Branch summaries exceed the tree limit/,
+    );
+
+    const oversizedDetail = {
+      ...node("signup > other", "signup", 5, {
+        pctOfRoot: 0.5,
+        pctOfParent: 0.5,
+      }),
+      kind: "other" as const,
+      examples: [],
+      otherBranchCount: 5,
+      otherBranches: Array.from({ length: 5 }, (_, index) => ({
+        path: Array.from({ length: 40 }, () =>
+          "x".repeat(MAX_JOURNEY_LABEL_CHARS),
+        ),
+        key: "k".repeat(MAX_JOURNEY_KEY_CHARS),
+        sourceStepKey: "s".repeat(MAX_JOURNEY_KEY_CHARS),
+        n: 1,
+        pctOfParent: 20,
+      })),
+    };
+    const withTooManyBytes = rawInput({
+      tree: {
+        ...raw.tree,
+        nodes: [...raw.tree.nodes.slice(0, 4), oversizedDetail],
+      },
+    });
+    expect(problems(withTooManyBytes).join("\n")).toMatch(
+      /Branch summaries exceed the tree byte limit/,
+    );
+
+    const partial = {
+      ...summary(900),
+      key: "signup > other",
+      label: "Other (2 branches)",
+      parentKey: "signup",
+      n: 2,
+      pctOfRoot: 0.2,
+      pctOfParent: 0.2,
+      otherBranchCount: 2,
+      otherBranchSummariesPartial: true as const,
+      otherBranches: undefined,
+    };
+    const partialInput = rawInput({
+      tree: { ...raw.tree, nodes: [...raw.tree.nodes.slice(0, 4), partial] },
+    });
+    expect(problems(partialInput)).toEqual([]);
+    expect(
+      problems({
+        ...partialInput,
+        tree: {
+          ...partialInput.tree,
+          nodes: partialInput.tree.nodes.map((candidate) =>
+            candidate.key === partial.key
+              ? { ...candidate, otherBranchSummariesPartial: undefined }
+              : candidate,
+          ),
+        },
+      }),
+    ).toEqual([]);
+    expect(
+      problems({
+        ...partialInput,
+        tree: {
+          ...partialInput.tree,
+          nodes: partialInput.tree.nodes.map((candidate) =>
+            candidate.key === partial.key
+              ? {
+                  ...candidate,
+                  otherBranchCount: 0,
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/Partial branch summaries must omit at least one branch/);
+  });
+
+  it("accepts producer truncation markers and enforces journey text and count limits", () => {
+    const raw = rawInput();
+    const boundedLabel = `${"x".repeat(MAX_JOURNEY_LABEL_CHARS - 18)}…#${"a".repeat(16)}`;
+    const boundedNodeKey = `${"n".repeat(MAX_JOURNEY_KEY_CHARS - 18)}…#${"d".repeat(16)}`;
+    const boundedPathKey = `${"k".repeat(MAX_JOURNEY_KEY_CHARS - 18)}…#${"b".repeat(16)}`;
+    const boundedSourceKey = `${"s".repeat(MAX_JOURNEY_KEY_CHARS - 18)}…#${"c".repeat(16)}`;
+    const other = {
+      ...node("signup > other", "signup", 1, {
+        pctOfRoot: 0.1,
+        pctOfParent: 0.1,
+      }),
+      key: boundedNodeKey,
+      keyTruncated: true,
+      kind: "other" as const,
+      label: boundedLabel,
+      labelTruncated: true,
+      examples: [],
+      otherBranchCount: 1,
+      otherBranches: [
+        {
+          path: ["signup", boundedLabel],
+          pathTruncated: true,
+          key: boundedPathKey,
+          keyTruncated: true,
+          sourceStepKey: boundedSourceKey,
+          sourceStepKeyTruncated: true,
+          n: 1,
+          pctOfParent: 0.1,
+        },
+      ],
+    };
+    const input = rawInput({
+      tree: { ...raw.tree, nodes: [...raw.tree.nodes.slice(0, 4), other] },
+    });
+
+    expect(problems(input)).toEqual([]);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? { ...candidate, label: "x".repeat(MAX_JOURNEY_LABEL_CHARS + 1) }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/label/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? { ...candidate, key: "k".repeat(MAX_JOURNEY_KEY_CHARS + 1) }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/key/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? {
+                  ...candidate,
+                  otherBranchCount: MAX_JOURNEY_COUNT + 1,
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/otherBranchCount/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? {
+                  ...candidate,
+                  otherBranches: [
+                    {
+                      ...other.otherBranches[0],
+                      path: ["x".repeat(MAX_JOURNEY_LABEL_CHARS + 1)],
+                    },
+                  ],
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/path/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? {
+                  ...candidate,
+                  otherBranches: [
+                    {
+                      ...other.otherBranches[0],
+                      key: "k".repeat(MAX_JOURNEY_KEY_CHARS + 1),
+                    },
+                  ],
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/key/);
   });
 
   it("accepts an https imageUrl and an attachmentRef", () => {
@@ -680,7 +1033,9 @@ describe("create-journey-canvas input", () => {
     expect(board).not.toMatch(/100%|40%|conversion|successful signup/i);
     expect(label).toContain('title="Recording gap · 3s"');
     expect(labelPosition).not.toBeNull();
-    expect(Number(labelPosition![3])).toBe(152);
+    expect(Number(labelPosition![3])).toBeGreaterThanOrEqual(112);
+    expect(label).toContain("overflow:visible;white-space:normal");
+    expect(label).not.toContain("ellipsis");
     expect(source.frame.x + source.frame.width).toBeLessThan(target.frame.x);
     expect(Number(labelPosition![1])).toBeGreaterThanOrEqual(
       source.frame.x + source.frame.width,
@@ -1168,7 +1523,7 @@ describe("create-journey-canvas input", () => {
     expect(board).toContain("Custom keys · 50%");
   });
 
-  it("truncates long edge labels visually while preserving their full accessible text", () => {
+  it("wraps long edge labels without truncating their visible or accessible text", () => {
     const longLabel = `Custom method ${"very-long-name ".repeat(12)}`.trim();
     const base = rawInput();
     const nodes = base.tree.nodes.map((candidate) =>
@@ -1193,9 +1548,9 @@ describe("create-journey-canvas input", () => {
 
     expect(label).toContain(`title="${longLabel} · 63%"`);
     expect(label).toContain(`aria-label="${longLabel} · 63%"`);
-    expect(label).toContain(
-      "overflow:hidden;white-space:nowrap;text-overflow:ellipsis",
-    );
+    expect(label).toContain("overflow:visible;white-space:normal");
+    expect(label).toContain("overflow-wrap:anywhere");
+    expect(label).not.toContain("ellipsis");
   });
 
   it("rejects trees and frames that do not hang together", () => {
@@ -1329,8 +1684,8 @@ describe("planJourneyCanvas", () => {
     expect(designRoot.html).toContain(
       "40 sessions · 100% of Design cohort (n=40)",
     );
-    expect(clipsChild.html).toContain("60 sessions · 60% of previous");
-    expect(designChild.html).toContain("20 sessions · 50% of previous");
+    expect(clipsChild.html).toContain("60 sessions · 60% of previous step");
+    expect(designChild.html).toContain("20 sessions · 50% of previous step");
     expect(fragments).toContain("Clips · 100 sessions");
     expect(fragments).toContain("Design · 40 sessions");
     expect(
@@ -1489,7 +1844,7 @@ describe("planJourneyCanvas", () => {
   it("writes a header with label, session count and percent, and an img with the https URL", () => {
     const prompt = plan().screens.find((s) => s.nodeKey === "signup > prompt")!;
     expect(prompt.html).toMatch(/<h1[^>]*>signup &gt; prompt<\/h1>/);
-    expect(prompt.html).toContain("500 sessions · 50% of previous");
+    expect(prompt.html).toContain("500 sessions · 50% of previous step");
     expect(prompt.html).toContain(
       'src="https://img.example.test/signup%20%3E%20prompt-0.png"',
     );
@@ -1621,6 +1976,39 @@ describe("planJourneyCanvas", () => {
     expect(root.frame.height).toBe(
       CARD_PROVENANCE_HEADER_HEIGHT + 20 + 12 + 225,
     );
+  });
+
+  it("wraps and measures continuation notes at the card's content width", () => {
+    const root = plan(rawInput({ cardWidth: 320 })).screens.find(
+      (screen) => screen.nodeKey === "signup",
+    )!;
+
+    expect(root.frame.height).toBe(
+      CARD_PROVENANCE_HEADER_HEIGHT + 20 + 24 + 200,
+    );
+    expect(root.html).toContain(
+      "header .coverage-note{font-size:10px;line-height:12px;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;white-space:normal}",
+    );
+  });
+
+  it("sizes screenshotless cards for wrapped continuation notes", () => {
+    const raw = rawInput();
+    const nodes = [...raw.tree.nodes];
+    nodes[0] = node("signup", null, 1000, {
+      dropoffN: 100,
+      dropoffPct: 10,
+    });
+    const root = plan(
+      rawInput({
+        includeScreenshotless: true,
+        frames: [],
+        cardWidth: 320,
+        tree: { ...raw.tree, nodes },
+      }),
+    ).screens.find((screen) => screen.nodeKey === "signup")!;
+
+    expect(root.html).toContain("No screenshot captured");
+    expect(root.frame.height).toBe(CARD_HEADER_HEIGHT + 24 + 200);
   });
 
   it("renders a chronological reference chain without inventing cohort metrics", () => {
@@ -2088,7 +2476,58 @@ describe("planJourneyCanvas", () => {
       (s) => s.nodeKey === "signup > skip > editor",
     )!;
     expect(editor.html).toContain("100 sessions · 63% of signup &gt; skip");
-    expect(fragments).toContain("signup &gt; skip · 63%");
+    expect(fragments).toContain("signup &gt; skip</div><div style");
+    expect(fragments).toContain(">63%</div>");
+  });
+
+  it("keeps long skipped-branch names and percentages visible without truncation", () => {
+    const longLabel = `Onboarding step ${"choose route ".repeat(18)}`.slice(
+      0,
+      300,
+    );
+    const root = node("signup", null, 1_000, {
+      label: "Signup",
+      pctOfRoot: 100,
+      pctOfParent: 100,
+    });
+    const skipped = node("signup > skipped", "signup", 600, {
+      label: longLabel,
+      depth: 2,
+      pctOfRoot: 60,
+      pctOfParent: 60,
+    });
+    const finish = node("signup > skipped > finish", skipped.key, 200, {
+      label: "Finish",
+      depth: 3,
+      pctOfRoot: 20,
+      pctOfParent: 33.33,
+    });
+    const fragments = plan(
+      rawInput({
+        tree: {
+          ...rawInput().tree,
+          nodes: [root, skipped, finish],
+        },
+        frames: [frame(root.key, 0), frame(finish.key, 0)],
+      }),
+    )
+      .boardFragments({ x: 0, y: 0 })
+      .join("\n");
+    const labelStart = fragments.indexOf(
+      'data-agent-native-layer-name="Journey edge label"',
+    );
+    const labelEnd = fragments.indexOf("</div></div>", labelStart) + 12;
+    const label = fragments.slice(
+      fragments.lastIndexOf("<div ", labelStart),
+      labelEnd,
+    );
+
+    expect(label).toContain(longLabel);
+    expect(label).toContain(">33%</div>");
+    expect(label).toContain("font-size:20px;line-height:25px");
+    expect(label).toContain("font-size:24px;line-height:28px;font-weight:700");
+    expect(label).toContain("overflow:visible;white-space:normal");
+    expect(label).not.toContain("ellipsis");
   });
 
   it("renders screenshotless steps only when asked", () => {
@@ -2109,6 +2548,9 @@ describe("planJourneyCanvas", () => {
     expect(html).toContain("340 sessions · 34% of this step");
     expect(html).toContain("10 sessions · 10% of this step");
     expect(html).toContain("Other (3 branches)");
+    expect(html).toContain(
+      "Branch details are not available in this journey tree",
+    );
     expect(html).not.toContain('data-agent-native-layer-name="Captured date"');
     expect(html).not.toContain("Captured 2026-10-08 · 2 examples");
     expect(html).toContain("Design onboarding");
@@ -2124,6 +2566,172 @@ describe("planJourneyCanvas", () => {
     truncated.tree.coverage.truncated = true;
     expect(plan(truncated).boardFragments({ x: 0, y: 0 }).join("\n")).toContain(
       "partial sample",
+    );
+  });
+
+  it("reserves a line for each word-wrapped Other heading", () => {
+    const otherHeight = (label: string) => {
+      const raw = rawInput();
+      const nodes = raw.tree.nodes.map((candidate) =>
+        candidate.kind === "other" ? { ...candidate, label } : candidate,
+      );
+      const fragment = plan({
+        ...raw,
+        tree: { ...raw.tree, nodes },
+      })
+        .boardFragments({ x: 0, y: 0 })
+        .find((candidate) =>
+          candidate.includes('data-agent-native-layer-name="Other paths"'),
+        );
+      const height = fragment?.match(/height:(\d+(?:\.\d+)?)px/);
+      expect(height).not.toBeNull();
+      return Number(height![1]);
+    };
+
+    expect(
+      otherHeight("Onboarding Onboarding Onboarding"),
+    ).toBeGreaterThanOrEqual(otherHeight("Other (3 branches)") + 56);
+  });
+
+  it("reserves wrapped localized drop-off text in the stub layout", () => {
+    const result = planJourneyCanvas(
+      parse(rawInput()),
+      "design-1",
+      arSA.journeyCanvas,
+    );
+    const fragment = result
+      .boardFragments({ x: 0, y: 0 })
+      .find((candidate) =>
+        candidate.includes('data-agent-native-node-id="jc-dropoff-'),
+      );
+    const height = fragment?.match(/height:(\d+(?:\.\d+)?)px/);
+
+    expect(height).not.toBeNull();
+    expect(Number(height![1])).toBeGreaterThan(STUB_HEIGHT);
+  });
+
+  it("shows full Other branch paths, counts, parent percentages, and the cap", () => {
+    const raw = rawInput();
+    const other = {
+      ...node("signup > other", "signup", 800, {
+        pctOfRoot: 80,
+        pctOfParent: 80,
+      }),
+      kind: "other" as const,
+      label: "Other (3 branches)",
+      examples: [],
+      otherBranchCount: 3,
+      otherBranches: [
+        {
+          path: ["signup", "Workspace"],
+          key: "signup > workspace",
+          sourceStepKey: "workspace",
+          n: 500,
+          pctOfParent: 50,
+        },
+        {
+          path: ["signup", "Workspace"],
+          key: "signup > workspace_alternate",
+          sourceStepKey: "workspace_alternate",
+          n: 200,
+          pctOfParent: 20,
+        },
+      ],
+    };
+    const input = rawInput({
+      tree: { ...raw.tree, nodes: [...raw.tree.nodes.slice(0, 4), other] },
+    });
+    const fragments = plan(input).boardFragments({ x: 0, y: 0 }).join("\n");
+
+    expect(fragments).toContain("800 sessions · 80% of previous step");
+    expect(fragments).toContain(
+      "signup → Workspace · Source step key: workspace",
+    );
+    expect(fragments).toContain(
+      "signup → Workspace · Source step key: workspace_alternate",
+    );
+    expect(fragments).toContain("500 sessions · 50% of previous step");
+    expect(fragments).toContain("200 sessions · 20% of previous step");
+    expect(fragments).toContain("Showing 2 of 3 branches");
+    expect(fragments).toContain("font-size:24px;line-height:28px");
+    const otherFragment = fragments.slice(fragments.indexOf("jc-other-"));
+    expect(otherFragment).not.toContain("<img");
+  });
+
+  it("distinguishes budgeted zero-detail summaries from legacy unknown details", () => {
+    const raw = rawInput();
+    const partialOther = {
+      ...node("signup > other", "signup", 40, {
+        pctOfRoot: 4,
+        pctOfParent: 4,
+      }),
+      kind: "other" as const,
+      label: "Other (4 branches)",
+      examples: [],
+      otherBranchCount: 4,
+      otherBranchSummariesPartial: true as const,
+    };
+    const partial = plan(
+      rawInput({
+        tree: {
+          ...raw.tree,
+          nodes: [...raw.tree.nodes.slice(0, 4), partialOther],
+        },
+      }),
+    )
+      .boardFragments({ x: 0, y: 0 })
+      .join("\n");
+
+    expect(partial).toContain("Showing 0 of 4 branches");
+    expect(partial).not.toContain(
+      "Branch details are not available in this journey tree",
+    );
+    expect(
+      plan(rawInput()).boardFragments({ x: 0, y: 0 }).join("\n"),
+    ).toContain("Branch details are not available in this journey tree");
+  });
+
+  it("renders explicit hash suffixes for bounded Other branch details", () => {
+    const raw = rawInput();
+    const truncatedPath = `${"workspace/".repeat(27)}…#${"a".repeat(16)}`;
+    const other = {
+      ...node("signup > other", "signup", 2, {
+        pctOfRoot: 0.2,
+        pctOfParent: 0.2,
+      }),
+      kind: "other" as const,
+      label: "Other (2 branches)",
+      examples: [],
+      otherBranchCount: 2,
+      otherBranches: [
+        {
+          path: ["signup", truncatedPath],
+          pathTruncated: true,
+          key: "signup > workspace-a",
+          sourceStepKey: `workspace-a…#${"b".repeat(16)}`,
+          sourceStepKeyTruncated: true,
+          n: 1,
+          pctOfParent: 0.1,
+        },
+        {
+          path: ["signup", truncatedPath],
+          pathTruncated: true,
+          key: "signup > workspace-b",
+          sourceStepKey: `workspace-b…#${"c".repeat(16)}`,
+          sourceStepKeyTruncated: true,
+          n: 1,
+          pctOfParent: 0.1,
+        },
+      ],
+    };
+    const input = rawInput({
+      tree: { ...raw.tree, nodes: [...raw.tree.nodes.slice(0, 4), other] },
+    });
+    const fragments = plan(input).boardFragments({ x: 0, y: 0 }).join("\n");
+
+    expect(fragments).toContain(truncatedPath);
+    expect(fragments).toContain(
+      `Source step key: workspace-a…#${"b".repeat(16)}`,
     );
   });
 

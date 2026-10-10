@@ -29,6 +29,10 @@ import {
   retryContextFromRequest,
 } from "../../shared/agent-chat-run-not-started.js";
 import {
+  assertNoInlineImageBytes,
+  stripInlineBytes,
+} from "../../shared/inline-bytes.js";
+import {
   agentEngineStatusUrlForChatApi,
   requireAgentEngineConfiguredForDispatch,
 } from "../agent-engine-readiness.js";
@@ -1887,22 +1891,38 @@ function snapshotAnnotationKey(value: unknown): string {
     : JSON.stringify(["value", value]);
 }
 
+function persistedChatJson(
+  value: unknown,
+  label: string,
+  policy: "placeholder" | "reject" = "placeholder",
+): string {
+  const safe = stripInlineBytes(value, policy);
+  assertNoInlineImageBytes(safe, label);
+  return JSON.stringify(safe);
+}
+
 function threadSnapshotBody(input: {
   stored: StoredThread;
   title?: string;
   snapshotMessages: AgentMessage[];
   agentKit: Record<string, unknown>;
 }): string {
-  const repository = { messages: [], agentKit: input.agentKit };
-  return JSON.stringify({
-    threadData: JSON.stringify(repository),
-    title:
-      input.title ??
-      (typeof input.stored.title === "string" ? input.stored.title : ""),
-    preview:
-      typeof input.stored.preview === "string" ? input.stored.preview : "",
-    messageCount: input.snapshotMessages.length,
-  });
+  const threadData = persistedChatJson(
+    { messages: [], agentKit: input.agentKit },
+    "thread snapshot thread_data",
+  );
+  return persistedChatJson(
+    {
+      threadData,
+      title:
+        input.title ??
+        (typeof input.stored.title === "string" ? input.stored.title : ""),
+      preview:
+        typeof input.stored.preview === "string" ? input.stored.preview : "",
+      messageCount: input.snapshotMessages.length,
+    },
+    "thread snapshot request",
+  );
 }
 
 function storedMessageId(value: unknown): string | undefined {
@@ -2068,6 +2088,39 @@ function isRetryableHttpStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
 
+function throwIfRequestAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error("The AgentKit request was aborted.");
+  error.name = "AbortError";
+  throw error;
+}
+
+function waitForSnapshotRetry(
+  attempt: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  throwIfRequestAborted(signal);
+  return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      const error = new Error("The AgentKit request was aborted.");
+      error.name = "AbortError";
+      reject(error);
+    };
+    timer = setTimeout(
+      () => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      },
+      100 * 2 ** attempt,
+    );
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
+}
+
 function snapshotAnnotationConflicts(
   value: unknown,
 ): SnapshotAnnotationConflict[] {
@@ -2189,14 +2242,21 @@ export function createAgentNativeAgentKitTransport(
     return new Headers(configured);
   }
 
-  async function fetchThread(threadId: string): Promise<StoredThread | null> {
+  async function fetchThread(
+    threadId: string,
+    signal?: AbortSignal,
+  ): Promise<StoredThread | null> {
+    throwIfRequestAborted(signal);
+    const requestHeaders = await headers({ sessionId: threadId });
+    throwIfRequestAborted(signal);
     const response = await fetcher(
       scopedThreadEndpoint(
         `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
         options,
       ),
-      { headers: await headers({ sessionId: threadId }) },
+      { headers: requestHeaders, signal },
     );
+    throwIfRequestAborted(signal);
     if (response.status === 404) return null;
     if (!response.ok) throw await responseError(response);
     const value = await response.json();
@@ -2511,6 +2571,15 @@ export function createAgentNativeAgentKitTransport(
       threadId,
       runId: value.runId,
     });
+    if (
+      localRun?.status === "awaiting_approval" ||
+      localRun?.status === "awaiting_input"
+    ) {
+      // The Core turn can be terminal while the protocol run still owns a
+      // pending approval or input request and its resumable event stream.
+      runStatus = localRun.status;
+      error = undefined;
+    }
     return {
       id: localRun?.id ?? value.runId,
       threadId,
@@ -2729,14 +2798,20 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
-  async function persistThreadSnapshot(input: {
-    threadId: string;
-    snapshot: AgentThreadSnapshot;
-  }): Promise<void> {
-    let stored = await fetchThread(input.threadId);
+  async function persistThreadSnapshot(
+    input: {
+      threadId: string;
+      snapshot: AgentThreadSnapshot;
+    },
+    context?: AgentRequestContext,
+  ): Promise<void> {
+    const signal = context?.signal;
+    throwIfRequestAborted(signal);
+    let stored = await fetchThread(input.threadId, signal);
     let createdByAnotherRequest = false;
     if (!stored) {
       const requestHeaders = await headers({ sessionId: input.threadId });
+      throwIfRequestAborted(signal);
       requestHeaders.set("content-type", "application/json");
       const response = await fetcher(
         scopedThreadEndpoint(`${apiUrl}/threads`, options),
@@ -2747,10 +2822,12 @@ export function createAgentNativeAgentKitTransport(
             id: input.threadId,
             title: input.snapshot.title ?? "",
           }),
+          signal,
         },
       );
+      throwIfRequestAborted(signal);
       if (response.status === 409) {
-        const racedThread = await fetchThread(input.threadId);
+        const racedThread = await fetchThread(input.threadId, signal);
         if (!racedThread) throw await responseError(response);
         stored = racedThread;
         createdByAnotherRequest = true;
@@ -3278,6 +3355,7 @@ export function createAgentNativeAgentKitTransport(
     const persistChunk = async (
       entries: typeof updates,
     ): Promise<SnapshotAnnotationConflict[]> => {
+      throwIfRequestAborted(signal);
       const body = bodyFor(entries);
       if (encoder.encode(body).byteLength > MAX_THREAD_SNAPSHOT_REQUEST_BYTES) {
         if (entries.length > 1) {
@@ -3299,17 +3377,18 @@ export function createAgentNativeAgentKitTransport(
           ) {
             throw error;
           }
-          await new Promise((resolve) =>
-            setTimeout(resolve, 100 * 2 ** attempt),
-          );
+          await waitForSnapshotRetry(attempt, signal);
         };
+        throwIfRequestAborted(signal);
         let response: Response;
         try {
           response = await fetcher(threadUrl, {
             method: "PUT",
             headers: requestHeaders,
             body,
+            signal,
           });
+          throwIfRequestAborted(signal);
         } catch (error) {
           await retryAfterReadFailure(error);
           continue;
@@ -3329,19 +3408,20 @@ export function createAgentNativeAgentKitTransport(
             await retryAfterReadFailure(readError);
             continue;
           }
+          throwIfRequestAborted(signal);
           if (
             asRecord(error)?.retryable !== true ||
             attempt >= MAX_THREAD_SNAPSHOT_RETRIES
           ) {
             throw error;
           }
-          await new Promise((resolve) =>
-            setTimeout(resolve, 100 * 2 ** attempt),
-          );
+          await waitForSnapshotRetry(attempt, signal);
           continue;
         }
         try {
-          return snapshotAnnotationConflicts(await response.json());
+          const result = snapshotAnnotationConflicts(await response.json());
+          throwIfRequestAborted(signal);
+          return result;
         } catch (readError) {
           await retryAfterReadFailure(readError);
         }
@@ -3349,6 +3429,7 @@ export function createAgentNativeAgentKitTransport(
     };
     const annotationConflicts = new Map<string, SnapshotAnnotationConflict>();
     for (const entries of chunks) {
+      throwIfRequestAborted(signal);
       for (const conflict of await persistChunk(entries)) {
         annotationConflicts.set(
           JSON.stringify([
@@ -3384,6 +3465,17 @@ export function createAgentNativeAgentKitTransport(
     message?: AgentQueuedMessage;
     claimedMessage?: AgentQueuedMessage;
   }> {
+    if (mutation.type === "append") {
+      assertNoInlineImageBytes(
+        { type: "file", metadata: mutation.message.metadata },
+        "queuedMessage.metadata",
+      );
+    }
+    const body = persistedChatJson(
+      { mutation },
+      "queued message request",
+      "reject",
+    );
     const requestHeaders = await headers({ sessionId: threadId });
     requestHeaders.set("content-type", "application/json");
     const response = await fetcher(
@@ -3394,7 +3486,7 @@ export function createAgentNativeAgentKitTransport(
       {
         method: "POST",
         headers: requestHeaders,
-        body: JSON.stringify({ mutation }),
+        body,
       },
     );
     if (!response.ok) throw await responseError(response);
@@ -3825,6 +3917,19 @@ export function createAgentNativeAgentKitTransport(
             fromMessageId,
           };
         }
+        let safeForkSource: Record<string, unknown> | undefined;
+        if (forkSource) {
+          if (typeof forkSource.threadData !== "string") {
+            throw new TypeError("Fork source thread_data must be JSON text.");
+          }
+          safeForkSource = {
+            ...forkSource,
+            threadData: persistedChatJson(
+              JSON.parse(forkSource.threadData),
+              "fork source thread_data",
+            ),
+          };
+        }
         const requestHeaders = await headers({ sessionId: threadId });
         requestHeaders.set("content-type", "application/json");
         const response = await fetcher(
@@ -3832,11 +3937,14 @@ export function createAgentNativeAgentKitTransport(
           {
             method: "POST",
             headers: requestHeaders,
-            body: JSON.stringify({
-              id: forkId,
-              ...(forkSource ? { source: forkSource } : {}),
-              ...(metadata ? { metadata } : {}),
-            }),
+            body: persistedChatJson(
+              {
+                id: forkId,
+                ...(safeForkSource ? { source: safeForkSource } : {}),
+                ...(metadata ? { metadata } : {}),
+              },
+              "fork request",
+            ),
           },
         );
         if (!response.ok) throw await responseError(response);
@@ -3864,13 +3972,16 @@ export function createAgentNativeAgentKitTransport(
         const response = await fetcher(feedbackUrl, {
           method: "POST",
           headers: requestHeaders,
-          body: JSON.stringify({
-            threadId,
-            ...(runId ? { runId } : {}),
-            ...(messageSeq !== undefined ? { messageSeq } : {}),
-            feedbackType: value === "positive" ? "thumbs_up" : "thumbs_down",
-            value: { messageId, value, reason, metadata },
-          }),
+          body: persistedChatJson(
+            {
+              threadId,
+              ...(runId ? { runId } : {}),
+              ...(messageSeq !== undefined ? { messageSeq } : {}),
+              feedbackType: value === "positive" ? "thumbs_up" : "thumbs_down",
+              value: { messageId, value, reason, metadata },
+            },
+            "feedback request",
+          ),
         });
         if (!response.ok) throw await responseError(response);
         trackRunFeedback({ runId, threadId, positive: value === "positive" });

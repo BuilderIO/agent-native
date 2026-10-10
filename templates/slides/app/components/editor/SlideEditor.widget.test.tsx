@@ -1,12 +1,6 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -56,26 +50,12 @@ function Providers({ children }: { children: ReactNode }) {
   );
 }
 
-const deckSlides = [
-  { ...slide, id: "slide-before" },
-  slide,
-  { ...slide, id: "slide-next" },
-  { ...slide, id: "slide-last" },
-] as Slide[];
-
-function renderEditor(
-  readOnly = false,
-  extra: {
-    deckSlides?: Slide[];
-    onSelectFollowingSlide?: (slideId: string) => void;
-  } = {},
-) {
+function renderEditor(readOnly = false) {
   const noop = () => {};
   return render(
     <SlideEditor
       slide={slide}
       readOnly={readOnly}
-      {...extra}
       onUpdateSlide={() => undefined}
       onGenerateImage={noop}
       onOpenAssetLibrary={noop}
@@ -100,6 +80,10 @@ function stubViewport(width: number, height: number) {
   );
 }
 
+// React's generated ids differ between two renders of the same tree.
+const stableMarkup = (container: HTMLElement) =>
+  container.innerHTML.replace(/«r[0-9a-z]+»|_r_[0-9a-z]+_|:r[0-9a-z]+:/g, "id");
+
 describe("SlideEditor inside an MCP App widget", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
@@ -112,16 +96,32 @@ describe("SlideEditor inside an MCP App widget", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows the slide and editing toolbar without speaker notes in a writable widget", () => {
+  it.each([
+    ["writable", false],
+    ["read-only", true],
+  ])(
+    "renders the same markup as the standard editor in a %s widget",
+    (_name, readOnly) => {
+      stubViewport(524, 860);
+      const standard = stableMarkup(renderEditor(readOnly).container);
+      cleanup();
+
+      widget.embed = true;
+      const embedded = stableMarkup(renderEditor(readOnly).container);
+
+      expect(embedded).toBe(standard);
+    },
+  );
+
+  it("keeps the toolbar and speaker notes in a writable widget", () => {
     widget.embed = true;
     const { container } = renderEditor();
 
-    expect(container.querySelector(".slide-content")).not.toBeNull();
     expect(
       container.querySelector("[data-slide-context-toolbar]"),
     ).not.toBeNull();
     expect(container.querySelector("[data-editable='true']")).not.toBeNull();
-    expect(screen.queryByText("raw.speakerNotes")).toBeNull();
+    expect(screen.getByText("raw.speakerNotes")).toBeTruthy();
   });
 
   it("keeps a read-only widget free of editing controls", () => {
@@ -132,184 +132,8 @@ describe("SlideEditor inside an MCP App widget", () => {
     expect(container.querySelector("[data-editable='true']")).toBeNull();
   });
 
-  it("keeps the toolbar and speaker notes outside a widget", () => {
-    const { container } = renderEditor();
-
-    expect(
-      container.querySelector("[data-slide-context-toolbar]"),
-    ).not.toBeNull();
-    expect(screen.getByText("raw.speakerNotes")).toBeTruthy();
-  });
-
-  it.each([320, 524, 768, 1004])(
-    "scales the slide to a %s px widget pane",
-    (width) => {
-      widget.embed = true;
-      stubViewport(width, 860);
-      const { container } = renderEditor(true);
-      expect(canvasWidth(container)).toBe(`${width}px`);
-    },
-  );
-
-  it.each([320, 524, 768, 1004])(
-    "keeps the writable editor and formatting toolbar available at %s px",
-    (width) => {
-      widget.embed = true;
-      stubViewport(width, 860);
-      const { container } = renderEditor();
-
-      const toolbar = container.querySelector<HTMLElement>(
-        "[data-slide-context-toolbar='true']",
-      );
-      expect(canvasWidth(container)).toBe(`${width}px`);
-      expect(container.querySelector("[data-editable='true']")).not.toBeNull();
-      expect(toolbar).not.toBeNull();
-      expect(toolbar?.className).toContain("overflow-x-auto");
-      expect(toolbar?.className).toContain("whitespace-nowrap");
-    },
-  );
-
-  it("stacks the slides after the current one below it at the same width", () => {
+  it("caps the slide at 100% in a wide widget pane instead of scaling up", () => {
     widget.embed = true;
-    stubViewport(524, 860);
-    const onSelectFollowingSlide = vi.fn();
-    const { container } = renderEditor(true, {
-      deckSlides,
-      onSelectFollowingSlide,
-    });
-
-    const stack = container.querySelector<HTMLElement>(
-      "[data-following-slides='true']",
-    )!;
-    expect(stack.style.width).toBe(canvasWidth(container));
-    expect(
-      Array.from(stack.querySelectorAll("[data-following-slide-id]")).map(
-        (item) => item.getAttribute("data-following-slide-id"),
-      ),
-    ).toEqual(["slide-next", "slide-last"]);
-
-    fireEvent.click(
-      stack.querySelector("[data-following-slide-id='slide-last']")!,
-    );
-    expect(onSelectFollowingSlide).toHaveBeenCalledWith("slide-last");
-  });
-
-  it("renders following slide previews only near the visible pane", async () => {
-    widget.embed = true;
-    const observedTargets: Element[] = [];
-    let observer: {
-      callback: IntersectionObserverCallback;
-      disconnect: () => void;
-      observe: (target: Element) => void;
-    } | null = null;
-    class TestIntersectionObserver {
-      constructor(callback: IntersectionObserverCallback) {
-        observer = {
-          callback,
-          disconnect: () => undefined,
-          observe: (target) => observedTargets.push(target),
-        };
-      }
-      disconnect() {}
-      observe(target: Element) {
-        if (target.hasAttribute("data-following-slide-id")) {
-          observedTargets.push(target);
-        }
-      }
-      unobserve() {}
-      takeRecords() {
-        return [];
-      }
-    }
-    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
-
-    const largeDeck = [
-      slide,
-      ...Array.from({ length: 19 }, (_, index) => ({
-        ...slide,
-        id: `slide-${index}`,
-      })),
-    ] as Slide[];
-    const { container } = renderEditor(true, {
-      deckSlides: largeDeck,
-      onSelectFollowingSlide: vi.fn(),
-    });
-    const buttons = Array.from(
-      container.querySelectorAll<HTMLElement>("[data-following-slide-id]"),
-    );
-
-    expect(buttons).toHaveLength(19);
-    expect(observedTargets).toHaveLength(19);
-    expect(
-      buttons
-        .slice(0, 3)
-        .every((button) => button.querySelector(".slide-content")),
-    ).toBe(true);
-    expect(
-      buttons
-        .slice(3)
-        .every((button) => !button.querySelector(".slide-content")),
-    ).toBe(true);
-
-    const newlyVisible = buttons[12]!;
-    await act(async () => {
-      observer?.callback(
-        [
-          {
-            target: newlyVisible,
-            isIntersecting: true,
-          } as unknown as IntersectionObserverEntry,
-        ],
-        observer as unknown as IntersectionObserver,
-      );
-    });
-
-    expect(newlyVisible.querySelector(".slide-content")).not.toBeNull();
-  });
-
-  it("starts a newly selected slide at the top of the pane", () => {
-    widget.embed = true;
-    const props = {
-      readOnly: true,
-      onUpdateSlide: () => undefined,
-      onGenerateImage: () => {},
-      onOpenAssetLibrary: () => {},
-      onUploadImage: () => {},
-      onToggleObjectFit: () => {},
-      onChangeObjectPosition: () => {},
-    };
-    const { container, rerender } = render(
-      <SlideEditor {...props} slide={slide} />,
-      { wrapper: Providers },
-    );
-    const scroller = container.querySelector<HTMLElement>(".overflow-auto")!;
-    scroller.scrollTop = 320;
-
-    rerender(<SlideEditor {...props} slide={deckSlides[2]} />);
-
-    expect(scroller.scrollTop).toBe(0);
-  });
-
-  it("shows no stack after the last slide of the deck", () => {
-    widget.embed = true;
-    const { container } = renderEditor(true, {
-      deckSlides: [deckSlides[0], slide],
-      onSelectFollowingSlide: vi.fn(),
-    });
-
-    expect(container.querySelector("[data-following-slides]")).toBeNull();
-  });
-
-  it("never stacks following slides outside a widget", () => {
-    const { container } = renderEditor(false, {
-      deckSlides,
-      onSelectFollowingSlide: vi.fn(),
-    });
-
-    expect(container.querySelector("[data-following-slides]")).toBeNull();
-  });
-
-  it("still caps a normal editor at 100% instead of scaling up", () => {
     stubViewport(1004, 860);
     const { container } = renderEditor();
 

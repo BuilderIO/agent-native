@@ -134,13 +134,31 @@ Rewind ist standardmäßig deaktiviert. Nichts wird erfasst, bis Sie es in den E
 
 Aktivieren Sie Rewind über den Rewind-Tab in den Einstellungen. Sobald es aktiv ist, können Sie den Agenten Dinge fragen wie „was habe ich mir vor 20 Minuten angesehen?“, und er liest Textausschnitte aus dem lokalen Puffer mit Bildschirmtext, App- und Fensterkontext sowie Transkriptausschnitten. Der Agent erhält niemals die Aufnahmen selbst, mit einer Ausnahme: eine Anfrage, die Sie prüfen und genehmigen und die einen genauen Zeitbereich in einen privaten Clip verwandelt.
 
-#### Vorgeschichte hinzufügen
+### Frühere Bildschirmzeit {#earlier-screen-time}
 
-Im Editor eines Clips holt **Vorgeschichte hinzufügen** die vorherigen 30 Sekunden oder 5 Minuten aus Ihrem lokalen Rewind-Verlauf und fügt sie an den Anfang des Clips an. Der Clip muss auf diesem Gerät aufgenommen worden sein, während Rewind aktiv war, und die Momente müssen noch innerhalb des von Rewind aufbewahrten Verlaufs liegen.
+Frühere Bildschirmzeit fügt bis zu fünf Minuten Ihres Bildschirms hinzu, die von vor dem Start einer Aufnahme stammen und aus Rewind auf diesem Gerät entnommen werden. Sie wird der Aufnahme als eigener Kontext beigefügt. Sie wird nicht in das Video der Aufnahme eingefügt.
 
-- Der Clip muss privat sein, ohne dass jemand anderem direkter Zugriff gewährt wurde. Der Rewind-Verlauf kann Kontext von vor Ihrer Aufnahmeentscheidung enthalten, daher macht Clips den Clip zuerst privat und bricht ab, wenn jemand anderes noch Zugriff hat.
-- Die Mediendatei des Clips wird durch die kombinierte Aufnahme ersetzt. Transkript, Kapitel, Kommentare und Reaktionen verschieben sich, sodass ihre Zeitstempel weiterhin passen, und die Timeline markiert, wo der ursprüngliche Clip begann.
-- Es läuft einmal pro Clip und nur, wenn Sie danach fragen. Nichts wird automatisch aus Rewind hinzugefügt.
+Frühere Bildschirmzeit ist ein optionales Lab. Aktivieren Sie es unter **Einstellungen > Labs**, „Include earlier screen time“. Es ist standardmäßig ausgeschaltet.
+
+Wenn das Lab aktiviert ist, enthält das Popover der Clips-Desktop-App das Steuerelement **Letzte einbeziehen**. Wählen Sie **Aus** (Standard), **30 s**, **5 min** oder **Benutzerdefiniert…** für eine beliebige Länge bis zu fünf Minuten. Damit eine gewählte Länge wirksam wird, muss Rewind eingeschaltet sein und laufen. Wird eine Länge gewählt, während Rewind ausgeschaltet ist, öffnet sich eine kurze Erklärung mit der Schaltfläche **Rewind aktivieren**.
+
+Wenn Sie eine Aufnahme starten, wird das Zeitfenster angefordert, das Sie unter **Letzte einbeziehen** gewählt haben, und beim Start der Aufnahme von diesem Gerät hochgeladen. Bei **Aus** wird nichts angefordert.
+
+Um genau zu sehen, was Sie teilen, wählen Sie neben der früheren Bildschirmzeit in der Desktop-App **Bearbeiten**, sobald sie fertig ist. Der Editor zeigt eine Vorschau von bis zu fünf Minuten lokalem Verlauf von vor dem Start der Aufnahme. Die Vorschau wird auf Ihrem Gerät erstellt und niemals hochgeladen. Die Auswahl beginnt bei dem Zeitfenster, das Sie gewählt haben. Ziehen Sie an den Griffen, um sie zuzuschneiden, und verwenden Sie **Auswahl abspielen**, um nur diesen Teil abzuspielen.
+
+Das Zeitfenster hat drei Anzeigen: **Ab 1:30 vorher** (wie weit es zurückreicht), **Länge 1 min 30 s** und **Bis Aufnahmebeginn**, weil jedes Zeitfenster dort endet, wo die Aufnahme beginnt. Beginnt das Zeitfenster am Aufnahmebeginn, zeigt die erste Anzeige **Ab Aufnahmebeginn** an.
+
+**Speichern** lädt nur das ausgewählte Zeitfenster hoch. Abbrechen oder das Schließen des Editors auf andere Weise verwirft die Vorschau, und es wird nichts hochgeladen.
+
+Um frühere Bildschirmzeit zu entfernen, wählen Sie **Frühere Bildschirmzeit entfernen** in der Bearbeitungsansicht der Desktop-App oder im Bereich des Tabs Transkript auf der Clip-Seite und bestätigen Sie. Sie können auch den Agenten bitten, sie zu entfernen. Die Materialaufnahme wird in den Papierkorb verschoben, wo sie bleibt, bis Sie sie dort löschen, und der Clip enthält sie danach nicht mehr. Das Verwerfen einer Aufnahme entfernt außerdem die frühere Bildschirmzeit, die sie hatte.
+
+Eine Aufnahme, die auf einem anderen Gerät erfasst wurde, zeigt **Warten auf das Gerät, das diesen Clip aufgenommen hat**, bis dieses Gerät sie speichert. Nur dieses Gerät kann ihr Material exportieren, daher überspringen Ihre anderen Geräte sie. Ein Element ohne hinterlegtes Aufnahmegerät, etwa eines, das vor der Gerätezuordnung angefordert wurde, wird weiterhin von der Desktop-App verarbeitet, die die Aufnahme erfasst hat.
+
+Solange ein Clip frühere Bildschirmzeit hat, bleibt er privat. Eine Anfrage dafür macht den Clip privat, und die Anfrage wird abgelehnt, wenn der Clip noch direkt mit anderen Personen geteilt ist. Das Teilen ist blockiert, bis Sie die frühere Bildschirmzeit entfernen: Den Clip öffentlich oder für Ihre Organisation sichtbar zu machen oder jemandem Zugriff zu geben, wird abgelehnt.
+
+Auf der Clip-Seite zeigt der Tab Transkript die frühere Bildschirmzeit über dem Transkript an, mit ihrem Zeitfenster und einem eingebetteten Player. Die Bearbeitung erfolgt in der Clips-Desktop-App; dasselbe Panel kann sie auch entfernen. Der Agent kann das Zeitfenster und dessen Status lesen.
+
+Grenzen: Frühere Bildschirmzeit beträgt höchstens fünf Minuten. Der Verlauf umfasst nur das, was Rewind auf diesem Gerät noch aufbewahrt, daher sind ältere Momente möglicherweise nicht mehr verfügbar.
 
 ### Browserprotokolle über die Chrome-Erweiterung
 

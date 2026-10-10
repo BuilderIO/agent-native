@@ -1835,11 +1835,13 @@ const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
 const MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES = 4 * 1024;
 const MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
 const MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
+const MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES = 1024;
+const MAX_STRUCTURED_HISTORY_PINNED_PROMPT_PARTS =
+  MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES;
 const MAX_STRUCTURED_HISTORY_SOURCE_PARTS =
   MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS +
-  MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS;
-const MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES = 1024;
-const MAX_PINNED_ATTACHMENT_PROMPTS = 32;
+  MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS +
+  MAX_STRUCTURED_HISTORY_PINNED_PROMPT_PARTS;
 const MAX_PINNED_PRIOR_USER_PROMPT_CHARS = 16 * 1024;
 /** Above every other candidate, so the byte budget drops pinned asks last. */
 const PINNED_USER_PROMPT_TEXT_PRIORITY = 4;
@@ -2507,6 +2509,7 @@ interface BoundedStructuredHistorySources {
   messages: StructuredHistorySourceMessage[];
   omitted: boolean;
   toolHistoryOmitted: boolean;
+  hasAttachmentHistory: boolean;
   toolBoundary?: StructuredHistorySourceBoundary;
   currentPromptMessageIndex?: number;
 }
@@ -2618,25 +2621,36 @@ function boundedStructuredHistorySources(
       break;
     }
   }
-  // The first ask, latest prior ask, and recent attachment turns stay in the
-  // window however long the agentic tail after them grows.
-  // ponytail: only the newest 32 attachment turns are pinned; older ones fall
-  // back to the newest-first window.
+  // The first ask, latest prior ask, and attachment turns stay in the window
+  // however long the agentic tail after them grows.
   const pinnedUserPromptMessageIndices = new Set(
     [
       firstUserPromptMessageIndex,
       previousUserPromptMessageIndex,
-      ...attachmentPromptMessageIndices.slice(-MAX_PINNED_ATTACHMENT_PROMPTS),
+      ...attachmentPromptMessageIndices,
     ].filter((index): index is number => index !== undefined),
   );
-  const regularTextPartLimit =
-    MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS -
-    pinnedUserPromptMessageIndices.size;
+  const nonAttachmentPinnedPromptCount = [
+    firstUserPromptMessageIndex,
+    previousUserPromptMessageIndex,
+  ].filter(
+    (index, position, indexes) =>
+      index !== undefined &&
+      !attachmentPromptMessageIndices.includes(index) &&
+      indexes.indexOf(index) === position,
+  ).length;
+  const regularTextPartLimit = Math.max(
+    0,
+    MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS - nonAttachmentPinnedPromptCount,
+  );
+  const selectedTextPartLimit =
+    regularTextPartLimit + pinnedUserPromptMessageIndices.size;
 
   const selectedReversed: StructuredHistorySourceMessage[] = [];
   const pinnedPromptsAdded = new Set<number>();
   let selectedToolPartCount = 0;
   let selectedTextPartCount = 0;
+  let selectedRegularTextPartCount = 0;
   let scannedPartCount = 0;
   let visitedMessageCount = 0;
   let toolBoundary: StructuredHistorySourceBoundary | undefined;
@@ -2658,7 +2672,7 @@ function boundedStructuredHistorySources(
       text = `${text.slice(0, MAX_PINNED_PRIOR_USER_PROMPT_CHARS)}\n[Earlier user message truncated in history.]`;
     }
     if (!text.trim()) return;
-    if (selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS) {
+    if (selectedTextPartCount >= selectedTextPartLimit) {
       omitted = true;
       return;
     }
@@ -2715,7 +2729,7 @@ function boundedStructuredHistorySources(
       }
       if (
         selectedToolPartCount >= MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS &&
-        selectedTextPartCount >= MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS
+        selectedTextPartCount >= selectedTextPartLimit
       ) {
         omitted = true;
         toolHistoryOmitted = true;
@@ -2732,11 +2746,12 @@ function boundedStructuredHistorySources(
         }
         selectedToolPartCount++;
       } else {
-        if (selectedTextPartCount >= regularTextPartLimit) {
+        if (selectedRegularTextPartCount >= regularTextPartLimit) {
           omitted = true;
           continue;
         }
         selectedTextPartCount++;
+        selectedRegularTextPartCount++;
       }
       partsReversed.push(
         attachmentStub === undefined
@@ -2792,6 +2807,7 @@ function boundedStructuredHistorySources(
     messages: selectedReversed.reverse(),
     omitted,
     toolHistoryOmitted,
+    hasAttachmentHistory: attachmentPromptMessageIndices.length > 0,
     ...(toolBoundary ? { toolBoundary } : {}),
     ...(currentPromptMessageIndex !== undefined
       ? { currentPromptMessageIndex }
@@ -3121,6 +3137,7 @@ function nativeStructuredHistoryFromMessages(
     !hasToolHistory &&
     supplementalMessages.length === 0 &&
     !sources.omitted &&
+    !sources.hasAttachmentHistory &&
     !supplementalHistoryOmitted &&
     !supplementalToolHistoryOmitted
   ) {

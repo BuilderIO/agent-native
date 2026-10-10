@@ -91,11 +91,21 @@ pnpm dev
 
 ### スクリーンメモリ (Rewind)
 
-| Action                                                                                                                          | 内容                                                        |
-| ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `get-screen-memory-status`、`query-screen-memory-context`                                                                       | ローカルの Rewind バッファを読み取る                        |
-| `request-rewind-extension`、`get-rewind-extension-request`、`list-rewind-extension-requests`、`update-rewind-extension-request` | Rewind の履歴をクリップに追加するための、確認と承認のフロー |
-| `apply-rewind-extension`、`make-recording-private-for-rewind`                                                                   | 承認された拡張の適用。先にクリップを非公開にする            |
+| Action                                                                                                                          | 内容                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-screen-memory-status`、`query-screen-memory-context`                                                                       | ローカルの Rewind バッファを読み取る                                                                                                                  |
+| `request-rewind-extension`、`get-rewind-extension-request`、`list-rewind-extension-requests`、`update-rewind-extension-request` | 非推奨の互換 action。これらを使っていたエディターの選択肢は削除済み。録画前の画面には `request-recording-context` を使う                              |
+| `apply-rewind-extension`                                                                                                        | 非推奨の互換 action。削除されたエディターの選択肢向けに、承認された拡張を適用する                                                                     |
+| `make-recording-private-for-rewind`                                                                                             | 先にクリップを非公開にする                                                                                                                            |
+| `request-recording-context`                                                                                                     | 所有者のみ。録画前の画面を要求する。クリップは非公開になる                                                                                            |
+| `request-recording-context` (`deviceId`)                                                                                        | 任意。項目に、クリップを録画したデバイスを記録し、そのデバイスのデスクトップ アプリだけがエクスポートするようにする。省略すると、デバイスの記録がない |
+| `list-recording-context`                                                                                                        | クリップの有効な録画前の画面の項目: その範囲と状態 (閲覧者のアクセス)                                                                                 |
+| `list-pending-recording-context`                                                                                                | 自分が所有するクリップの保留中の項目。デスクトップのエクスポート ワーカー用                                                                           |
+| `list-pending-recording-context` (`deviceId`)                                                                                   | 任意。`deviceId` を指定すると、このデバイスが録画した項目と、デバイスの記録がない項目だけを返す。指定しない場合は絞り込まれない (旧クライアント向け)  |
+| `update-recording-context`                                                                                                      | デスクトップ ワーカーが項目を `processing`、`ready`、`failed` のいずれかで報告する                                                                    |
+| `set-recording-context-window`                                                                                                  | 元の 5 分の範囲内で項目を切り取る。項目は `pending` に戻り、再エクスポートされる                                                                      |
+| `remove-recording-context`                                                                                                      | 所有者のみ。項目を削除し、そのフッテージの録画をゴミ箱に移す。デスクトップの編集ビューとトランスクリプト タブのパネルの両方がこれを呼び出す           |
+| `rewind_preview_window`, `rewind_preview_discard`                                                                               | デスクトップ アプリ専用 (action ではなく Tauri コマンド)。ウィンドウのローカル プレビューを作成または削除する。アップロードされることはない           |
 
 ### クロスアプリとインサイト
 

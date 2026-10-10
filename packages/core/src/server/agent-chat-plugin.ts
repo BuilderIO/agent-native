@@ -210,7 +210,6 @@ import {
   resourceListAccessible,
   resourceGet,
   ensurePersonalDefaults,
-  isWorkspaceResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
 } from "../resources/store.js";
@@ -241,6 +240,7 @@ import {
   handleSharedThreadRequest,
   type SharedThreadRouteDependencies,
 } from "./agent-chat/shared-thread.js";
+import { sortResourceSkills } from "./agent-chat/skill-frontmatter.js";
 import { discoverAgents } from "./agent-discovery.js";
 import {
   resolveAgentRunOrgId,
@@ -3522,8 +3522,11 @@ export function createAgentChatPlugin(
       // have to open the (single-process) local database itself while this
       // server is already holding it open. Gated internally on deploy
       // environment, loopback, and a per-process token — see dev-action-bridge.ts.
-      const { mountDevActionForwardRoute, mountDevDbQueryForwardRoute } =
-        await import("./dev-action-bridge.js");
+      const {
+        mountDevActionForwardRoute,
+        mountDevDbMigrateForwardRoute,
+        mountDevDbQueryForwardRoute,
+      } = await import("./dev-action-bridge.js");
       mountDevActionForwardRoute(nitroApp, httpActions, {
         appId: options?.appId,
       });
@@ -3531,6 +3534,9 @@ export function createAgentChatPlugin(
       // it — this is the dedicated forward target `pnpm action db-query`
       // uses instead (see dev-query-proxy.ts).
       mountDevDbQueryForwardRoute(nitroApp);
+      // `agent-native db-migrate` applies migrations through this server's own
+      // PGlite client instead of opening the data dir from a second process.
+      mountDevDbMigrateForwardRoute(nitroApp);
       mountWebMcpActionRoutes(nitroApp, httpActions, {
         getOwnerFromEvent,
         getOwnerContextFromEvent: resolveOwnerContext,
@@ -5935,28 +5941,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // Resources not available — skip
           }
 
-          resourceSkills.sort((a, b) => {
-            const ownerOrder =
-              (a.owner === skillsOwner
-                ? 0
-                : a.owner === SHARED_OWNER
-                  ? 1
-                  : isWorkspaceResourceOwner(a.owner)
-                    ? 2
-                    : 3) -
-              (b.owner === skillsOwner
-                ? 0
-                : b.owner === SHARED_OWNER
-                  ? 1
-                  : isWorkspaceResourceOwner(b.owner)
-                    ? 2
-                    : 3);
-            if (ownerOrder !== 0) return ownerOrder;
-            const pathOrder =
-              (a.path.endsWith("/SKILL.md") ? 0 : 1) -
-              (b.path.endsWith("/SKILL.md") ? 0 : 1);
-            if (pathOrder !== 0) return pathOrder;
-            return a.path.localeCompare(b.path);
+          resourceSkills = sortResourceSkills(resourceSkills, {
+            owner: skillsOwner,
+            orgId: skillsOrgId,
           });
           for (const r of resourceSkills) {
             let full;

@@ -76,6 +76,10 @@ import {
   resolveDesktopDesignSnapshotLayer,
   useDesktopDesignNativePreview,
 } from "@/lib/desktop-design-preview";
+import {
+  isSameOriginRoutePath,
+  resolveSameOriginRoutePath,
+} from "@/lib/route-path";
 import { cn } from "@/lib/utils";
 import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
 import {
@@ -178,6 +182,10 @@ import {
   routePendingTextEditKey,
   schedulePendingTextEditActivation,
 } from "./design-canvas/pending-text-edit";
+import {
+  connectPrivateReplayScreenshotPreview,
+  preparePrivateReplayScreenshotPreviewDocument,
+} from "./design-canvas/private-replay-screenshot-preview";
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
 import type { RelativeStyleOperation } from "./edit-panel/style-change-types";
@@ -943,7 +951,8 @@ function isCurrentLiveEditReadyMessage(
         : null;
     if (!targetPath) return "invalid";
     const expectedRoutePath = targetPath.pathname + targetPath.search;
-    if (typeof routePath === "string" && routePath) {
+    if (routePath !== undefined && routePath !== null && routePath !== "") {
+      if (!isSameOriginRoutePath(routePath)) return "invalid";
       return routePath === expectedRoutePath ? "current" : "stale";
     }
     return previousRoutePath === null || previousRoutePath === expectedRoutePath
@@ -963,8 +972,8 @@ function liveEditDocumentIdentityForRoute(
     const targetUrl = liveEdit.searchParams.get("url");
     if (!targetUrl) return { status: "invalid" };
     const target = new URL(targetUrl);
-    const route = new URL(routePath, target.origin);
-    if (route.origin !== target.origin) return { status: "invalid" };
+    const route = resolveSameOriginRoutePath(target.origin, routePath);
+    if (!route) return { status: "invalid" };
     target.pathname = route.pathname;
     target.search = route.search;
     target.hash = route.hash;
@@ -3410,6 +3419,16 @@ export function DesignCanvas({
     transparentBackground,
   ]);
 
+  const privateScreenshotPreview = useMemo(
+    () =>
+      readOnly || snapshotOnly
+        ? preparePrivateReplayScreenshotPreviewDocument(srcdoc ?? "", {
+            designId,
+          })
+        : { html: srcdoc ?? "", screenshotPaths: [], nonce: null },
+    [designId, readOnly, snapshotOnly, srcdoc],
+  );
+
   const srcdocVersionRef = useRef({ srcdoc, version: 0 });
   if (srcdocVersionRef.current.srcdoc !== srcdoc) {
     srcdocVersionRef.current = {
@@ -3706,6 +3725,13 @@ export function DesignCanvas({
             return;
           }
         } else {
+          if (
+            e.data.routePath !== undefined &&
+            e.data.routePath !== null &&
+            typeof e.data.routePath !== "string"
+          ) {
+            return;
+          }
           if (typeof e.data.routePath === "string" && e.data.routePath) {
             const routeIdentity = liveEditDocumentIdentityForRoute(
               externalPreviewUrlRef.current,
@@ -3904,7 +3930,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "agent-native:live-route-path") {
-        if (typeof e.data.routePath === "string" && e.data.routePath) {
+        if (isSameOriginRoutePath(e.data.routePath)) {
           const routeChanged =
             liveRoutePathRef.current !== null &&
             liveRoutePathRef.current !== e.data.routePath;
@@ -4055,7 +4081,7 @@ export function DesignCanvas({
         setReadyIframeDocumentIdentity(readyDocumentIdentity);
         flushPendingOneShotMessages();
       }
-      if (typeof e.data.routePath === "string" && e.data.routePath) {
+      if (isSameOriginRoutePath(e.data.routePath)) {
         liveRoutePathRef.current = e.data.routePath;
         onRoutePathChange?.(screenId, e.data.routePath);
       }
@@ -5647,7 +5673,7 @@ export function DesignCanvas({
     applyOffset();
     iframe.addEventListener("load", applyOffset);
     return () => iframe.removeEventListener("load", applyOffset);
-  }, [embeddedContentOffsetX, embeddedContentOffsetY]);
+  }, [embeddedContentOffsetX, embeddedContentOffsetY, iframeElementIdentity]);
 
   const layoutGridStepRef = useRef(layoutGridStep);
   layoutGridStepRef.current = layoutGridStep;
@@ -7381,7 +7407,9 @@ export function DesignCanvas({
           key={iframeElementIdentity}
           ref={iframeRef}
           src={externalPreviewUrl ?? undefined}
-          srcDoc={externalPreviewUrl ? undefined : srcdoc}
+          srcDoc={
+            externalPreviewUrl ? undefined : privateScreenshotPreview.html
+          }
           sandbox={getDesignCanvasIframeSandbox({
             externalPreview: Boolean(externalPreviewUrl),
             readOnly: readOnly || snapshotOnly,
@@ -7406,6 +7434,14 @@ export function DesignCanvas({
             );
           }}
           onLoad={(event) => {
+            if (!externalPreviewUrl && designId) {
+              connectPrivateReplayScreenshotPreview(
+                event.currentTarget,
+                privateScreenshotPreview.screenshotPaths,
+                privateScreenshotPreview.nonce,
+                designId,
+              );
+            }
             tabFocusedLiveFrames.delete(event.currentTarget);
             markExternalPreviewDocumentLoaded();
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();

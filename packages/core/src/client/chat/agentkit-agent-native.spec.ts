@@ -100,6 +100,83 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
   });
 
+  it("propagates snapshot cancellation and does not retry after abort", async () => {
+    const threadId = "cancelled-snapshot";
+    const calls: Array<{ method: string; init?: RequestInit }> = [];
+    let threadReads = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        calls.push({ method, init });
+        if (url.endsWith(`/threads/${threadId}`) && method === "GET") {
+          threadReads += 1;
+          return threadReads === 1
+            ? json({ error: "Not found" }, 404)
+            : json({
+                id: threadId,
+                threadData: JSON.stringify({ messages: [] }),
+              });
+        }
+        if (url.endsWith("/threads") && method === "POST") {
+          return json({ error: "Already exists" }, 409);
+        }
+        if (url.endsWith(`/threads/${threadId}`) && method === "PUT") {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(init.signal?.reason),
+              { once: true },
+            );
+          });
+        }
+        return json({ error: "Unexpected request" }, 500);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+    const abortController = new AbortController();
+
+    try {
+      const persistence = transport.persistThreadSnapshot?.(
+        {
+          threadId,
+          snapshot: {
+            id: threadId,
+            createdAt: "2026-10-01T00:00:00.000Z",
+            updatedAt: "2026-10-01T00:00:01.000Z",
+            messages: [
+              {
+                id: "user-message",
+                role: "user",
+                parts: [{ type: "text", text: "Save this message" }],
+              },
+            ],
+          },
+        },
+        { signal: abortController.signal },
+      );
+      await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
+      abortController.abort();
+
+      await expect(persistence).rejects.toMatchObject({ name: "AbortError" });
+      expect(calls.map(({ method }) => method)).toEqual([
+        "GET",
+        "POST",
+        "GET",
+        "PUT",
+      ]);
+      expect(
+        calls.every(({ init }) => init?.signal === abortController.signal),
+      ).toBe(true);
+    } finally {
+      abortController.abort();
+      await transport.dispose();
+    }
+  });
+
   it("uses the transport engine when checking AI readiness", async () => {
     resetAgentEngineReadinessForTests();
     const localFetch = vi.fn(async () => json({ chatEligible: true }));
@@ -262,6 +339,56 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(JSON.parse(savedThreadData ?? "{}").agentKit.messages).toEqual([
       expect.objectContaining({ id: "prompt-1", role: "user" }),
     ]);
+  });
+
+  it("scrubs inline image data before sending a thread snapshot PUT", async () => {
+    const threadId = "snapshot-inline-image-data";
+    const inlineData = "data:image/png;base64,INLINE_SNAPSHOT_PIXELS";
+    let savedBody: string | undefined;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes(`/threads/${threadId}`) && init?.method === "PUT") {
+          savedBody = String(init.body);
+          return json({ ok: true });
+        }
+        if (url.includes(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ agentKit: { messages: [] } }),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+        messages: [
+          {
+            id: "user-image-prompt",
+            role: "user",
+            parts: [
+              { type: "text", text: `Describe this reference: ${inlineData}` },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(savedBody).toBeDefined();
+    expect(savedBody).not.toContain("data:image/");
+    expect(savedBody).not.toContain("INLINE_SNAPSHOT_PIXELS");
+    expect(savedBody).toContain("[inline image/png data omitted]");
+    await transport.dispose();
   });
 
   it("merges raced snapshot widgets by their globally unique ID", async () => {
@@ -2141,6 +2268,33 @@ describe("createAgentNativeAgentKitTransport", () => {
           .map(([input]) => String(input))
           .filter((url) => url.includes("/threads/thread-scope")),
       ).toEqual([`${apiUrl}/threads/thread-scope/queued${expectedQuery}`]);
+      await transport.dispose();
+    },
+  );
+
+  it.each([
+    "data:image/png;base64,INLINE_QUEUE_PIXELS",
+    { type: "image", source: { type: "base64", data: "INLINE_QUEUE_PIXELS" } },
+  ])(
+    "rejects inline image bytes in queued metadata before sending",
+    async (image) => {
+      const fetcher = vi.fn(async () =>
+        json({ error: "Unexpected request" }, 500),
+      );
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: fetcher as typeof fetch,
+      });
+
+      await expect(
+        transport.queueMessage?.({
+          threadId: "thread-queue-inline-metadata",
+          text: "Continue",
+          metadata: { custom: { image } },
+        }),
+      ).rejects.toThrow("queuedMessage.metadata");
+
+      expect(fetcher).not.toHaveBeenCalled();
       await transport.dispose();
     },
   );
@@ -6021,8 +6175,9 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("normalizes a resumed runtime ID in the active-run snapshot", async () => {
+  it("preserves a paused protocol run when Core reports the turn as terminal", async () => {
     const threadId = "thread-active-runtime-alias";
+    let approvalPending = true;
     async function* approvalEvents(): AsyncIterable<AgentChatRuntimeKnownEvent> {
       yield {
         type: "approval-request",
@@ -6045,11 +6200,17 @@ describe("createAgentNativeAgentKitTransport", () => {
         });
       }
       if (url.includes(`/runs/active?threadId=${threadId}`)) {
-        return json({
-          active: true,
-          status: "running",
-          runId: "runtime-after-approval",
-        });
+        return approvalPending
+          ? json({
+              active: false,
+              status: "completed",
+              runId: "runtime-before-approval",
+            })
+          : json({
+              active: true,
+              status: "running",
+              runId: "runtime-after-approval",
+            });
       }
       return json({ error: "Not found" }, 404);
     });
@@ -6096,6 +6257,16 @@ describe("createAgentNativeAgentKitTransport", () => {
       expect(next.done).toBe(false);
       if (next.value?.type === "approval.requested") break;
     }
+    const pausedSnapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(pausedSnapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: runId,
+        status: "awaiting_approval",
+      }),
+    );
+    expect(pausedSnapshot?.activeRunIds).toContain(runId);
+    approvalPending = false;
     const resumed = await transport.resumeRun?.({
       threadId,
       runId,
@@ -7876,6 +8047,17 @@ describe("createAgentNativeAgentKitTransport", () => {
                     id: "user-1",
                     role: "user",
                     parts: [{ type: "text", text: "Review it" }],
+                    metadata: {
+                      custom: {
+                        legacyImage: {
+                          type: "image",
+                          name: "legacy-reference.png",
+                          data: "data:image/png;base64,LEGACY_FORK_PIXEL_URL",
+                          base64: "LEGACY_FORK_RAW_BASE64",
+                          url: "data:image/png;base64,LEGACY_FORK_PIXEL_URL",
+                        },
+                      },
+                    },
                   },
                   {
                     id: "assistant-1",
@@ -7988,6 +8170,12 @@ describe("createAgentNativeAgentKitTransport", () => {
     };
     expect(forkBody.source?.messageCount).toBe(2);
     expect(forkBody.source?.fromMessageId).toBe("assistant-1");
+    const serializedForkSource = JSON.stringify(
+      JSON.parse(forkBody.source?.threadData ?? "{}"),
+    );
+    expect(serializedForkSource).not.toContain("data:image/");
+    expect(serializedForkSource).not.toContain("LEGACY_FORK_RAW_BASE64");
+    expect(serializedForkSource).toContain('"omitted":"inline-bytes"');
     expect(
       JSON.parse(forkBody.source?.threadData ?? "{}").messages,
     ).toHaveLength(1);

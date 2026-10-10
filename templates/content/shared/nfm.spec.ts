@@ -1768,3 +1768,25 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 });
+
+describe("docToNfm — long containers", () => {
+  it("serializes a quote holding more blocks than fit in one function call's arguments", () => {
+    const count = 200_000;
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "blockquote",
+          content: Array.from({ length: count }, (_, i) => ({
+            type: "paragraph",
+            content: [{ type: "text", text: `p${i}` }],
+          })),
+        },
+      ],
+    };
+    const lines = docToNfm(doc).split("\n");
+    expect(lines).toHaveLength(count);
+    expect(lines[0]).toBe("> p0");
+    expect(lines[count - 1]).toBe(`\tp${count - 1}`);
+  });
+});

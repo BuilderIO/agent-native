@@ -363,6 +363,7 @@ describe("resolveCanvasIntent", () => {
     ["Create a display leaderboard", "Leaderboard", 728, 90],
     ["Create a leaderboard ad", "Leaderboard", 728, 90],
     ["Create a leaderboard banner", "Leaderboard", 728, 90],
+    ["Create a mobile leaderboard", "Mobile Leaderboard", 320, 50],
     ["Create a mobile leaderboard ad", "Mobile Leaderboard", 320, 50],
     ["Create an email header", "Email Header", 600, 200],
   ])("resolves %s to %s", (prompt, preset, width, height) => {
@@ -410,7 +411,6 @@ describe("resolveCanvasIntent", () => {
     "Design an ad campaign manager",
     "Create a sales leaderboard",
     "Create a mobile leaderboard app",
-    "Create a mobile leaderboard",
     "Build a mobile leaderboard component",
     "Create a display leaderboard editor",
     "Create a display leaderboard screen",
@@ -561,5 +561,17 @@ describe("requestedCanvasDeviceVariants", () => {
     expect(
       requestedCanvasDeviceVariants("Create a mobile LinkedIn ad"),
     ).toEqual([]);
+  });
+
+  it.each([
+    "Create a promo banner, no mobile version",
+    "Create a promo banner without a mobile version",
+    "Create a banner with no mobile or tablet versions",
+    "Create a banner without mobile and tablet versions",
+    "Create a desktop and mobile banner, excluding tablet variants",
+  ])("respects excluded device variants in %s", (prompt) => {
+    expect(requestedCanvasDeviceVariants(prompt)).toEqual(
+      prompt.includes("desktop and mobile") ? ["desktop", "mobile"] : [],
+    );
   });
 });

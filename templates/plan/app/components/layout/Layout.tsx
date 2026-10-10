@@ -22,6 +22,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { isPlanChatPath } from "@/lib/chat-route";
 
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
@@ -90,7 +91,7 @@ export function Layout({ children }: LayoutProps) {
 
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const planDetailRoute = isPlanDetailRoute(location.pathname);
-  const chatRoute = pathname === "/chat";
+  const chatRoute = isPlanChatPath(pathname);
   const planScope = useMemo(() => {
     if (!planDetailRoute || pathname.startsWith("/local-plans/")) {
       return undefined;
@@ -136,7 +137,7 @@ export function Layout({ children }: LayoutProps) {
   useAgentChatHomeHandoffLinks({
     storageKey: "plans",
     chatPath: "/chat",
-    isChatPath: (path) => (path.replace(/\/+$/, "") || "/") === "/chat",
+    isChatPath: isPlanChatPath,
     requireActiveHandoff: true,
   });
   // Settings brings its own navigation, header, and agent toggle, so it

@@ -96,6 +96,13 @@ export class InvalidCanvasDimensionsError extends Error {
 
 export type CanvasDeviceVariant = "desktop" | "tablet" | "mobile";
 
+function isNegatedDeviceMention(prompt: string, index: number): boolean {
+  const precedingText = prompt.slice(Math.max(0, index - 48), index);
+  return /\b(?:no|without|exclud(?:e|ed|ing)|avoid|skip|not|never|don't|do not)(?:\s+(?:include|use|make|create|add))?\s+(?:(?:the|a|an|any)\s+)?(?:(?:desktop|mobile|tablet)\s*(?:[,/&]|\b(?:and|or)\b)\s*)*$/i.test(
+    precedingText,
+  );
+}
+
 export function requestedCanvasDeviceVariants(
   prompt?: string,
 ): CanvasDeviceVariant[] {
@@ -111,11 +118,16 @@ export function requestedCanvasDeviceVariants(
     for (const deviceMatch of match[0].matchAll(
       /\b(desktop|mobile|tablet)\b/gi,
     )) {
-      requested.add(deviceMatch[1]!.toLowerCase() as CanvasDeviceVariant);
+      const index = match.index! + deviceMatch.index!;
+      if (!isNegatedDeviceMention(prompt, index)) {
+        requested.add(deviceMatch[1]!.toLowerCase() as CanvasDeviceVariant);
+      }
     }
   }
   for (const match of prompt.matchAll(namedVariant)) {
-    requested.add(match[1]!.toLowerCase() as CanvasDeviceVariant);
+    if (!isNegatedDeviceMention(prompt, match.index!)) {
+      requested.add(match[1]!.toLowerCase() as CanvasDeviceVariant);
+    }
   }
 
   return (["desktop", "tablet", "mobile"] as const).filter((device) =>
@@ -260,7 +272,7 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
   const { phrase: output, head } = requestedOutput(value);
   const explicitDisplayLeaderboard =
     head.toLowerCase() === "leaderboard" &&
-    /\bdisplay\s+leaderboard\b/i.test(output);
+    /\b(?:display|mobile)\s+leaderboard\b/i.test(output);
   if (PRODUCT_SURFACE_HEAD.test(head) && !explicitDisplayLeaderboard) {
     return { kind: "responsive" };
   }

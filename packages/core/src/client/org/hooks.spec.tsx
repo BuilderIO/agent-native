@@ -6,7 +6,13 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useOrg, useOrgMembers } from "./hooks.js";
+import { notifySessionInvalidated } from "../use-session.js";
+import { useOrg, useOrgMembers, useSwitchOrg } from "./hooks.js";
+
+vi.mock("../use-session.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../use-session.js")>()),
+  notifySessionInvalidated: vi.fn(() => Promise.resolve()),
+}));
 
 const org: OrgInfo = {
   email: "admin@example.test",
@@ -108,5 +114,47 @@ describe("useOrgMembers", () => {
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refetches org-scoped queries only after the session re-read resolves", async () => {
+    let finishSessionRead!: () => void;
+    vi.mocked(notifySessionInvalidated).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishSessionRead = resolve;
+      }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ success: true })),
+    );
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    let switchOrg!: (orgId: string) => Promise<unknown>;
+
+    function Probe() {
+      switchOrg = useSwitchOrg().mutateAsync;
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+    });
+
+    let switching!: Promise<unknown>;
+    await act(async () => {
+      switching = switchOrg("org-2");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(notifySessionInvalidated).toHaveBeenCalledTimes(1);
+    expect(invalidate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishSessionRead();
+      await switching;
+    });
+    expect(invalidate).toHaveBeenCalledTimes(1);
   });
 });
