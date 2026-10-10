@@ -308,23 +308,49 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
   );
 }
 
+export function isExpectedBrowserSessionPollNavigationConsoleError(
+  message: string,
+  activePhase: string,
+  candidates: WatchedRequestNavigationCandidate[],
+) {
+  if (
+    message !== "[Agent-Native browser session] poll failed: JSHandle@object"
+  ) {
+    return false;
+  }
+
+  if (activePhase !== "save/reload" && activePhase !== "cleanup/navigation") {
+    return false;
+  }
+
+  return candidates.some((candidate) =>
+    isExpectedWatchedRequestNavigationAbort(candidate, [
+      browserSessionClaimRequestRule,
+    ]),
+  );
+}
+
 export function isExpectedCleanupBrowserSessionPollConsoleError(
   message: string,
   candidates: WatchedRequestNavigationCandidate[],
 ) {
   if (
-    message !==
+    message ===
     "[Agent-Native browser session] poll failed: TypeError: Load failed"
   ) {
-    return false;
+    return candidates.some((candidate) =>
+      isExpectedWatchedRequestCorsError(
+        `Fetch API cannot load ${candidate.url} due to access control checks.`,
+        "cleanup/navigation",
+        [candidate],
+      ),
+    );
   }
 
-  return candidates.some((candidate) =>
-    isExpectedWatchedRequestCorsError(
-      `Fetch API cannot load ${candidate.url} due to access control checks.`,
-      "cleanup/navigation",
-      [candidate],
-    ),
+  return isExpectedBrowserSessionPollNavigationConsoleError(
+    message,
+    "cleanup/navigation",
+    candidates,
   );
 }
 
@@ -1010,6 +1036,11 @@ export async function runAuthoringFuzz(
         reloadNavigationCandidates,
       ) ||
       isExpectedWatchedRequestCorsError(
+        message.text(),
+        activePhase,
+        reloadNavigationCandidates,
+      ) ||
+      isExpectedBrowserSessionPollNavigationConsoleError(
         message.text(),
         activePhase,
         reloadNavigationCandidates,
@@ -4823,6 +4854,7 @@ export async function runAuthoringFuzz(
         }
       }
     });
+    reloadNavigationStartedAt = null;
     assertAuthoringPersistence(persistence);
     await checkPageErrors();
     const unexpectedConflictPaths = [

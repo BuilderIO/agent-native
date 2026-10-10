@@ -20,6 +20,7 @@ import {
   isConflictResourceConsoleError,
   isBrowserSessionPath,
   isCaretScrollOnlyChange,
+  isExpectedBrowserSessionPollNavigationConsoleError,
   isExpectedSaveReloadBrowserSessionConsoleError,
   isExpectedSaveReloadWatchedRequestAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
@@ -1444,6 +1445,71 @@ it("ignores browser-session poll or heartbeat errors only for matching canceled 
       heartbeatWarning,
       "save/reload",
       [{ ...registrationCandidate, ageMs: 9_000 }],
+    ),
+  ).toBe(false);
+});
+
+it("recognizes Firefox poll errors only for a canceled browser-session claim navigation", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+  const warning = "[Agent-Native browser session] poll failed: JSHandle@object";
+
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "save/reload", [
+      candidate,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [candidate]),
+  ).toBe(true);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "step 72", [
+      candidate,
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "save/reload", [
+      { ...candidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "save/reload", [
+      { ...candidate, ageMs: 9_000 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "save/reload", [
+      { ...candidate, method: "GET" },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "save/reload", [
+      {
+        ...candidate,
+        url: "http://localhost:45715/_agent-native/actions/get-lab-states",
+        pathname: "/_agent-native/actions/get-lab-states",
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "save/reload", [
+      {
+        ...candidate,
+        url: "http://localhost:45715/_agent-native/browser-sessions",
+        pathname: "/_agent-native/browser-sessions",
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(
+      "[Agent-Native browser session] poll failed: Browser-session request failed (503)",
+      "save/reload",
+      [candidate],
     ),
   ).toBe(false);
 });
