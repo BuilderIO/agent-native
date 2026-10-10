@@ -31,6 +31,8 @@ import {
 import {
   getResourceKind,
   isRemoteAgentPath,
+  getFrontmatterValue,
+  parseFrontmatter,
   parseCustomAgentProfile,
   parseRemoteAgentManifest,
   parseSkillMetadata,
@@ -44,6 +46,7 @@ import {
   resourceGetByPath,
   resourcePut,
   resourcePutIfAbsent,
+  resourcePutIfCurrent,
   resourceDelete,
   resourceDeleteIfCurrent,
   resourceList,
@@ -500,6 +503,11 @@ export async function handleCreateResource(event: any) {
     const writeOptions =
       body.metadata !== undefined ? { metadata: body.metadata } : undefined;
     const organizationId = organizationIdFromResourceOwner(owner);
+    const content = body.content ?? "";
+    const declaredName = getFrontmatterValue(
+      parseFrontmatter(content),
+      "name",
+    )?.trim();
     for (let suffix = 1; suffix <= 1000; suffix += 1) {
       const path =
         suffix === 1 ? body.path : `skills/${match[1]}-${suffix}/SKILL.md`;
@@ -511,16 +519,53 @@ export async function handleCreateResource(event: any) {
       ) {
         continue;
       }
-      const resource = await resourcePutIfAbsent(
-        owner,
-        path,
-        body.content ?? "",
-        body.mimeType,
-        writeOptions,
-      );
-      if (resource) {
-        setResponseStatus(event, 201);
-        return resource;
+      let nextPath = false;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const resource = await resourcePutIfAbsent(
+          owner,
+          path,
+          content,
+          body.mimeType,
+          writeOptions,
+        );
+        if (resource) {
+          setResponseStatus(event, 201);
+          return resource;
+        }
+
+        const existing = await resourceGetByPath(owner, path, {
+          orgId: organizationId,
+        });
+        if (!existing) continue;
+
+        const existingName = getFrontmatterValue(
+          parseFrontmatter(existing.content),
+          "name",
+        )?.trim();
+        if (!declaredName || existingName !== declaredName) {
+          nextPath = true;
+          break;
+        }
+
+        const updated = await resourcePutIfCurrent({
+          owner,
+          path,
+          content,
+          expectedId: existing.id,
+          expectedUpdatedAt: existing.updatedAt,
+          expectedContent: existing.content,
+          mimeType: body.mimeType,
+        });
+        if (updated) {
+          setResponseStatus(event, 200);
+          return updated;
+        }
+      }
+      if (!nextPath) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Could not update or find an available path for this skill",
+        };
       }
     }
 

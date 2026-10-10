@@ -4,6 +4,7 @@ const mockResourceGet = vi.fn();
 const mockResourceGetByPath = vi.fn();
 const mockResourcePut = vi.fn();
 const mockResourcePutIfAbsent = vi.fn();
+const mockResourcePutIfCurrent = vi.fn();
 const mockResourceDelete = vi.fn();
 const mockResourceDeleteIfCurrent = vi.fn();
 const mockResourceDeleteByPath = vi.fn();
@@ -47,6 +48,7 @@ vi.mock("./store.js", () => ({
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
   resourcePutIfAbsent: (...args: any[]) => mockResourcePutIfAbsent(...args),
+  resourcePutIfCurrent: (...args: any[]) => mockResourcePutIfCurrent(...args),
   resourceDelete: (...args: any[]) => mockResourceDelete(...args),
   resourceDeleteIfCurrent: (...args: any[]) =>
     mockResourceDeleteIfCurrent(...args),
@@ -155,6 +157,7 @@ describe("resource handlers", () => {
     mockResourceGet.mockResolvedValue(null);
     mockResourceGetByPath.mockReset().mockResolvedValue(null);
     mockResourcePutIfAbsent.mockResolvedValue(null);
+    mockResourcePutIfCurrent.mockReset().mockResolvedValue(null);
     mockResourceDeleteIfCurrent.mockResolvedValue(true);
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
     mockIsLocalWorkspaceResourceId.mockReturnValue(false);
@@ -595,6 +598,11 @@ Legacy webhook.`,
     });
 
     it("creates an uploaded skill at the next path when the requested one exists", async () => {
+      mockResourceGetByPath.mockResolvedValue({
+        id: "existing-skill",
+        content: "different skill",
+        updatedAt: 1000,
+      });
       const created = {
         id: "new-skill",
         path: "skills/review-feedback-2/SKILL.md",
@@ -629,6 +637,139 @@ Legacy webhook.`,
         "test@test.com",
         "skills/review-feedback-2/SKILL.md",
         "new content",
+        "text/markdown",
+        undefined,
+      );
+    });
+
+    it("updates an existing uploaded skill when its declared name matches", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/review-feedback/SKILL.md",
+        content: "---\nname: review-feedback\n---\nOld",
+        updatedAt: 123,
+      };
+      const updated = {
+        ...existing,
+        content: "---\nname: review-feedback\n---\nNew",
+      };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfCurrent.mockResolvedValue(updated);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: existing.path,
+          content: updated.content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual(updated);
+      expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
+        owner: "test@test.com",
+        path: existing.path,
+        content: updated.content,
+        expectedId: existing.id,
+        expectedUpdatedAt: existing.updatedAt,
+        expectedContent: existing.content,
+        mimeType: "text/markdown",
+      });
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "test@test.com",
+        existing.path,
+        updated.content,
+        "text/markdown",
+        undefined,
+      );
+    });
+
+    it("retries a same-name upload after a concurrent update wins", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/review-feedback/SKILL.md",
+        content: "---\nname: review-feedback\n---\nOld",
+        updatedAt: 123,
+      };
+      const concurrentlyUpdated = {
+        ...existing,
+        content: "---\nname: review-feedback\n---\nIntervening",
+        updatedAt: 124,
+      };
+      const updated = {
+        ...existing,
+        content: "---\nname: review-feedback\n---\nNew",
+      };
+      mockResourcePutIfAbsent.mockResolvedValue(null);
+      mockResourceGetByPath
+        .mockResolvedValueOnce(existing)
+        .mockResolvedValueOnce(concurrentlyUpdated);
+      mockResourcePutIfCurrent
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(updated);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: existing.path,
+          content: updated.content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual(updated);
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledTimes(2);
+      expect(mockResourcePutIfCurrent).toHaveBeenCalledTimes(2);
+      expect(mockResourcePutIfCurrent).toHaveBeenLastCalledWith({
+        owner: "test@test.com",
+        path: existing.path,
+        content: updated.content,
+        expectedId: existing.id,
+        expectedUpdatedAt: concurrentlyUpdated.updatedAt,
+        expectedContent: concurrentlyUpdated.content,
+        mimeType: "text/markdown",
+      });
+    });
+
+    it("keeps different declared names at the same slug in separate paths", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/release-notes/SKILL.md",
+        content: "---\nname: release-notes\n---\nExisting",
+      };
+      const created = {
+        id: "new-skill",
+        owner: "test@test.com",
+        path: "skills/release-notes-2/SKILL.md",
+        content: "---\nname: Release Notes\n---\nNew",
+      };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfAbsent
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: "skills/release-notes/SKILL.md",
+          content: created.content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
+      expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
+        2,
+        "test@test.com",
+        created.path,
+        created.content,
         "text/markdown",
         undefined,
       );
