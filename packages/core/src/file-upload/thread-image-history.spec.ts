@@ -249,6 +249,43 @@ describe("hydratePriorThreadImages", () => {
     expect(budget.remainingCandidates).toBe(0);
   });
 
+  it("hydrates newest images first within the shared byte budget and returns them chronologically", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const bytes = Buffer.from(JPEG_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(bytes, { headers: { "content-type": "image/jpeg" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const urls = [
+      "https://storage.example/older.jpg",
+      "https://storage.example/middle.jpg",
+      "https://storage.example/newest.jpg",
+    ];
+    const budget = createOwnedAttachmentHydrationBudget();
+    budget.remainingCandidates = urls.length;
+    budget.remainingBytes = bytes.byteLength * 2;
+
+    const result = await hydratePriorThreadImages(
+      JSON.stringify({
+        messages: urls.map((url, index) =>
+          storedImage(["older.jpg", "middle.jpg", "newest.jpg"][index]!, url),
+        ),
+      }),
+      { budget },
+    );
+
+    expect(findProviderMock.mock.calls).toEqual([[urls[2]], [urls[1]]]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.attachments.map((attachment) => attachment.name)).toEqual([
+      "middle.jpg",
+      "newest.jpg",
+    ]);
+    expect(result.contextNote).toContain(
+      "not readable from configured upload storage",
+    );
+  });
+
   it("fails distinctly when the trusted thread history cannot be parsed", async () => {
     await expect(hydratePriorThreadImages("{invalid")).rejects.toBeInstanceOf(
       PriorThreadImageHistoryReadError,

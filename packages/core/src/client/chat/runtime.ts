@@ -1800,17 +1800,19 @@ function priorNativeHistoryMessages(
 ) {
   const source = messages ?? [];
   let currentPromptMessageIndex: number | undefined;
-  if (currentPrompt.trim()) {
-    for (let index = source.length - 1; index >= 0; index--) {
-      const message = source[index]!;
-      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
-      if (message.role !== "user" && message.role !== "assistant") continue;
-      if (message.role === "user") {
+  for (let index = source.length - 1; index >= 0; index--) {
+    const message = source[index]!;
+    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    if (message.role === "user") {
+      if (!currentPrompt.trim()) {
+        currentPromptMessageIndex = index;
+      } else {
         const match = runtimeMessageTextMatches(message, currentPrompt);
         if (match.matches || !match.complete) currentPromptMessageIndex = index;
       }
-      break;
     }
+    break;
   }
   return source.filter(
     (message, index) =>
@@ -2596,20 +2598,22 @@ function boundedStructuredHistorySources(
   let currentPromptScanLimited = false;
   let omitted = false;
   let toolHistoryOmitted = false;
-  if (currentPrompt.trim()) {
-    let visitedMessages = 0;
-    for (let index = historyMessages.length - 1; index >= 0; index--) {
-      if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
-        currentPromptScanLimited = true;
-        omitted = true;
-        toolHistoryOmitted = true;
-        break;
-      }
-      visitedMessages++;
-      const message = historyMessages[index]!;
-      if (isSyntheticToolHistoryOmissionMessage(message)) continue;
-      if (message.role !== "user" && message.role !== "assistant") continue;
-      if (message.role === "user") {
+  let visitedMessages = 0;
+  for (let index = historyMessages.length - 1; index >= 0; index--) {
+    if (visitedMessages >= MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES) {
+      currentPromptScanLimited = true;
+      omitted = true;
+      toolHistoryOmitted = true;
+      break;
+    }
+    visitedMessages++;
+    const message = historyMessages[index]!;
+    if (isSyntheticToolHistoryOmissionMessage(message)) continue;
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    if (message.role === "user") {
+      if (!currentPrompt.trim()) {
+        currentPromptMessageIndex = index;
+      } else {
         const match = runtimeMessageTextMatches(message, currentPrompt);
         if (match.matches) currentPromptMessageIndex = index;
         if (!match.complete) {
@@ -2618,8 +2622,8 @@ function boundedStructuredHistorySources(
           currentPromptMessageIndex = index;
         }
       }
-      break;
     }
+    break;
   }
 
   let firstUserPromptMessageIndex: number | undefined;

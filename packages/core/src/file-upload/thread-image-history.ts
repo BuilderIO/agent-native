@@ -157,7 +157,9 @@ export async function hydratePriorThreadImages(
   const attachments: AgentChatAttachment[] = [];
   let unreadableCount = 0;
 
-  for (const candidate of selected) {
+  // Spend the shared request budget on the newest images first, then return
+  // successful attachments in their original chronological order.
+  for (const candidate of [...selected].reverse()) {
     if (!claimOwnedAttachmentHydrationCandidate(budget)) break;
     const result = await hydrateOwnedImageUrl(
       candidate.url,
@@ -194,7 +196,7 @@ export async function hydratePriorThreadImages(
   }
 
   return {
-    attachments,
+    attachments: attachments.reverse(),
     ...(notes.length > 0
       ? {
           contextNote: `<prior-chat-image-context>${notes.join(" ")}</prior-chat-image-context>`,

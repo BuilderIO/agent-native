@@ -689,6 +689,68 @@ describe("createAgentNativeChatRuntime", () => {
     expect(body.attachments).toEqual([attachment]);
   });
 
+  it("keeps an empty-prompt image turn out of prior history", async () => {
+    const currentImage = {
+      type: "image" as const,
+      alt: "reference.png",
+      mediaType: "image/png",
+      data: "data:image/png;base64,CURRENT_IMAGE_BYTES",
+      url: "https://files.example.test/reference.png",
+    };
+    const requestAttachment = {
+      type: "image/png",
+      name: "reference.png",
+      mediaType: "image/png",
+      data: currentImage.data,
+      url: currentImage.url,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done", reason: "complete" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      threadId: "thread-image-only",
+    });
+    const turn = await session.startTurn({
+      prompt: "",
+      attachments: [requestAttachment],
+      messages: [
+        {
+          id: "prior-request",
+          role: "user",
+          content: [{ type: "text", text: "Earlier request" }],
+        },
+        {
+          id: "current-image",
+          role: "user",
+          content: [currentImage],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = (body.structuredHistory ?? []) as Array<{
+      content: Array<{ type: string; url?: string }>;
+    }>;
+
+    expect(body.attachments).toEqual([requestAttachment]);
+    expect(body.history).toEqual([
+      { role: "user", content: "Earlier request" },
+    ]);
+    expect(
+      structuredHistory.flatMap((message) => message.content),
+    ).not.toContainEqual(
+      expect.objectContaining({
+        type: "image-reference",
+        url: currentImage.url,
+      }),
+    );
+  });
+
   it("keeps the original request context when a run-timeout stream closes without done", async () => {
     const fetchMock = vi
       .fn()
