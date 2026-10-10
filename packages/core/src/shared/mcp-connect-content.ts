@@ -1134,11 +1134,19 @@ const MCP_ENVIRONMENT_NAME_PREFIX: Readonly<
 };
 
 function mcpLabelHash(label: string): string {
-  let hash = 0x811c9dc5;
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
   for (let index = 0; index < label.length; index++) {
-    hash = Math.imul(hash ^ label.charCodeAt(index), 0x01000193);
+    const code = label.charCodeAt(index);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
   }
-  return (hash >>> 0).toString(36).padStart(7, "0");
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const hash = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+  return hash.toString(36).padStart(11, "0");
 }
 
 /**
@@ -1147,24 +1155,35 @@ function mcpLabelHash(label: string): string {
  * hostname label is valid DNS but pushes `preview-agent-native-<label>` past
  * 64 characters. A label that already fits is used as is. Cleaning or
  * shortening one loses what told it apart (`@acme/notes` and `acme-notes`,
- * two long labels with the same start), so those names end in a hash of the
- * whole label instead. A name the developer configures is still refused.
+ * two long labels with the same start), so those names end in `__` and a
+ * hash of the whole label instead. `__` marks only those names: a label that
+ * contains it is fitted too, or `acme-notes__<hash>` could be spelled
+ * directly and take the cleaned app's entry. A 32-bit hash was too short:
+ * colliding labels could be found by brute force in seconds. A name the
+ * developer configures is still refused.
  */
 export function derivedMcpServerBaseName(
   label: string,
   environment: McpConnectEnvironment,
 ): string {
   const room = 64 - MCP_ENVIRONMENT_NAME_PREFIX[environment].length;
-  const name = `agent-native-${label || "app"}`;
-  if (PLAIN_MCP_SERVER_NAME.test(name) && name.length <= room) return name;
+  const name = `agent-native-${label}`;
+  if (
+    label &&
+    !label.includes("__") &&
+    PLAIN_MCP_SERVER_NAME.test(name) &&
+    name.length <= room
+  ) {
+    return name;
+  }
   const hash = mcpLabelHash(label);
-  const slug = label
-    .replace(/[^A-Za-z0-9_-]+/g, "-")
-    .replace(/^[^A-Za-z0-9]+/, "");
+  const slug =
+    label.replace(/[^A-Za-z0-9-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "") ||
+    "app";
   const head = `agent-native-${slug}`
-    .slice(0, room - hash.length - 1)
-    .replace(/[-_]+$/, "");
-  return `${head}-${hash}`;
+    .slice(0, room - hash.length - 2)
+    .replace(/-+$/, "");
+  return `${head}__${hash}`;
 }
 
 export function mcpConnectServerName(

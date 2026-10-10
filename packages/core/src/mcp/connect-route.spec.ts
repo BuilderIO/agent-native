@@ -1514,7 +1514,7 @@ describe("connect identity", () => {
     const label = `deploy-preview-6800--${"x".repeat(42)}`;
     const { serverName } = await identityFor(`${label}.netlify.app`);
     expect(serverName).toMatch(
-      /^preview-agent-native-deploy-preview-6800--x+-[0-9a-z]{7}$/,
+      /^preview-agent-native-deploy-preview-6800--x+__[0-9a-z]{11}$/,
     );
     expect(serverName.length).toBeLessThanOrEqual(64);
   });

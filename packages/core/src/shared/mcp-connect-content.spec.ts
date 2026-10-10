@@ -169,11 +169,24 @@ describe("MCP server names", () => {
       "deploy-preview-6800--mail",
       `${"x".repeat(60)}-one`,
       `${"x".repeat(60)}-two`,
+      // Under the old 32-bit hash these two shared one name.
+      `${"a".repeat(60)}16vu`,
+      `${"a".repeat(60)}cyea`,
+      "",
+      "app",
     ];
     const names = labels.flatMap((label) =>
       environments.map((environment) => nameFor(label, environment)),
     );
     expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("keeps a cleaned label apart from a plain label spelled like its result", () => {
+    const cleaned = derivedMcpServerBaseName("@acme/notes", "production");
+    const spelled = cleaned.slice("agent-native-".length);
+    expect(spelled).toMatch(/^acme-notes__/);
+    expect(derivedMcpServerBaseName(spelled, "production")).not.toBe(cleaned);
+    expect(nameFor(spelled, "beta")).not.toBe(nameFor("@acme/notes", "beta"));
   });
 
   it.each(["beta-plan", "Preview-plan", "local-plan"])(
@@ -212,9 +225,11 @@ describe("MCP server names", () => {
 
   it.each([
     ["mail", "production", /^agent-native-mail$/],
-    ["", "production", /^agent-native-app$/],
-    ["[::1]", "local", /^agent-native-1-[0-9a-z]{7}$/],
-    ["@acme/notes", "production", /^agent-native-acme-notes-[0-9a-z]{7}$/],
+    ["app", "production", /^agent-native-app$/],
+    ["", "production", /^agent-native-app__[0-9a-z]{11}$/],
+    ["[::1]", "local", /^agent-native-1__[0-9a-z]{11}$/],
+    ["@acme/notes", "production", /^agent-native-acme-notes__[0-9a-z]{11}$/],
+    ["mail__beta", "production", /^agent-native-mail-beta__[0-9a-z]{11}$/],
   ] as const)(
     "derives a publishable base name from %j",
     (label, environment, expected) => {
@@ -226,7 +241,7 @@ describe("MCP server names", () => {
   it("shortens a derived name so the environment prefix still fits", () => {
     const name = nameFor("a".repeat(63), "preview");
     expect(name).toHaveLength(64);
-    expect(name).toMatch(/^preview-agent-native-a+-[0-9a-z]{7}$/);
+    expect(name).toMatch(/^preview-agent-native-a+__[0-9a-z]{11}$/);
   });
 });
 
