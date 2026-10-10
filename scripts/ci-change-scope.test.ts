@@ -742,6 +742,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   };
   const regressionCases = step("Run focused Design regression cases");
   const aiSidebarLoopback = step("Run AI sidebar loopback image regressions");
+  const musicAppWorkflow = step("Run long music-app workflow regression");
+  const musicAppDiagnostics = step("Upload music-app workflow diagnostics");
   const changedSpecRegressions = step("Run changed Design E2E specs");
   const screenSelectionRegressions = step(
     "Run focused Screen selection history regressions",
@@ -756,6 +758,55 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /--shard="\$\{changed_shard\}\/48"/,
     "changed-spec diagnostics must retain full coverage across 48 shards",
   );
+  assert.ok(
+    changedSpecRegressions.includes(
+      "--grep-invert 'create a responsive music-app desktop shell under a Screen root$'",
+    ),
+    "the long music-app workflow must run only in its dedicated interaction shard",
+  );
+  assert.match(
+    musicAppWorkflow,
+    /^        if: \$\{\{ matrix\.shard == 'music-app-workflow' && contains\(fromJSON\(needs\.change-scope\.outputs\.design_canvas_e2e_specs\), 'templates\/design\/e2e\/interaction-responsive-music-app\.spec\.ts'\) \}\}$/m,
+    "the long regression must use an exact changed-spec selector gate",
+  );
+  assert.match(
+    musicAppWorkflow,
+    /^        timeout-minutes: 12$/m,
+    "the long music-app workflow needs a bounded 12-minute test step",
+  );
+  assert.ok(
+    musicAppWorkflow.includes(
+      "DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}",
+    ),
+    "the long regression must use the shared changed-spec selector",
+  );
+  assert.ok(
+    musicAppWorkflow.includes(
+      "music_app_spec='e2e/interaction-responsive-music-app.spec.ts'",
+    ) &&
+      musicAppWorkflow.includes('if [[ ! -f "$music_app_spec" ]]; then') &&
+      musicAppWorkflow.includes(
+        'printf \'%s\\n\' "${existing_changed_specs[@]}" | grep -Fqx "$music_app_spec"',
+      ),
+    "the long regression must preflight that its selected spec still exists and resolved",
+  );
+  assert.ok(
+    musicAppWorkflow.includes(
+      "pnpm exec playwright test \"$music_app_spec\" \\\n            --grep 'create a responsive music-app desktop shell under a Screen root$' \\\n            --workers=1 --retries=0 --trace on",
+    ),
+    "the dedicated shard must run only the long test once and retain a failure trace",
+  );
+  assert.match(
+    musicAppDiagnostics,
+    /^        if: \$\{\{ failure\(\) && matrix\.shard == 'music-app-workflow' \}\}$/m,
+    "the dedicated shard must upload diagnostics when its long regression fails",
+  );
+  assert.ok(
+    musicAppDiagnostics.includes(
+      "templates/design/test-results/design-music-app-${{ github.run_id }}-${{ github.run_attempt }}/",
+    ),
+    "the failure artifact must retain the dedicated Playwright trace output",
+  );
   assert.match(
     screenSelectionRegressions,
     /^        if: startsWith\(matrix\.shard, 'screen-history-'\)$/m,
@@ -763,8 +814,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     regressionCases,
-    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) && matrix\.shard != 'ai-sidebar-loopback' \}\}$/m,
-    "fixed Design regressions must not run on Screen-history or AI sidebar shards",
+    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) && matrix\.shard != 'ai-sidebar-loopback' && matrix\.shard != 'music-app-workflow' \}\}$/m,
+    "fixed Design regressions must not run on Screen-history, AI sidebar, or long music-app shards",
   );
   assert.equal(
     aiSidebarLoopback.match(/^        if: (.+)$/m)?.[1],
@@ -875,10 +926,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'",
     "matrix filtering must stay out of the job-level condition",
   );
+  const designJobWithoutMusicWorkflow = designJob.replace(musicAppWorkflow, "");
   assert.doesNotMatch(
-    designJob,
+    designJobWithoutMusicWorkflow,
     /changed-\d+|design_canvas_e2e_specs/,
-    "the required Design lane must only run the bounded regression and history shards",
+    "only the dedicated long shard may depend on the changed-spec selector",
   );
   const diagnosticJobStart = workflow.indexOf(
     "  design-canvas-changed-spec-diagnostics:\n",
@@ -916,8 +968,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const jobTimeout = 9;
   assert.match(
     designJob,
-    /^    timeout-minutes: \$\{\{ matrix\.shard == 'ai-sidebar-loopback' && 20 \|\| 9 \}\}$/m,
-    "the longer AI sidebar shard timeout must not lengthen the other Design shards",
+    /^    timeout-minutes: \$\{\{ matrix\.shard == 'music-app-workflow' && 15 \|\| matrix\.shard == 'ai-sidebar-loopback' && 20 \|\| 9 \}\}$/m,
+    "the longer music-app and AI sidebar caps must not lengthen ordinary Design shards",
   );
   const stepTimeout = Number(
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
@@ -960,7 +1012,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   const shardEntries = [
     ...designJob.matchAll(
-      /^\s{12}((?:(?:inspector|drag|position|screen-history)-[^,\s)]+|ai-sidebar-loopback)),?\s*$/gm,
+      /^\s{12}((?:(?:inspector|drag|position|screen-history)-[^,\s)]+|ai-sidebar-loopback|music-app-workflow)),?\s*$/gm,
     ),
   ].map(([, shard]) => shard);
   assert.deepEqual(shardEntries, [
@@ -969,6 +1021,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "screen-history-2",
     "screen-history-3",
     "ai-sidebar-loopback",
+    "music-app-workflow",
   ]);
   assert.doesNotMatch(
     regressionCases,
@@ -1600,6 +1653,52 @@ test("keeps runnable specs while excluding deleted paths from the same selector"
       ],
       removedSpecs: ["e2e/removed-by-this-change.spec.ts"],
     },
+  );
+});
+
+test("routes the long music-app workflow from its exact changed spec path", () => {
+  const musicAppPath =
+    "templates/design/e2e/interaction-responsive-music-app.spec.ts";
+  const musicAppScope = classifyChangedPaths([musicAppPath]);
+  assert.deepEqual(musicAppScope.designCanvasE2eSpecs, [musicAppPath]);
+  assert.equal(musicAppScope.checks.design_canvas_interaction_e2e, true);
+
+  const selectedMusicApp = resolveDesignE2ESpecs(
+    JSON.stringify([musicAppPath]),
+    {
+      isFile: (specPath) =>
+        specPath === "e2e/interaction-responsive-music-app.spec.ts",
+    },
+  );
+  assert.deepEqual(selectedMusicApp, {
+    existingSpecs: ["e2e/interaction-responsive-music-app.spec.ts"],
+    removedSpecs: [],
+  });
+
+  const unrelatedSelection = resolveDesignE2ESpecs(
+    JSON.stringify(["templates/design/e2e/interaction-selection.spec.ts"]),
+    { isFile: () => true },
+  );
+  assert.deepEqual(unrelatedSelection, {
+    existingSpecs: ["e2e/interaction-selection.spec.ts"],
+    removedSpecs: [],
+  });
+  assert.ok(
+    !unrelatedSelection.existingSpecs.includes(
+      "e2e/interaction-responsive-music-app.spec.ts",
+    ),
+    "an unrelated changed spec must not route the long music-app workflow",
+  );
+
+  assert.deepEqual(
+    resolveDesignE2ESpecs(JSON.stringify([musicAppPath]), {
+      isFile: () => false,
+    }),
+    {
+      existingSpecs: [],
+      removedSpecs: ["e2e/interaction-responsive-music-app.spec.ts"],
+    },
+    "a deleted music-app spec should pass the file preflight as a no-op",
   );
 });
 
