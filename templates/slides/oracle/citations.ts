@@ -369,7 +369,7 @@ function collectExpression(
   out: Registration[],
   context: Context,
 ): void {
-  const node = value as AstNode;
+  const node = callOf(value);
   if (node.type !== "CallExpression") return;
   const declaration = testDeclaration(node.callee, context);
   if (declaration === undefined) return;
@@ -638,11 +638,25 @@ function resolveFunction(
 }
 
 /** The dotted names of an identifier or plain member chain, e.g. it.skip.each. */
+/**
+ * The call a statement's expression makes. swc parses `it?.only(...)` as an
+ * optional chain whose base is the call, so the chain is read through to it.
+ */
+function callOf(value: unknown): AstNode {
+  const node = value as AstNode;
+  return node.type === "OptionalChainingExpression"
+    ? (node.base as AstNode)
+    : node;
+}
+
 function memberChain(node: unknown): string[] | undefined {
   const value = node as AstNode | undefined;
   if (value === undefined) return undefined;
   if (value.type === "Identifier" && typeof value.value === "string") {
     return [value.value];
+  }
+  if (value.type === "OptionalChainingExpression") {
+    return memberChain(value.base);
   }
   if (
     VALUE_WRAPPERS.has(String(value.type)) ||
@@ -668,9 +682,17 @@ function memberName(member: AstNode): string | undefined {
   const property = member.property as AstNode | undefined;
   if (property?.type === "Computed") {
     const key = property.expression as AstNode | undefined;
-    return key?.type === "StringLiteral" && typeof key.value === "string"
-      ? key.value
-      : undefined;
+    if (key?.type === "StringLiteral" && typeof key.value === "string") {
+      return key.value;
+    }
+    // A template with no substitutions is a static name, as in it[`only`].
+    if (key?.type === "TemplateLiteral" && Array.isArray(key.expressions)) {
+      const quasi = (key.quasis as AstNode[])[0];
+      return key.expressions.length === 0 && typeof quasi?.cooked === "string"
+        ? quasi.cooked
+        : undefined;
+    }
+    return undefined;
   }
   return property?.type === "Identifier" && typeof property.value === "string"
     ? property.value

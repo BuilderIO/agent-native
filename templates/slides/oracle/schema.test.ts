@@ -27,19 +27,11 @@ const MARKDOWN_PATH = fileURLToPath(
   new URL("../interaction-oracle.md", import.meta.url),
 );
 
-// Ledger rows are the first cell of each md table row. The header ("id") and
-// separator rows are skipped; every other first cell is treated as an id.
+// The ids come from the same reader the parity checks use, so an indented row
+// is seen by the ID coverage checks too, not skipped by a stricter copy.
 function readMarkdownLedgerIds(): string[] {
   const markdown = readFileSync(MARKDOWN_PATH, "utf8");
-  const ids: string[] = [];
-  for (const line of markdown.split("\n")) {
-    if (!line.startsWith("|")) continue;
-    const firstCell = line.split("|")[1].trim();
-    if (firstCell === "" || firstCell === "id") continue;
-    if (/^:?-+:?$/.test(firstCell)) continue;
-    ids.push(firstCell);
-  }
-  return ids;
+  return readMarkdownLedger(markdown).map((row) => row.id);
 }
 
 function readAllRows(): OracleRow[] {

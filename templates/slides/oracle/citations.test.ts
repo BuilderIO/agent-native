@@ -555,6 +555,15 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual(["9.4", "9.6"]);
   });
 
+  it("counts a focus written as an optional chain or a template-keyed member", () => {
+    const source = [
+      `it?.only("optional (oracle 9.8)", () => {});`,
+      'it[`only`]("template (oracle 9.10)", () => {});',
+      `it("snaps (oracle 9.9)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.8", "9.10"]);
+  });
+
   it("counts ordinary tests when a focus sits inside a hook, which runs at test time", () => {
     const source = [
       `beforeEach(() => { it.only("never runs", () => {}); });`,
