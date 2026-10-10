@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { patchRecordingTitleInListData } from "@/hooks/use-library";
 import { cn } from "@/lib/utils";
 
 interface EditableRecordingTitleProps {
@@ -47,17 +48,8 @@ function patchRecordingTitle(
 
   queryClient.setQueriesData(
     { queryKey: ["action", "list-recordings"] },
-    (old: any) => {
-      if (!Array.isArray(old?.recordings)) return old;
-      return {
-        ...old,
-        recordings: old.recordings.map((recording: any) =>
-          recording?.id === recordingId
-            ? { ...recording, title, updatedAt }
-            : recording,
-        ),
-      };
-    },
+    (old: any) =>
+      patchRecordingTitleInListData(old, recordingId, title, updatedAt),
   );
 }
 
