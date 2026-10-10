@@ -573,6 +573,9 @@ describe("reaper successor resume context", () => {
     expect(starts).toHaveLength(2);
     expect(done).toHaveLength(2);
     expect(new Set(starts.map((event) => event.id)).size).toBe(2);
+    for (const { id } of starts) {
+      expect(id).toMatch(/^[a-zA-Z0-9_-]{1,64}$/);
+    }
     expect(done.map((event) => event.id)).toEqual(
       starts.map((event) => event.id),
     );

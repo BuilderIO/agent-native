@@ -1373,10 +1373,11 @@ export function startRun(
     });
   };
 
-  const persistRunEvent = (
+  const persistRunEvent = async (
     runEvent: RunEvent,
     eventData: string,
   ): Promise<void> => {
+    if (runEvent.event.type === "tool_start") await insertRunPromise;
     const write = () =>
       runEvent.event.type === "tool_start" ||
       runEvent.event.type === "tool_done"

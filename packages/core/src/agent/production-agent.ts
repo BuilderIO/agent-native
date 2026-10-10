@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
@@ -12499,7 +12499,12 @@ export function createProductionAgentHandler(
                         id:
                           event.id === undefined
                             ? undefined
-                            : `${runId}:custom:${index}:${event.id}`,
+                            : `custom_${createHash("sha256")
+                                .update(
+                                  JSON.stringify([runId, index, event.id]),
+                                )
+                                .digest("hex")
+                                .slice(0, 32)}`,
                       });
                     }
                   },
