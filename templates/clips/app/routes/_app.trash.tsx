@@ -3,11 +3,9 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconArrowBackUp,
-  IconChevronLeft,
-  IconChevronRight,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { EmptyState } from "@/components/library/empty-state";
@@ -26,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
-  useRecordings,
+  useInfiniteRecordings,
   useRecordingsCount,
   type RecordingSummary,
 } from "@/hooks/use-library";
@@ -58,41 +56,121 @@ export default function TrashRoute() {
   const [confirmPurge, setConfirmPurge] = useState(false);
   const [singlePurgeId, setSinglePurgeId] = useState<string | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
-  const [page, setPage] = useState(1);
+  const scrollRootRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const nextPageInFlightRef = useRef<string | null>(null);
+  const initialPreloadRequestRef = useRef<string | null>(null);
+  const [isLargeViewport, setIsLargeViewport] = useState(false);
 
   const countArgs = useMemo(() => ({ view: "trash" as const }), []);
   const { data: totalCount } = useRecordingsCount(countArgs);
 
   useEffect(() => {
-    setPage(1);
     setSelected(new Set());
     setLastSelectedId(null);
   }, [sort]);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsLargeViewport(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   const args = useMemo(
     () => ({
       view: "trash" as const,
       sort,
       limit: PAGE_SIZE,
-      offset: (page - 1) * PAGE_SIZE,
     }),
-    [page, sort],
+    [sort],
   );
-  const { data, isLoading, isError, isFetching, refetch } = useRecordings(args);
-  const recordings = (data?.recordings ?? []) as RecordingSummary[];
-
-  // A failed count is not zero clips: without it, offer "next" while the page
-  // comes back full so later pages stay reachable.
   const totalKnown = typeof totalCount === "number";
-  const total = totalKnown ? totalCount : 0;
-  const pageIsFull = recordings.length >= PAGE_SIZE;
-  const totalPages = totalKnown
-    ? Math.max(1, Math.ceil(total / PAGE_SIZE))
-    : page + (pageIsFull ? 1 : 0);
+  const {
+    data,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+    hasNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+    fetchNextPage,
+  } = useInfiniteRecordings(args, totalKnown ? totalCount : undefined);
+  const recordings = useMemo(
+    () =>
+      (data?.pages.flatMap((page) => page.recordings) ??
+        []) as RecordingSummary[],
+    [data?.pages],
+  );
+  const requestKey = JSON.stringify(args);
+  const fetchNextPageIfIdle = useCallback(() => {
+    if (nextPageInFlightRef.current === requestKey) return;
+    nextPageInFlightRef.current = requestKey;
+    const releaseRequest = () => {
+      if (nextPageInFlightRef.current === requestKey) {
+        nextPageInFlightRef.current = null;
+      }
+    };
+    void fetchNextPage().then(releaseRequest, releaseRequest);
+  }, [fetchNextPage, requestKey]);
 
   useEffect(() => {
-    if (totalKnown && page > totalPages) setPage(totalPages);
-  }, [totalKnown, page, totalPages]);
+    if (
+      !isLargeViewport ||
+      isLoading ||
+      !hasNextPage ||
+      isFetchingNextPage ||
+      data?.pages.length !== 1 ||
+      initialPreloadRequestRef.current === requestKey
+    ) {
+      return;
+    }
+    initialPreloadRequestRef.current = requestKey;
+    fetchNextPageIfIdle();
+  }, [
+    data?.pages.length,
+    fetchNextPageIfIdle,
+    hasNextPage,
+    isFetchingNextPage,
+    isLargeViewport,
+    isLoading,
+    requestKey,
+  ]);
+
+  useEffect(() => {
+    const root = scrollRootRef.current;
+    const sentinel = loadMoreSentinelRef.current;
+    if (
+      !root ||
+      !sentinel ||
+      !hasNextPage ||
+      isFetchingNextPage ||
+      isFetchNextPageError ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          fetchNextPageIfIdle();
+        }
+      },
+      { root, rootMargin: "320px 0px" },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [
+    data?.pages.length,
+    fetchNextPageIfIdle,
+    hasNextPage,
+    isFetchNextPageError,
+    isFetchingNextPage,
+  ]);
 
   const restore = useActionMutation<any, { id: string }>("restore-recording");
   const purge = useActionMutation<any, { id: string }>(
@@ -271,14 +349,17 @@ export default function TrashRoute() {
         </div>
       </PageHeader>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5">
+      <div
+        ref={scrollRootRef}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto p-5"
+      >
         {isLoading ? (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} />
             ))}
           </div>
-        ) : isError ? (
+        ) : isError && recordings.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 px-8 py-20 text-center">
             <IconAlertTriangle className="size-10 text-destructive" />
             <h2 className="text-base font-semibold">
@@ -313,47 +394,25 @@ export default function TrashRoute() {
             ))}
           </div>
         )}
-      </div>
-
-      {!isLoading && recordings.length > 0 && totalPages > 1 && (
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-2.5">
-          <span className="text-xs text-muted-foreground">
-            {totalKnown &&
-              t("libraryGrid.paginationRange", {
-                start: (page - 1) * PAGE_SIZE + 1,
-                end: (page - 1) * PAGE_SIZE + recordings.length,
-                total,
-              })}
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-            >
-              <IconChevronLeft className="h-3.5 w-3.5" />
-              {t("libraryGrid.paginationPrevious")}
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              {totalKnown
-                ? t("libraryGrid.paginationPage", { page, totalPages })
-                : page}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page >= totalPages}
-            >
-              {t("libraryGrid.paginationNext")}
-              <IconChevronRight className="h-3.5 w-3.5" />
+        {isFetchingNextPage && (
+          <div
+            className="grid gap-4 pt-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]"
+            role="status"
+          >
+            {Array.from({ length: 4 }, (_, index) => (
+              <Skeleton key={index} />
+            ))}
+          </div>
+        )}
+        {isFetchNextPageError && (
+          <div className="flex justify-center pt-4">
+            <Button size="sm" variant="outline" onClick={fetchNextPageIfIdle}>
+              {t("libraryGrid.retry")}
             </Button>
           </div>
-        </div>
-      )}
+        )}
+        {hasNextPage && <div ref={loadMoreSentinelRef} className="h-px" />}
+      </div>
 
       <AlertDialog open={confirmPurge} onOpenChange={setConfirmPurge}>
         <AlertDialogContent>

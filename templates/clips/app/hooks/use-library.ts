@@ -1,9 +1,11 @@
 import {
+  callAction,
   useActionQuery,
   useActionMutation,
 } from "@agent-native/core/client/hooks";
 import { useOrg } from "@agent-native/core/client/org";
 import type { RecordingKind } from "@shared/recording-kind";
+import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { isLiveRecordingUpload } from "@/lib/recording-status";
 
@@ -59,6 +61,37 @@ export interface ListRecordingsArgs {
   offset?: number;
 }
 
+export function patchRecordingTitleInListData(
+  data: any,
+  recordingId: string,
+  title: string,
+  updatedAt: string,
+) {
+  const patchRecordings = (recordings: any[]) =>
+    recordings.map((recording) =>
+      recording?.id === recordingId
+        ? { ...recording, title, updatedAt }
+        : recording,
+    );
+
+  if (Array.isArray(data?.recordings)) {
+    return { ...data, recordings: patchRecordings(data.recordings) };
+  }
+
+  if (Array.isArray(data?.pages)) {
+    return {
+      ...data,
+      pages: data.pages.map((page: any) =>
+        Array.isArray(page?.recordings)
+          ? { ...page, recordings: patchRecordings(page.recordings) }
+          : page,
+      ),
+    };
+  }
+
+  return data;
+}
+
 export function recordingsRefetchInterval(
   recordings: readonly RecordingSummary[] | undefined,
 ): number | false {
@@ -86,6 +119,34 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
       },
     },
   );
+}
+
+export function useInfiniteRecordings(
+  args: ListRecordingsArgs,
+  totalCount?: number,
+) {
+  const limit = args.limit ?? 20;
+  return useInfiniteQuery<{ recordings: RecordingSummary[] }>({
+    queryKey: ["action", "list-recordings", args, "infinite"],
+    initialPageParam: 0,
+    queryFn: ({ pageParam, signal }) =>
+      callAction<{ recordings: RecordingSummary[] }>(
+        "list-recordings",
+        { ...args, offset: pageParam },
+        { method: "GET", signal },
+      ),
+    getNextPageParam: (lastPage, pages) => {
+      const nextOffset = pages.length * limit;
+      if (typeof totalCount === "number") {
+        return nextOffset < totalCount ? nextOffset : undefined;
+      }
+      return lastPage.recordings.length >= limit ? nextOffset : undefined;
+    },
+    refetchInterval: (query) =>
+      recordingsRefetchInterval(
+        query.state.data?.pages.flatMap((page) => page.recordings),
+      ),
+  });
 }
 
 export function useRecordingsCount(

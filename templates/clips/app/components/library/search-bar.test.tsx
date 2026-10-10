@@ -124,10 +124,46 @@ describe("SearchBar command-menu handoff", () => {
     expect(mocks.setSearchParams).not.toHaveBeenCalled();
   });
 
-  it("shows the global command shortcut", () => {
+  it("focuses search when / is pressed outside a text field", () => {
     act(() => root.render(<SearchBar />));
 
-    expect(container.textContent).toContain("cmd+k");
+    const input = container.querySelector<HTMLInputElement>("input");
+    expect(input).not.toBeNull();
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "/",
+    });
+
+    act(() => window.dispatchEvent(event));
+
+    expect(document.activeElement).toBe(input);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("leaves / available while typing in a text field", () => {
+    act(() => root.render(<SearchBar />));
+
+    const otherInput = document.createElement("input");
+    document.body.appendChild(otherInput);
+    otherInput.focus();
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "/",
+    });
+
+    act(() => otherInput.dispatchEvent(event));
+
+    expect(document.activeElement).toBe(otherInput);
+    expect(event.defaultPrevented).toBe(false);
+    otherInput.remove();
+  });
+
+  it("shows the slash shortcut", () => {
+    act(() => root.render(<SearchBar />));
+
+    expect(container.textContent).toContain("/");
     const input = container.querySelector<HTMLInputElement>("input");
     expect(input?.type).toBe("search");
     expect(input?.getAttribute("aria-label")).toBe("searchBar.placeholder");
@@ -135,8 +171,8 @@ describe("SearchBar command-menu handoff", () => {
     expect(input?.className).toContain("focus-visible:ring-offset-0");
     expect(input?.className).toContain("focus-visible:ring-ring/40");
     expect(container.querySelector("kbd")?.dataset.slot).toBe("kbd");
-    expect(container.querySelector("kbd")?.textContent).toBe("cmd+k");
-    expect(container.textContent).not.toContain("/");
+    expect(container.querySelector("kbd")?.textContent).toBe("/");
+    expect(container.textContent).not.toContain("cmd+k");
   });
 
   it("searches only the latest query after 200ms", () => {

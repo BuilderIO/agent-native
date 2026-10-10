@@ -25,7 +25,7 @@ import {
   clearSearchFocusRequest,
   hasSearchFocusRequest,
 } from "@/lib/search-focus";
-import { cn, shortcutLabel } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 function highlight(
   text: string,
@@ -110,6 +110,35 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
   }, [focusSearchInput, routeRequestsFocus, setSearchParams]);
 
   useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (
+        event.key !== "/" ||
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey
+      ) {
+        return;
+      }
+
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.closest("input, textarea, select, [role='textbox']"))
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      focusSearchInput();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focusSearchInput]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       setOpen(false);
@@ -180,7 +209,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
                 aria-hidden="true"
                 className="absolute end-1.5 top-1/2 h-5 -translate-y-1/2 px-1 font-mono text-[10px]"
               >
-                {shortcutLabel("cmd+k")}
+                /
               </Kbd>
             )}
           </div>
