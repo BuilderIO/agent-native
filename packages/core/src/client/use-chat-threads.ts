@@ -173,6 +173,46 @@ async function fetchThreadById(
   }
 }
 
+function persistedThreadTranscriptStatus(
+  thread: ChatThreadSummary | null | undefined | "forbidden",
+  expectedId: string,
+): "verified" | "empty" | "unreadable" {
+  if (
+    !thread ||
+    thread === "forbidden" ||
+    typeof thread !== "object" ||
+    thread.id !== expectedId
+  ) {
+    return "unreadable";
+  }
+
+  const threadData = (thread as ChatThreadSummary & { threadData?: unknown })
+    .threadData;
+  if (threadData === "") return "empty";
+  if (typeof threadData !== "string") return "unreadable";
+  if (!threadData.trim()) return "empty";
+
+  try {
+    const snapshot: unknown = JSON.parse(threadData);
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+      return "unreadable";
+    }
+    const repository = snapshot as Record<string, unknown>;
+    const agentKit = repository.agentKit;
+    const agentKitMessages =
+      agentKit && typeof agentKit === "object" && !Array.isArray(agentKit)
+        ? (agentKit as Record<string, unknown>).messages
+        : undefined;
+    return (Array.isArray(repository.messages) &&
+      repository.messages.length > 0) ||
+      (Array.isArray(agentKitMessages) && agentKitMessages.length > 0)
+      ? "verified"
+      : "empty";
+  } catch {
+    return "unreadable";
+  }
+}
+
 export function appendChatThreadScopeParams(
   params: URLSearchParams,
   scope?: ChatThreadScope | null,
@@ -681,6 +721,49 @@ export function useChatThreads(
             );
             clearClientDraftThreadMarker(thread.id);
             newlyCreatedRef.current.delete(thread.id);
+          }
+        }
+        const activeThreadId = activeThreadIdRef.current;
+        const listedActiveThread = loaded.find(
+          (thread) => thread.id === activeThreadId,
+        );
+        if (
+          activeThreadId &&
+          listedActiveThread &&
+          isUnconfirmedClientDraftThread(
+            activeThreadId,
+            newlyCreatedRef.current,
+          )
+        ) {
+          const persistedThread = await fetchThreadById(
+            apiUrl,
+            activeThreadId,
+            historyScope,
+          );
+          if (requestId !== latestFetchRequestRef.current) return undefined;
+          if (
+            persistedThread &&
+            persistedThread !== "forbidden" &&
+            !persistedThread.archivedAt &&
+            (!isolateHistory ||
+              threadCanStayVisibleInHistory(
+                persistedThread.scope ?? null,
+                historyScope,
+                isolateHistory,
+              )) &&
+            persistedThreadTranscriptStatus(persistedThread, activeThreadId) ===
+              "verified"
+          ) {
+            serverConfirmedThreadIdsRef.current.add(
+              serverConfirmedThreadKey(apiUrl, historyScopeKey, activeThreadId),
+            );
+            knownThreadScopesRef.current.set(
+              activeThreadId,
+              persistedThread.scope ?? null,
+            );
+            clearClientDraftThreadMarker(activeThreadId);
+            newlyCreatedRef.current.delete(activeThreadId);
+            setThreadPersistenceVersion((version) => version + 1);
           }
         }
         setThreadsLoadError(null);
@@ -1498,12 +1581,22 @@ export function useChatThreads(
         return "missing";
       }
       knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
-      if (!isUnconfirmedClientDraftThread(thread.id, newlyCreatedRef.current)) {
+      const isUnconfirmedDraft = isUnconfirmedClientDraftThread(
+        thread.id,
+        newlyCreatedRef.current,
+      );
+      if (
+        !isUnconfirmedDraft ||
+        persistedThreadTranscriptStatus(thread, thread.id) === "verified"
+      ) {
         serverConfirmedThreadIdsRef.current.add(
           serverConfirmedThreadKey(apiUrl, historyScopeKey, thread.id),
         );
         clearClientDraftThreadMarker(thread.id);
         newlyCreatedRef.current.delete(thread.id);
+        if (isUnconfirmedDraft) {
+          setThreadPersistenceVersion((version) => version + 1);
+        }
       }
       explicitlyOpenedThreadIdsRef.current.add(id);
       setEvictedThreadIds((prev) => prev.filter((evicted) => evicted !== id));

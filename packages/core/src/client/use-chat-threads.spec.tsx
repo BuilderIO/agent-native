@@ -914,6 +914,9 @@ describe("useChatThreads", () => {
       if (url === "/chat/threads" && !init) {
         return jsonResponse({ threads: serverThread ? [serverThread] : [] });
       }
+      if (serverThread && url === `/chat/threads/${serverThread.id}` && !init) {
+        return jsonResponse({ ...serverThread, threadData: "{}" });
+      }
       throw new Error(`Unexpected fetch: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1022,7 +1025,7 @@ describe("useChatThreads", () => {
     expect(hook!.isThreadPersisted(threadId)).toBe(false);
     expect(
       fetchMock.mock.calls.some(([url]) => url === `/chat/threads/${threadId}`),
-    ).toBe(false);
+    ).toBe(true);
 
     await act(async () => {
       root.unmount();
@@ -1050,7 +1053,119 @@ describe("useChatThreads", () => {
     expect(hook!.isThreadPersisted(threadId)).toBe(false);
     expect(
       fetchMock.mock.calls.some(([url]) => url === `/chat/threads/${threadId}`),
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  it("confirms a marked active thread after a by-id read finds its transcript", async () => {
+    const threadId = "persisted-draft-restore";
+    const draftMarker = `agent-chat-client-draft-thread:${encodeURIComponent(threadId)}`;
+    const summary: ChatThreadSummary = {
+      id: threadId,
+      title: "Persisted draft",
+      preview: "A saved transcript",
+      messageCount: 1,
+      createdAt: Date.now() - 60_000,
+      updatedAt: Date.now(),
+      scope: null,
+    };
+    window.localStorage.setItem(draftMarker, "1");
+    window.localStorage.setItem(
+      "agent-chat-active-thread:persisted-draft-restore:tab:persisted-tab",
+      threadId,
+    );
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [summary] });
+      }
+      if (url === `/chat/threads/${threadId}` && !init) {
+        return jsonResponse({
+          ...summary,
+          threadData: JSON.stringify({ messages: [{ id: "message-1" }] }),
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "persisted-draft-restore", undefined, {
+        browserTabId: "persisted-tab",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(`/chat/threads/${threadId}`);
+    expect(hook!.activeThreadId).toBe(threadId);
+    expect(hook!.isNewThread(threadId)).toBe(false);
+    expect(hook!.isThreadPersisted(threadId)).toBe(true);
+    expect(window.localStorage.getItem(draftMarker)).toBeNull();
+  });
+
+  it("keeps a marked active thread unconfirmed when its transcript lookup is unavailable", async () => {
+    const threadId = "unavailable-draft-restore";
+    const draftMarker = `agent-chat-client-draft-thread:${encodeURIComponent(threadId)}`;
+    const summary: ChatThreadSummary = {
+      id: threadId,
+      title: "Draft",
+      preview: "Draft preview",
+      messageCount: 1,
+      createdAt: Date.now() - 60_000,
+      updatedAt: Date.now(),
+      scope: null,
+    };
+    window.localStorage.setItem(draftMarker, "1");
+    window.localStorage.setItem(
+      "agent-chat-active-thread:unavailable-draft-restore:tab:unavailable-tab",
+      threadId,
+    );
+    let transcriptLookup: "unavailable" | "malformed" = "unavailable";
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [summary] });
+      }
+      if (url === `/chat/threads/${threadId}` && !init) {
+        return transcriptLookup === "unavailable"
+          ? new Response(null, { status: 503 })
+          : jsonResponse({ ...summary, threadData: "not-json" });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "unavailable-draft-restore", undefined, {
+        browserTabId: "unavailable-tab",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(`/chat/threads/${threadId}`);
+    expect(hook!.activeThreadId).toBe(threadId);
+    expect(hook!.isNewThread(threadId)).toBe(true);
+    expect(hook!.isThreadPersisted(threadId)).toBe(false);
+    expect(window.localStorage.getItem(draftMarker)).toBe("1");
+
+    transcriptLookup = "malformed";
+    await act(async () => {
+      await hook!.refreshThreads();
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+    });
+
+    expect(hook!.isNewThread(threadId)).toBe(true);
+    expect(hook!.isThreadPersisted(threadId)).toBe(false);
+    expect(window.localStorage.getItem(draftMarker)).toBe("1");
   });
 
   it("starts a fresh chat when a saved home thread no longer exists", async () => {
@@ -1832,6 +1947,9 @@ describe("useChatThreads", () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/chat/threads" && !init) {
         return jsonResponse({ threads: metadataSaved ? [savedThread] : [] });
+      }
+      if (url === `/chat/threads/${threadId}` && !init) {
+        return jsonResponse({ ...savedThread, threadData: "{}" });
       }
       if (url === `/chat/threads/${threadId}` && init?.method === "PUT") {
         if (!metadataSaved) return new Response(null, { status: 404 });
