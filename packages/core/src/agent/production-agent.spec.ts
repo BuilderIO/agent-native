@@ -4513,6 +4513,11 @@ describe("createProductionAgentHandler", () => {
       model: "test-model",
       vision: false,
       historyImageUrls: [],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
     });
     expect(hydratePriorImages).not.toHaveBeenCalled();
   });
@@ -4624,6 +4629,11 @@ describe("createProductionAgentHandler", () => {
       model: "mistral-small-2506",
       vision: true,
       historyImageUrls: [],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
     });
     expect(hydratePriorImages).toHaveBeenCalledOnce();
   });
@@ -4714,6 +4724,11 @@ describe("createProductionAgentHandler", () => {
       model: "vision-model",
       vision: true,
       historyImageUrls: [url],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
     });
     const sentImages = streamedMessages
       .flatMap((messages) => messages)

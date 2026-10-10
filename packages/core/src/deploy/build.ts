@@ -602,7 +602,7 @@ export default {
     if (typeof ctx?.waitUntil === "function") {
       const requestWithWaitUntil = copyCloudflareRequestMetadata(
         request,
-        new Request(request),
+        new Request(request.url, request),
       );
       requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);
       request = requestWithWaitUntil;
@@ -2398,9 +2398,14 @@ function requestForAnonymousSsr(request) {
   const headers = new Headers(request.headers);
   headers.delete("cookie");
   headers.delete("authorization");
+  const init = new Proxy(request, {
+    get(target, key) {
+      return key === "headers" ? headers : Reflect.get(target, key, target);
+    },
+  });
   return copyCloudflareRequestMetadata(
     request,
-    new Request(request, { headers }),
+    new Request(request.url, init),
   );
 }
 
@@ -2609,7 +2614,7 @@ export default {
     if (typeof ctx?.waitUntil === "function") {
       const requestWithWaitUntil = copyCloudflareRequestMetadata(
         request,
-        new Request(request),
+        new Request(request.url, request),
       );
       requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);
       request = requestWithWaitUntil;

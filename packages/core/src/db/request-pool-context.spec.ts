@@ -14,6 +14,29 @@ describe("Cloudflare request database pool scope", () => {
     vi.resetModules();
   });
 
+  it("shares request scopes across duplicated Worker bundle modules", async () => {
+    const entryContext = await import("./request-pool-context.js");
+    const bundledContext =
+      await import("./request-pool-context.js?bundled-handler-copy");
+    const pool = { end: vi.fn(async () => {}) };
+
+    expect(bundledContext.getCurrentRequestDbPoolScope).not.toBe(
+      entryContext.getCurrentRequestDbPoolScope,
+    );
+
+    await entryContext.runWithRequestDbPoolScope(true, undefined, () => {
+      const scope = entryContext.getCurrentRequestDbPoolScope();
+
+      expect(scope).toBeDefined();
+      expect(bundledContext.getCurrentRequestDbPoolScope()).toBe(scope);
+      expect(
+        bundledContext.getOrCreateRequestDbPool("bundle-copy", () => pool),
+      ).toBe(pool);
+    });
+
+    expect(pool.end).toHaveBeenCalledOnce();
+  });
+
   it("routes overlapping requests to separate pools and closes both after handlers", async () => {
     workerGlobal.__env__ = {};
     const { sharedDbPool } = await import("./client.js");

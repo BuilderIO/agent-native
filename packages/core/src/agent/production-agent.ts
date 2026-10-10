@@ -1711,6 +1711,8 @@ export interface PreparedAgentRequest {
   prepareAfterModel?: (details: {
     model: string;
     vision: boolean;
+    /** Shared across every image/file hydration performed during this request. */
+    hydrationBudget: OwnedAttachmentHydrationBudget;
     /**
      * Durable URLs of earlier-turn images this request already sends as
      * structured-history image parts. Prepared context must skip them so each
@@ -11149,6 +11151,7 @@ export function createProductionAgentHandler(
     const modelPreparedContext = await preparedRequest?.prepareAfterModel?.({
       model: effectiveModel,
       vision: modelSupportsVision,
+      hydrationBudget: attachmentHydrationBudget,
       historyImageUrls: sentStructuredHistoryImageUrls(
         requestStructuredHistory,
         resolvedHistoryImages,

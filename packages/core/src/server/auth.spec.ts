@@ -7391,7 +7391,11 @@ describe("server/auth", () => {
         observedHeaderAttribution = signupAttributionContextFromHeaders(
           request.headers,
         );
-        await request.json();
+        if (new URL(request.url).pathname.endsWith("/sign-out")) {
+          await request.body?.cancel();
+        } else {
+          await request.json();
+        }
         return new Response(JSON.stringify({ ok: true }), {
           headers: { "content-type": "application/json" },
         });
@@ -7448,6 +7452,36 @@ describe("server/auth", () => {
       });
       expect(observedHeaderAttribution).toEqual(observedSignupAttribution);
       expect(getRequestContext()).toBeUndefined();
+
+      let bodySourceCancelled = false;
+      const signOutUrl = "http://localhost/_agent-native/auth/ba/sign-out";
+      const signOutRequest = new Request(signOutUrl, {
+        method: "POST",
+        headers: {
+          cookie: "an_aid=anon_signup_1",
+          "content-type": "application/octet-stream",
+        },
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("streamed"));
+          },
+          cancel() {
+            bodySourceCancelled = true;
+          },
+        }),
+        duplex: "half",
+      } as RequestInit & { duplex: "half" });
+      const signOutEvent = createMockEvent({
+        path: "/_agent-native/auth/ba/sign-out",
+        headers: Object.fromEntries(signOutRequest.headers.entries()),
+      });
+      signOutEvent.req = signOutRequest;
+      signOutEvent.url = new URL(signOutUrl);
+      signOutEvent.headers = signOutRequest.headers;
+      signOutEvent.node.req.method = "POST";
+
+      await baHandler(signOutEvent);
+      await vi.waitFor(() => expect(bodySourceCancelled).toBe(true));
     });
 
     it("upgrades Better Auth's signup Set-Cookie to SameSite=None/Secure/Partitioned behind a forwarded https proxy", async () => {

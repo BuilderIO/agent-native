@@ -621,9 +621,11 @@ export class AppSyncState {
     const now = Date.now();
     if (now - this.lastDurablePrune < DURABLE_PRUNE_WRITE_INTERVAL_MS) return;
     this.lastDurablePrune = now;
-    void this.pruneDurableEvents(client, {
-      budgetMs: DURABLE_PRUNE_WRITE_BUDGET_MS,
-    }).catch((error) => {
+    void retainRequestDbPoolScope(
+      this.pruneDurableEvents(client, {
+        budgetMs: DURABLE_PRUNE_WRITE_BUDGET_MS,
+      }),
+    ).catch((error) => {
       console.error("[agent-native] sync_events prune crashed:", error);
     });
   }
@@ -825,26 +827,28 @@ export class AppSyncState {
     const resourceKey = accessResourceKey(resourceType, resourceId);
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
     let settled = false;
-    const check = (async () => {
-      try {
-        const access = await this.resolveAccessFn(resourceType, resourceId, {
-          userEmail,
-          orgId,
-        });
-        if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
-          return;
+    const check = retainRequestDbPoolScope(
+      (async () => {
+        try {
+          const access = await this.resolveAccessFn(resourceType, resourceId, {
+            userEmail,
+            orgId,
+          });
+          if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
+            return;
+          }
+          this.setAccessCache(key, access != null, Date.now());
+        } catch {
+          if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
+            return;
+          }
+          this.setAccessCache(key, false, Date.now());
+        } finally {
+          settled = true;
+          this.accessInFlight.delete(key);
         }
-        this.setAccessCache(key, access != null, Date.now());
-      } catch {
-        if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
-          return;
-        }
-        this.setAccessCache(key, false, Date.now());
-      } finally {
-        settled = true;
-        this.accessInFlight.delete(key);
-      }
-    })();
+      })(),
+    );
     if (!settled) this.accessInFlight.set(key, check);
   }
 
@@ -990,11 +994,13 @@ export class AppSyncState {
     opts?: { dedupeKey?: string },
   ): void {
     if (this.dbAssignedVersions && !syncEventsDisabled()) {
-      this.recordChain = this.recordChain
-        .then(() => this.recordWithDbVersion(event, opts?.dedupeKey))
-        .catch((error) => {
-          this.reportDurableWriteFailure(error, event);
-        });
+      this.recordChain = retainRequestDbPoolScope(
+        this.recordChain
+          .then(() => this.recordWithDbVersion(event, opts?.dedupeKey))
+          .catch((error) => {
+            this.reportDurableWriteFailure(error, event);
+          }),
+      );
       return;
     }
     this.version = Math.max(this.version + 1, Date.now());
@@ -1002,11 +1008,11 @@ export class AppSyncState {
     const cursorId = this.durableEventId(provisional, opts?.dedupeKey);
     const entry: ChangeEvent = { ...provisional, cursorId };
     this.commitEntry(entry);
-    void this.persistSyncEvent(entry, opts?.dedupeKey, cursorId).catch(
-      (error) => {
-        this.reportDurableWriteFailure(error, entry);
-      },
-    );
+    void retainRequestDbPoolScope(
+      this.persistSyncEvent(entry, opts?.dedupeKey, cursorId),
+    ).catch((error) => {
+      this.reportDurableWriteFailure(error, entry);
+    });
   }
 
   async prepareTransactionalChange(event: {
@@ -1140,9 +1146,7 @@ export class AppSyncState {
       };
       await this.alignVersionAllocator(this.version);
       this.commitEntryForChain(entry);
-      void this.persistSyncEvent(entry, dedupeKey, id).catch((error) => {
-        this.reportDurableWriteFailure(error, entry);
-      });
+      await this.persistSyncEvent(entry, dedupeKey, id);
       return;
     }
     this.version = Math.max(this.version, version);

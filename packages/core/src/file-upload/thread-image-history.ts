@@ -1,8 +1,10 @@
 import type { AgentChatAttachment } from "../agent/types.js";
 import {
+  claimOwnedAttachmentHydrationCandidate,
   createOwnedAttachmentHydrationBudget,
   hydrateOwnedImageUrl,
   MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+  type OwnedAttachmentHydrationBudget,
 } from "./owned-attachment.js";
 
 interface PriorImageCandidate {
@@ -132,7 +134,10 @@ function candidatesFromThreadData(threadData: string): PriorImageCandidates {
  */
 export async function hydratePriorThreadImages(
   threadData: string,
-  options: { excludeUrls?: readonly string[] } = {},
+  options: {
+    excludeUrls?: readonly string[];
+    budget?: OwnedAttachmentHydrationBudget;
+  } = {},
 ): Promise<PriorThreadImageHistory> {
   const { retained, neverRetainedCount } = candidatesFromThreadData(threadData);
   // Exact-string match is deliberate: structured history only sends canonical
@@ -142,13 +147,18 @@ export async function hydratePriorThreadImages(
   const candidates = retained.filter(
     (candidate) => !excludedUrls.has(candidate.url),
   );
-  const selected = candidates.slice(-MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES);
+  const budget = options.budget ?? createOwnedAttachmentHydrationBudget();
+  const candidateLimit = Math.min(
+    MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+    budget.remainingCandidates,
+  );
+  const selected = candidateLimit > 0 ? candidates.slice(-candidateLimit) : [];
   const omittedCount = candidates.length - selected.length;
-  const budget = createOwnedAttachmentHydrationBudget();
   const attachments: AgentChatAttachment[] = [];
   let unreadableCount = 0;
 
   for (const candidate of selected) {
+    if (!claimOwnedAttachmentHydrationCandidate(budget)) break;
     const result = await hydrateOwnedImageUrl(
       candidate.url,
       candidate.contentType,

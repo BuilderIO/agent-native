@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES } from "./owned-attachment.js";
+import {
+  createOwnedAttachmentHydrationBudget,
+  MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+} from "./owned-attachment.js";
 import { JPEG_BASE64 } from "./test-image-fixtures.js";
 import {
   hydratePriorThreadImages,
@@ -208,6 +211,42 @@ describe("hydratePriorThreadImages", () => {
       "2 older retained image attachments were omitted",
     );
     expect(findProviderMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("uses the request's remaining candidate and byte budget", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const bytes = Buffer.from(JPEG_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(bytes, { headers: { "content-type": "image/jpeg" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const budget = createOwnedAttachmentHydrationBudget();
+    budget.remainingCandidates = 1;
+    budget.remainingBytes = bytes.byteLength - 1;
+    const urls = [
+      "https://storage.example/older.jpg",
+      "https://storage.example/newer.jpg",
+    ];
+
+    const result = await hydratePriorThreadImages(
+      JSON.stringify({
+        messages: urls.map((url, i) => storedImage(`${i}.jpg`, url)),
+      }),
+      { budget },
+    );
+
+    expect(findProviderMock).toHaveBeenCalledTimes(1);
+    expect(findProviderMock).toHaveBeenCalledWith(urls[1]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.attachments).toEqual([]);
+    expect(result.contextNote).toContain(
+      "1 older retained image attachment was omitted",
+    );
+    expect(result.contextNote).toContain(
+      "not readable from configured upload storage",
+    );
+    expect(budget.remainingCandidates).toBe(0);
   });
 
   it("fails distinctly when the trusted thread history cannot be parsed", async () => {

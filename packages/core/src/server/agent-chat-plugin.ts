@@ -175,6 +175,7 @@ import {
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { isTransientDatabaseError } from "../db/client.js";
+import type { OwnedAttachmentHydrationBudget } from "../file-upload/owned-attachment.js";
 import {
   hydratePriorThreadImages,
   PriorThreadImageHistoryReadError,
@@ -4060,6 +4061,7 @@ export function createAgentChatPlugin(
           threadId?: string;
         },
         excludedImageUrls: readonly string[],
+        hydrationBudget: OwnedAttachmentHydrationBudget,
       ) => {
         if (!details.threadId || !details.ownerEmail) return undefined;
 
@@ -4118,6 +4120,7 @@ export function createAgentChatPlugin(
         try {
           return await hydratePriorThreadImages(thread.threadData, {
             excludeUrls: excludedImageUrls,
+            budget: hydrationBudget,
           });
         } catch (error) {
           if (!(error instanceof PriorThreadImageHistoryReadError)) throw error;
@@ -4164,6 +4167,7 @@ export function createAgentChatPlugin(
             const prior = await priorThreadImageContext(
               details,
               modelDetails.historyImageUrls,
+              modelDetails.hydrationBudget,
             );
             return addPriorThreadImageContext(preparedContext, prior);
           },

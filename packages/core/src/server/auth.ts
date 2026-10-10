@@ -323,9 +323,16 @@ function requestWithSignupAttribution(
   request: Request,
   signupAttribution: SignupAttributionContext | undefined,
 ): Request {
-  return new Request(request, {
-    headers: addSignupAttributionHeader(request.headers, signupAttribution),
+  const init = new Proxy(request, {
+    get(target, key) {
+      if (key === "headers") {
+        return addSignupAttributionHeader(target.headers, signupAttribution);
+      }
+      if (key === "duplex") return "half";
+      return Reflect.get(target, key, target);
+    },
   });
+  return new Request(request.url, init as RequestInit);
 }
 
 function headersWithSignupAttribution(

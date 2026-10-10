@@ -16,7 +16,15 @@ interface WaitUntilRequest {
   waitUntil?: (promise: Promise<unknown>) => void;
 }
 
-const storage = new AsyncLocalStorage<PoolRequestScope>();
+const storageKey = Symbol.for("@agent-native/core/request-db-pool-scope");
+const globalStorage = globalThis as typeof globalThis & Record<symbol, unknown>;
+const storage =
+  (globalStorage[storageKey] as
+    | AsyncLocalStorage<PoolRequestScope>
+    | undefined) ?? new AsyncLocalStorage<PoolRequestScope>();
+
+// Nitro bundles core into Worker handlers, so every module copy must share the isolate's scope.
+globalStorage[storageKey] = storage;
 
 function createScope(): PoolRequestScope {
   return {

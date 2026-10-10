@@ -870,7 +870,10 @@ export default {
       `
 export default {
   async fetch(request) {
-    const body = await request.text();
+    const reader = request.body.getReader();
+    const firstChunk = await reader.read();
+    void reader.cancel("test complete");
+    const body = new TextDecoder().decode(firstChunk.value);
     globalThis.${marker} = {
       request,
       cf: request.cf,
@@ -890,11 +893,21 @@ export default {
     const entryPath = path.join(dir, "worker.mjs");
     fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
 
+    let bodySourceCancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("module-payload"));
+      },
+      cancel() {
+        bodySourceCancelled = true;
+      },
+    });
     const request = new Request("https://app.test/api/pools?mode=module", {
       method: "POST",
       headers: { "content-type": "text/plain" },
-      body: "module-payload",
-    });
+      body,
+      duplex: "half",
+    } as RequestInit);
     const cf = { colo: "SJC", asn: 15169 };
     Object.defineProperty(request, "cf", { configurable: true, value: cf });
     Object.freeze(request);
@@ -928,6 +941,7 @@ export default {
       expect(observed.method).toBe("POST");
       expect(observed.contentType).toBe("text/plain");
       expect(observed.body).toBe("module-payload");
+      await vi.waitFor(() => expect(bodySourceCancelled).toBe(true));
       expect(observed.waitUntil).toBe("function");
       expect(observed.waitUntilConfigurable).toBe(true);
       expect(request.waitUntil).toBeUndefined();
@@ -941,17 +955,21 @@ export default {
     }
   });
 
-  it("scopes every non-HTTP event and retains its pool through waitUntil", async () => {
+  it("scopes non-HTTP events across bundled copies and retains pools through waitUntil", async () => {
     const dir = makeTempDir();
     linkCorePackageForWorker(dir);
     const marker = "__test_cloudflare_event_scopes__";
     fs.writeFileSync(
       path.join(dir, "index.mjs"),
       `
-import {
-  getCurrentRequestDbPoolScope,
-  getOrCreateRequestDbPool,
-} from "@agent-native/core/db/request-pool-context";
+import * as entryPoolContext from "@agent-native/core/db/request-pool-context";
+const bundledPoolContext = await import(
+  import.meta.resolve("@agent-native/core/db/request-pool-context") + "?bundled-handler-copy"
+);
+if (entryPoolContext.getCurrentRequestDbPoolScope === bundledPoolContext.getCurrentRequestDbPoolScope) {
+  throw new Error("test requires a duplicate bundled request-pool module");
+}
+const { getCurrentRequestDbPoolScope, getOrCreateRequestDbPool } = bundledPoolContext;
 
 function record(name, ctx) {
   const scope = getCurrentRequestDbPoolScope();
@@ -1665,6 +1683,7 @@ async function importGeneratedWorker(
     rootDataLocation?: string;
     frameworkEdgeStub?: boolean;
     requestObserverMarker?: string;
+    requestBodyObserverMarker?: string;
   } = {},
 ) {
   const dir = makeTempDir();
@@ -1715,6 +1734,7 @@ export function runWithRequestContext(_context, callback) { return callback(); }
 export function createRequestHandler() {
   return async (request) => {
     const requestObserverMarker = ${JSON.stringify(options.requestObserverMarker ?? null)};
+    const requestBodyObserverMarker = ${JSON.stringify(options.requestBodyObserverMarker ?? null)};
     if (requestObserverMarker) {
       globalThis[requestObserverMarker] = {
         cf: request.cf,
@@ -1725,6 +1745,14 @@ export function createRequestHandler() {
         waitUntil: typeof request.waitUntil,
       };
       request.waitUntil?.(Promise.resolve("pages-ssr-background-work"));
+    }
+    if (requestBodyObserverMarker && request.body) {
+      const reader = request.body.getReader();
+      const firstChunk = await reader.read();
+      await reader.cancel("test request handler stopped reading");
+      globalThis[requestBodyObserverMarker] = firstChunk.done
+        ? null
+        : new TextDecoder().decode(firstChunk.value);
     }
     const url = new URL(request.url);
     if (url.pathname.endsWith(".data")) {
@@ -1878,7 +1906,10 @@ describe("generateWorkerEntry", () => {
         `
 export default async (event) => {
   const request = event.req;
-  const body = await request.text();
+  const reader = request.body.getReader();
+  const firstChunk = await reader.read();
+  void reader.cancel("test complete");
+  const body = new TextDecoder().decode(firstChunk.value);
   globalThis.${marker} = {
     request,
     cf: request.cf,
@@ -1914,13 +1945,23 @@ export default async (event) => {
         ),
         { frameworkEdgeStub: true },
       );
+      let bodySourceCancelled = false;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("pages-payload"));
+        },
+        cancel() {
+          bodySourceCancelled = true;
+        },
+      });
       const request = new Request(
         "https://app.test/docs/api/pools?mode=pages",
         {
           method: "POST",
           headers: { "content-type": "text/plain" },
-          body: "pages-payload",
-        },
+          body,
+          duplex: "half",
+        } as RequestInit,
       );
       const cf = { colo: "LAX", asn: 64512 };
       Object.defineProperty(request, "cf", { configurable: true, value: cf });
@@ -1952,6 +1993,7 @@ export default async (event) => {
         expect(observed.method).toBe("POST");
         expect(observed.contentType).toBe("text/plain");
         expect(observed.body).toBe("pages-payload");
+        await vi.waitFor(() => expect(bodySourceCancelled).toBe(true));
         expect(observed.waitUntil).toBe("function");
         expect(observed.waitUntilConfigurable).toBe(true);
         expect(request.waitUntil).toBeUndefined();
@@ -1962,7 +2004,7 @@ export default async (event) => {
       } finally {
         Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
       }
-    });
+    }, 60_000);
 
     it("preserves Cloudflare metadata through anonymous Pages SSR request rewrites", async () => {
       const marker = "__test_cloudflare_pages_ssr_request__";
@@ -2016,6 +2058,81 @@ export default async (event) => {
         Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
       }
     });
+
+    it("does not tee streamed request bodies while stripping anonymous SSR credentials", async () => {
+      const marker = "__test_cloudflare_pages_ssr_stream_body__";
+      const observerMarker = "__test_cloudflare_pages_ssr_stream_request__";
+      const workerSource = generateWorkerEntry(
+        [],
+        [],
+        [],
+        [],
+        null,
+        [],
+        "/docs",
+        {
+          includeReactRouterSsr: true,
+        },
+      );
+      const worker = await importGeneratedWorker(workerSource, {
+        frameworkEdgeStub: true,
+        requestObserverMarker: observerMarker,
+        requestBodyObserverMarker: marker,
+      });
+      let bodySourceCancelled = false;
+      const request = new Request("https://app.test/docs/private-json.data", {
+        method: "POST",
+        headers: {
+          "content-type": "application/octet-stream",
+          cookie: "session=private",
+          authorization: "Bearer private",
+        },
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("ssr-stream"));
+          },
+          cancel() {
+            bodySourceCancelled = true;
+          },
+        }),
+        duplex: "half",
+      } as RequestInit & { duplex: "half" });
+      const waitUntilPromises: Promise<unknown>[] = [];
+      const ctx = {
+        waitUntil(promise: Promise<unknown>) {
+          waitUntilPromises.push(promise);
+        },
+      };
+
+      try {
+        const response = await worker.fetch(request, {}, ctx);
+        const observed = (globalThis as Record<string, unknown>)[
+          observerMarker
+        ] as {
+          method: string;
+          cookie: string | null;
+          authorization: string | null;
+        };
+
+        expect(response.status).toBe(200);
+        expect(observed.method).toBe("POST");
+        expect(observed.cookie).toBeNull();
+        expect(observed.authorization).toBeNull();
+        expect((globalThis as Record<string, unknown>)[marker]).toBe(
+          "ssr-stream",
+        );
+        await vi.waitFor(() => expect(bodySourceCancelled).toBe(true));
+        await expect(waitUntilPromises[0]).resolves.toBe(
+          "pages-ssr-background-work",
+        );
+      } finally {
+        Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+        Reflect.deleteProperty(
+          globalThis as Record<string, unknown>,
+          observerMarker,
+        );
+      }
+    }, 60_000);
 
     it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {
       const dir = makeTempDir();
