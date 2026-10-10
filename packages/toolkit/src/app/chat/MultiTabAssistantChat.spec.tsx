@@ -1563,9 +1563,11 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         }),
     );
     await mountNavigationSidebar();
-    const results: unknown[] = [];
-    const recordResult = (event: Event) =>
-      results.push((event as CustomEvent).detail);
+    const cancellations: unknown[] = [];
+    const recordResult = (event: Event) => {
+      const result = (event as CustomEvent).detail;
+      if (result.delivered === false) cancellations.push(result);
+    };
     window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
     const reference = (label: string, insertMessageId: string) =>
       window.dispatchEvent(
@@ -1612,23 +1614,32 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
           submitMessageId: "same-destination-fresh-draft",
         });
       });
-      expect(results).toEqual([
+      const expectedCancellations = [
         {
           submitMessageId: "same-destination-old-draft",
           delivered: false,
           reason: "navigation-closed",
         },
-      ]);
+      ];
+      expect(cancellations).toEqual(expectedCancellations);
       expect(threadMocks.activeThreadId).toBe("thread-1");
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledTimes(1);
       expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
         "Fresh same-tab draft",
       );
-      expect(assistantChatMockState.referenceDeliveries).toContainEqual({
-        threadId: "thread-1",
-        context: expect.stringContaining("Fresh same-tab reference"),
-      });
+      expect(assistantChatMockState.referenceDeliveries).toEqual([
+        {
+          threadId: "thread-1",
+          context: expect.stringContaining("Fresh same-tab reference"),
+        },
+      ]);
+      expect(
+        assistantChatMockState.referenceDeliveries[0].context,
+      ).not.toContain("Old same-tab reference");
       await act(async () => finishLookup("opened"));
-      expect(results).toHaveLength(1);
+      expect(cancellations).toEqual(expectedCancellations);
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledTimes(1);
+      expect(assistantChatMockState.referenceDeliveries).toHaveLength(1);
     } finally {
       window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
     }
