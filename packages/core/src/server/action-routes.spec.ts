@@ -4289,6 +4289,38 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("keeps a POST write's status and flags it when its change marker did not land", async () => {
+    mockMarkerLanded.mockReturnValue(false);
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "update-doc": {
+        readOnly: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+    mountActionRoutes(nitroApp, actions);
+
+    const event: any = {
+      _method: "POST",
+      _headers: {},
+      req: {
+        url: "http://app.test/_agent-native/actions/update-doc",
+        json: async () => ({ id: "doc-1" }),
+      },
+    };
+    await expect(mounted[0].handler(event)).resolves.toEqual({ ok: true });
+    expect(event._responseHeaders).toMatchObject({
+      "x-agent-native-change-marker": "failed",
+    });
+    expect(event).not.toHaveProperty("_status");
+  });
+
   it("sets no change-marker header when the change marker landed", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
