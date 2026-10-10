@@ -106,46 +106,37 @@ describe("interaction oracle traceability", () => {
 
   it("cites only rows that exist in the oracle", () => {
     const dangling = [...cited.keys()].filter((id) => !rowIds.has(id));
-    if (dangling.length > 0) {
-      const lines = dangling.map(
-        (id) => `  ${id} (cited in ${(cited.get(id) ?? []).join(", ")})`,
-      );
-      throw new Error(
-        `Citations name oracle rows that do not exist:\n${lines.join("\n")}\nFix the id in the citing test title or check label.`,
-      );
-    }
+    const lines = dangling.map(
+      (id) => `  ${id} (cited in ${(cited.get(id) ?? []).join(", ")})`,
+    );
+    expect(
+      dangling,
+      `Citations name oracle rows that do not exist:\n${lines.join("\n")}\nFix the id in the citing test title or check label.`,
+    ).toEqual([]);
   });
 
   it("keeps the uncited measured rows equal to the baseline", () => {
     const baseline = readBaseline();
-    if (
-      JSON.stringify(baseline.uncitedMeasured) !==
-      JSON.stringify(computedUncited)
-    ) {
-      throw new Error(
-        driftMessage(
-          "uncitedMeasured",
-          baseline.uncitedMeasured,
-          computedUncited,
-        ),
-      );
-    }
+    expect(
+      computedUncited,
+      driftMessage(
+        "uncitedMeasured",
+        baseline.uncitedMeasured,
+        computedUncited,
+      ),
+    ).toEqual(baseline.uncitedMeasured);
   });
 
   it("keeps the negative rows with unknown input path equal to the baseline", () => {
     const baseline = readBaseline();
-    if (
-      JSON.stringify(baseline.unknownNegativeInput) !==
-      JSON.stringify(computedUnknownNegative)
-    ) {
-      throw new Error(
-        driftMessage(
-          "unknownNegativeInput",
-          baseline.unknownNegativeInput,
-          computedUnknownNegative,
-        ),
-      );
-    }
+    expect(
+      computedUnknownNegative,
+      driftMessage(
+        "unknownNegativeInput",
+        baseline.unknownNegativeInput,
+        computedUnknownNegative,
+      ),
+    ).toEqual(baseline.unknownNegativeInput);
   });
 
   it("keeps both baseline lists sorted and unique", () => {
@@ -155,12 +146,13 @@ describe("interaction oracle traceability", () => {
       unknownNegativeInput: baseline.unknownNegativeInput,
     };
     for (const [field, ids] of Object.entries(lists)) {
-      if (new Set(ids).size !== ids.length) {
-        throw new Error(`${field} in the baseline has duplicate ids`);
-      }
-      if (JSON.stringify(ids) !== JSON.stringify(sortedIds(ids))) {
-        throw new Error(`${field} in the baseline is not sorted`);
-      }
+      expect(
+        new Set(ids).size,
+        `${field} in the baseline has duplicate ids`,
+      ).toBe(ids.length);
+      expect(ids, `${field} in the baseline is not sorted`).toEqual(
+        sortedIds(ids),
+      );
     }
   });
 });
