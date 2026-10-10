@@ -3684,6 +3684,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!selectedEl || !document.documentElement.contains(selectedEl)) {
         return null;
       }
+      if (hostSelectedEl === selectedEl) return null;
       if (!hasSelectableLayerChildren(selectedEl)) return null;
       if (collectMoveGroupMembers(selectedEl).length > 1) return null;
       if (!hit || isDocumentRootElement(hit)) return null;
@@ -6468,6 +6469,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var selectionContainerScope = null;
     var enteredContainerId = null;
     var enteredContainerElement = null;
+    var hostSelectedEl = null;
     var selectionGeneration = 0;
     var selectionChromeHidden = false;
     var hoveredEl = null;
@@ -6618,6 +6620,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       selectionContainerScope = null;
       enteredContainerId = null;
       enteredContainerElement = null;
+      hostSelectedEl = null;
       clearHoverGate();
       setPassiveSelectionElements([]);
       clearSpacingHoverTimer();
@@ -20447,6 +20450,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
         var previousSelectedEl = selectedEl;
+        hostSelectedEl = null;
         selectedEl = target;
         positionOverlay(selectionOverlay, selectedEl);
         if (!ev?.shiftKey && passiveSelectionEls.length) {
@@ -22514,6 +22518,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         enteredContainerId = enteredContainerElement?.getAttribute("data-agent-native-node-id") ?? null;
         selectionContainerScope = enteredContainerElement;
         selectedEl = target;
+        hostSelectedEl = target;
         if (selectionChromeHidden) {
           hideSelectionOverlay();
         } else {

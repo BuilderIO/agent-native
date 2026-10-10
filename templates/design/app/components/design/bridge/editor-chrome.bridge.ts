@@ -3933,6 +3933,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!selectedEl || !document.documentElement.contains(selectedEl)) {
       return null;
     }
+    if (hostSelectedEl === selectedEl) return null;
     if (!hasSelectableLayerChildren(selectedEl)) return null;
     if (collectMoveGroupMembers(selectedEl).length > 1) return null;
     if (!hit || isDocumentRootElement(hit)) return null;
@@ -7650,6 +7651,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var selectionContainerScope: Element | null = null;
   var enteredContainerId: string | null = null;
   var enteredContainerElement: Element | null = null;
+  var hostSelectedEl: Element | null = null;
   var selectionGeneration = 0;
   var selectionChromeHidden = false;
   var hoveredEl: Element | null = null;
@@ -7960,6 +7962,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     selectionContainerScope = null;
     enteredContainerId = null;
     enteredContainerElement = null;
+    hostSelectedEl = null;
     clearHoverGate();
     setPassiveSelectionElements([]);
     clearSpacingHoverTimer();
@@ -26276,6 +26279,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
       }
       var previousSelectedEl = selectedEl;
+      hostSelectedEl = null;
       selectedEl = target;
       positionOverlay(selectionOverlay, selectedEl);
       if (!ev?.shiftKey && passiveSelectionEls.length) {
@@ -28817,6 +28821,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         null;
       selectionContainerScope = enteredContainerElement;
       selectedEl = target;
+      hostSelectedEl = target;
       if (selectionChromeHidden) {
         hideSelectionOverlay();
       } else {
