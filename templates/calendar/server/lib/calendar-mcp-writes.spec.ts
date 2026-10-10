@@ -27,7 +27,28 @@ const mocks = vi.hoisted(() => ({
   updateEvent: vi.fn(),
   rsvpEvent: vi.fn(),
   getUserSetting: vi.fn(),
+  approval: vi.fn(),
 }));
+
+const { approvalAuth, approvalStore } = vi.hoisted(() => ({
+  approvalAuth: () => ({
+    getAuthSecret: () => "fake-test-only-mcp-approval-secret",
+  }),
+  approvalStore: () => ({
+    createMcpApprovalGrant: vi.fn(),
+    consumeMcpApprovalGrant: vi.fn(async () => true),
+  }),
+}));
+vi.mock(
+  "../../../../packages/core/dist/server/better-auth-instance.js",
+  approvalAuth,
+);
+vi.mock(
+  "../../../../packages/core/src/server/better-auth-instance.js",
+  approvalAuth,
+);
+vi.mock("../../../../packages/core/dist/mcp/approval-store.js", approvalStore);
+vi.mock("../../../../packages/core/src/mcp/approval-store.js", approvalStore);
 
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
@@ -125,6 +146,8 @@ async function clientFor(
     { name: "calendar-write-test", version: "1.0.0" },
     { versionNegotiation: { mode: "auto" } },
   );
+  client.registerCapabilities({ elicitation: { form: {} } });
+  client.setRequestHandler("elicitation/create", mocks.approval);
   closeClients.push(async () => {
     await client.close();
     await server.close();
@@ -154,6 +177,10 @@ describe("Calendar direct MCP writes", () => {
     mocks.createEvent.mockResolvedValue({ id: "event-1" });
     mocks.updateEvent.mockResolvedValue({});
     mocks.rsvpEvent.mockResolvedValue(undefined);
+    mocks.approval.mockResolvedValue({
+      action: "accept",
+      content: { decision: "deny" },
+    });
   });
   afterEach(async () => {
     for (const close of closeClients.splice(0)) await close();
@@ -178,7 +205,7 @@ describe("Calendar direct MCP writes", () => {
         tools.find((tool) => tool.name === name)?.annotations,
       ).toMatchObject({
         readOnlyHint: false,
-        destructiveHint: name !== "create-event",
+        destructiveHint: true,
       });
     }
     expect(
@@ -324,7 +351,94 @@ describe("Calendar direct MCP writes", () => {
       arguments: { ...writeInputs[1][1], sendUpdates: "all" },
     });
     expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("update-event was not approved"),
+      }),
+    ]);
+    expect(mocks.approval).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "elicitation/create",
+        params: expect.objectContaining({
+          message: expect.stringContaining(
+            'Action "update-event" requires your approval',
+          ),
+        }),
+      }),
+      expect.anything(),
+    );
     expectNoWrites();
+  });
+
+  it.each([
+    { attendees: "guest@example.com" },
+    { attendees: [{ email: "guest@example.com", optional: true }] },
+    { sendUpdates: "all" },
+    { sendUpdates: "externalOnly" },
+    { eventType: "outOfOffice" },
+    {
+      eventType: "outOfOffice",
+      autoDeclineMode: "declineOnlyNewConflictingInvitations",
+      sendUpdates: "none",
+    },
+  ])(
+    "requires approval before create-event sends notifications: %j",
+    async (patch) => {
+      const client = await clientFor();
+      const result = await client.callTool({
+        name: "create-event",
+        arguments: { ...createInput, ...patch },
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toEqual([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("create-event was not approved"),
+        }),
+      ]);
+      expect(mocks.approval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "elicitation/create",
+          params: expect.objectContaining({
+            message: expect.stringContaining(
+              'Action "create-event" requires your approval',
+            ),
+          }),
+        }),
+        expect.anything(),
+      );
+      expectNoWrites();
+    },
+  );
+
+  it("creates an invitation only after the MCP client approves the call", async () => {
+    mocks.approval.mockResolvedValue({
+      action: "accept",
+      content: { decision: "approve" },
+    });
+    const client = await clientFor();
+    const result = await client.callTool({
+      name: "create-event",
+      arguments: { ...createInput, attendees: "guest@example.com" },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(mocks.approval).toHaveBeenCalledOnce();
+    expect(mocks.createEvent).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { attendees: "guest@example.com", sendUpdates: "none" },
+    { eventType: "outOfOffice", autoDeclineMode: "declineNone" },
+  ])("allows create-event with notifications disabled: %j", async (patch) => {
+    const client = await clientFor();
+    const result = await client.callTool({
+      name: "create-event",
+      arguments: { ...createInput, ...patch },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(mocks.createEvent).toHaveBeenCalledOnce();
+    expect(askAgent).not.toHaveBeenCalled();
   });
 
   it("rejects invalid RSVP status and unsupported future-instance scope", async () => {
