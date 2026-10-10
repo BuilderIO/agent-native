@@ -8,9 +8,9 @@ Date: 2026-09-25
 
 The original accepted decision permits an already-open run stream to deliver until disconnect after access loss. That remains current runtime behavior.
 
-The proposed replacement is a framework-wide [bounded viewer authorization lease](durable-agent-runs.md#bounded-viewer-authorization-leases). The proposed lease lasts 10 seconds, with renewal 5 seconds after each check starts. These values require policy approval. The lease bounds new application-controlled content writes, not arrival of bytes already handed to the transport.
+The replacement uses the framework-wide [bounded viewer authorization contract](durable-agent-runs.md#bounded-viewer-authorization-leases). The approved maximum authorization age is 10 seconds from the authoritative check start. The selected idle policy is Option A: keep the connection open, but block protected delivery after authorization expires. A fresh decision precedes resumed delivery. Idle subscriptions cause no periodic authorization reads. There is no universal 5-second renewal schedule.
 
-Approval of this amendment does not establish runtime completion. V1 release requires approval, implementation, and independent proof of the bound. The target criteria below replace the original stream exception only after approval.
+These policy choices do not establish runtime completion. Failure handling, disclosure and availability tradeoffs, and measured scaling budgets remain approval gates. V1 release under the amended contract requires those approvals, implementation, and independent runtime proof. The bound excludes bytes already handed to the transport.
 
 ## Context
 
@@ -137,7 +137,7 @@ At grant time, validate the marked team, its match to the conversation's organiz
 
 Linked runs inherit their conversation's read access; V1 does not share runs separately. On each new read, list, stream connection (including reconnect and replay), or background response request, resolve the linked conversation and apply its current read rules: organization and team membership where applicable, plus owner or share access. Deny the request if the conversation is missing or inaccessible; cached results and background paths cannot bypass this check.
 
-The proposed amendment also applies that policy during an open viewer subscription through the shared [lease contract](durable-agent-runs.md#bounded-viewer-authorization-leases). Revocation closes a subscription only if the complete current read policy denies access. An unbound owner can retain access after revocation of a team share. The general transport contract covers all run access rules, not only team-linked runs. This ADR defines linked-conversation access, not new rights for standalone or public runs.
+The amendment applies that policy during an open viewer subscription through the shared [authorization contract](durable-agent-runs.md#bounded-viewer-authorization-leases). An open connection does not grant continuing delivery rights. Expired authorization blocks protected delivery until a fresh decision succeeds. Denial closes only the viewer subscription. A revoked grant does not deny a viewer who retains another valid access path. An unbound owner can retain access after revocation of a team share. The shared contract covers all run access rules, not only team-linked runs. This ADR defines linked-conversation access, not new rights for standalone or public runs.
 
 If the recorded owner leaves the team recorded on the conversation, they cannot read, continue, or manage it until they rejoin. Current members can still read it if the owner shared it with the team, but they cannot continue or manage it for the owner. V1 does not make a lead a successor or transfer ownership automatically. Removing someone from the organization remains a separate flow; any deliberate successor must belong to the team recorded on the conversation. A conversation started without a team keeps its personal-owner rules even if its team share is revoked.
 
@@ -170,7 +170,7 @@ These existing surfaces still need the remaining V1 behavior:
 - Session application state and user/organization selection: `packages/core/src/application-state/store.ts` (currently session-keyed; extend persistence without replacing session behavior)
 - Conversation persistence and access: `packages/core/src/chat-threads/store.ts`, `packages/core/src/server/agent-chat-plugin.ts`
 - Run access through conversations and stream connections: `packages/core/src/agent/run-ownership.ts`, `packages/core/src/server/agent-chat-plugin.ts` (event streams check access when opened, not while delivering events)
-- Shared stream delivery: `packages/core/src/agent/run-manager.ts` needs the proposed lease gate across live, SQL-polled, replayed, and buffered events. A common final writer and complete renewal policy are implementation requirements, not verified existing primitives.
+- Shared stream delivery: `packages/core/src/agent/run-manager.ts` needs demand-driven authorization across live, SQL-polled, replayed, and buffered events. The final delivery boundary and fresh credential and policy checks require implementation proof. An outer wrapper alone does not prove that boundary.
 
 ## Implementation and proof boundary
 
@@ -178,20 +178,20 @@ Implement group roles and team instructions, skills, and memory in Core first. T
 
 ### V1 acceptance criteria
 
-- Non-converted groups and older conversations retain their access rights. Converted groups retain grants and connection permissions. The proposed lease changes stream enforcement framework-wide, including non-team conversations.
+- Non-converted groups and older conversations retain their access rights. Converted groups retain grants and connection permissions. The authorization amendment changes stream enforcement framework-wide, including non-team conversations.
 - Owners/admins can manage team members even when leads exist; leads can manage ordinary members only in their own team. Both paths preserve lead/member invariants, including bulk updates.
 - Active-team selection follows the user within each organization across sessions and devices; switching organizations does not carry another organization's selection into the current session.
 - Only the selected team's context loads alongside organization and personal context when a conversation starts. On every later turn, the bound team's context loads even if the user selects another team. Personal, team, and organization instructions and skills have a deterministic order.
 - A former member, including the owner, cannot read or continue a bound conversation. Unshared work stays private.
 - Only the recorded owner can grant or revoke a chat team share, only for an allowed team, and only as `viewer`. Reject `commenter`, `editor`, and `admin` grants, and reject callers relying only on resource-admin authority.
 - Bound conversations cannot issue public share tokens, and tokens issued before binding cannot expose their transcript or linked runs after binding, membership loss, or team deletion.
-- New run reads, lists, stream connections (including reconnect and replay), and background response requests deny access after the caller loses linked-conversation access. This includes team or organization membership removal and team deletion. Under the proposed amendment, open subscriptions also enforce the approved lease bound. Denial, error, timeout, or expiry closes the viewer subscription without cancelling or completing the producing run.
+- New run reads, lists, stream connections (including reconnect and replay), and background response requests deny access after the caller loses linked-conversation access. This includes team or organization membership removal and team deletion. Open subscriptions enforce the 10-second authorization age at protected delivery. Idle expiry keeps the connection open without delivery rights. Denial closes the viewer subscription, not the producing run. Failure and timeout cannot grant or extend authorization. Their handling remains a policy approval gate.
 - Deletion makes bound context and conversations inaccessible without deleting unrelated resources.
 - A failed or incomplete team-context lookup must not look like empty context or successful authorization.
 
 ### Verification
 
-Test changes to group and organization membership against cached and listed access as well as direct access. After access loss, test denial for each run path above, including reconnect and replay. Prove the approved bound on already-open streams after membership removal, team deletion, and share revocation. Include slow authorization, late approvals, backend failure, delayed timers, replay, SQL polling, and backpressure. Prove successful renewal, retained alternative access, and continued producer operation. Require independent integrated proof before release.
+Test changes to group and organization membership against cached, listed, and direct access. After access loss, test denial for each run path above, including reconnect and replay. Prove the 10-second bound at the final application-controlled writer, including idle expiry and fresh authorization before resumed delivery. Prove retained alternative access and continued producer operation. Include fault, client, buffering, and scaling evidence. Require independent integrated proof before release.
 
 ## Consequences and revisit criteria
 
@@ -199,4 +199,4 @@ V1 supplies team context and a central view of explicitly shared work without ma
 
 Revisit generic team ownership and family-specific moves only when a concrete workflow needs team-owned resources or recovery after owner departure. Revisit a separate automation identity, automatic sharing, cross-team conversation sharing, all-teams prompt context, or rules that hide inherited organization resources only for demonstrated needs; none is implied by this proposal.
 
-Current connection-scoped authorization has no bound on delivery after access loss. The proposed lease replaces that exception with a bounded framework-wide policy. It is not immediate revocation or a limit on disclosed bytes. Policy approval must explicitly accept the exposure window and fail-closed availability cost. Add distributed invalidation only if a concrete requirement needs faster revocation than the approved bound.
+Current connection-scoped authorization has no bound on delivery after access loss. The amendment replaces that exception with bounded authorization at protected delivery. It is not immediate revocation or a limit on disclosed bytes. Demand-driven checks avoid idle authorization polling, not existing event polling or connection and memory costs. Approval must still cover the disclosure and availability tradeoffs and measured scaling budgets. Distributed invalidation requires a separate demonstrated need for faster revocation.

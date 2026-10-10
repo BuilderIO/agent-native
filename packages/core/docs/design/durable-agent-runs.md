@@ -1,6 +1,7 @@
 # Design: Durable / Checkpointed Agent Runs
 
-Status: Phase 1 + Phase 2 implemented (flagged, off by default); Phase 0 shipped;
+Status: Phase 1 + Phase 2 implemented (default-on for deployed Netlify apps,
+explicit opt-in on other hosted platforms); Phase 0 shipped;
 internal per-step checkpointing (Option A core) still recommended-not-built.
 Owner: core / run-manager + deploy
 Related code: `packages/core/src/agent/run-manager.ts`,
@@ -226,7 +227,8 @@ itself checkpoint).
    core background infrastructure, have the durable worker run them to completion
    (checkpointing internally per Phase 1), and stream truthful progress back to
    the foreground run and UI. _(Implemented: host-agnostic worker baseline +
-   Netlify 15-min `-background` per-host optimization, flagged off by default.)_
+    Netlify 15-min `-background` per-host optimization, default-on for deployed
+    Netlify apps with an explicit opt-out; other hosted platforms require opt-in.)_
 
 ## Tie-in: cheaper near-term mitigations reduce, but do not replace, the fix
 
@@ -529,93 +531,53 @@ Minimal client change, because the reconnect machinery already exists:
 
 ## Bounded viewer authorization leases
 
-**Proposed amendment, 2026-10-10. Runtime implementation and timing approval are
-pending.** Current streams authorize at opening, without continuous viewer
-authorization. This section defines the target, not deployed behavior.
+**Policy choices recorded, 2026-10-10: 10-second maximum authorization age and
+Option A for idle expiry. Runtime implementation and independent proof remain
+pending.** Current streams authorize only at opening. This section defines the
+target, not deployed behavior. The
+[tenancy ADR](organization-team-tenancy.md#proposed-stream-policy-amendment-2026-10-10)
+defines linked-conversation access.
 
-The proposal uses a 10-second viewer lease and proactive renewal 5 seconds after
-each check starts. These are proposed constants, not configuration infrastructure.
-The [tenancy ADR](organization-team-tenancy.md#proposed-stream-policy-amendment-2026-10-10)
-defines linked-conversation policy.
+1. **Scope:** The contract covers all authorized viewer subscriptions, including
+   non-team, standalone, and supported public access. It adds no access rights.
+   A missing linked conversation denies access. Standalone runs retain their own
+   applicable policy. A revoked grant does not deny another valid access path.
+2. **Freshness:** An approval expires no later than 10 seconds after its
+   authoritative check starts, measured with a monotonic clock. Slow checks,
+   replay, decision reuse, and delayed timers never extend that deadline.
+   Expired results cannot authorize delivery.
+3. **Demand-driven checks:** Idle connections remain open after authorization
+   expires, without protected delivery or periodic authorization reads. A fresh
+   decision precedes resumed delivery. There is no universal 5-second renewal
+   schedule. Only content-free heartbeats can bypass authorization, after proof
+   that their payload discloses no protected data.
+4. **Authoritative decision:** Each fresh check evaluates the original viewer's
+   current session or credential and complete applicable access policy. Cached
+   opening identity is insufficient. The authoritative database view must be
+   coherent and cannot predate the check start. Stale caches, lagging replicas,
+   and facts never valid together cannot approve access. Approval, denial,
+   backend failure, and timeout remain distinguishable outcomes.
+5. **Protected delivery:** A synchronous gate checks authorization immediately
+   before each protected write at the final application-controlled writer.
+   No asynchronous step separates that gate from transport handoff. The gate
+   covers live, SQL-polled, replayed, and buffered content, including protected
+   keepalives. Pending output remains bounded. No new protected writes occur
+   more than 10 seconds after committed revocation. Checks that start after
+   commit must observe current policy or refuse authorization. Bytes already
+   handed to transport can arrive later. The bound limits time, not byte volume.
+6. **Viewer and producer:** Denial closes only the viewer subscription. Late
+   approvals cannot revive a closed subscription. Reconnect requires fresh
+   authorization before replay. Client handling distinguishes subscription
+   closure from producer completion or failure. The producer continues.
+   Backend failure and timeout never grant or extend authorization. Their
+   terminal handling and availability tradeoffs remain policy approval gates.
 
-### Scope and authorization decision
-
-The lease covers every authorized viewer subscription, including non-team and
-standalone runs and supported public access. Each subscription uses its applicable
-access policy. The lease adds no owner, viewer, continuation, or public-access
-rights. A missing conversation denies a conversation-linked run. Standalone runs
-retain their applicable policy rather than requiring a fabricated conversation.
-
-Renewal evaluates the original viewer's current identity validity and complete
-current access policy. Implementation must establish the applicable session or
-credential checks, not assume the opening request remains valid. Linked runs use
-current conversation, organization, team, owner, and share rules where applicable.
-A revoked grant does not deny a viewer who retains another valid access path.
-
-Each decision uses a fresh, coherent authoritative database view. Cached
-membership, lagging replicas, and old transaction snapshots cannot grant a lease.
-Multiple policy reads must not combine facts that were never valid together. A
-decision's snapshot cannot predate its recorded check start. Authorization returns
-distinguishable approval, denial, backend failure, and timeout outcomes. Failure is
-not successful authorization.
-
-### Subscription lifecycle
-
-- **OPENING:** Record a monotonic check start before the authoritative read. Its
-  candidate deadline is check start plus the lease duration. Approval activates the
-  subscription only before that deadline. Opening timeout ends at that deadline.
-  Subscription setup and replay do not reset it.
-- **ACTIVE:** Allow only one authorization check in flight. Schedule renewal from
-  the previous check start, not its completion. If the scheduled time already
-  passed, start promptly without extending the current deadline. The existing
-  lease permits delivery while renewal is pending, but only before its deadline.
-  Accept approval only while ACTIVE and before both the existing and candidate
-  deadlines. Replace the deadline with renewal start plus the lease duration.
-  Denial or backend failure closes immediately. Renewal timeout cannot extend
-  beyond the existing deadline.
-- **CLOSED:** Expiry, denial, backend failure, or timeout makes closure terminal.
-  Discard unsent application buffers, clear timers, and unsubscribe. Cancel pending
-  checks where supported, otherwise ignore their results. Late approval cannot
-  revive the subscription. Reconnect requires fresh authorization before replay.
-  Viewer closure is neither producer completion nor producer failure. The
-  producing run continues.
-
-### Final delivery gate and bound
-
-Implementation must provide one synchronous gate at the final
-application-controlled writer. It covers live events, SQL polling, replay,
-keepalives, and queued output during buffer draining. There must be no asynchronous
-step between the gate and transport handoff. Timers trigger renewal and cleanup
-but do not establish authorization. A delayed timer or event loop cannot extend a
-deadline.
-
-The intended guarantee is no new application-controlled content writes more than
-the approved lease duration after committed access revocation. A pre-revocation
-approval cannot extend beyond its check-start deadline. A check that starts after
-commit must observe the revoked policy or fail closed. This guarantee depends on
-the authoritative decision and final gate above.
-
-Bytes already handed to the transport can arrive later and cannot be recalled.
-The bound limits time, not disclosed byte volume. It does not promise instantaneous
-cross-host revocation. Database failure closes legitimate subscriptions too,
-without cancelling their runs. Existing reconnect support does not prove client
-recovery from authorization closure. Client handling must distinguish viewer
-closure from run completion.
-
-### Approval and proof gates
-
-Policy approval must accept the duration, renewal interval, exposure window, and
-fail-closed behavior. Approval can precede implementation. V1 release requires
-independent runtime proof, not only approval or static checks.
-
-Proof includes successful renewal and open-stream denial after organization/team
-removal, team deletion, share revocation, and applicable identity revocation.
-Include retained alternative access, slow pre-commit approval, expired late
-approval, backend failure, timeout, delayed timers, and backpressure. Cover live,
-SQL-polled, replayed, and buffered writes, fresh reconnect authorization, and
-unaffected producer execution. Measure authorization cost before accepting the
-timing. At 10,000 viewers, a 5-second cadence produces roughly 2,000 checks per
-second before underlying policy queries.
+Independent runtime proof must cover faults, buffering, client behavior, and
+scaling. Approval of the disclosure
+and availability tradeoffs and measured scaling budgets remains required before
+implementation. Budgets must cover active authorization work and idle connection
+and memory costs. Demand-driven authorization does not remove SQL event polling.
+Policy approval alone does not establish runtime completion or release readiness.
 
 ## Per-model-call gateway cap
 
