@@ -9,7 +9,10 @@ import { parseBase64DataUrl } from "../shared/data-url.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
-import { readClientAppState } from "./application-state.js";
+import {
+  readClientAppState,
+  writeClientAppState,
+} from "./application-state.js";
 import {
   isInBuilderFrame,
   isTrustedBuilderMessage,
@@ -78,6 +81,8 @@ export interface AgentChatContextItem {
   title: string;
   context: string;
   contextNamespace?: string;
+  /** Context is limited to one chat thread when present. */
+  targetThreadId?: string;
 }
 
 export interface AgentChatContextSetOptions extends AgentChatContextItem {
@@ -211,8 +216,20 @@ let agentChatContextState: AgentChatContextState = {
   items: [],
   updatedAt: 0,
 };
+let pendingAgentChatContextPersistence: Promise<void> = Promise.resolve();
 const agentChatContextListeners = new Set<() => void>();
 let agentChatContextNotifyQueued = false;
+
+function queueAgentChatContextPersistence<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const mutation = pendingAgentChatContextPersistence.then(operation);
+  pendingAgentChatContextPersistence = mutation.then(
+    () => undefined,
+    () => undefined,
+  );
+  return mutation;
+}
 
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
@@ -376,23 +393,31 @@ export function normalizeAgentChatContextItem(
     typeof candidate.contextNamespace === "string"
       ? candidate.contextNamespace.trim()
       : "";
+  const targetThreadId =
+    typeof candidate.targetThreadId === "string"
+      ? candidate.targetThreadId.trim()
+      : "";
   return {
     key,
     title: candidate.title.trim() || key,
     context,
     ...(contextNamespace ? { contextNamespace } : {}),
+    ...(targetThreadId ? { targetThreadId } : {}),
   };
 }
 
 export function filterAgentChatContextItems(
   items: readonly AgentChatContextItem[],
   contextNamespace?: string | null,
+  threadId?: string | null,
 ): AgentChatContextItem[] {
   const namespace = contextNamespace?.trim();
-  if (!namespace) return [...items];
   return items.filter(
     (item) =>
-      !item.contextNamespace || item.contextNamespace.trim() === namespace,
+      (!item.targetThreadId || item.targetThreadId === threadId?.trim()) &&
+      (!namespace ||
+        !item.contextNamespace ||
+        item.contextNamespace.trim() === namespace),
   );
 }
 
@@ -1452,6 +1477,90 @@ export function setAgentChatContextItem(
       openSidebar: opts.openSidebar !== false,
     },
   );
+}
+
+/** Persist a staged context item before exposing it to a composer. */
+export async function setAgentChatContextItemAndPersist(
+  opts: AgentChatContextSetOptions,
+): Promise<void> {
+  const item = normalizeAgentChatContextItem(opts);
+  if (!item) {
+    throw new TypeError("Agent chat context must include a valid item.");
+  }
+  if (typeof window === "undefined") {
+    throw new Error("Agent chat context can only be persisted in a browser.");
+  }
+
+  await queueAgentChatContextPersistence(async () => {
+    const nextState: AgentChatContextState = {
+      items: withReplacedAgentChatContextItem(
+        agentChatContextState.items,
+        item,
+      ),
+      updatedAt: Math.max(Date.now(), agentChatContextState.updatedAt + 1),
+    };
+    const persistedState = normalizeAgentChatContextState(
+      await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
+        keepalive: true,
+      }),
+    );
+    const persistedItem = persistedState?.items.find(
+      (candidate) => candidate.key === item.key,
+    );
+    if (
+      !persistedState ||
+      !persistedItem ||
+      persistedItem.title !== item.title ||
+      persistedItem.context !== item.context ||
+      persistedItem.contextNamespace !== item.contextNamespace ||
+      persistedItem.targetThreadId !== item.targetThreadId
+    ) {
+      throw new Error("Agent chat context was not persisted.");
+    }
+
+    publishAgentChatContextItems(persistedState.items, {
+      persist: false,
+      updatedAt: persistedState.updatedAt,
+    });
+  });
+}
+
+/** Remove a staged context item from persisted state before clearing its composer. */
+export async function removeAgentChatContextItemAndPersist(
+  key: string,
+): Promise<void> {
+  const normalizedKey = key.trim();
+  if (!normalizedKey) {
+    throw new TypeError("Agent chat context key must not be empty.");
+  }
+  if (typeof window === "undefined") {
+    throw new Error("Agent chat context can only be persisted in a browser.");
+  }
+
+  await queueAgentChatContextPersistence(async () => {
+    const nextState: AgentChatContextState = {
+      items: agentChatContextState.items.filter(
+        (item) => item.key !== normalizedKey,
+      ),
+      updatedAt: Math.max(Date.now(), agentChatContextState.updatedAt + 1),
+    };
+    const persistedState = normalizeAgentChatContextState(
+      await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
+        keepalive: true,
+      }),
+    );
+    if (
+      !persistedState ||
+      persistedState.items.some((item) => item.key === normalizedKey)
+    ) {
+      throw new Error("Agent chat context removal was not persisted.");
+    }
+
+    publishAgentChatContextItems(persistedState.items, {
+      persist: false,
+      updatedAt: persistedState.updatedAt,
+    });
+  });
 }
 
 /** @deprecated Use `setAgentChatContextItem` instead. */

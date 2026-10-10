@@ -23,6 +23,7 @@ import {
   parseAgentThreadSnapshot,
   parseStartRunInput,
   persistableFilePart,
+  isPersistableAttachmentUrl,
 } from "./index.js";
 
 const event = {
@@ -619,12 +620,84 @@ describe("AgentKit protocol validation", () => {
         fileId: "file-1",
       }),
     ).toEqual({ type: "file", name: "photo.png", fileId: "file-1" });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        mediaType: "image/png",
+        fileId: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      omitted: "inline-bytes",
+    });
     const durable = {
       type: "file" as const,
       name: "photo.png",
       url: "https://storage.example.test/photo.png",
     };
-    expect(persistableFilePart(durable)).toBe(durable);
+    expect(persistableFilePart(durable)).toEqual(durable);
+    expect(
+      persistableFilePart({
+        ...durable,
+        data: "data:image/png;base64,INLINE_BYTES",
+      }),
+    ).toEqual(durable);
+
+    expect(isPersistableAttachmentUrl(durable.url)).toBe(true);
+    expect(isPersistableAttachmentUrl("AQID")).toBe(false);
+    const localS3 = {
+      type: "file" as const,
+      name: "photo.png",
+      url: "http://minio.example.test:9000/bucket/photo.png",
+    };
+    expect(persistableFilePart(localS3)).toEqual(localS3);
+    const signedReference = {
+      ...durable,
+      url: "https://storage.example.test/photo.png?signature=fake-signature",
+    };
+    expect(persistableFilePart(signedReference)).toEqual({
+      type: "file",
+      name: "photo.png",
+      omitted: "unsafe-url",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        mediaType: "image/png",
+        url: "AQID",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      omitted: "unsafe-url",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        url: "https://storage.example.test/photo.png?token=secret",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      omitted: "unsafe-url",
+    });
 
     const snapshot = {
       id: "thread-1",
@@ -635,6 +708,24 @@ describe("AgentKit protocol validation", () => {
     expect(parseAgentThreadSnapshot(snapshot).messages[0]?.parts).toEqual([
       marker,
     ]);
+    expect(
+      parseAgentThreadSnapshot({
+        ...snapshot,
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [
+              persistableFilePart({
+                type: "file",
+                name: "photo.png",
+                url: "AQID",
+              }),
+            ],
+          },
+        ],
+      }).messages[0]?.parts,
+    ).toEqual([{ type: "file", name: "photo.png", omitted: "unsafe-url" }]);
     expect(() =>
       parseAgentThreadSnapshot({
         ...snapshot,
