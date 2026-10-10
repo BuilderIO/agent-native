@@ -334,6 +334,38 @@ describe("slide animation element parsing", () => {
     ]);
   });
 
+  it("reveals paragraphs within one list item in separate steps", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><ul>
+        <li><p>First paragraph</p><p>Second paragraph</p>
+          <ul><li>Nested point</li></ul>
+        </li>
+        <li>Following item</li>
+      </ul></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0, 0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0, 0, 0],
+      [0, 0, 0, 1],
+      [0, 0, 0, 2, 0],
+      [0, 0, 1],
+    ]);
+  });
+
   it.each([{ elementPath: [0, 0, 0, 0] }, { elementPath: [0, 0, 1, 0] }])(
     "expands a selected paragraph inside its containing list",
     ({ elementPath }) => {
@@ -359,8 +391,8 @@ describe("slide animation element parsing", () => {
       ]);
 
       expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
-        [0, 0, 0],
-        [0, 0, 1],
+        [0, 0, 0, 0],
+        [0, 0, 1, 0],
       ]);
     },
   );

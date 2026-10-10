@@ -313,7 +313,14 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
         const childTagName = child.tagName.toLowerCase();
         if (SKIPPED_TAGS.has(childTagName)) continue;
         if (childTagName === "li") {
-          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+          const paragraphs = Array.from(child.children).filter(
+            (item) => item.tagName.toLowerCase() === "p",
+          );
+          if (paragraphs.length > 0) {
+            nativeParagraphs.push(...paragraphs.filter(hasMeaningfulContent));
+          } else if (hasMeaningfulContent(child)) {
+            nativeParagraphs.push(child);
+          }
           collectNestedLists(child);
         } else if (childTagName === "ul" || childTagName === "ol") {
           collectListItems(child);
