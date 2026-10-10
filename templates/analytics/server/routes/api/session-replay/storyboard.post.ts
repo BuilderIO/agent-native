@@ -802,6 +802,15 @@ export default defineEventHandler(async (event) =>
     let cleanupPending = false;
     let cleanupFailed = false;
     let cleanupUnknown = false;
+    let failurePhase:
+      | "requestInput"
+      | "replayValidation"
+      | "designDiscovery"
+      | "designAuthentication"
+      | "designRead"
+      | "designUpload"
+      | "designResponse"
+      | "designConfirmation" = "requestInput";
     try {
       const parts = await readBoundedMultipartFormData(
         event,
@@ -838,6 +847,7 @@ export default defineEventHandler(async (event) =>
         badRequest("Screenshot export parts do not match the manifest");
       }
 
+      failurePhase = "replayValidation";
       const recordings = new Map<
         string,
         Awaited<ReturnType<typeof getSessionReplaySummary>>
@@ -905,9 +915,11 @@ export default defineEventHandler(async (event) =>
         });
       }
 
+      failurePhase = "designDiscovery";
       const designTarget = await resolveAgentInvocationTarget("design", {
         selfAppId: "analytics",
       });
+      failurePhase = "designAuthentication";
       const caller = await resolveA2ACallerAuth({
         audience: canonicalA2AAudience(designTarget.url),
         userIdentityOnly: true,
@@ -919,6 +931,7 @@ export default defineEventHandler(async (event) =>
       let previousBoardContent = "";
       let designTargetUrl = designTarget.url;
       if (manifest.designId) {
+        failurePhase = "designRead";
         const previous = await readDesignStoryboard(
           designTarget.url,
           manifest.designId,
@@ -942,6 +955,7 @@ export default defineEventHandler(async (event) =>
         selectedReplayCount: manifest.selectedReplayCount,
         screenshots: handoffScreenshots,
       };
+      failurePhase = "designUpload";
       const uploadUrl = designScreenshotUploadUrl(designTargetUrl);
       assertCredentialedA2AUrl(uploadUrl, true);
       const allowedPrivateOrigins = workspacePrivateOrigins();
@@ -1039,6 +1053,7 @@ export default defineEventHandler(async (event) =>
       if (!uploadResponse) {
         badRequest("Design screenshot upload did not return a response", 502);
       }
+      failurePhase = "designResponse";
       let uploadResult: DesignUploadResult;
       try {
         const parsed: unknown = JSON.parse(uploadResponseBody ?? "");
@@ -1092,6 +1107,7 @@ export default defineEventHandler(async (event) =>
           "Design may have saved the storyboard, but its ID could not be recovered. Check Design before retrying.",
         );
       }
+      failurePhase = "designConfirmation";
       let confirmation: Awaited<ReturnType<typeof readDesignStoryboard>>;
       try {
         confirmation = await readDesignStoryboard(
@@ -1129,6 +1145,7 @@ export default defineEventHandler(async (event) =>
         cleanupPending: uploadResult.cleanupPending ?? false,
       };
     } catch (error) {
+      console.warn("Replay storyboard export rejected", failurePhase);
       const errorDetails =
         error && typeof error === "object"
           ? (error as {
@@ -1173,10 +1190,7 @@ export default defineEventHandler(async (event) =>
       }
       throw createError({
         statusCode: 502,
-        statusMessage:
-          error instanceof Error
-            ? `Design screenshot upload failed: ${error.message}`
-            : "Design screenshot upload failed",
+        statusMessage: "Design screenshot upload failed",
         ...(cleanupPending || cleanupFailed || cleanupUnknown
           ? {
               data: {
@@ -1187,7 +1201,6 @@ export default defineEventHandler(async (event) =>
               },
             }
           : {}),
-        cause: error,
       });
     }
     if (!responseBody) {

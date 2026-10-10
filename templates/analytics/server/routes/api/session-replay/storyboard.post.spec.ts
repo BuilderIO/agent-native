@@ -605,7 +605,8 @@ describe("POST /api/session-replay/storyboard", () => {
     expect(error).not.toHaveProperty("data.saveOutcomeUnknown");
   });
 
-  it("preserves workspace-origin configuration errors before dispatch", async () => {
+  it("redacts workspace-origin configuration errors before dispatch", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.workspacePrivateOrigins.mockImplementationOnce(() => {
       throw new Error("Invalid workspace app manifest");
     });
@@ -616,8 +617,14 @@ describe("POST /api/session-replay/storyboard", () => {
 
     expect(error).toMatchObject({
       statusCode: 502,
-      statusMessage: expect.stringContaining("Invalid workspace app manifest"),
+      statusMessage: "Design screenshot upload failed",
+      message: "Design screenshot upload failed",
     });
+    expect(warning).toHaveBeenCalledWith(
+      "Replay storyboard export rejected",
+      "designUpload",
+    );
+    warning.mockRestore();
     expect(error).not.toHaveProperty("data.saveOutcomeUnknown");
     expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
   });
