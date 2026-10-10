@@ -30,6 +30,13 @@ const analyticsRollupsTsSource = readFileSync(
   new URL("../lib/first-party-analytics-rollups.ts", import.meta.url),
   "utf8",
 );
+// db.ts runs SOURCE_INDEX_RUNS_MIGRATION_SQL from this file, so its DDL is
+// migration history even though db.ts does not spell the columns out.
+const sourceIndexRunsTsSource = readFileSync(
+  new URL("../lib/source-index-runs.ts", import.meta.url),
+  "utf8",
+);
+const migrationHistorySource = `${dbTsSource}\n${sourceIndexRunsTsSource}`;
 
 interface DrizzleColumn {
   name: string;
@@ -66,7 +73,8 @@ describe("analytics db migrations cover every schema.ts column", () => {
       const missing = columns
         .map((c) => c.name)
         .filter(
-          (columnName) => !new RegExp(`\\b${columnName}\\b`).test(dbTsSource),
+          (columnName) =>
+            !new RegExp(`\\b${columnName}\\b`).test(migrationHistorySource),
         );
       expect(missing).toEqual([]);
     });
