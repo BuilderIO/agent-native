@@ -24,7 +24,7 @@ import {
 const BUILDER_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
   "gpt-6-luna";
 
-const GEMINI_BYOK_MODEL = "gemini-2.0-flash-lite";
+const GEMINI_BYOK_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_BYOK_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_BYOK_MODEL}:generateContent`;
 
 const MAX_INPUT_CHARS = 200_000;
@@ -285,8 +285,9 @@ async function callGeminiByok({
             parts: [{ text: prompt.system }, { text: prompt.user }],
           },
         ],
+        // Gemini 3.x deprecates sampling parameters (temperature, top_p,
+        // top_k), so this request sends none.
         generationConfig: {
-          temperature: 0,
           maxOutputTokens,
           ...(wantJson ? { responseMimeType: "application/json" } : {}),
         },
