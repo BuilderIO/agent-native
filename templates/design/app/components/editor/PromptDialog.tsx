@@ -91,6 +91,15 @@ export interface UploadedFile {
   dataUrl?: string;
 }
 
+function uploadedFilesTotalBytes(files: readonly UploadedFile[]) {
+  let totalBytes = 0;
+  for (const file of files) {
+    if (!Number.isSafeInteger(file.size) || file.size < 0) return null;
+    totalBytes += file.size;
+  }
+  return totalBytes;
+}
+
 function promptAttachmentSizeLimit(
   files: readonly File[],
 ): "images" | "attachments" | null {
@@ -487,17 +496,8 @@ export default function PromptPopover({
   const handleAttachmentsChange = useCallback(
     (files: File[]) => {
       syncFiles(files);
-      void uploadFiles(files).catch((error) => {
-        toast.error(
-          error instanceof MissingVisualImagePayloadError
-            ? t("promptDialog.imageAttachmentUnavailable")
-            : error instanceof Error
-              ? error.message
-              : t("promptDialog.failedToUploadFile"),
-        );
-      });
     },
-    [syncFiles, t, uploadFiles],
+    [syncFiles],
   );
 
   const handleSubmit = useCallback(
@@ -527,15 +527,17 @@ export default function PromptPopover({
             contextItems: await beforeSubmitContext(options.contextItems),
           };
         uploaded = await uploadFiles(files);
-        if (
-          uploaded.reduce((sum, file) => sum + (file.size ?? 0), 0) >
-          MAX_UPLOAD_BYTES
-        ) {
+        const uploadedBytes = uploadedFilesTotalBytes(uploaded);
+        if (uploadedBytes === null) {
+          throw new Error(t("promptDialog.failedToUploadFile"));
+        }
+        if (uploadedBytes > MAX_UPLOAD_BYTES) {
           throw new Error(attachmentLimitMessage);
         }
         if (draftScopeRef.current !== submissionScope)
           throw new Error(t("promptDialog.failedToSubmitPrompt"));
       } catch (error) {
+        discardFiles(files);
         setSubmitting(false);
         submittingRef.current = false;
         onOpenChange(true);
