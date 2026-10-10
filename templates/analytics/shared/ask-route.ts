@@ -6,12 +6,21 @@ export function isAnalyticsAskPath(pathname: string): boolean {
 }
 
 /**
- * Thread id from `/ask/<threadId>`, or null on the blank `/ask` page. Thread
- * ids are URL-safe (UUIDs or `thread-*`), so the raw segment is the id.
+ * Thread id from `/ask/<threadId>`, or null on the blank `/ask` page. Decodes
+ * the segment the way React Router's useParams does, so the sidebar's active id
+ * matches the route's id. A malformed escape stays literal rather than throwing.
  */
 export function analyticsAskThreadIdFromPath(pathname: string): string | null {
   const segment = /^\/ask\/([^/]+)\/?$/.exec(pathname)?.[1];
-  return segment || null;
+  return segment === undefined ? null : decodeThreadSegment(segment);
+}
+
+function decodeThreadSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 export function analyticsAskThreadPath(threadId: string | null): string {

@@ -11,10 +11,12 @@ describe("Brain ask route thread ids", () => {
     expect(brainAskThreadIdFromPath("/home/a/b")).toBeNull();
   });
 
-  it("round-trips the path it builds", () => {
+  it("round-trips the path it builds, including an id that needs encoding", () => {
     expect(brainAskThreadIdFromPath(brainAskThreadPath("thread-1"))).toBe(
       "thread-1",
     );
+    expect(brainAskThreadPath("a b")).toBe("/home/a%20b");
+    expect(brainAskThreadIdFromPath(brainAskThreadPath("a b"))).toBe("a b");
     expect(brainAskThreadIdFromPath(brainAskThreadPath(null))).toBeNull();
   });
 

@@ -1891,6 +1891,7 @@ const AgentKitAssistantChatBody = forwardRef<
   // shows this copy in the meantime.
   const [pendingUserSubmission, setPendingUserSubmission] = useState<{
     text: string;
+    threadId: string;
     baseCount: number;
   } | null>(null);
   const messageCountRef = useRef(0);
@@ -2012,14 +2013,18 @@ const AgentKitAssistantChatBody = forwardRef<
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
+  // Scoped to the thread that was submitted to. A reused surface can change
+  // threadId mid-send, and the prior prompt must not show under the new thread.
   const optimisticUserMessage: AgentMessage | null =
     pendingUserSubmission &&
+    pendingUserSubmission.threadId === threadId &&
     thread.messages.length <= pendingUserSubmission.baseCount
       ? {
           id: "pending-user-submission",
           role: "user",
           parts: [{ type: "text", text: pendingUserSubmission.text }],
           status: "complete",
+          metadata: { pendingSubmission: true },
         }
       : null;
   const hasRenderedMessages =
@@ -3098,6 +3103,7 @@ const AgentKitAssistantChatBody = forwardRef<
         if (!isThreadRunning()) {
           setPendingUserSubmission({
             text,
+            threadId,
             baseCount: messageCountRef.current,
           });
         }
@@ -3158,7 +3164,11 @@ const AgentKitAssistantChatBody = forwardRef<
       if (!release)
         throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
       if (!runWasActiveAtSubmit) {
-        setPendingUserSubmission({ text, baseCount: messageCountRef.current });
+        setPendingUserSubmission({
+          text,
+          threadId,
+          baseCount: messageCountRef.current,
+        });
       }
       try {
         const preparedOptions = prepare ? await prepare() : composerOptions;

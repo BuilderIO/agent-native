@@ -34,4 +34,16 @@ describe("analytics ask route paths", () => {
       analyticsAskThreadIdFromPath(analyticsAskThreadPath("thread-1")),
     ).toBe("thread-1");
   });
+
+  it("decodes an encoded thread id the way the route param does", () => {
+    expect(analyticsAskThreadIdFromPath("/ask/a%20b")).toBe("a b");
+    expect(analyticsAskThreadIdFromPath(analyticsAskThreadPath("a b"))).toBe(
+      "a b",
+    );
+  });
+
+  it("does not throw on a malformed percent escape in a hand-typed link", () => {
+    expect(() => analyticsAskThreadIdFromPath("/ask/%")).not.toThrow();
+    expect(analyticsAskThreadIdFromPath("/ask/%")).toBe("%");
+  });
 });

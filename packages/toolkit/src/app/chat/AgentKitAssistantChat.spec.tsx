@@ -1209,6 +1209,29 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.textContent).not.toContain("Summarize my inbox");
   });
 
+  it("does not show a pending prompt under a different thread after the surface moves", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Summarize my inbox");
+
+    // The thread comes from the agent context, so the switch must reach it there.
+    chatMocks.threadId = "thread-2";
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).not.toContain("Summarize my inbox");
+  });
+
   it("copies the active run ID from its action menu", async () => {
     const props = baseProps();
     await mount(props);
