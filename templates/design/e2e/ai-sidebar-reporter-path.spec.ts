@@ -629,6 +629,52 @@ async function makeImageFixture(
   return { bytes, sha256, dataUrl };
 }
 
+async function recordUploadedImageBatches(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const target = window as typeof window & {
+      __designUploadedImageBatches?: Array<
+        Array<{ name: string; type: string; size: number; sha256: string }>
+      >;
+    };
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof Request
+            ? input.url
+            : input.href;
+      if (
+        url.endsWith("/api/uploads") &&
+        init?.method === "POST" &&
+        init.body instanceof FormData
+      ) {
+        const images = await Promise.all(
+          init.body
+            .getAll("files")
+            .filter((value): value is File => value instanceof File)
+            .filter((file) => file.type.startsWith("image/"))
+            .map(async (file) => {
+              const digest = new Uint8Array(
+                await crypto.subtle.digest("SHA-256", await file.arrayBuffer()),
+              );
+              return {
+                name: file.name,
+                type: file.type,
+                size: file.size,
+                sha256: Array.from(digest, (byte) =>
+                  byte.toString(16).padStart(2, "0"),
+                ).join(""),
+              };
+            }),
+        );
+        (target.__designUploadedImageBatches ??= []).push(images);
+      }
+      return originalFetch(input, init);
+    };
+  });
+}
+
 async function uploadImage(
   page: Page,
   sidebarComposer: Locator,
@@ -837,6 +883,202 @@ test("Design Home sends a 6 MB uploaded image through generation", async ({
     page,
     providerImage,
   );
+  expect(
+    newInlineBytesHits(sqlBefore, await scanSqlForInlineBytes(test.info())),
+  ).toEqual([]);
+});
+
+test("Design Home preserves image pixels when a document crosses the upload limit", async ({
+  page,
+}) => {
+  test.skip(
+    process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
+    "requires E2E_AI_SIDEBAR_LOOPBACK=1",
+  );
+  await page.context().addInitScript(() => {
+    if (location.origin === "null") return;
+    const selection = JSON.stringify({
+      model: "agentkit-loopback",
+      engine: "ai-sdk:openai",
+      effort: "medium",
+    });
+    localStorage.setItem(
+      "agent-native:chat-models:selection:design",
+      selection,
+    );
+    localStorage.setItem("agent-native:chat-models:selection", selection);
+  });
+  await recordUploadedImageBatches(page);
+
+  const sqlBefore = await scanSqlForInlineBytes(test.info());
+  let designId = "";
+  await page.route(
+    /\/_agent-native\/actions\/create-design(?:\?.*)?$/,
+    async (route) => {
+      const response = await route.fetch();
+      const body = await response.body();
+      const created = JSON.parse(body.toString("utf8")) as {
+        id?: unknown;
+        data?: { id?: unknown };
+        design?: { id?: unknown };
+      };
+      designId =
+        typeof created.id === "string"
+          ? created.id
+          : typeof created.data?.id === "string"
+            ? created.data.id
+            : typeof created.design?.id === "string"
+              ? created.design.id
+              : "";
+      if (!designId) throw new Error("Home create-design returned no id.");
+      await configureProvider(
+        page,
+        designId,
+        "home-mixed-uploads-file",
+        "linkedin-ad",
+      );
+      await route.fulfill({ response, body });
+    },
+  );
+
+  await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
+  const homeComposer = page.locator("[data-design-home-composer]");
+  await expect(homeComposer).toBeVisible({ timeout: 30_000 });
+  const homePrompt = homeComposer.locator(".ProseMirror").last();
+  const imageInput = homeComposer.locator('input[type="file"][multiple]');
+  await expect(imageInput).toHaveCount(1);
+  const image = await makeImageFixture(page, 500_000);
+  const deck = Buffer.alloc(3_700_000);
+  deck.set([0x50, 0x4b, 0x03, 0x04]);
+  const uploadResponses: import("@playwright/test").Response[] = [];
+  const onUploadResponse = (response: import("@playwright/test").Response) => {
+    if (
+      response.url().endsWith("/api/uploads") &&
+      response.request().method() === "POST"
+    ) {
+      uploadResponses.push(response);
+    }
+  };
+  page.on("response", onUploadResponse);
+  await imageInput.setInputFiles([
+    {
+      name: "reference.png",
+      mimeType: "image/png",
+      buffer: image.bytes,
+    },
+    {
+      name: "brand-notes.pptx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      buffer: deck,
+    },
+  ]);
+  await expect.poll(() => uploadResponses.length, { timeout: 30_000 }).toBe(2);
+  page.off("response", onUploadResponse);
+  const responseBodies = await Promise.all(
+    uploadResponses.map(async (response) => {
+      expect(response.ok()).toBe(true);
+      return (await response.json()) as Array<{
+        originalName: string;
+        size: number;
+        type: string;
+      }>;
+    }),
+  );
+  expect(
+    responseBodies
+      .flat()
+      .map((file) => file.originalName)
+      .sort(),
+  ).toEqual(["brand-notes.pptx", "reference.png"]);
+  expect(
+    responseBodies.flat().find((file) => file.originalName === "reference.png"),
+  ).toMatchObject({ size: image.bytes.byteLength, type: "image/png" });
+  const uploadedImageBatches = await page.evaluate(() => {
+    const target = window as typeof window & {
+      __designUploadedImageBatches?: Array<
+        Array<{ name: string; type: string; size: number; sha256: string }>
+      >;
+    };
+    return target.__designUploadedImageBatches ?? [];
+  });
+  expect(uploadedImageBatches).toHaveLength(2);
+  expect(uploadedImageBatches.map((batch) => batch.length).sort()).toEqual([
+    0, 1,
+  ]);
+  expect(uploadedImageBatches.flat()).toEqual([
+    {
+      name: "reference.png",
+      type: "image/png",
+      size: image.bytes.byteLength,
+      sha256: image.sha256,
+    },
+  ]);
+
+  await homePrompt.fill(LINKEDIN_AD_PROMPT);
+  await homePrompt.press("Enter");
+  await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, { timeout: 45_000 });
+  await expect
+    .poll(async () => (await readProviderProof(page)).callNames, {
+      timeout: 45_000,
+      intervals: [250, 500, 1_000],
+    })
+    .toContain("generate-design");
+  const providerPort = test.info().config.metadata
+    .sidebarLoopbackPort as number;
+  const providerResponse = await page.request.get(
+    `http://127.0.0.1:${providerPort}/__state`, // e2e-harness-ignore: read full model input from the separate loopback provider.
+  );
+  const provider = (await providerResponse.json()) as {
+    imageDataUrlsSeen: string[];
+    imageSha256Seen: string[];
+    requestSummaries: Array<{ userMessages: string[]; imageCount: number }>;
+  };
+  const imageRequests = provider.requestSummaries.filter(
+    (summary) => summary.imageCount > 0,
+  );
+  expect(imageRequests.length).toBeGreaterThan(0);
+  expect(imageRequests.every((summary) => summary.imageCount === 1)).toBe(true);
+  expect(provider.imageDataUrlsSeen).toHaveLength(imageRequests.length);
+  expect(provider.imageSha256Seen).toEqual(
+    imageRequests.map(() => image.sha256),
+  );
+  const providerText = provider.requestSummaries
+    .flatMap((summary) => summary.userMessages)
+    .join("\n");
+  expect(providerText).toContain(LINKEDIN_AD_PROMPT);
+  expect(providerText).not.toContain("<chat-attachment-read-error");
+  expect(providerText).not.toContain("<chat-attachment-processing-error");
+
+  await expect
+    .poll(
+      async () => {
+        const design = await readDesign(page, designId);
+        const data = design.data ? JSON.parse(design.data) : {};
+        const generated = design.files?.find(
+          (file) => file.filename === "index.html",
+        );
+        const frame = generated ? data.canvasFrames?.[generated.id] : undefined;
+        const metadata = generated
+          ? data.screenMetadata?.[generated.id]
+          : undefined;
+        return {
+          frameSize: frame ? [frame.width, frame.height] : null,
+          screenSize: metadata ? [metadata.width, metadata.height] : null,
+          fixedHeight:
+            metadata?.heightPinned === true && metadata?.heightMode === "fixed",
+          breakpointWidths: metadata?.breakpointWidths ?? null,
+        };
+      },
+      { timeout: 45_000, intervals: [250, 500, 1_000] },
+    )
+    .toEqual({
+      frameSize: [1200, 627],
+      screenSize: [1200, 627],
+      fixedHeight: true,
+      breakpointWidths: [],
+    });
+  await assertNoInlineImageDataPersisted(LINKEDIN_AD_PROMPT, page, image.bytes);
   expect(
     newInlineBytesHits(sqlBefore, await scanSqlForInlineBytes(test.info())),
   ).toEqual([]);

@@ -619,44 +619,23 @@ describe("PromptPopover inline home", () => {
     );
   });
 
-  it("uploads and sends the same re-encoded image bytes when a mixed batch crosses the upload limit", async () => {
+  it("keeps a small reference image at full resolution when a document crosses the upload limit", async () => {
     mockEagerUpload.useComponentUploader = true;
-    const originalCreateElement = document.createElement.bind(document);
-    const compressedBytes = new TextEncoder().encode("compressed-image-pixels");
-    const compressedDataUrl = `data:image/jpeg;base64,${btoa(String.fromCharCode(...compressedBytes))}`;
     const uploadedImageBytes: Uint8Array[] = [];
-    vi.stubGlobal(
-      "Image",
-      class {
-        naturalWidth = 1200;
-        naturalHeight = 627;
-        onload: (() => void) | null = null;
-        onerror: (() => void) | null = null;
-
-        set src(_value: string) {
-          queueMicrotask(() => this.onload?.());
-        }
-      },
-    );
-    vi.spyOn(document, "createElement").mockImplementation(((
-      tagName: string,
-    ) => {
-      const element = originalCreateElement(tagName);
-      if (tagName === "canvas") {
-        Object.defineProperty(element, "getContext", {
-          value: () => ({ drawImage: vi.fn() }),
-        });
-        Object.defineProperty(element, "toDataURL", {
-          value: () => compressedDataUrl,
-        });
-      }
-      return element;
-    }) as typeof document.createElement);
+    const uploadedBatches: Array<{ names: string[]; size: number }> = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
         const files = (init?.body as FormData).getAll("files") as File[];
-        uploadedImageBytes.push(new Uint8Array(await files[0]!.arrayBuffer()));
+        uploadedBatches.push({
+          names: files.map((file) => file.name),
+          size: files.reduce((total, file) => total + file.size, 0),
+        });
+        for (const file of files.filter((candidate) =>
+          candidate.type.startsWith("image/"),
+        )) {
+          uploadedImageBytes.push(new Uint8Array(await file.arrayBuffer()));
+        }
         return {
           ok: true,
           json: async () =>
@@ -693,11 +672,19 @@ describe("PromptPopover inline home", () => {
     const attachments = onSubmit.mock.calls[0]?.[1] as
       | Array<{ dataUrl?: string }>
       | undefined;
-    expect(attachments?.[0]?.dataUrl).toBe(compressedDataUrl);
+    expect(attachments?.[0]?.dataUrl).toMatch(/^data:image\/png;base64,/);
     const [, modelBase64] = attachments![0]!.dataUrl!.split(",", 2);
     const modelImageBytes = Uint8Array.from(atob(modelBase64!), (character) =>
       character.charCodeAt(0),
     );
+    expect(uploadedBatches).toHaveLength(2);
+    expect(uploadedBatches.flatMap((batch) => batch.names).sort()).toEqual([
+      "brief.txt",
+      "reference.png",
+    ]);
+    expect(
+      uploadedBatches.every((batch) => batch.size <= MAX_UPLOAD_BYTES),
+    ).toBe(true);
     expect(uploadedImageBytes).toHaveLength(1);
     expect(Array.from(uploadedImageBytes[0]!)).toEqual(
       Array.from(modelImageBytes),

@@ -13,6 +13,7 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 
+import { MAX_UPLOAD_FILES } from "../../app/lib/upload-limits.js";
 import {
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_MB,
@@ -177,7 +178,6 @@ export const uploadFiles = defineEventHandler(async (event) => {
     return { error: "Unauthorized" };
   }
 
-  const MAX_FILES = 20;
   const contentLength = Number(
     getRequestHeader(event, "content-length") ?? "0",
   );
@@ -194,9 +194,9 @@ export const uploadFiles = defineEventHandler(async (event) => {
     return { error: "No files uploaded" };
   }
 
-  if (fileParts.length > MAX_FILES) {
+  if (fileParts.length > MAX_UPLOAD_FILES) {
     setResponseStatus(event, 413);
-    return { error: `Too many files (max ${MAX_FILES})` };
+    return { error: `Too many files (max ${MAX_UPLOAD_FILES})` };
   }
 
   const totalBytes = fileParts.reduce((sum, p) => sum + p.data.length, 0);
