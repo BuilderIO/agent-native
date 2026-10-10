@@ -28,6 +28,7 @@ const ITEM_RESPONSE_HEADERS = [
   "x-agent-native-request-id",
   "server-timing",
   "x-agent-native-browser-persist",
+  "x-agent-native-change-marker",
   "x-agent-native-client-mismatch",
   "x-agent-native-build-id",
   "x-agent-native-client-compatibility",

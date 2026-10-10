@@ -247,6 +247,31 @@ describe("get-actions-batch dispatch", () => {
     ]);
   });
 
+  it("returns the failed change marker header on a batched GET write", async () => {
+    bindActionBatch({
+      fetch: async () =>
+        jsonResponse(
+          { ok: true },
+          { headers: { "X-Agent-Native-Change-Marker": "failed" } },
+        ),
+      actions,
+    });
+
+    const { results } = await withOrigin(() =>
+      runActionBatch({ requests: [{ action: "list-designs", query: "" }] }, {
+        caller: "http",
+      } as any),
+    );
+
+    expect(results).toEqual([
+      {
+        status: 200,
+        body: { ok: true },
+        headers: { "x-agent-native-change-marker": "failed" },
+      },
+    ]);
+  });
+
   it("rejects a batch over the request limit before dispatching", async () => {
     const seen: Request[] = [];
     bindActionBatch({
