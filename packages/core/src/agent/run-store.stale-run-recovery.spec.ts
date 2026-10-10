@@ -334,7 +334,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
             {
               type: "image",
               name: "shot.png",
-              data: "data:image/png;base64,iVBORw0KGgo=",
+              data: "data:image/png;base64,LEGACY_SENTINEL_NOT_IMAGE_BYTES",
             },
           ],
         }),
