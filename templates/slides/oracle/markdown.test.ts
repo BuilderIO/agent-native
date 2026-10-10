@@ -317,6 +317,69 @@ describe("diffLedgerExpectations", () => {
     expect(problems).toEqual([]);
   });
 
+  it("accepts a child hit whose result names the group as context", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("7.2", "selects the child inside the group")],
+      [jsonRow({ id: "7.2", expect: { hit: "child" } })],
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it("accepts a group hit whose result names its child in parentheses", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("7.1", "selects the group (its child is untouched)")],
+      [jsonRow({ id: "7.1", expect: { hit: "group" } })],
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it("rejects a group hit whose result selects the child", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("7.1", "selects the child; the group keeps its outline")],
+      [jsonRow({ id: "7.1", expect: { hit: "group" } })],
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/is contradicted by the result/);
+  });
+
+  it("accepts a colon-separated clause whose edit mode is affirmed", () => {
+    const problems = diffLedgerExpectations(
+      [
+        markdownResult(
+          "4.1",
+          "never moves the box: box becomes selected + edit",
+        ),
+      ],
+      [jsonRow({ id: "4.1", expect: { hit: "text" } })],
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it("rejects a text hit whose caret is negated after the match", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("4.2", "caret is not placed")],
+      [jsonRow({ id: "4.2", expect: { hit: "text" } })],
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/is not described in the result/);
+  });
+
+  it("accepts a nothing hit whose caret is negated after the match", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("4.3", "nothing happens; caret not placed")],
+      [jsonRow({ id: "4.3", expect: { hit: "nothing" } })],
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it("keeps a second object negated later in the clause from negating the first", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("3.9", "selects the box and not the group")],
+      [jsonRow({ id: "3.9", expect: { hit: "object" } })],
+    );
+    expect(problems).toEqual([]);
+  });
+
   it("rejects a cursor expectation whose name is only negated", () => {
     const problems = diffLedgerExpectations(
       [markdownResult("1.1", "not default, a hover cursor")],

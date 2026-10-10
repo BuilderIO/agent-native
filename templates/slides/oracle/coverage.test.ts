@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { titleCitations } from "./citations";
-import { measuredInventory } from "./inventory";
+import { measuredInventory, sortedRowIds } from "./inventory";
 import { loadOracleRows, readOracleFile } from "./load";
 
 const SLIDES_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -29,6 +29,8 @@ const BaselineSchema = z.strictObject({
   // The measured file's inventory, so removing or relabeling a row is a diff.
   measuredIds: z.array(z.string()),
   unmeasuredIds: z.array(z.string()),
+  // The gap file's ids, so deleting, adding or relabeling a gap row is a diff.
+  gapIds: z.array(z.string()),
   uncitedMeasured: z.array(z.string()),
   unknownNegativeInput: z.array(z.string()),
 });
@@ -70,15 +72,19 @@ function driftMessage(
   field: string,
   baselineIds: string[],
   computedIds: string[],
+  citable = true,
 ): string {
   const added = computedIds.filter((id) => !baselineIds.includes(id));
   const removed = baselineIds.filter((id) => !computedIds.includes(id));
+  // Only a measured row is cited from a test title. A gap row is never cited.
+  const update = citable
+    ? `cite each added row from a test title ("oracle <id>"), or replace ${field}`
+    : `replace ${field}`;
   return [
     `interaction-oracle.baseline.json ${field} is out of date.`,
     `  added (computed now, missing from the baseline): ${JSON.stringify(added)}`,
     `  removed (in the baseline, no longer computed): ${JSON.stringify(removed)}`,
-    `  To update: cite each added row from a test title ("oracle <id>"),`,
-    `  or replace ${field} in interaction-oracle.baseline.json with exactly: ${JSON.stringify(computedIds)}`,
+    `  To update: ${update} in interaction-oracle.baseline.json with exactly: ${JSON.stringify(computedIds)}`,
   ].join("\n");
 }
 
@@ -86,7 +92,8 @@ describe("interaction oracle traceability", () => {
   const rows = loadOracleRows();
   const rowIds = new Set(rows.map((row) => row.id));
   const cited = collectCitations();
-  // Gap rows are documented claims never measured, so no test is asked to cite them.
+  // Gap rows are documented claims never measured, so the uncited and negative
+  // lists leave them out. Their ids are pinned as gapIds instead.
   const measured = rows.filter(
     (row) => row.status === "measured" || row.status === "deviation",
   );
@@ -112,6 +119,18 @@ describe("interaction oracle traceability", () => {
       inventory.unmeasuredIds,
       "a measured row changed to gap, or back; update unmeasuredIds in interaction-oracle.baseline.json",
     ).toEqual(baseline.unmeasuredIds);
+  });
+
+  it("keeps the gap inventory equal to the baseline", () => {
+    const computed = sortedRowIds(
+      readOracleFile("interaction-oracle-gaps.json").rows,
+      "the gaps file",
+    );
+    const baseline = readBaseline();
+    expect(
+      computed,
+      driftMessage("gapIds", baseline.gapIds, computed, false),
+    ).toEqual(baseline.gapIds);
   });
 
   it("cites only rows that exist in the oracle", () => {
@@ -152,6 +171,7 @@ describe("interaction oracle traceability", () => {
   it("keeps both baseline lists sorted and unique", () => {
     const baseline = readBaseline();
     const lists = {
+      gapIds: baseline.gapIds,
       uncitedMeasured: baseline.uncitedMeasured,
       unknownNegativeInput: baseline.unknownNegativeInput,
     };

@@ -139,24 +139,30 @@ const HIT_WORDING: Record<NonNullable<OracleExpect["hit"]>, RegExp> = {
 
 // The outcome words a result must not affirm alongside the expected hit. A
 // result that asserts both "nothing" and "selects" cannot be read as either.
+// A group or child named as context ("inside the group", "its child is
+// untouched") is not a second outcome, so those two only match as the object
+// of a selecting verb.
 const HIT_CONTRADICTIONS: Record<NonNullable<OracleExpect["hit"]>, RegExp> = {
   nothing: /\bselects?\b|\bselected\b|\bcaret\b|\bedit\b/i,
   object: /\bnothing\b|\bdeselect/i,
-  group: /\bchild\b|\bnothing\b|\bdeselect/i,
+  group:
+    /\bselect(?:s|ed)?\s+(?:the\s+|that\s+|a\s+)?child\b|\bnothing\b|\bdeselect/i,
   text: /\bnothing\b|\bdeselect/i,
-  child: /\bgroup\b|\bnothing\b|\bdeselect/i,
+  child:
+    /\bselect(?:s|ed)?\s+(?:the\s+|that\s+|a\s+)?group\b|\bnothing\b|\bdeselect/i,
   sibling: /\bnothing\b|\bdeselect/i,
 };
 
 const OUTLINE = /\boutline\b/i;
 const NEGATION = /\b(?:no|not|never|nor|without|neither|none|nothing)\b/i;
-const CLAUSE_BREAK = [";", ",", ".", "(", ")"];
+const CLAUSE_BREAK = [";", ",", ".", "(", ")", ":"];
 
 /**
  * Whether the text states the pattern in the given polarity. The text is split
  * into clauses at punctuation, and a match is negated when its own clause says
- * no, not, never or without before it. So "`move`, not default" affirms move
- * and negates default, and "no hover outline" negates outline.
+ * no, not, never or without before it, or when one of the two words after it
+ * does. So "`move`, not default" affirms move and negates default, "no hover
+ * outline" negates outline, and "caret is not placed" negates caret.
  */
 function statesPattern(
   text: string,
@@ -169,10 +175,31 @@ function statesPattern(
     const clauseStart = Math.max(
       ...CLAUSE_BREAK.map((mark) => text.lastIndexOf(mark, index) + 1),
     );
-    const negated = NEGATION.test(text.slice(clauseStart, index));
+    const negated =
+      NEGATION.test(text.slice(clauseStart, index)) ||
+      negatedAfter(text.slice(index + match[0].length));
     if (negated === (polarity === "negated")) return true;
   }
   return false;
+}
+
+/**
+ * Whether one of the two words after a match, within its clause, is a negation.
+ * The window is two words on purpose: a third reads the "not" of a second
+ * object as negating the first, so "selects the box and not the group" must
+ * stay affirmed. The rest of the matched word is skipped first, so the stem
+ * "select" in "selects" does not count as a word of its own.
+ */
+function negatedAfter(rest: string): boolean {
+  const clause = rest.replace(/^\w*/, "");
+  const end = Math.min(
+    ...CLAUSE_BREAK.map((mark) => {
+      const at = clause.indexOf(mark);
+      return at === -1 ? clause.length : at;
+    }),
+  );
+  const words = clause.slice(0, end).trim().split(/\s+/).slice(0, 2);
+  return words.some((word) => NEGATION.test(word));
 }
 
 /**
