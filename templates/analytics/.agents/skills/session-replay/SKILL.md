@@ -69,6 +69,11 @@ agent answers about browser recordings in the Analytics template.
 - On ingest, `deriveReplaySignals` computes the real `errorCount` from tagged
   console events plus the additive `networkErrorCount` column on
   `session_recordings`. Keep new columns additive.
+- Error, network-error, and rage-click deltas are added only for chunks newly
+  stored by the ingest transaction, so retries do not count the same events
+  twice. SQL increments keep concurrent uploads from overwriting those totals.
+  Page counts remain max-based because the parser counts distinct URLs within
+  each payload; older clients' cumulative overrides are also max-based.
 
 ## App Events In Sessions
 
