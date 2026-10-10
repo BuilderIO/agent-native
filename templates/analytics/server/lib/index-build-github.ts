@@ -166,10 +166,14 @@ export async function buildDbtSourceIndexFromGitHub(
     const root = path.join(parent, repository.repo);
     await mkdir(root);
     await fetchFilesInto(root, repository, head.sha, filePaths);
-    const bundle = await compileSourceIndex({
-      dbtRoots: [root],
-      generatedAt: head.committedAt,
-    });
+    // The generator's entry type leaves `status` optional; parsing applies the
+    // schema default ("active") and validates the bundle before it is stored.
+    const bundle = parseSourceIndexBundle(
+      await compileSourceIndex({
+        dbtRoots: [root],
+        generatedAt: head.committedAt,
+      }),
+    );
     return { bundle: withRevision(bundle, head.sha), revision: head.sha };
   } finally {
     await rm(parent, { recursive: true, force: true });
