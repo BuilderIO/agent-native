@@ -231,64 +231,57 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("aborts in-flight server requests when the bridge stops", async () => {
-    let registrationSignal: AbortSignal | null = null;
+  it("completes an in-flight claim before disconnecting when the bridge stops", async () => {
     let claimSignal: AbortSignal | null = null;
-    let releaseRegistration: ((response: Response) => void) | null = null;
     let releaseClaim: ((response: Response) => void) | null = null;
-    let pendingRequestCount = 0;
-    let resolveRequestsStarted = () => {};
-    const requestsStarted = new Promise<void>((resolve) => {
-      resolveRequestsStarted = resolve;
+    let resolveCompleted = () => {};
+    let resolveDisconnected = () => {};
+    const completed = new Promise<void>((resolve) => {
+      resolveCompleted = resolve;
     });
-    const markRequestStarted = () => {
-      pendingRequestCount += 1;
-      if (pendingRequestCount === 2) resolveRequestsStarted();
-    };
+    const disconnected = new Promise<void>((resolve) => {
+      resolveDisconnected = resolve;
+    });
+    const operations: string[] = [];
+    let completionBody: unknown;
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("/tab-1/requests/claim")) {
         claimSignal = init?.signal ?? null;
-        markRequestStarted();
-        return new Promise<Response>((resolve, reject) => {
+        return new Promise<Response>((resolve) => {
           releaseClaim = resolve;
-          if (init?.signal?.aborted) {
-            reject(new DOMException("The request was aborted", "AbortError"));
-            return;
-          }
-          init?.signal?.addEventListener(
-            "abort",
-            () =>
-              reject(new DOMException("The request was aborted", "AbortError")),
-            { once: true },
-          );
         });
+      }
+      if (url.endsWith("/tab-1/requests/req-1/complete")) {
+        operations.push("complete");
+        completionBody = JSON.parse(String(init?.body));
+        resolveCompleted();
+        return jsonResponse({ ok: true, request: { id: "req-1" } });
+      }
+      if (
+        url.endsWith("/browser-sessions/tab-1") &&
+        init?.method === "DELETE"
+      ) {
+        operations.push("disconnect");
+        resolveDisconnected();
+        return jsonResponse({ ok: true, deleted: true });
       }
       if (url.endsWith("/_agent-native/browser-sessions")) {
-        registrationSignal = init?.signal ?? null;
-        markRequestStarted();
-        return new Promise<Response>((resolve, reject) => {
-          releaseRegistration = resolve;
-          if (init?.signal?.aborted) {
-            reject(new DOMException("The request was aborted", "AbortError"));
-            return;
-          }
-          init?.signal?.addEventListener(
-            "abort",
-            () =>
-              reject(new DOMException("The request was aborted", "AbortError")),
-            { once: true },
-          );
+        return jsonResponse({
+          ok: true,
+          session: {
+            sessionId: "tab-1",
+            session: { id: "tab-1" },
+            active: true,
+          },
         });
       }
-      return jsonResponse({
-        ok: true,
-        session: { sessionId: "tab-1", session: { id: "tab-1" }, active: true },
-      });
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
     });
 
     const bridge = createAgentNativeBrowserSessionBridge({
       sessionId: "tab-1",
       session: { id: "tab-1" },
+      commands: { refreshData: async () => ({ refreshed: true }) },
       heartbeatMs: 60_000,
       pollMs: 60_000,
       fetch: fetchMock as unknown as typeof fetch,
@@ -296,22 +289,122 @@ describe("createAgentNativeBrowserSessionBridge", () => {
 
     try {
       bridge.start();
-      await requestsStarted;
-      const activeRegistrationSignal = registrationSignal;
+      await vi.waitFor(() => expect(releaseClaim).toBeTypeOf("function"));
       const activeClaimSignal = claimSignal;
-      expect(activeRegistrationSignal).not.toBeNull();
       expect(activeClaimSignal).not.toBeNull();
 
       bridge.stop();
 
-      expect(activeRegistrationSignal?.aborted).toBe(true);
-      expect(activeClaimSignal?.aborted).toBe(true);
+      expect(activeClaimSignal?.aborted).toBe(false);
+      expect(operations).not.toContain("disconnect");
+      releaseClaim?.(
+        jsonResponse({
+          ok: true,
+          request: {
+            id: "req-1",
+            sessionId: "tab-1",
+            type: "command",
+            command: "refreshData",
+            status: "claimed",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 1000,
+          },
+        }),
+      );
+      await completed;
+      await disconnected;
+
+      expect(completionBody).toEqual({ ok: true, result: { refreshed: true } });
+      expect(operations).toEqual(["complete", "disconnect"]);
     } finally {
       bridge.stop();
-      releaseRegistration?.(
-        jsonResponse({ ok: true, session: { sessionId: "tab-1" } }),
-      );
       releaseClaim?.(jsonResponse({ ok: true, request: null }));
+    }
+  });
+
+  it("posts completion after a browser action outlives the poll timeout", async () => {
+    vi.useFakeTimers();
+    let resolveAction: ((value: unknown) => void) | null = null;
+    let resolveActionStarted = () => {};
+    let resolveCompleted = () => {};
+    const actionStarted = new Promise<void>((resolve) => {
+      resolveActionStarted = resolve;
+    });
+    const completed = new Promise<void>((resolve) => {
+      resolveCompleted = resolve;
+    });
+    let completionSignal: AbortSignal | null = null;
+    let completionBody: unknown;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/tab-1/requests/claim")) {
+        return jsonResponse({
+          ok: true,
+          request: {
+            id: "req-1",
+            sessionId: "tab-1",
+            type: "command",
+            command: "refreshData",
+            status: "claimed",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 1000,
+          },
+        });
+      }
+      if (url.endsWith("/tab-1/requests/req-1/complete")) {
+        completionSignal = init?.signal ?? null;
+        completionBody = JSON.parse(String(init?.body));
+        resolveCompleted();
+        return jsonResponse({ ok: true, request: { id: "req-1" } });
+      }
+      if (url.endsWith("/_agent-native/browser-sessions")) {
+        return jsonResponse({
+          ok: true,
+          session: {
+            sessionId: "tab-1",
+            session: { id: "tab-1" },
+            active: true,
+          },
+        });
+      }
+      if (
+        url.endsWith("/browser-sessions/tab-1") &&
+        init?.method === "DELETE"
+      ) {
+        return jsonResponse({ ok: true, deleted: true });
+      }
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "tab-1",
+      session: { id: "tab-1" },
+      commands: {
+        refreshData: () => {
+          resolveActionStarted();
+          return new Promise((resolve) => {
+            resolveAction = resolve;
+          });
+        },
+      },
+      heartbeatMs: 60_000,
+      pollMs: 1_000,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    try {
+      bridge.start();
+      await actionStarted;
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(completionBody).toBeUndefined();
+
+      resolveAction?.({ refreshed: true });
+      await completed;
+
+      expect(completionBody).toEqual({ ok: true, result: { refreshed: true } });
+      expect(completionSignal?.aborted).toBe(false);
+    } finally {
+      resolveAction?.({ refreshed: true });
+      bridge.stop();
+      vi.useRealTimers();
     }
   });
 

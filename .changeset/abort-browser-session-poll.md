@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Abort browser-session polling requests when the bridge stops.
+Preserve active browser-session claims and their completion when the bridge stops or a poll attempt times out.

@@ -537,93 +537,133 @@ export function createAgentNativeBrowserSessionBridge(
   let started = false;
   let onVisibility: (() => void) | undefined;
   let lastWebMcpTools: AgentNativeWebMcpTool[] | undefined;
+  let activeOperations = 0;
+  let disconnectRequested = false;
+  let disconnectStarted = false;
+
+  function disconnectWhenIdle(): void {
+    if (
+      !disconnectRequested ||
+      started ||
+      activeOperations > 0 ||
+      !currentSessionId ||
+      disconnectStarted
+    ) {
+      return;
+    }
+    disconnectStarted = true;
+    // Disconnect expires claimed requests, so let active work record its outcome first.
+    void deleteJson(options, `/${encodePathSegment(currentSessionId)}`).catch(
+      () => {},
+    );
+  }
+
+  function trackOperation<T>(operation: () => Promise<T>): Promise<T> {
+    activeOperations += 1;
+    let result: Promise<T>;
+    try {
+      result = operation();
+    } catch (error) {
+      result = Promise.reject(error);
+    }
+    return result.finally(() => {
+      activeOperations -= 1;
+      disconnectWhenIdle();
+    });
+  }
 
   async function refreshRegistration(
     signal?: AbortSignal,
   ): Promise<AgentNativeBrowserSessionRecord> {
-    const direct = hasDirectHost(options);
-    const hostOptions = hostRequestOptions(options);
-    const [context, actions, webmcpTools] = direct
-      ? await Promise.all([
-          resolveDirectContext(options),
-          resolveDirectActionManifest(options).catch(() => []),
-          resolveWebMcpTools(options),
-        ])
-      : await Promise.all([
-          requestAgentNativeHostContext(hostOptions),
-          requestAgentNativeHostActions(hostOptions).catch(() => []),
-          resolveWebMcpTools(options),
-        ]);
-    lastWebMcpTools = webmcpTools;
-    const hostSession = context.session;
-    if (!currentSessionId) {
-      currentSessionId =
-        hostSession?.id || fallbackSessionId || browserSessionId();
-      fallbackSessionId = currentSessionId;
+    if (signal?.aborted) {
+      throw new DOMException("The operation was aborted", "AbortError");
     }
-    const session = normalizeSession(
-      currentSessionId,
-      options.label,
-      hostSession,
-      context.url,
-    );
-    const body = await postJson(
-      options,
-      "",
-      {
-        session,
-        sessionId: currentSessionId,
-        context,
-        actions,
-        ...(lastWebMcpTools !== undefined
-          ? { webmcpTools: lastWebMcpTools }
-          : {}),
-        ttlMs: options.ttlMs,
-      },
-      signal,
-    );
-    return body.session as AgentNativeBrowserSessionRecord;
+    return trackOperation(async () => {
+      const direct = hasDirectHost(options);
+      const hostOptions = hostRequestOptions(options);
+      const [context, actions, webmcpTools] = direct
+        ? await Promise.all([
+            resolveDirectContext(options),
+            resolveDirectActionManifest(options).catch(() => []),
+            resolveWebMcpTools(options),
+          ])
+        : await Promise.all([
+            requestAgentNativeHostContext(hostOptions),
+            requestAgentNativeHostActions(hostOptions).catch(() => []),
+            resolveWebMcpTools(options),
+          ]);
+      lastWebMcpTools = webmcpTools;
+      const hostSession = context.session;
+      if (!currentSessionId) {
+        currentSessionId =
+          hostSession?.id || fallbackSessionId || browserSessionId();
+        fallbackSessionId = currentSessionId;
+      }
+      const session = normalizeSession(
+        currentSessionId,
+        options.label,
+        hostSession,
+        context.url,
+      );
+      const body = await postJson(
+        options,
+        "",
+        {
+          session,
+          sessionId: currentSessionId,
+          context,
+          actions,
+          ...(lastWebMcpTools !== undefined
+            ? { webmcpTools: lastWebMcpTools }
+            : {}),
+          ttlMs: options.ttlMs,
+        },
+        signal,
+      );
+      return body.session as AgentNativeBrowserSessionRecord;
+    });
   }
 
   async function claimOnce(
     signal?: AbortSignal,
   ): Promise<AgentNativeBrowserSessionRequest | null> {
-    if (!currentSessionId) {
-      await refreshRegistration(signal);
-    }
-    if (!currentSessionId) return null;
+    if (signal?.aborted) return null;
+    return trackOperation(async () => {
+      if (!currentSessionId) {
+        await refreshRegistration(signal);
+      }
+      if (!currentSessionId || signal?.aborted) return null;
 
-    const claim = await postJson(
-      options,
-      `/${encodePathSegment(currentSessionId)}/requests/claim`,
-      {},
-      signal,
-    );
-    const request = claim.request as AgentNativeBrowserSessionRequest | null;
-    if (!request) return null;
-
-    try {
-      const result = await executeBrowserSessionRequest(request, options);
-      await postJson(
+      // The server commits a claim before returning it, so keep this request alive.
+      const claim = await postJson(
         options,
-        `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
-          request.id,
-        )}/complete`,
-        { ok: true, result },
-        signal,
+        `/${encodePathSegment(currentSessionId)}/requests/claim`,
+        {},
       );
-    } catch (error) {
-      await postJson(
-        options,
-        `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
-          request.id,
-        )}/complete`,
-        { ok: false, error: messageError(error).message },
-        signal,
-      ).catch(() => {});
-    }
+      const request = claim.request as AgentNativeBrowserSessionRequest | null;
+      if (!request) return null;
 
-    return request;
+      try {
+        const result = await executeBrowserSessionRequest(request, options);
+        await postJson(
+          options,
+          `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
+            request.id,
+          )}/complete`,
+          { ok: true, result },
+        );
+      } catch (error) {
+        await postJson(
+          options,
+          `/${encodePathSegment(currentSessionId)}/requests/${encodePathSegment(
+            request.id,
+          )}/complete`,
+          { ok: false, error: messageError(error).message },
+        ).catch(() => {});
+      }
+
+      return request;
+    });
   }
 
   const heartbeatEngine = createPollEngine(
@@ -655,6 +695,8 @@ export function createAgentNativeBrowserSessionBridge(
     },
     start() {
       if (started) return bridge;
+      disconnectRequested = false;
+      disconnectStarted = false;
       started = true;
       if (!hasDirectHost(options)) {
         announceAgentNativeFrameReady(hostRequestOptions(options));
@@ -682,12 +724,8 @@ export function createAgentNativeBrowserSessionBridge(
         document.removeEventListener("visibilitychange", onVisibility);
         onVisibility = undefined;
       }
-      if (currentSessionId) {
-        void deleteJson(
-          options,
-          `/${encodePathSegment(currentSessionId)}`,
-        ).catch(() => {});
-      }
+      disconnectRequested = true;
+      disconnectWhenIdle();
     },
     refreshRegistration,
     claimOnce,
