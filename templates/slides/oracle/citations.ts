@@ -23,9 +23,12 @@ const TABLE_WRAPPERS = new Set([
   "TsSatisfiesExpression",
   "ParenthesisExpression",
 ]);
-// A declaration with one of these modifiers may not run, so it cannot be
+// A declaration with one of these modifiers never runs, so it cannot be
 // evidence that a row is covered. Its descendants are excluded too.
-const NOT_RUNNABLE = new Set(["skip", "todo", "skipIf", "runIf"]);
+const NEVER_RUNS = new Set(["skip", "todo"]);
+// These run or skip by their condition. A literal condition is read; any other
+// condition may skip, so the declaration is treated as not running.
+const CONDITIONAL = new Set(["skipIf", "runIf"]);
 
 type AstNode = Record<string, unknown>;
 
@@ -106,9 +109,14 @@ function collectExpression(
   // A table-driven declaration registers one test per case. A table that is not
   // a non-empty array literal cannot be shown to register any, so it is not
   // evidence that a row is covered.
-  if (!tableHasCases(node.callee as AstNode)) return;
+  if (
+    declaration.modifiers.includes("each") &&
+    !tableHasCases(node.callee as AstNode)
+  ) {
+    return;
+  }
   const skipped =
-    scope.skipped || declaration.modifiers.some((m) => NOT_RUNNABLE.has(m));
+    scope.skipped || isSkipped(declaration, node.callee as AstNode);
   const hasOnly = declaration.modifiers.includes("only");
   const focused = scope.focused || hasOnly;
   out.push({
@@ -172,16 +180,47 @@ function tableHasCases(callee: AstNode): boolean {
   );
 }
 
-/** Whether any focused declaration appears anywhere in the file, reachable or not. */
+/**
+ * Whether a focused declaration can register in the file. A branch behind a
+ * literal condition is read only when that condition lets it run. Any other
+ * branch is assumed to run, so a focus the scanner cannot place still counts.
+ */
 function containsFocus(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(containsFocus);
   if (typeof value !== "object" || value === null) return false;
   const node = value as AstNode;
+  if (node.type === "IfStatement") {
+    const test = node.test as AstNode;
+    if (test.type === "BooleanLiteral") {
+      return containsFocus(test.value ? node.consequent : node.alternate);
+    }
+  }
   if (node.type === "CallExpression") {
     const declaration = testDeclaration(node.callee);
     if (declaration?.modifiers.includes("only")) return true;
   }
   return Object.values(node).some(containsFocus);
+}
+
+/**
+ * Whether a declaration never runs. skip and todo never run. skipIf and runIf
+ * run by their condition, which is read only when it is a boolean literal.
+ */
+function isSkipped(
+  declaration: { modifiers: string[] },
+  callee: AstNode,
+): boolean {
+  if (declaration.modifiers.some((m) => NEVER_RUNS.has(m))) return true;
+  const conditional = declaration.modifiers.find((m) => CONDITIONAL.has(m));
+  if (conditional === undefined) return false;
+  const condition =
+    callee.type === "CallExpression"
+      ? (argumentsOf(callee)[0]?.expression as AstNode | undefined)
+      : undefined;
+  if (condition?.type !== "BooleanLiteral") return true;
+  return conditional === "skipIf"
+    ? condition.value === true
+    : condition.value === false;
 }
 
 function argumentsOf(call: AstNode): AstNode[] {

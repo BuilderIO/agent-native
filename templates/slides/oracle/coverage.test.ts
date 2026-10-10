@@ -13,12 +13,15 @@ const BASELINE_PATH = fileURLToPath(
   new URL("interaction-oracle.baseline.json", import.meta.url),
 );
 
-const SCAN_ROOTS: Array<{ dir: string; accept: (name: string) => boolean }> = [
-  {
-    dir: path.join(SLIDES_ROOT, "app"),
-    accept: (name) => /\.test\.tsx?$/.test(name) || name.endsWith(".spec.ts"),
-  },
-];
+// The files Vitest runs (its include pattern, vitest.config.ts) and the
+// directories it excludes, so the scan covers every test file the suite runs.
+const TEST_FILE = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
+const EXCLUDED_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  ".react-router",
+]);
 
 const BaselineSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -26,13 +29,13 @@ const BaselineSchema = z.strictObject({
   unknownNegativeInput: z.array(z.string()),
 });
 
-function listFiles(dir: string, accept: (name: string) => boolean): string[] {
+function listTestFiles(dir: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...listFiles(full, accept));
-    } else if (entry.isFile() && accept(entry.name)) {
+      if (!EXCLUDED_DIRS.has(entry.name)) files.push(...listTestFiles(full));
+    } else if (entry.isFile() && TEST_FILE.test(entry.name)) {
       files.push(full);
     }
   }
@@ -42,14 +45,12 @@ function listFiles(dir: string, accept: (name: string) => boolean): string[] {
 /** Each cited row id, with the repo-relative files that cite it. */
 function collectCitations(): Map<string, string[]> {
   const cited = new Map<string, string[]>();
-  for (const root of SCAN_ROOTS) {
-    for (const file of listFiles(root.dir, root.accept)) {
-      const relative = path.relative(SLIDES_ROOT, file);
-      for (const id of titleCitations(readFileSync(file, "utf8"), relative)) {
-        const files = cited.get(id) ?? [];
-        if (!files.includes(relative)) files.push(relative);
-        cited.set(id, files);
-      }
+  for (const file of listTestFiles(SLIDES_ROOT)) {
+    const relative = path.relative(SLIDES_ROOT, file);
+    for (const id of titleCitations(readFileSync(file, "utf8"), relative)) {
+      const files = cited.get(id) ?? [];
+      if (!files.includes(relative)) files.push(relative);
+      cited.set(id, files);
     }
   }
   return cited;

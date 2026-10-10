@@ -266,13 +266,60 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual([]);
   });
 
-  it("ignores ordinary tests when a focused test is declared anywhere, even unreachably", () => {
+  it("counts ordinary tests when a focused test sits in a branch that never runs", () => {
     const source = [
       `if (false) {`,
       `  it.only("never runs (oracle 1.3)", () => {});`,
       `}`,
       `it("snaps (oracle 1.4)", () => {});`,
     ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["1.4"]);
+  });
+
+  it("ignores ordinary tests when a focused test sits in a branch that always runs", () => {
+    const source = [
+      `if (true) {`,
+      `  it.only("runs (oracle 1.3)", () => {});`,
+      `}`,
+      `it("snaps (oracle 1.4)", () => {});`,
+    ].join("\n");
     expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("ignores ordinary tests when a focused test sits behind a condition it cannot read", () => {
+    const source = [
+      `if (flag) {`,
+      `  it.only("maybe (oracle 1.3)", () => {});`,
+      `}`,
+      `it("snaps (oracle 1.4)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("counts a test that skipIf enables with a literal false", () => {
+    expect(
+      titleCitations(
+        `it.skipIf(false)("moves (oracle 1.5)", () => {});`,
+        "a.test.ts",
+      ),
+    ).toEqual(["1.5"]);
+  });
+
+  it("counts a test that runIf enables with a literal true", () => {
+    expect(
+      titleCitations(
+        `it.runIf(true)("snaps (oracle 1.6)", () => {});`,
+        "a.test.ts",
+      ),
+    ).toEqual(["1.6"]);
+  });
+
+  it("ignores a conditional test whose condition is not a literal", () => {
+    expect(
+      titleCitations(
+        `it.runIf(flag)("crops (oracle 1.7)", () => {});`,
+        "a.test.ts",
+      ),
+    ).toEqual([]);
   });
 });
