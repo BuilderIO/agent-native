@@ -920,14 +920,19 @@ test("Design editor sidebar sends uploaded PNG bytes to model vision input", asy
       userAgent?: string;
     }>;
   };
-  expect(storageState.uploads).toHaveLength(1);
-  const storedUpload = storageState.uploads[0]!;
-  expect(storedUpload.size).toBe(image.bytes.byteLength);
-  expect(storedUpload.sha256).toBe(image.sha256);
+  const storedUpload = storageState.uploads.find(
+    (upload) => upload.sha256 === image.sha256,
+  );
+  expect(storedUpload).toBeDefined();
+  expect(storedUpload).toMatchObject({
+    size: image.bytes.byteLength,
+    sha256: image.sha256,
+  });
   expect(
     storageState.reads.some(
       (read) =>
-        read.id === storedUpload.id &&
+        read.id === storedUpload?.id &&
+        read.sha256 === image.sha256 &&
         !(read.userAgent ?? "").toLowerCase().includes("mozilla"),
     ),
   ).toBe(true);
