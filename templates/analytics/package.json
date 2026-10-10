@@ -36,7 +36,7 @@
     "ai": "^7.0.84",
     "drizzle-orm": "^0.45.2",
     "h3": "catalog:",
-    "html2canvas": "^1.4.1",
+    "html2canvas-pro": "2.5.2",
     "isbot": "^5",
     "postgres": "^3.4.9",
     "react": "catalog:",
