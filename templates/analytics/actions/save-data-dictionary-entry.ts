@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/settings";
 import { z } from "zod";
 
+import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections.js";
 import {
   readSourceIndex,
   sourceIndexDictionaryEntries,
@@ -30,7 +31,7 @@ function slugify(s: string): string {
 
 export default defineAction({
   description:
-    "Create or update a data dictionary entry — a reusable metric / table / column definition the analytics agent consults before writing SQL. Use this when you discover a new metric worth cataloging, or when the user asks to document / fix an existing one. Upserts by `id` (if omitted, one is derived from `metric`).",
+    "Create or update a data dictionary entry — a reusable metric / table / column definition the analytics agent consults before writing SQL. Use this when you discover a new metric worth cataloging, or when the user asks to document / fix an existing one. Upserts by `id` (if omitted, one is derived from `metric`). Org dictionary edits require an organization owner or admin.",
   schema: z.object({
     id: z
       .string()
@@ -137,6 +138,9 @@ export default defineAction({
     const orgId = getRequestOrgId() || null;
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
+    if (orgId) {
+      await requireAnalyticsAdminContext({ userEmail: email, orgId });
+    }
     const id = args.id?.trim() || slugify(args.metric);
     if (!id) {
       throw new Error(
