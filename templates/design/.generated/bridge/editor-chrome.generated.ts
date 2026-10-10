@@ -21666,10 +21666,31 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "set-content-offset") {
-        var nextContentOffsetX = Number(e.data.x);
-        var nextContentOffsetY = Number(e.data.y);
-        designCanvasContentOffsetX = Number.isFinite(nextContentOffsetX) ? nextContentOffsetX : 0;
-        designCanvasContentOffsetY = Number.isFinite(nextContentOffsetY) ? nextContentOffsetY : 0;
+        if (typeof e.data.x !== "number" || !Number.isFinite(e.data.x) || typeof e.data.y !== "number" || !Number.isFinite(e.data.y)) {
+          return;
+        }
+        designCanvasContentOffsetX = e.data.x;
+        designCanvasContentOffsetY = e.data.y;
+        if (designCanvasBoardSurface) {
+          var contentOffsetStyle = document.querySelector(
+            "style[data-agent-native-content-offset]"
+          );
+          if (designCanvasContentOffsetX === 0 && designCanvasContentOffsetY === 0) {
+            contentOffsetStyle?.remove();
+          } else {
+            if (!contentOffsetStyle) {
+              contentOffsetStyle = document.createElement("style");
+              contentOffsetStyle.setAttribute(
+                "data-agent-native-content-offset",
+                ""
+              );
+              (document.head ?? document.documentElement).appendChild(
+                contentOffsetStyle
+              );
+            }
+            contentOffsetStyle.textContent = "body > [data-agent-native-node-id]{translate:" + Math.round(designCanvasContentOffsetX) + "px " + Math.round(designCanvasContentOffsetY) + "px;}";
+          }
+        }
         return;
       }
       if (e.data.type === "agent-native:cancel-text-edit") {

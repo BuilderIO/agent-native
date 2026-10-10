@@ -664,6 +664,7 @@ function buildChecks(
     changedPaths.some(isDesignDndRuntimePath) ||
     coreChanged ||
     toolkitChanged ||
+    agentkitChanged ||
     hasPath(changedPaths, "packages/creative-context/");
   const preAuthSessionReplayE2eChanged = changedPaths.some((path) =>
     PRE_AUTH_SESSION_REPLAY_E2E_FILES.has(path),

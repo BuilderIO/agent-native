@@ -7,10 +7,14 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Journey canvases can show explicit recording gaps between observed examples.
 - Journey boards can show verified same-recording continuations without implying cohort movement.
 
 ### Improved
 
+- Design widgets show the project title and sharing controls in the editor header.
+- Design widgets now include an editable title, sharing, mode selection, and zoom controls.
+- Left rail is now a 56px File, Agents and Tokens rail with labels, tooltips, an account avatar, a collapse button, and one shared panel header
 - Journey storyboards support up to 2,000 steps
 - Design widgets now support scoped edits and screen creation directly on the all-screens canvas.
 - Journey canvases place app cohorts side by side, lead with onboarding paths, and keep replay details expandable
@@ -19,6 +23,11 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Ads and social posts keep their exact size with no extra mobile frame, and app screens that mention ads or leaderboards stay responsive.
+- Design in ChatGPT keeps the new screen centered and fully in view as images load and the pane is resized, until you pan or zoom
+- Design in ChatGPT opens on the whole canvas with every screen framed, and edits such as screen width now save instead of reverting
+- Design keeps fixed-format artwork at the requested size and sends uploaded images to the agent.
+- Design widgets keep the Interact controls below the editor header.
 - Duplicated screens in ChatGPT widgets keep their safe layout settings.
 - Component property edits now persist for unlinked components
 - Design keeps quick-start suggestions available when model settings are temporarily unreadable.
@@ -49,6 +58,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Design now saves component property edits and screen source changes reliably, duplicates the latest unsaved Screen content, keeps inactive localhost previews connected for editing, routes cross-screen drops using the source Screen's geometry at drag start, keeps restored Screen geometry in sync after Undo, and lets users remove the final Screen.
 - Arabic journey storyboard cards now use right-to-left direction
 - Design keeps prompts beside AI setup, shows one provider retry hint, and blocks generation until a provider is connected.
 - Design now honors ad and social canvas sizes and uses uploaded reference images in generated artwork.

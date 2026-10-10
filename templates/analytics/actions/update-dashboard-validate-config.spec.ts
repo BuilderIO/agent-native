@@ -220,6 +220,63 @@ describe("validateDashboardConfig multi-select options", () => {
     expect(validateDashboardConfig(config)).toContain('"legacy"');
   });
 
+  it("rejects a non-string default on every filter type, which the read path would refuse", () => {
+    const base = withOptions(["free"]);
+    for (const value of [1, ["free"], null]) {
+      const config = {
+        ...base,
+        filters: [{ ...base.filters[0], default: value }],
+      };
+      expect(validateDashboardConfig(config)).toContain("must be a string");
+    }
+    const select = {
+      name: "Plans",
+      filters: [{ id: "plan", label: "Plan", type: "select", default: 1 }],
+      panels: [],
+    };
+    expect(validateDashboardConfig(select)).toContain("must be a string");
+  });
+
+  it("rejects a malformed option on a select filter, which the read path would refuse", () => {
+    const config = {
+      name: "Plans",
+      filters: [
+        {
+          id: "plan",
+          label: "Plan",
+          type: "select",
+          options: [{ value: "free", label: 1 }],
+        },
+      ],
+      panels: [],
+    };
+    expect(validateDashboardConfig(config)).toContain(
+      "must be an object with string value and label",
+    );
+  });
+
+  it("rejects a non-string label or an unknown type, which the read path would refuse", () => {
+    const label = {
+      name: "Plans",
+      filters: [{ id: "plan", label: 1, type: "select" }],
+      panels: [],
+    };
+    expect(validateDashboardConfig(label)).toContain("label must be a string");
+    const type = {
+      name: "Plans",
+      filters: [{ id: "plan", label: "Plan", type: "dropdown" }],
+      panels: [],
+    };
+    expect(validateDashboardConfig(type)).toContain("type must be one of");
+  });
+
+  it("rejects more than 100 options, which the read path would refuse", () => {
+    const config = withOptions(
+      Array.from({ length: 101 }, (_, i) => `option_${i}`),
+    );
+    expect(validateDashboardConfig(config)).toContain("at most 100 entries");
+  });
+
   it("rejects a non-empty default when the filter has no options", () => {
     const config = {
       name: "Plans",

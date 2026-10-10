@@ -308,13 +308,49 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
         }
       }
     };
+    const collectListItemContent = (parent: Element) => {
+      for (const child of getPersistedChildren(parent)) {
+        const childTagName = child.tagName.toLowerCase();
+        if (SKIPPED_TAGS.has(childTagName)) continue;
+        if (childTagName === "p") {
+          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+        } else if (childTagName === "ul" || childTagName === "ol") {
+          collectListItems(child);
+        } else if (childTagName === "li") {
+          collectListItem(child);
+        } else if (shouldKeepAsSingleElement(child)) {
+          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+          collectNestedLists(child);
+        } else {
+          collectListItemContent(child);
+        }
+      }
+    };
+    const collectListItem = (item: Element) => {
+      const children = getPersistedChildren(item).filter(
+        (child) => !SKIPPED_TAGS.has(child.tagName.toLowerCase()),
+      );
+      const hasParagraphs = children.some(
+        (child) => child.tagName.toLowerCase() === "p",
+      );
+      if (hasParagraphs && hasOwnText(item)) {
+        nativeParagraphs.push(item);
+        collectNestedLists(item);
+        return;
+      }
+      if (!hasParagraphs && hasMeaningfulContent(item)) {
+        nativeParagraphs.push(item);
+        collectNestedLists(item);
+        return;
+      }
+      collectListItemContent(item);
+    };
     const collectListItems = (list: Element) => {
       for (const child of getPersistedChildren(list)) {
         const childTagName = child.tagName.toLowerCase();
         if (SKIPPED_TAGS.has(childTagName)) continue;
         if (childTagName === "li") {
-          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-          collectNestedLists(child);
+          collectListItem(child);
         } else if (childTagName === "ul" || childTagName === "ol") {
           collectListItems(child);
         }
@@ -329,8 +365,7 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
           continue;
         }
         if (childTagName === "li") {
-          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-          collectNestedLists(child);
+          collectListItem(child);
           continue;
         }
         if (childTagName === "ul" || childTagName === "ol") {

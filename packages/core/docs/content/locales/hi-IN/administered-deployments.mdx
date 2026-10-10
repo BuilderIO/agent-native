@@ -29,7 +29,9 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 
 ## कंपनी की keys और roles
 
-Owner या admin org के लिए LLM key सहेज सकता है। Provider setup अब keys केवल organization के लिए सहेजता है, इसलिए सभी सदस्य company key का उपयोग करते हैं। पुराने personal rows organization key सहेजते समय हट जाते हैं, या provider setup से पहले हटाए जा सकते हैं।
+प्रशासित deployment में, organization का owner या admin provider setup से company की LLM key को organization के लिए सहेजता है और सदस्यों को company providers पर रखने के लिए **व्यक्तिगत API keys प्रतिबंधित करें** (`manage-provider-key-policy`) चालू करता है। यह प्रतिबंध सदस्यों को अपनी personal provider keys सहेजने या उपयोग करने से रोकता है; उनकी सहेजी हुई keys बनी रहती हैं और setting बंद होने पर फिर काम करती हैं। Owners और admins fallback के रूप में personal key रख सकते हैं।
+
+प्रतिबंध के बिना, सदस्य provider keys व्यक्तिगत रूप से सहेजते हैं और उन्हें scope picker नहीं दिखता। Owners और admins डिफ़ॉल्ट रूप से organization के लिए सहेजते हैं और **व्यक्तिगत** चुन सकते हैं। सदस्य पहले अपनी key इस्तेमाल करते हैं; owners और admins पहले organization की key इस्तेमाल करते हैं। [Settings में roles](/docs/toolkit-settings#roles) देखें।
 
 Model field मौजूदा models को सुझाव के रूप में दिखाता है और provider या gateway द्वारा समर्थित कोई भी model ID स्वीकार करता है।
 
