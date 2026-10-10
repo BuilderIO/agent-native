@@ -478,7 +478,7 @@ describe("slide animation element parsing", () => {
     ({ mixedContent, nestedListIndex }) => {
       const doc = new DOMParser().parseFromString(
         `<div class="fmd-slide"><div><ul>
-          <li>${mixedContent}<div><p>First paragraph</p><p>Second paragraph</p></div>
+          <li>${mixedContent}<div>Section intro<p>First paragraph</p><p>Second paragraph</p></div>
             <ul><li>Nested point</li></ul>
           </li>
           <li>Following item</li>
@@ -501,6 +501,7 @@ describe("slide animation element parsing", () => {
 
       expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
         [0, 0, 0],
+        [0, 0, 0, 0],
         [0, 0, 0, 0, 0],
         [0, 0, 0, 0, 1],
         [0, 0, 0, nestedListIndex, 0],

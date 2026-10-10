@@ -308,6 +308,10 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
         }
       }
     };
+    const hasParagraphsInListItem = (element: Element, item: Element) =>
+      Array.from(element.querySelectorAll("p")).some(
+        (paragraph) => paragraph.closest("li") === item,
+      );
     const collectListItemContent = (parent: Element) => {
       for (const child of getPersistedChildren(parent)) {
         const childTagName = child.tagName.toLowerCase();
@@ -319,17 +323,25 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
         } else if (childTagName === "li") {
           collectListItem(child);
         } else if (shouldKeepAsSingleElement(child)) {
-          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-          collectNestedLists(child);
+          const containingListItem = parent.closest("li");
+          if (
+            containingListItem &&
+            hasOwnText(child) &&
+            hasParagraphsInListItem(child, containingListItem)
+          ) {
+            nativeParagraphs.push(child);
+            collectListItemContent(child);
+          } else {
+            if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+            collectNestedLists(child);
+          }
         } else {
           collectListItemContent(child);
         }
       }
     };
     const collectListItem = (item: Element) => {
-      const itemHasParagraphs = Array.from(item.querySelectorAll("p")).some(
-        (paragraph) => paragraph.closest("li") === item,
-      );
+      const itemHasParagraphs = hasParagraphsInListItem(item, item);
       if (itemHasParagraphs && hasOwnText(item)) {
         nativeParagraphs.push(item);
         collectListItemContent(item);

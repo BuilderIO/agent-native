@@ -153,7 +153,7 @@ describe("PresentationView paragraph animations", () => {
     const slide = {
       id: "wrapped-list-slide",
       content: `<div class="fmd-slide"><div><ul>
-        <li>Intro<div><p>First</p><p>Second</p></div></li>
+        <li>Intro<div>Section intro<p>First</p><p>Second</p></div></li>
       </ul></div></div>`,
       layout: "content",
       animations: [
@@ -175,7 +175,8 @@ describe("PresentationView paragraph animations", () => {
     const rendered = screen.getByTestId("rendered-wrapped-list-slide");
     const steps = rendered.querySelectorAll("[data-pstep]");
     expect(Array.from(steps).map((step) => step.textContent)).toEqual([
-      "IntroFirstSecond",
+      "IntroSection introFirstSecond",
+      "Section introFirstSecond",
       "First",
       "Second",
     ]);
@@ -186,12 +187,13 @@ describe("PresentationView paragraph animations", () => {
     const previous = screen.getByRole("button", {
       name: "presentation.previousSlide",
     });
-    const next = screen.getByRole("button", {
-      name: "presentation.nextSlide",
-    });
+    const clickNext = () =>
+      fireEvent.click(
+        screen.getByRole("button", { name: "presentation.nextSlide" }),
+      );
     expect((previous as HTMLButtonElement).disabled).toBe(true);
 
-    fireEvent.click(next);
+    clickNext();
 
     expect(rendered.querySelector("style")?.textContent).toContain(
       '[data-pstep="0"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
@@ -200,21 +202,49 @@ describe("PresentationView paragraph animations", () => {
       '[data-pstep="1"] { opacity: 0; pointer-events: none; }',
     );
 
-    fireEvent.click(next);
+    clickNext();
     expect(rendered.querySelector("style")?.textContent).toContain(
       '[data-pstep="1"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
     );
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="2"] { opacity: 0; pointer-events: none; }',
+    );
+
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "presentation.nextSlide",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    clickNext();
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="2"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
+    );
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="3"] { opacity: 0; pointer-events: none; }',
+    );
     expect((previous as HTMLButtonElement).disabled).toBe(false);
 
-    fireEvent.click(previous);
+    clickNext();
     expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="1"] { opacity: 0; pointer-events: none; }',
+      '[data-pstep="3"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
     );
 
     fireEvent.click(previous);
     expect(rendered.querySelector("style")?.textContent).toContain(
-      '[data-pstep="0"] { opacity: 0; pointer-events: none; }',
+      '[data-pstep="3"] { opacity: 0; pointer-events: none; }',
     );
-    expect((previous as HTMLButtonElement).disabled).toBe(true);
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="2"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
+    );
+
+    fireEvent.click(previous);
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="2"] { opacity: 0; pointer-events: none; }',
+    );
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="1"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
+    );
   });
 });
