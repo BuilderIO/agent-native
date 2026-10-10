@@ -326,6 +326,7 @@ export const ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS = [
   "session_id",
   "app",
   "template",
+  "properties",
   "owner_email",
 ] as const;
 

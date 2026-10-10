@@ -1431,7 +1431,8 @@ function buildOnboardingJourneyEventCtes(
   SELECT r.session_id, r.event_name,
     COALESCE(
       CASE WHEN NULLIF(r.user_id, '') LIKE '%@%.%' THEN r.user_id END,
-      CASE WHEN NULLIF(r.user_key, '') LIKE '%@%.%' THEN r.user_key END
+      CASE WHEN NULLIF(r.user_key, '') LIKE '%@%.%' THEN r.user_key END,
+      CASE WHEN NULLIF(r.properties::jsonb ->> 'auth_user_id', '') LIKE '%@%.%' THEN r.properties::jsonb ->> 'auth_user_id' END
     ) AS funnel_user_email
   FROM analytics_events r
   WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}

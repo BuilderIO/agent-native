@@ -1424,6 +1424,29 @@ describe("onboarding journey events SQL", () => {
     ).toEqual([]);
   });
 
+  it("preserves response property identity when excluding the whole session", async () => {
+    await setup();
+    await insert("response-property-employee", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-property-employee", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-property-employee", "http.response", 3, {
+      properties: {
+        auth_user_id: "dev@builder.io",
+        ignored_payload: "large response body",
+      },
+    });
+
+    const rows = await run({ emailFilter: "exclude_builder" });
+
+    expect(
+      rows.filter((row) => row.session_id === "response-property-employee"),
+    ).toEqual([]);
+  });
+
   it("never returns test identities, even when employees are included", async () => {
     await setup();
     await seedSessions();
