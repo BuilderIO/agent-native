@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setAgentNativeApiDisabled } from "../api-surface.js";
-import { useOrg, useOrgMembers } from "./hooks.js";
+import { useOrg, useOrgInvitations, useOrgMembers } from "./hooks.js";
 
 const org: OrgInfo = {
   email: "admin@example.test",
@@ -133,6 +133,58 @@ describe("useOrgMembers", () => {
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(queryClient.getQueryState(["org-me"])).toMatchObject({
+      error: null,
+      fetchFailureCount: 0,
+      fetchStatus: "idle",
+      status: "pending",
+    });
+  });
+
+  it("keeps dependent org queries idle when cached org data exists but the API is disabled", async () => {
+    queryClient.setQueryData(["org-me"], org);
+    const fetchMock = vi.fn(async () => Response.json(org));
+    vi.stubGlobal("fetch", fetchMock);
+    setAgentNativeApiDisabled("builder shell canvas");
+
+    function Probe() {
+      useOrg();
+      useOrgMembers();
+      useOrgInvitations();
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(queryClient.getQueryState(["org-me"])).toMatchObject({
+      error: null,
+      fetchStatus: "idle",
+      status: "success",
+    });
+    expect(
+      queryClient.getQueryState(["org-members", "org-1", 0, ""]),
+    ).toMatchObject({
+      error: null,
+      fetchFailureCount: 0,
+      fetchStatus: "idle",
+      status: "pending",
+    });
+    expect(
+      queryClient.getQueryState(["org-invitations", "org-1"]),
+    ).toMatchObject({
+      error: null,
+      fetchFailureCount: 0,
+      fetchStatus: "idle",
+      status: "pending",
+    });
   });
 
   it("reads the current API-surface state when a mounted org query reruns", async () => {
@@ -153,6 +205,12 @@ describe("useOrgMembers", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    expect(queryClient.getQueryState(["org-me"])).toMatchObject({
+      error: null,
+      fetchFailureCount: 0,
+      fetchStatus: "idle",
+      status: "pending",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
 
     setAgentNativeApiDisabled(null);
@@ -163,6 +221,7 @@ describe("useOrgMembers", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/_agent-native/org/me");
+    expect(queryClient.getQueryData(["org-me"])).toEqual(org);
   });
 
   it("still fetches the active org while the surface is enabled", async () => {

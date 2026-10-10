@@ -535,8 +535,8 @@ jobs:
           node --experimental-strip-types ../../scripts/design-e2e-spec-selection.ts > "$changed_specs_file"
           mapfile -d '' -t existing_changed_specs < "$changed_specs_file"
           if [[ ! -f "$music_app_spec" ]]; then
-            echo "::warning::The selected music-app workflow spec was removed; skipping its long regression."
-            exit 0
+            echo "::error::The selected music-app workflow spec is missing."
+            exit 2
           fi
           if ((${#existing_changed_specs[@]} == 0)); then
             echo "::error::The music-app workflow regression was selected but no runnable changed spec resolved."

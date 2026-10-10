@@ -1694,15 +1694,13 @@ test("routes the long music-app workflow from its exact changed spec path", () =
     "an unrelated changed spec must not route the long music-app workflow",
   );
 
-  assert.deepEqual(
-    resolveDesignE2ESpecs(JSON.stringify([musicAppPath]), {
-      isFile: () => false,
-    }),
-    {
-      existingSpecs: [],
-      removedSpecs: ["e2e/interaction-responsive-music-app.spec.ts"],
-    },
-    "a deleted music-app spec should pass the file preflight as a no-op",
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(JSON.stringify([musicAppPath]), {
+        isFile: () => false,
+      }),
+    /selected long music-app workflow spec is missing/,
+    "a selected music-app spec must not disappear from both regression routes",
   );
 });
 

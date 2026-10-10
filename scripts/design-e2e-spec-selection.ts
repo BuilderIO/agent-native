@@ -77,6 +77,11 @@ export function resolveDesignE2ESpecs(
 
     const specPath = candidate.slice("templates/design/".length);
     if (!isFile(specPath)) {
+      if (specPath === LONG_MUSIC_APP_SPEC) {
+        throw new Error(
+          `The selected long music-app workflow spec is missing: ${LONG_MUSIC_APP_SPEC}`,
+        );
+      }
       removedSpecs.push(specPath);
       continue;
     }

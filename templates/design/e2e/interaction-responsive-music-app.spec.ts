@@ -130,6 +130,9 @@ async function measureSourceLayer(
       flexDirection: style.flexDirection,
       flexWrap: style.flexWrap,
       rowGap: style.rowGap,
+      columnGap: style.columnGap,
+      paddingLeft: style.paddingLeft,
+      paddingRight: style.paddingRight,
       paddingTop: style.paddingTop,
       paddingBottom: style.paddingBottom,
       fontFamily: style.fontFamily,
@@ -142,6 +145,11 @@ async function measureSourceLayer(
       ),
       widthStyle: style.width,
       heightStyle: style.height,
+      authoredWidth: html.style.width,
+      authoredAlignSelf: html.style.alignSelf,
+      flexGrow: style.flexGrow,
+      flexShrink: style.flexShrink,
+      flexBasis: style.flexBasis,
       backgroundColor: style.backgroundColor,
       backgroundImage: style.backgroundImage,
       overflow: style.overflow,
@@ -1324,12 +1332,85 @@ async function logNodeStage(
 }
 
 async function setSizingMode(page: Page, axis: "W" | "H", mode: string) {
+  await waitForSelectionRouteToCommit(page);
   const button = page.getByRole("button", {
     name: new RegExp(`^${axis}(?: sizing mode —| \\d+(?:\\.\\d+)? )`),
   });
   await expect(button).toBeVisible();
   await button.click();
   await page.getByRole("menuitem", { name: mode, exact: true }).click();
+}
+
+async function waitForSelectionRouteToCommit(page: Page) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const selection = (window as any).__designSelection;
+          if (!selection) return null;
+          const params = new URLSearchParams(window.location.search);
+          const selectedLayerIds = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
+            ),
+          )
+            .map((button) => button.dataset.layerNodeId)
+            .filter((id): id is string => Boolean(id));
+          const screenIds = new Set(
+            Array.isArray(selection.screens)
+              ? selection.screens
+                  .map((screen: { id?: unknown }) => screen.id)
+                  .filter((id: unknown): id is string => typeof id === "string")
+              : [],
+          );
+          const selectedElementLayerIds = selectedLayerIds.filter(
+            (id) => !screenIds.has(id),
+          );
+          const expectedZoom = Number.isFinite(selection.zoom)
+            ? Math.round(selection.zoom * 100) / 100
+            : null;
+          const routeZoom = params.get("zoom");
+          return {
+            viewMatches:
+              !selection.viewMode ||
+              params.get("editorView") === selection.viewMode,
+            screenMatches:
+              !selection.activeFileId ||
+              params.get("screen") === selection.activeFileId,
+            selectionMatches:
+              selectedElementLayerIds.length > 0
+                ? selectedElementLayerIds.includes(
+                    params.get("selection") ?? "",
+                  )
+                : !selection.selectedElement &&
+                  params.get("selection") === null,
+            zoomMatches:
+              expectedZoom === null
+                ? routeZoom === null
+                : routeZoom !== null && Number(routeZoom) === expectedZoom,
+            selectedLayerIds: selectedElementLayerIds,
+            route: {
+              view: params.get("editorView"),
+              screen: params.get("screen"),
+              selection: params.get("selection"),
+              zoom: routeZoom,
+            },
+            editor: {
+              view: selection.viewMode ?? null,
+              screen: selection.activeFileId ?? null,
+              hasSelectedElement: Boolean(selection.selectedElement),
+              zoom: selection.zoom ?? null,
+            },
+          };
+        }),
+      { timeout: 10_000 },
+    )
+    .toMatchObject({
+      viewMatches: true,
+      screenMatches: true,
+      selectionMatches: true,
+      zoomMatches: true,
+    });
 }
 
 async function addSizingConstraint(
@@ -2109,11 +2190,27 @@ test("sizing mode actions survive the selected layer route update", async ({
   await gap.fill("16");
   await gap.press("Enter");
 
+  await waitForSelectionRouteToCommit(page);
+  const routeSelection = new URL(page.url()).searchParams.get("selection");
+  expect(routeSelection).not.toBeNull();
+  expect(
+    await page
+      .locator(
+        '[role="treeitem"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
+      )
+      .evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute("data-layer-node-id")),
+      ),
+  ).toContain(routeSelection);
+
   await setSizingMode(page, "W", "Fill container");
   await setSizingMode(page, "H", "Hug contents");
-  await expect(page.getByRole("menuitem", { name: "Hug contents" })).toHaveCount(
-    0,
-  );
+  await expect(
+    page.getByRole("button", { name: /^H \d+(?:\.\d+)? Hug$/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Hug contents" }),
+  ).toHaveCount(0);
 });
 
 test("create a responsive music-app desktop shell under a Screen root", async ({
@@ -3072,10 +3169,29 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     "Recently played",
   );
   const mainContentTag = sourceLayerTag(content, "Main Content");
+  const desktopSidebarTag = sourceLayerTag(content, "Sidebar");
+  const desktopPodcastRowTag = sourceLayerTag(content, "Podcast row");
   expect(mainContentTag).toBeTruthy();
+  expect(desktopSidebarTag).toBeTruthy();
+  expect(desktopPodcastRowTag).toBeTruthy();
   expect(sourceStyleValue(mainContentTag!, "height")).toBe("fit-content");
+  expect(sourceStyleValue(mainContentTag!, "width")).toBe("auto");
+  expect(sourceStyleValue(mainContentTag!, "flex-grow")).toBe("1");
+  expect(sourceStyleValue(mainContentTag!, "flex-shrink")).toBe("0");
+  expect(sourceStyleValue(mainContentTag!, "flex-basis")).toMatch(/^0(?:px)?$/);
   expect(mainContentTag).toMatch(/display:\s*flex/i);
   expect(mainContentTag).toMatch(/flex-direction:\s*column/i);
+  expect(sourceStyleValue(desktopSidebarTag!, "width")).toBe("fit-content");
+  expect(sourceStyleValue(desktopSidebarTag!, "flex-grow")).toBe("0");
+  expect(sourceStyleValue(desktopSidebarTag!, "flex-shrink")).toBe("0");
+  expect(sourceStyleValue(desktopSidebarTag!, "flex-basis")).toBe("auto");
+  expect(sourceStyleValue(desktopPodcastRowTag!, "width")).toBe("auto");
+  expect(sourceStyleValue(desktopPodcastRowTag!, "align-self")).toBe("stretch");
+  expect(desktopWorkspaceMetrics.columnGap).toBe("10px");
+  expect(desktopSidebarMetrics.paddingLeft).toBe("20px");
+  expect(desktopSidebarMetrics.paddingRight).toBe("20px");
+  expect(desktopMainMetrics.paddingLeft).toBe("24px");
+  expect(desktopMainMetrics.paddingRight).toBe("24px");
   const mainContentNaturalHeight =
     desktopTopBarMetrics.height +
     desktopPodcastRowMetrics.height +
@@ -3144,7 +3260,35 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     ),
     contentType: "application/json",
   });
-  expect.soft(desktopMainMetrics.width).toBeCloseTo(1139, 0);
+  const desktopWorkspaceContentWidth =
+    desktopWorkspaceMetrics.width -
+    parseFloat(desktopWorkspaceMetrics.paddingLeft) -
+    parseFloat(desktopWorkspaceMetrics.paddingRight);
+  expect
+    .soft(desktopSidebarMetrics.width)
+    .toBeCloseTo(
+      desktopLogoMetrics.width +
+        parseFloat(desktopSidebarMetrics.paddingLeft) +
+        parseFloat(desktopSidebarMetrics.paddingRight),
+      2,
+    );
+  expect
+    .soft(desktopMainMetrics.width)
+    .toBeCloseTo(
+      desktopWorkspaceContentWidth -
+        desktopNavigationMetrics.width -
+        desktopSidebarMetrics.width -
+        parseFloat(desktopWorkspaceMetrics.columnGap) * 2,
+      2,
+    );
+  expect
+    .soft(desktopPodcastRowMetrics.width)
+    .toBeCloseTo(
+      desktopMainMetrics.width -
+        parseFloat(desktopMainMetrics.paddingLeft) -
+        parseFloat(desktopMainMetrics.paddingRight),
+      2,
+    );
   expect
     .soft(desktopMainMetrics.height)
     .toBeCloseTo(mainContentNaturalHeight, 0);
@@ -3155,9 +3299,6 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .toBe(desktopMainMetrics.id);
   expect.soft(desktopWorkspaceMetrics.width).toBeCloseTo(1420, 0);
   expect.soft(desktopNavigationMetrics.width).toBeCloseTo(96, 0);
-  expect.soft(desktopSidebarMetrics.width).toBeCloseTo(145, 0);
-  expect.soft(desktopLogoMetrics.width).toBeCloseTo(105, 0);
-  expect.soft(desktopPodcastRowMetrics.width).toBeCloseTo(1091, 0);
   expect.soft(desktopPlayerMetrics.width).toBeCloseTo(1420, 0);
   expect.soft(desktopPlayerMetrics.height).toBeCloseTo(60, 0);
   expect.soft(desktopCardA.width).toBeCloseTo(360, 0);
@@ -3649,6 +3790,18 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     mobileSource,
     "Mobile Sidebar",
   );
+  const mobileNavigationMetrics = await measureSourceLayer(
+    page,
+    mobileScreenId,
+    mobileSource,
+    "Mobile navigation",
+  );
+  const mobileLogoMetrics = await measureSourceLayer(
+    page,
+    mobileScreenId,
+    mobileSource,
+    "Mobile SONORA",
+  );
   const mobilePodcastRowMetrics = await measureSourceLayer(
     page,
     mobileScreenId,
@@ -3679,6 +3832,8 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
         geometry: mobileGeometry,
         workspace: mobileWorkspaceMetrics,
         sidebar: mobileSidebarMetrics,
+        navigation: mobileNavigationMetrics,
+        logo: mobileLogoMetrics,
         mainContent: mobileMainMetrics,
         podcastRow: mobilePodcastRowMetrics,
         card: mobileCardMetrics,
@@ -3700,7 +3855,46 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   expect.soft(mobileCardMetrics.height).toBeCloseTo(316, 0);
   expect.soft(mobileWorkspaceMetrics.width).toBeCloseTo(370, 0);
   expect.soft(mobileWorkspaceMetrics.height).toBeCloseTo(537, 0);
-  expect.soft(mobileSidebarMetrics.width).toBeCloseTo(323, 0);
+  const mobileSidebarTag = sourceLayerTag(mobileSource, "Mobile Sidebar");
+  const mobileMainContentTag = sourceLayerTag(
+    mobileSource,
+    "Mobile Main Content",
+  );
+  const mobilePodcastRowTag = sourceLayerTag(
+    mobileSource,
+    "Mobile Podcast row",
+  );
+  expect(mobileSidebarTag).toBeTruthy();
+  expect(mobileMainContentTag).toBeTruthy();
+  expect(mobilePodcastRowTag).toBeTruthy();
+  expect(sourceStyleValue(mobileSidebarTag!, "width")).toBe("fit-content");
+  expect(sourceStyleValue(mobileMainContentTag!, "width")).toBe("auto");
+  expect(sourceStyleValue(mobileMainContentTag!, "align-self")).toBe("stretch");
+  expect(sourceStyleValue(mobilePodcastRowTag!, "width")).toBe("auto");
+  expect(sourceStyleValue(mobilePodcastRowTag!, "align-self")).toBe("stretch");
+  expect(mobileSidebarMetrics.columnGap).toBe("8px");
+  expect(mobileSidebarMetrics.paddingLeft).toBe("12px");
+  expect(mobileSidebarMetrics.paddingRight).toBe("12px");
+  expect(mobileMainMetrics.paddingLeft).toBe("24px");
+  expect(mobileMainMetrics.paddingRight).toBe("24px");
+  expect
+    .soft(mobileSidebarMetrics.width)
+    .toBeCloseTo(
+      mobileNavigationMetrics.width +
+        mobileLogoMetrics.width +
+        parseFloat(mobileSidebarMetrics.columnGap) +
+        parseFloat(mobileSidebarMetrics.paddingLeft) +
+        parseFloat(mobileSidebarMetrics.paddingRight),
+      2,
+    );
+  expect
+    .soft(mobilePodcastRowMetrics.width)
+    .toBeCloseTo(
+      mobileMainMetrics.width -
+        parseFloat(mobileMainMetrics.paddingLeft) -
+        parseFloat(mobileMainMetrics.paddingRight),
+      2,
+    );
   expect.soft(mobileSidebarMetrics.height).toBeCloseTo(69, 0);
   expect.soft(mobilePodcastRowMetrics.width).toBeCloseTo(302, 0);
   expect.soft(mobilePodcastRowMetrics.height).toBeCloseTo(316, 0);

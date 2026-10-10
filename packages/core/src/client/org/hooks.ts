@@ -13,7 +13,10 @@ import type {
   OrgRole,
 } from "../../org/types.js";
 import { agentNativePath } from "../api-path.js";
-import { assertAgentNativeApiEnabled } from "../api-surface.js";
+import {
+  agentNativeApiDisabledReason,
+  assertAgentNativeApiEnabled,
+} from "../api-surface.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 
 const ORG_BASE = agentNativePath("/_agent-native/org");
@@ -51,7 +54,7 @@ export function useOrg(options: { enabled?: boolean } = {}) {
   return useQuery<OrgInfo>({
     queryKey: ["org-me"],
     queryFn: () => apiFetch(`${ORG_BASE}/me`),
-    enabled: options.enabled ?? true,
+    enabled: () => (options.enabled ?? true) && !agentNativeApiDisabledReason(),
     staleTime: 30_000,
   });
 }
@@ -103,7 +106,7 @@ export function useOrgMembers(offset = 0, query = "") {
     queryKey: ["org-members", org?.orgId ?? null, offset, search],
     queryFn: ({ signal }) =>
       apiFetch(`${ORG_BASE}/members?${params}`, { signal }),
-    enabled: Boolean(org?.orgId),
+    enabled: () => Boolean(org?.orgId) && !agentNativeApiDisabledReason(),
     staleTime: 30_000,
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[1] === org?.orgId &&
@@ -118,6 +121,7 @@ export function useOrgInvitations() {
   return useQuery<{ invitations: OrgPendingInvitation[] }>({
     queryKey: ["org-invitations", org?.orgId ?? null],
     queryFn: () => apiFetch(`${ORG_BASE}/invitations`),
+    enabled: () => !agentNativeApiDisabledReason(),
     staleTime: 30_000,
   });
 }

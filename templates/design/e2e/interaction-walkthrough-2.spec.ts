@@ -79,11 +79,13 @@ async function fileContent(
   request: APIRequestContext,
   id: string,
   filename = "index.html",
+  allowMissing = false,
 ): Promise<string> {
   const record = await request
     .get(`${BASE_URL}/_agent-native/actions/get-design?id=${id}`)
     .then((r) => r.json());
   const file = (record.files ?? []).find((f: any) => f.filename === filename);
+  if (!file && allowMissing) return "";
   if (typeof file?.content !== "string") {
     throw new Error(`${filename} has no content`);
   }
@@ -112,7 +114,7 @@ async function boardObjects(
   request: APIRequestContext,
   id: string,
 ): Promise<Record<string, BoardObjectSummary>> {
-  const html = await fileContent(request, id, "__board__.html");
+  const html = await fileContent(request, id, "__board__.html", true);
   const bodyMatch = /<body\b[^>]*>([\s\S]*)<\/body>/i.exec(html);
   if (!bodyMatch) return {};
   const result: Record<string, BoardObjectSummary> = {};
@@ -488,7 +490,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
         async () => (await boardObjects(request, designId))[frameId]?.radius,
         { timeout: 10_000 },
       )
-      .toBeTruthy();
+      .toBe(100);
 
     const effectsSection = inspectorSection(page, /^Effects$/i);
     await effectsSection.getByRole("button", { name: "Add effect" }).click();
