@@ -3739,6 +3739,75 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     },
   );
 
+  it.each(["close", "unmount"])(
+    "preserves cancellation when context persistence rejects after %s",
+    async (action) => {
+      const submitMessageId = `rejected-context-${action}`;
+      if (action === "close") {
+        threadMocks.threads.push({
+          ...threadMocks.threads[0],
+          id: "thread-2",
+          title: "Other thread",
+        });
+        window.localStorage.setItem(
+          openTabsStorageKey("bridge-test"),
+          JSON.stringify(["thread-1", "thread-2"]),
+        );
+        act(() => root.unmount());
+        root = createRoot(container);
+        await act(async () =>
+          root.render(<MultiTabAssistantChat storageKey="bridge-test" />),
+        );
+      }
+      const persisted = Promise.withResolvers<{ stagedAt: number }>();
+      const results: unknown[] = [];
+      const onResult = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+      chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+        persisted.promise,
+      );
+      try {
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Cancelled draft",
+            context: "Selected rows",
+            submit: false,
+            submitMessageId,
+          }),
+        );
+        await act(async () => {
+          if (action === "close")
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:close-current-tab"),
+            );
+          else {
+            root.unmount();
+            root = createRoot(container);
+          }
+        });
+        expect(results).toEqual([
+          {
+            submitMessageId,
+            delivered: false,
+            reason:
+              action === "close" ? "target-tab-closed" : "panel-unmounted",
+          },
+        ]);
+        await act(async () => {
+          persisted.reject(new Error("Context write failed"));
+          await expect(persisted.promise).rejects.toThrow(
+            "Context write failed",
+          );
+        });
+        expect(results).toHaveLength(1);
+        expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+      }
+    },
+  );
+
   it("releases the delivery lane when a queued send throws synchronously", async () => {
     const persisted = Promise.withResolvers<{ stagedAt: number }>();
     chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
