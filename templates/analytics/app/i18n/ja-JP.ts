@@ -565,6 +565,7 @@ export default {
     approved: "承認された",
     suggestion: "提案",
     unreviewed: "未レビュー",
+    deprecated: "非推奨",
     ai: "AI",
     source: "ソース",
     deleteTitle: "「{{metric}}」を削除しますか？",

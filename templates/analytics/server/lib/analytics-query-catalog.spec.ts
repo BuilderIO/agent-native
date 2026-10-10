@@ -366,6 +366,29 @@ describe("analytics query catalog", () => {
     expect(results[1].exactMatchedTerms).toHaveLength(4);
   });
 
+  it("preserves an exact single-term metric match despite unrelated name terms", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "show churn",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "customer-churn-segment",
+          metric: "Customer Retention Churn Region Segment",
+        },
+      ],
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        kind: "data-dictionary",
+        id: "customer-churn-segment",
+        matchedTerms: ["churn"],
+        exactMatchedTerms: ["churn"],
+      }),
+    );
+  });
+
   it("keeps a relevant AI generated definition when human entries are unrelated", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "monthly active users",

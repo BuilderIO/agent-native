@@ -575,6 +575,7 @@ export default {
     approved: "genehmigt",
     suggestion: "Anregung",
     unreviewed: "unrezensiert",
+    deprecated: "veraltet",
     ai: "AI",
     source: "Quelle",
     deleteTitle: "„{{metric}}“ löschen?",

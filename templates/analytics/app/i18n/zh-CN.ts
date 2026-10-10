@@ -535,6 +535,7 @@ export default {
     approved: "得到正式认可的",
     suggestion: "建议",
     unreviewed: "未经审查",
+    deprecated: "已弃用",
     ai: "AI",
     source: "来源",
     deleteTitle: "删除“{{metric}}”？",

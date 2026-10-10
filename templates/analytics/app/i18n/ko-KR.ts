@@ -556,6 +556,7 @@ export default {
     approved: "승인됨",
     suggestion: "제안",
     unreviewed: "검토되지 않은",
+    deprecated: "사용 중단",
     ai: "AI",
     source: "원천",
     deleteTitle: "'{{metric}}'를 삭제하시겠습니까?",

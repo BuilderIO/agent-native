@@ -554,6 +554,7 @@ export default {
     approved: "موافقة",
     suggestion: "اقتراح",
     unreviewed: "لم تتم مراجعته",
+    deprecated: "مهمل",
     ai: "AI",
     source: "مصدر",
     deleteTitle: 'حذف "{{metric}}"؟',

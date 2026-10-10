@@ -532,6 +532,7 @@ export default {
     approved: "得到正式認可的",
     suggestion: "建議",
     unreviewed: "未經審查",
+    deprecated: "已棄用",
     ai: "AI",
     source: "來源",
     deleteTitle: "刪除“{{metric}}”？",

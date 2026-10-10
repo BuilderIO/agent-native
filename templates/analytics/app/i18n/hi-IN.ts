@@ -550,6 +550,7 @@ export default {
     approved: "अनुमत",
     suggestion: "सुझाव",
     unreviewed: "समीक्षा न किए गए",
+    deprecated: "अप्रचलित",
     ai: "AI",
     source: "स्रोत",
     deleteTitle: '"{{metric}}" हटाएं?',

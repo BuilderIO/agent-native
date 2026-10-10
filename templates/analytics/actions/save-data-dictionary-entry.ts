@@ -118,6 +118,12 @@ export default defineAction({
     aiGenerated: cliBoolean
       .optional()
       .describe("True when the agent proposed this entry (vs. human-authored)"),
+    status: z
+      .enum(["active", "deprecated"])
+      .optional()
+      .describe(
+        "Lifecycle status from list-data-dictionary. Preserve it when updating an entry; new entries default to active.",
+      ),
     sourceUrl: z
       .string()
       .optional()
@@ -179,6 +185,11 @@ export default defineAction({
       owner: args.owner ?? (existing as any)?.owner ?? "",
       approved,
       aiGenerated,
+      status:
+        args.status ??
+        ((existing as { status?: unknown } | null)?.status === "deprecated"
+          ? "deprecated"
+          : "active"),
       sourceUrl: args.sourceUrl ?? (existing as any)?.sourceUrl ?? "",
       createdAt: (existing as any)?.createdAt ?? now,
       updatedAt: now,

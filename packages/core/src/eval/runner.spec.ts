@@ -6,13 +6,13 @@ import type { AgentRunner } from "./agent-runner.js";
 import type { AgentRunOutput } from "./types.js";
 
 const productionMod = vi.hoisted(() => ({
-  actionsToEngineTools: vi.fn(() => [
-    {
-      name: "search",
-      description: "Search data",
+  actionsToEngineTools: vi.fn((actions: Record<string, unknown> = {}) =>
+    Object.keys(actions).map((name) => ({
+      name,
+      description: `${name} action`,
       inputSchema: { type: "object", properties: {} },
-    },
-  ]),
+    })),
+  ),
   runAgentLoop: vi.fn(),
 }));
 vi.mock("../agent/production-agent.js", () => ({
@@ -49,6 +49,7 @@ const { scoreEval, runEvals, runEvalSuite, loadProductionEvalContext } =
   await import("./runner.js");
 const { formatReport } = await import("./report.js");
 const { createAgentRunner } = await import("./agent-runner.js");
+const { attachToolSearch } = await import("../agent/tool-search.js");
 
 function fakeRunner(
   out: Partial<AgentRunOutput>,
@@ -230,6 +231,23 @@ describe("scoreEval with a JS scorer", () => {
     expect(row.error).toBe("boom");
   });
 
+  it("passes the eval's action allowlist to the runner", async () => {
+    const e = defineEval({
+      name: "metadata-only",
+      input: { prompt: "find a source" },
+      actionAllowlist: ["find-data", "tool-search"],
+      scorers: [contains("source")],
+    });
+    const runner = fakeRunner({ text: "source" });
+    const runSpy = vi.spyOn(runner, "runAgent");
+
+    await scoreEval(e, runner);
+
+    expect(runSpy).toHaveBeenCalledWith(e.input, {
+      actionAllowlist: ["find-data", "tool-search"],
+    });
+  });
+
   it("a scorer that throws degrades to score 0, not a crash", async () => {
     const explode = createScorer({
       name: "explode",
@@ -360,6 +378,66 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
           },
         ],
       }),
+    );
+  });
+
+  it("filters action tools and tool-search before the model loop", async () => {
+    const rowQueryRun = vi.fn();
+    const actions = attachToolSearch({
+      "search-bigquery-schema": {
+        readOnly: true,
+        tool: {
+          description: "Search schema metadata",
+          parameters: { type: "object", properties: {} },
+        },
+        run: vi.fn(),
+      } as never,
+      bigquery: {
+        readOnly: true,
+        tool: {
+          description: "Query BigQuery rows",
+          parameters: { type: "object", properties: {} },
+        },
+        run: rowQueryRun,
+      } as never,
+    });
+    const runLoop = vi.fn(async (options: { actions: Record<string, any> }) => {
+      expect(Object.keys(options.actions).sort()).toEqual([
+        "search-bigquery-schema",
+        "tool-search",
+      ]);
+      const search = await options.actions["tool-search"].run(
+        { names: ["bigquery"] },
+        { caller: "tool" },
+      );
+      expect(
+        search.results.map((result: { name: string }) => result.name),
+      ).not.toContain("bigquery");
+      return {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "fake-model",
+      };
+    });
+    const runner = await createAgentRunner({
+      actions,
+      engine: { defaultModel: "fake-model" } as unknown as AgentEngine,
+      model: "fake-model",
+      runLoop: runLoop as never,
+    });
+
+    const output = await runner.runAgent(
+      { prompt: "describe available metadata" },
+      { actionAllowlist: ["search-bigquery-schema", "tool-search"] },
+    );
+
+    expect(output.ok).toBe(true);
+    expect(runLoop).toHaveBeenCalledOnce();
+    expect(rowQueryRun).not.toHaveBeenCalled();
+    expect(productionMod.actionsToEngineTools).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ bigquery: expect.anything() }),
     );
   });
 
@@ -576,6 +654,7 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({
         input: { prompt: "find active users" },
+        actionAllowlist: ["search"],
         identity: { ownerEmail: "eval@example.com", orgId: "org-eval" },
         model: "fake-model",
         signal: expect.any(AbortSignal),

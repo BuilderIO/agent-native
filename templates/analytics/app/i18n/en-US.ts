@@ -1010,6 +1010,7 @@ export default {
     approved: "approved",
     suggestion: "suggestion",
     unreviewed: "unreviewed",
+    deprecated: "deprecated",
     ai: "AI",
     source: "source",
     deleteTitle: 'Delete "{{metric}}"?',

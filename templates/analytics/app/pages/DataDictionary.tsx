@@ -465,6 +465,17 @@ export default function DataDictionary() {
                       {e.table}
                     </DictionaryBadge>
                   )}
+                  {e.status === "deprecated" && (
+                    <Badge
+                      variant="outline"
+                      className={
+                        ENTRY_BADGE_CLASS +
+                        " bg-amber-500/10 text-amber-700 dark:text-amber-400 border-0"
+                      }
+                    >
+                      {t("dataDictionary.deprecated")}
+                    </Badge>
+                  )}
                   {e.approved ? (
                     <Badge
                       variant="outline"

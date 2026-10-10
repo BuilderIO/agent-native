@@ -74,13 +74,20 @@ export async function scoreEval(
   }
 
   let run: AgentRunOutput;
+  const runAgent = (input: Eval["input"]) =>
+    runner.runAgent(
+      input,
+      evalCase.actionAllowlist
+        ? { actionAllowlist: evalCase.actionAllowlist }
+        : undefined,
+    );
   if (evalCase.run) {
     run = await evalCase.run({
       input: evalCase.input,
-      runAgent: (input) => runner.runAgent(input),
+      runAgent,
     });
   } else {
-    run = await runner.runAgent(evalCase.input);
+    run = await runAgent(evalCase.input);
   }
 
   const scores: ScorerResult[] = [];

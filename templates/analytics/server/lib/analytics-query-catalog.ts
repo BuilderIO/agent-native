@@ -449,15 +449,19 @@ function dictionaryCandidates(
       { value: entry.semanticModel, weight: 8 },
       { value: entry.owner, weight: 3 },
     ]);
-    const metricMatchedTerms = matchScore(search, [
+    const metricMatch = matchScore(search, [
       { value: entry.metric, weight: 1 },
-    ]).matchedTerms;
-    const score =
-      rawScore -
-      (metricMatchedTerms.length
+    ]);
+    const requestedTerms = searchTerms(search);
+    const exactSingleTermMetricMatch =
+      requestedTerms.length === 1 &&
+      metricMatch.exactMatchedTerms.includes(requestedTerms[0] ?? "");
+    const metricNamePenalty =
+      metricMatch.matchedTerms.length && !exactSingleTermMetricMatch
         ? Math.min(unrelatedNameTerms(search, text(entry.metric)).length, 4) *
           12
-        : 0);
+        : 0;
+    const score = rawScore - metricNamePenalty;
     if (score <= 0) return [];
     const isSourceIndex = entry.sourceIndex === true;
     const declaredScope = text(entry.semanticScope);

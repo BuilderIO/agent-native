@@ -567,6 +567,7 @@ export default {
     approved: "aprovado",
     suggestion: "sugestão",
     unreviewed: "não revisado",
+    deprecated: "obsoleto",
     ai: "AI",
     source: "fonte",
     deleteTitle: 'Excluir "{{metric}}"?',
