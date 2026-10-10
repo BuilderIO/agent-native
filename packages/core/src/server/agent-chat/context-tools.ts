@@ -1,4 +1,7 @@
+import { z } from "zod";
+
 import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../../action-ui.js";
+import { ActionInputValidationError, defineAction } from "../../action.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import {
   clampDataWidgetRows,
@@ -393,140 +396,159 @@ export function createUrlTools(): Record<string, ActionEntry> {
       },
     },
     "open-settings-page": createOpenSettingsPageTool(),
-    "ask-question": {
-      endsTurn: true,
-      tool: {
-        description:
-          "Ask the user a multiple-choice clarifying question and render it inline in the chat. Use this ONLY when you are genuinely blocked on a decision you cannot resolve from context and a wrong guess would be costly — an ambiguous metric, date range, or grain; a real fork in approach. Present 2-5 concrete options and mark the most likely one recommended. Do NOT use it for confirmations, for things the user already specified, or to dodge easy work you could just do. Calling this ends the turn: one question per turn, and any other tool call you emit alongside it will not run.",
-        parameters: {
-          type: "object",
-          properties: {
-            question: {
-              type: "string",
-              description:
-                "The complete question to ask the user. Clear, specific, ends with a question mark.",
-            },
-            header: {
-              type: "string",
-              description:
-                'Optional very short label (max ~12 chars) shown as a chip/heading above the question, e.g. "Date range", "Approach", "Library".',
-            },
-            options: {
-              type: "string",
-              description:
-                'A JSON array of 2-4 distinct, mutually-exclusive options (unless `allowMultiple` is true), each `{ "label": string, "value"?: string, "description"?: string, "preview"?: string, "recommended"?: boolean }`. `label` is 1-5 words; `description` explains the trade-off; `preview` is optional content (mockup, code snippet, short comparison) rendered under the option. `value` defaults to `label` when omitted. Mark the most likely option `"recommended": true`. Do NOT add an "Other" option — free text is provided automatically when `allowFreeText` is on.',
-            },
-            allowFreeText: {
-              type: "string",
-              description:
-                'Whether the user may also type a free-text "Other" answer. Keep this "true" (the default) for preferences and clarifying questions. Use "false" only when the underlying workflow can accept one of the enumerated values and cannot handle a custom answer.',
-              enum: ["true", "false"],
-            },
-            allowMultiple: {
-              type: "string",
-              description:
-                'Whether the user may select more than one option (multi-select). "true" or "false" (default).',
-              enum: ["true", "false"],
-            },
+    "ask-question": createAskQuestionTool(),
+  };
+}
+
+function parseAskQuestion(args: any) {
+  const question = String(args?.question ?? "").trim();
+  if (!question)
+    throw new ActionInputValidationError("'question' is required.");
+  const header = String(args?.header ?? "").trim();
+  const allowMultiple = String(args?.allowMultiple ?? "") === "true";
+  const allowFreeText = String(args?.allowFreeText ?? "true") !== "false";
+
+  let parsedOptions: unknown;
+  try {
+    parsedOptions = JSON.parse(String(args?.options ?? "[]"));
+  } catch {
+    throw new ActionInputValidationError(
+      "'options' must be a JSON array of { label, value?, description?, recommended? }.",
+    );
+  }
+  if (!Array.isArray(parsedOptions) || parsedOptions.length === 0) {
+    throw new ActionInputValidationError(
+      "'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.",
+    );
+  }
+
+  type AskOption = {
+    label: string;
+    value: string;
+    description?: string;
+    preview?: string;
+    recommended?: boolean;
+  };
+  const options = parsedOptions
+    .map((raw): AskOption | null => {
+      const opt = (raw ?? {}) as Record<string, unknown>;
+      const label =
+        typeof opt.label === "string" && opt.label.trim()
+          ? opt.label.trim()
+          : typeof opt.value === "string"
+            ? String(opt.value).trim()
+            : "";
+      if (!label) return null;
+      const value =
+        typeof opt.value === "string" && opt.value.trim()
+          ? opt.value.trim()
+          : label;
+      const option: AskOption = { label, value };
+      if (typeof opt.description === "string" && opt.description.trim()) {
+        option.description = opt.description.trim();
+      }
+      if (typeof opt.preview === "string" && opt.preview.trim()) {
+        option.preview = opt.preview;
+      }
+      if (opt.recommended === true) option.recommended = true;
+      return option;
+    })
+    .filter((opt): opt is AskOption => opt !== null);
+  if (options.length === 0) {
+    throw new ActionInputValidationError(
+      "'options' must contain at least one option with a label.",
+    );
+  }
+
+  return { question, header, allowMultiple, allowFreeText, options };
+}
+
+function createAskQuestionTool(): ActionEntry {
+  const entry = {
+    endsTurn: true,
+    tool: {
+      description:
+        "Ask the user a multiple-choice clarifying question and render it inline in the chat. Use this ONLY when you are genuinely blocked on a decision you cannot resolve from context and a wrong guess would be costly — an ambiguous metric, date range, or grain; a real fork in approach. Present 2-5 concrete options and mark the most likely one recommended. Do NOT use it for confirmations, for things the user already specified, or to dodge easy work you could just do. Calling this ends the turn: one question per turn, and any other tool call you emit alongside it will not run.",
+      parameters: {
+        type: "object",
+        properties: {
+          question: {
+            type: "string",
+            description:
+              "The complete question to ask the user. Clear, specific, ends with a question mark.",
           },
-          required: ["question", "options"],
+          header: {
+            type: "string",
+            description:
+              'Optional very short label (max ~12 chars) shown as a chip/heading above the question, e.g. "Date range", "Approach", "Library".',
+          },
+          options: {
+            type: "string",
+            description:
+              'A JSON array of 2-4 distinct, mutually-exclusive options (unless `allowMultiple` is true), each `{ "label": string, "value"?: string, "description"?: string, "preview"?: string, "recommended"?: boolean }`. `label` is 1-5 words; `description` explains the trade-off; `preview` is optional content (mockup, code snippet, short comparison) rendered under the option. `value` defaults to `label` when omitted. Mark the most likely option `"recommended": true`. Do NOT add an "Other" option — free text is provided automatically when `allowFreeText` is on.',
+          },
+          allowFreeText: {
+            type: "string",
+            description:
+              'Whether the user may also type a free-text "Other" answer. Keep this "true" (the default) for preferences and clarifying questions. Use "false" only when the underlying workflow can accept one of the enumerated values and cannot handle a custom answer.',
+            enum: ["true", "false"],
+          },
+          allowMultiple: {
+            type: "string",
+            description:
+              'Whether the user may select more than one option (multi-select). "true" or "false" (default).',
+            enum: ["true", "false"],
+          },
         },
-      },
-      run: async (args) => {
-        const question = String(args?.question ?? "").trim();
-        if (!question) throw new Error("'question' is required.");
-        const header = String(args?.header ?? "").trim();
-        const allowMultiple = String(args?.allowMultiple ?? "") === "true";
-        const allowFreeText = String(args?.allowFreeText ?? "true") !== "false";
-
-        let parsedOptions: unknown;
-        try {
-          parsedOptions = JSON.parse(String(args?.options ?? "[]"));
-        } catch {
-          throw new Error(
-            "'options' must be a JSON array of { label, value?, description?, recommended? }.",
-          );
-        }
-        if (!Array.isArray(parsedOptions) || parsedOptions.length === 0) {
-          throw new Error(
-            "'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.",
-          );
-        }
-
-        type AskOption = {
-          label: string;
-          value: string;
-          description?: string;
-          preview?: string;
-          recommended?: boolean;
-        };
-        const options = parsedOptions
-          .map((raw): AskOption | null => {
-            const opt = (raw ?? {}) as Record<string, unknown>;
-            const label =
-              typeof opt.label === "string" && opt.label.trim()
-                ? opt.label.trim()
-                : typeof opt.value === "string"
-                  ? String(opt.value).trim()
-                  : "";
-            if (!label) return null;
-            const value =
-              typeof opt.value === "string" && opt.value.trim()
-                ? opt.value.trim()
-                : label;
-            const option: AskOption = { label, value };
-            if (typeof opt.description === "string" && opt.description.trim()) {
-              option.description = opt.description.trim();
-            }
-            if (typeof opt.preview === "string" && opt.preview.trim()) {
-              option.preview = opt.preview;
-            }
-            if (opt.recommended === true) option.recommended = true;
-            return option;
-          })
-          .filter((opt): opt is AskOption => opt !== null);
-        if (options.length === 0) {
-          throw new Error(
-            "'options' must contain at least one option with a label.",
-          );
-        }
-
-        const askingRunCtx = getRequestRunContext();
-        const askingThreadId =
-          askingRunCtx?.threadId && askingRunCtx.threadId !== askingRunCtx.runId
-            ? askingRunCtx.threadId
-            : undefined;
-        const payload = {
-          ...(askingThreadId ? { threadId: askingThreadId } : {}),
-          questions: [
-            {
-              id: "q1",
-              type: "text-options" as const,
-              question,
-              ...(header ? { header } : {}),
-              required: !allowFreeText,
-              multiSelect: allowMultiple,
-              allowOther: allowFreeText,
-              includeExplore: false,
-              includeDecide: false,
-              options,
-            },
-          ],
-        };
-
-        const { writeAppState } =
-          await import("../../application-state/script-helpers.js");
-        await writeAppState(
-          appStateKeyForBrowserTab(
-            "guided-questions",
-            getRequestRunContext()?.browserTabId,
-          ),
-          payload,
-        );
-        return "Asked the user a clarifying question and rendered it in the chat. This turn is over — their answer arrives as a new message.";
+        required: ["question", "options"],
       },
     },
-  };
+    run: async (args) => {
+      const { question, header, allowMultiple, allowFreeText, options } =
+        args as ReturnType<typeof parseAskQuestion>;
+
+      const askingRunCtx = getRequestRunContext();
+      const askingThreadId =
+        askingRunCtx?.threadId && askingRunCtx.threadId !== askingRunCtx.runId
+          ? askingRunCtx.threadId
+          : undefined;
+      const payload = {
+        ...(askingThreadId ? { threadId: askingThreadId } : {}),
+        questions: [
+          {
+            id: "q1",
+            type: "text-options" as const,
+            question,
+            ...(header ? { header } : {}),
+            required: !allowFreeText,
+            multiSelect: allowMultiple,
+            allowOther: allowFreeText,
+            includeExplore: false,
+            includeDecide: false,
+            options,
+          },
+        ],
+      };
+
+      const { writeAppState } =
+        await import("../../application-state/script-helpers.js");
+      await writeAppState(
+        appStateKeyForBrowserTab(
+          "guided-questions",
+          getRequestRunContext()?.browserTabId,
+        ),
+        payload,
+      );
+      return "Asked the user a clarifying question and rendered it in the chat. This turn is over — their answer arrives as a new message.";
+    },
+  } satisfies ActionEntry;
+  const action = defineAction({
+    description: entry.tool.description,
+    schema: z.unknown().transform(parseAskQuestion),
+    endsTurn: true,
+    run: entry.run,
+  });
+  return { ...entry, run: action.run };
 }
 
 export function createDataWidgetActionEntries(): Record<string, ActionEntry> {

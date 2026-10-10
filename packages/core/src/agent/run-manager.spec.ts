@@ -811,6 +811,53 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("waits for the run row before persisting and flushing a tool start", async () => {
+    let releaseInsert!: () => void;
+    vi.mocked(insertRun).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        releaseInsert = resolve;
+      }),
+    );
+    const write = vi.fn();
+    let flush!: Promise<void>;
+    const run = startRun(
+      "run-delayed-start-row",
+      "thread-delayed-start-row",
+      async (send, _signal, control) => {
+        send({
+          type: "tool_start",
+          tool: "send-email",
+          id: "email-1",
+          input: {},
+        });
+        flush = control.flushEvents();
+        await flush;
+        write();
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => expect(flush).toBeDefined());
+    await Promise.resolve();
+    const prematureStarts = vi
+      .mocked(insertRunEvent)
+      .mock.calls.filter(
+        ([, , data]) => JSON.parse(data).type === "tool_start",
+      );
+    const prematureWrites = write.mock.calls.length;
+    releaseInsert();
+    await run.finalized;
+    expect(prematureStarts).toHaveLength(0);
+    expect(prematureWrites).toBe(0);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(insertRunEvent).toHaveBeenCalledWith(
+      "run-delayed-start-row",
+      0,
+      expect.any(String),
+      { toolInputSource: "execution", requireInserted: true },
+    );
+  });
+
   it("snapshots tool arguments before queued persistence and retries", async () => {
     const input = { destination: "original" };
     let release!: () => void;
@@ -848,7 +895,10 @@ describe("run manager soft timeout", () => {
     expect(starts).toHaveLength(2);
     for (const [, , data, options] of starts) {
       expect(JSON.parse(data).input).toEqual({ destination: "original" });
-      expect(options).toEqual({ toolInputSource: "execution" });
+      expect(options).toEqual({
+        toolInputSource: "execution",
+        requireInserted: true,
+      });
     }
   });
 

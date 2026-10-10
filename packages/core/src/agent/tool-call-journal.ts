@@ -122,12 +122,8 @@ export function classifyToolCallJournal(
   const completed: ToolCallJournalEntry[] = [];
   let order = 0;
 
+  // Clearing a draft does not establish the outcome of a started action.
   for (const event of events) {
-    if (event.type === "clear") {
-      openByTool.clear();
-      continue;
-    }
-
     if (event.type === "tool_start") {
       const tool = event.tool ?? "unknown";
       const input = event.input ?? undefined;
@@ -156,6 +152,10 @@ export function classifyToolCallJournal(
       const queue = openByTool.get(tool);
       const entry = takeMatchingOpenEntry(queue, event);
       if (entry) {
+        if (event.outcomeUnknown === true) {
+          queue!.push(entry);
+          continue;
+        }
         if (isNonCompletedToolDone(event)) {
           continue;
         }

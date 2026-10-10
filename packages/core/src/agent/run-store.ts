@@ -29,6 +29,7 @@ import {
   type ContinueRefusalCode,
   type ContinueTrigger,
 } from "./auto-continue.js";
+import { AGENT_CHAT_RECOVERY_OF_RUN_FIELD } from "./durable-background.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -1765,6 +1766,7 @@ type StaleRecoveryDispatchPayloadResult =
 
 function staleRecoveryDispatchPayload(
   payload: string,
+  runId: string,
 ): StaleRecoveryDispatchPayloadResult {
   let parsed: unknown;
   try {
@@ -1780,6 +1782,8 @@ function staleRecoveryDispatchPayload(
     const serialized = JSON.stringify({
       ...stripInlineBytes(parsed as Record<string, unknown>, "placeholder"),
       internalContinuation: true,
+      // The worker replaces __backgroundRun when rehydrating a payloadRef.
+      [AGENT_CHAT_RECOVERY_OF_RUN_FIELD]: runId,
     });
     assertNoInlineImageBytes(serialized, "stale recovery dispatch_payload");
     return { ok: true, payload: serialized };
@@ -1813,7 +1817,7 @@ async function attemptStaleRunRecovery(
   if (typeof payload !== "string" || payload.length === 0) {
     return { outcome: "not_redispatchable" };
   }
-  const recoveryPayload = staleRecoveryDispatchPayload(payload);
+  const recoveryPayload = staleRecoveryDispatchPayload(payload, runId);
   if (!recoveryPayload.ok) return { outcome: "not_redispatchable" };
   const threadId = row.thread_id;
   const turnId = row.turn_id ?? runId;
@@ -1997,16 +2001,16 @@ async function reapSingleStaleRun(
       });
       reaped = (rowsAffected ?? 0) > 0;
       if (reaped) {
-        outcome = await attemptStaleRunRecovery(tx, runId).catch(() => null);
+        outcome = await attemptStaleRunRecovery(tx, runId);
       }
     });
   } else {
-    outcome = await attemptStaleRunRecovery(client, runId).catch(() => null);
     const { rowsAffected } = await client.execute({
       sql: updateSql,
       args: updateArgs,
     });
     reaped = (rowsAffected ?? 0) > 0;
+    if (reaped) outcome = await attemptStaleRunRecovery(client, runId);
   }
 
   let forensics = "";
@@ -2426,16 +2430,35 @@ function persistedRunEventData(
   });
 }
 
+export class AgentRunEventNotPersistedError extends Error {
+  constructor(runId: string, seq: number) {
+    super(`Run event was not persisted: ${runId} sequence ${seq}`);
+    this.name = "AgentRunEventNotPersistedError";
+  }
+}
+
 export async function insertRunEvent(
   runId: string,
   seq: number,
   eventData: string,
-  options?: { toolInputSource?: "execution" },
+  options?: { toolInputSource?: "execution"; requireInserted?: boolean },
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
-  await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+  const storedEventData = persistedRunEventData(
+    eventData,
+    options?.toolInputSource,
+  );
+  // The reaper must wait for the marker's commit before exposing a successor.
+  const { rowsAffected } = await client.execute({
+    sql: options?.requireInserted
+      ? `WITH running_run AS MATERIALIZED (
+          SELECT id FROM agent_runs WHERE id = ? AND status = 'running' FOR UPDATE
+        )
+        INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+        SELECT id, ?, ?, ? FROM running_run LIMIT 1
+        ON CONFLICT (run_id, seq) DO NOTHING`
+      : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
       SELECT ?, ?, ?, ?
       WHERE NOT EXISTS (
         SELECT 1 FROM agent_runs
@@ -2446,10 +2469,12 @@ export async function insertRunEvent(
       runId,
       seq,
       Date.now(),
-      persistedRunEventData(eventData, options?.toolInputSource),
-      runId,
+      storedEventData,
+      ...(options?.requireInserted ? [] : [runId]),
     ],
   });
+  if (options?.requireInserted && rowsAffected !== 1)
+    throw new AgentRunEventNotPersistedError(runId, seq);
 }
 
 export const CHECKPOINT_TERMINAL_EVENT_SEQ = 1_000_000_000;
@@ -2913,12 +2938,13 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
         (!isRedactedToolCallInput(value.input) ||
           value.inputFingerprint !== undefined) &&
         (type === "tool_start"
-          ? isJournalObject(value.input)
-          : (value.input === undefined || isJournalObject(value.input)) &&
-            ["isError", "completedSideEffect", "replayed"].every(
+          ? Object.hasOwn(value, "input")
+          : ["isError", "completedSideEffect", "replayed"].every(
               (field) =>
                 value[field] === undefined || typeof value[field] === "boolean",
-            ))
+            ) &&
+            (value.outcomeUnknown === undefined ||
+              value.outcomeUnknown === true))
       );
     case "suggestions":
       return Array.isArray(value.suggestions);

@@ -32,6 +32,7 @@ import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
 import * as appRoles from "../org/app-roles.js";
+import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
@@ -131,7 +132,7 @@ import {
   findCompletedJournalEntry,
 } from "./tool-call-journal.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
-import type { AgentChatEvent, RunEvent } from "./types.js";
+import type { AgentChatAttachment, AgentChatEvent, RunEvent } from "./types.js";
 
 function createProductionAgentHandler(
   options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
@@ -308,6 +309,25 @@ function actionEntry(opts: {
       ? { parallelSafe: opts.parallelSafe }
       : {}),
     run: async (args) => `ran:${JSON.stringify(args)}`,
+  };
+}
+
+function preExecutionCheckedWrite(
+  check: (args: Record<string, unknown>) => Promise<unknown>,
+): ActionEntry {
+  const run = vi.fn(async () => "saved");
+  return {
+    ...actionEntry({ readOnly: false }),
+    ...defineAction({
+      description: "Test checked write",
+      schema: z.record(z.string(), z.unknown()),
+      readOnly: false,
+      authorize: async (args) => {
+        await check(args);
+        return true;
+      },
+      run,
+    }),
   };
 }
 
@@ -2744,6 +2764,50 @@ describe("buildUserContentWithAttachments", () => {
 });
 
 describe("appendRequestAttachmentContextToResumedHistory", () => {
+  it("does not duplicate files or text already combined with the original prompt", () => {
+    const attachments: AgentChatAttachment[] = [
+      {
+        type: "file",
+        name: "refund.pdf",
+        contentType: "application/pdf",
+        data: `data:application/pdf;base64,${PDF_BASE64}`,
+      },
+      {
+        type: "file",
+        name: "refund.txt",
+        contentType: "text/plain",
+        text: "Unique refund attachment text",
+      },
+    ];
+    const content = buildUserContentWithAttachments({
+      text: "Finish this refund",
+      attachments,
+      vision: true,
+    });
+    const messages: EngineMessage[] = [
+      { role: "user", content },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", id: "read-1", name: "read", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "read-1",
+            toolName: "read",
+            content: "read result",
+          },
+        ],
+      },
+    ];
+    const original = structuredClone(messages);
+    appendRequestAttachmentContextToResumedHistory(messages, attachments, {
+      vision: true,
+    });
+    expect(messages).toEqual(original);
+  });
   it("restores image pixels and visible attachment failures on durable continuation", () => {
     const messages: EngineMessage[] = [
       {
@@ -5047,20 +5111,31 @@ describe("createProductionAgentHandler", () => {
       }
     };
 
-    await Promise.all([
-      runThread("thread-alpha", "alpha@example.com"),
-      runThread("thread-beta", "beta@example.com"),
-    ]);
+    const readLedger = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue([]);
+    try {
+      await Promise.all([
+        runThread("thread-alpha", "alpha@example.com"),
+        runThread("thread-beta", "beta@example.com"),
+      ]);
 
-    expect(seenTools).toHaveLength(4);
-    expect(seenTools).toContainEqual([
-      "suggest-follow-ups",
-      "alpha",
-      "tool-search",
-    ]);
-    expect(seenTools).toContainEqual(["suggest-follow-ups"]);
-    expect(seenContinuations).toContainEqual(["thread-alpha", false]);
-    expect(seenContinuations).toContainEqual(["thread-beta", true]);
+      expect(seenTools).toHaveLength(4);
+      expect(seenTools).toContainEqual([
+        "suggest-follow-ups",
+        "alpha",
+        "tool-search",
+      ]);
+      expect(seenTools).toContainEqual(["suggest-follow-ups"]);
+      expect(seenContinuations).toContainEqual(["thread-alpha", false]);
+      expect(seenContinuations).toContainEqual(["thread-beta", true]);
+      expect(readLedger).toHaveBeenCalledWith(
+        "thread-beta",
+        expect.any(String),
+      );
+    } finally {
+      readLedger.mockRestore();
+    }
   });
 
   it("fails closed when resolveActionSurface returns an unknown action", async () => {
@@ -10194,7 +10269,7 @@ describe("runAgentLoop", () => {
 
   it("retains the mutating tool's keyed repeat-error count", async () => {
     let attempts = 0;
-    const write = vi.fn(async () => {
+    const check = vi.fn(async () => {
       attempts += 1;
       if (attempts <= 2 || attempts === 4) fail("same failure");
       return "saved";
@@ -10204,10 +10279,10 @@ describe("runAgentLoop", () => {
         name: "repair",
         input: { id: "same" },
       })),
-      { repair: { ...actionEntry({ readOnly: false }), run: write } },
+      { repair: preExecutionCheckedWrite(check) },
     );
 
-    expect(write).toHaveBeenCalledTimes(4);
+    expect(check).toHaveBeenCalledTimes(4);
     expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
       4,
     );
@@ -10222,7 +10297,7 @@ describe("runAgentLoop", () => {
 
   it("retains the mutating tool's across-argument repeat-error count", async () => {
     let attempts = 0;
-    const write = vi.fn(async () => {
+    const check = vi.fn(async () => {
       attempts += 1;
       if (attempts <= 2 || attempts === 4) fail("same failure");
       return "saved";
@@ -10233,14 +10308,11 @@ describe("runAgentLoop", () => {
         input: { id: index },
       })),
       {
-        "repair-across-arguments": {
-          ...actionEntry({ readOnly: false }),
-          run: write,
-        },
+        "repair-across-arguments": preExecutionCheckedWrite(check),
       },
     );
 
-    expect(write).toHaveBeenCalledTimes(4);
+    expect(check).toHaveBeenCalledTimes(4);
     expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
       4,
     );
@@ -10334,11 +10406,9 @@ describe("runAgentLoop", () => {
         input: { id },
       })),
       {
-        "edit-panel": {
-          ...actionEntry({ readOnly: false }),
-          run: async () =>
-            fail("panel width must be a number\nsecond line of detail"),
-        },
+        "edit-panel": preExecutionCheckedWrite(async () =>
+          fail("panel width must be a number\nsecond line of detail"),
+        ),
       },
     );
 
@@ -10368,7 +10438,7 @@ describe("runAgentLoop", () => {
         [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
         {
           "run-query": {
-            ...actionEntry({ readOnly: false }),
+            ...actionEntry({ readOnly: true }),
             run: async () =>
               fail(
                 JSON.stringify(
@@ -10417,7 +10487,7 @@ describe("runAgentLoop", () => {
         [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
         {
           "run-query": {
-            ...actionEntry({ readOnly: false }),
+            ...actionEntry({ readOnly: true }),
             run: async () => fail(errorText),
           },
         },
@@ -10438,7 +10508,7 @@ describe("runAgentLoop", () => {
       [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
       {
         "run-query": {
-          ...actionEntry({ readOnly: false }),
+          ...actionEntry({ readOnly: true }),
           run: async () => fail(`${"a".repeat(299)}${"😀".repeat(5)}`),
         },
       },
@@ -10460,11 +10530,9 @@ describe("runAgentLoop", () => {
         input: { id },
       })),
       {
-        "edit-panel": {
-          ...actionEntry({ readOnly: false }),
-          run: async (args: Record<string, unknown>) =>
-            fail(`panel[${args.id}].width must be a number`),
-        },
+        "edit-panel": preExecutionCheckedWrite(async (args) =>
+          fail(`panel[${args.id}].width must be a number`),
+        ),
       },
     );
 
@@ -11017,15 +11085,48 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it.each([
+    "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    "'options' must be a non-empty JSON array.",
+  ])(
+    "blocks a retry when a plain write handler throws without non-execution evidence (%s)",
+    async (message) => {
+      const run = vi.fn(async () => {
+        throw new Error(message);
+      });
+      const events = await runToolCallSequence(
+        [
+          { name: "write", input: { id: "first" } },
+          { name: "write", input: { id: "second" } },
+        ],
+        { write: { ...actionEntry({ readOnly: false }), run } },
+      );
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "write",
+          outcomeUnknown: true,
+        }),
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+    },
+  );
+
   it("lets the model revise arguments after a role mismatch", async () => {
     let streamCalls = 0;
-    const run = vi.fn(async (input: { panelId: string }) => {
+    const authorize = vi.fn(async (input: { panelId: string }) => {
       if (input.panelId === "p1") {
         throw new Error(
           "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
         );
       }
-      return "updated";
+      return true;
     });
     const engine: AgentEngine = {
       name: "test",
@@ -11072,14 +11173,23 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        "mutate-dashboard": { ...actionEntry({}), run },
+        "mutate-dashboard": {
+          ...actionEntry({}),
+          ...defineAction({
+            description: "Mutate dashboard",
+            schema: z.object({ panelId: z.string() }),
+            readOnly: false,
+            authorize,
+            run: vi.fn(async () => "updated"),
+          }),
+        },
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
       maxIterations: 3,
     });
 
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(authorize).toHaveBeenCalledTimes(2);
     expect(events).not.toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -16632,13 +16742,13 @@ describe("runAgentLoop endsTurn", () => {
                 type: "tool-call" as const,
                 id: "ask-1",
                 name: "ask-question",
-                input: { question: "Which range?" },
+                input: { question: "Which range?", options: "[]" },
               },
               {
                 type: "tool-call" as const,
                 id: "ask-2",
                 name: "ask-question",
-                input: { question: "Which grain?" },
+                input: { question: "Which grain?", options: "[]" },
               },
             ],
           };
@@ -16702,9 +16812,8 @@ describe("runAgentLoop endsTurn", () => {
 
   it("keeps the turn running when the endsTurn action fails", async () => {
     const { engine, streamCalls } = yieldEngine();
-    const run = vi.fn(async () => {
-      throw new Error("'options' must be a non-empty JSON array.");
-    });
+    const ask = createUrlTools()["ask-question"]!;
+    const events: AgentChatEvent[] = [];
     const outcomes: AgentLoopOutcome[] = [];
 
     await runAgentLoop({
@@ -16714,17 +16823,23 @@ describe("runAgentLoop endsTurn", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        "ask-question": {
-          ...actionEntry({ readOnly: false }),
-          endsTurn: true,
-          run,
-        },
+        "ask-question": ask,
       },
-      send: () => {},
+      send: (event) => events.push(event),
       onOutcome: (outcome) => outcomes.push(outcome),
       signal: new AbortController().signal,
     });
 
+    const results = events.filter((event) => event.type === "tool_done");
+    expect(results).toHaveLength(2);
+    expect(
+      results.every(
+        (event) =>
+          event.isError &&
+          !event.outcomeUnknown &&
+          event.result.includes("non-empty JSON array"),
+      ),
+    ).toBe(true);
     expect(streamCalls()).toBe(2);
     expect(outcomes).toEqual([{ state: "completed" }]);
   });
