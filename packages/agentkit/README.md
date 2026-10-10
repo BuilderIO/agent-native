@@ -694,15 +694,22 @@ The lifecycle is explicit and replayable. `connection.requested` moves through
 `requested` and `connecting`, then `connection.updated` settles as `connected`,
 `declined`, or `failed`. Clients answer with `resolveConnectionRequest`, and
 transports resume the exact blocked run only after a connected response. Failed
-requests remain visible and retryable.
+requests remain visible and retryable. A `requested` or `connecting` request is
+dropped when its run fails or is cancelled, and when a newer run starts in the
+thread (a reloaded snapshot applies the same rule by run start time). The
+request of a run that completed while waiting stays until a newer run starts.
 
 The request intentionally has no URL, credential, token, or scope fields. The
 host resolves `provider` through its authenticated connection catalog and owns
 OAuth, credential storage, grants, and scope policy, which keeps contextual
 cards demand-driven without letting agent-authored data define a setup endpoint
 or permission set. Agent-Native carries this provider-only shape through
-authenticated A2A task metadata too, so a delegated agent pauses the caller's
-visible run instead of degrading the dependency into an opaque remote failure.
+authenticated A2A task metadata too, so a delegated agent's connection need
+never degrades into an opaque remote failure. The model-driven agent call
+returns a tool result saying the peer needs the provider connected in its own
+app and must not be retried, and blocks that peer for the rest of the turn; an
+@-mention delegated before the agent loop reports it as an error-marked agent
+response. Neither pauses the caller's visible run.
 
 ### Errors, correlation, and metadata
 

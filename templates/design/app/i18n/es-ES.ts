@@ -1721,9 +1721,11 @@ export default {
     assetsNoImageUrl: "Assets no devolvió una URL de imagen.",
     failedToUploadFile: "No se pudo cargar el archivo",
     imageAttachmentUnavailable:
-      "No se pudo preparar esta imagen como referencia visual. Adjunta un archivo PNG, JPG, GIF o WebP más pequeño.",
+      "No se pudo preparar esta imagen para subirla. Prueba con una imagen JPG, PNG, GIF o WebP.",
+    imageAttachmentTooLarge:
+      "Cada imagen puede ocupar hasta {{perFile}} MB, con un máximo total de {{total}} MB para las imágenes.",
     attachmentsTooLarge:
-      "Esos adjuntos son demasiado grandes. Las subidas están limitadas a {{max}} MB en total: adjunta menos archivos o más pequeños.",
+      "Las imágenes se optimizan automáticamente. El total de imágenes optimizadas y otros archivos no puede superar {{max}} MB.",
     failedToSubmitPrompt: "No se pudo enviar el prompt",
     skipPrompt: "Omitir prompt",
     startBlankCanvas: "Empezar con un lienzo en blanco",

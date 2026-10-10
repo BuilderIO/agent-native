@@ -3265,6 +3265,56 @@ function agentNativeAgentReference(
   return { id: agent, kind: "agent", label: agent };
 }
 
+// The renderer swaps this label for its localized working label. An app name or
+// a raw A2A state in an activity label prints beside the participant chip that
+// already names the app.
+const AGENT_CALL_ACTIVITY_LABEL = "processing";
+
+const AGENT_CALL_FAILURE_REASON_PREFIX = "agentChat.agent.failureReason.";
+
+const AGENT_CALL_FAILURE_REASON_FALLBACK = "failed";
+
+// Terminal codes are protocol vocabulary and arrive from remote peers, so this
+// is a Map: a plain object would answer `constructor` with a function. A code
+// missing here, or no code at all, resolves to the generic reason. Setup is
+// claimed only by credential codes: `permanent_precondition` (and the
+// `a2a_child_` and `a2a_target_blocked_this_turn` codes derived from it) also
+// stops attachment, SSRF, plan-mode, and unverified-user failures that no setup
+// step fixes, so those stay on the generic reason.
+const AGENT_CALL_FAILURE_REASONS = new Map<string, string>([
+  ["credential_missing", "setup"],
+  ["missing_credentials", "setup"],
+  ["invalid_auth", "setup"],
+  ["a2a_auth_rejected", "auth"],
+  ["credential_rejected", "auth"],
+  ["token_request_failed", "auth"],
+  ["http_401", "auth"],
+  ["http_403", "auth"],
+  ["invalid_api_key", "auth"],
+  ["authentication_error", "auth"],
+  ["unauthorized", "auth"],
+  ["timeout_without_task", "timeout"],
+  ["run_budget_exhausted", "budget"],
+  ["empty_agent_response", "response"],
+  ["a2a_response_too_large", "response"],
+]);
+
+// Every key `failureReasonKey` metadata can carry, so hosts can prove their
+// catalogs cover it.
+export const AGENT_CALL_FAILURE_REASON_KEYS: readonly string[] = [
+  ...new Set([
+    AGENT_CALL_FAILURE_REASON_FALLBACK,
+    ...AGENT_CALL_FAILURE_REASONS.values(),
+  ]),
+].map((reason) => `${AGENT_CALL_FAILURE_REASON_PREFIX}${reason}`);
+
+function agentCallFailureReasonKey(terminalCode: string | undefined): string {
+  return `${AGENT_CALL_FAILURE_REASON_PREFIX}${
+    (terminalCode && AGENT_CALL_FAILURE_REASONS.get(terminalCode)) ||
+    AGENT_CALL_FAILURE_REASON_FALLBACK
+  }`;
+}
+
 function agentNativeParticipantStatus(
   status: string | undefined,
 ): AgentChatRuntimeParticipantStatus {
@@ -3695,14 +3745,15 @@ function mapAgentNativeEvent(
           id: `${participantId}:${interactionKind}:${ev.seq ?? "current"}`,
           kind: interactionKind,
           participantId,
-          label: agent,
-          detail: ev.terminalCode,
           scope: "external",
-          object: ev.taskId
-            ? { id: ev.taskId, kind: "task", label: ev.taskId }
-            : undefined,
           source: agentNativeAgentReference(agent),
-          metadata: definedMetadata({ durationMs: ev.durationMs }),
+          metadata: definedMetadata({
+            durationMs: ev.durationMs,
+            failureReasonKey:
+              interactionKind === "failed"
+                ? agentCallFailureReasonKey(ev.terminalCode)
+                : undefined,
+          }),
         },
       },
     ];
@@ -3750,7 +3801,7 @@ function mapAgentNativeEvent(
         activity: {
           id: `${participantId}:progress`,
           kind: "agent",
-          label: ev.state ?? agent,
+          label: AGENT_CALL_ACTIVITY_LABEL,
           detail: ev.detail,
           status: "running",
           participantId,
@@ -3775,7 +3826,6 @@ function mapAgentNativeEvent(
           id: `${participantId}:message:${ev.seq ?? "current"}`,
           kind: "messaged",
           participantId,
-          label: agent,
           detail: ev.text,
           scope: "external",
           source: agentNativeAgentReference(agent),
@@ -3795,7 +3845,7 @@ function mapAgentNativeEvent(
         activity: {
           id: `${participantId}:activity`,
           kind: "agent",
-          label: agent,
+          label: AGENT_CALL_ACTIVITY_LABEL,
           detail: ev.snapshot.activePhase,
           status,
           participantId,

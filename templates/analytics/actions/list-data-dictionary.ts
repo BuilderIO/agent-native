@@ -17,6 +17,7 @@ import {
   semanticScopeCompatibility,
   semanticScopeForSearch,
 } from "../server/lib/analytics-term-matcher.js";
+import { mergeDataDictionaryEntry } from "../server/lib/data-dictionary-overlays.js";
 import {
   readSourceIndex,
   sourceIndexDictionaryEntries,
@@ -57,15 +58,22 @@ export default defineAction({
     const dept = (args.department ?? "").trim().toLowerCase();
 
     const entries: Record<string, unknown>[] = [];
-    const seen = new Set<string>();
+    const seen = new Map<string, number>();
     let sourceIndexStatus: SourceIndexRead["status"] = "not-configured";
 
     const collect = (raw: unknown) => {
       const e = raw as Record<string, unknown> | null;
       if (!e || typeof e !== "object") return;
       const id = e.id as string | undefined;
-      if (!id || seen.has(id)) return;
-      seen.add(id);
+      if (!id) return;
+      const existingIndex = seen.get(id);
+      if (existingIndex !== undefined) {
+        const existing = entries[existingIndex];
+        if (existing)
+          entries[existingIndex] = mergeDataDictionaryEntry(existing, e);
+        return;
+      }
+      seen.set(id, entries.length);
       entries.push(e);
     };
 
@@ -76,31 +84,7 @@ export default defineAction({
       sourceIndexStatus = sourceIndex.status;
       if (sourceIndex.status === "available") {
         for (const entry of sourceIndexDictionaryEntries(sourceIndex.bundle)) {
-          const existingIndex = entries.findIndex(
-            (existing) => existing.id === entry.id,
-          );
-          if (existingIndex < 0) {
-            collect(entry);
-            continue;
-          }
-          entries[existingIndex] = {
-            ...entry,
-            ...entries[existingIndex],
-            status: entry.status,
-            sourceIndex: true,
-            ...(typeof entry.sourcePath === "string"
-              ? { sourcePath: entry.sourcePath }
-              : {}),
-            ...(typeof entry.sourceRevision === "string"
-              ? { sourceRevision: entry.sourceRevision }
-              : {}),
-            ...(typeof entry.sourceIndexGeneratedAt === "string"
-              ? { sourceIndexGeneratedAt: entry.sourceIndexGeneratedAt }
-              : {}),
-            ...(typeof entry.sourceIndexSources === "string"
-              ? { sourceIndexSources: entry.sourceIndexSources }
-              : {}),
-          };
+          collect(entry);
         }
       }
     }

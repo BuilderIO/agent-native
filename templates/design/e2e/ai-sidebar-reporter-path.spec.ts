@@ -773,17 +773,25 @@ test("Design Home sends a 6 MB uploaded image through generation", async ({
   const imageInput = homeComposer.locator('input[type="file"][multiple]');
   await expect(imageInput).toHaveCount(1);
   const original = await makeImageFixture(page, 6_000_000);
+  await imageInput.setInputFiles({
+    name: "card-art-photo.png",
+    mimeType: "image/png",
+    buffer: original.bytes,
+  });
+  await expect(
+    homeComposer.getByRole("button", {
+      name: "Remove card-art-photo.png",
+    }),
+  ).toBeVisible({ timeout: 30_000 });
+
+  await homePrompt.fill(LINKEDIN_AD_PROMPT);
   const homeUploadResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/uploads") &&
       response.request().method() === "POST",
     { timeout: 30_000 },
   );
-  await imageInput.setInputFiles({
-    name: "card-art-photo.png",
-    mimeType: "image/png",
-    buffer: original.bytes,
-  });
+  await homePrompt.press("Enter");
   const uploadedResponse = await homeUploadResponse;
   expect(uploadedResponse.ok()).toBe(true);
   const uploadedFiles = (await uploadedResponse.json()) as Array<{
@@ -793,17 +801,9 @@ test("Design Home sends a 6 MB uploaded image through generation", async ({
     size: number;
   }>;
   expect(uploadedFiles).toHaveLength(1);
-  expect(uploadedFiles[0]?.type).toBe("image/jpeg");
+  expect(uploadedFiles[0]?.type).toBe("image/webp");
   expect(uploadedFiles[0]?.size).toBeLessThan(4 * 1024 * 1024);
-  expect(uploadedFiles[0]?.filename).toMatch(/\.jpg$/i);
-  await expect(
-    homeComposer.getByRole("button", {
-      name: "Remove card-art-photo.png",
-    }),
-  ).toBeVisible({ timeout: 30_000 });
-
-  await homePrompt.fill(LINKEDIN_AD_PROMPT);
-  await homePrompt.press("Enter");
+  expect(uploadedFiles[0]?.filename).toMatch(/\.webp$/i);
   await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, { timeout: 45_000 });
   expect(designId).toBeTruthy();
 
@@ -840,7 +840,7 @@ test("Design Home sends a 6 MB uploaded image through generation", async ({
     bitmap.close();
     return dimensions;
   }, provider.imageDataUrlsSeen[0]!);
-  expect(Math.max(...modelImageDimensions)).toBe(2048);
+  expect(Math.max(...modelImageDimensions)).toBe(1400);
   const providerText = provider.requestSummaries
     .flatMap((summary) => summary.userMessages)
     .join("\n");
@@ -973,6 +973,8 @@ test("Design Home preserves image pixels when a document crosses the upload limi
       buffer: deck,
     },
   ]);
+  await homePrompt.fill(LINKEDIN_AD_PROMPT);
+  await homePrompt.press("Enter");
   await expect.poll(() => uploadResponses.length, { timeout: 30_000 }).toBe(2);
   page.off("response", onUploadResponse);
   const responseBodies = await Promise.all(
@@ -1015,8 +1017,6 @@ test("Design Home preserves image pixels when a document crosses the upload limi
     },
   ]);
 
-  await homePrompt.fill(LINKEDIN_AD_PROMPT);
-  await homePrompt.press("Enter");
   await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, { timeout: 45_000 });
   await expect
     .poll(async () => (await readProviderProof(page)).callNames, {
@@ -2145,7 +2145,7 @@ test("Design chat keeps uploaded image bytes out of every SQL table", async ({
   await sidebarPrompt.press("Enter");
   await expect
     .poll(providerImages, providerPoll)
-    .toEqual([inline.sha256, uploaded.sha256]);
+    .toEqual([inline.sha256, inline.sha256, uploaded.sha256]);
   expect(rewrittenRequests()).toBe(1);
   await page.unroute(/\/_agent-native\/agent-chat$/);
   await expect(replies).toHaveCount(2, { timeout: 15_000 });

@@ -17,11 +17,7 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  MAX_PROMPT_ATTACHMENT_BYTES,
-  MAX_UPLOAD_BYTES,
-} from "@/lib/upload-limits";
-
+import { MAX_UPLOAD_BYTES } from "../../lib/upload-limits";
 import PromptPopover from "./PromptDialog";
 
 interface ComposerStubProps {
@@ -75,10 +71,11 @@ const mockOrgQueryOptions = vi.hoisted(() => ({
   values: [] as Array<{ enabled?: boolean } | undefined>,
 }));
 const mockEagerUpload = vi.hoisted(() => ({
-  useComponentUploader: false,
   implementation: async (files: File[]) =>
-    files.map((file) => ({ path: `/uploads/${file.name}` })),
+    files.map((file) => ({ path: `/uploads/${file.name}`, size: file.size })),
+  useUploadCallback: false,
 }));
+const mockPreparePromptImageAttachment = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client/org", () => ({
   useOrg: (options?: { enabled?: boolean }) => {
@@ -170,20 +167,23 @@ vi.mock("@agent-native/toolkit/composer", () => ({
 
 vi.mock("@agent-native/toolkit/composer/use-eager-file-uploads", () => ({
   useEagerFileUploads: (
-    uploadFilesToServer: (files: File[]) => Promise<Array<{ path: string }>>,
+    upload: (files: File[]) => Promise<readonly unknown[]>,
   ) => {
     const [uploading, setUploading] = useState(false);
-    const uploadFiles = useCallback(async (files: File[]) => {
-      if (files.length === 0) return [];
-      setUploading(true);
-      try {
-        return mockEagerUpload.useComponentUploader
-          ? await uploadFilesToServer(files)
-          : await mockEagerUpload.implementation(files);
-      } finally {
-        setUploading(false);
-      }
-    }, []);
+    const uploadFiles = useCallback(
+      async (files: File[]) => {
+        if (files.length === 0) return [];
+        setUploading(true);
+        try {
+          return await (mockEagerUpload.useUploadCallback
+            ? upload(files)
+            : mockEagerUpload.implementation(files));
+        } finally {
+          setUploading(false);
+        }
+      },
+      [upload],
+    );
     return {
       commitFiles: () => {},
       discardFiles: () => {},
@@ -194,6 +194,11 @@ vi.mock("@agent-native/toolkit/composer/use-eager-file-uploads", () => ({
       reset: () => {},
     };
   },
+}));
+
+vi.mock("@/lib/prompt-image-optimization", () => ({
+  preparePromptImageAttachment: (...args: unknown[]) =>
+    mockPreparePromptImageAttachment(...args),
 }));
 
 vi.mock("@agent-native/core/embedding/react", () => ({
@@ -248,9 +253,10 @@ beforeEach(() => {
   mockActiveOrg.current = { orgId: "org-a" };
   mockOrgPending.current = false;
   mockOrgQueryOptions.values = [];
-  mockEagerUpload.useComponentUploader = false;
   mockEagerUpload.implementation = async (files) =>
-    files.map((file) => ({ path: `/uploads/${file.name}` }));
+    files.map((file) => ({ path: `/uploads/${file.name}`, size: file.size }));
+  mockEagerUpload.useUploadCallback = false;
+  mockPreparePromptImageAttachment.mockReset();
 });
 
 afterEach(async () => {
@@ -260,7 +266,6 @@ afterEach(async () => {
   container = undefined;
   document.body.replaceChildren();
   vi.restoreAllMocks();
-  vi.unstubAllGlobals();
   toastError.mockClear();
 });
 
@@ -356,11 +361,14 @@ describe("PromptPopover inline home", () => {
   });
 
   it.each([false, true])(
-    "uses one shared Upload menu and retains an eager batch (inline: %s)",
+    "uses one shared Upload menu and submits the complete selection (inline: %s)",
     async (inline) => {
       const onSubmit = vi.fn();
       const upload = vi.fn(async (files: File[]) =>
-        files.map((file) => ({ path: `/uploads/${file.name}` })),
+        files.map((file) => ({
+          path: `/uploads/${file.name}`,
+          size: file.size,
+        })),
       );
       mockEagerUpload.implementation = upload;
       await renderPopover({ inline, onSubmit });
@@ -369,7 +377,7 @@ describe("PromptPopover inline home", () => {
       expect(mockComposer.current!.attachmentAdapter).toBeDefined();
       expect(mockComposer.current!.inlineTextAttachments).toBe(false);
       expect(mockComposer.current!.maxDocumentAttachmentBytes).toBe(
-        MAX_UPLOAD_BYTES,
+        4 * 1024 * 1024,
       );
       expect(container!.querySelector('input[hidden][type="file"]')).toBeNull();
       const files = [
@@ -383,13 +391,17 @@ describe("PromptPopover inline home", () => {
         Object.defineProperty(input, "files", { value: files });
         input.dispatchEvent(new Event("change", { bubbles: true }));
       });
-      expect(upload).toHaveBeenCalledWith(files);
+      expect(upload).not.toHaveBeenCalled();
       await act(async () =>
         mockComposer.current!.onSubmit("Keep batch", files, [], {}),
       );
+      expect(upload).toHaveBeenCalledWith(files);
       expect(onSubmit).toHaveBeenCalledWith(
         "Keep batch",
-        [{ path: "/uploads/first.txt" }, { path: "/uploads/second.txt" }],
+        [
+          { path: "/uploads/first.txt", size: 5 },
+          { path: "/uploads/second.txt", size: 6 },
+        ],
         {},
       );
     },
@@ -470,7 +482,7 @@ describe("PromptPopover inline home", () => {
     await act(async () => submit.click());
     expect(onSubmit).toHaveBeenCalledWith(
       "Draft before connecting",
-      [{ path: "/uploads/brief.txt" }],
+      [{ path: "/uploads/brief.txt", size: 5 }],
       {},
     );
   });
@@ -541,7 +553,7 @@ describe("PromptPopover inline home", () => {
     expect(onSubmitError).toHaveBeenCalledOnce();
     expect(onSubmit).toHaveBeenCalledWith(
       "Localized quick start",
-      [{ path: "/uploads/reference.png" }],
+      [{ path: "/uploads/reference.png", size: 9 }],
       { ...options, contextItems: freshContext },
     );
     expect(beforeSubmitContext).toHaveBeenCalledWith(options.contextItems);
@@ -555,14 +567,18 @@ describe("PromptPopover inline home", () => {
     });
     expect(onSubmit).toHaveBeenLastCalledWith(
       "Keep my typed draft",
-      [{ path: "/uploads/reference.png" }],
+      [{ path: "/uploads/reference.png", size: 9 }],
       { ...options, contextItems: freshContext },
     );
   });
 
-  it("keeps the existing aggregate cap even when files have already uploaded in separate eager batches", async () => {
+  it("rejects a combined over-limit selection before uploading attached batches", async () => {
     const onSubmit = vi.fn();
     const beforeSubmitContext = vi.fn();
+    const upload = vi.fn(async (files: File[]) =>
+      files.map((file) => ({ path: `/uploads/${file.name}`, size: file.size })),
+    );
+    mockEagerUpload.implementation = upload;
     await renderPopover({ inline: true, onSubmit, beforeSubmitContext });
     const files = [
       new File([new Uint8Array(3 * 1024 * 1024)], "first.tsx"),
@@ -572,11 +588,16 @@ describe("PromptPopover inline home", () => {
       mockComposer.current!.onAttachmentsChange!([files[0]]);
       mockComposer.current!.onAttachmentsChange!(files);
     });
+    expect(upload).not.toHaveBeenCalled();
     await act(async () => {
       await expect(
         mockComposer.current!.onSubmit("Keep the draft", files, [], {}),
       ).rejects.toThrow("promptDialog.attachmentsTooLarge");
     });
+    expect(upload).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(
+      'promptDialog.attachmentsTooLarge:{"max":4}',
+    );
     expect(onSubmit).not.toHaveBeenCalled();
     expect(beforeSubmitContext).not.toHaveBeenCalled();
     expect(
@@ -586,109 +607,315 @@ describe("PromptPopover inline home", () => {
     ).toBe("Keep the draft");
   });
 
-  it("allows a prompt-sized image while keeping document attachments at 4 MiB", async () => {
-    const onSubmit = vi.fn();
-    const upload = vi.fn(async (files: File[]) =>
-      files.map((file) => ({ path: `/uploads/${file.name}` })),
+  it("budgets image payloads across batches and uploads the full selection once", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockEagerUpload.useUploadCallback = true;
+    mockPreparePromptImageAttachment.mockImplementation(
+      async (file: File, maxDataUrlBytes: number) => ({
+        file: new File([new Uint8Array(16)], file.name, { type: file.type }),
+        dataUrl: "x".repeat(maxDataUrlBytes),
+      }),
     );
-    mockEagerUpload.implementation = upload;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (_input, init) => {
+        const uploadedFiles = (init?.body as FormData)
+          .getAll("files")
+          .filter((value): value is File => value instanceof File);
+        return {
+          ok: true,
+          json: async () =>
+            uploadedFiles.map((file) => ({
+              path: `/uploads/${file.name}`,
+              originalName: file.name,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            })),
+        } as Response;
+      });
     await renderPopover({ inline: true, onSubmit });
-    expect(mockComposer.current!.maxDocumentAttachmentBytes).toBe(
-      MAX_UPLOAD_BYTES,
+    const images = ["one.png", "two.png", "three.png", "four.png"].map(
+      (name) => new File([new Uint8Array(32)], name, { type: "image/png" }),
     );
 
-    const file = new File(
-      [new Uint8Array(MAX_PROMPT_ATTACHMENT_BYTES)],
-      "reference.png",
-      { type: "image/png" },
-    );
     await act(async () => {
-      await mockComposer.current!.onSubmit(
-        "Use this reference",
-        [file],
-        [],
-        {},
-      );
+      mockComposer.current!.onAttachmentsChange!([images[0], images[1]]);
+      mockComposer.current!.onAttachmentsChange!(images);
     });
+    expect(fetchMock).not.toHaveBeenCalled();
 
-    expect(upload).toHaveBeenCalledWith([file]);
-    expect(onSubmit).toHaveBeenCalledWith(
-      "Use this reference",
-      [{ path: "/uploads/reference.png" }],
-      {},
+    await act(async () =>
+      mockComposer.current!.onSubmit("Use every reference", images, [], {}),
     );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(mockPreparePromptImageAttachment).toHaveBeenCalledTimes(4);
+    for (const file of images) {
+      expect(mockPreparePromptImageAttachment).toHaveBeenCalledWith(
+        file,
+        750_000,
+      );
+    }
+    const submitted = onSubmit.mock.calls[0]?.[1] as Array<{
+      dataUrl?: string;
+    }>;
+    expect(submitted.map((file) => file.dataUrl?.length)).toEqual([
+      750_000, 750_000, 750_000, 750_000,
+    ]);
+    expect(
+      submitted.reduce((sum, file) => sum + (file.dataUrl?.length ?? 0), 0),
+    ).toBe(3_000_000);
   });
 
-  it("keeps a small reference image at full resolution when a document crosses the upload limit", async () => {
-    mockEagerUpload.useComponentUploader = true;
-    const uploadedImageBytes: Uint8Array[] = [];
-    const uploadedBatches: Array<{ names: string[]; size: number }> = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        const files = (init?.body as FormData).getAll("files") as File[];
-        uploadedBatches.push({
-          names: files.map((file) => file.name),
-          size: files.reduce((total, file) => total + file.size, 0),
-        });
-        for (const file of files.filter((candidate) =>
-          candidate.type.startsWith("image/"),
-        )) {
-          uploadedImageBytes.push(new Uint8Array(await file.arrayBuffer()));
-        }
+  it("uploads selections above the per-request file cap in ordered batches", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockEagerUpload.useUploadCallback = true;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (_input, init) => {
+        const files = (init?.body as FormData)
+          .getAll("files")
+          .filter((value): value is File => value instanceof File);
         return {
           ok: true,
           json: async () =>
             files.map((file) => ({
               path: `/uploads/${file.name}`,
+              originalName: file.name,
               filename: file.name,
               type: file.type,
               size: file.size,
             })),
-        };
-      }),
-    );
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
+        } as Response;
+      });
     await renderPopover({ inline: true, onSubmit });
+    const files = Array.from(
+      { length: 21 },
+      (_, index) =>
+        new File([`note ${index}`], `note-${index}.txt`, {
+          type: "text/plain",
+        }),
+    );
 
-    const imageBytes = Uint8Array.from({ length: 64 }, (_, index) => index);
-    const image = new File([imageBytes], "reference.png", {
+    await act(async () =>
+      mockComposer.current!.onSubmit("Use all files", files, [], {}),
+    );
+
+    const batches = fetchMock.mock.calls.map(([, init]) =>
+      (init?.body as FormData).getAll("files"),
+    );
+    expect(batches.map((batch) => batch.length)).toEqual([20, 1]);
+    expect(
+      (onSubmit.mock.calls[0]?.[1] as Array<{ originalName: string }>).map(
+        (file) => file.originalName,
+      ),
+    ).toEqual(files.map((file) => file.name));
+  });
+
+  it("preserves a small reference image when a document crosses the request byte limit", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockEagerUpload.useUploadCallback = true;
+    const image = new File([new Uint8Array(500_000)], "reference.png", {
       type: "image/png",
     });
-    const documentFile = new File(
-      [new Uint8Array(MAX_UPLOAD_BYTES - image.size + 1)],
-      "brief.txt",
-      { type: "text/plain" },
+    const dataUrl = "data:image/png;base64,cmVmZXJlbmNl";
+    mockPreparePromptImageAttachment.mockResolvedValue({
+      file: image,
+      dataUrl,
+    });
+    const document = new File([new Uint8Array(3_700_000)], "brief.pptx", {
+      type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    });
+    const batches: Array<Array<{ name: string; size: number }>> = [];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (_input, init) => {
+        const files = (init?.body as FormData)
+          .getAll("files")
+          .filter((value): value is File => value instanceof File);
+        batches.push(
+          files.map((file) => ({ name: file.name, size: file.size })),
+        );
+        return {
+          ok: true,
+          json: async () =>
+            files.map((file) => ({
+              path: `/uploads/${file.name}`,
+              originalName: file.name,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            })),
+        } as Response;
+      });
+    await renderPopover({ inline: true, onSubmit });
+
+    await act(async () =>
+      mockComposer.current!.onSubmit(
+        "Match this reference",
+        [image, document],
+        [],
+        {},
+      ),
     );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(batches).toEqual([
+      [{ name: "reference.png", size: image.size }],
+      [{ name: "brief.pptx", size: document.size }],
+    ]);
+    expect(batches.every((batch) => batch[0]!.size <= MAX_UPLOAD_BYTES)).toBe(
+      true,
+    );
+    expect(mockPreparePromptImageAttachment).toHaveBeenCalledWith(
+      image,
+      1_250_000,
+    );
+    expect(
+      (onSubmit.mock.calls[0]?.[1] as Array<{ dataUrl?: string }>)[0]?.dataUrl,
+    ).toBe(dataUrl);
+  });
+
+  it("cleans up successful upload batches when a later batch fails", async () => {
+    const onSubmit = vi.fn();
+    mockEagerUpload.useUploadCallback = true;
+    const deletedPaths: string[] = [];
+    let postCount = 0;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (_input, init) => {
+        if (init?.method === "DELETE") {
+          deletedPaths.push(JSON.parse(String(init.body)).path as string);
+          return { ok: true, status: 200 } as Response;
+        }
+        postCount++;
+        if (postCount > 1) {
+          return {
+            ok: false,
+            status: 503,
+            json: async () => ({ error: "second batch failed" }),
+          } as Response;
+        }
+        const files = (init?.body as FormData)
+          .getAll("files")
+          .filter((value): value is File => value instanceof File);
+        return {
+          ok: true,
+          json: async () =>
+            files.map((file) => ({
+              path: `/uploads/${file.name}`,
+              originalName: file.name,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            })),
+        } as Response;
+      });
+    await renderPopover({ inline: true, onSubmit });
+    const files = Array.from(
+      { length: 21 },
+      (_, index) =>
+        new File([`note ${index}`], `note-${index}.txt`, {
+          type: "text/plain",
+        }),
+    );
+
+    await act(async () => {
+      await expect(
+        mockComposer.current!.onSubmit("Keep the draft", files, [], {}),
+      ).rejects.toThrow("second batch failed");
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(22);
+    expect(deletedPaths).toEqual(
+      files.slice(0, 20).map((file) => `/uploads/${file.name}`),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("batches optimized image and document uploads under the request limit", async () => {
+    const onSubmit = vi.fn();
+    mockEagerUpload.useUploadCallback = true;
+    mockPreparePromptImageAttachment.mockImplementation(async (file: File) => ({
+      file: new File([new Uint8Array(900_000)], file.name, {
+        type: file.type,
+      }),
+      dataUrl: "x".repeat(1_200_000),
+    }));
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (_input, init) => {
+        const files = (init?.body as FormData)
+          .getAll("files")
+          .filter((file): file is File => file instanceof File);
+        return {
+          ok: true,
+          json: async () =>
+            files.map((file) => ({
+              path: `/uploads/${file.name}`,
+              originalName: file.name,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            })),
+        } as Response;
+      });
+    await renderPopover({ inline: true, onSubmit });
+    const firstImage = new File(["image"], "first.png", {
+      type: "image/png",
+    });
+    const secondImage = new File(["image"], "second.png", {
+      type: "image/png",
+    });
+    const document = new File([new Uint8Array(2_500_000)], "notes.txt", {
+      type: "text/plain",
+    });
+
+    await act(async () => {
+      mockComposer.current!.onAttachmentsChange!([firstImage]);
+      mockComposer.current!.onAttachmentsChange!([
+        firstImage,
+        secondImage,
+        document,
+      ]);
+    });
+    expect(mockPreparePromptImageAttachment).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+
     await act(async () => {
       await mockComposer.current!.onSubmit(
-        "Match this reference",
-        [image, documentFile],
+        "Use these references",
+        [firstImage, secondImage, document],
         [],
         {},
       );
     });
 
-    const attachments = onSubmit.mock.calls[0]?.[1] as
-      | Array<{ dataUrl?: string }>
-      | undefined;
-    expect(attachments?.[0]?.dataUrl).toMatch(/^data:image\/png;base64,/);
-    const [, modelBase64] = attachments![0]!.dataUrl!.split(",", 2);
-    const modelImageBytes = Uint8Array.from(atob(modelBase64!), (character) =>
-      character.charCodeAt(0),
+    expect(mockPreparePromptImageAttachment).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const batches = fetchMock.mock.calls.map(([, init]) =>
+      (init?.body as FormData)
+        .getAll("files")
+        .filter((file): file is File => file instanceof File)
+        .map((file) => ({ name: file.name, size: file.size })),
     );
-    expect(uploadedBatches).toHaveLength(2);
-    expect(uploadedBatches.flatMap((batch) => batch.names).sort()).toEqual([
-      "brief.txt",
-      "reference.png",
+    expect(batches).toEqual([
+      [
+        { name: "first.png", size: 900_000 },
+        { name: "second.png", size: 900_000 },
+      ],
+      [{ name: "notes.txt", size: 2_500_000 }],
     ]);
-    expect(
-      uploadedBatches.every((batch) => batch.size <= MAX_UPLOAD_BYTES),
-    ).toBe(true);
-    expect(uploadedImageBytes).toHaveLength(1);
-    expect(Array.from(uploadedImageBytes[0]!)).toEqual(
-      Array.from(modelImageBytes),
-    );
+    const submitted = onSubmit.mock.calls[0]?.[1] as Array<{
+      dataUrl?: string;
+    }>;
+    expect(submitted.map((file) => file.dataUrl?.length)).toEqual([
+      1_200_000,
+      1_200_000,
+      undefined,
+    ]);
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("keeps rejected staged files removable without resubmitting the rejected file", async () => {
@@ -727,7 +954,7 @@ describe("PromptPopover inline home", () => {
   });
 
   it("does not hand off an upload or restore old text into a different identity", async () => {
-    let resolveUpload!: (files: Array<{ path: string }>) => void;
+    let resolveUpload!: (files: Array<{ path: string; size: number }>) => void;
     mockEagerUpload.implementation = () =>
       new Promise((resolve) => {
         resolveUpload = resolve;
@@ -761,7 +988,9 @@ describe("PromptPopover inline home", () => {
         />,
       ),
     );
-    await act(async () => resolveUpload([{ path: "/uploads/reference.png" }]));
+    await act(async () =>
+      resolveUpload([{ path: "/uploads/reference.png", size: 9 }]),
+    );
     await rejection;
     expect(onSubmit).not.toHaveBeenCalled();
     expect(
@@ -770,7 +999,7 @@ describe("PromptPopover inline home", () => {
       )?.value,
     ).toBe("New account draft");
   });
-  it("seeds and focuses the shared composer without remounting or losing eager attachments", async () => {
+  it("seeds and focuses the shared composer without losing selected attachments", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onOpenChange = vi.fn();
     const composerRef = createRef<{ focus: () => void }>();
@@ -832,7 +1061,7 @@ describe("PromptPopover inline home", () => {
     );
     expect(onSubmit).toHaveBeenCalledWith(
       "Un tableau de bord",
-      [{ path: "/uploads/reference.png" }],
+      [{ path: "/uploads/reference.png", size: 5 }],
       expect.anything(),
     );
     expect(onOpenChange).not.toHaveBeenCalled();
@@ -1068,12 +1297,15 @@ describe("PromptPopover submit failure recovery", () => {
 });
 
 describe("PromptPopover attachment editing", () => {
-  it("keeps typing available during eager upload and waits before submitting", async () => {
-    let resolveUpload!: (files: Array<{ path: string }>) => void;
-    const uploadPending = new Promise<Array<{ path: string }>>((resolve) => {
-      resolveUpload = resolve;
-    });
-    mockEagerUpload.implementation = () => uploadPending;
+  it("waits to upload until submit while keeping typing available", async () => {
+    let resolveUpload!: (files: Array<{ path: string; size: number }>) => void;
+    const uploadPending = new Promise<Array<{ path: string; size: number }>>(
+      (resolve) => {
+        resolveUpload = resolve;
+      },
+    );
+    const upload = vi.fn(() => uploadPending);
+    mockEagerUpload.implementation = upload;
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     await renderPopover({ onSubmit });
 
@@ -1089,6 +1321,7 @@ describe("PromptPopover attachment editing", () => {
       fileInput?.dispatchEvent(new Event("change", { bubbles: true }));
       await Promise.resolve();
     });
+    expect(upload).not.toHaveBeenCalled();
 
     const editor = container!.querySelector<HTMLTextAreaElement>(
       '[data-testid="prompt-editor"]',
@@ -1107,15 +1340,16 @@ describe("PromptPopover attachment editing", () => {
         ?.click();
       await Promise.resolve();
     });
+    expect(upload).toHaveBeenCalledWith([file]);
     expect(onSubmit).not.toHaveBeenCalled();
 
     await act(async () => {
-      resolveUpload([{ path: "/uploads/hero.png" }]);
+      resolveUpload([{ path: "/uploads/hero.png", size: 5 }]);
       await uploadPending;
     });
     expect(onSubmit).toHaveBeenCalledWith(
       "keep typing",
-      [{ path: "/uploads/hero.png" }],
+      [{ path: "/uploads/hero.png", size: 5 }],
       expect.anything(),
     );
   });

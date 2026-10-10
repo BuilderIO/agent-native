@@ -129,6 +129,7 @@ describe("list-data-dictionary", () => {
         definition: "Reviewed overlay",
         status: "active",
         approved: true,
+        aiGenerated: false,
       },
     });
     mocks.sourceIndexDictionaryEntries.mockReturnValue([
@@ -136,6 +137,7 @@ describe("list-data-dictionary", () => {
         id: "index-generated",
         metric: "Generated index entry",
         status: "deprecated",
+        aiGenerated: true,
         sourceIndex: true,
         sourceIndexGeneratedAt: "2026-10-10T00:00:00.000Z",
       },
@@ -152,7 +154,107 @@ describe("list-data-dictionary", () => {
       definition: "Reviewed overlay",
       approved: true,
       status: "deprecated",
+      aiGenerated: true,
       sourceIndexGeneratedAt: "2026-10-10T00:00:00.000Z",
+    });
+  });
+
+  it("preserves generated metadata when a partial saved overlay is blank", async () => {
+    mocks.listOrgSettings.mockResolvedValue({
+      "saved-index-copy": {
+        id: "index-generated",
+        metric: "Reviewed name",
+        definition: " ",
+        grain: "",
+        owner: "   ",
+        table: "",
+      },
+    });
+    mocks.sourceIndexDictionaryEntries.mockReturnValue([
+      {
+        id: "index-generated",
+        metric: "Generated name",
+        definition: "Generated definition",
+        grain: "one row per user",
+        owner: "Data team",
+        table: "analytics.users",
+        entryType: "model",
+        sourcePath: "models/users.sql",
+        sourceRevision: "abcdef1234567",
+        sourceIndexGeneratedAt: "2026-10-10T00:00:00.000Z",
+        sourceIndex: true,
+      },
+    ]);
+
+    const result = await action.run({ limit: 50 }, {} as never);
+    const entry = result.results.find(
+      (candidate: Record<string, unknown>) =>
+        candidate.id === "index-generated",
+    );
+
+    expect(entry).toMatchObject({
+      metric: "Reviewed name",
+      definition: "Generated definition",
+      grain: "one row per user",
+      owner: "Data team",
+      table: "analytics.users",
+      entryType: "model",
+      sourcePath: "models/users.sql",
+      sourceRevision: "abcdef1234567",
+      sourceIndexGeneratedAt: "2026-10-10T00:00:00.000Z",
+    });
+  });
+
+  it("lets a user overlay replace organization content while retaining generated lifecycle fields", async () => {
+    mocks.listOrgSettings.mockResolvedValueOnce({
+      "organization-copy": {
+        id: "index-generated",
+        metric: "Organization name",
+        definition: "Organization definition",
+        grain: "organization grain",
+      },
+    });
+    mocks.listSettingsByPrefix.mockResolvedValueOnce([
+      {
+        value: {
+          id: "index-generated",
+          metric: "Personal model name",
+          definition: "Personal definition",
+          owner: "Analytics team",
+          grain: " ",
+          approved: true,
+        },
+      },
+    ]);
+    mocks.sourceIndexDictionaryEntries.mockReturnValueOnce([
+      {
+        id: "index-generated",
+        metric: "Generated model name",
+        definition: "Generated definition",
+        grain: "one row per user",
+        status: "active",
+        sourceIndex: true,
+        sourcePath: "models/users.sql",
+        sourceRevision: "abcdef1234567",
+      },
+    ]);
+
+    const result = await action.run({ limit: 50 }, {} as never);
+    const entry = result.results.find(
+      (candidate: Record<string, unknown>) =>
+        candidate.id === "index-generated",
+    );
+
+    expect(entry).toMatchObject({
+      metric: "Personal model name",
+      definition: "Personal definition",
+      owner: "Analytics team",
+      grain: "organization grain",
+      approved: true,
+      status: "active",
+      sourceIndex: true,
+      sourcePath: "models/users.sql",
+      sourceRevision: "abcdef1234567",
     });
   });
 });

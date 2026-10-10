@@ -134,6 +134,19 @@ Every operation is a TypeScript file in `templates/clips/actions/`, auto-mounted
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | The anonymous, third-party embedding flow. See [Embed Clips](/docs/template-clips-embed) |
 | `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | The embedded bug-report launcher and Chrome extension diagnostics                        |
 
+## Browser diagnostics
+
+The Chrome extension attaches console and network diagnostics to a recording, and `save-browser-diagnostics` stores them. Every console and network entry carries a `tabId`.
+
+| Topic         | Behavior                                                                                                                                                              |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabs          | Up to five per recording: the start tab, then tabs active in the last 10 minutes, most recent first. A tab the user switches to during the recording is attached too. |
+| Over five     | The least recently active tab other than the focused one is detached. Its entries so far stay in the recording.                                                       |
+| Lookback      | Up to 30 seconds before the recording started, limited by the page's own console history and resource timing list. These entries have negative `elapsedMs`.           |
+| `tabId`       | Set on every console and network entry.                                                                                                                               |
+| `method`      | `"UNKNOWN"` on lookback network entries, which come from resource timing and have no HTTP method. Live requests report the method.                                    |
+| Not collected | Request and response bodies and headers. Console and network entries are redacted before upload.                                                                      |
+
 ## Data model
 
 Defined in `templates/clips/server/db/schema.ts`.

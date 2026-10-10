@@ -814,7 +814,7 @@ const messages = {
     labWisprFlowDescription: "Show or hide voice dictation in Clips Desktop.",
     labLookbackContext: "Include earlier screen time",
     labLookbackContextDescription:
-      "Attach up to five minutes of screen time from before a recording as passive context. Off by default.",
+      "Attach up to five minutes of screen time from before a recording as passive context.",
     uploadWorkspaceTitle: "Active workspace",
     uploadWorkspaceDescription:
       "Choose the workspace Clips uses for new recordings, including desktop uploads.",

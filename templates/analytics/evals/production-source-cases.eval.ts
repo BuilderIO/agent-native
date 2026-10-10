@@ -107,14 +107,37 @@ export const sourceContracts = {
 const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const PHRASE_EDGE = String.raw`[\p{L}\p{N}_/\p{Pd}]`;
+const GRAIN_NEGATION_PREFIX =
+  /\b(?:not|(?:do|does|did)\s+not|(?:don|doesn|didn)['’]t|never|no|(?:is|are|was|were)\s+not|(?:isn|aren|wasn|weren)['’]t|cannot|can['’]t)\s+(?:(?:have|has|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
+const GRAIN_NEGATION_MARKER = String.raw`(?:not|never|(?:(?:don|doesn|didn|isn|aren|wasn|weren)['’]t)|cannot|can['’]t)`;
+const GRAIN_NEGATION_ADVERBS = String.raw`(?:(?:actually|clearly|definitely|explicitly|likely|necessarily|perhaps|probably|really|truly)\s+)*`;
+const GRAIN_NEGATION_TARGET = String.raw`(?:(?:(?:a|an|the)\s+)?(?:declared|expected|actual|correct|true|valid)(?:\s+grain)?\b|(?:match(?:es)?|equal(?:s)?|represent(?:s)?|define(?:s)?|describe(?:s)?|reflect(?:s)?|correspond(?:s)?(?:\s+to)?)\s+(?:(?:a|an|the)\s+)?(?:(?:declared|expected|actual|correct|true|valid)\s+)?(?:grain|row unit)\b)`;
+const GRAIN_NEGATION_SUFFIX = new RegExp(
+  String.raw`^\s*(?:\(\s*)?(?:(?:is|are|was|were|do|does|did)\s+)?${GRAIN_NEGATION_ADVERBS}${GRAIN_NEGATION_MARKER}\s+${GRAIN_NEGATION_TARGET}`,
+  "i",
+);
+const GRAIN_NEGATION_CLAUSE = new RegExp(
+  String.raw`^[,;:.]\s*(?:(?:but|which|however)\s+)?(?:(?:this|it|that|the model|the table|the relation)\s+)?(?:(?:is|are|was|were|do|does|did)\s+)?${GRAIN_NEGATION_ADVERBS}${GRAIN_NEGATION_MARKER}\s+${GRAIN_NEGATION_TARGET}`,
+  "i",
+);
 
-function findCompletePhraseIndex(text: string, phrase: string): number {
+function findCompletePhraseIndexes(text: string, phrase: string): number[] {
   const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(
+  const expression = new RegExp(
     `(?<!${PHRASE_EDGE})${escapedPhrase}(?!${PHRASE_EDGE})`,
-    "u",
-  ).exec(text);
-  return match?.index ?? -1;
+    "gu",
+  );
+  return Array.from(text.matchAll(expression), (match) => match.index);
+}
+
+function isNegatedGrainClaim(line: string, index: number, phrase: string) {
+  const prefix = line.slice(Math.max(0, index - 64), index);
+  const suffix = line.slice(index + phrase.length, index + phrase.length + 112);
+  return (
+    GRAIN_NEGATION_PREFIX.test(prefix) ||
+    GRAIN_NEGATION_SUFFIX.test(suffix) ||
+    GRAIN_NEGATION_CLAUSE.test(suffix)
+  );
 }
 
 function hasRelationGrainClaim(
@@ -123,10 +146,14 @@ function hasRelationGrainClaim(
   allClaims: RelationGrainClaim[],
 ): boolean {
   const relation = claim.relation.toLowerCase();
-  const matchingLines = lines.filter((line) => line.includes(relation));
+  const matchingLines = lines.filter(
+    (line) => findCompletePhraseIndexes(line, relation).length > 0,
+  );
   return matchingLines.some((line) => {
-    const relationsOnLine = allClaims.filter((candidate) =>
-      line.includes(candidate.relation.toLowerCase()),
+    const relationsOnLine = allClaims.filter(
+      (candidate) =>
+        findCompletePhraseIndexes(line, candidate.relation.toLowerCase())
+          .length > 0,
     );
     if (relationsOnLine.length !== 1) return false;
 
@@ -135,24 +162,19 @@ function hasRelationGrainClaim(
     const competingGrain = allClaims.some(
       (candidate) =>
         candidate.grains[0]?.toLowerCase() !== expectedGrain &&
-        candidate.grains.some(
-          (grain) => findCompletePhraseIndex(line, grain.toLowerCase()) >= 0,
-        ),
+        candidate.grains.some((grain) => {
+          const phrase = grain.toLowerCase();
+          return findCompletePhraseIndexes(line, phrase).some(
+            (index) => !isNegatedGrainClaim(line, index, phrase),
+          );
+        }),
     );
     if (competingGrain) return false;
 
     return claim.grains.some((grain) => {
       const phrase = grain.toLowerCase();
-      const index = findCompletePhraseIndex(line, phrase);
-      if (index < 0) return false;
-      const clauseStart = Math.max(
-        line.lastIndexOf(";", index),
-        line.lastIndexOf(",", index),
-        line.lastIndexOf(".", index),
-      );
-      const precedingClause = line.slice(clauseStart + 1, index);
-      return !/\b(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\b/.test(
-        precedingClause,
+      return findCompletePhraseIndexes(line, phrase).some(
+        (index) => !isNegatedGrainClaim(line, index, phrase),
       );
     });
   });

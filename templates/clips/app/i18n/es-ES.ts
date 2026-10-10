@@ -904,7 +904,7 @@ const messages = {
       "Muestra u oculta el dictado por voz en Clips Desktop.",
     labLookbackContext: "Incluir tiempo de pantalla anterior",
     labLookbackContextDescription:
-      "Adjunta hasta cinco minutos de tiempo de pantalla anteriores a una grabación como contexto pasivo. Desactivado por defecto.",
+      "Adjunta hasta cinco minutos de tiempo de pantalla anteriores a una grabación como contexto pasivo.",
     uploadWorkspaceTitle: "Espacio activo",
     uploadWorkspaceDescription:
       "Elige el espacio que Clips usará para las nuevas grabaciones, incluidas las cargas desde el escritorio.",

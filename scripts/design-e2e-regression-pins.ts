@@ -33,6 +33,11 @@ export type DesignE2ERegressionPin = {
 export const DESIGN_E2E_REGRESSION_PINS = [
   {
     shard: "inspector-1a",
+    file: "builder-shell-no-network.spec.ts",
+    title: "the Builder shell canvas makes no agent-native requests",
+  },
+  {
+    shard: "inspector-1a",
     file: "canvas-invariants.spec.ts",
     title: "a child of an auto-layout parent still reports real geometry",
   },

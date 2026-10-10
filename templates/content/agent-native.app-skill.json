@@ -141,7 +141,8 @@
         ]
       },
       "commerce": false,
-      "iframeJustification": "The plugin renders saved Agent-Native Content documents and collections inside ChatGPT. The widget and editor content are served from the Agent-Native Content origin and use ChatGPT's host API with the built-in MCP Apps bridge; no remote bridge script is loaded."
+      "iframeJustification": "The plugin renders saved Agent-Native Content documents and collections inside ChatGPT. The widget and editor content are served from the Agent-Native Content origin and use ChatGPT's host API with the built-in MCP Apps bridge; no remote bridge script is loaded.",
+      "demo_recording_url": "https://www.agent-native.com/videos/chatgpt-plugin-content-demo.mp4"
     }
   }
 }

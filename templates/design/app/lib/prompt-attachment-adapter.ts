@@ -2,7 +2,7 @@ import type { PromptComposerProps } from "@agent-native/toolkit/app/chat/compose
 
 import { isVisualImageAttachment } from "@/lib/chat-image-attachments";
 import {
-  MAX_PROMPT_ATTACHMENT_BYTES,
+  MAX_IMAGE_ATTACHMENT_BYTES,
   MAX_UPLOAD_BYTES,
 } from "@/lib/upload-limits";
 
@@ -34,16 +34,16 @@ export function createDesignPromptAttachmentAdapter(
   return {
     accept: DESIGN_PROMPT_ATTACHMENT_ACCEPT,
     async add({ file }) {
-      const isImage = isVisualImageAttachment(file);
-      const maxBytes = isImage ? MAX_PROMPT_ATTACHMENT_BYTES : MAX_UPLOAD_BYTES;
-      if (file.size > maxBytes) {
-        throw new Error(
-          isImage ? imageAttachmentLimitMessage : attachmentLimitMessage,
-        );
+      if (isVisualImageAttachment(file)) {
+        if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+          throw new Error(imageAttachmentLimitMessage);
+        }
+      } else if (file.size > MAX_UPLOAD_BYTES) {
+        throw new Error(attachmentLimitMessage);
       }
       return {
         id: crypto.randomUUID(),
-        type: isImage ? "image" : "document",
+        type: isVisualImageAttachment(file) ? "image" : "document",
         name: file.name,
         contentType: file.type || "application/octet-stream",
         file,
