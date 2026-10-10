@@ -7,6 +7,7 @@ vi.mock("sonner", () => ({
 
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
 
+import { applyDesignDataOperations } from "../data-operations";
 import {
   applyDuplicateStackHistoryChange,
   insertFileCreationHistoryEntry,
@@ -994,6 +995,160 @@ describe("runDuplicateScreen", () => {
       "source-copy": { x: 752, y: 120 },
       "neighbor-copy": { x: 1504, y: 120 },
     });
+  });
+
+  it("undoes a multi-screen duplicate when update responses settle out of order", async () => {
+    const files = ["source", "neighbor", "farther"].map((id) => ({
+      id,
+      filename: id === "source" ? "index.html" : `${id}.html`,
+      fileType: "html",
+      content: `<main>${id}</main>`,
+      createdAt: "",
+      updatedAt: "",
+    }));
+    const initialGeometry = {
+      source: { x: 0, y: 120, width: 320, height: 240, z: 0 },
+      neighbor: { x: 376, y: 120, width: 320, height: 240, z: 1 },
+      farther: { x: 1128, y: 120, width: 320, height: 240, z: 2 },
+    };
+    const designDataJsonRef = ref({ canvasFrames: initialGeometry });
+    let persistedDesignData = { canvasFrames: initialGeometry };
+    const updateSettlements: Array<() => void> = [];
+    const recordedEntries: FileCreationHistoryEntry[] = [];
+    const updateDesignAsync = vi.fn(({ dataOperations }: any) => {
+      persistedDesignData = applyDesignDataOperations(
+        persistedDesignData,
+        dataOperations,
+      );
+      return new Promise<void>((resolve) => updateSettlements.push(resolve));
+    });
+    const args = duplicateArgs({
+      files,
+      overviewScreens: files.map(({ id }) => ({ id })) as any,
+      designDataJsonRef,
+      liveFrameGeometryRef: ref(initialGeometry),
+      createFileAsync: vi
+        .fn()
+        .mockResolvedValueOnce({ id: "source-copy" })
+        .mockResolvedValueOnce({ id: "neighbor-copy" })
+        .mockResolvedValueOnce({ id: "farther-copy" }),
+      updateDesignAsync,
+      recordFileCreationHistoryEntry: vi.fn((entry) => {
+        recordedEntries.push(entry);
+      }),
+    });
+    const request = {
+      mode: "cmd-d" as const,
+      duplicateStackSourceIds: files.map(({ id }) => id),
+      historyBatchId: "multi-screen-out-of-order-updates",
+    };
+    const duplicates = files.map(({ id }) =>
+      runDuplicateScreen(args, id, request),
+    );
+
+    await vi.waitFor(() => expect(updateDesignAsync).toHaveBeenCalledTimes(3));
+    const postDuplicateFrames = persistedDesignData.canvasFrames as Record<
+      string,
+      FrameGeometry
+    >;
+    expect(
+      Object.fromEntries(
+        Object.keys(initialGeometry).map((id) => [id, postDuplicateFrames[id]]),
+      ),
+    ).toEqual({
+      source: initialGeometry.source,
+      neighbor: { ...initialGeometry.neighbor, z: 2 },
+      farther: { ...initialGeometry.farther, z: 4 },
+    });
+
+    updateSettlements.reverse().forEach((resolve) => resolve());
+    await Promise.all(duplicates);
+
+    expect(recordedEntries).toHaveLength(3);
+    expect(recordedEntries.map((entry) => entry.createdFileId)).toEqual([
+      "farther-copy",
+      "neighbor-copy",
+      "source-copy",
+    ]);
+    expect(recordedEntries.filter((entry) => entry.duplicateStack)).toEqual([
+      expect.objectContaining({
+        createdFileId: "source-copy",
+        duplicateStack: {
+          before: { neighbor: 1, farther: 2 },
+          after: { neighbor: 2, farther: 4 },
+        },
+      }),
+    ]);
+    const fileCreationUndoStackRef = ref<FileCreationHistoryEntry[]>([]);
+    const historyOrderRef = ref<string[]>([]);
+    for (const entry of recordedEntries) {
+      const inserted = insertFileCreationHistoryEntry(
+        fileCreationUndoStackRef.current,
+        entry,
+      );
+      fileCreationUndoStackRef.current = inserted.stack;
+      if (!inserted.continuesBatch) {
+        historyOrderRef.current.push("file-created");
+      }
+      files.push({
+        id: entry.createdFileId!,
+        filename: entry.filename,
+        fileType: entry.fileType,
+        content: entry.content,
+        createdAt: "",
+        updatedAt: "",
+      });
+    }
+
+    designDataJsonRef.current = persistedDesignData;
+    const fileCreationRedoStackRef = ref<FileCreationHistoryEntry[]>([]);
+    const redoOrderRef = ref<string[]>([]);
+    const deletedFiles: Array<{
+      files: typeof files;
+      onMutationSettled: (deleted: typeof files, failed: typeof files) => void;
+    }> = [];
+    const undoArgs = {
+      activeEditorDragRef: ref(false),
+      activeFile: null,
+      canEditDesign: true,
+      designDataJsonRef,
+      fileCreationRedoStackRef,
+      fileCreationUndoStackRef,
+      fileHistoryMutationPendingRef: ref(false),
+      files,
+      historyOrderRef,
+      id: "design-1",
+      liveFrameGeometryRef: ref(initialGeometry),
+      pendingLiveNonStyleUndoStackRef: ref([]),
+      pendingVisualStyleUndoStackRef: ref([]),
+      performDeleteFiles: vi.fn((created: typeof files, options: any) => {
+        deletedFiles.push({
+          files: created,
+          onMutationSettled: options.onMutationSettled,
+        });
+      }),
+      redoOrderRef,
+      syncUndoRedoState: vi.fn(),
+      t: (key: string) => key,
+      undoManagerRef: ref(null),
+      viewModeRef: ref("overview"),
+      writeFrameGeometrySnapshot: vi.fn((geometry) => {
+        designDataJsonRef.current = {
+          ...designDataJsonRef.current,
+          canvasFrames: geometry,
+        };
+      }),
+    };
+
+    runUndo(undoArgs as any);
+    expect(deletedFiles).toHaveLength(1);
+    deletedFiles[0]!.onMutationSettled(deletedFiles[0]!.files, []);
+    const restoredFrames = designDataJsonRef.current.canvasFrames as Record<
+      string,
+      FrameGeometry
+    >;
+    expect(restoredFrames).toEqual(initialGeometry);
+    expect(toast.info).not.toHaveBeenCalled();
   });
 
   it("inserts a Cmd+D copy directly above its source and shifts higher screens", async () => {

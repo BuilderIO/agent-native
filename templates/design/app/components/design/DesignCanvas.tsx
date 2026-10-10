@@ -5764,6 +5764,14 @@ export function DesignCanvas({
               (doc.head ?? doc.documentElement).appendChild(style);
             }
             style.textContent = css;
+            style.setAttribute(
+              "data-agent-native-content-offset-x",
+              String(Math.round(embeddedContentOffsetX)),
+            );
+            style.setAttribute(
+              "data-agent-native-content-offset-y",
+              String(Math.round(embeddedContentOffsetY)),
+            );
           }
         }
       } catch {

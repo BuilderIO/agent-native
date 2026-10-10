@@ -13,11 +13,14 @@ import type {
   OrgRole,
 } from "../../org/types.js";
 import { agentNativePath } from "../api-path.js";
+import { assertAgentNativeApiEnabled } from "../api-surface.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 
 const ORG_BASE = agentNativePath("/_agent-native/org");
 
 async function apiFetch(path: string, init?: RequestInit) {
+  const method = (init?.method ?? "GET").toUpperCase();
+  assertAgentNativeApiEnabled(`${method} organization API`);
   const headers = new Headers({ "Content-Type": "application/json" });
   new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
   const res = await fetch(path, {

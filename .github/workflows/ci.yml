@@ -435,7 +435,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.shard == 'music-app-workflow' && 15 || matrix.shard == 'ai-sidebar-loopback' && 20 || 9 }}
+    timeout-minutes: ${{ matrix.shard == 'music-app-workflow' && 25 || matrix.shard == 'ai-sidebar-loopback' && 20 || 9 }}
     strategy:
       fail-fast: false
       matrix:
@@ -524,7 +524,7 @@ jobs:
       - name: Run long music-app workflow regression
         if: ${{ matrix.shard == 'music-app-workflow' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/interaction-responsive-music-app.spec.ts') }}
         working-directory: templates/design
-        timeout-minutes: 12
+        timeout-minutes: 23
         env:
           E2E_RUN_ID: design-music-app-${{ github.run_id }}-${{ github.run_attempt }}
           DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}

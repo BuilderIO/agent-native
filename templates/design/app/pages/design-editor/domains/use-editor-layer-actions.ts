@@ -49,7 +49,10 @@ import {
 import { getLocalhostRouteSourceFile } from "../editor-state";
 import { getBodyInlineStyles } from "../html-layer-positioning";
 import { deriveStatePreviewTarget } from "../pending-edits";
-import { measurePositionCoordinateContext } from "../position-coordinate-context";
+import {
+  measurePositionCoordinateContext,
+  positionCoordinateRenderOffsetForWindow,
+} from "../position-coordinate-context";
 import {
   isScreenRootElementInfo,
   resolveMarqueeAdditive,
@@ -94,6 +97,7 @@ function readRenderedLayerInfo(
       const positionCoordinateContext = measurePositionCoordinateContext(
         element,
         preview,
+        positionCoordinateRenderOffsetForWindow(preview),
       );
       const parentComputed = parent
         ? preview.getComputedStyle(parent)

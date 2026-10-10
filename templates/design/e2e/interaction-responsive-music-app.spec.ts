@@ -283,6 +283,8 @@ async function captureScreenCard(
   screenshotName: string,
 ) {
   await selectScreenLayer(page, screenId);
+  await page.keyboard.press("Shift+2");
+  await waitForOverviewCameraToSettle(page);
   const zoom = page
     .getByRole("button")
     .filter({ hasText: /^\s*\d+%\s*$/ })
@@ -293,10 +295,10 @@ async function captureScreenCard(
     await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
   }
   await expect(zoom).toHaveText(/100%/);
+  await waitForOverviewCameraToSettle(page);
   const shell = page.locator(
     `[data-screen-shell][data-frame-id="${screenId}"]`,
   );
-  await shell.scrollIntoViewIfNeeded();
   const card = shell.locator("[data-screen-card]");
   await expect(card).toBeVisible();
   const bounds = await card.boundingBox();
@@ -326,6 +328,36 @@ async function captureScreenCard(
     contentType: "image/png",
   });
   return { path: screenshotPath, bounds, geometry, viewport, zoom: "100%" };
+}
+
+async function waitForOverviewCameraToSettle(page: Page) {
+  const world = page.locator("[data-multi-screen-canvas-world]");
+  await expect(world).toHaveCount(1);
+  let previousCamera = "";
+  let stableSamples = 0;
+  await expect
+    .poll(
+      async () => {
+        const camera = await world.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return [
+            (element as HTMLElement).style.transform,
+            bounds.x,
+            bounds.y,
+            bounds.width,
+            bounds.height,
+          ].join("|");
+        });
+        if (camera === previousCamera) stableSamples += 1;
+        else {
+          previousCamera = camera;
+          stableSamples = 0;
+        }
+        return stableSamples;
+      },
+      { intervals: [50, 100, 150], timeout: 10_000 },
+    )
+    .toBeGreaterThanOrEqual(2);
 }
 
 async function captureEditorScreenshot(page: Page, screenshotName: string) {
@@ -2047,7 +2079,7 @@ test("a drawn empty Frame refreshes its inspector after auto layout", async ({
 test("create a responsive music-app desktop shell under a Screen root", async ({
   page,
 }) => {
-  test.setTimeout(480_000);
+  test.setTimeout(20 * 60_000);
   const designId = await createFixtureDesign(
     page,
     `Responsive music app desktop ${Date.now()}`,

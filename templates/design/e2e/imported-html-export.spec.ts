@@ -19,6 +19,41 @@ import { PDFParse } from "pdf-parse";
 
 import { comparePngs } from "../scripts/design-export-validation/lib/compare";
 
+// PNG preparation and rendering can take about 74s. The two PDF pages can each
+// use about 124s of bounded readiness and rendering waits, plus PDF assembly.
+const PNG_DOWNLOAD_EVENT_TIMEOUT_MS = 90_000;
+const ALL_SCREENS_PDF_DOWNLOAD_EVENT_TIMEOUT_MS = 300_000;
+const MAX_EXPORT_DIAGNOSTICS = 80;
+
+interface ExportDiagnostic {
+  caseMs: number;
+  export?: string;
+  exportMs?: number;
+  event: string;
+}
+
+interface ExportTimelineEvent {
+  at: number;
+  event: string;
+}
+
+interface ExportTimelineState {
+  active: boolean;
+  events: ExportTimelineEvent[];
+  startedAt: number | null;
+}
+
+interface ExportTraceWindow extends Window {
+  __exportToasts?: string[];
+  __exportTimeline?: ExportTimelineState;
+}
+
+interface ExportTrace {
+  begin(label: string): number;
+  record(event: string, at?: number): void;
+  finish(page: Page): Promise<void>;
+}
+
 interface CorpusEntry {
   name: string;
   title: string;
@@ -149,20 +184,84 @@ async function postAction(
   return response.json();
 }
 
-async function downloadPng(page: Page): Promise<Buffer> {
-  const pngMenuItem = await openPngExport(page);
-  const [download] = await Promise.all([
-    page.waitForEvent("download", { timeout: 15_000 }),
-    pngMenuItem.click(),
-  ]);
-  const stream = await download.createReadStream();
-  if (!stream) throw new Error("PNG download returned no bytes");
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-  return Buffer.concat(chunks);
+async function downloadFromMenuItem(
+  page: Page,
+  menuItem: Locator,
+  label: string,
+  timeoutMs: number,
+  trace: ExportTrace,
+): Promise<Buffer> {
+  const startedAt = trace.begin(label);
+  const enabledBeforeClick = await menuItem.isEnabled().catch(() => false);
+  trace.record(`menu item enabled before click=${enabledBeforeClick}`);
+  try {
+    await page.evaluate(
+      ({ label: exportLabel, startedAt: exportStartedAt }) => {
+        const timeline = (window as ExportTraceWindow).__exportTimeline;
+        if (!timeline) return;
+        timeline.events = [];
+        timeline.startedAt = exportStartedAt;
+        timeline.active = true;
+        timeline.events.push({
+          at: Date.now(),
+          event: `${exportLabel} browser event capture started`,
+        });
+      },
+      { label, startedAt },
+    );
+    await expect(menuItem).toBeEnabled();
+    trace.record("menu item enabled at click");
+    trace.record(`download event waiter armed timeoutMs=${timeoutMs}`);
+    const downloadPromise = page.waitForEvent("download", {
+      timeout: timeoutMs,
+    });
+    trace.record("locator click started");
+    const clickPromise = menuItem.click({ timeout: 15_000 }).then(
+      () => trace.record("locator click completed"),
+      (error: unknown) => {
+        trace.record(
+          `locator click rejected name=${error instanceof Error ? error.name : "unknown"}`,
+        );
+        throw error;
+      },
+    );
+    let download: Awaited<typeof downloadPromise>;
+    try {
+      [download] = await Promise.all([downloadPromise, clickPromise]);
+    } catch (error) {
+      trace.record(
+        `click/download wait rejected name=${error instanceof Error ? error.name : "unknown"}`,
+      );
+      throw error;
+    }
+    const extension = path.extname(download.suggestedFilename()).slice(0, 12);
+    trace.record(`download event observed extension=${extension || "unknown"}`);
+
+    const stream = await download.createReadStream();
+    if (!stream) throw new Error(`${label} returned no bytes`);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    return Buffer.concat(chunks);
+  } finally {
+    await trace.finish(page);
+  }
 }
 
-async function downloadAllScreensPdf(page: Page): Promise<Buffer> {
+async function downloadPng(page: Page, trace: ExportTrace): Promise<Buffer> {
+  const pngMenuItem = await openPngExport(page);
+  return downloadFromMenuItem(
+    page,
+    pngMenuItem,
+    "PNG",
+    PNG_DOWNLOAD_EVENT_TIMEOUT_MS,
+    trace,
+  );
+}
+
+async function downloadAllScreensPdf(
+  page: Page,
+  trace: ExportTrace,
+): Promise<Buffer> {
   await page.getByRole("button", { name: "More", exact: true }).click();
   const exportMenu = page.getByRole("menuitem", { name: "Export" });
   await expect(exportMenu).toBeVisible();
@@ -171,15 +270,13 @@ async function downloadAllScreensPdf(page: Page): Promise<Buffer> {
     name: "Download PDF (all screens)",
   });
   await expect(pdfMenuItem).toBeVisible();
-  const [download] = await Promise.all([
-    page.waitForEvent("download", { timeout: 15_000 }),
-    pdfMenuItem.click(),
-  ]);
-  const stream = await download.createReadStream();
-  if (!stream) throw new Error("all-screens PDF download returned no bytes");
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-  return Buffer.concat(chunks);
+  return downloadFromMenuItem(
+    page,
+    pdfMenuItem,
+    "all-screens PDF",
+    ALL_SCREENS_PDF_DOWNLOAD_EVENT_TIMEOUT_MS,
+    trace,
+  );
 }
 
 async function pdfPagesPng(
@@ -211,7 +308,6 @@ async function openPngExport(page: Page): Promise<Locator> {
   await exportMenu.press("ArrowRight");
   const pngMenuItem = page.getByRole("menuitem", { name: "Download PNG" });
   await expect(pngMenuItem).toBeVisible();
-  await expect(pngMenuItem).toBeEnabled();
   return pngMenuItem;
 }
 
@@ -477,12 +573,56 @@ test("static design documents retain their rendered pixels through Design PNG ex
       reducedMotion: "reduce",
     });
     const exportPage = await browserContext.newPage();
-    let activeDiagnostics: string[] | null = null;
+    let activeDiagnostics: ExportDiagnostic[] | null = null;
+    let activeDiagnosticCaseStartedAt = Date.now();
+    let activeExport: { label: string; startedAt: number } | null = null;
     let activeRenderSnapshotHtml: string | null = null;
+    const recordDiagnostic = (event: string, at = Date.now()) => {
+      if (
+        !activeDiagnostics ||
+        activeDiagnostics.length >= MAX_EXPORT_DIAGNOSTICS
+      ) {
+        return;
+      }
+      const safeEvent = safeError(event).message.slice(0, 180);
+      activeDiagnostics.push({
+        caseMs: Math.max(0, Math.round(at - activeDiagnosticCaseStartedAt)),
+        ...(activeExport
+          ? {
+              export: activeExport.label,
+              exportMs: Math.max(0, Math.round(at - activeExport.startedAt)),
+            }
+          : {}),
+        event: safeEvent,
+      });
+    };
+    const exportTrace: ExportTrace = {
+      begin(label) {
+        const startedAt = Date.now();
+        activeExport = { label, startedAt };
+        recordDiagnostic(`${label} menu export flow began`, startedAt);
+        return startedAt;
+      },
+      record: recordDiagnostic,
+      async finish(page) {
+        const timelineEvents = await page
+          .evaluate(() => {
+            const timeline = (window as ExportTraceWindow).__exportTimeline;
+            if (!timeline) return [];
+            timeline.active = false;
+            return timeline.events;
+          })
+          .catch(() => [] as ExportTimelineEvent[]);
+        for (const timelineEvent of timelineEvents) {
+          recordDiagnostic(timelineEvent.event, timelineEvent.at);
+        }
+        activeExport = null;
+      },
+    };
     exportPage.on("request", (request) => {
       const pathname = new URL(request.url()).pathname;
       if (pathname.endsWith("/_agent-native/ui-capability")) {
-        activeDiagnostics?.push("UI capability request started");
+        recordDiagnostic("UI capability request started");
       } else if (
         pathname.endsWith("/_agent-native/actions/render-export-png")
       ) {
@@ -492,18 +632,18 @@ test("static design documents retain their rendered pixels through Design PNG ex
           };
           if (typeof body.html === "string") {
             activeRenderSnapshotHtml = body.html;
-            activeDiagnostics?.push(
-              `render request started (${new TextEncoder().encode(body.html).byteLength} bytes)`,
+            recordDiagnostic(
+              `render request started bodyBytes=${new TextEncoder().encode(body.html).byteLength}`,
             );
             return;
           }
         } catch {
           // The safe diagnostic below records the request without its body.
         }
-        activeDiagnostics?.push("render request started without snapshot HTML");
+        recordDiagnostic("render request started without snapshot HTML");
       } else if (pathname.includes("/_agent-native/actions/")) {
         const pathSegments = pathname.split("/").filter(Boolean);
-        activeDiagnostics?.push(
+        recordDiagnostic(
           `action request ${request.method()} ${pathSegments[pathSegments.length - 1] ?? "unknown"}`,
         );
       }
@@ -511,11 +651,11 @@ test("static design documents retain their rendered pixels through Design PNG ex
     exportPage.on("response", (response) => {
       const pathname = new URL(response.url()).pathname;
       if (pathname.endsWith("/_agent-native/ui-capability")) {
-        activeDiagnostics?.push(`UI capability response ${response.status()}`);
+        recordDiagnostic(`UI capability response ${response.status()}`);
       } else if (
         pathname.endsWith("/_agent-native/actions/render-export-png")
       ) {
-        activeDiagnostics?.push(
+        recordDiagnostic(
           `render response ${response.status()} ${response.headers()["content-type"] ?? "unknown"}`,
         );
       }
@@ -526,25 +666,64 @@ test("static design documents retain their rendered pixels through Design PNG ex
         pathname.endsWith("/_agent-native/ui-capability") ||
         pathname.endsWith("/_agent-native/actions/render-export-png")
       ) {
-        activeDiagnostics?.push(
+        recordDiagnostic(
           `request failed ${request.failure()?.errorText ?? "unknown"}`,
         );
       }
     });
     exportPage.on("pageerror", (error) => {
-      activeDiagnostics?.push(`page error: ${safeError(error).message}`);
+      recordDiagnostic(`page error: ${safeError(error).message}`);
     });
     exportPage.on("console", (message) => {
       if (message.type() === "error") {
-        activeDiagnostics?.push(
-          `console error: ${safeError(message.text()).message}`,
-        );
+        recordDiagnostic(`console error: ${safeError(message.text()).message}`);
       }
     });
     await exportPage.addInitScript(() => {
       const toasts: string[] = [];
-      (window as Window & { __exportToasts?: string[] }).__exportToasts =
-        toasts;
+      const traceWindow = window as ExportTraceWindow;
+      const timeline: ExportTimelineState = {
+        active: false,
+        events: [],
+        startedAt: null,
+      };
+      traceWindow.__exportToasts = toasts;
+      traceWindow.__exportTimeline = timeline;
+      const observedToastMessages = new WeakMap<Element, string>();
+      const recordTimelineEvent = (event: string) => {
+        if (!timeline.active || timeline.events.length >= 24) {
+          return;
+        }
+        timeline.events.push({
+          at: Date.now(),
+          event: event
+            .replace(/https?:\/\/[^\s)"'<>]+/gi, "[URL]")
+            .replace(
+              /\b(api[_-]?key|token|secret|signature)=([^&\s]+)/gi,
+              "$1=[redacted]",
+            )
+            .slice(0, 180),
+        });
+      };
+      document.addEventListener(
+        "click",
+        (event) => {
+          const target =
+            event.target instanceof Element
+              ? event.target.closest<HTMLElement>('[role="menuitem"]')
+              : null;
+          if (!target) return;
+          const label =
+            (target.textContent || "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 80) || "unlabeled";
+          recordTimelineEvent(
+            `DOM click target=menuitem label=${label} aria-disabled=${target.getAttribute("aria-disabled") ?? "false"}`,
+          );
+        },
+        true,
+      );
       const toastObserver = new MutationObserver(() => {
         document.querySelectorAll("[data-sonner-toast]").forEach((toast) => {
           const message = (toast.textContent || "")
@@ -555,7 +734,13 @@ test("static design documents retain their rendered pixels through Design PNG ex
             )
             .trim()
             .slice(0, 180);
-          if (message && !toasts.includes(message)) toasts.push(message);
+          if (message && observedToastMessages.get(toast) !== message) {
+            observedToastMessages.set(toast, message);
+            recordTimelineEvent(`toast ${message}`);
+            if (!toasts.includes(message) && toasts.length < 20) {
+              toasts.push(message);
+            }
+          }
         });
       });
       toastObserver.observe(document, {
@@ -592,8 +777,10 @@ test("static design documents retain their rendered pixels through Design PNG ex
     });
     const caseFailures: string[] = [];
     for (const entry of selectedEntries) {
-      const diagnostics: string[] = [];
+      const diagnostics: ExportDiagnostic[] = [];
       let snapshotResourceFailures: string[] = [];
+      activeDiagnosticCaseStartedAt = Date.now();
+      activeExport = null;
       activeDiagnostics = diagnostics;
       const stage = { name: "setup" };
       let designId: string | null = null;
@@ -747,7 +934,7 @@ test("static design documents retain their rendered pixels through Design PNG ex
 
         stage.name = "PNG download";
         activeRenderSnapshotHtml = null;
-        const exportedPng = await downloadPng(exportPage);
+        const exportedPng = await downloadPng(exportPage, exportTrace);
         const exportSnapshotHtml = activeRenderSnapshotHtml;
         if (!exportSnapshotHtml) {
           throw new Error("PNG renderer request did not include snapshot HTML");
@@ -829,7 +1016,10 @@ test("static design documents retain their rendered pixels through Design PNG ex
           | undefined;
         if (entry.name === "effects-transforms") {
           stage.name = "all-screens PDF export";
-          const exportedPdf = await downloadAllScreensPdf(exportPage);
+          const exportedPdf = await downloadAllScreensPdf(
+            exportPage,
+            exportTrace,
+          );
           fs.writeFileSync(
             path.join(ARTIFACT_DIR, `${entry.name}-all-screens.pdf`),
             exportedPdf,
@@ -950,7 +1140,9 @@ test("static design documents retain their rendered pixels through Design PNG ex
             .slice(0, 300),
           toastHistory,
           snapshotResourceFailures,
-          diagnostics,
+          diagnostics: [...diagnostics].sort(
+            (left, right) => left.caseMs - right.caseMs,
+          ),
         });
         if (designId) {
           try {

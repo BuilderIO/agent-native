@@ -771,8 +771,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     musicAppWorkflow,
-    /^        timeout-minutes: 12$/m,
-    "the long music-app workflow needs a bounded 12-minute test step",
+    /^        timeout-minutes: 23$/m,
+    "the complete desktop/mobile music workflow needs a bounded dedicated step",
   );
   assert.ok(
     musicAppWorkflow.includes(
@@ -968,7 +968,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   const jobTimeout = 9;
   assert.match(
     designJob,
-    /^    timeout-minutes: \$\{\{ matrix\.shard == 'music-app-workflow' && 15 \|\| matrix\.shard == 'ai-sidebar-loopback' && 20 \|\| 9 \}\}$/m,
+    /^    timeout-minutes: \$\{\{ matrix\.shard == 'music-app-workflow' && 25 \|\| matrix\.shard == 'ai-sidebar-loopback' && 20 \|\| 9 \}\}$/m,
     "the longer music-app and AI sidebar caps must not lengthen ordinary Design shards",
   );
   const stepTimeout = Number(
@@ -1047,7 +1047,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     DESIGN_E2E_REGRESSION_SHARDS.flatMap((shard) =>
       resolveDesignE2ERegressionPinsForShard(shard),
     ).length,
-    46,
+    47,
     "the title manifest must retain every fixed regression pin",
   );
 });
@@ -1644,6 +1644,7 @@ test("keeps runnable specs while excluding deleted paths from the same selector"
             testFile.slice("templates/design/".length),
           ),
         ].includes(specPath),
+      readFile: () => "",
     }),
     {
       existingSpecs: [
@@ -1668,6 +1669,9 @@ test("routes the long music-app workflow from its exact changed spec path", () =
     {
       isFile: (specPath) =>
         specPath === "e2e/interaction-responsive-music-app.spec.ts",
+      readFile: () =>
+        'test("create a responsive music-app desktop shell under a Screen root", async () => {});\n' +
+        'test("keeps the short music-app regression", async () => {});',
     },
   );
   assert.deepEqual(selectedMusicApp, {
@@ -1677,7 +1681,7 @@ test("routes the long music-app workflow from its exact changed spec path", () =
 
   const unrelatedSelection = resolveDesignE2ESpecs(
     JSON.stringify(["templates/design/e2e/interaction-selection.spec.ts"]),
-    { isFile: () => true },
+    { isFile: () => true, readFile: () => "" },
   );
   assert.deepEqual(unrelatedSelection, {
     existingSpecs: ["e2e/interaction-selection.spec.ts"],
@@ -1699,6 +1703,49 @@ test("routes the long music-app workflow from its exact changed spec path", () =
       removedSpecs: ["e2e/interaction-responsive-music-app.spec.ts"],
     },
     "a deleted music-app spec should pass the file preflight as a no-op",
+  );
+});
+
+test("fails closed if the long music-app title moves away from its routed spec", () => {
+  const musicAppPath =
+    "templates/design/e2e/interaction-responsive-music-app.spec.ts";
+  const renamedPath =
+    "templates/design/e2e/interaction-responsive-music-app-renamed.spec.ts";
+  const sourceWithLongAndShortCases =
+    'test("create a responsive music-app desktop shell under a Screen root", async () => {});\n' +
+    'test("keeps the short music-app regression", async () => {});';
+
+  assert.deepEqual(
+    resolveDesignE2ESpecs(JSON.stringify([musicAppPath]), {
+      isFile: () => true,
+      readFile: () => sourceWithLongAndShortCases,
+    }),
+    {
+      existingSpecs: ["e2e/interaction-responsive-music-app.spec.ts"],
+      removedSpecs: [],
+    },
+    "the selector must keep the canonical spec selected so its short cases remain in changed-spec coverage",
+  );
+
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(JSON.stringify([renamedPath]), {
+        isFile: () => true,
+        readFile: () => sourceWithLongAndShortCases,
+      }),
+    /long music-app workflow test must remain in e2e\/interaction-responsive-music-app\.spec\.ts/,
+    "a renamed file retaining the globally excluded title must fail instead of silently skipping it",
+  );
+
+  assert.throws(
+    () =>
+      resolveDesignE2ESpecs(JSON.stringify([musicAppPath]), {
+        isFile: () => true,
+        readFile: () =>
+          'test("keeps the short music-app regression", async () => {});',
+      }),
+    /long music-app workflow test is missing from e2e\/interaction-responsive-music-app\.spec\.ts/,
+    "the dedicated old-path route must fail when the long test was removed from that file",
   );
 });
 

@@ -1071,6 +1071,12 @@ describe("DesignCanvas live embedded-frame offset", () => {
         expect(liveOffsetStyle.textContent).toContain(
           "translate:8192px 8192px",
         );
+        expect(
+          liveOffsetStyle.getAttribute("data-agent-native-content-offset-x"),
+        ).toBe("8192");
+        expect(
+          liveOffsetStyle.getAttribute("data-agent-native-content-offset-y"),
+        ).toBe("8192");
       }
     } finally {
       await act(async () => root.unmount());

@@ -6,6 +6,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setAgentNativeApiDisabled } from "../api-surface.js";
 import { useOrg, useOrgMembers } from "./hooks.js";
 
 const org: OrgInfo = {
@@ -27,6 +28,7 @@ describe("useOrgMembers", () => {
   let root: Root;
 
   beforeEach(() => {
+    setAgentNativeApiDisabled(null);
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     queryClient = new QueryClient({
       defaultOptions: {
@@ -43,6 +45,7 @@ describe("useOrgMembers", () => {
     act(() => root.unmount());
     queryClient.clear();
     container.remove();
+    setAgentNativeApiDisabled(null);
     vi.unstubAllGlobals();
   });
 
@@ -108,5 +111,79 @@ describe("useOrgMembers", () => {
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not fetch org APIs while the surface is disabled", async () => {
+    const fetchMock = vi.fn(async () => Response.json(org));
+    vi.stubGlobal("fetch", fetchMock);
+    setAgentNativeApiDisabled("builder shell canvas");
+
+    function Probe() {
+      useOrg();
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reads the current API-surface state when a mounted org query reruns", async () => {
+    const fetchMock = vi.fn(async () => Response.json(org));
+    vi.stubGlobal("fetch", fetchMock);
+    setAgentNativeApiDisabled("builder shell canvas");
+
+    function Probe() {
+      useOrg();
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    setAgentNativeApiDisabled(null);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["org-me"] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/_agent-native/org/me");
+  });
+
+  it("still fetches the active org while the surface is enabled", async () => {
+    const fetchMock = vi.fn(async () => Response.json(org));
+    vi.stubGlobal("fetch", fetchMock);
+
+    function Probe() {
+      useOrg();
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/_agent-native/org/me");
   });
 });
