@@ -40,6 +40,7 @@ import {
 } from "react-router";
 
 import { getGithubStarCount } from "../server/lib/github-star-count.server";
+import { isBetaDocsBuild } from "./components/deployment-links";
 import { hasDocBlockSyntax } from "./components/doc-block-detection";
 import {
   DEFAULT_DOCS_LOCALE,
@@ -553,6 +554,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {/* Keyed on the build, not the hostname, so the prerendered and
+            hydrated head agree. */}
+        {isBetaDocsBuild() ? <meta name="robots" content="noindex" /> : null}
         <script
           src="https://analytics.ahrefs.com/analytics.js"
           data-key="z2Qe9BlsuxGKqijbSuv8ow"

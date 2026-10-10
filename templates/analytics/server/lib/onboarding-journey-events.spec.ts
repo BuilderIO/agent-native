@@ -1,8 +1,12 @@
 import { createRequire } from "node:module";
 
+import { readAgentSqlQuery } from "@agent-native/core/agent-sql";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { assertFirstPartyAnalyticsBigQuerySql } from "./first-party-analytics-backend.js";
+import {
+  assertFirstPartyAnalyticsBigQuerySql,
+  renderFirstPartyAnalyticsBigQuerySql,
+} from "./first-party-analytics-backend.js";
 import {
   scopedAnalyticsSql,
   validateFirstPartyAnalyticsSql,
@@ -82,14 +86,15 @@ describe("onboarding journey events SQL", () => {
       date?: string;
       path?: string;
       properties?: Record<string, unknown>;
+      orgId?: string;
     } = {},
   ) {
     const date = options.date ?? today;
     const stamp = `${date}T12:00:${String(second).padStart(2, "0")}.000Z`;
     await client.query(
       `INSERT INTO analytics_events
-        (id, event_name, user_id, anonymous_id, session_id, timestamp, received_at, event_date, app, template, hostname, path, properties)
-       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $8, 'clips.agent-native.com', $9, $10)`,
+        (id, event_name, user_id, anonymous_id, session_id, timestamp, received_at, event_date, app, template, hostname, path, properties, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $8, 'clips.agent-native.com', $9, $10, $11)`,
       [
         `ev-${nextId++}`,
         eventName,
@@ -101,6 +106,7 @@ describe("onboarding journey events SQL", () => {
         options.template ?? "clips",
         options.path ?? null,
         JSON.stringify(options.properties ?? {}),
+        options.orgId ?? SCOPE.orgId,
       ],
     );
   }
@@ -265,6 +271,127 @@ describe("onboarding journey events SQL", () => {
       expect(() => assertFirstPartyAnalyticsBigQuerySql(sql)).not.toThrow();
       expect(sql).toContain(window.observationCutoff);
     }
+  });
+
+  it("reuses one scoped source pass and preserves output uniqueness in BigQuery", async () => {
+    await setup();
+    const sql = buildOnboardingJourneyEventsSql(
+      filters(),
+      { limit: 10, offset: 0 },
+      observation(),
+    );
+
+    expect(sql.match(/\bFROM\s+scoped_onboarding_events\s+e\b/gi)).toHaveLength(
+      1,
+    );
+    expect(sql).toContain(
+      "PARTITION BY e.template_name, e.output_id, e.output_attempt_id",
+    );
+    expect(sql).toContain("MIN(e.candidate_session_id) OVER (");
+    expect(sql).toContain("MAX(e.candidate_session_id) OVER (");
+    expect(sql).toContain("MIN(e.candidate_journey_kind) OVER (");
+    expect(sql).toContain("MAX(e.candidate_journey_kind) OVER (");
+    expect(sql).not.toContain("COUNT(DISTINCT source_session_id)");
+
+    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    await client.query(scoped.sql, scoped.args);
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      scoped.sql,
+      scoped.args,
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "example-project.analytics.first_party_analytics_events_raw",
+      },
+      { eventDateRange: { startDate: yesterday, endDate: today } },
+    );
+    expect(() =>
+      readAgentSqlQuery(rendered, { dialect: "bigquery" }),
+    ).not.toThrow();
+  });
+
+  it("preserves hostile member JSON through PostgreSQL scoping and BigQuery rendering", async () => {
+    await setup();
+    const member = {
+      sessionId: "session'\\path\\u0027",
+      stepKey: "step:'quoted'\\u0027\nline",
+      tsMs: Date.parse(`${today}T12:00:00.000Z`),
+      app: "clips",
+      authUserId: "person'\\u0027\nline",
+    };
+    const sql = buildOnboardingJourneyPersonFollowupSql(
+      filters(),
+      [member],
+      observation(),
+    );
+    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    const postgres = (await client.query(scoped.sql, scoped.args)) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    expect(postgres.rows).toHaveLength(1);
+    expect(postgres.rows[0]?.terminal_step_key).toBe(member.stepKey);
+
+    const payload = JSON.stringify({
+      sessionId: member.sessionId,
+      stepKey: member.stepKey,
+      app: member.app,
+      timestamp: new Date(member.tsMs).toISOString(),
+      authUserId: member.authUserId,
+    });
+    const table = {
+      projectId: "example-project",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "example-project.analytics.first_party_analytics_events_raw",
+    };
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      scoped.sql,
+      scoped.args,
+      table,
+    );
+    expect(rendered).toContain(
+      `'${payload.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`,
+    );
+    expect(() =>
+      readAgentSqlQuery(rendered, { dialect: "bigquery" }),
+    ).not.toThrow();
+    expect(rendered).toContain(
+      "FROM `example-project.analytics.first_party_analytics_events_raw`",
+    );
+  });
+
+  it("avoids an unused identity-bridge scan while keeping session email filters", async () => {
+    await setup();
+    await seedSessions();
+    const window = observation();
+    const journeySql = buildOnboardingJourneyEventsSql(
+      filters(),
+      { limit: 10, offset: 0 },
+      window,
+    );
+    const sessionFollowupSql = buildOnboardingJourneyFollowupSql(
+      filters(),
+      [
+        {
+          sessionId: "normal",
+          stepKey: "step:role",
+          tsMs: Date.parse(`${today}T12:00:04.000Z`),
+        },
+      ],
+      window,
+    );
+
+    for (const sql of [journeySql, sessionFollowupSql]) {
+      expect(sql).not.toContain("auth_identity_bridge");
+      expect(sql).not.toContain("funnel_user_key");
+      expect(sql).toContain("funnel_user_email");
+      expect(sql.match(/FROM analytics_events/g)).toHaveLength(1);
+    }
+
+    expect(sessionsOf(await run())).toEqual(["design", "normal"]);
   });
 
   it("keeps template-like terminal values literal and aggregates activity once per session", async () => {
@@ -588,6 +715,112 @@ describe("onboarding journey events SQL", () => {
     expect(readyRows[0]).toMatchObject({ attempt_id: "attempt-exact" });
     expect(readyRows[0]).not.toHaveProperty("output_id");
     expect(readyRows[0]).not.toHaveProperty("recording_attempt_id");
+  });
+
+  it("keeps session classification and output links inside their exact scope", async () => {
+    await setup();
+    await insert("mixed-session", "signup", 1, {
+      email: "mixed@example.com",
+      template: "clips",
+    });
+    await insert("mixed-session", "integration_setup_exposed", 2, {
+      template: "design",
+    });
+    await insert("mixed-session", "onboarding_step_viewed", 3, {
+      template: "clips",
+      properties: { step_id: "role" },
+    });
+
+    const sharedLink = {
+      output_id: "shared-output",
+      recording_attempt_id: "shared-attempt",
+    };
+    await insert("clips-source", "signup", 1, {
+      email: "clips@example.com",
+      template: "clips",
+    });
+    await insert("clips-source", "recording_started", 2, {
+      template: "clips",
+      properties: sharedLink,
+    });
+    await insert("builder-source", "signup", 1, {
+      email: "dev@builder.io",
+      template: "clips",
+    });
+    await insert("builder-source", "recording_started", 2, {
+      template: "clips",
+      properties: sharedLink,
+    });
+    await insert("other-org-source", "signup", 1, {
+      email: "other-org@example.com",
+      template: "clips",
+      orgId: "org-2",
+    });
+    await insert("other-org-source", "recording_started", 2, {
+      template: "clips",
+      properties: sharedLink,
+      orgId: "org-2",
+    });
+    await insert(null, "recording_ready", 3, {
+      template: "clips",
+      properties: sharedLink,
+    });
+
+    await insert("slides-source", "signup", 1, {
+      email: "slides@example.com",
+      template: "slides",
+    });
+    await insert("slides-source", "generation_started", 2, {
+      template: "slides",
+      properties: {
+        output_id: "shared-output",
+        generation_attempt_id: "shared-attempt",
+      },
+    });
+    await insert(null, "generation_completed", 3, {
+      template: "slides",
+      properties: {
+        output_id: "shared-output",
+        generation_attempt_id: "shared-attempt",
+      },
+    });
+
+    await insert("null-attempt-source", "signup", 1, {
+      email: "null-attempt@example.com",
+      template: "clips",
+    });
+    await insert("null-attempt-source", "recording_started", 2, {
+      template: "clips",
+      properties: { output_id: "missing-attempt-output" },
+    });
+    await insert(null, "recording_ready", 3, {
+      template: "clips",
+      properties: { output_id: "missing-attempt-output" },
+    });
+
+    const rows = await run({ app: "all" });
+    const mixedRows = rows.filter((row) => row.session_id === "mixed-session");
+    expect(mixedRows.map((row) => row.journey_kind)).toEqual(
+      Array(mixedRows.length).fill("onboarding"),
+    );
+    expect(mixedRows.some((row) => row.template_name === "design")).toBe(true);
+
+    expect(
+      rows.find((row) => row.event_name === "recording_ready"),
+    ).toMatchObject({ session_id: "clips-source", journey_kind: "onboarding" });
+    expect(
+      rows.find((row) => row.event_name === "generation_completed"),
+    ).toMatchObject({
+      session_id: "slides-source",
+      journey_kind: "onboarding",
+    });
+    expect(
+      rows.some(
+        (row) =>
+          row.event_name === "recording_ready" &&
+          row.session_id === "null-attempt-source",
+      ),
+    ).toBe(false);
   });
 
   it("links a sessionless Slide completion through its exact viewed output and attempt", async () => {
@@ -977,6 +1210,30 @@ describe("onboarding journey events SQL", () => {
     ]);
     expect(normal[0]).toMatchObject({ path: "/sign-in" });
     expect(normal[3]).toMatchObject({ step_id: "role", method_id: null });
+  });
+
+  it("preserves journey results with the explicit event source projection", async () => {
+    await setup();
+    await seedSessions();
+    const sql = buildOnboardingJourneyEventsSql(
+      filters(),
+      { limit: 100, offset: 0 },
+      observation(),
+    );
+    const fullScope = scopedAnalyticsSql(sql, SCOPE);
+    const projectedScope = scopedAnalyticsSql(sql, SCOPE, undefined, {
+      scopedEventsSingleScan: true,
+      scopedEventsProjection: "onboarding_journey",
+    });
+    const fullResult = (await client.query(fullScope.sql, fullScope.args)) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    const projectedResult = (await client.query(
+      projectedScope.sql,
+      projectedScope.args,
+    )) as { rows: Array<Record<string, unknown>> };
+
+    expect(projectedResult.rows).toEqual(fullResult.rows);
   });
 
   it("selects attempt ids only as an internal journey field", async () => {

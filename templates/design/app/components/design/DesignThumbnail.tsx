@@ -4,18 +4,24 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconCode } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { withLocalRuntimes } from "@/components/design/design-canvas/local-runtime";
+import {
+  connectPrivateReplayScreenshotPreview,
+  preparePrivateReplayScreenshotPreviewDocument,
+} from "@/components/design/design-canvas/private-replay-screenshot-preview";
 import { cn } from "@/lib/utils";
 
 import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "./scaled-iframe-paint";
 
 export function DesignThumbnail({
   html,
+  designId,
   className,
 }: {
   html: string | null;
+  designId?: string;
   className?: string;
 }) {
   const t = useT();
@@ -25,6 +31,16 @@ export function DesignThumbnail({
 
   const NATURAL_WIDTH = 1280;
   const NATURAL_HEIGHT = 720;
+  const previewDocument = useMemo(
+    () =>
+      html
+        ? preparePrivateReplayScreenshotPreviewDocument(
+            injectSessionReplayIframeBootstrap(withLocalRuntimes(html)),
+            { designId },
+          )
+        : null,
+    [designId, html],
+  );
 
   useEffect(() => {
     const el = containerRef.current;
@@ -73,13 +89,22 @@ export function DesignThumbnail({
       ) : null}
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
-        srcDoc={injectSessionReplayIframeBootstrap(withLocalRuntimes(html))}
+        srcDoc={previewDocument?.html}
         sandbox="allow-scripts"
         loading="lazy"
         tabIndex={-1}
         aria-hidden
         title={t("home.designPreview")}
-        onLoad={() => setLoaded(true)}
+        onLoad={(event) => {
+          setLoaded(true);
+          if (designId)
+            connectPrivateReplayScreenshotPreview(
+              event.currentTarget,
+              previewDocument?.screenshotPaths ?? [],
+              previewDocument?.nonce ?? null,
+              designId,
+            );
+        }}
         className="absolute left-1/2 top-1/2 bg-muted transition-opacity duration-200"
         style={{
           width: `${NATURAL_WIDTH}px`,

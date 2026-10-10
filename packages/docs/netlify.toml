@@ -9,6 +9,68 @@ to = "/examples/self-hosted-chat/Dockerfile.txt"
 status = 200
 force = true
 
+# Brain is a public template without an /apps/ landing page; its docs are the
+# canonical page. These must stay above the /templates/* splat.
+[[redirects]]
+from = "/apps/brain"
+to = "/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/apps/brain/"
+to = "/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/templates/brain"
+to = "/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/templates/brain/"
+to = "/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/apps/brain"
+to = "/:locale/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/apps/brain/"
+to = "/:locale/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/templates/brain"
+to = "/:locale/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/templates/brain/"
+to = "/:locale/docs/template-brain/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/home"
+to = "/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/home/"
+to = "/"
+status = 301
+force = true
+
 [[redirects]]
 from = "/templates"
 to = "/apps/"

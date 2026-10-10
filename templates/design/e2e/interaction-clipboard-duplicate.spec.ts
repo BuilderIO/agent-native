@@ -731,7 +731,7 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
       BOARD_OBJECT_HTML,
       2,
     );
-    const designGap = 56; // Design's board-wide Screen gap remains distinct from standard's.
+    const designGap = 56; // Design's board-wide Screen gap.
 
     const readFrames = async () => {
       const response = await request.get(

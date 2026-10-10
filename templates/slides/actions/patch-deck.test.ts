@@ -1,4 +1,7 @@
-import { isAgentActionStopError } from "@agent-native/core";
+import {
+  isActionContractError,
+  isAgentActionStopError,
+} from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import { getPreset } from "../app/lib/design-systems.js";
@@ -26,6 +29,11 @@ vi.mock("../app/lib/normalize-slide-padding.js", () => ({
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+const mockTrack = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
 
 let mockDeckRow: Record<string, unknown> | undefined;
 let lastUpdatedDeckData: string | undefined;
@@ -144,6 +152,20 @@ vi.mock("../server/lib/deck-versions.js", async (importOriginal) => {
     ...actual,
     createDeckVersionSnapshot: (...args: unknown[]) =>
       mockCreateDeckVersionSnapshot(...args),
+  };
+});
+
+const realSlideChecks = vi.hoisted(() => ({ count: 0 }));
+
+vi.mock("../shared/blank-slide.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../shared/blank-slide.js")>();
+  return {
+    ...actual,
+    isRealSlide: (slide: unknown) => {
+      realSlideChecks.count += 1;
+      return actual.isRealSlide(slide);
+    },
   };
 });
 
@@ -2595,20 +2617,358 @@ describe("run() — asynchronous layout fit metadata", () => {
         { caller },
       ).catch((caught: unknown) => caught);
 
-      expect(isAgentActionStopError(error)).toBe(true);
+      expect(isActionContractError(error)).toBe(true);
+      expect(isAgentActionStopError(error)).toBe(false);
       expect(error).toMatchObject({
-        name: "AgentActionStopError",
+        name: "ActionContractError",
         errorCode: "target_slide_count_reached",
+        statusCode: 409,
         details: {
           deckId: "deck-1",
           currentSlideCount: 8,
+          realSlideCount: 8,
           projectedSlideCount: 9,
           targetSlideCount: 8,
         },
+        message: expect.stringContaining("add-slide"),
       });
+      expect((error as Error).message).toContain(
+        "targetSlideCountOverride set to the new total of real slides",
+      );
       expect(lastUpdatedDeckData).toBeUndefined();
     },
   );
+
+  describe("blank placeholders and the persisted target", () => {
+    const blank = '<div class="fmd-slide"></div>';
+
+    function seedDeck(blankCount: number, realCount: number, target: number) {
+      mockDeckRow!.data = JSON.stringify({
+        title: "Deck",
+        generationContext: { targetSlideCount: target },
+        slides: [
+          ...Array.from({ length: blankCount }, (_, index) => ({
+            id: `blank-${index + 1}`,
+            content: blank,
+          })),
+          ...Array.from({ length: realCount }, (_, index) => ({
+            id: `real-${index + 1}`,
+            content: `<div>Real ${index + 1}</div>`,
+          })),
+        ],
+      });
+    }
+
+    const addSlide = (slideId: string) => ({
+      op: "add-slide",
+      slideId,
+      fields: { content: `<div>${slideId}</div>` },
+    });
+
+    it("does not count default blank slides toward the target", async () => {
+      seedDeck(10, 1, 11);
+
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [addSlide("slide-new")],
+        },
+        { caller: "tool" },
+      );
+
+      expect(JSON.parse(lastUpdatedDeckData!).slides).toHaveLength(12);
+    });
+
+    it("counts blanks filled by the same patch and reports the real count", async () => {
+      seedDeck(3, 1, 3);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            ...["blank-1", "blank-2"].map((slideId) => ({
+              op: "patch-slide",
+              slideId,
+              fields: { content: `<div>${slideId} filled</div>` },
+            })),
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: {
+          currentSlideCount: 4,
+          realSlideCount: 1,
+          projectedSlideCount: 4,
+          targetSlideCount: 3,
+        },
+      });
+      expect(lastUpdatedDeckData).toBeUndefined();
+    });
+
+    it("frees room when the same patch turns a real slide blank", async () => {
+      seedDeck(0, 3, 3);
+
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "real-1",
+              fields: { content: blank },
+            },
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      );
+
+      expect(JSON.parse(lastUpdatedDeckData!).slides).toHaveLength(4);
+    });
+
+    it("counts a blank slide that the same patch draws on", async () => {
+      seedDeck(1, 2, 3);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "blank-1",
+              fields: {
+                excalidrawData: JSON.stringify({ elements: [{ id: "r-1" }] }),
+              },
+            },
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: { realSlideCount: 2, projectedSlideCount: 4 },
+      });
+      expect(lastUpdatedDeckData).toBeUndefined();
+    });
+
+    it("frees room when the same patch deletes a real slide", async () => {
+      seedDeck(0, 3, 3);
+
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            { op: "delete-slide", slideId: "real-1" },
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      );
+
+      expect(JSON.parse(lastUpdatedDeckData!).slides).toHaveLength(3);
+    });
+
+    it("does not free room when the same patch deletes a blank slide", async () => {
+      seedDeck(1, 3, 3);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            { op: "delete-slide", slideId: "blank-1" },
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: { realSlideCount: 3, projectedSlideCount: 4 },
+      });
+      expect(lastUpdatedDeckData).toBeUndefined();
+    });
+
+    it("does not count a blank slide the same patch adds", async () => {
+      seedDeck(0, 3, 3);
+
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-new",
+              fields: { content: blank },
+            },
+          ],
+        },
+        { caller: "tool" },
+      );
+
+      expect(JSON.parse(lastUpdatedDeckData!).slides).toHaveLength(4);
+    });
+
+    it("tells the model how many more slides fit when the deck is under target", async () => {
+      seedDeck(0, 8, 10);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [1, 2, 3, 4, 5].map((n) => addSlide(`slide-new-${n}`)),
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: {
+          realSlideCount: 8,
+          projectedSlideCount: 13,
+          targetSlideCount: 10,
+        },
+      });
+      const { message } = error as Error;
+      expect(message).toContain("at most 2 more real slides in this patch");
+      expect(message).not.toContain("targetSlideCountOverride");
+      expect(lastUpdatedDeckData).toBeUndefined();
+    });
+
+    it("counts the slides the same patch fills when it says how many more fit", async () => {
+      seedDeck(2, 2, 5);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            ...["blank-1", "blank-2"].map((slideId) => ({
+              op: "patch-slide",
+              slideId,
+              fields: { content: `<div>${slideId} filled</div>` },
+            })),
+            addSlide("slide-new-1"),
+            addSlide("slide-new-2"),
+          ],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: {
+          realSlideCount: 2,
+          projectedSlideCount: 6,
+          targetSlideCount: 5,
+        },
+      });
+      const { message } = error as Error;
+      expect(message).toContain("at most 1 more real slides in this patch");
+      expect(message).not.toContain("at most 3");
+    });
+
+    it("asks for the patch without add-slide when its fills already reach the target", async () => {
+      seedDeck(2, 1, 3);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            ...["blank-1", "blank-2"].map((slideId) => ({
+              op: "patch-slide",
+              slideId,
+              fields: { content: `<div>${slideId} filled</div>` },
+            })),
+            addSlide("slide-new"),
+          ],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      const { message } = error as Error;
+      expect(message).toContain("without its add-slide operations");
+      expect(message).toContain("3 of 3 real slides");
+      expect(message).not.toContain("at most");
+      expect(message).not.toContain("cannot change the target");
+    });
+
+    it("keeps the override guidance once the real slides reach the target", async () => {
+      seedDeck(0, 10, 10);
+
+      const error = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [addSlide("slide-new")],
+        },
+        { caller: "tool" },
+      ).catch((caught: unknown) => caught);
+
+      const { message } = error as Error;
+      expect(message).toContain("targetSlideCountOverride");
+      expect(message).not.toContain("at most");
+      expect(message).not.toContain("cannot change the target");
+    });
+
+    it.each([
+      [
+        "a batch without an add-slide operation",
+        { target: 3, caller: "tool", operation: "patch" },
+      ],
+      [
+        "a deck without a persisted target",
+        { target: null, caller: "tool", operation: "add" },
+      ],
+      ["an editor save", { target: 3, caller: "frontend", operation: "add" }],
+    ])("does not parse any slide for %s", async (_name, scenario) => {
+      mockDeckRow!.data = JSON.stringify({
+        title: "Deck",
+        ...(scenario.target === null
+          ? {}
+          : { generationContext: { targetSlideCount: scenario.target } }),
+        slides: [
+          { id: "real-1", content: "<div>Real 1</div>" },
+          { id: "real-2", content: "<div>Real 2</div>" },
+        ],
+      });
+      const operation =
+        scenario.operation === "add"
+          ? addSlide("slide-new")
+          : {
+              op: "patch-slide",
+              slideId: "real-1",
+              fields: { notes: "Presenter notes" },
+            };
+      realSlideChecks.count = 0;
+
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [operation],
+        },
+        { caller: scenario.caller },
+      );
+
+      expect(lastUpdatedDeckData).toBeDefined();
+      expect(realSlideChecks.count).toBe(0);
+    });
+  });
 
   it("requires a source hash for every agent slide content replacement", async () => {
     const error = await patchDeckAction
@@ -4836,5 +5196,105 @@ describe("run() — deck history", () => {
       chatContext: { runId: "run-1", turnId: "turn-1" },
     });
     expect(JSON.parse(mockDeckRow!.data as string).slides).toHaveLength(6);
+  });
+});
+
+describe("run() — tracking", () => {
+  const ctx = { caller: "frontend" } as never;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    nextDeckWriteMiss = undefined;
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        generationContext: { generationAttemptId: "attempt-1" },
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  function trackedNames() {
+    return mockTrack.mock.calls.map(([name]) => name);
+  }
+
+  it("emits deck_edited once for a slide content patch", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+          { op: "reorder-slides", orderedIds: ["slide-2", "slide-1"] },
+        ],
+      },
+      ctx,
+    );
+
+    expect(trackedNames()).toEqual(["deck_edited"]);
+    expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
+      caller: "frontend",
+      output_id: "deck-1",
+      edit_mode: "patch_deck",
+      change_kinds: ["content", "reorder"],
+      slides_changed: 2,
+      slide_count: 2,
+      generation_attempt_id: "attempt-1",
+    });
+  });
+
+  it("emits nothing for a title-only patch", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          { op: "patch-deck-fields", fields: { title: "Renamed deck" } },
+        ],
+      },
+      ctx,
+    );
+
+    expect(lastUpdatedDeckData).toBeDefined();
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("emits deck_creation_started when a new generation attempt is persisted", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: {
+              generationContext: {
+                originalPrompt: "Board update",
+                files: [],
+                mode: "new",
+                generationAttemptId: "attempt-2",
+              },
+            },
+          },
+        ],
+      },
+      ctx,
+    );
+
+    expect(trackedNames()).toEqual(["deck_creation_started"]);
+    expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
+      generation_attempt_id: "attempt-2",
+      is_retry: true,
+    });
   });
 });

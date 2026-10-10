@@ -385,7 +385,7 @@ async function mountEditor(
 }
 
 describe("SlideEditor pointer pipeline on the clip slide", () => {
-  it("treats wrapper whitespace as empty slide at every nesting level", async () => {
+  it("treats wrapper whitespace as empty slide at every nesting level (oracle 1.1)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
     const wrappers = ["row1", "chart", "container", "left"] as const;
 
@@ -408,7 +408,7 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     }
   });
 
-  it("starts a marquee from wrapper whitespace instead of dragging the wrapper", async () => {
+  it("starts a marquee from wrapper whitespace instead of dragging the wrapper (oracle 6.5)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
 
     editor.press("chart", { x: 700, y: 210 });
@@ -422,7 +422,7 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     expect(editor.el("container").style.position).toBe("");
   });
 
-  it("edits the caption at its text while another object is selected", async () => {
+  it("edits the caption at its text while another object is selected (oracle 1.2, oracle 2.1)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
 
     editor.click("card", { x: 85, y: 300 });
@@ -441,7 +441,7 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     expect(editor.el("caption").contains(selection.anchorNode)).toBe(true);
   });
 
-  it("selects a painted callout from its padding and edits it from its text", async () => {
+  it("selects a painted callout from its padding and edits it from its text (oracle 1.2, oracle 1.4, oracle 2.1, oracle 2.3, oracle 2.5)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
 
     editor.hover("callout", { x: 85, y: 262 });
@@ -456,7 +456,7 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     expect(editor.isEditing("callout")).toBe(true);
   });
 
-  it("moves only the card when dragged from its padding", async () => {
+  it("moves only the card when dragged from its padding (oracle 4.4, oracle 6.7)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
 
     editor.press("card", { x: 85, y: 300 });
@@ -473,7 +473,7 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     }
   });
 
-  it("leaves the card where it was when Escape cancels the drag", async () => {
+  it("leaves the card where it was when Escape cancels the drag (oracle 4.7)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
 
     editor.press("card", { x: 85, y: 300 });
@@ -488,7 +488,7 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     expect(editor.hasSelection()).toBe(false);
   });
 
-  it("never moves an object from a press on its text", async () => {
+  it("never moves an object from a press on its text (oracle 4.1)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
 
     editor.press("caption", { x: 520, y: 278 });
@@ -501,7 +501,7 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     );
   });
 
-  it("keeps a text drag that ends in another leaf inside the leaf it started in", async () => {
+  it("keeps a text drag that ends in another leaf inside the leaf it started in (oracle 5.2)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
     const caption = editor.el("caption");
     const labelB = editor.el("labelB");
@@ -526,7 +526,7 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     expect(caption.contains(selection.focusNode)).toBe(true);
   });
 
-  it("keeps the direction of a backward text drag that ends in another leaf", async () => {
+  it("keeps the direction of a backward text drag that ends in another leaf (oracle 5.2)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
     const caption = editor.el("caption");
     const labelB = editor.el("labelB");
@@ -551,7 +551,7 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     expect(selection.focusOffset).toBe(0);
   });
 
-  it("selects a text object with all of its text on Enter", async () => {
+  it("selects a text object with all of its text on Enter (oracle 3.8)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
 
     editor.click("callout", { x: 85, y: 262 });
@@ -580,7 +580,7 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
     filmstripThumbnail.remove();
   });
 
-  it("outlines on hover the object a press then selects", async () => {
+  it("outlines on hover the object a press then selects (oracle 1.10)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
     const probes: Array<[string, { x: number; y: number }]> = [
       ["card", { x: 85, y: 300 }],
@@ -603,7 +603,7 @@ describe("SlideEditor pointer pipeline on the clip slide", () => {
 });
 
 describe("SlideEditor pointer pipeline selection and press fixes", () => {
-  it("lets presses reach the members of a multi-selection", async () => {
+  it("lets presses reach the members of a multi-selection (oracle 2.11, oracle 6.1, oracle 6.4)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
     const moveHandle = () =>
       document.querySelector("[data-slide-group-move-handle]");
@@ -631,7 +631,7 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     expect(editor.outlineBox()).toBeNull();
   });
 
-  it("keeps the browser from selecting text while a multi-selection member is dragged", async () => {
+  it("keeps the browser from selecting text while a multi-selection member is dragged (oracle 6.1, oracle 6.4)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
     const outer = { x: 200, y: 260 };
     const nativeRanges = () => window.getSelection()?.rangeCount ?? 0;
@@ -678,7 +678,7 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     expect(editor.outlineBox()).toEqual({ top: 290, height: 80 });
   });
 
-  it("gives a selected group edge bands but no full-body mover", async () => {
+  it("gives a selected group edge bands but no full-body mover (oracle 7.1, oracle 7.2)", async () => {
     const editor = await mountEditor(GROUP_IMAGE_SLIDE);
 
     editor.click("memberImg", { x: 150, y: 350 });
@@ -944,7 +944,7 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     },
   );
 
-  it("edits the first leaf of a multi-leaf card from a double-click or Enter", async () => {
+  it("edits the first leaf of a multi-leaf card from a double-click or Enter (oracle 3.3)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
 
     stack = editor.chainOf("card");
@@ -961,7 +961,7 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     expect(editor.isEditing("cardBody")).toBe(false);
   });
 
-  it("selects all of the first leaf when Enter edits a multi-leaf card", async () => {
+  it("selects all of the first leaf when Enter edits a multi-leaf card (oracle 3.8)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
 
     editor.click("card", { x: 85, y: 300 });
@@ -988,7 +988,7 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     expect(window.getSelection()!.anchorOffset).toBe(7);
   });
 
-  it("clamps the native highlight to the press leaf while the button is down", async () => {
+  it("clamps the native highlight to the press leaf while the button is down (oracle 5.2)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
     const caption = editor.el("caption");
     const labelB = editor.el("labelB");
@@ -1010,7 +1010,7 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
     expect(labelB.contains(window.getSelection()!.focusNode)).toBe(true);
   });
 
-  it("does not click-select the pressed object when the mouse is released after Escape", async () => {
+  it("does not click-select the pressed object when the mouse is released after Escape (oracle 4.7)", async () => {
     const editor = await mountEditor(CLIP_SLIDE);
 
     editor.press("card", { x: 85, y: 300 });
@@ -1326,7 +1326,7 @@ describe("SlideEditor pointer pipeline selection and press fixes", () => {
 });
 
 describe("SlideEditor pointer pipeline on groups", () => {
-  it("drills from the group to a member, clears on one Escape, edits on double-click", async () => {
+  it("drills from the group to a member, clears on one Escape, edits on double-click (oracle 6.10, oracle 7.1, oracle 7.2, oracle 7.5, oracle 7.6)", async () => {
     const editor = await mountEditor(GROUP_SLIDE);
 
     editor.click("memberA", { x: 110, y: 140 });
@@ -1349,7 +1349,7 @@ describe("SlideEditor pointer pipeline on groups", () => {
     expect(editor.isEditing("group")).toBe(false);
   });
 
-  it("selects the group from just outside a text-box member, then drills to that member", async () => {
+  it("selects the group from just outside a text-box member, then drills to that member (oracle 7.9, oracle 7.10)", async () => {
     const editor = await mountEditor(GROUP_SLIDE);
 
     // 4 px left of memberA, outside the group's bounds.
@@ -1371,7 +1371,7 @@ describe("SlideEditor pointer pipeline on groups", () => {
     expect(editor.lastSelected()).toBe(editor.el("memberA"));
   });
 
-  it("selects nothing from 6 px outside a text-box member", async () => {
+  it("selects nothing from 6 px outside a text-box member (oracle 1.5, oracle 7.9)", async () => {
     const editor = await mountEditor(GROUP_SLIDE);
 
     editor.hover("slide", { x: 94, y: 120 });
@@ -1546,7 +1546,7 @@ describe("SlideEditor pointer pipeline Alt-drag of a multi-selection", () => {
     }));
   };
 
-  it("leaves the originals and drops selected copies at the drag delta", async () => {
+  it("leaves the originals and drops selected copies at the drag delta (oracle 4.11)", async () => {
     const { editor, updates } = await mountSelectedPair();
 
     editor.press("callout", { x: 85, y: 262 }, { altKey: true });
@@ -1600,7 +1600,7 @@ describe("SlideEditor pointer pipeline Alt-drag of a multi-selection", () => {
     expect(objects[0]).toMatchObject({ left: "120px", top: "265px" });
   });
 
-  it("removes the copies and persists nothing when Escape cancels", async () => {
+  it("removes the copies and persists nothing when Escape cancels (oracle 4.7)", async () => {
     const { editor, updates } = await mountSelectedPair();
 
     editor.press("callout", { x: 85, y: 262 }, { altKey: true });
@@ -1685,7 +1685,7 @@ describe("SlideEditor pointer pipeline Alt-drag of a multi-selection", () => {
     expect(outline()).not.toBeNull();
   });
 
-  it("persists nothing for an Alt press that never crosses the drag threshold", async () => {
+  it("persists nothing for an Alt press that never crosses the drag threshold (oracle 4.5)", async () => {
     const { editor, updates } = await mountSelectedPair();
 
     editor.press("callout", { x: 85, y: 262 }, { altKey: true });

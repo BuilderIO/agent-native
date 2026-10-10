@@ -30,6 +30,7 @@ import {
 } from "../file-upload/test-image-fixtures.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
+import * as experiments from "../observability/experiments.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
@@ -58,6 +59,7 @@ import {
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
+  isAgentModelVisionCapable,
   DurableAttachmentReferenceRequiredError,
   serializeDurableDispatchPayload,
   callConnectedAgentReference,
@@ -66,6 +68,7 @@ import {
   createPlanModeActionRegistry,
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
   appendRequestAttachmentContextToResumedHistory,
+  endsAtContinuationBoundary,
   preloadPlanModeEngineTools,
   queuedPromotionAttachments,
   normalizeAgentActionSurfaceResolution,
@@ -92,6 +95,7 @@ import {
   markBackgroundContinuationChunkTerminal,
   resolveAgentModelSelection,
   resolveAgentExperimentModelOverride,
+  resolveAgentExperimentSelection,
   resolveAgentOwnerEmail,
   resolveOwnerEngineApiKey,
   resolveBackgroundDispatchOutcome,
@@ -491,6 +495,33 @@ describe("resolveAgentExperimentModelOverride", () => {
       }),
     ).toBe("gpt-5-6-luna");
   });
+
+  it("records assignments unless the request pins a model", () => {
+    const assignments = [
+      { experimentId: "experiment-1", variantId: "variant-b" },
+    ];
+
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "gpt-5-6-terra",
+        experimentModel: "gpt-5-6-luna",
+        assignments,
+      }),
+    ).toEqual({ assignments: [] });
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "auto",
+        experimentModel: "gpt-5-6-luna",
+        assignments,
+      }),
+    ).toEqual({ model: "gpt-5-6-luna", assignments });
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "auto",
+        assignments,
+      }),
+    ).toEqual({ assignments });
+  });
 });
 
 describe("createConnectedAgentReferenceEventRelay", () => {
@@ -870,6 +901,22 @@ describe("serializeDurableDispatchPayload", () => {
           name: "screen.png",
           data: "data:image/png;base64,INLINE_IMAGE_BYTES",
           url: "https://files.example.test/screen.png",
+          metadata: {
+            base64: "A".repeat(96),
+            bytes: new Uint8Array([0, 1, 2, 3]),
+            preview: {
+              url: "data:image/png;base64,INLINE_NESTED_PREVIEW_URL",
+              data: "data:image/png;base64,INLINE_NESTED_PREVIEW_BYTES",
+              bytes: [4, 5, 6],
+            },
+            references: [
+              {
+                thumbnail: {
+                  src: "data:image/png;base64,INLINE_NESTED_THUMBNAIL_URL",
+                },
+              },
+            ],
+          },
         },
       ],
       requestAttachments: [
@@ -877,6 +924,7 @@ describe("serializeDurableDispatchPayload", () => {
           type: "image",
           name: "reference.png",
           data: "data:image/png;base64,INLINE_PROTOCOL_IMAGE_BYTES",
+          url: "https://files.example.test/reference-resized.png",
           referenceUrl: "https://files.example.test/reference.png",
         },
       ],
@@ -886,7 +934,7 @@ describe("serializeDurableDispatchPayload", () => {
           parts: [
             {
               type: "image",
-              data: "INLINE_HISTORY_IMAGE_BYTES",
+              data: "data:image/png;base64,INLINE_HISTORY_IMAGE_BYTES",
               url: "https://files.example.test/history.png",
             },
           ],
@@ -896,20 +944,45 @@ describe("serializeDurableDispatchPayload", () => {
     const parsed = JSON.parse(payload);
 
     expect(payload).not.toContain("INLINE_");
+    expect(payload).not.toContain("data:image/");
     expect(parsed.attachments[0]).toEqual({
       type: "image",
       name: "screen.png",
       url: "https://files.example.test/screen.png",
+      metadata: { preview: {}, references: [{ thumbnail: {} }] },
     });
     expect(parsed.requestAttachments[0]).toEqual({
       type: "image",
       name: "reference.png",
+      url: "https://files.example.test/reference-resized.png",
       referenceUrl: "https://files.example.test/reference.png",
     });
     expect(parsed.structuredHistory[0].parts[0]).toEqual({
       type: "image",
       url: "https://files.example.test/history.png",
     });
+  });
+
+  it("redacts data URLs outside attachment fields", () => {
+    const preview = "data:image/png;base64,INLINE_UNRELATED_PREVIEW";
+    const payload = serializeDurableDispatchPayload({
+      metadata: { preview },
+    });
+
+    expect(JSON.parse(payload).metadata.preview).toBe(
+      "[inline image/png data omitted]",
+    );
+    expect(payload).not.toContain(preview);
+  });
+
+  it("treats only recognizable data URLs as inline attachment data", () => {
+    const payload = serializeDurableDispatchPayload({
+      attachments: [
+        { type: "file", name: "notes.txt", data: "plain text metadata" },
+      ],
+    });
+
+    expect(JSON.parse(payload).attachments[0].data).toBe("plain text metadata");
   });
 
   it("fails closed when attachment bytes have no durable reference", () => {
@@ -920,6 +993,53 @@ describe("serializeDurableDispatchPayload", () => {
             type: "image",
             name: "local-only.png",
             data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it("recognizes short raw base64 in attachment payload fields", () => {
+    const tinyGifBase64 = "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+    expect(tinyGifBase64.length).toBeLessThan(64);
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [
+          {
+            type: "image",
+            name: "tiny.gif",
+            data: tinyGifBase64,
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it.each([
+    ["raw base64 metadata", { metadata: { base64: "A".repeat(96) } }],
+    [
+      "nested preview URL",
+      { metadata: { preview: { url: "data:image/png;base64,INLINE" } } },
+    ],
+    ["nested byte arrays", { metadata: { bytes: [0, 1, 2, 3] } }],
+  ])(
+    "requires durable storage for an attachment with %s only",
+    (_label, attachment) => {
+      expect(() =>
+        serializeDurableDispatchPayload({ attachments: [attachment] }),
+      ).toThrow(DurableAttachmentReferenceRequiredError);
+    },
+  );
+
+  it("requires a durable vision URL when an inline request image has only its original reference", () => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        requestAttachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+            referenceUrl: "https://files.example.test/reference-original.png",
           },
         ],
       }),
@@ -955,6 +1075,34 @@ describe("serializeDurableDispatchPayload", () => {
             url: "data:image/png;base64,INLINE_IMAGE_BYTES",
           },
         ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it.each(["url", "referenceUrl"])(
+    "rejects raw base64 masquerading as an attachment %s",
+    (field) => {
+      expect(() =>
+        serializeDurableDispatchPayload({
+          attachments: [
+            {
+              type: "image",
+              name: "inline-url.png",
+              [field]: "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+            },
+          ],
+        }),
+      ).toThrow(DurableAttachmentReferenceRequiredError);
+    },
+  );
+
+  it.each([
+    "https://files.example.test/reference.png?token=private",
+    "https://private-token@files.example.test/reference.png",
+  ])("rejects ephemeral attachment reference %s", (url) => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [{ type: "image", name: "reference.png", url }],
       }),
     ).toThrow(DurableAttachmentReferenceRequiredError);
   });
@@ -1005,6 +1153,42 @@ describe("queuedPromotionAttachments", () => {
 });
 
 describe("buildUserContentWithAttachments", () => {
+  it.each([
+    ["Groq Llama 4 Scout", "meta-llama/llama-4-scout-17b-16e-instruct"],
+    ["Groq Qwen 3.6", "qwen/qwen3.6-27b"],
+    ["Mistral Small 3.2", "mistral-small-2506"],
+    ["Cohere Command A Vision", "command-a-vision-07-2025"],
+    ["Ollama Llama 3.2 Vision", "llama3.2-vision:90b"],
+    ["Ollama Gemma 3 4B", "gemma3:4b"],
+    ["Ollama Gemma 3", "gemma3:12b"],
+  ])(
+    "recognizes vision support for %s despite provider defaults",
+    (_label, model) => {
+      expect(isAgentModelVisionCapable(model, false)).toBe(true);
+    },
+  );
+
+  it.each([
+    "gemma3:1b",
+    "ollama/gemma3:1b",
+    "google/gemma-3-1b-it",
+    "gemma3:270m",
+  ])(
+    "does not classify text-only Gemma models as vision-capable: %s",
+    (model) => {
+      expect(isAgentModelVisionCapable(model, false)).toBe(false);
+      expect(isAgentModelVisionCapable(model, true)).toBe(false);
+    },
+  );
+
+  it("keeps unknown models on providers without vision disabled", () => {
+    expect(isAgentModelVisionCapable("custom-text-model", false)).toBe(false);
+  });
+
+  it("retains engine vision support for unlisted models", () => {
+    expect(isAgentModelVisionCapable("custom-vision-model", true)).toBe(true);
+  });
+
   it("rehydrates a durable PDF reference into a provider file block", async () => {
     const url = "https://storage.example.test/uploads/reference.pdf";
     const inlinePdf = `data:application/pdf;base64,${PDF_BASE64}`;
@@ -1140,6 +1324,32 @@ describe("buildUserContentWithAttachments", () => {
         .map((part) => part.text)
         .join("\n"),
     ).not.toContain("<chat-attachment-processing-error");
+  });
+
+  it("does not send image blocks to engines without vision support", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Describe this image",
+      vision: false,
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    });
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+
+    expect(content.some((part) => part.type === "image")).toBe(false);
+    expect(text).toContain(
+      '<chat-attachment-capability-note code="vision-not-supported" name="reference.png"',
+    );
+    expect(text).toContain("Describe this image");
+    expect(text).not.toContain(PNG_BASE64);
   });
 
   it("surfaces attachments that arrive without a payload or reference", () => {
@@ -1443,6 +1653,7 @@ describe("buildUserContentWithAttachments", () => {
       .join("\n");
     expect(text).toContain("https://cdn.example.com/url-only.png");
     expect(text).toContain("not sent as a vision image");
+    expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
   it("includes text and file attachments in the text sent to the engine", () => {
@@ -1525,6 +1736,7 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain('name="report.pdf"');
     expect(text).toContain("no readable contents were included");
     expect(text).not.toContain('code="unsupported-or-malformed-payload"');
+    expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
   it("reports malformed inline payloads as unreadable even when a URL exists", () => {
@@ -1571,6 +1783,28 @@ describe("buildUserContentWithAttachments", () => {
     );
     expect(text).not.toContain("<attachment name=transcript.txt>");
     expect(text).toContain("Summarize the transcript");
+  });
+
+  it("keeps long pasted text readable when it also has a storage URL", () => {
+    const longBody = "A".repeat(60_010);
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the pasted text",
+      attachments: [
+        {
+          type: "file",
+          name: "pasted-text-1718000000000-ab12cd.txt",
+          contentType: "text/plain",
+          text: `<attachment name=pasted-text.txt>\n${longBody}\n</attachment>`,
+          url: "https://files.example.test/pasted-text.txt",
+        },
+      ],
+    });
+
+    const text = content[0]?.type === "text" ? content[0].text : "";
+    expect(text).toContain("A".repeat(60_000));
+    expect(text).toContain("Attachment truncated after 60,000 characters");
+    expect(text).toContain("Summarize the pasted text");
+    expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
   it("caps the aggregate text from multiple attachments", () => {
@@ -2527,6 +2761,40 @@ describe("appendRequestAttachmentContextToResumedHistory", () => {
       messages[0]?.content.filter((part) => part.type === "image"),
     ).toHaveLength(1);
   });
+
+  it("keeps unsupported images as named notes when resuming on a model without vision", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Describe this" }],
+      },
+    ];
+
+    appendRequestAttachmentContextToResumedHistory(
+      messages,
+      [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+      { vision: false },
+    );
+
+    expect(messages[0]?.content.some((part) => part.type === "image")).toBe(
+      false,
+    );
+    expect(messages[0]?.content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining(
+          'code="vision-not-supported" name="reference.png"',
+        ),
+      }),
+    );
+  });
 });
 
 describe("resolveAgentOwnerEmail", () => {
@@ -2859,7 +3127,35 @@ describe("createProductionAgentHandler", () => {
                   name: "notes.txt",
                   fileId: "file-1",
                   mediaType: "text/plain",
+                  data: "data:text/plain;base64,SGVsbG8=",
                   url: "https://files.example/notes.txt",
+                },
+                {
+                  type: "file",
+                  name: "scan.png",
+                  fileId: "file-image-1",
+                  mediaType: "image/png",
+                  url: "https://files.example/scan-original.png",
+                },
+              ],
+              requestAttachments: [
+                {
+                  type: "image",
+                  name: "scan.png",
+                  contentType: "image/png",
+                  data: "data:image/png;base64,SGVsbG8=",
+                  url: "https://files.example/scan-resized.png",
+                  referenceUrl: "https://files.example/scan-original.png",
+                  fileId: "file-image-1",
+                },
+                {
+                  type: "image",
+                  name: "scan.png",
+                  contentType: "image/png",
+                  data: "data:image/png;base64,SGVsbG8=",
+                  url: "https://files.example/scan-resized.png",
+                  referenceUrl: "https://files.example/scan-original.png",
+                  fileId: "file-image-1",
                 },
               ],
               metadata: { queuedContext: "persisted" },
@@ -2941,12 +3237,35 @@ describe("createProductionAgentHandler", () => {
             id: "file-1",
             mediaType: "text/plain",
             contentType: "text/plain",
+            data: "data:text/plain;base64,SGVsbG8=",
             url: "https://files.example/notes.txt",
+          },
+          {
+            type: "file",
+            name: "scan.png",
+            id: "file-image-1",
+            mediaType: "image/png",
+            contentType: "image/png",
+            url: "https://files.example/scan-original.png",
+            referenceOnly: true,
+          },
+          {
+            type: "image",
+            name: "scan.png",
+            contentType: "image/png",
+            data: "data:image/png;base64,SGVsbG8=",
+            url: "https://files.example/scan-resized.png",
+            id: "file-image-1",
           },
         ],
         references: [],
         mode: "plan",
       });
+      expect(
+        (captured.request as { attachments: unknown[] }).attachments.filter(
+          (attachment) => (attachment as { type?: string }).type === "image",
+        ),
+      ).toHaveLength(1);
       expect(
         JSON.stringify(
           (captured.request as { requestContext?: unknown }).requestContext,
@@ -3792,7 +4111,7 @@ describe("createProductionAgentHandler", () => {
     expect(stream).not.toHaveBeenCalled();
   });
 
-  it("passes a typed attachment-processing failure into the model request", async () => {
+  it("keeps inline image pixels readable when pre-upload fails", async () => {
     const preUploadFailure = vi
       .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
       .mockRejectedValueOnce(
@@ -3807,7 +4126,7 @@ describe("createProductionAgentHandler", () => {
       capabilities: {
         thinking: false,
         promptCaching: false,
-        vision: false,
+        vision: true,
         computerUse: false,
         parallelToolCalls: false,
       },
@@ -3830,13 +4149,13 @@ describe("createProductionAgentHandler", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          message: "Describe this file",
+          message: "Describe this image",
           attachments: [
             {
-              type: "file",
-              name: "reference.pdf",
-              contentType: "application/pdf",
-              data: "data:application/pdf;base64,UEsDBA==",
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
             },
           ],
         }),
@@ -3864,9 +4183,292 @@ describe("createProductionAgentHandler", () => {
       .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("\n");
-    expect(userText).toContain('code="pre-upload-failed"');
-    expect(userText).toContain("attachment processing failed");
+    expect(userText).toContain(
+      '<chat-attachment-preparation-warning code="pre-upload-failed">',
+    );
+    expect(userText).not.toContain("<chat-attachment-processing-error");
     expect(userText).not.toContain("private storage implementation detail");
+    expect(
+      streamedMessages
+        .flatMap((messages) => messages)
+        .filter((message) => message.role === "user")
+        .flatMap((message) => message.content)
+        .some((part) => part.type === "image" && part.data === PNG_BASE64),
+    ).toBe(true);
+  });
+
+  it("sends a named capability note instead of image pixels to engines without vision", async () => {
+    const hydratePriorImages = vi.fn(async () => ({
+      contextAttachments: [
+        {
+          type: "image" as const,
+          name: "prior.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    }));
+    const prepareAfterModel = vi.fn(async ({ vision }: { vision: boolean }) =>
+      vision ? hydratePriorImages() : undefined,
+    );
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Choose a vision model." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe this image",
+          attachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      preUpload.mockRestore();
+    }
+
+    const userContent = streamedMessages
+      .flatMap((messages) => messages)
+      .filter((message) => message.role === "user")
+      .flatMap((message) => message.content);
+    expect(userContent.some((part) => part.type === "image")).toBe(false);
+    expect(userContent).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining(
+          '<chat-attachment-capability-note code="vision-not-supported" name="reference.png"',
+        ),
+      }),
+    );
+    expect(JSON.stringify(userContent)).not.toContain(PNG_BASE64);
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "test-model",
+      vision: false,
+    });
+    expect(hydratePriorImages).not.toHaveBeenCalled();
+  });
+
+  it("sends images to a vision-capable Mistral model despite the provider default", async () => {
+    const hydratePriorImages = vi.fn(async () => ({
+      contextAttachments: [
+        {
+          type: "image" as const,
+          name: "prior.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    }));
+    const prepareAfterModel = vi.fn(async ({ vision }: { vision: boolean }) =>
+      vision ? hydratePriorImages() : undefined,
+    );
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "text-only-model",
+      supportedModels: ["text-only-model", "mistral-small-2506"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The image is ready for analysis." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe this image",
+          model: "mistral-small-2506",
+          attachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      preUpload.mockRestore();
+    }
+
+    const userContent = streamedMessages
+      .flatMap((messages) => messages)
+      .filter((message) => message.role === "user")
+      .flatMap((message) => message.content);
+    expect(userContent.filter((part) => part.type === "image")).toHaveLength(2);
+    expect(
+      userContent.some(
+        (part) => part.type === "image" && part.data === PNG_BASE64,
+      ),
+    ).toBe(true);
+    expect(
+      userContent.some(
+        (part) =>
+          part.type === "text" &&
+          part.text.includes('code="vision-not-supported"'),
+      ),
+    ).toBe(false);
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "mistral-small-2506",
+      vision: true,
+    });
+    expect(hydratePriorImages).toHaveBeenCalledOnce();
+  });
+
+  it("skips experiment assignment resolution for an explicit request model", async () => {
+    const resolveExperiment = vi
+      .spyOn(experiments, "resolveActiveExperimentConfig")
+      .mockResolvedValue({
+        configs: { model: "experiment-model" },
+        assignments: [{ experimentId: "experiment-1", variantId: "variant-b" }],
+      });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "default-model",
+      supportedModels: ["default-model", "explicit-model", "experiment-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Use my selected model",
+          model: "explicit-model",
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      expect(resolveExperiment).not.toHaveBeenCalled();
+    } finally {
+      resolveExperiment.mockRestore();
+    }
   });
 
   it("does not treat an undefined system prompt rejection as a valid empty prompt", async () => {
@@ -16641,6 +17243,44 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       }),
     ).toBe(true);
     expect(backgroundContinuationReasonForRun(run)).toBe("stream_ended");
+  });
+
+  it("does NOT chain a run that yielded to a connection request after a failed tool", () => {
+    // The card is the user's turn. Chaining re-ran the model after the yield and
+    // it retried the same unconnectable provider run after run.
+    const run = makeRun([
+      {
+        type: "tool_done",
+        tool: "provider-api-request",
+        id: "tool-1",
+        input: {},
+        result: "google_drive requires an available workspace connection.",
+        isError: true,
+      },
+      {
+        type: "connection_required",
+        requestId: "request-1",
+        provider: "google_drive",
+        reason: "connect",
+      },
+    ]);
+
+    expect(endsAtContinuationBoundary(run)).toBe(false);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        foregroundSelfChainEligible: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(false);
   });
 
   it("does NOT chain a background run that sent final text after completed tools", () => {

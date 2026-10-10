@@ -22,6 +22,9 @@ import {
   isCaretScrollOnlyChange,
   isExpectedSaveReloadWatchedRequestAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
+  isExpectedCleanupBrowserSessionPollConsoleError,
+  isExpectedCleanupNavigationError,
+  isExpectedWatchedRequestCorsError,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
   runAuthoringFuzz,
@@ -890,6 +893,13 @@ it("creates reproducible authoring plans with full command coverage", () => {
   expect(first.map((step) => step.kind)).toContain("quote-exit");
   expect(first.map((step) => step.kind)).toContain("backspace-block-edge");
   expect(first.map((step) => step.kind)).toContain("delete-block-edge");
+  const slashPosition = first.findIndex(
+    (step) => step.kind === "slash-position",
+  );
+  expect(slashPosition).toBeGreaterThanOrEqual(0);
+  expect(
+    first.slice(slashPosition, slashPosition + 3).map((step) => step.kind),
+  ).toEqual(["slash-position", "slash-outside", "shortcut-undo"]);
   expect(first.map((step) => step.kind)).toContain("copy-inline");
   expect(() =>
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),
@@ -943,6 +953,7 @@ it("captures failed browser-session registration and subroute requests", () => {
 it("ignores registration aborts only when reload navigation cancels an in-flight request", () => {
   for (const errorText of [
     "Load request cancelled",
+    "cancelled",
     "NS_BINDING_ABORTED",
     "net::ERR_ABORTED",
   ]) {
@@ -1061,6 +1072,16 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
   expect(
     isExpectedSaveReloadWatchedRequestAbort(
       "/_agent-native/browser-sessions/session-id/requests/claim",
+      "cancelled",
+      "save/reload",
+      "POST",
+      true,
+      100,
+    ),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestAbort(
+      "/_agent-native/browser-sessions/session-id/requests/claim",
       "net::ERR_ABORTED",
       "save/reload",
       "POST",
@@ -1147,7 +1168,7 @@ it("ignores only known aborts for requests pending at reload navigation", () => 
   }
 });
 
-it("ignores only WebKit CORS console errors for pending claim requests canceled by reload", () => {
+it("ignores only WebKit CORS console errors for requests canceled by reload", () => {
   const url =
     "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim";
   const message = `Fetch API cannot load ${url} due to access control checks.`;
@@ -1163,6 +1184,30 @@ it("ignores only WebKit CORS console errors for pending claim requests canceled 
     isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "save/reload", [
       candidate,
     ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `${message}\n    at fetch (native)`,
+      "save/reload",
+      [candidate],
+    ),
+  ).toBe(true);
+  const actionUrl =
+    "http://localhost:45715/_agent-native/actions/get-lab-states";
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      `Fetch API cannot load ${actionUrl} due to access control checks.\n    at fetch (native)`,
+      "save/reload",
+      [
+        {
+          url: actionUrl,
+          pathname: "/_agent-native/actions/get-lab-states",
+          method: "POST",
+          ageMs: 100,
+          requestWasPendingAtReloadNavigation: true,
+        },
+      ],
+    ),
   ).toBe(true);
   expect(
     isExpectedSaveReloadWatchedRequestCorsConsoleError(message, "step 12", [
@@ -1204,6 +1249,124 @@ it("ignores only WebKit CORS console errors for pending claim requests canceled 
         ageMs: 100,
       },
     ]),
+  ).toBe(false);
+});
+
+it("ignores only an in-flight browser-session claim canceled by cleanup navigation", () => {
+  const url =
+    "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim";
+  const message = `Fetch API cannot load ${url} due to access control checks.`;
+  const candidate = {
+    url,
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      candidate,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "step 12", [candidate]),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(message, "cleanup/navigation", [
+      { ...candidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      message,
+      "cleanup/navigation",
+      [
+        {
+          ...candidate,
+          requestWasPendingAtReloadNavigation: true,
+        },
+      ],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedWatchedRequestCorsError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/actions/get-deck-access-status due to access control checks.",
+      "cleanup/navigation",
+      [
+        {
+          url: "http://localhost:45715/_agent-native/actions/get-deck-access-status",
+          pathname: "/_agent-native/actions/get-deck-access-status",
+          method: "GET",
+          ageMs: 100,
+          requestWasPendingAtNavigation: true,
+        },
+      ],
+    ),
+  ).toBe(false);
+});
+
+it("ignores the browser-session poll warning only for a canceled cleanup claim", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+  const warning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [candidate]),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      { ...candidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      { ...candidate, ageMs: 9_000 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [
+      {
+        ...candidate,
+        pathname: "/_agent-native/browser-sessions/session-id/requests/other",
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupBrowserSessionPollConsoleError("another poll error", [
+      candidate,
+    ]),
+  ).toBe(false);
+});
+
+it("accepts cleanup request cancellations only while navigation is pending", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+  const message = `Fetch API cannot load ${candidate.url} due to access control checks.`;
+
+  expect(isExpectedCleanupNavigationError(message, [candidate], true)).toBe(
+    true,
+  );
+  expect(isExpectedCleanupNavigationError(message, [candidate], false)).toBe(
+    false,
+  );
+  expect(
+    isExpectedCleanupNavigationError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [candidate],
+      false,
+    ),
   ).toBe(false);
 });
 

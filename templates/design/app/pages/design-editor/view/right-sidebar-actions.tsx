@@ -20,7 +20,7 @@ export function renderRightSidebarActions({
     controlId: "toolbar" | "inspector" | "topbar",
   ) => ReactElement;
   renderPendingNodeRewriteControl: (compact: boolean) => ReactElement | null;
-  publishWaitlistControl: ReactElement;
+  publishWaitlistControl: ReactElement | null;
   presenceControl: ReactElement | null;
   reviewFeedbackControl: ReactElement | null;
   renderShareControl: (dense: boolean) => ReactElement | null;

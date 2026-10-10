@@ -13,12 +13,51 @@ const state = vi.hoisted(() => ({
     key: string;
     value: Record<string, unknown>;
   }>,
+  dashboardReferences: [] as Array<{
+    id: string;
+    kind: "sql" | "explorer";
+    name: string;
+    description: string | null;
+    ownerEmail: string;
+    orgId: string | null;
+    visibility: "private" | "org" | "public";
+    updatedAt: string;
+    matchedFields: Array<"id" | "name" | "description" | "config">;
+  }>,
+  dashboardReferencePage: null as null | {
+    results: Array<{
+      id: string;
+      kind: "sql" | "explorer";
+      name: string;
+      description: string | null;
+      ownerEmail: string;
+      orgId: string | null;
+      visibility: "private" | "org" | "public";
+      updatedAt: string;
+      matchedFields: Array<"id" | "name" | "description" | "config">;
+    }>;
+    searched: number;
+    of: number;
+    truncated: boolean;
+    nextPage: string | null;
+  },
+  dashboardConfigs: new Map<string, Record<string, unknown>>(),
   listDashboardSummaries: vi.fn(async () => state.summaries),
   loadDashboardCatalogDashboards: vi.fn(
     async (_ctx: { email: string; orgId: string | null }, ids: string[]) => {
       state.loadCalls.push([...ids]);
-      return ids.map((id) =>
-        id === "dashboard-01"
+      return ids.map((id) => {
+        const indexedConfig = state.dashboardConfigs.get(id);
+        if (indexedConfig) {
+          return {
+            id,
+            kind: "sql" as const,
+            title: `Dashboard ${id}`,
+            description: null,
+            config: indexedConfig,
+          };
+        }
+        return id === "dashboard-01"
           ? {
               id,
               kind: "sql" as const,
@@ -43,17 +82,37 @@ const state = vi.hoisted(() => ({
               title: `Dashboard ${id}`,
               description: `Description ${id}`,
               config: { name: `Dashboard ${id}`, panels: [] },
-            },
-      );
+            };
+      });
     },
+  ),
+  searchDashboardReferencesPage: vi.fn(
+    async () =>
+      state.dashboardReferencePage ?? {
+        results: state.dashboardReferences,
+        searched: state.dashboardReferences.length,
+        of: state.dashboardReferences.length,
+        truncated: false,
+        nextPage: null,
+      },
   ),
   listSettingsByPrefix: vi.fn(async (_prefix: string) => state.userSettings),
   getUserSetting: vi.fn(async () => ({ ids: ["dashboard-01"] })),
+  getOrgSetting: vi.fn(async () => null),
   listOrgSettings: vi.fn(async () => ({})),
+  readSourceIndex: vi.fn(
+    async (): Promise<
+      { status: "not-configured" } | { status: "available"; bundle: never }
+    > => ({ status: "not-configured" }),
+  ),
+  sourceIndexDictionaryEntries: vi.fn(
+    () => [] as Array<Record<string, unknown>>,
+  ),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
   getUserSetting: state.getUserSetting,
+  getOrgSetting: state.getOrgSetting,
   listOrgSettings: state.listOrgSettings,
   listSettingsByPrefix: state.listSettingsByPrefix,
 }));
@@ -64,9 +123,15 @@ vi.mock("./dashboard-catalog", () => ({
   },
 }));
 
+vi.mock("./source-index-store", () => ({
+  readSourceIndex: state.readSourceIndex,
+  sourceIndexDictionaryEntries: state.sourceIndexDictionaryEntries,
+}));
+
 vi.mock("./dashboards-store", () => ({
   listDashboardSummaries: state.listDashboardSummaries,
   loadDashboardCatalogDashboards: state.loadDashboardCatalogDashboards,
+  searchDashboardReferencesPage: state.searchDashboardReferencesPage,
 }));
 
 const { searchAnalyticsQueryCatalog } =
@@ -101,11 +166,19 @@ describe("searchAnalyticsQueryCatalog", () => {
     state.loadCalls = [];
     state.dashboardCatalogEntries = [];
     state.userSettings = [];
+    state.dashboardReferences = [];
+    state.dashboardReferencePage = null;
+    state.dashboardConfigs.clear();
     state.listDashboardSummaries.mockClear();
     state.loadDashboardCatalogDashboards.mockClear();
+    state.searchDashboardReferencesPage.mockClear();
     state.listSettingsByPrefix.mockClear();
     state.getUserSetting.mockClear();
     state.listOrgSettings.mockClear();
+    state.readSourceIndex.mockReset();
+    state.readSourceIndex.mockResolvedValue({ status: "not-configured" });
+    state.sourceIndexDictionaryEntries.mockReset();
+    state.sourceIndexDictionaryEntries.mockReturnValue([]);
   });
 
   it("shortlists dashboards from metadata before hydrating explicit configs", async () => {
@@ -164,6 +237,7 @@ describe("searchAnalyticsQueryCatalog", () => {
     );
     expect(results.searchedDashboardCount).toBe(30);
     expect(results.dashboardSearchTruncated).toBe(false);
+    expect(results.dashboardDetailHydrationTruncated).toBe(false);
     expect(results.dashboardSearchStatus).toBe("available");
     expect(state.loadCalls[0]).toHaveLength(24);
     expect(state.loadCalls[0]).toContain("dashboard-01");
@@ -220,6 +294,139 @@ describe("searchAnalyticsQueryCatalog", () => {
       "[analytics] Dashboard reference search truncated.",
       { searchedDashboardCount: 200, dashboardSearchTruncated: true },
     );
+  });
+
+  it("reports when the ranked summary shortlist omits other plausible dashboards", async () => {
+    state.summaries = Array.from({ length: 30 }, (_, index) => ({
+      ...savedRevenueSummary(),
+      id: `dashboard-${String(index + 1).padStart(2, "0")}`,
+      name: `Revenue report ${index + 1}`,
+      configName: `Revenue report ${index + 1}`,
+      description: "Revenue from closed-won deals",
+    }));
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: "closed won revenue",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 6,
+    });
+
+    expect(result.searchedDashboardCount).toBe(30);
+    expect(result.dashboardDetailHydrationTruncated).toBe(true);
+    expect(result.truncated).toBe(true);
+    expect(state.loadCalls[0]).toHaveLength(24);
+  });
+
+  it("hydrates a panel-only dashboard found by the access-scoped reference search", async () => {
+    state.summaries = Array.from({ length: 30 }, (_, index) => ({
+      ...savedRevenueSummary(),
+      id: `dashboard-${String(index + 1).padStart(2, "0")}`,
+      name: `Misc dashboard ${index + 1}`,
+      configName: `Misc dashboard ${index + 1}`,
+      description: `Unrelated dashboard ${index + 1}`,
+    }));
+    state.dashboardReferences = [
+      {
+        id: "dashboard-30",
+        kind: "sql",
+        name: "Misc dashboard 30",
+        description: "Unrelated dashboard 30",
+        ownerEmail: "alice@example.com",
+        orgId: null,
+        visibility: "private",
+        updatedAt: "2026-08-02T00:00:00.000Z",
+        matchedFields: ["config"],
+      },
+    ];
+    state.dashboardConfigs.set("dashboard-30", {
+      panels: [
+        {
+          id: "panel-only",
+          title: "Acquisition",
+          source: "bigquery",
+          sql: "SELECT user_id FROM events WHERE event_name = 'pro_feature_activated'",
+        },
+      ],
+    });
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: "pro feature activated",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 6,
+    });
+
+    expect(state.searchDashboardReferencesPage).toHaveBeenCalledWith(
+      { email: "alice@example.com", orgId: null },
+      "pro feature activated",
+      24,
+    );
+    expect(state.loadCalls[0]).toHaveLength(24);
+    expect(state.loadCalls[0]).toContain("dashboard-30");
+    expect(result.candidates).toContainEqual(
+      expect.objectContaining({
+        kind: "dashboard-panel",
+        dashboardId: "dashboard-30",
+        panelId: "panel-only",
+      }),
+    );
+    expect(result.dashboardPanelReferenceSearchStatus).toBe("available");
+    expect(result.dashboardPanelReferenceSearchTruncated).toBe(false);
+    expect(result.dashboardPanelReferenceNextPage).toBeNull();
+  });
+
+  it("reports panel-reference search truncation at the bounded result cap", async () => {
+    state.dashboardReferences = Array.from({ length: 24 }, (_, index) => ({
+      id: `reference-${String(index + 1).padStart(2, "0")}`,
+      kind: "sql" as const,
+      name: `Reference ${index + 1}`,
+      description: null,
+      ownerEmail: "alice@example.com",
+      orgId: null,
+      visibility: "private" as const,
+      updatedAt: "2026-08-02T00:00:00.000Z",
+      matchedFields: ["config"] as Array<
+        "id" | "name" | "description" | "config"
+      >,
+    }));
+    state.dashboardReferences.forEach((reference, index) => {
+      state.dashboardConfigs.set(reference.id, {
+        panels: [
+          {
+            id: `panel-${index + 1}`,
+            title: `Synthetic metric ${index + 1}`,
+            source: "bigquery",
+            sql: `SELECT panel_only_metric_${index + 1} FROM synthetic_table`,
+          },
+        ],
+      });
+    });
+    state.dashboardReferencePage = {
+      results: state.dashboardReferences,
+      searched: 200,
+      of: 30,
+      truncated: true,
+      nextPage: "cursor",
+    };
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: "panel-only metric",
+      email: "alice@example.com",
+      orgId: null,
+      limit: 6,
+    });
+
+    expect(result.dashboardPanelReferenceSearchTruncated).toBe(true);
+    expect(result.dashboardPanelReferenceNextPage).toBe("cursor");
+    expect(result.dashboardPanelReferenceSearched).toBe(200);
+    expect(result.dashboardPanelReferenceOf).toBe(30);
+    expect(result.dashboardDetailHydrationTruncated).toBe(true);
+    expect(result.truncated).toBe(true);
+    expect(result.searchedDashboardCount).toBe(24);
+    expect(result.of).toBe(24);
+    expect(result.candidates).toHaveLength(6);
+    expect(result.nextPage).not.toBeNull();
   });
 
   it("does not use a shipped template when a saved dashboard may be beyond the cap", async () => {
@@ -315,6 +522,44 @@ describe("searchAnalyticsQueryCatalog", () => {
     expect(warn).toHaveBeenCalledWith(
       "[analytics] Data dictionary search truncated.",
       { searchedDictionaryEntryCount: 400, dictionarySearchTruncated: true },
+    );
+  });
+
+  it("uses generated deprecation status when a saved dictionary overlay shares its id", async () => {
+    state.listOrgSettings.mockResolvedValueOnce({
+      "data-dict-index-user-model": {
+        id: "index-user-model",
+        metric: "User Model",
+        definition: "Reviewed definition",
+        status: "active",
+        approved: true,
+      },
+    });
+    state.readSourceIndex.mockResolvedValueOnce({
+      status: "available",
+      bundle: {} as never,
+    });
+    state.sourceIndexDictionaryEntries.mockReturnValueOnce([
+      {
+        id: "index-user-model",
+        metric: "User Model",
+        definition: "Generated definition",
+        status: "deprecated",
+        sourceIndex: true,
+        approved: false,
+        aiGenerated: true,
+      },
+    ]);
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: "user model",
+      email: "alice@example.com",
+      orgId: "org-analytics",
+      limit: 6,
+    });
+
+    expect(result.candidates).not.toContainEqual(
+      expect.objectContaining({ id: "index-user-model" }),
     );
   });
 

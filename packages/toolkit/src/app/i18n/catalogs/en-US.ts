@@ -36,6 +36,12 @@ const messages = {
   "agent.queued": "queued",
   "agent.completed": "finished",
   "agent.failed": "needs attention",
+  "agent.failureReason.failed": "Couldn't finish",
+  "agent.failureReason.setup": "Needs setup first",
+  "agent.failureReason.auth": "Access was rejected",
+  "agent.failureReason.timeout": "Took too long",
+  "agent.failureReason.budget": "Ran out of time",
+  "agent.failureReason.response": "No usable result",
   "agent.closed": "closed",
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
@@ -82,6 +88,8 @@ const messages = {
     "Optional text to check for in the reply…",
   "observability.promoteMustContainLabel":
     "Text to check for in the promoted eval reply",
+  "observability.promoteReviewedPromptLabel":
+    "Manually reviewed prompt (never copied from production)",
   "observability.promoteNeedsContains":
     "This run has no successful tool call. Enter text the reply must contain before promoting.",
   "observability.viewDetails": "View details",
@@ -1157,9 +1165,11 @@ const messages = {
   "recovery.copyFailed": "Copy failed",
   "recovery.continueUnavailable":
     "This run can't be continued anymore. Send a message to keep going.",
+  "errorMessages.invalidAttachmentNamed":
+    "The model provider rejected {{name}} because its format or size is unsupported. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported format or paste the relevant text, then retry.",
+  "recovery.retryWithoutAttachment": "Retry without attachment",
   "recovery.retryAttachmentUnavailable":
     "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
-  "recovery.retryWithoutAttachment": "Retry without attachment",
   "recovery.deferredSubmissionFailed":
     "This message couldn't be sent. Check your connection or chat setup, then retry.",
   "recovery.credentialRejected":

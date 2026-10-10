@@ -1,4 +1,7 @@
-import { isActionContractError } from "@agent-native/core";
+import {
+  isActionContractError,
+  isAgentActionStopError,
+} from "@agent-native/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hashSlideContent } from "../shared/slide-fit";
@@ -189,6 +192,7 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => undefined,
   getRequestRunContext: () => undefined,
+  getRequestUserEmail: () => undefined,
 }));
 
 import { trackGenerationCompletedForRun } from "../server/lib/generation-completion";
@@ -731,9 +735,180 @@ describe("add-slide", () => {
       expect(error).toMatchObject({
         message: expect.stringContaining("No slide was added"),
       });
+      expect((error as Error).message).toContain(
+        "targetSlideCountOverride set to the new total of real slides",
+      );
+      expect(isAgentActionStopError(error)).toBe(false);
       expect(updateFn).not.toHaveBeenCalled();
     },
   );
+
+  describe("blank placeholders and the persisted target", () => {
+    const blank = '<div class="fmd-slide"></div>';
+    const withBlanks = (blankCount: number, realCount: number) => [
+      ...Array.from({ length: blankCount }, (_, index) => ({
+        id: `blank-${index + 1}`,
+        content: blank,
+      })),
+      ...Array.from({ length: realCount }, (_, index) => ({
+        id: `real-${index + 1}`,
+        content: `<div>Real ${index + 1}</div>`,
+      })),
+    ];
+    const input = {
+      deckId: "deck-1",
+      slideId: "slide-new",
+      content: "<div>New</div>",
+    };
+
+    it("accepts a slide when default blanks fill the deck but real slides are under the target", async () => {
+      deckData.slides = withBlanks(10, 1);
+      deckData.generationContext = { targetSlideCount: 11 };
+
+      await action.run(input, { caller: "tool" });
+
+      expect(JSON.parse(updatedFields!.data as string).slides).toHaveLength(12);
+    });
+
+    it("still stops once the real slides reach the target, whatever the blank count", async () => {
+      deckData.slides = withBlanks(3, 2);
+      deckData.generationContext = { targetSlideCount: 2 };
+
+      const error = await action
+        .run(input, { caller: "tool" })
+        .catch((caught: unknown) => caught);
+
+      expect(isActionContractError(error)).toBe(true);
+      expect(error).toMatchObject({
+        errorCode: "target_slide_count_reached",
+        details: {
+          currentSlideCount: 5,
+          realSlideCount: 2,
+          targetSlideCount: 2,
+        },
+      });
+      expect(updateFn).not.toHaveBeenCalled();
+    });
+
+    it("validates targetSlideCountOverride against the same real count as the cap", async () => {
+      deckData.slides = withBlanks(2, 1);
+      deckData.generationContext = { targetSlideCount: 2 };
+
+      await expect(
+        action.run(
+          { ...input, targetSlideCountOverride: 4 },
+          { caller: "tool" },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "target_slide_count_override_invalid",
+        details: {
+          currentSlideCount: 3,
+          realSlideCount: 1,
+          targetSlideCount: 2,
+          targetSlideCountOverride: 4,
+        },
+      });
+      expect(updateFn).not.toHaveBeenCalled();
+
+      deckData.slides = withBlanks(2, 2);
+      await action.run(
+        { ...input, targetSlideCountOverride: 3 },
+        { caller: "tool" },
+      );
+      const updated = JSON.parse(updatedFields!.data as string);
+      expect(updated.generationContext.targetSlideCount).toBe(3);
+    });
+
+    it("reports the real slide count after the write alongside the slide count", async () => {
+      deckData.slides = withBlanks(10, 1);
+      deckData.generationContext = { targetSlideCount: 11 };
+
+      const result = await action.run(input, { caller: "tool" });
+
+      expect(result).toMatchObject({ slideCount: 12, realSlideCount: 2 });
+    });
+
+    it("does not count a blank slide it just added as real", async () => {
+      deckData.slides = withBlanks(1, 1);
+      deckData.generationContext = { targetSlideCount: 3 };
+
+      const result = await action.run(
+        { ...input, content: blank },
+        { caller: "tool" },
+      );
+
+      expect(result).toMatchObject({ slideCount: 3, realSlideCount: 1 });
+    });
+
+    it("does not complete generation on a blank final write that leaves the real slides short", async () => {
+      deckData.slides = withBlanks(1, 2);
+      deckData.generationContext = {
+        targetSlideCount: 3,
+        generationAttemptId: "attempt-1",
+        generationMode: "action",
+      };
+
+      await expect(
+        action.run(
+          { ...input, content: blank, generationComplete: true },
+          { caller: "tool" },
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "generation_completed_before_target_reached",
+        details: {
+          realSlideCount: 2,
+          postWriteRealSlideCount: 2,
+          targetSlideCount: 3,
+        },
+      });
+      expect(updateFn).not.toHaveBeenCalled();
+    });
+
+    it("omits the real slide count when the deck has no target to compare it with", async () => {
+      deckData.slides = withBlanks(1, 1);
+
+      const result = await action.run(input, { caller: "tool" });
+
+      expect(result).toMatchObject({ slideCount: 3 });
+      expect(result).not.toHaveProperty("realSlideCount");
+    });
+
+    it("counts a slide drawn from excalidraw data toward the target", async () => {
+      deckData.slides = [
+        {
+          id: "drawn-1",
+          content: blank,
+          excalidrawData: JSON.stringify({ elements: [{ id: "rect-1" }] }),
+        },
+      ];
+      deckData.generationContext = { targetSlideCount: 1 };
+
+      await expect(action.run(input, { caller: "tool" })).rejects.toMatchObject(
+        {
+          errorCode: "target_slide_count_reached",
+          details: { realSlideCount: 1, targetSlideCount: 1 },
+        },
+      );
+      expect(updateFn).not.toHaveBeenCalled();
+    });
+
+    it("does not complete generation while real slides are short of the target", async () => {
+      deckData.slides = withBlanks(2, 1);
+      deckData.generationContext = {
+        targetSlideCount: 3,
+        generationAttemptId: "attempt-1",
+        generationMode: "action",
+      };
+
+      await expect(
+        action.run({ ...input, generationComplete: true }, { caller: "tool" }),
+      ).rejects.toMatchObject({
+        errorCode: "generation_completed_before_target_reached",
+        details: { realSlideCount: 1, targetSlideCount: 3 },
+      });
+      expect(updateFn).not.toHaveBeenCalled();
+    });
+  });
 
   it.each([
     {

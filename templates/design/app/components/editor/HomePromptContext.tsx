@@ -504,6 +504,7 @@ export function useHomePromptContext({
                   preview: (
                     <DesignThumbnail
                       html={design.previewHtml ?? null}
+                      designId={design.id}
                       className="h-full w-full"
                     />
                   ),

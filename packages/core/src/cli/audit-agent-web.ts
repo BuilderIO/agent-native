@@ -71,18 +71,36 @@ export async function runAuditAgentWeb(args: string[]): Promise<void> {
   );
 
   const sitemap = await fetchText(baseUrl, "/sitemap.xml");
-  const sitemapUrls = parseSitemapUrls(sitemap.text);
+  const sitemapIndexUrls = /<sitemapindex[\s>]/i.test(sitemap.text)
+    ? parseSitemapUrls(sitemap.text)
+    : [];
+  // A sitemap index lists child sitemaps, not pages: audit its first child.
+  const pageSitemap = sitemapIndexUrls.length
+    ? await fetchAbsolute(
+        localizeUrlForAudit(baseUrl, sitemapIndexUrls[0]) ??
+          sitemapIndexUrls[0],
+      )
+    : sitemap;
+  const sitemapUrls = parseSitemapUrls(pageSitemap.text);
   checks.push(
     check(
       "sitemap.xml",
-      sitemap.status >= 200 && sitemap.status < 300 && sitemapUrls.length > 0,
-      `found ${sitemapUrls.length} sitemap URLs`,
+      sitemap.status >= 200 &&
+        sitemap.status < 300 &&
+        pageSitemap.status >= 200 &&
+        pageSitemap.status < 300 &&
+        sitemapUrls.length > 0,
+      sitemapIndexUrls.length
+        ? `found ${sitemapUrls.length} sitemap URLs in ${pageSitemap.url} (1 of ${sitemapIndexUrls.length} indexed sitemaps)`
+        : `found ${sitemapUrls.length} sitemap URLs`,
     ),
   );
   checks.push(
     check(
       "Sitemap absolute URLs",
-      sitemapUrls.every((entry) => /^https?:\/\//.test(entry)),
+      [...sitemapIndexUrls, ...sitemapUrls].every((entry) =>
+        /^https?:\/\//.test(entry),
+      ),
       "every <loc> is absolute",
     ),
   );

@@ -25,7 +25,10 @@ import {
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
-import { stripInlineBytes } from "../shared/inline-bytes.js";
+import {
+  assertNoInlineImageBytes,
+  stripInlineBytes,
+} from "../shared/inline-bytes.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
@@ -397,6 +400,11 @@ function normalizeForkSourceSnapshot(
   } catch {
     return null;
   }
+  parsed = stripInlineBytes(parsed, "placeholder");
+  assertPersistableThreadData(
+    JSON.stringify(parsed),
+    "fork source thread_data",
+  );
 
   const messageCount = countThreadMessages(parsed, 0);
   if (messageCount <= 0) return null;
@@ -884,6 +892,30 @@ export async function ensureChatThreadTables(): Promise<void> {
   await ensureTable();
 }
 
+/**
+ * Yes/no access check that never reads the conversation body. Callers that
+ * only need the answer (run polling, run ownership) must use this, not
+ * `resolveThreadAccess`: that one returns the whole thread, and `thread_data`
+ * is the full message history, so a boolean check would pull megabytes per call.
+ */
+export async function hasThreadAccess(
+  userEmail: string | null | undefined,
+  threadId: string | null | undefined,
+  minRole: ShareRole | "owner" = "viewer",
+  ctx: Omit<AccessContext, "userEmail"> = {},
+): Promise<boolean> {
+  if (!userEmail || !threadId) return false;
+  // `skipResourceBody` keeps the access load a projected row. Without it the
+  // load is an unprojected `select()` that pulls `thread_data`.
+  const access = await resolveAccess(
+    "chat_thread",
+    threadId,
+    { userEmail, orgId: ctx.orgId },
+    { skipResourceBody: true },
+  );
+  return !!access && roleSatisfies(access.role, minRole);
+}
+
 export async function resolveThreadAccess(
   userEmail: string | null | undefined,
   threadId: string | null | undefined,
@@ -891,18 +923,7 @@ export async function resolveThreadAccess(
   ctx: Omit<AccessContext, "userEmail"> = {},
 ): Promise<ChatThread | null> {
   if (!userEmail || !threadId) return null;
-  // `skipResourceBody` matters more here than anywhere else: without it the
-  // access load is an unprojected `select()` that pulls `thread_data` — the
-  // whole conversation JSON — and then this function discards the row and reads
-  // it again through `getThread`. Two full-blob reads of the same row per call,
-  // on the agent-chat hot path.
-  const access = await resolveAccess(
-    "chat_thread",
-    threadId,
-    { userEmail, orgId: ctx.orgId },
-    { skipResourceBody: true },
-  );
-  if (!access || !roleSatisfies(access.role, minRole)) return null;
+  if (!(await hasThreadAccess(userEmail, threadId, minRole, ctx))) return null;
   return await getThread(threadId);
 }
 
@@ -1043,6 +1064,7 @@ export async function forkThread(
       "placeholder",
     ),
   );
+  assertPersistableThreadData(threadData, "forked thread_data");
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
   const client = getDbExec();
@@ -1409,6 +1431,27 @@ export interface UpdateThreadDataOptions {
   ignoreConflicts?: boolean;
 }
 
+export class InlineAttachmentDataNotPersistableError extends Error {
+  readonly code = "inline_attachment_data_not_persistable";
+
+  constructor(
+    message = "Inline attachment data cannot be stored in chat history.",
+  ) {
+    super(message);
+    this.name = "InlineAttachmentDataNotPersistableError";
+  }
+}
+
+function assertPersistableThreadData(threadData: string, label: string): void {
+  try {
+    assertNoInlineImageBytes(threadData, label);
+  } catch (error) {
+    throw new InlineAttachmentDataNotPersistableError(
+      error instanceof Error ? error.message : undefined,
+    );
+  }
+}
+
 function parseThreadData(value: string): any {
   try {
     return JSON.parse(value || "{}");
@@ -1441,7 +1484,13 @@ export async function updateThreadData(
       const current = await getThread(id);
       if (!current) return false;
 
-      const transformed = options.transformThreadData?.(current.threadData);
+      const safeCurrentThreadData = stripInlineBytes(
+        parseThreadData(current.threadData),
+        "placeholder",
+      );
+      const transformed = options.transformThreadData?.(
+        JSON.stringify(safeCurrentThreadData),
+      );
       const incomingThreadData =
         typeof transformed === "string"
           ? transformed
@@ -1450,7 +1499,7 @@ export async function updateThreadData(
       let nextMessageCount = messageCount;
       const annotationConflicts: ThreadAnnotationSnapshotConflict[] = [];
       const merged = mergeThreadDataForClientSave(
-        parseThreadData(current.threadData),
+        safeCurrentThreadData,
         parseThreadData(incomingThreadData),
         {
           preserveExistingQueuedMessages:
@@ -1465,6 +1514,7 @@ export async function updateThreadData(
       // visible placeholder rather than failing the save; legacy rows are
       // scrubbed on their next write.
       nextThreadData = JSON.stringify(stripInlineBytes(merged, "placeholder"));
+      assertPersistableThreadData(nextThreadData, "thread_data");
       nextMessageCount = countThreadMessages(merged, messageCount);
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
@@ -1520,6 +1570,9 @@ export async function updateThreadData(
 
       lastConflict = true;
     } catch (error) {
+      if (error instanceof InlineAttachmentDataNotPersistableError) {
+        throw error;
+      }
       // Completion saves happen after a long model/tool turn, when a
       // transient connection or serverless DB failure is especially costly.
       // Retry the whole read/merge/write attempt like a CAS conflict, while
@@ -1635,6 +1688,16 @@ export async function mutateThreadQueuedMessages(
   mutation: ThreadQueuedMessageMutation,
 ): Promise<ThreadQueuedMessageMutationResult | null> {
   if (mutation.type === "append") {
+    try {
+      assertNoInlineImageBytes(
+        { type: "file", metadata: mutation.message.metadata },
+        "queuedMessage.metadata",
+      );
+    } catch (error) {
+      throw new InlineAttachmentDataNotPersistableError(
+        error instanceof Error ? error.message : undefined,
+      );
+    }
     parseQueueMessageInput(
       {
         ...mutation.message,

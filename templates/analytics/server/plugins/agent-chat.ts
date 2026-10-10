@@ -1,3 +1,4 @@
+import "../register-secrets.js";
 import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
@@ -279,11 +280,11 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
   {
     id: "references",
-    text: 'REFERENCES — The system may preload bounded dictionary entries and saved dashboard panels in `<resource scope="analytics-catalog">`. They supply definitions and query examples, never current values. Approved entries are canonical, unreviewed human entries unverified, AI-generated unapproved entries suggestions. If nothing fits, search once with `search-analytics-query-catalog`, then `list-data-dictionary` or `search-bigquery-schema`. The words all, total, or exact do not by themselves make a question a corpus investigation.',
+    text: 'REFERENCES — The system may preload bounded dictionary entries and saved dashboard panels in `<resource scope="analytics-catalog">`. They supply definitions and query examples, never current values. Approved entries are canonical, unreviewed human entries unverified, AI-generated unapproved entries suggestions. If nothing fits, call `find-data` once for ranked definitions, saved query examples, and generated source metadata. Call `search-bigquery-schema` next only when exact live columns or partition metadata are still needed. The words all, total, or exact do not by themselves make a question a corpus investigation.',
   },
   {
     id: "failed-calls",
-    text: "FAILED CALLS — Correct invalid arguments once; never repeat an identical failed call. For credential, permission, quota, network, or repeated schema failures, stop using that source for the turn and surface the actual error rather than trying unrelated providers. `search-bigquery-schema` searches the configured project without a dataset, and `list-data-dictionary` defines the metrics.",
+    text: "FAILED CALLS — Correct invalid arguments once; never repeat an identical failed call. For credential, permission, quota, network, or repeated schema failures, stop using that source for the turn and surface the actual error rather than trying unrelated providers. `find-data` searches definitions, saved query examples, and generated source metadata together; `search-bigquery-schema` checks exact live warehouse metadata.",
   },
   {
     id: "understand-the-ask",
@@ -1019,7 +1020,7 @@ export function realDataFinalGuard(
       : "";
     return {
       retryMessage:
-        "The draft asks the user to supply internal dataset, table, column, or SQL details. Do not ask the user for warehouse schema identifiers. Use the configured Analytics tools now: call `search-analytics-query-catalog`, then `list-data-dictionary` and `search-bigquery-schema` with focused metric terms when the catalog has no usable definition, and run one authoritative `bigquery` query using the exact discovered references. `search-bigquery-schema` searches the configured project without a dataset. For a named customer, verify identity and distinguish actual consumption from limits or changelog metadata. If the tools prove the source or metric is unavailable, state that exact evidence gap instead of asking the user to name internal tables." +
+        "The draft asks the user to supply internal dataset, table, column, or SQL details. Do not ask the user for warehouse schema identifiers. Use the configured Analytics tools now: call `find-data` once with the user's metric/entity question, then call `search-bigquery-schema` only when exact live columns or partition metadata remain unknown, and run one authoritative `bigquery` query using the exact discovered references. For a named customer, verify identity and distinguish actual consumption from limits or changelog metadata. If the tools prove the source or metric is unavailable, state that exact evidence gap instead of asking the user to name internal tables." +
         failedQueryRecovery,
       fallbackMessage:
         "I couldn't complete that lookup from the configured Analytics sources yet. Please retry and I'll inspect the catalog and warehouse schema directly rather than asking you to provide internal table names.",
@@ -1112,7 +1113,7 @@ export function realDataFinalGuard(
   if (catalogSearched) {
     return {
       retryMessage:
-        "You already ran catalog/dashboard-reference discovery this turn. If it returned a usable dashboard or query, adapt and run it now and cite the dashboard; if not, run the next discovery pass (list-data-dictionary, search-bigquery-schema, or data-source-status) and one bounded query." +
+        "You already ran data-reference discovery this turn. If it returned a usable dashboard or query, adapt and run it now and cite the dashboard; if not, inspect exact metadata with search-bigquery-schema or data-source-status, then run one bounded query." +
         UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
       fallbackMessage:
         "I searched the dashboard/query catalog but didn't finish a real source query. Please retry; I'll adapt a matching dashboard or query if one exists, or run the next discovery pass and query it directly.",

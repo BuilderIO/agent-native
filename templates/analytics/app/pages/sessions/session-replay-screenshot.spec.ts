@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { html2canvasMock } = vi.hoisted(() => ({ html2canvasMock: vi.fn() }));
-vi.mock("html2canvas", () => ({ default: html2canvasMock }));
+vi.mock("html2canvas-pro", () => ({ default: html2canvasMock }));
 
 import {
   assertReplayFontsReady,
@@ -782,6 +782,30 @@ describe("session replay screenshot asset checks", () => {
     embed.remove();
   });
 
+  it("finishes reconstructed document parsing before waiting for fonts", async () => {
+    const fontsDescriptor = Object.getOwnPropertyDescriptor(document, "fonts");
+    let resolveFonts: () => void = () => {};
+    const ready = new Promise<void>((resolve) => {
+      resolveFonts = resolve;
+    });
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: { ready },
+    });
+    vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
+    const close = vi.spyOn(document, "close").mockImplementation(resolveFonts);
+    try {
+      await assertReplayFontsReady(document);
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      if (fontsDescriptor) {
+        Object.defineProperty(document, "fonts", fontsDescriptor);
+      } else {
+        Reflect.deleteProperty(document, "fonts");
+      }
+    }
+  });
+
   it("bounds replay font readiness", async () => {
     vi.useFakeTimers();
     const fontsDescriptor = Object.getOwnPropertyDescriptor(document, "fonts");
@@ -894,6 +918,23 @@ describe("session replay screenshot asset checks", () => {
     });
     expect(assets.get(document)?.get(image.src)).toMatch(/^data:image\/png/);
 
+    image.remove();
+  });
+
+  it("can preflight replay assets without browser credentials", async () => {
+    const image = document.createElement("img");
+    image.src = "https://assets.example.test/image.png";
+    document.body.appendChild(image);
+    const probes = stubImageProbes(() => "load");
+
+    await assertRemoteImagesCapturable(document, undefined, "omit");
+
+    expect(probes).toHaveLength(1);
+    expect(probes[0]).toMatchObject({
+      credentials: "omit",
+      mode: "cors",
+      url: image.src,
+    });
     image.remove();
   });
 

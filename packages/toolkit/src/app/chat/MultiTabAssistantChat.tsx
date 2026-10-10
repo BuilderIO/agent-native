@@ -51,6 +51,10 @@ import {
   type ReasoningEffort,
 } from "@agent-native/core/shared";
 import {
+  ComposerContextError,
+  composerContextFits,
+} from "@agent-native/toolkit/composer";
+import {
   isClaudeCodeAgentId,
   isLunaModel,
   resolvePreferredAgentModel,
@@ -85,11 +89,13 @@ import {
 import type {
   AssistantChatProps,
   AssistantChatHandle,
+  AssistantChatSnapshotSaveSource,
   AssistantChatSendOptions,
 } from "./chat/surface-types.js";
 import { fallbackChatTitle } from "./fallback-chat-title.js";
 
 type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
+const PREFILL_CONTEXT_KEY = "agent-chat-prefill-context";
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -102,6 +108,7 @@ interface ModelSelection {
 
 interface PendingSend {
   message: string;
+  prefillContext?: AgentChatContextItem;
   images?: string[];
   attachments?: AgentChatAttachment[];
   submit: boolean;
@@ -129,10 +136,96 @@ interface PendingDelivery {
 }
 
 /** The single path that hands a queued send to a mounted chat ref. */
+async function deliverPendingPrefill(
+  ref: AssistantChatHandle,
+  send: PendingSend,
+): Promise<void> {
+  let stagingId: string | undefined;
+  if (send.prefillContext) {
+    // Checked against what the composer already holds, before the draft changes,
+    // so a refused prefill leaves no draft without its context.
+    let fits: boolean;
+    try {
+      fits = ref.canStageComposerContextItem(send.prefillContext);
+    } catch (error) {
+      // A provider item still loading has no size yet; report a typed failure so the
+      // bridge caller does not wait for a timeout. Anything else is a bug and propagates.
+      if (error instanceof ComposerContextError && error.code === "not-ready") {
+        console.error(
+          "Composer context is still loading; the prefill was not applied.",
+        );
+        reportAgentChatSubmitResult(
+          send.submitMessageId,
+          false,
+          "composer-not-ready",
+        );
+        return;
+      }
+      throw error;
+    }
+    if (!fits) {
+      console.error(
+        "Prefill context does not fit alongside the composer's existing context; the prefill was not applied.",
+      );
+      reportAgentChatSubmitResult(
+        send.submitMessageId,
+        false,
+        "context-too-large",
+      );
+      return;
+    }
+    try {
+      const contextWrite = ref.setComposerContextItem(send.prefillContext, {
+        focus: false,
+        threadScoped: true,
+      });
+      if (contextWrite && typeof contextWrite.then === "function") {
+        stagingId = (await contextWrite)?.stagingId;
+      }
+    } catch {
+      reportAgentChatSubmitResult(
+        send.submitMessageId,
+        false,
+        "context-persistence-failed",
+      );
+      return;
+    }
+  }
+  if (isAgentChatSubmitCancelled(send.submitMessageId)) {
+    if (send.prefillContext) {
+      // Removes only the item this delivery staged, so a newer prefill with the same
+      // key that replaced it while the write was in flight keeps its place.
+      if (stagingId === undefined) {
+        console.error(
+          "Could not identify the staged prefill context; it was not removed after the cancelled send.",
+        );
+      } else {
+        await ref.removeComposerContextItem(send.prefillContext.key, {
+          threadScoped: true,
+          stagingId,
+        });
+      }
+    }
+    return;
+  }
+  try {
+    ref.prefillMessage(send.message);
+  } catch {
+    reportAgentChatSubmitResult(send.submitMessageId, false, "prefill-failed");
+    return;
+  }
+  reportAgentChatSubmitResult(send.submitMessageId, true);
+}
+
 function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
-    ref.prefillMessage(send.message);
+    void deliverPendingPrefill(ref, send).catch((error: unknown) => {
+      console.error(
+        "Could not finish a cancelled chat prefill cleanup.",
+        error,
+      );
+    });
     return;
   }
   // Every field is decided once, here; a separate "has options" condition
@@ -839,6 +932,7 @@ export interface MultiTabAssistantChatHeaderProps {
   tabs: ChatTab[];
   activeTabId: string;
   activeTabMessageCount: number;
+  activeTabIsPersisted?: boolean;
   setActiveTabId: (tabId: string) => void;
   addTab: () => void;
   closeTab: (tabId: string) => void;
@@ -852,6 +946,13 @@ export interface MultiTabAssistantChatHeaderProps {
   tabCount: number;
 }
 
+export type MultiTabAssistantChatHeaderCallbackProps = Omit<
+  MultiTabAssistantChatHeaderProps,
+  "activeTabIsPersisted"
+> & {
+  activeTabIsPersisted: boolean;
+};
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export type MultiTabAssistantChatProps = Omit<
@@ -861,9 +962,13 @@ export type MultiTabAssistantChatProps = Omit<
   /** Show the tab bar. Default: true */
   showTabBar?: boolean;
   /** Optional custom single-row header renderer */
-  renderHeader?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
+  renderHeader?: (
+    props: MultiTabAssistantChatHeaderCallbackProps,
+  ) => React.ReactNode;
   /** Optional page-level top-bar actions renderer for the active tab. */
-  renderOverlay?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
+  renderOverlay?: (
+    props: MultiTabAssistantChatHeaderCallbackProps,
+  ) => React.ReactNode;
   /** Hide the chat content while keeping the header visible. Used when CLI/resources mode is active. */
   contentHidden?: boolean;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
@@ -889,6 +994,28 @@ export type MultiTabAssistantChatProps = Omit<
   /** Reports the exact model engine selected for the active thread. */
   onActiveModelEngineChange?: (engine: ModelEngineConfig | null) => void;
 };
+
+type ChatHeaderTypeCheck<T extends true> = T;
+type ChatHeaderTypeMatch<A, B> = [A] extends [B]
+  ? [B] extends [A]
+    ? true
+    : false
+  : false;
+// eslint-disable-next-line no-unused-vars -- Enforced by the toolkit package typecheck.
+type ChatHeaderCallbackStatusIsBoolean = ChatHeaderTypeCheck<
+  ChatHeaderTypeMatch<
+    Parameters<
+      NonNullable<MultiTabAssistantChatProps["renderHeader"]>
+    >[0]["activeTabIsPersisted"],
+    boolean
+  >
+>;
+// eslint-disable-next-line no-unused-vars -- Enforced by the toolkit package typecheck.
+type LegacyChatHeaderStatusRemainsOptional = ChatHeaderTypeCheck<
+  {} extends Pick<MultiTabAssistantChatHeaderProps, "activeTabIsPersisted">
+    ? true
+    : false
+>;
 
 export function MultiTabAssistantChat({
   showTabBar = true,
@@ -1075,6 +1202,21 @@ export function MultiTabAssistantChat({
     ],
   );
 
+  // A shared `?thread=` link opens its thread once, then moves to the
+  // route-owned thread path, so the blank create route keeps no stale query.
+  useEffect(() => {
+    if (!threadUrlSyncEnabled || !threadRouteControlsActiveThread) return;
+    if (routeThreadId) return;
+    const sharedThreadId = readUrlThreadId(threadUrlParamName);
+    if (sharedThreadId) writeThreadUrl(sharedThreadId, { replace: true });
+  }, [
+    routeThreadId,
+    threadRouteControlsActiveThread,
+    threadUrlParamName,
+    threadUrlSyncEnabled,
+    writeThreadUrl,
+  ]);
+
   const {
     threads,
     activeThreadId,
@@ -1094,6 +1236,8 @@ export function MultiTabAssistantChat({
     restoredThreadIdOnListFailure,
     evictedThreadIds,
     isNewThread,
+    isThreadPersisted,
+    confirmThreadSnapshotPersisted,
     pinThread,
     renameThread,
   } = useChatThreads(apiUrl, storageKey, scope, {
@@ -1129,6 +1273,23 @@ export function MultiTabAssistantChat({
   const [showHistory, setShowHistory] = useState(false);
   const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+  const [, setThreadPersistenceVersion] = useState(0);
+  const handleThreadSnapshotPersisted = useCallback(
+    (threadId: string, messageCount: number) => {
+      confirmThreadSnapshotPersisted(threadId);
+      if (newThreadIds.current.delete(threadId)) {
+        setThreadPersistenceVersion((version) => version + 1);
+      }
+      if (
+        messageCount > 0 &&
+        threadId === activeThreadIdRef.current &&
+        urlThreadIdRef.current !== threadId
+      ) {
+        writeThreadUrl(threadId);
+      }
+    },
+    [confirmThreadSnapshotPersisted, writeThreadUrl],
+  );
   const latestOpenThreadRequestRef = useRef(0);
 
   useEffect(() => {
@@ -1232,7 +1393,10 @@ export function MultiTabAssistantChat({
       item: AgentChatContextItem,
       options?: { focus?: boolean },
     ) => {
-      if (filterAgentChatContextItems([item], contextNamespace).length === 0) {
+      if (
+        filterAgentChatContextItems([item], contextNamespace, threadId)
+          .length === 0
+      ) {
         return;
       }
       const ref = chatRefs.current.get(threadId);
@@ -2102,6 +2266,7 @@ export function MultiTabAssistantChat({
       const {
         message,
         context,
+        contextLabel,
         openSidebar,
         model,
         engine,
@@ -2138,12 +2303,36 @@ export function MultiTabAssistantChat({
 
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
-      const fullMessage = context
-        ? appendAgentChatContextToMessage(message, context)
-        : message;
+      const prefillContext =
+        context && !submit
+          ? {
+              key: PREFILL_CONTEXT_KEY,
+              title: contextLabel ?? translate("composer.activeAppContext"),
+              context,
+              ...(contextNamespace ? { contextNamespace } : {}),
+            }
+          : undefined;
+      // Checked the way a submit serializes it, so an accepted prefill cannot make
+      // every later submit fail. Refused as a whole, before the draft changes.
+      if (prefillContext && !composerContextFits([prefillContext])) {
+        console.error(
+          "Prefill context does not fit the composer context limit; the prefill was not applied.",
+        );
+        reportAgentChatSubmitResult(
+          submitMessageId,
+          false,
+          "context-too-large",
+        );
+        return;
+      }
+      const fullMessage =
+        context && submit
+          ? appendAgentChatContextToMessage(message, context)
+          : message;
 
       const send: PendingSend = {
         message: fullMessage,
+        ...(prefillContext ? { prefillContext } : {}),
         images,
         attachments,
         submit,
@@ -2281,6 +2470,7 @@ export function MultiTabAssistantChat({
     availableModels,
     bumpModelSelectionVersion,
     clearContextInTab,
+    contextNamespace,
     createThread,
     isNewThread,
     openTabIds,
@@ -2786,6 +2976,22 @@ export function MultiTabAssistantChat({
     };
   }, [chatCommandVersion, switchThread]);
 
+  const saveThreadDataForTab = useCallback(
+    async (
+      threadId: string,
+      data: Parameters<typeof saveThreadData>[1],
+      context?: { signal?: AbortSignal },
+    ) => {
+      const saved = context
+        ? await saveThreadData(threadId, data, context)
+        : await saveThreadData(threadId, data);
+      if (saved && data.threadData !== "")
+        newThreadIds.current.delete(threadId);
+      return saved;
+    },
+    [saveThreadData],
+  );
+
   const handleGenerateTitle = useCallback(
     (
       threadId: string,
@@ -2795,7 +3001,7 @@ export function MultiTabAssistantChat({
       void generateTitle(threadId, message, selection).then((title) => {
         const resolvedTitle = title ?? fallbackChatTitle(message);
         if (!resolvedTitle) return;
-        void saveThreadData(threadId, {
+        void saveThreadDataForTab(threadId, {
           threadData: "",
           title: resolvedTitle,
           preview: message.slice(0, 120),
@@ -2803,7 +3009,7 @@ export function MultiTabAssistantChat({
         });
       });
     },
-    [generateTitle, saveThreadData],
+    [generateTitle, saveThreadDataForTab],
   );
 
   const handleSaveThread = useCallback(
@@ -2816,20 +3022,19 @@ export function MultiTabAssistantChat({
         messageCount: number;
         titleSource?: "fallback";
       },
-    ) => {
-      void saveThreadData(threadId, {
-        ...data,
-        threadData: "",
-      });
-      if (
-        data.messageCount > 0 &&
-        threadId === activeThreadIdRef.current &&
-        urlThreadIdRef.current !== threadId
-      ) {
-        writeThreadUrl(threadId);
-      }
+      context?: { signal?: AbortSignal },
+      source: AssistantChatSnapshotSaveSource = "transport",
+    ): Promise<boolean> => {
+      return saveThreadDataForTab(
+        threadId,
+        {
+          ...data,
+          threadData: source === "host-fallback" ? data.threadData : "",
+        },
+        context,
+      );
     },
-    [saveThreadData, writeThreadUrl],
+    [saveThreadDataForTab],
   );
 
   // ─── Slash command handler ──────────────────────────────────────────
@@ -2996,12 +3201,18 @@ export function MultiTabAssistantChat({
     }
   }
 
-  const headerProps: MultiTabAssistantChatHeaderProps = {
+  const headerProps: MultiTabAssistantChatHeaderCallbackProps = {
     tabs,
     activeTabId: activeThreadId ?? "",
     activeTabMessageCount: activeThreadId
       ? (messageCounts[activeThreadId] ?? 0)
       : 0,
+    activeTabIsPersisted: Boolean(
+      activeThreadId &&
+      !newThreadIds.current.has(activeThreadId) &&
+      !isNewThread(activeThreadId) &&
+      isThreadPersisted(activeThreadId),
+    ),
     setActiveTabId: switchThread,
     addTab,
     closeTab,
@@ -3319,6 +3530,7 @@ export function MultiTabAssistantChat({
                     props.onMessageCountChange?.(count);
                   }}
                   onSaveThread={handleSaveThread}
+                  onThreadSnapshotPersisted={handleThreadSnapshotPersisted}
                   onGenerateTitle={handleGenerateTitle}
                   onSlashCommand={handleSlashCommand}
                   onForkedThread={(forkedId) =>

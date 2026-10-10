@@ -74,6 +74,39 @@ describe("file-upload registry", () => {
       expect(matches).toHaveLength(1);
       expect(matches[0]).toBe(second);
     });
+
+    it("continues ownership checks after one provider fails", async () => {
+      const failure = new Error("credential store unavailable");
+      registerFileUploadProvider({
+        ...makeProvider("s3", true),
+        isOwnedUrl: vi.fn(async () => {
+          throw failure;
+        }),
+      });
+
+      await expect(
+        findFileUploadProviderOwningUrl("https://cdn.builder.io/image.png"),
+      ).resolves.toBe(builderFileUploadProvider);
+    });
+
+    it("preserves an ownership check failure when no provider can verify the URL", async () => {
+      const failure = new Error("credential store unavailable");
+      registerFileUploadProvider({
+        ...makeProvider("s3", true),
+        isOwnedUrl: vi.fn(async () => {
+          throw failure;
+        }),
+      });
+
+      await expect(
+        findFileUploadProviderOwningUrl(
+          "https://storage.example.test/image.png",
+        ),
+      ).rejects.toMatchObject({
+        name: "AggregateError",
+        errors: [failure],
+      });
+    });
   });
 
   describe("findFileUploadProviderOwningUrl", () => {

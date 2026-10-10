@@ -10,11 +10,7 @@
  * Agent actions (update-slide, add-slide, etc.) continue to use their own
  * dedicated actions which also use the same per-deck lock.
  */
-import {
-  AgentActionStopError,
-  ActionContractError,
-  isActionContractError,
-} from "@agent-native/core";
+import { ActionContractError, isActionContractError } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -54,6 +50,7 @@ import {
 } from "../server/lib/source-import.js";
 import { assertSlideAnimationsResolve } from "../server/lib/validate-slide-animations.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
+import { isRealSlide } from "../shared/blank-slide.js";
 import { stableStringify } from "../shared/deck-content.js";
 import {
   assertHumanReadableDeckTitle,
@@ -67,6 +64,10 @@ import {
   slideFitRenderFieldsChanged,
 } from "../shared/slide-fit.js";
 import { assertStyleOnlyEdit } from "../shared/slide-style-only.js";
+import {
+  trackDeckCreationStarted,
+  trackSlideContentEdited,
+} from "./_deck-tracking.js";
 import {
   assertDeckWriteApplied,
   assertDeckClientWriteCurrent,
@@ -584,35 +585,59 @@ function persistedTargetSlideCount(deck: unknown): number | null {
     : null;
 }
 
-function projectedSlideCount(
+interface ProjectedSlide {
+  id: unknown;
+  content?: unknown;
+  excalidrawData?: unknown;
+  real: boolean;
+}
+
+function projectedRealSlideCount(
   slides: unknown[],
   operations: Operation[],
-): { count: number; added: boolean } {
-  const slideIds = slides.map((slide) => {
-    if (!slide || typeof slide !== "object" || Array.isArray(slide)) {
-      return undefined;
-    }
-    return (slide as { id?: unknown }).id;
+): { initial: number; count: number; added: boolean } {
+  const projected = slides.map((slide): ProjectedSlide => {
+    const { id, content, excalidrawData } = (
+      slide && typeof slide === "object" && !Array.isArray(slide) ? slide : {}
+    ) as { id?: unknown; content?: unknown; excalidrawData?: unknown };
+    return { id, content, excalidrawData, real: isRealSlide(slide) };
   });
+  const initial = projected.filter(({ real }) => real).length;
   let added = false;
 
   for (const operation of operations) {
     if (operation.op === "add-slide") {
-      if (slideIds.some((id) => id === operation.slideId)) continue;
-      slideIds.push(operation.slideId);
+      if (projected.some(({ id }) => id === operation.slideId)) continue;
+      const { content, excalidrawData } = operation.fields;
+      projected.push({
+        id: operation.slideId,
+        content,
+        excalidrawData,
+        real: isRealSlide(operation.fields),
+      });
       added = true;
+      continue;
+    }
+    if (operation.op === "patch-slide") {
+      const slide = projected.find(({ id }) => id === operation.slideId);
+      const { content, excalidrawData } = operation.fields;
+      if (slide && (content !== undefined || excalidrawData !== undefined)) {
+        if (content !== undefined) slide.content = content;
+        if (excalidrawData !== undefined) slide.excalidrawData = excalidrawData;
+        slide.real = isRealSlide(slide);
+      }
       continue;
     }
     if (operation.op !== "delete-slide") continue;
 
-    const index = slideIds.findIndex((id) => id === operation.slideId);
-    if (index !== -1) slideIds.splice(index, 1);
-    if (slideIds.length === 0 && !operation.allowEmpty) {
-      slideIds.push(undefined);
+    const index = projected.findIndex(({ id }) => id === operation.slideId);
+    if (index !== -1) projected.splice(index, 1);
+    if (projected.length === 0 && !operation.allowEmpty) {
+      projected.push({ id: undefined, real: true });
     }
   }
 
-  return { count: slideIds.length, added };
+  return { initial, count: projected.filter(({ real }) => real).length, added };
 }
 
 function firstDuplicate(values: readonly string[]): string | undefined {
@@ -1303,6 +1328,10 @@ export default defineAction({
         };
       }
 
+      const previousSlides = Array.isArray(deck.slides)
+        ? deck.slides.map((slide: Record<string, unknown>) => ({ ...slide }))
+        : [];
+      const previousGenerationContext = deck.generationContext;
       const existingContext = storedCreativeContext(deck.creativeContext);
       const previousDeckFitFields = {
         aspectRatio: deck.aspectRatio,
@@ -1375,25 +1404,39 @@ export default defineAction({
       }
 
       const targetSlideCount = persistedTargetSlideCount(deck);
-      const projected = projectedSlideCount(currentSlides, operations);
+      // Counting parses slide HTML and this runs on every editor save, so only
+      // an agent batch that appends against a persisted target pays for it.
       if (
         isAgentCaller &&
         targetSlideCount !== null &&
-        projected.added &&
-        projected.count > targetSlideCount
+        operations.some((operation) => operation.op === "add-slide")
       ) {
-        throw new AgentActionStopError(
-          `Cannot add slides: this deck would have ${projected.count} slides, exceeding its requested target of ${targetSlideCount}. Re-read the deck and stop adding slides unless the user explicitly changes the target.`,
-          {
-            errorCode: "target_slide_count_reached",
-            details: {
-              deckId,
-              currentSlideCount: currentSlides.length,
-              projectedSlideCount: projected.count,
-              targetSlideCount,
+        const projected = projectedRealSlideCount(currentSlides, operations);
+        if (projected.added && projected.count > targetSlideCount) {
+          const realSlideCount = projected.initial;
+          // The patch's own fills and deletes move the count before it adds.
+          const settledCount = projectedRealSlideCount(
+            currentSlides,
+            operations.filter((operation) => operation.op !== "add-slide"),
+          ).count;
+          const headroom = targetSlideCount - settledCount;
+          fail(
+            realSlideCount < targetSlideCount
+              ? `Not applied: this deck has ${realSlideCount} real slides of its persisted target of ${targetSlideCount}, and this patch would make it ${projected.count}. The deck is not complete: resend the patch ${headroom > 0 ? `adding at most ${headroom} more real slides in this patch (target ${targetSlideCount})` : `without its add-slide operations, since its other operations already bring the deck to ${settledCount} of ${targetSlideCount} real slides`}.`
+              : `Not applied: this deck has ${realSlideCount} real slides and this patch would make it ${projected.count}, exceeding its persisted target of ${targetSlideCount}. If the deck is complete, stop adding slides and summarize what was built. Only if the user explicitly asked for more slides than ${targetSlideCount}, call add-slide with targetSlideCountOverride set to the new total of real slides, then continue.`,
+            {
+              errorCode: "target_slide_count_reached",
+              statusCode: 409,
+              details: {
+                deckId,
+                currentSlideCount: currentSlides.length,
+                realSlideCount,
+                projectedSlideCount: projected.count,
+                targetSlideCount,
+              },
             },
-          },
-        );
+          );
+        }
       }
 
       const layoutFitSlideIds = new Set<string>();
@@ -1837,6 +1880,24 @@ export default defineAction({
           );
         }
       });
+
+      if (
+        operations.some((operation) => operation.op !== "patch-deck-fields")
+      ) {
+        trackSlideContentEdited(
+          "patch_deck",
+          deckId,
+          previousSlides,
+          deck,
+          ctx,
+        );
+      }
+      trackDeckCreationStarted(
+        deckId,
+        previousGenerationContext,
+        deck.generationContext,
+        ctx,
+      );
 
       const updatedSlideIds = requestedSlideIds.filter((slideId) =>
         changedSlideIds.has(slideId),

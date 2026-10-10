@@ -1,6 +1,9 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
-import { resolveCanvasIntent } from "@shared/canvas-dimensions";
+import {
+  requestedCanvasDeviceVariants,
+  resolveCanvasIntent,
+} from "@shared/canvas-dimensions";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { hasSpecifiedDesignPrompt } from "@shared/specified-design-prompt";
 
@@ -135,10 +138,18 @@ export interface IntakeQuestionContextHint {
   unavailableReason?: string;
 }
 
-export function designCanvasIntentDirectives(prompt?: string): string[] {
+export function designCanvasIntentDirectives(
+  prompt?: string,
+  mode: "generation" | "variants" = "generation",
+): string[] {
   const intent = resolveCanvasIntent(prompt);
   if (intent.kind === "fixed") {
     if (intent.source === "multiple-dimensions") {
+      if (mode === "variants") {
+        return [
+          "The user requested separate exact-size outputs. Create a separate `present-design-variants` set for each exact size, with one size in each set; pass the matching exact-size brief and set `responsive: false` for every set.",
+        ];
+      }
       return [
         "The user requested separate exact-size outputs. Generate each output as its own fixed canvas, using its exact dimensions from the request and passing `devices: []`; do not combine them into responsive breakpoints or add mobile variants.",
         "After generating each output, run `take-design-screenshot` once at that output's exact dimensions.",
@@ -150,9 +161,33 @@ export function designCanvasIntentDirectives(prompt?: string): string[] {
     const screenshot = intent.dimensions
       ? `run \`take-design-screenshot\` once with widths: [${intent.dimensions.width}] and heights: [${intent.dimensions.height}].`
       : "run `take-design-screenshot` once at the generated canvas's exact width and height.";
+    if (mode === "variants") {
+      const dimensions = intent.dimensions
+        ? `Set every variant to width ${intent.dimensions.width} and height ${intent.dimensions.height}.`
+        : "Set every variant's width and height to the exact canvas size identified by the brief.";
+      return [
+        `Fixed canvas for every variant: ${canvas}. ${dimensions} Pass \`responsive: false\` to \`present-design-variants\`; each direction must remain one static canvas with no unrequested device frames.`,
+      ];
+    }
+    if (intent.source === "explicit-dimensions" || intent.source === "preset") {
+      return [
+        `Fixed canvas: ${canvas}. Pass \`devices: []\` to \`generate-design\`. Ignore model-suggested device variants and do not add responsive breakpoints, even if the prompt mentions device versions.`,
+        `After generation, ${screenshot}`,
+      ];
+    }
+    const requestedDevices = requestedCanvasDeviceVariants(prompt);
+    const deviceDirective = requestedDevices.length
+      ? `The user explicitly requested ${requestedDevices.join(" and ")} device variants. Pass \`devices: [${requestedDevices.map((device) => `"${device}"`).join(", ")}]\` to \`generate-design\` and honor only those requested variants.`
+      : "Pass `devices: []` to `generate-design` and do not add responsive breakpoints.";
     return [
-      `Fixed canvas: ${canvas}. Generate one artwork canvas and pass \`devices: []\` to \`generate-design\`. A fixed canvas never gets device breakpoints, so give any other requested size or version its own call at that exact size.`,
+      `Fixed canvas: ${canvas}. Generate one artwork canvas. ${deviceDirective} A fixed canvas never gets unrequested device breakpoints, so give any other requested size its own call at that exact size.`,
       `After generation, ${screenshot}`,
+    ];
+  }
+
+  if (mode === "variants") {
+    return [
+      "For app and website directions, include a viewport meta tag and responsive mobile-first layout in every complete HTML variant. Let `present-design-variants` render the responsive frames; do not call `take-design-screenshot` during variant creation.",
     ];
   }
 
@@ -245,7 +280,7 @@ export function designVariantGenerationDirectives(
     ...designSystemGenerationDirectives(designSystemId),
     "The user's prompt already asks to explore multiple directions, so DO NOT call `show-design-questions` first and DO NOT call `generate-design` first.",
     `Call \`present-design-variants\` with 2-5 concise directions (3 when unspecified). ${variantContentDirective(prompt, designSystemId)}`,
-    ...designCanvasIntentDirectives(prompt),
+    ...designCanvasIntentDirectives(prompt, "variants"),
     'Wait for the user\'s chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save.',
     DESIGN_MUTATION_REQUIRED_DIRECTIVE,
   ];
@@ -253,13 +288,17 @@ export function designVariantGenerationDirectives(
 
 export function referenceImageDirectives(
   referenceImageCount: number,
+  prompt?: string,
 ): string[] {
   if (referenceImageCount < 1) return [];
+  const asksForVariants = promptRequestsVariantExploration(prompt ?? "");
   return [
     `The user attached ${referenceImageCount} reference image(s) to this message. Treat any image showing a UI as a layout specification to reproduce, not as loose inspiration.`,
     "Inspect the actual image pixels before calling generation tools. Read its regions, navigation, hierarchy, density, component grammar, spacing, and proportions from the image itself; a filename, path, or text description is not a substitute. If the image is unavailable in this turn, stop and ask the user to attach it again instead of guessing.",
     "Do NOT substitute your own composition, palette, or font for something the image or the linked design system already specifies — including choices a generic quality heuristic would discourage. Deviate only where the image is genuinely unreadable, and say so when you do.",
-    "Recreate the visible structure and content as closely as the image allows. Do NOT call `show-design-questions` or `present-design-variants`; the screenshot already specifies the direction. Generate one design.",
+    asksForVariants
+      ? "The user explicitly requested multiple directions based on the reference. Inspect the image and apply its visible structure to every variant; include complete, self-contained, renderable HTML in every variant's `content` so the saved screens preserve the reference instead of using the direction-only fallback."
+      : "Recreate the visible structure and content as closely as the image allows. Do NOT call `show-design-questions` or `present-design-variants`; the screenshot already specifies the direction. Generate one design.",
   ];
 }
 
@@ -305,19 +344,29 @@ export function designGenerationDirectives(
   referenceImageCount = 0,
   prompt?: string,
 ): string[] {
+  const shouldExploreVariants = promptRequestsVariantExploration(prompt ?? "");
   return [
-    `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
+    shouldExploreVariants
+      ? `Use the \`present-design-variants --designId="${designId}"\` action first. ${variantContentDirective(prompt, designSystemId, referenceImageCount)} The design already exists - DO NOT call create-design.`
+      : `Use the \`generate-design --designId="${designId}"\` action with exactly one complete, renderable \`index.html\` file first. The design already exists - DO NOT call create-design.`,
     WEBSITE_STYLE_REFERENCE_DIRECTIVE,
     ...designSystemGenerationDirectives(designSystemId),
-    ...referenceImageDirectives(referenceImageCount),
-    ...(referenceImageCount > 0
+    ...referenceImageDirectives(referenceImageCount, prompt),
+    ...(!shouldExploreVariants
       ? []
       : [
-          `If the user asked to explore variations, call \`present-design-variants\` with 2-5 concise directions. ${variantContentDirective(prompt, designSystemId)}` +
+          `If the user asked to explore variations, call \`present-design-variants\` with 2-5 concise directions. ${variantContentDirective(prompt, designSystemId, referenceImageCount)}` +
             ' Wait for their chat pick, delete each unchosen variant screen at most once, call `get-design-snapshot` exactly once with `fileId` for the kept screen, then call `edit-design` exactly once on that same `fileId` in a bounded pass. Use `mode: "replace-file"` when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call `generate-design` after a variant pick. Stop after the first successful `edit-design` save. Otherwise generate one polished first direction.',
         ]),
-    ...designCanvasIntentDirectives(prompt),
-    "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
+    ...designCanvasIntentDirectives(
+      prompt,
+      shouldExploreVariants ? "variants" : "generation",
+    ),
+    ...(shouldExploreVariants
+      ? []
+      : [
+          "Keep the first pass bounded enough to finish quickly: one self-contained Alpine.js + Tailwind CDN HTML document, polished but concise. Add 3-6 tweaks only when they naturally fit the design.",
+        ]),
     DESIGN_MUTATION_REQUIRED_DIRECTIVE,
   ];
 }
