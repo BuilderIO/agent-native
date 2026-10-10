@@ -630,6 +630,7 @@ describe("POST /api/session-replay/storyboard", () => {
   });
 
   it("preserves a non-OK status when Design's error body cannot be read", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.error(new Error("response stream failed"));
@@ -651,6 +652,11 @@ describe("POST /api/session-replay/storyboard", () => {
         storyboardResponseUnreadable: true,
       },
     });
+    expect(warning).toHaveBeenCalledWith(
+      "Replay storyboard export rejected",
+      "designResponse",
+    );
+    warning.mockRestore();
   });
 
   it.each(["", "not-json"])(

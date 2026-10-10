@@ -1004,6 +1004,7 @@ export default defineEventHandler(async (event) =>
               },
             );
             uploadResponse = response;
+            failurePhase = "designResponse";
             try {
               return {
                 response,
@@ -1053,7 +1054,6 @@ export default defineEventHandler(async (event) =>
       if (!uploadResponse) {
         badRequest("Design screenshot upload did not return a response", 502);
       }
-      failurePhase = "designResponse";
       let uploadResult: DesignUploadResult;
       try {
         const parsed: unknown = JSON.parse(uploadResponseBody ?? "");
