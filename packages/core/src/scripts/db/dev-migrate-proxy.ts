@@ -56,7 +56,10 @@ export async function tryForwardDbMigrateToDevServer(
   } | null;
   await tlsDispatcher?.close();
 
-  if (response.status === 404) {
+  if (
+    response.status === 404 ||
+    (response.status === 401 && typeof body?.ok !== "boolean")
+  ) {
     throw new Error(
       `The running dev server (${discovery.origin}) predates \`agent-native db-migrate\` and can't apply migrations. Restart it, then rerun this command.`,
     );

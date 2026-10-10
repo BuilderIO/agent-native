@@ -164,6 +164,22 @@ describe("runDbMigrate", () => {
     expect(mockSpawn).toHaveBeenCalled();
   });
 
+  it("forwards drizzle-kit's default folder when the config omits out", async () => {
+    writeConfig(
+      "drizzle.config.ts",
+      `export default {
+        driver: "pglite",
+        dbCredentials: { url: "./data/pglite" },
+      };`,
+    );
+    mockForward.mockResolvedValue(true);
+    await expect(runDbMigrate([])).resolves.toBe(0);
+    expect(mockForward).toHaveBeenCalledWith({
+      dataDir: path.join(tmpDir, "data/pglite"),
+      migrationsFolder: "drizzle",
+    });
+  });
+
   it("forwards an in-memory PGlite URL without resolving it as a path", async () => {
     writeConfig(
       "drizzle.config.ts",

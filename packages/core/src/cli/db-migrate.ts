@@ -64,14 +64,10 @@ export async function runDbMigrate(args: string[]): Promise<number> {
     try {
       const config = await loadDrizzleConfig(parsed.config);
       const url = config.dbCredentials?.url;
-      if (
-        config.driver === "pglite" &&
-        typeof url === "string" &&
-        typeof config.out === "string"
-      ) {
+      if (config.driver === "pglite" && typeof url === "string") {
         const forwarded = await tryForwardDbMigrateToDevServer({
           dataDir: url === "memory://" ? url : path.resolve(process.cwd(), url),
-          migrationsFolder: config.out,
+          migrationsFolder: config.out ?? "drizzle",
           ...(config.migrations?.table
             ? { migrationsTable: config.migrations.table }
             : {}),

@@ -151,6 +151,17 @@ describe("tryForwardDbMigrateToDevServer", () => {
     );
   });
 
+  it("asks for a restart when an older server's auth guard rejects the route", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    fetchMock.mockResolvedValue({
+      status: 401,
+      json: async () => ({ error: "Unauthorized" }),
+    });
+    await expect(tryForwardDbMigrateToDevServer(options)).rejects.toThrow(
+      "Restart it, then rerun this command.",
+    );
+  });
+
   it("throws the server's error when migrations fail", async () => {
     mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
     fetchMock.mockResolvedValue({
