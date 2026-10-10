@@ -4198,6 +4198,19 @@ describe("createProductionAgentHandler", () => {
   });
 
   it("sends a named capability note instead of image pixels to engines without vision", async () => {
+    const hydratePriorImages = vi.fn(async () => ({
+      contextAttachments: [
+        {
+          type: "image" as const,
+          name: "prior.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    }));
+    const prepareAfterModel = vi.fn(async ({ vision }: { vision: boolean }) =>
+      vision ? hydratePriorImages() : undefined,
+    );
     const preUpload = vi
       .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
       .mockImplementationOnce(async ({ attachments }) => ({
@@ -4236,6 +4249,7 @@ describe("createProductionAgentHandler", () => {
       systemPrompt: "Test",
       engine,
       actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
     });
     const event = mockEvent(
       new Request("http://app.example.com/_agent-native/agent-chat", {
@@ -4282,9 +4296,27 @@ describe("createProductionAgentHandler", () => {
       }),
     );
     expect(JSON.stringify(userContent)).not.toContain(PNG_BASE64);
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "test-model",
+      vision: false,
+    });
+    expect(hydratePriorImages).not.toHaveBeenCalled();
   });
 
   it("sends images to a vision-capable Mistral model despite the provider default", async () => {
+    const hydratePriorImages = vi.fn(async () => ({
+      contextAttachments: [
+        {
+          type: "image" as const,
+          name: "prior.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    }));
+    const prepareAfterModel = vi.fn(async ({ vision }: { vision: boolean }) =>
+      vision ? hydratePriorImages() : undefined,
+    );
     const preUpload = vi
       .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
       .mockImplementationOnce(async ({ attachments }) => ({
@@ -4323,6 +4355,7 @@ describe("createProductionAgentHandler", () => {
       systemPrompt: "Test",
       engine,
       actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
     });
     const event = mockEvent(
       new Request("http://app.example.com/_agent-native/agent-chat", {
@@ -4360,7 +4393,12 @@ describe("createProductionAgentHandler", () => {
       .flatMap((messages) => messages)
       .filter((message) => message.role === "user")
       .flatMap((message) => message.content);
-    expect(userContent.some((part) => part.type === "image")).toBe(true);
+    expect(userContent.filter((part) => part.type === "image")).toHaveLength(2);
+    expect(
+      userContent.some(
+        (part) => part.type === "image" && part.data === PNG_BASE64,
+      ),
+    ).toBe(true);
     expect(
       userContent.some(
         (part) =>
@@ -4368,6 +4406,11 @@ describe("createProductionAgentHandler", () => {
           part.text.includes('code="vision-not-supported"'),
       ),
     ).toBe(false);
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "mistral-small-2506",
+      vision: true,
+    });
+    expect(hydratePriorImages).toHaveBeenCalledOnce();
   });
 
   it("skips experiment assignment resolution for an explicit request model", async () => {

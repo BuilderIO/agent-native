@@ -134,6 +134,19 @@ Cada operación es un archivo TypeScript en `templates/clips/actions/`, montado 
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | El flujo de incrustación anónimo para terceros. Consulta [Incrustar Clips](/docs/template-clips-embed) |
 | `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | El lanzador de informes de errores incrustado y los diagnósticos de la extensión de Chrome             |
 
+## Diagnósticos del navegador
+
+La extensión de Chrome añade diagnósticos de consola y de red a una grabación, y `save-browser-diagnostics` los guarda. Cada entrada de consola y de red incluye un `tabId`.
+
+| Tema           | Comportamiento                                                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Pestañas       | Hasta cinco por grabación: la pestaña inicial y, después, las pestañas activas en los últimos 10 minutos, de la más reciente a la más antigua. También se vincula una pestaña a la que el usuario cambie durante la grabación. |
+| Más de cinco   | Se desvincula la pestaña menos activa recientemente, excepto la que tiene el foco. Sus entradas hasta ese momento permanecen en la grabación.                                                                                  |
+| Retrospectiva  | Hasta 30 segundos antes de que empezara la grabación, limitado por el historial de consola de la propia página y por la lista de tiempos de recursos. Estas entradas tienen un `elapsedMs` negativo.                           |
+| `tabId`        | Presente en cada entrada de consola y de red.                                                                                                                                                                                  |
+| `method`       | `"UNKNOWN"` en las entradas de red de la retrospectiva, que proceden de los tiempos de recursos y no tienen método HTTP. Las solicitudes en vivo indican el método.                                                            |
+| No se recopila | Cuerpos y encabezados de solicitudes y respuestas. Las entradas de consola y de red se redactan antes de subirlas.                                                                                                             |
+
 ## Modelo de datos
 
 Definido en `templates/clips/server/db/schema.ts`.

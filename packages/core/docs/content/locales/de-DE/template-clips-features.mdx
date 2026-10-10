@@ -138,7 +138,7 @@ Aktivieren Sie Rewind über den Rewind-Tab in den Einstellungen. Sobald es aktiv
 
 Frühere Bildschirmzeit fügt bis zu fünf Minuten Ihres Bildschirms hinzu, die von vor dem Start einer Aufnahme stammen und aus Rewind auf diesem Gerät entnommen werden. Sie wird der Aufnahme als eigener Kontext beigefügt. Sie wird nicht in das Video der Aufnahme eingefügt.
 
-Frühere Bildschirmzeit ist ein optionales Lab. Aktivieren Sie es unter **Einstellungen > Labs**, „Include earlier screen time“. Es ist standardmäßig ausgeschaltet.
+Frühere Bildschirmzeit ist ein optionales Lab, das standardmäßig eingeschaltet ist. Sie können es unter **Einstellungen > Labs**, „Include earlier screen time“, in der Clips-Web-App oder der Desktop-App ausschalten.
 
 Wenn das Lab aktiviert ist, enthält das Popover der Clips-Desktop-App das Steuerelement **Letzte einbeziehen**. Wählen Sie **Aus** (Standard), **30 s**, **5 min** oder **Benutzerdefiniert…** für eine beliebige Länge bis zu fünf Minuten. Damit eine gewählte Länge wirksam wird, muss Rewind eingeschaltet sein und laufen. Wird eine Länge gewählt, während Rewind ausgeschaltet ist, öffnet sich eine kurze Erklärung mit der Schaltfläche **Rewind aktivieren**.
 
@@ -164,7 +164,17 @@ Grenzen: Frühere Bildschirmzeit beträgt höchstens fünf Minuten. Der Verlauf 
 
 Installieren Sie die Clips-Chrome-Erweiterung für eine Aufnahme plus die Browserprotokolle und Netzwerkaktivität aus dem Tab, den Sie debuggen, nützlich zum Melden von Produktfehlern und reinen Browser-Repros.
 
-Sie beobachtet nur den Tab, den Sie aktiv aufnehmen, und nur während die Aufnahme läuft. Sie speichert Konsolenmeldungen und grundlegende Informationen pro Anfrage (Methode, eine geschwärzte URL, Status, Dauer und ob eine Anfrage fehlgeschlagen ist), niemals Anfrage- oder Antworttexte, Header oder Cookies. Verwenden Sie die Desktop-App für die alltägliche Aufnahme, und greifen Sie gezielt zur Chrome-Erweiterung, wenn Sie diese Browserprotokolle angehängt brauchen.
+| Thema           | Verhalten                                                                                                                                                                                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabs            | Bis zu fünf: der Tab, mit dem Sie die Aufnahme gestartet haben, dann Tabs, die Sie in den letzten 10 Minuten verwendet haben, neueste zuerst.                                                                                                              |
+| Tab-Wechsel     | Ein Tab, zu dem Sie während der Aufnahme wechseln, wird ebenfalls erfasst. Sind mehr als fünf Tabs angehängt, wird der am wenigsten kürzlich genutzte Tab außer dem gerade fokussierten getrennt, und seine bisherigen Protokolle bleiben in der Aufnahme. |
+| Rückblick       | Bis zu 30 Sekunden vor Beginn der Aufnahme, soweit die Seite ihren Konsolenverlauf und ihre Resource-Timing-Daten noch vorhält. Diese Einträge haben negative Zeitversätze.                                                                                |
+| Gespeichert     | Konsolenmeldungen sowie Informationen zu fetch/XHR-Anfragen: Methode, eine geschwärzte URL, Status, Dauer und ob die Anfrage fehlgeschlagen ist. Jeder Eintrag vermerkt den Tab, aus dem er stammt.                                                        |
+| Nie gespeichert | Anfrage- oder Antworttexte, Header oder Cookies.                                                                                                                                                                                                           |
+
+Netzwerkeinträge aus dem Rückblick haben keine HTTP-Methode, daher wird ihre Methode als `UNKNOWN` erfasst. Anfragen, die während der Aufnahme gestellt wurden, enthalten die Methode. Tabs werden nur erfasst, solange die Erweiterung läuft. Daher können in den ersten 10 Minuten nach dem Start weniger als fünf Tabs infrage kommen.
+
+Verwenden Sie die Desktop-App für die alltägliche Aufnahme, und greifen Sie gezielt zur Chrome-Erweiterung, wenn Sie diese Browserprotokolle angehängt brauchen.
 
 ## Transkription und KI-Metadaten {#transcription-and-ai-metadata}
 

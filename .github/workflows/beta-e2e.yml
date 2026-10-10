@@ -29,7 +29,7 @@ name: Beta E2E (browser)
 # beta apps share a database with production, so the explicit manual entrypoint
 # remains a deliberate promotion decision. The separate scheduled wrapper
 # calls this workflow on a six-hour cadence with the hosted sites' shared
-# credential and reports failures to one deduplicated issue.
+# credential and sends one rolled-up report to #qa-agent-native with run links.
 
 on:
   workflow_call:
@@ -550,7 +550,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${PAGERDUTY_ROUTING_KEY:-}" ]; then
-            echo "::warning::PAGERDUTY_ROUTING_KEY is not configured; the GitHub issue fallback is active but no page was sent."
+            echo "::warning::PAGERDUTY_ROUTING_KEY is not configured; no page was sent."
             exit 0
           fi
           jq -n \

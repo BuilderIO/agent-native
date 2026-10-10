@@ -8,6 +8,7 @@ import {
   IconCalendarEvent,
   IconCircleCheck,
   IconExternalLink,
+  IconFlask,
   IconPencil,
   IconInfoCircle,
   IconHistory,
@@ -75,6 +76,7 @@ import {
   type FileUploadStatusProbe,
 } from "../../shared/file-upload-status";
 import {
+  CLIPS_LABS,
   CLIPS_LOOKBACK_CONTEXT,
   CLIPS_MEETINGS,
   CLIPS_WISPRFLOW,
@@ -1190,6 +1192,7 @@ export function App({
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
   const [labValues, setLabValues] = useState<Record<string, unknown>>({});
+  const [labError, setLabError] = useState<string | null>(null);
   const t = useT();
   const [lookbackSeconds, setLookbackSeconds] = useState(loadLookbackSeconds);
   const [recentLookbackSeconds, setRecentLookbackSeconds] = useState(
@@ -1657,6 +1660,34 @@ export function App({
       window.clearInterval(refreshInterval);
     };
   }, [authStatus, callClipsAction]);
+
+  // Writes through the same set-lab action the web app uses, so a change here
+  // also reaches Clips on the web and the record popover. The switch moves at
+  // once and is reverted if the save fails.
+  async function setLabEnabled(
+    lab: { key: string; displayName?: string },
+    enabled: boolean,
+  ) {
+    const previous = labValues;
+    setLabError(null);
+    const optimistic = { ...labValues, [lab.key]: enabled };
+    setLabValues(optimistic);
+    emit("clips:labs-updated", { values: optimistic }).catch(() => {});
+    try {
+      const saved = await callClipsAction<{ values: Record<string, unknown> }>(
+        "set-lab",
+        { key: lab.key, enabled },
+        { method: "POST" },
+      );
+      setLabValues(saved.values);
+      emit("clips:labs-updated", { values: saved.values }).catch(() => {});
+    } catch (error) {
+      console.warn("[clips-tray] lab update failed:", error);
+      setLabValues(previous);
+      emit("clips:labs-updated", { values: previous }).catch(() => {});
+      setLabError(`Could not change ${lab.displayName ?? lab.key}. Try again.`);
+    }
+  }
 
   useEffect(() => {
     invoke("meetings_watcher_set_lab_enabled", {
@@ -4479,6 +4510,12 @@ export function App({
           surface="memory"
           meetingsLabEnabled={meetingsLabEnabled}
           wisprFlowLabEnabled={wisprFlowLabEnabled}
+          labValues={labValues}
+          labError={labError}
+          labsSignedIn={authStatus === "authed"}
+          onLabEnabledChange={(lab, enabled) =>
+            void setLabEnabled(lab, enabled)
+          }
           recordingActive={isRecording || recordingFlowActive}
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -4526,6 +4563,12 @@ export function App({
           onSettingsTabChange={setInitialSettingsTab}
           meetingsLabEnabled={meetingsLabEnabled}
           wisprFlowLabEnabled={wisprFlowLabEnabled}
+          labValues={labValues}
+          labError={labError}
+          labsSignedIn={authStatus === "authed"}
+          onLabEnabledChange={(lab, enabled) =>
+            void setLabEnabled(lab, enabled)
+          }
           recordingActive={isRecording || recordingFlowActive}
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -6188,6 +6231,10 @@ function Setup({
   onSettingsTabChange,
   meetingsLabEnabled,
   wisprFlowLabEnabled,
+  labValues,
+  labError,
+  labsSignedIn,
+  onLabEnabledChange,
   recordingActive = false,
   initial,
   serverUrl,
@@ -6226,6 +6273,13 @@ function Setup({
   onSettingsTabChange?: (tab: SettingsTabId) => void;
   meetingsLabEnabled: boolean;
   wisprFlowLabEnabled: boolean;
+  labValues: Record<string, unknown>;
+  labError: string | null;
+  labsSignedIn: boolean;
+  onLabEnabledChange: (
+    lab: { key: string; displayName?: string },
+    enabled: boolean,
+  ) => void;
   recordingActive?: boolean;
   initial?: string | null;
   serverUrl?: string;
@@ -7883,6 +7937,43 @@ function Setup({
     );
   }
 
+  function renderLabsSettings() {
+    const signedIn = labsSignedIn;
+    return (
+      <div className="mx-auto grid w-full max-w-[620px] gap-7 pb-4">
+        <SettingsGroup label="Labs">
+          {CLIPS_LABS.map((lab) => (
+            <SettingsRow
+              key={lab.key}
+              label={lab.displayName ?? lab.key}
+              description={lab.description}
+              control={
+                <UiSwitch
+                  checked={isLabEnabled(labValues, lab)}
+                  onCheckedChange={(enabled) =>
+                    onLabEnabledChange(lab, enabled)
+                  }
+                  disabled={!signedIn}
+                  aria-label={lab.displayName ?? lab.key}
+                />
+              }
+            />
+          ))}
+        </SettingsGroup>
+        {signedIn ? null : (
+          <p className="text-xs text-muted-foreground">
+            Sign in to change labs.
+          </p>
+        )}
+        {labError ? (
+          <p role="alert" className="text-xs text-destructive">
+            {labError}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   function renderAdvancedSettings() {
     return (
       <div className="mx-auto grid w-full max-w-[620px] gap-7 pb-4">
@@ -8476,6 +8567,11 @@ function Setup({
         ]
       : []),
     {
+      id: "labs",
+      label: "Labs",
+      icon: <IconFlask size={16} stroke={1.7} aria-hidden="true" />,
+    },
+    {
       id: "advanced",
       label: "Advanced",
       icon: <IconTool size={16} stroke={1.7} aria-hidden="true" />,
@@ -8494,6 +8590,8 @@ function Setup({
         return renderDictationSettings();
       case "rewind":
         return renderRewindSettings();
+      case "labs":
+        return renderLabsSettings();
       case "advanced":
         return renderAdvancedSettings();
       case "general":

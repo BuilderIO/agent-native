@@ -134,6 +134,19 @@ Chaque opération est un fichier TypeScript dans `templates/clips/actions/`, mon
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | Le flux d'intégration anonyme pour un tiers. Consultez [Intégrer Clips](/docs/template-clips-embed) |
 | `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | Le lanceur de rapport de bug intégré et les diagnostics de l'extension Chrome                       |
 
+## Diagnostics du navigateur
+
+L'extension Chrome ajoute à un enregistrement les diagnostics de console et de réseau, et `save-browser-diagnostics` les stocke. Chaque entrée de console et de réseau porte un `tabId`.
+
+| Sujet           | Comportement                                                                                                                                                                                                                          |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Onglets         | Jusqu'à cinq par enregistrement : l'onglet de départ, puis les onglets actifs au cours des 10 dernières minutes, du plus récent au plus ancien. Un onglet vers lequel l'utilisateur bascule pendant l'enregistrement est aussi joint. |
+| Au-delà de cinq | L'onglet le moins récemment actif, autre que celui au premier plan, est détaché. Ses entrées jusque-là restent dans l'enregistrement.                                                                                                 |
+| Rétrospective   | Jusqu'à 30 secondes avant le début de l'enregistrement, limité par l'historique de console de la page et la liste de resource timing. Ces entrées ont un `elapsedMs` négatif.                                                         |
+| `tabId`         | Renseigné sur chaque entrée de console et de réseau.                                                                                                                                                                                  |
+| `method`        | `"UNKNOWN"` sur les entrées réseau de la rétrospective, issues de resource timing, qui n'ont pas de méthode HTTP. Les requêtes en direct indiquent la méthode.                                                                        |
+| Non collecté    | Corps et en-têtes des requêtes et des réponses. Les entrées de console et de réseau sont expurgées avant l'envoi.                                                                                                                     |
+
 ## Modèle de données
 
 Défini dans `templates/clips/server/db/schema.ts`.
