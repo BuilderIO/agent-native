@@ -4059,6 +4059,29 @@ export function createAgentChatPlugin(
       }) => {
         if (!details.threadId || !details.ownerEmail) return undefined;
 
+        let existingThread: ChatThread | null;
+        try {
+          existingThread = await getThread(details.threadId);
+        } catch {
+          throw createError({
+            statusCode: 503,
+            statusMessage: "Prior chat attachment history could not be read.",
+            data: { code: "prior_attachment_history_unreadable" },
+          });
+        }
+        if (!existingThread) return undefined;
+        if (
+          threadScopeMismatch(
+            existingThread.scope,
+            getRequestRunContext()?.chatScope,
+          )
+        ) {
+          throw createError({
+            statusCode: 404,
+            statusMessage: "Thread not found",
+          });
+        }
+
         let thread: ChatThread | null;
         try {
           thread = await resolveThreadAccess(
@@ -4074,27 +4097,11 @@ export function createAgentChatPlugin(
             data: { code: "prior_attachment_history_unreadable" },
           });
         }
-        if (!thread) {
-          let exists: boolean;
-          try {
-            // Keep unknown thread ids available for first-turn creation while
-            // still rejecting ids that resolve to another user's thread.
-            exists = (await getThread(details.threadId)) !== null;
-          } catch {
-            throw createError({
-              statusCode: 503,
-              statusMessage: "Prior chat attachment history could not be read.",
-              data: { code: "prior_attachment_history_unreadable" },
-            });
-          }
-          if (exists) {
-            throw createError({
-              statusCode: 404,
-              statusMessage: "Thread not found",
-            });
-          }
-          return undefined;
-        }
+        if (!thread)
+          throw createError({
+            statusCode: 404,
+            statusMessage: "Thread not found",
+          });
         if (
           threadScopeMismatch(thread.scope, getRequestRunContext()?.chatScope)
         ) {
