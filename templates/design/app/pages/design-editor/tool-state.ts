@@ -163,7 +163,10 @@ export function getDesignBottomToolbarMode(args: {
   canEditDesign: boolean;
   canCommentDesign: boolean;
   hasActiveFile: boolean;
+  /** A widget's write ticket authorizes editing without a signed-in session. */
+  scopedWidget: boolean;
 }): DesignBottomToolbarMode {
+  if (args.scopedWidget && args.canEditDesign) return "editor";
   if (!args.isSignedIn || !args.canCommentDesign) return "hidden";
   if (args.canEditDesign) return "editor";
   return args.hasActiveFile ? "commenter" : "hidden";

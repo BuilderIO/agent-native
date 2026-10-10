@@ -89,7 +89,7 @@ export function renderLeftSidebar({
   canApplyPendingVisualEditsWithAgent: boolean;
   projectMenu: ReactElement;
   projectTitleControl: ReactElement;
-  minimalUiToggle: ReactElement;
+  minimalUiToggle: ReactElement | null;
   leftContentWidth: number;
   leftSidebarVisible: boolean;
 }) {
