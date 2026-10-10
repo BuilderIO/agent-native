@@ -541,7 +541,7 @@ export interface AgentPanelProps extends Omit<
 > {
   onReadyChange?: (ready: boolean) => void;
   defaultMode?: "chat" | "cli";
-  onReferenceTargetChange?: () => void;
+  onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
   onNavigationChange?: MultiTabAssistantChatProps["onNavigationChange"];
   onTabsClosed?: MultiTabAssistantChatProps["onTabsClosed"];
   onTabsClosing?: MultiTabAssistantChatProps["onTabsClosing"];

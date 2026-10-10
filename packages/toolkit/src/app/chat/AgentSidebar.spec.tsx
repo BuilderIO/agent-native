@@ -29,6 +29,13 @@ const mockPanel = vi.hoisted(() => {
     imports: 0,
     events: [] as Array<{ type: string; detail: unknown }>,
     onEvent: undefined as ((event: Event) => void) | undefined,
+    onReady: undefined as
+      | ((
+          notify: MultiTabAssistantChatProps["onReferenceTargetChange"],
+        ) => void)
+      | undefined,
+    onNavigationChange:
+      undefined as MultiTabAssistantChatProps["onNavigationChange"],
     composer: undefined as React.ReactNode,
     importGate: new Promise<void>((resolve) => {
       resolveImport = resolve;
@@ -43,10 +50,15 @@ vi.mock("./AgentSidebarPanel.js", async () => {
   return {
     AgentSidebarPanel: ({
       onReadyChange,
+      onReferenceTargetChange,
+      onNavigationChange,
     }: {
       onReadyChange?: (ready: boolean) => void;
+      onReferenceTargetChange?: MultiTabAssistantChatProps["onReferenceTargetChange"];
+      onNavigationChange?: MultiTabAssistantChatProps["onNavigationChange"];
     }) => {
       React.useEffect(() => {
+        mockPanel.onNavigationChange = onNavigationChange;
         const record = (event: Event) => {
           mockPanel.events.push({
             type: event.type,
@@ -64,6 +76,7 @@ vi.mock("./AgentSidebarPanel.js", async () => {
         window.addEventListener("message", record);
         window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, record);
         onReadyChange?.(true);
+        mockPanel.onReady?.(onReferenceTargetChange);
         return () => {
           onReadyChange?.(false);
           window.removeEventListener("agent-panel:set-mode", record);
@@ -161,6 +174,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
 });
 
 import { AgentSidebar, preloadAgentChatSurface } from "./AgentSidebar.js";
+import type { MultiTabAssistantChatProps } from "./MultiTabAssistantChat.js";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -212,6 +226,7 @@ afterEach(() => {
 beforeEach(() => {
   mockPanel.events = [];
   mockPanel.onEvent = undefined;
+  mockPanel.onReady = undefined;
   mockPanel.composer = undefined;
   mockTrust.frame = true;
   mockTrust.builder = false;
@@ -391,6 +406,310 @@ describe("AgentSidebar panel", () => {
       detail: { type: "file", path: "/custom-event.md" },
     });
   });
+
+  it("binds a cold reference before a second selection commits in the same turn", async () => {
+    mockPanel.resolveImport();
+    mockPanel.composer = (
+      <div data-agent-chat-reference-target="first">
+        <textarea />
+      </div>
+    );
+    mockPanel.onReady = (notify) => {
+      const element = container!.querySelector("textarea")!;
+      element.parentElement!.setAttribute(
+        "data-agent-chat-reference-target",
+        "second",
+      );
+      notify?.("second", []);
+      window.dispatchEvent(
+        new CustomEvent("agentNative:composer-reference-ready", {
+          detail: element,
+        }),
+      );
+    };
+    const chat = await import("@agent-native/core/client/agent-chat");
+    const results: unknown[] = [];
+    const record = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    try {
+      renderSidebar(false);
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+            detail: {
+              refType: "file",
+              refId: "/cold-first.md",
+              slotKey: "document",
+            },
+          }),
+        );
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: window.location.origin,
+            data: {
+              type: "agentNative.submitChat",
+              data: {
+                message: "For first recipient",
+                submit: false,
+                submitMessageId: "cold-recipient-before-drain",
+              },
+            },
+          }),
+        );
+      });
+      expect(mockPanel.events).toEqual([]);
+      expect(results).toEqual([
+        {
+          submitMessageId: "cold-recipient-before-drain",
+          delivered: false,
+          reason: "reference-target-changed",
+        },
+      ]);
+    } finally {
+      window.removeEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    }
+  });
+
+  it.each(["second", "first-again", "missing-marker"])(
+    "binds navigation references at commit before delayed acknowledgement (%s)",
+    async (selection) => {
+      mockPanel.resolveImport();
+      mockPanel.composer = (
+        <div data-agent-chat-reference-target="first">
+          <textarea />
+        </div>
+      );
+      let notify: MultiTabAssistantChatProps["onReferenceTargetChange"];
+      mockPanel.onReady = (callback) => {
+        notify = callback;
+      };
+      mockPanel.onEvent = (event) => {
+        if (event.type !== "agent-chat:open-thread") return;
+        mockPanel.onNavigationChange?.(event, "started");
+        const element = container!.querySelector("textarea")!;
+        const marker = element.parentElement!;
+        if (selection === "missing-marker")
+          marker.removeAttribute("data-agent-chat-reference-target");
+        notify?.("first", [event]);
+        if (selection !== "missing-marker") {
+          marker.setAttribute("data-agent-chat-reference-target", "second");
+          notify?.("second", []);
+          if (selection === "first-again") {
+            marker.setAttribute("data-agent-chat-reference-target", "first");
+            notify?.("first", []);
+          }
+        }
+        queueMicrotask(() => {
+          mockPanel.onNavigationChange?.(event, "selected");
+          if (selection === "missing-marker")
+            marker.setAttribute("data-agent-chat-reference-target", "first");
+          window.dispatchEvent(
+            new CustomEvent("agentNative:composer-reference-ready", {
+              detail: element,
+            }),
+          );
+        });
+      };
+      const chat = await import("@agent-native/core/client/agent-chat");
+      const results: unknown[] = [];
+      const record = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      try {
+        renderSidebar(false);
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: {
+                threadId: "first",
+                openRequestId: `committed-navigation-${selection}`,
+              },
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                refType: "file",
+                refId: "/navigation-first.md",
+                slotKey: "document",
+              },
+            }),
+          );
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              origin: window.location.origin,
+              data: {
+                type: "agentNative.submitChat",
+                data: {
+                  message: "For committed first recipient",
+                  submit: false,
+                  submitMessageId: `committed-recipient-${selection}`,
+                },
+              },
+            }),
+          );
+        });
+        if (selection === "missing-marker") {
+          expect(results).toEqual([]);
+          expect(mockPanel.events.map(({ type }) => type)).toEqual([
+            "agent-chat:open-thread",
+            AGENT_CHAT_INSERT_REFERENCE_EVENT,
+            "message",
+          ]);
+        } else {
+          expect(mockPanel.events.map(({ type }) => type)).toEqual([
+            "agent-chat:open-thread",
+          ]);
+          expect(results).toEqual([
+            {
+              submitMessageId: `committed-recipient-${selection}`,
+              delivered: false,
+              reason: "reference-target-changed",
+            },
+          ]);
+        }
+      } finally {
+        window.removeEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      }
+    },
+  );
+
+  it.each([
+    "after-commit",
+    "draft-only",
+    "draft-before-commit",
+    "displaced-fresh",
+    "missing-marker",
+    "missing-marker-return",
+  ])(
+    "preserves the logical recipient for work captured after commit (%s)",
+    async (interval) => {
+      mockPanel.resolveImport();
+      mockPanel.composer = (
+        <div data-agent-chat-reference-target="first">
+          <textarea />
+        </div>
+      );
+      let notify: MultiTabAssistantChatProps["onReferenceTargetChange"];
+      mockPanel.onReady = (callback) => {
+        notify = callback;
+      };
+      const chat = await import("@agent-native/core/client/agent-chat");
+      const results: unknown[] = [];
+      const record = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      const queueWork = () => {
+        if (!interval.startsWith("draft-"))
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                refType: "file",
+                refId: "/committed-recipient.md",
+                slotKey: "document",
+              },
+            }),
+          );
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: window.location.origin,
+            data: {
+              type: "agentNative.submitChat",
+              data: {
+                message: "For the committed first recipient",
+                submit: false,
+                submitMessageId: `captured-after-commit-${interval}`,
+              },
+            },
+          }),
+        );
+      };
+      try {
+        renderSidebar(false);
+        await act(async () =>
+          window.dispatchEvent(new CustomEvent("agent-panel:prepare")),
+        );
+        const element = container!.querySelector("textarea")!;
+        const marker = element.parentElement!;
+        mockPanel.events = [];
+        mockPanel.onEvent = (event) => {
+          if (event.type !== "agent-chat:open-thread") return;
+          mockPanel.onNavigationChange?.(event, "started");
+          if (interval === "draft-before-commit") queueWork();
+          notify?.("first", [event]);
+          if (interval === "displaced-fresh") {
+            marker.setAttribute("data-agent-chat-reference-target", "second");
+            notify?.("second", []);
+          }
+          if (interval !== "draft-before-commit") queueWork();
+          if (interval.startsWith("draft-")) {
+            marker.setAttribute("data-agent-chat-reference-target", "second");
+            notify?.("second", []);
+          }
+          queueMicrotask(() => {
+            mockPanel.onNavigationChange?.(event, "selected");
+            window.dispatchEvent(
+              new CustomEvent("agentNative:composer-reference-ready", {
+                detail: element,
+              }),
+            );
+          });
+        };
+        await act(async () => {
+          if (interval.startsWith("missing-marker")) {
+            notify?.("first", []);
+            marker.removeAttribute("data-agent-chat-reference-target");
+            queueWork();
+            marker.setAttribute("data-agent-chat-reference-target", "second");
+            notify?.("second", []);
+            if (interval === "missing-marker-return") {
+              marker.setAttribute("data-agent-chat-reference-target", "first");
+              notify?.("first", []);
+            }
+            window.dispatchEvent(
+              new CustomEvent("agentNative:composer-reference-ready", {
+                detail: element,
+              }),
+            );
+          } else
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:open-thread", {
+                detail: {
+                  threadId: "first",
+                  openRequestId: `capture-interval-${interval}`,
+                },
+              }),
+            );
+        });
+        if (interval === "after-commit" || interval === "displaced-fresh") {
+          expect(results).toEqual([]);
+          expect(mockPanel.events.map(({ type }) => type)).toEqual([
+            "agent-chat:open-thread",
+            AGENT_CHAT_INSERT_REFERENCE_EVENT,
+            "message",
+          ]);
+        } else {
+          expect(
+            mockPanel.events.some(
+              ({ type }) =>
+                type === "message" ||
+                type === AGENT_CHAT_INSERT_REFERENCE_EVENT,
+            ),
+          ).toBe(false);
+          expect(results).toEqual([
+            {
+              submitMessageId: `captured-after-commit-${interval}`,
+              delivered: false,
+              reason: "reference-target-changed",
+            },
+          ]);
+        }
+      } finally {
+        window.removeEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      }
+    },
+  );
 
   it("retains references and later submissions across ready-disabled-ready transitions", async () => {
     renderSidebar(false);

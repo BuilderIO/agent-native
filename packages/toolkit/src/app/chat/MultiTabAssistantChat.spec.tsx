@@ -10,6 +10,7 @@ import {
   clearAgentChatContext,
   drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
+  isAgentChatSubmitCancelled,
   listAgentChatContext,
   removeAgentChatContextItem,
   requestAgentChatThreadOpen,
@@ -29,6 +30,7 @@ import { invalidateClientStatusRequests } from "@agent-native/core/client/status
 import { AssistantRuntimeProvider, useLocalRuntime } from "@assistant-ui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -718,7 +720,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     { transport: "custom", cold: true },
     { transport: "message", cold: true },
   ])(
-    "holds a queued $transport reference for its original tab (cold=$cold)",
+    "cancels a queued $transport reference when its selected tab changes (cold=$cold)",
     async ({ transport, cold }) => {
       assistantChatMockState.referenceProbe = true;
       const queryClient = new QueryClient({
@@ -762,68 +764,128 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         slotKey: "document",
         insertMessageId: `original-tab-${transport}`,
       };
-      await act(async () => {
-        window.dispatchEvent(
-          transport === "custom"
-            ? new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, { detail })
-            : new MessageEvent("message", {
-                origin: window.location.origin,
-                data: {
-                  type: AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
-                  data: detail,
-                },
-              }),
-        );
-        dispatchSubmitChat({
-          message: "Use the original tab document",
-          submit: false,
-          openSidebar: false,
-        });
-      });
-      assistantChatMockState.referenceDisabled = false;
-      await act(async () => threadMocks.switchThread("thread-2"));
-      expect(assistantChatMockState.referenceDeliveries).toEqual([]);
-      expect(
-        container.querySelector('[data-reference-thread="thread-2"]')
-          ?.textContent,
-      ).not.toContain("Original tab document");
-      const controls: string[] = [];
-      const recordControl = (event: Event) => controls.push(event.type);
-      window.addEventListener("agent-panel:open-settings", recordControl);
-      window.addEventListener("agent-panel:set-mode", recordControl);
+      const results: unknown[] = [];
+      const recordResult = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
       try {
         await act(async () => {
           window.dispatchEvent(
-            new CustomEvent("agent-panel:open-settings", {
-              detail: { section: "api-keys" },
-            }),
+            transport === "custom"
+              ? new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, { detail })
+              : new MessageEvent("message", {
+                  origin: window.location.origin,
+                  data: {
+                    type: AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+                    data: detail,
+                  },
+                }),
           );
+          dispatchSubmitChat({
+            message: "Use the original tab document",
+            submit: false,
+            openSidebar: false,
+            submitMessageId: `original-tab-draft-${transport}-${cold}`,
+          });
           window.dispatchEvent(
-            new CustomEvent("agent-panel:set-mode", {
-              detail: { mode: "chat" },
+            new CustomEvent("agent-chat:open-thread", {
+              detail: { threadId: "thread-2" },
             }),
           );
+          dispatchSubmitChat({
+            message: "Independent queued draft",
+            targetTabId: "thread-2",
+            submit: false,
+            openSidebar: false,
+          });
         });
-        expect(controls).toEqual([
-          "agent-panel:open-settings",
-          "agent-panel:set-mode",
+        expect(threadMocks.openThread).not.toHaveBeenCalled();
+        assistantChatMockState.referenceDisabled = false;
+        await act(async () => threadMocks.switchThread("thread-2"));
+        expect(results).toContainEqual({
+          submitMessageId: `original-tab-draft-${transport}-${cold}`,
+          delivered: false,
+          reason: "reference-target-changed",
+        });
+        expect(threadMocks.openThread).toHaveBeenCalledWith("thread-2");
+        expect(assistantChatMockState.referenceDeliveries).toEqual([
+          {
+            threadId: "thread-2",
+            context: expect.not.stringContaining("Original tab document"),
+          },
         ]);
-        expect(assistantChatMockState.referenceDeliveries).toEqual([]);
+        expect(
+          container.querySelector('[data-reference-thread="thread-2"]')
+            ?.textContent,
+        ).not.toContain("Original tab document");
+        const controls: string[] = [];
+        const recordControl = (event: Event) => controls.push(event.type);
+        window.addEventListener("agent-panel:open-settings", recordControl);
+        window.addEventListener("agent-panel:set-mode", recordControl);
+        try {
+          await act(async () => {
+            window.dispatchEvent(
+              new CustomEvent("agent-panel:open-settings", {
+                detail: { section: "api-keys" },
+              }),
+            );
+            window.dispatchEvent(
+              new CustomEvent("agent-panel:set-mode", {
+                detail: { mode: "chat" },
+              }),
+            );
+          });
+          expect(controls).toEqual([
+            "agent-panel:open-settings",
+            "agent-panel:set-mode",
+          ]);
+          expect(assistantChatMockState.referenceDeliveries).toHaveLength(1);
+        } finally {
+          window.removeEventListener(
+            "agent-panel:open-settings",
+            recordControl,
+          );
+          window.removeEventListener("agent-panel:set-mode", recordControl);
+        }
+        await act(async () => threadMocks.switchThread("thread-1"));
+        expect(assistantChatMockState.referenceDeliveries).toHaveLength(1);
+        expect(
+          container.querySelector('[data-reference-thread="thread-1"]')
+            ?.textContent,
+        ).not.toContain("Original tab document");
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: { threadId: "thread-2" },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Independent draft after changing selection",
+            submit: false,
+            openSidebar: false,
+          });
+        });
+        expect(threadMocks.openThread).toHaveBeenCalledWith("thread-2");
+        expect(assistantChatMockState.referenceDeliveries).toEqual([
+          {
+            threadId: "thread-2",
+            context: expect.not.stringContaining("Original tab document"),
+          },
+          {
+            threadId: "thread-2",
+            context: expect.not.stringContaining("Original tab document"),
+          },
+        ]);
+        expect(
+          container.querySelector('[data-reference-thread="thread-2"]')
+            ?.textContent,
+        ).not.toContain("Original tab document");
       } finally {
-        window.removeEventListener("agent-panel:open-settings", recordControl);
-        window.removeEventListener("agent-panel:set-mode", recordControl);
+        window.removeEventListener(
+          AGENT_CHAT_SUBMIT_RESULT_EVENT,
+          recordResult,
+        );
       }
-      await act(async () => threadMocks.switchThread("thread-1"));
-      expect(assistantChatMockState.referenceDeliveries).toEqual([
-        {
-          threadId: "thread-1",
-          context: expect.stringContaining("Original tab document"),
-        },
-      ]);
-      expect(
-        container.querySelector('[data-reference-thread="thread-2"]')
-          ?.textContent,
-      ).not.toContain("Original tab document");
     },
   );
 
@@ -1263,6 +1325,97 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       expect(assistantChatMockState.referenceDeliveries).toHaveLength(1);
     } finally {
       window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    }
+  });
+
+  it("cancels dependent drafts when selection changes during reference replay", async () => {
+    const sidebar = await mountNavigationSidebar();
+    assistantChatMockState.referenceDisabled = true;
+    await act(async () => root.render(sidebar()));
+    const results: Array<{
+      submitMessageId?: string;
+      delivered: boolean;
+      reason?: string;
+    }> = [];
+    const recordResult = (event: Event) => {
+      const result = (event as CustomEvent).detail;
+      results.push(result);
+      if (
+        result.submitMessageId === "reentrant-selection-first" &&
+        !result.delivered
+      ) {
+        expect(claimAgentChatSubmit("reentrant-selection-second")).toBe(false);
+        expect(isAgentChatSubmitCancelled("reentrant-selection-first")).toBe(
+          false,
+        );
+        dispatchSubmitChat({
+          message: "Fresh explicit B draft",
+          targetTabId: "thread-2",
+          submit: false,
+          openSidebar: false,
+        });
+      }
+    };
+    const switchDuringReplay = () => {
+      flushSync(() => threadMocks.switchThread("thread-2"));
+      flushSync(() => threadMocks.switchThread("thread-1"));
+    };
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    window.addEventListener(
+      AGENT_CHAT_INSERT_REFERENCE_EVENT,
+      switchDuringReplay,
+    );
+    try {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+            detail: {
+              label: "Committed A reference",
+              refType: "file",
+              refId: "/reentrant-selection.md",
+              slotKey: "document",
+              insertMessageId: "reentrant-selection-reference",
+            },
+          }),
+        );
+        for (const suffix of ["first", "second"])
+          dispatchSubmitChat({
+            message: `Dependent ${suffix}`,
+            submit: false,
+            openSidebar: false,
+            submitMessageId: `reentrant-selection-${suffix}`,
+          });
+      });
+      assistantChatMockState.referenceDisabled = false;
+      await act(async () => root.render(sidebar()));
+      expect(results.filter((result) => !result.delivered)).toEqual([
+        {
+          submitMessageId: "reentrant-selection-first",
+          delivered: false,
+          reason: "reference-target-changed",
+        },
+        {
+          submitMessageId: "reentrant-selection-second",
+          delivered: false,
+          reason: "reference-target-changed",
+        },
+      ]);
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+        "Fresh explicit B draft",
+      );
+      expect(assistantChatMockState.referenceDeliveries).toEqual([
+        {
+          threadId: "thread-2",
+          context: expect.not.stringContaining("Committed A reference"),
+        },
+      ]);
+      expect(threadMocks.activeThreadId).toBe("thread-1");
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+      window.removeEventListener(
+        AGENT_CHAT_INSERT_REFERENCE_EVENT,
+        switchDuringReplay,
+      );
     }
   });
 

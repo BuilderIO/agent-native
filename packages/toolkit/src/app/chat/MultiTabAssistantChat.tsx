@@ -897,7 +897,10 @@ export type MultiTabAssistantChatProps = Omit<
   /** Reports the exact model engine selected for the active thread. */
   onActiveModelEngineChange?: (engine: ModelEngineConfig | null) => void;
   onCommandListenersReadyChange?: (ready: boolean) => void;
-  onReferenceTargetChange?: () => void;
+  onReferenceTargetChange?: (
+    targetId: string | null,
+    navigations: Event[],
+  ) => void;
   onNavigationChange?: (event: Event, outcome: ChatNavigationOutcome) => void;
   onTabsClosed?: (tabIds: string[], outcome: "closed" | "missing") => void;
   onTabsClosing?: (
@@ -3097,9 +3100,20 @@ export function MultiTabAssistantChat({
     return () => onCommandListenersReadyChange?.(false);
   }, [onCommandListenersReadyChange]);
 
-  useEffect(() => {
-    onReferenceTargetChange?.();
-  }, [activeThreadId, onReferenceTargetChange]);
+  useBrowserLayoutEffect(() => {
+    const committed = navigationSettlements.filter(
+      (settlement) =>
+        settlement.outcome === "selected" &&
+        settlement.targetId === activeThreadId &&
+        pendingNavigations.current.get(
+          getAgentChatNavigationKey(settlement.event),
+        )?.generation === latestNavigationRequestRef.current,
+    );
+    onReferenceTargetChange?.(
+      activeThreadId,
+      committed.map(({ event }) => event),
+    );
+  }, [activeThreadId, navigationSettlements, onReferenceTargetChange]);
 
   // Watch for agent-issued chat-command in application-state. The shared
   // DB-sync transport advances this key-specific version, so the command gets

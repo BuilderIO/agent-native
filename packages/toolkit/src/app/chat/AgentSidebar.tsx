@@ -631,6 +631,8 @@ export function AgentSidebar({
   const replayingPanelEvent = useRef<Event | null>(null);
   const drainScheduled = useRef(false);
   const activeNavigations = useRef(new Map<AgentChatNavigationKey, Event>());
+  const committedNavigations = useRef(new Set<AgentChatNavigationKey>());
+  const committedReferenceTargetId = useRef<string | null>(null);
   const getReferenceTargetId = useCallback(
     () =>
       panelElementRef.current
@@ -669,12 +671,6 @@ export function AgentSidebar({
               : undefined;
           const conversation = navigation ?? pendingPanelEvents.current[0];
           const control = pendingPanelControls.current[0];
-          if (
-            conversation?.referenceTargetId === null &&
-            activeNavigations.current.size === 0
-          ) {
-            conversation.referenceTargetId = getReferenceTargetId();
-          }
           const conversationReady =
             conversation &&
             (isPanelNavigationEvent(conversation.event) ||
@@ -712,10 +708,7 @@ export function AgentSidebar({
         );
       }
     });
-  }, [isReferenceTargetReady, getReferenceTargetId]);
-  const onReferenceTargetChange = useCallback(() => {
-    drainPendingPanelEvents();
-  }, [drainPendingPanelEvents]);
+  }, [isReferenceTargetReady]);
   const preparePendingEventCancellation = useCallback(
     (
       matches: (pending: PendingPanelEvent) => boolean,
@@ -775,6 +768,55 @@ export function AgentSidebar({
       preparePendingEventCancellation(matches, reason)(),
     [preparePendingEventCancellation],
   );
+  const onReferenceTargetChange = useCallback(
+    (
+      targetId = committedReferenceTargetId.current ?? getReferenceTargetId(),
+      navigations: Event[] = [],
+    ) => {
+      if (targetId !== null) {
+        committedReferenceTargetId.current = targetId;
+        const committed = new Set(navigations.map(getAgentChatNavigationKey));
+        for (const key of committed) committedNavigations.current.add(key);
+        for (const pending of pendingPanelEvents.current) {
+          if (
+            pending.navigation === undefined ||
+            committed.has(pending.navigation)
+          ) {
+            if (pending.referenceTargetId === null)
+              pending.referenceTargetId = targetId;
+            else if (
+              pending.targetId == null &&
+              !pending.reference &&
+              !isComposerReferenceEvent(pending.event) &&
+              !isPanelNavigationEvent(pending.event)
+            )
+              pending.targetId = targetId;
+          }
+        }
+        const cancelled = new Set(
+          pendingPanelEvents.current.filter((pending) => {
+            const submit =
+              pending.event instanceof MessageEvent
+                ? parseSubmitChatMessage(pending.event)
+                : null;
+            if (submit?.targetTabId) return false;
+            const recipient =
+              pending.referenceTargetId ??
+              pending.reference?.referenceTargetId ??
+              pending.targetId;
+            return typeof recipient === "string" && recipient !== targetId;
+          }),
+        );
+        if (cancelled.size > 0)
+          cancelPendingEvents(
+            (pending) => cancelled.has(pending),
+            "reference-target-changed",
+          );
+      }
+      drainPendingPanelEvents();
+    },
+    [getReferenceTargetId, cancelPendingEvents, drainPendingPanelEvents],
+  );
   const disposePendingEventsRef = useRef(cancelPendingEvents);
   disposePendingEventsRef.current = cancelPendingEvents;
   useEffect(
@@ -783,6 +825,7 @@ export function AgentSidebar({
       composerReadyRef.current = false;
       composerElementRef.current = null;
       activeNavigations.current.clear();
+      committedNavigations.current.clear();
       disposePendingEventsRef.current(() => true, "panel-unmounted");
     },
     [],
@@ -793,11 +836,13 @@ export function AgentSidebar({
     (event, outcome) => {
       const key = getAgentChatNavigationKey(event);
       if (outcome === "started") {
+        committedNavigations.current.delete(key);
         activeNavigations.current.set(key, event);
         setHasPendingPanelEvents(true);
         return;
       }
       activeNavigations.current.delete(key);
+      committedNavigations.current.delete(key);
       if (outcome !== "selected") {
         cancelPendingEvents(
           (pending) => pending.navigation === key,
@@ -989,9 +1034,16 @@ export function AgentSidebar({
       const precedingNavigation = [...pendingPanelEvents.current]
         .reverse()
         .find((pending) => isPanelNavigationEvent(pending.event));
-      const navigation = precedingNavigation
+      const precedingNavigationKey = precedingNavigation
         ? getAgentChatNavigationKey(precedingNavigation.event)
         : [...activeNavigations.current.keys()].at(-1);
+      const navigation =
+        precedingNavigationKey !== undefined &&
+        !committedNavigations.current.has(precedingNavigationKey)
+          ? precedingNavigationKey
+          : undefined;
+      const recipient =
+        committedReferenceTargetId.current ?? getReferenceTargetId();
       const reference = [...pendingPanelEvents.current]
         .reverse()
         .find(
@@ -1007,7 +1059,7 @@ export function AgentSidebar({
         referenceTargetId: isComposerReferenceEvent(event)
           ? navigation
             ? null
-            : getReferenceTargetId()
+            : recipient
           : undefined,
         navigation:
           submit?.targetTabId || isPanelNavigationEvent(event)
@@ -1021,7 +1073,7 @@ export function AgentSidebar({
             ? undefined
             : reference && isComposerReferenceEvent(reference.event)
               ? undefined
-              : getReferenceTargetId()),
+              : recipient),
         reference:
           !isPanelNavigationEvent(event) &&
           !submit?.targetTabId &&
