@@ -1944,6 +1944,77 @@ describe("useBuilderConnectFlow", () => {
     },
   );
 
+  it("keeps refreshed account state when desktop popup launch fails", async () => {
+    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+    const desktopConnectUrl = "https://builder.io/connect?_an_connect=signed";
+    const accountExistsStatus: BuilderStatus = {
+      configured: false,
+      builderEnabled: true,
+      agentNativeProvisioningEnabled: true,
+      agentNativeProvisioningToken: provisioningToken,
+      envManaged: false,
+      connectUrl: desktopConnectUrl,
+      appHost: "https://builder.io",
+      apiHost: "https://api.builder.io",
+      publicKeyConfigured: false,
+      privateKeyConfigured: false,
+      connectError: {
+        message:
+          "A Builder account already exists for this email. Log in to connect it.",
+        code: "account_exists",
+        at: Date.now(),
+      },
+    };
+    const refreshedStatus: BuilderStatus = {
+      ...accountExistsStatus,
+      connectError: undefined,
+    };
+    const readStatus: BuilderConnectTransport["readStatus"] = async ({
+      connectAttemptId,
+    }) => (connectAttemptId ? refreshedStatus : accountExistsStatus);
+    const transport: BuilderConnectTransport = {
+      readStatus,
+      activateAccount: async () => ({ ok: true }),
+      openConnectUrl: async () => ({
+        ok: false,
+        error: "Desktop launch failed",
+      }),
+    };
+
+    await act(async () => {
+      root.render(
+        <BuilderConnectProbe
+          startProvisionAccount={false}
+          transport={transport}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved no-account-exists");
+    expect(container.textContent).toContain("Desktop launch failed");
+  });
+
   it("falls back to the cached signed URL when the click-time status refresh fails", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();
@@ -3603,6 +3674,64 @@ describe("useBuilderConnectFlow", () => {
     );
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain("Allow popups");
+  });
+
+  it("keeps refreshed account state when the embedded host launch fails", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    setEmbeddedWindow(true);
+    vi.mocked(openMcpAppHostLink).mockReturnValueOnce(false);
+    const accountExistsStatus = {
+      configured: false,
+      envManaged: false,
+      builderEnabled: true,
+      orgName: null,
+      connectUrl: signedConnectUrl,
+      appHost: "https://builder.io",
+      apiHost: "https://api.builder.io",
+      publicKeyConfigured: false,
+      privateKeyConfigured: false,
+      connectError: {
+        message:
+          "A Builder account already exists for this email. Log in to connect it.",
+        code: "account_exists",
+        at: Date.now(),
+      },
+    };
+    const refreshedStatus = {
+      ...accountExistsStatus,
+      connectError: undefined,
+    };
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse(accountExistsStatus))
+      .mockResolvedValueOnce(jsonResponse(refreshedStatus));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openMcpAppHostLink).toHaveBeenCalledOnce();
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved no-account-exists");
   });
 
   it("does not open the MCP host after cancelling a pending embedded startup", async () => {

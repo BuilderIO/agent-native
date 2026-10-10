@@ -1520,7 +1520,6 @@ export function useBuilderConnectFlow(
           if (!result?.ok) {
             connectStartedAtRef.current = null;
             setConnecting(false);
-            restoreExistingAccount();
             setError(
               result?.error ??
                 t("agentChat.settingsShell.builder.setupStartFailed"),
@@ -1597,7 +1596,7 @@ export function useBuilderConnectFlow(
             if (!mountedRef.current || openedByHost) return;
             connectStartedAtRef.current = null;
             setConnecting(false);
-            restoreExistingAccount();
+            if (!s) restoreExistingAccount();
             setError(
               t("agentChat.settingsShell.builder.setupHostFailed"),
               "launch",
@@ -1687,7 +1686,7 @@ export function useBuilderConnectFlow(
               }
               connectStartedAtRef.current = null;
               setConnecting(false);
-              restoreExistingAccount();
+              if (!s) restoreExistingAccount();
               setError(
                 "Couldn't navigate the Builder popup. Allow popups and try again.",
                 "launch",
@@ -1701,7 +1700,7 @@ export function useBuilderConnectFlow(
             if (!navigateBuilderConnectPopup(opened, trackedFreshUrl)) {
               connectStartedAtRef.current = null;
               setConnecting(false);
-              restoreExistingAccount();
+              if (!s) restoreExistingAccount();
               setError(
                 "Couldn't navigate the Builder popup. Allow popups and try again.",
                 "launch",
