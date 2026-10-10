@@ -11,7 +11,7 @@ description: "渲染 Chat 起始界面的文件、它们实际 props 的作用�
 
 - `actions/hello.ts` 是代理可以调用的起始行为。替换它，或在旁边添加 action。
 - `app/components/chat/ChatRouteContent.tsx` 在 `/chat/<threadId>` 渲染整页聊天界面。在这里调整空状态、输入框或消息插槽。
-- `app/components/home/HomePage.tsx` 是 `pnpm dev` 下 `/home` 显示的“开始使用”页面。生产构建会跳过它；在 `app/lib/chat-paths.ts` 中将 `SHOW_HOME_PAGE` 设为 `false`，开发时也会关闭它。
+- `app/components/home/HomePage.tsx` 是开发和生产环境中 `/home` 显示的可编辑“开始使用”页面。
 - `AGENTS.md` 告诉内置代理如何在这个应用中工作。
 
 <FileTree
@@ -48,11 +48,11 @@ description: "渲染 Chat 起始界面的文件、它们实际 props 的作用�
     },
     {
       path: "app/components/home/HomePage.tsx",
-      note: "仅在开发时显示的“开始使用”页面",
+      note: "可编辑的“开始使用”主页",
     },
     {
       path: "app/lib/chat-paths.ts",
-      note: "聊天路径和 SHOW_HOME_PAGE 开关",
+      note: "Chat 路径辅助函数",
     },
     {
       path: "AGENTS.md",

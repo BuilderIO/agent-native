@@ -194,17 +194,18 @@ describe("HomePage", () => {
     const codes = Array.from(container.querySelectorAll("code")).map(
       (code) => code.textContent,
     );
-    expect(codes).toEqual([
-      "actions/hello.ts",
-      "SHOW_HOME_PAGE",
-      "false",
-      "app/lib/chat-paths.ts",
-    ]);
+    expect(codes).toEqual(["actions/hello.ts"]);
+    expect(container.textContent).not.toContain("local development");
   });
 
   it("links to the docs and community", () => {
     act(() => root.render(<HomePage />));
 
+    expect(
+      container.querySelector(
+        'a[href="https://www.agent-native.com/docs/getting-started#connect-an-llm"]',
+      )?.textContent,
+    ).toBe("home.llmSetupLink");
     const hrefs = Array.from(container.querySelectorAll("a")).map((link) =>
       link.getAttribute("href"),
     );

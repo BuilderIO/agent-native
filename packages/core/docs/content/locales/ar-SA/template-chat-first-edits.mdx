@@ -14,9 +14,8 @@ description: "الملفات التي تعرض شاشات البداية في Ch
 - يعرض `app/components/chat/ChatRouteContent.tsx` واجهة الدردشة بملء الصفحة
   في `/chat/<threadId>`. عدّل هنا الحالة الفارغة أو أداة الكتابة أو خانات
   الرسائل.
-- `app/components/home/HomePage.tsx` هي صفحة ابدأ الآن التي يعرضها `/home`
-  عند تشغيل `pnpm dev`. تتجاهلها بنيات الإنتاج، وضبط `SHOW_HOME_PAGE` على
-  `false` في `app/lib/chat-paths.ts` يوقفها أثناء التطوير أيضًا.
+- `app/components/home/HomePage.tsx` هي صفحة ابدأ الآن القابلة للتحرير التي
+  يعرضها `/home` في التطوير والإنتاج.
 - يخبر `AGENTS.md` الوكيل المدمج بكيفية العمل داخل هذا التطبيق.
 
 <FileTree
@@ -53,11 +52,11 @@ description: "الملفات التي تعرض شاشات البداية في Ch
     },
     {
       path: "app/components/home/HomePage.tsx",
-      note: "صفحة ابدأ الآن، أثناء التطوير فقط",
+      note: "صفحة ابدأ الآن الرئيسية القابلة للتحرير",
     },
     {
       path: "app/lib/chat-paths.ts",
-      note: "مسارات الدردشة ومفتاح SHOW_HOME_PAGE",
+      note: "مساعدات مسارات Chat",
     },
     {
       path: "AGENTS.md",

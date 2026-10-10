@@ -1,12 +1,8 @@
 import type { FilePart } from "@agent-native/agentkit";
-// Production builds compile this to `false`, so `/home` stays the chat entry
-// there and the Home page only exists under `pnpm dev`.
 import type {
   PromptComposerSubmitOptions,
   Reference,
 } from "@agent-native/toolkit/composer";
-
-export const SHOW_HOME_PAGE = import.meta.env.DEV;
 
 export const HOME_PATH = "/home";
 export const NEW_CHAT_PATH = "/chat";
@@ -18,10 +14,7 @@ export function chatThreadPath(threadId: string | null | undefined): string {
 }
 
 export function isChatPathname(pathname: string): boolean {
-  if (pathname === NEW_CHAT_PATH || pathname.startsWith(`${NEW_CHAT_PATH}/`)) {
-    return true;
-  }
-  return !SHOW_HOME_PAGE && pathname === HOME_PATH;
+  return pathname === NEW_CHAT_PATH || pathname.startsWith(`${NEW_CHAT_PATH}/`);
 }
 
 export function threadIdFromPath(pathname: string): string | null {

@@ -71,9 +71,9 @@ La app se abre en la página **Empieza aquí**. Para el desarrollo local, añade
 ANTHROPIC_API_KEY=replace-with-your-key
 ```
 
-El servidor local usa esta clave como alternativa compartida, así que quienes usan la app local no tienen que añadir una clave en la interfaz. Una app de producción autoalojada puede definir la clave en el entorno de despliegue para compartirla como alternativa de la app. Las claves guardadas de usuario u organización tienen prioridad. Las apps de Hosted workspace no comparten claves de proveedor del despliegue entre apps ni inquilinos.
+El servidor local usa esta clave como alternativa compartida, así que quienes usan la app local no tienen que añadir una clave en la interfaz. Con una base de datos remota, una app autoalojada también debe definir `AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK=true` en el entorno de despliegue para compartir la clave del proveedor en toda la app. Hosted workspace siempre bloquea esta opción. Las claves guardadas de usuario u organización tienen prioridad.
 
-El runtime permite usar la clave de despliegue como alternativa cuando la base de datos es el PGlite local o la app se ejecuta fuera de un runtime de Hosted workspace. En esos casos, cualquier usuario autenticado sin una clave de ámbito propio puede usar la cuenta del proveedor del despliegue en todas las organizaciones de la app, y el consumo se factura a esa cuenta. Configúrala solo si quieres compartir el acceso y la facturación en toda la app; usa claves con ámbito cuando cada tenant necesite credenciales o facturación independientes.
+La alternativa se activa automáticamente con PGlite local. Cuando está habilitada, cualquier usuario autenticado sin una clave de ámbito propio puede usar la cuenta del proveedor del despliegue en todas las organizaciones de la app, y el consumo se factura a esa cuenta. Configúrala solo si quieres compartir el acceso y la facturación en toda la app; usa claves con ámbito cuando cada tenant necesite credenciales o facturación independientes.
 
 Con PostgreSQL, los usuarios también pueden guardar una clave mediante **Custom keys**. Elige el ámbito personal para que solo se aplique a tu cuenta; los administradores pueden elegir el ámbito de organización para compartirla en el espacio de trabajo. La app guarda las claves en su almacén de credenciales cifrado y respaldado por la base de datos.
 

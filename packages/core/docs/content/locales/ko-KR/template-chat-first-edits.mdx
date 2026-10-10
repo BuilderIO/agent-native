@@ -11,7 +11,7 @@ description: "Chat의 시작 화면을 렌더링하는 파일, 실제 props의 �
 
 - `actions/hello.ts`는 에이전트가 호출할 수 있는 시작 동작입니다. 교체하거나 옆에 작업을 추가하세요.
 - `app/components/chat/ChatRouteContent.tsx`는 `/chat/<threadId>`에서 전체 페이지 채팅 화면을 렌더링합니다. 빈 상태, 컴포저, 메시지 슬롯은 여기서 조정하세요.
-- `app/components/home/HomePage.tsx`는 `pnpm dev`에서 `/home`이 보여 주는 시작하기 페이지입니다. 프로덕션 빌드에는 포함되지 않으며, `app/lib/chat-paths.ts`에서 `SHOW_HOME_PAGE`를 `false`로 설정하면 개발 중에도 꺼집니다.
+- `app/components/home/HomePage.tsx`는 개발과 프로덕션에서 모두 `/home`에 표시되는 편집 가능한 시작하기 페이지입니다.
 - `AGENTS.md`는 내장 에이전트에게 이 앱 안에서 작업하는 방법을 알려 줍니다.
 
 <FileTree
@@ -48,11 +48,11 @@ description: "Chat의 시작 화면을 렌더링하는 파일, 실제 props의 �
     },
     {
       path: "app/components/home/HomePage.tsx",
-      note: "개발 중에만 보이는 시작하기 페이지",
+      note: "편집 가능한 시작하기 홈 페이지",
     },
     {
       path: "app/lib/chat-paths.ts",
-      note: "채팅 경로와 SHOW_HOME_PAGE 스위치",
+      note: "Chat 경로 도우미",
     },
     {
       path: "AGENTS.md",

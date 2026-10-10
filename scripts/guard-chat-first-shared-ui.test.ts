@@ -28,6 +28,7 @@ function checkHome(source: string) {
     for (const file of [
       homePath,
       "templates/chat/app/routes/home.tsx",
+      "templates/chat/app/routes/chat._index.tsx",
       "templates/chat/app/components/layout/Sidebar.tsx",
       "templates/chat/app/components/layout/Layout.tsx",
       "templates/chat/app/components/chat/ChatRouteContent.tsx",

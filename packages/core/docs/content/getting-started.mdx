@@ -74,17 +74,15 @@ ANTHROPIC_API_KEY=replace-with-your-key
 ```
 
 The local server uses this as a shared fallback, so users of your local app do
-not need to add a key in the UI. For a self-hosted production app, set the key
-in the deployment environment to share it as the app's fallback. Scoped user or
-organization keys take precedence. Hosted-workspace deployments backed by a
-shared database do not share deployment provider keys across apps or tenants.
+not need to add a key in the UI. With a remote database, a self-hosted app must
+also set `AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK=true` in its deployment
+environment to opt in. Hosted-workspace deployments always block deployment
+provider-key sharing. Scoped user or organization keys take precedence.
 
-The runtime allows deployment-key fallback when the database is local PGlite or
-the app is outside a Hosted workspace runtime. In those cases, any signed-in
-user without a scoped key can use the deployment provider account across all
-organizations in the app, and usage is billed to that account. Configure it
-only when app-wide access and billing are intended; use scoped keys when tenants
-need separate credentials or billing.
+When enabled, any signed-in user without a scoped key can use the deployment
+provider account across all organizations in the app, and usage is billed to
+that account. Configure it only when app-wide access and billing are intended;
+use scoped keys when tenants need separate credentials or billing.
 
 With PostgreSQL, users can also save a key through **Custom keys**. Choose
 Personal scope to keep it to your account; admins can choose Organization scope

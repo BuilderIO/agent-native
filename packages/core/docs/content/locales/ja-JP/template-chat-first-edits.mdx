@@ -11,7 +11,7 @@ description: "Chat のスタート画面をレンダリングするファイル�
 
 - `actions/hello.ts` はエージェントが呼び出せるスターターの動作です。置き換えるか、その隣に action を追加します。
 - `app/components/chat/ChatRouteContent.tsx` は `/chat/<threadId>` でフルページのチャット画面をレンダリングします。空の状態、コンポーザー、メッセージのスロットはここで調整します。
-- `app/components/home/HomePage.tsx` は、`pnpm dev` で `/home` に表示される「はじめに」ページです。本番ビルドでは含まれず、`app/lib/chat-paths.ts` の `SHOW_HOME_PAGE` を `false` にすると開発時も無効になります。
+- `app/components/home/HomePage.tsx` は、開発環境と本番環境の両方で `/home` に表示される編集可能な「はじめに」ページです。
 - `AGENTS.md` は、組み込みエージェントにこのアプリ内での作業方法を伝えます。
 
 <FileTree
@@ -48,11 +48,11 @@ description: "Chat のスタート画面をレンダリングするファイル�
     },
     {
       path: "app/components/home/HomePage.tsx",
-      note: "開発時のみの「はじめに」ページ",
+      note: "編集可能な「はじめに」ホームページ",
     },
     {
       path: "app/lib/chat-paths.ts",
-      note: "チャットのパスと SHOW_HOME_PAGE スイッチ",
+      note: "Chat のパスヘルパー",
     },
     {
       path: "AGENTS.md",

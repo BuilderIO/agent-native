@@ -40,12 +40,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
-import {
-  chatThreadPath,
-  HOME_PATH,
-  SHOW_HOME_PAGE,
-  threadIdFromPath,
-} from "@/lib/chat-paths";
+import { chatThreadPath, HOME_PATH, threadIdFromPath } from "@/lib/chat-paths";
 import { visibleChatThreads } from "@/lib/sidebar-thread-state";
 import { cn } from "@/lib/utils";
 
@@ -568,7 +563,7 @@ export function Sidebar({
           collapsed ? "items-center gap-1 px-1 py-2" : "pt-1",
         )}
       >
-        {SHOW_HOME_PAGE ? <HomeNavLink collapsed={collapsed} /> : null}
+        <HomeNavLink collapsed={collapsed} />
         <ChatThreadsSection collapsed={collapsed} />
       </nav>
 

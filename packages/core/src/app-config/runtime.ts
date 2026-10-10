@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 export const runtimeConfig = z.object({
+  allowSharedLlmKeyFallback: z.boolean().default(false).meta({
+    env: "AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK",
+    doc: "Allow deployment LLM provider keys as an app-wide fallback for remote databases. Local PGlite development works without this opt-in; Hosted workspace runtimes always block deployment provider-key sharing.",
+  }),
   backgroundJobsEnabled: z.boolean().optional().meta({
     env: "RUN_BACKGROUND_JOBS",
     doc: "Run app-owned recurring background jobs. Defaults to enabled only in production.",

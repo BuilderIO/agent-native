@@ -46,11 +46,6 @@ const INLINE_COMPOSER_STYLE = {
 } as const;
 
 const EDIT_HINT_CODE = { file: "actions/hello.ts" };
-const DEV_ONLY_HINT_CODE = {
-  flag: "SHOW_HOME_PAGE",
-  value: "false",
-  file: "app/lib/chat-paths.ts",
-};
 
 /** Placeholder values that `WithCode` swaps back out for code chips. */
 function codeSlots(code: Record<string, string>): Record<string, string> {
@@ -328,13 +323,6 @@ export default function HomePage() {
           </ResourceLink>
         </ResourceColumn>
       </div>
-      <Separator />
-      <p className="px-6 py-4 text-center text-xs text-muted-foreground">
-        <WithCode
-          text={t("home.devOnlyHint", codeSlots(DEV_ONLY_HINT_CODE))}
-          code={DEV_ONLY_HINT_CODE}
-        />
-      </p>
     </div>
   );
 }

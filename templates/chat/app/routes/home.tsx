@@ -1,7 +1,5 @@
-import ChatHomeRedirect from "@/components/chat/ChatHomeRedirect";
 import HomePage from "@/components/home/HomePage";
 import { APP_TITLE } from "@/lib/app-config";
-import { SHOW_HOME_PAGE } from "@/lib/chat-paths";
 
 const SEO_TITLE = `${APP_TITLE} - Open Source AI app starter with actions`;
 const SEO_DESCRIPTION =
@@ -23,5 +21,5 @@ export function meta() {
 }
 
 export default function HomeRoute() {
-  return SHOW_HOME_PAGE ? <HomePage /> : <ChatHomeRedirect />;
+  return <HomePage />;
 }

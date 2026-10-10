@@ -18,6 +18,7 @@ describe("app config store", () => {
     resetAppConfigForTests();
     process.env = { ...originalEnv };
     delete process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK;
+    delete process.env.AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK;
     delete process.env.AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK;
     delete process.env.AGENT_NATIVE_OWNER_EMAIL;
     delete process.env.DISPATCH_ADMIN_EMAILS;
@@ -462,6 +463,19 @@ describe("env layer", () => {
     expect(
       readEnvConfigLayer(appConfigSchema, { RUN_BACKGROUND_JOBS: "0" }).runtime,
     ).toEqual({ backgroundJobsEnabled: false });
+  });
+
+  it("resolves the shared LLM deployment-key policy through app config", () => {
+    expect(collectEnvAliases(appConfigSchema)).toContainEqual({
+      path: ["runtime", "allowSharedLlmKeyFallback"],
+      env: ["AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK"],
+      type: "boolean",
+    });
+    expect(
+      readEnvConfigLayer(appConfigSchema, {
+        AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK: "true",
+      }).runtime,
+    ).toEqual({ allowSharedLlmKeyFallback: true });
   });
 
   it("collects declared aliases with their field path", () => {

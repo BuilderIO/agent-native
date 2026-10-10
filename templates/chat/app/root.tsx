@@ -30,7 +30,6 @@ import {
   HOME_PATH,
   isChatPathname,
   NEW_CHAT_PATH,
-  SHOW_HOME_PAGE,
   threadIdFromPath,
 } from "@/lib/chat-paths";
 import { TAB_ID } from "@/lib/tab-id";
@@ -141,7 +140,7 @@ function AppContent() {
               {t("chat.newChat")}
             </CommandMenu.Item>
           ) : null}
-          {SHOW_HOME_PAGE && location.pathname !== HOME_PATH ? (
+          {location.pathname !== HOME_PATH ? (
             <CommandMenu.Item onSelect={() => navigate(HOME_PATH)}>
               {t("navigation.home")}
             </CommandMenu.Item>

@@ -42,8 +42,6 @@ const messages = {
     communityDescription: "加入 Agent-Native 社群",
     composerPlaceholder: "為 Alex 呼叫 hello 操作",
     communityTitle: "與我們聯繫",
-    devOnlyHint:
-      "此頁面僅在本機開發時顯示。如需改為開啟聊天，請在 {{file}} 中將 {{flag}} 設為 {{value}}。",
     docsAddAction: "新增操作",
     docsAddPage: "新增頁面",
     docsDescription: "關於操作、頁面和代理的指南",
@@ -53,7 +51,7 @@ const messages = {
     editHint: "編輯 {{file}} 並儲存，再問一次就能看到新的問候語。",
     lead: "應用程式的介面和代理共用同一組操作。",
     leadTry: "讓代理呼叫 hello 操作試試。",
-    llmSetupLink: "設定 LLM 金鑰",
+    llmSetupLink: "設定應用程式共用的 LLM 金鑰",
     title: "開始使用",
   },
   navigation: {

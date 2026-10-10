@@ -45,8 +45,6 @@ const messages = {
     communityDescription: "Agent-Native コミュニティに参加",
     composerPlaceholder: "Alex に対して hello アクションを呼び出して",
     communityTitle: "コミュニティ",
-    devOnlyHint:
-      "このページはローカル開発時にのみ表示されます。代わりにチャットを開くには、{{file}} で {{flag}} を {{value}} に設定してください。",
     docsAddAction: "アクションを追加",
     docsAddPage: "ページを追加",
     docsDescription: "アクション、ページ、エージェントのガイド",
@@ -57,7 +55,7 @@ const messages = {
       "{{file}} を編集して保存し、もう一度頼むと新しいあいさつが表示されます。",
     lead: "アプリの UI とエージェントは同じアクションを共有しています。",
     leadTry: "エージェントに hello アクションを呼び出してもらいましょう。",
-    llmSetupLink: "LLM キーを設定",
+    llmSetupLink: "アプリ全体で使う LLM キーを設定",
     title: "はじめに",
   },
   navigation: {

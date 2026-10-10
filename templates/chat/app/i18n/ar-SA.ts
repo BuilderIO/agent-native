@@ -44,8 +44,6 @@ const messages = {
     communityDescription: "انضم إلى مجتمع Agent-Native",
     composerPlaceholder: "استدعِ الإجراء hello من أجل Alex",
     communityTitle: "تواصل معنا",
-    devOnlyHint:
-      "تظهر هذه الصفحة في التطوير المحلي فقط. لفتح الدردشة بدلًا منها، اضبط {{flag}} على {{value}} في {{file}}.",
     docsAddAction: "إضافة إجراء",
     docsAddPage: "إضافة صفحة",
     docsDescription: "أدلة حول الإجراءات والصفحات والوكلاء",
@@ -55,7 +53,7 @@ const messages = {
     editHint: "عدّل {{file}} واحفظه، ثم اسأل مجددًا لترى التحية الجديدة.",
     lead: "تتشارك واجهة تطبيقك ووكيله الإجراءات نفسها.",
     leadTry: "اطلب من الوكيل استدعاء الإجراء hello.",
-    llmSetupLink: "إعداد مفتاح LLM",
+    llmSetupLink: "إعداد مفتاح LLM للتطبيق بالكامل",
     title: "ابدأ الآن",
   },
   navigation: {

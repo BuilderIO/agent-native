@@ -46,7 +46,6 @@ const routeState = vi.hoisted(() => ({
   resolveConnectionRequest: vi.fn(),
   sendMessage: vi.fn(),
   uploadFiles: vi.fn(),
-  showHomePage: false,
   send: vi.fn(),
   locationState: null as unknown,
 }));
@@ -197,15 +196,6 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("@/lib/app-config", () => ({ APP_TITLE: "Chat" }));
-vi.mock("@/lib/chat-paths", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/chat-paths")>();
-  return {
-    ...actual,
-    get SHOW_HOME_PAGE() {
-      return routeState.showHomePage;
-    },
-  };
-});
 vi.mock("@/components/home/HomePage", () => ({
   default: () => <div data-testid="home-page" />,
 }));
@@ -233,7 +223,6 @@ describe("ChatRoute AgentKit surface", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     routeState.basePath = "";
-    routeState.showHomePage = false;
     routeState.send.mockReset();
     routeState.send.mockResolvedValue(undefined);
     routeState.sendMessage.mockReset();
@@ -916,22 +905,12 @@ describe("ChatRoute AgentKit surface", () => {
     expect(markHandoff).toHaveBeenCalledWith("chat");
   });
 
-  it("renders the Home page at /home in local development", async () => {
-    routeState.showHomePage = true;
+  it("renders the Home page at /home in every build", async () => {
     await act(async () => root.render(<HomeRoute />));
 
     expect(container.querySelector('[data-testid="home-page"]')).not.toBeNull();
     expect(locationReplace).not.toHaveBeenCalled();
     expect(markHandoff).not.toHaveBeenCalled();
-  });
-
-  it("keeps /home as the chat entry in production builds", async () => {
-    await act(async () => root.render(<HomeRoute />));
-
-    expect(container.querySelector('[data-testid="home-page"]')).toBeNull();
-    expect(locationReplace).toHaveBeenCalledWith(
-      expect.stringMatching(/^\/chat\/chat-/),
-    );
   });
 
   it("keeps the home handoff inside the deployed app base path", async () => {

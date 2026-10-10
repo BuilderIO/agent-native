@@ -45,8 +45,6 @@ const messages = {
     communityDescription: "Agent-Native समुदाय में शामिल हों",
     composerPlaceholder: "Alex के लिए hello क्रिया कॉल करो",
     communityTitle: "हमसे जुड़ें",
-    devOnlyHint:
-      "यह पेज सिर्फ़ लोकल डेवलपमेंट में दिखता है। इसकी जगह चैट खोलने के लिए {{file}} में {{flag}} को {{value}} पर सेट करें।",
     docsAddAction: "क्रिया जोड़ें",
     docsAddPage: "पेज जोड़ें",
     docsDescription: "क्रियाओं, पेजों और एजेंटों की गाइड",
@@ -57,7 +55,7 @@ const messages = {
       "{{file}} में बदलाव करके सेव करें, फिर नया अभिवादन देखने के लिए दोबारा पूछें।",
     lead: "आपके ऐप का UI और उसका एजेंट एक ही क्रियाएं साझा करते हैं।",
     leadTry: "एजेंट से hello क्रिया कॉल करने को कहें।",
-    llmSetupLink: "LLM कुंजी सेट करें",
+    llmSetupLink: "पूरे ऐप के लिए LLM कुंजी सेट करें",
     title: "शुरू करें",
   },
   navigation: {

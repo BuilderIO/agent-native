@@ -14,9 +14,8 @@ Esta página é para desenvolvedores que estendem o [modelo Chat](/docs/template
 - `app/components/chat/ChatRouteContent.tsx` renderiza a superfície de chat em
   página inteira em `/chat/<threadId>`. Ajuste aqui o estado vazio, o composer
   ou os slots de mensagem.
-- `app/components/home/HomePage.tsx` é a página Comece aqui que `/home` mostra
-  com `pnpm dev`. Builds de produção a ignoram, e definir `SHOW_HOME_PAGE` como
-  `false` em `app/lib/chat-paths.ts` também a desativa no desenvolvimento.
+- `app/components/home/HomePage.tsx` é a página Comece aqui editável em
+  `/home`, tanto no desenvolvimento quanto em produção.
 - `AGENTS.md` diz ao agente integrado como trabalhar dentro deste app.
 
 <FileTree
@@ -53,11 +52,11 @@ Esta página é para desenvolvedores que estendem o [modelo Chat](/docs/template
     },
     {
       path: "app/components/home/HomePage.tsx",
-      note: "a página Comece aqui, só no desenvolvimento",
+      note: "a página inicial Comece aqui, editável",
     },
     {
       path: "app/lib/chat-paths.ts",
-      note: "caminhos do chat e a chave SHOW_HOME_PAGE",
+      note: "helpers de caminhos do Chat",
     },
     {
       path: "AGENTS.md",

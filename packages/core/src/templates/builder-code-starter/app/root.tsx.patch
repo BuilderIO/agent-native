@@ -1,7 +1,7 @@
 ===================================================================
 --- a/app/root.tsx
 +++ b/app/root.tsx
-@@ -1,77 +1,50 @@
+@@ -1,76 +1,50 @@
  import { configureTracking } from "@agent-native/core/client/analytics";
  import { appPath } from "@agent-native/core/client/api-path";
  import { useDbSync } from "@agent-native/core/client/hooks";
@@ -37,7 +37,6 @@
 -  HOME_PATH,
 -  isChatPathname,
 -  NEW_CHAT_PATH,
--  SHOW_HOME_PAGE,
 -  threadIdFromPath,
 -} from "@/lib/chat-paths";
 +import { APP_NAME, APP_TITLE } from "@/lib/app-config";
@@ -86,7 +85,7 @@
          <meta name="mobile-web-app-capable" content="yes" />
          <meta
            name="apple-mobile-web-app-status-bar-style"
-@@ -101,96 +74,19 @@
+@@ -100,96 +74,19 @@
    });
    return null;
  }
@@ -130,7 +129,7 @@
 -              {t("chat.newChat")}
 -            </CommandMenu.Item>
 -          ) : null}
--          {SHOW_HOME_PAGE && location.pathname !== HOME_PATH ? (
+-          {location.pathname !== HOME_PATH ? (
 -            <CommandMenu.Item onSelect={() => navigate(HOME_PATH)}>
 -              {t("navigation.home")}
 -            </CommandMenu.Item>

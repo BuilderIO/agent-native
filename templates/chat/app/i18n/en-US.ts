@@ -45,8 +45,6 @@ const messages = {
     communityDescription: "Join the Agent-Native community",
     composerPlaceholder: "Call the hello action for Alex",
     communityTitle: "Connect with us",
-    devOnlyHint:
-      "This page only appears in local development. To open Chat instead, set {{flag}} to {{value}} in {{file}}.",
     docsAddAction: "Add an action",
     docsAddPage: "Add a page",
     docsDescription: "Guides for actions, pages, and agents",
@@ -56,7 +54,7 @@ const messages = {
     editHint: "Edit {{file}} and save, then ask again to see the new greeting.",
     lead: "Your app's UI and its agent share one set of actions.",
     leadTry: "Ask the agent to call the hello action.",
-    llmSetupLink: "Set up an LLM key",
+    llmSetupLink: "Set up an app-wide LLM key",
     title: "Get started",
   },
   navigation: {

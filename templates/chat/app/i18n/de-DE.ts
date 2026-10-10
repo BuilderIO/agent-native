@@ -46,8 +46,6 @@ const messages = {
     communityDescription: "Tritt der Agent-Native-Community bei",
     composerPlaceholder: "Ruf die Aktion hello für Alex auf",
     communityTitle: "Mach mit",
-    devOnlyHint:
-      "Diese Seite erscheint nur in der lokalen Entwicklung. Um stattdessen den Chat zu öffnen, setze {{flag}} in {{file}} auf {{value}}.",
     docsAddAction: "Aktion hinzufügen",
     docsAddPage: "Seite hinzufügen",
     docsDescription: "Anleitungen zu Aktionen, Seiten und Agenten",
@@ -58,7 +56,7 @@ const messages = {
       "Bearbeite {{file}}, speichere und frag erneut, um die neue Begrüßung zu sehen.",
     lead: "Die Oberfläche deiner App und ihr Agent nutzen dieselben Aktionen.",
     leadTry: "Bitte den Agenten, die Aktion hello aufzurufen.",
-    llmSetupLink: "LLM-Schlüssel einrichten",
+    llmSetupLink: "App-weiten LLM-Schlüssel einrichten",
     title: "Loslegen",
   },
   navigation: {

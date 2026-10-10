@@ -25,6 +25,7 @@ const violations = roots.flatMap((root) => {
 const chatSidebarPath = "templates/chat/app/components/layout/Sidebar.tsx";
 const chatLayoutPath = "templates/chat/app/components/layout/Layout.tsx";
 const chatHomeRoutePath = "templates/chat/app/routes/home.tsx";
+const chatNewRoutePath = "templates/chat/app/routes/chat._index.tsx";
 const chatHomeRedirectPath =
   "templates/chat/app/components/chat/ChatHomeRedirect.tsx";
 const chatSurfacePath =
@@ -36,6 +37,7 @@ const chatToolkitProviderPath =
 let chatSidebar: string;
 let chatLayout: string;
 let chatHomeRoute: string;
+let chatNewRoute: string;
 let chatHomeRedirect: string;
 let chatSurface: string;
 let chatThreadRoute: string;
@@ -45,6 +47,7 @@ try {
   chatSidebar = readFileSync(chatSidebarPath, "utf8");
   chatLayout = readFileSync(chatLayoutPath, "utf8");
   chatHomeRoute = readFileSync(chatHomeRoutePath, "utf8");
+  chatNewRoute = readFileSync(chatNewRoutePath, "utf8");
   chatHomeRedirect = readFileSync(chatHomeRedirectPath, "utf8");
   chatSurface = readFileSync(chatSurfacePath, "utf8");
   chatThreadRoute = readFileSync(chatThreadRoutePath, "utf8");
@@ -95,8 +98,11 @@ const chatRouteViolations = [
   !chatHomeUsesDurableHandoff || !chatHomeRedirect.includes("return null;")
     ? "Chat's new-chat entry must route a pending thread to the shared durable Chat surface"
     : null,
-  !chatHomeRoute.includes("<ChatHomeRedirect />")
-    ? "Chat /home must fall back to the durable Chat handoff outside local development"
+  !chatHomeRoute.includes("<HomePage />")
+    ? "Chat /home must render the editable getting-started page in every build"
+    : null,
+  !chatNewRoute.includes("ChatHomeRedirect")
+    ? "Chat /chat must route a pending thread to the shared durable Chat surface"
     : null,
   !(
     chatThreadRoute.includes(

@@ -165,7 +165,7 @@ export function assertCredentialStoreReadable(result: {
 export function readDeployCredentialEnv(key: string): string | undefined {
   if (
     key === "GOOGLE_APPLICATION_CREDENTIALS" &&
-    !isDeployCredentialFallbackAllowed()
+    (isHostedWorkspaceRuntime() || !isDeployCredentialFallbackAllowed())
   ) {
     return undefined;
   }
@@ -245,10 +245,10 @@ export function canUseDeployCredentialFallbackForRequest(
     return isTrustedSelfHostedRuntime();
   }
   if (key && DEPLOY_LLM_PROVIDER_ENV_KEYS.has(key)) {
-    // Setting an LLM provider key opts a self-hosted app into app-wide
-    // inference. Hosted workspace deployments keep using scoped keys.
     const hostedWorkspace = isHostedWorkspaceRuntime();
-    return !hostedWorkspace || isLocalDatabase();
+    if (isLocalDatabase()) return true;
+    if (hostedWorkspace) return false;
+    return getAppConfig().runtime.allowSharedLlmKeyFallback;
   }
   const email = getRequestUserEmail();
   if (!email) return true;

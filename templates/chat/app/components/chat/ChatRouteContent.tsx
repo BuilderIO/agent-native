@@ -3,10 +3,8 @@ import type {
   AgentMessage,
   AgentRunOptions,
 } from "@agent-native/agentkit";
-import {
-  appendAgentChatContextToMessage,
-  hasActiveAgentRuns,
-} from "@agent-native/agentkit";
+import { appendAgentChatContextToMessage } from "@agent-native/agentkit";
+import { hasActiveAgentRuns } from "@agent-native/agentkit/client";
 import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
 import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
 import {

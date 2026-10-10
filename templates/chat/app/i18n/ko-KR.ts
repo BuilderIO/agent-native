@@ -46,8 +46,6 @@ const messages = {
     communityDescription: "Agent-Native 커뮤니티에 참여하세요",
     composerPlaceholder: "Alex에 대해 hello 작업을 호출해 줘",
     communityTitle: "함께하기",
-    devOnlyHint:
-      "이 페이지는 로컬 개발 중에만 표시됩니다. 대신 채팅을 열려면 {{file}}에서 {{flag}}를 {{value}}로 설정하세요.",
     docsAddAction: "작업 추가",
     docsAddPage: "페이지 추가",
     docsDescription: "작업, 페이지, 에이전트 가이드",
@@ -58,7 +56,7 @@ const messages = {
       "{{file}} 파일을 수정하고 저장한 다음 다시 요청하면 새 인사말이 보입니다.",
     lead: "앱의 UI와 에이전트는 같은 작업을 공유합니다.",
     leadTry: "에이전트에게 hello 작업을 호출해 달라고 요청해 보세요.",
-    llmSetupLink: "LLM 키 설정하기",
+    llmSetupLink: "앱 전체에서 사용할 LLM 키 설정",
     title: "시작하기",
   },
   navigation: {

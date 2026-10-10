@@ -13,10 +13,8 @@ description: "Chat की शुरुआती स्क्रीन रें�
   या इसके साथ actions जोड़ें।
 - `app/components/chat/ChatRouteContent.tsx` `/chat/<threadId>` पर पूरे पेज की
   chat surface रेंडर करता है। empty state, composer या message slots यहाँ बदलें।
-- `app/components/home/HomePage.tsx` वह शुरू करें पेज है जो `pnpm dev` में
-  `/home` दिखाता है। Production builds इसे छोड़ देते हैं, और
-  `app/lib/chat-paths.ts` में `SHOW_HOME_PAGE` को `false` करने पर यह development
-  में भी बंद हो जाता है।
+- `app/components/home/HomePage.tsx` development और production दोनों में
+  `/home` पर दिखने वाला संपादन योग्य शुरू करें पेज है।
 - `AGENTS.md` built-in agent को बताता है कि इस app के अंदर कैसे काम करना है।
 
 <FileTree
@@ -53,11 +51,11 @@ description: "Chat की शुरुआती स्क्रीन रें�
     },
     {
       path: "app/components/home/HomePage.tsx",
-      note: "सिर्फ़ development वाला शुरू करें पेज",
+      note: "संपादन योग्य शुरू करें होम पेज",
     },
     {
       path: "app/lib/chat-paths.ts",
-      note: "chat paths और SHOW_HOME_PAGE स्विच",
+      note: "Chat पथ helper फ़ंक्शन",
     },
     {
       path: "AGENTS.md",
