@@ -308,49 +308,74 @@ export function isExpectedSaveReloadBrowserSessionConsoleError(
   );
 }
 
-export function isExpectedBrowserSessionPollNavigationConsoleError(
-  message: string,
-  activePhase: string,
-  candidates: WatchedRequestNavigationCandidate[],
-) {
-  if (
-    message !== "[Agent-Native browser session] poll failed: JSHandle@object"
-  ) {
-    return false;
-  }
-
-  if (activePhase !== "save/reload" && activePhase !== "cleanup/navigation") {
-    return false;
-  }
-
-  return candidates.some((candidate) =>
-    isExpectedWatchedRequestNavigationAbort(candidate, [
-      browserSessionClaimRequestRule,
-    ]),
+export function isFirefoxBrowserSessionConsoleError(message: string) {
+  return /^\[Agent-Native browser session\] (?:poll|heartbeat) failed: JSHandle@object$/.test(
+    message,
   );
+}
+
+type BrowserSessionConsoleArgument = {
+  jsonValue(): Promise<unknown>;
+  evaluate<T>(pageFunction: (value: unknown) => T): Promise<T>;
+};
+
+type BrowserSessionConsoleMessage = {
+  text(): string;
+  args(): BrowserSessionConsoleArgument[];
+};
+
+export async function normalizeFirefoxBrowserSessionConsoleError(
+  message: BrowserSessionConsoleMessage,
+) {
+  const text = message.text();
+  const match =
+    /^\[Agent-Native browser session\] (poll|heartbeat) failed: JSHandle@object$/.exec(
+      text,
+    );
+  if (!match) return text;
+
+  try {
+    const args = message.args();
+    if (args.length !== 2) return text;
+    const prefix = `[Agent-Native browser session] ${match[1]} failed:`;
+    const [loggedPrefix, detail] = await Promise.all([
+      args[0].jsonValue(),
+      args[1].evaluate((error) => String(error)),
+    ]);
+    if (loggedPrefix !== prefix) return text;
+    return typeof detail === "string" ? `${prefix} ${detail}` : text;
+  } catch {
+    return text;
+  }
 }
 
 export function isExpectedCleanupBrowserSessionPollConsoleError(
   message: string,
   candidates: WatchedRequestNavigationCandidate[],
 ) {
-  if (
+  return (
     message ===
-    "[Agent-Native browser session] poll failed: TypeError: Load failed"
-  ) {
-    return candidates.some((candidate) =>
-      isExpectedWatchedRequestCorsError(
-        `Fetch API cannot load ${candidate.url} due to access control checks.`,
-        "cleanup/navigation",
-        [candidate],
-      ),
-    );
-  }
+      "[Agent-Native browser session] poll failed: TypeError: Load failed" &&
+    candidates.some((candidate) =>
+      isExpectedWatchedRequestNavigationAbort(candidate, [
+        browserSessionClaimRequestRule,
+      ]),
+    )
+  );
+}
 
-  return isExpectedBrowserSessionPollNavigationConsoleError(
-    message,
-    "cleanup/navigation",
-    candidates,
+export function isExpectedCleanupBrowserSessionHeartbeatConsoleError(
+  message: string,
+  candidates: WatchedRequestNavigationCandidate[],
+) {
+  return (
+    message ===
+      "[Agent-Native browser session] heartbeat failed: TypeError: Load failed" &&
+    candidates.some((candidate) =>
+      isExpectedWatchedRequestNavigationAbort(candidate, [
+        browserSessionRegistrationRequestRule,
+      ]),
+    )
   );
 }
 
@@ -366,7 +391,8 @@ export function isExpectedCleanupNavigationError(
       "cleanup/navigation",
       candidates,
     ) ||
-      isExpectedCleanupBrowserSessionPollConsoleError(message, candidates))
+      isExpectedCleanupBrowserSessionPollConsoleError(message, candidates) ||
+      isExpectedCleanupBrowserSessionHeartbeatConsoleError(message, candidates))
   );
 }
 
@@ -995,6 +1021,7 @@ export async function runAuthoringFuzz(
   const reloadNavigationRequests = new Map<any, number>();
   let reloadNavigationStartedAt: number | null = null;
   const pendingSaveConflicts: Promise<void>[] = [];
+  const pendingConsoleInspections = new Set<Promise<void>>();
   const conflictResponsePaths: string[] = [];
   const patchDeckActionPath = "/_agent-native/actions/patch-deck";
   let patchDeckConflicts = 0;
@@ -1020,6 +1047,8 @@ export async function runAuthoringFuzz(
       conflictResourceErrors += 1;
       return;
     }
+    const consoleText = message.text();
+    const consolePhase = activePhase;
     const reloadNavigationCandidates = [
       ...reloadNavigationRequests.entries(),
     ].map(([request, startedAt]) => ({
@@ -1029,26 +1058,32 @@ export async function runAuthoringFuzz(
       ageMs: Date.now() - startedAt,
       requestWasPendingAtNavigation: true,
     }));
-    if (
-      isExpectedSaveReloadBrowserSessionConsoleError(
-        message.text(),
-        activePhase,
-        reloadNavigationCandidates,
-      ) ||
-      isExpectedWatchedRequestCorsError(
-        message.text(),
-        activePhase,
-        reloadNavigationCandidates,
-      ) ||
-      isExpectedBrowserSessionPollNavigationConsoleError(
-        message.text(),
-        activePhase,
-        reloadNavigationCandidates,
-      )
-    ) {
+    const recordUnlessExpected = (text: string) => {
+      if (
+        isExpectedSaveReloadBrowserSessionConsoleError(
+          text,
+          consolePhase,
+          reloadNavigationCandidates,
+        ) ||
+        isExpectedWatchedRequestCorsError(
+          text,
+          consolePhase,
+          reloadNavigationCandidates,
+        )
+      ) {
+        return;
+      }
+      pageErrors.push(text);
+    };
+    if (!isFirefoxBrowserSessionConsoleError(consoleText)) {
+      recordUnlessExpected(consoleText);
       return;
     }
-    pageErrors.push(message.text());
+    let inspection: Promise<void>;
+    inspection = normalizeFirefoxBrowserSessionConsoleError(message)
+      .then(recordUnlessExpected)
+      .finally(() => pendingConsoleInspections.delete(inspection));
+    pendingConsoleInspections.add(inspection);
   };
   const onPageError = (error: Error) => {
     if (traceEnabled) {
@@ -1252,6 +1287,9 @@ export async function runAuthoringFuzz(
   const replay = () => plan.slice(0, Math.max(1, activeIndex + 1));
   const checkPageErrors = async () => {
     await Promise.all(pendingSaveConflicts.splice(0));
+    while (pendingConsoleInspections.size) {
+      await Promise.all([...pendingConsoleInspections]);
+    }
     if (pageErrors.length)
       throw new Error(
         `browser emitted ${pageErrors.length} console/page error(s): ${pageErrors
