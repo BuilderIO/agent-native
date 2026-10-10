@@ -5825,6 +5825,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           panRef.current = { ...state.originPan };
           zoomRef.current = state.originZoom;
           applyViewToDomRef.current();
+          if (lastReportedZoomRef.current !== zoomRef.current) {
+            lastReportedZoomRef.current = zoomRef.current;
+            onZoomChangeRef.current?.(zoomRef.current);
+          }
         } else if (state.type === "marquee") {
           marqueeLifecycleRef.current += 1;
           onLayerMarqueeSelectionChange?.([], {
