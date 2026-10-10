@@ -99,6 +99,7 @@ import {
   type AgentActionSurfaceResolution,
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
+  type PreparedAgentRequest,
 } from "../agent/production-agent.js";
 import {
   applyProviderModelSelection,
@@ -174,6 +175,10 @@ import {
 import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { isTransientDatabaseError } from "../db/client.js";
+import {
+  hydratePriorThreadImages,
+  PriorThreadImageHistoryReadError,
+} from "../file-upload/thread-image-history.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -4047,6 +4052,91 @@ export function createAgentChatPlugin(
         }
       };
 
+      const priorThreadImageContext = async (details: {
+        event: any;
+        ownerEmail: string | null;
+        threadId?: string;
+      }) => {
+        if (!details.threadId || !details.ownerEmail) return undefined;
+
+        let thread: ChatThread | null;
+        try {
+          thread = await resolveThreadAccess(
+            details.ownerEmail,
+            details.threadId,
+            "editor",
+            { orgId: await getOrgIdFromEvent(details.event) },
+          );
+        } catch {
+          throw createError({
+            statusCode: 503,
+            statusMessage: "Prior chat attachment history could not be read.",
+            data: { code: "prior_attachment_history_unreadable" },
+          });
+        }
+        if (!thread) {
+          let exists: boolean;
+          try {
+            // Keep unknown thread ids available for first-turn creation while
+            // still rejecting ids that resolve to another user's thread.
+            exists = (await getThread(details.threadId)) !== null;
+          } catch {
+            throw createError({
+              statusCode: 503,
+              statusMessage: "Prior chat attachment history could not be read.",
+              data: { code: "prior_attachment_history_unreadable" },
+            });
+          }
+          if (exists) {
+            throw createError({
+              statusCode: 404,
+              statusMessage: "Thread not found",
+            });
+          }
+          return undefined;
+        }
+        if (
+          threadScopeMismatch(thread.scope, getRequestRunContext()?.chatScope)
+        ) {
+          throw createError({
+            statusCode: 404,
+            statusMessage: "Thread not found",
+          });
+        }
+
+        try {
+          return await hydratePriorThreadImages(thread.threadData);
+        } catch (error) {
+          if (!(error instanceof PriorThreadImageHistoryReadError)) throw error;
+          throw createError({
+            statusCode: 503,
+            statusMessage: "Prior chat attachment history could not be read.",
+            data: { code: error.code },
+          });
+        }
+      };
+
+      const addPriorThreadImageContext = async (
+        prepared: void | PreparedAgentRequest,
+        prior: Awaited<ReturnType<typeof priorThreadImageContext>>,
+      ): Promise<void | PreparedAgentRequest> => {
+        if (!prior) return prepared;
+
+        const contextAttachments = [
+          ...(prepared?.contextAttachments ?? []),
+          ...prior.attachments,
+        ];
+        const contextNote = [prepared?.contextNote, prior.contextNote]
+          .filter((note): note is string => Boolean(note))
+          .join("\n");
+        if (contextAttachments.length === 0 && !contextNote) return prepared;
+        return {
+          ...(prepared ?? {}),
+          contextAttachments,
+          ...(contextNote ? { contextNote } : {}),
+        };
+      };
+
       // ─── Agent Teams: per-run send reference ─────────────────────────
       // Team tools need to emit events to the parent chat's SSE stream.
       // Each run gets its own send function, keyed by threadId so concurrent
@@ -4640,34 +4730,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         ...resolveInteractiveAgentRunOptions(options),
         finalResponseGuard: options?.finalResponseGuard,
         prepareRequest: async (details) => {
-          if (details.threadId && details.ownerEmail) {
-            const existingThread = await getThread(details.threadId);
-            if (existingThread) {
-              if (
-                threadScopeMismatch(
-                  existingThread.scope,
-                  getRequestRunContext()?.chatScope,
-                )
-              ) {
-                throw createError({
-                  statusCode: 404,
-                  statusMessage: "Thread not found",
-                });
-              }
-              const access = await resolveThreadAccess(
-                details.ownerEmail,
-                details.threadId,
-                "editor",
-                { orgId: await getOrgIdFromEvent(details.event) },
-              );
-              if (!access) {
-                throw createError({
-                  statusCode: 404,
-                  statusMessage: "Thread not found",
-                });
-              }
-            }
-          }
+          const priorImageContext = await priorThreadImageContext(details);
 
           // Drain any parent-completion injections queued by finished sub-agents
           // and prepend them to the user message so the orchestrator sees results
@@ -4691,18 +4754,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
           // Also run the template-provided prepareRequest (if any).
           const templateResult = await options?.prepareRequest?.(details);
-          if (!completionPrefix) return templateResult ?? undefined;
+          const prepared = await addPriorThreadImageContext(
+            templateResult,
+            priorImageContext,
+          );
+          if (!completionPrefix) return prepared ?? undefined;
           const baseMessage =
-            typeof templateResult === "object" &&
-            templateResult &&
-            typeof templateResult.message === "string"
-              ? templateResult.message
+            typeof prepared === "object" &&
+            prepared &&
+            typeof prepared.message === "string"
+              ? prepared.message
               : details.message;
           const message = `${completionPrefix}\n\n${baseMessage}`;
           return {
-            ...(typeof templateResult === "object" && templateResult
-              ? templateResult
-              : {}),
+            ...(typeof prepared === "object" && prepared ? prepared : {}),
             message,
           };
         },
@@ -5041,35 +5106,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           jevContextCompact: leanPrompt || lazyContext,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: async (details) => {
-            if (details.threadId && details.ownerEmail) {
-              const existingThread = await getThread(details.threadId);
-              if (existingThread) {
-                if (
-                  threadScopeMismatch(
-                    existingThread.scope,
-                    getRequestRunContext()?.chatScope,
-                  )
-                ) {
-                  throw createError({
-                    statusCode: 404,
-                    statusMessage: "Thread not found",
-                  });
-                }
-                const access = await resolveThreadAccess(
-                  details.ownerEmail,
-                  details.threadId,
-                  "editor",
-                  { orgId: await getOrgIdFromEvent(details.event) },
-                );
-                if (!access) {
-                  throw createError({
-                    statusCode: 404,
-                    statusMessage: "Thread not found",
-                  });
-                }
-              }
-            }
-            return options?.prepareRequest?.(details);
+            const priorImageContext = await priorThreadImageContext(details);
+            const prepared = await options?.prepareRequest?.(details);
+            return addPriorThreadImageContext(prepared, priorImageContext);
           },
           resolveActionSurface: resolveDevActionSurface,
           skipFilesContext,

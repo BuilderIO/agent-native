@@ -3691,15 +3691,29 @@ describe("createAgentNativeAgentKitTransport", () => {
     successorFailed?: boolean;
     /** The text of each message the open page saved for run-1, run-2's included. */
     pageSaw?: string[];
+    /** Zero-based indexes of pageSaw messages completed by run-1. */
+    completedPageSaw?: number[];
+    otherTurnAnswer?: string;
+    successorReplyText?: string;
   }) {
-    const streamed = (id: string, sequence: number) => ({
-      id: `run-1:${sequence}`,
-      type: "message.created",
+    const streamed = (
+      id: string,
+      sequence: number,
+      runId = "run-1",
+      type = "message.created",
+      text = "",
+    ) => ({
+      id: `${runId}:${sequence}`,
+      type,
       threadId: "thread-recovered",
-      runId: "run-1",
+      runId,
       sequence,
       occurredAt: "2026-10-05T17:00:50.000Z",
-      message: { id, role: "assistant", parts: [] },
+      message: {
+        id,
+        role: "assistant",
+        parts: text ? [{ type: "text", text }] : [],
+      },
     });
     return {
       id: "thread-recovered",
@@ -3729,13 +3743,37 @@ describe("createAgentNativeAgentKitTransport", () => {
                     status: input.successorFailed
                       ? { type: "incomplete", reason: "error" }
                       : { type: "complete", reason: "stop" },
-                    content: [{ type: "text", text: "Refund handled." }],
+                    content: [
+                      {
+                        type: "text",
+                        text: input.successorReplyText ?? "Refund handled.",
+                      },
+                    ],
                     metadata: {
                       runId: "run-2",
                       custom: { turnId: "turn-1", foldedRunIds: ["run-2"] },
                     },
                   },
                   parentId: "server-user-run-1",
+                },
+              ]
+            : []),
+          ...(input.otherTurnAnswer
+            ? [
+                {
+                  message: {
+                    id: "server-user-run-3",
+                    role: "user",
+                    status: "complete",
+                    content: [{ type: "text", text: "Check the shipment" }],
+                    metadata: {
+                      custom: {
+                        submittedRunId: "run-3",
+                        submittedTurnId: "turn-2",
+                      },
+                    },
+                  },
+                  parentId: null,
                 },
               ]
             : []),
@@ -3754,10 +3792,53 @@ describe("createAgentNativeAgentKitTransport", () => {
               status: "complete",
               parts: text ? [{ type: "text", text }] : [],
             })),
+            ...(input.otherTurnAnswer
+              ? [
+                  {
+                    id: "user-3",
+                    role: "user",
+                    status: "complete",
+                    parts: [{ type: "text", text: "Check the shipment" }],
+                    metadata: { custom: { submittedRunId: "run-3" } },
+                  },
+                  {
+                    id: "assistant-other-turn",
+                    role: "assistant",
+                    status: "complete",
+                    parts: [{ type: "text", text: input.otherTurnAnswer }],
+                    metadata: {
+                      runId: "run-3",
+                      custom: { turnId: "turn-2" },
+                    },
+                  },
+                ]
+              : []),
           ],
-          events: (input.pageSaw ?? []).map((_text, index) =>
-            streamed(`assistant-${index + 1}`, index + 1),
-          ),
+          events: [
+            ...(input.pageSaw ?? []).map((_text, index) =>
+              streamed(`assistant-${index + 1}`, index + 1),
+            ),
+            ...(input.completedPageSaw ?? []).map((index) =>
+              streamed(
+                `assistant-${index + 1}`,
+                (input.pageSaw?.length ?? 0) + index + 1,
+                "run-1",
+                "message.completed",
+                input.pageSaw?.[index] ?? "",
+              ),
+            ),
+            ...(input.otherTurnAnswer
+              ? [
+                  streamed(
+                    "assistant-other-turn",
+                    1,
+                    "run-3",
+                    "message.completed",
+                    input.otherTurnAnswer,
+                  ),
+                ]
+              : []),
+          ],
           runs: [
             {
               id: "run-1",
@@ -3766,6 +3847,18 @@ describe("createAgentNativeAgentKitTransport", () => {
               lastSequence: 0,
               ...input.run1,
             },
+            ...(input.otherTurnAnswer
+              ? [
+                  {
+                    id: "run-3",
+                    threadId: "thread-recovered",
+                    startedAt: "2026-10-05T17:00:48.000Z",
+                    lastSequence: 1,
+                    status: "completed",
+                    activeMessageId: "assistant-other-turn",
+                  },
+                ]
+              : []),
           ],
           activeRunIds: [],
         },
@@ -3860,6 +3953,58 @@ describe("createAgentNativeAgentKitTransport", () => {
         parts: [{ type: "text", text: "Refund handled." }],
       },
     ]);
+    await transport.dispose();
+  });
+
+  it("replaces a completed divergent same-turn answer and preserves another turn", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({
+              active: false,
+              status: "completed",
+              runId: "run-2",
+              turnId: "turn-1",
+            })
+          : json(
+              recoveredTurnThread({
+                run1: { status: "completed" },
+                successorReply: true,
+                successorReplyText: "The refund was returned to your card.",
+                pageSaw: ["The refund was returned to your original payment."],
+                completedPageSaw: [0],
+                otherTurnAnswer: "The shipment is on its way.",
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-recovered",
+    });
+
+    const assistantMessages = snapshot?.messages.filter(
+      (message) => message.role === "assistant",
+    );
+    expect(assistantMessages?.map((message) => message.id).sort()).toEqual([
+      "assistant-other-turn",
+      "server-run-2",
+    ]);
+    expect(assistantMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "server-run-2",
+          parts: [
+            { type: "text", text: "The refund was returned to your card." },
+          ],
+        }),
+        expect.objectContaining({
+          id: "assistant-other-turn",
+          parts: [{ type: "text", text: "The shipment is on its way." }],
+        }),
+      ]),
+    );
+    expect(snapshot?.messages.map((message) => message.id)).toContain("user-3");
     await transport.dispose();
   });
 

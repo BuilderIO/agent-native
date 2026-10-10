@@ -6,13 +6,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  issues: write
-  contents: read
   actions: read
+  contents: read
 
 concurrency:
   group: keep-neon-warm
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   warm:
@@ -22,16 +21,40 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+      REPORT_DIR: .tmp/keep-warm-report/${{ github.run_id }}-${{ github.run_attempt }}
+      SLACK_CHANNEL: C0C4U4XRT6X
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
       - name: Ping /_agent-native/health for every app
+        id: health
         shell: bash
         run: |
           set -o pipefail
           node scripts/keep-warm.mjs --strict 2>&1 | tee /tmp/keep-warm.log
+
+      - name: Capture the complete health report
+        if: always()
+        shell: bash
+        env:
+          HEALTH_OUTCOME: ${{ steps.health.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$REPORT_DIR"
+          {
+            echo "Health audit result: ${HEALTH_OUTCOME:-unknown}"
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+            if [[ -f /tmp/keep-warm.log ]]; then
+              cat /tmp/keep-warm.log
+            else
+              echo "The health audit log was not produced."
+            fi
+          } > "$REPORT_DIR/full-report.txt"
 
       - name: Read previous scheduled health result
         id: previous-run
@@ -43,6 +66,7 @@ jobs:
           previous_conclusion=unknown
           previous_updated_at=
           latest_failure_updated_at=
+          previous_run_id=
           if schedule_history="$(gh api \
             "repos/${GITHUB_REPOSITORY}/actions/workflows/keep-neon-warm.yml/runs?event=schedule&per_page=100")" && \
             run_history="$(gh api \
@@ -53,145 +77,327 @@ jobs:
               previous_conclusion="$(jq -r '[.workflow_runs[] | select(.status == "completed")] | sort_by(.updated_at) | last // {} | .conclusion // "unknown"' <<<"$schedule_history")"
               previous_updated_at="$(jq -r '[.workflow_runs[] | select(.status == "completed")] | sort_by(.updated_at) | last // {} | .updated_at // empty' <<<"$schedule_history")"
               latest_failure_updated_at="$(jq -r '[.workflow_runs[] | select(.status == "completed" and .conclusion == "failure")] | sort_by(.updated_at) | last // {} | .updated_at // empty' <<<"$run_history")"
+              previous_run_id="$(jq -r --arg current_id "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != ($current_id | tonumber) and .status == "completed")] | sort_by(.updated_at) | last // {} | .id // empty' <<<"$run_history")"
             fi
           fi
           if [[ "$history_read" == "unavailable" ]]; then
-            echo "::warning::Run history is unavailable; paging fails open, while scheduled recovery waits for verified post-incident samples."
+            echo "::warning::Run history is unavailable; scheduled paging fails open and recovery waits for verified post-incident samples."
           fi
-          echo "history_read=$history_read" >>"$GITHUB_OUTPUT"
-          echo "conclusion=$previous_conclusion" >>"$GITHUB_OUTPUT"
-          echo "updated_at=$previous_updated_at" >>"$GITHUB_OUTPUT"
-          echo "latest_failure_updated_at=$latest_failure_updated_at" >>"$GITHUB_OUTPUT"
+          {
+            echo "history_read=$history_read"
+            echo "conclusion=$previous_conclusion"
+            echo "updated_at=$previous_updated_at"
+            echo "latest_failure_updated_at=$latest_failure_updated_at"
+            echo "previous_run_id=$previous_run_id"
+          } >>"$GITHUB_OUTPUT"
 
-      - name: Report failure on a rolling issue
-        if: failure()
+      - name: Read previous health reporter state artifact
+        id: previous-state
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p "$REPORT_DIR"
+          state_path="$REPORT_DIR/state.json"
           history_read='${{ steps.previous-run.outputs.history_read }}'
-          previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
+          previous_run_id='${{ steps.previous-run.outputs.previous_run_id }}'
+          if [[ -z "$previous_run_id" && "$history_read" == "unavailable" ]]; then
+            fallback_history="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/keep-neon-warm.yml/runs?per_page=100")" || {
+              echo "::error::Cannot recover prior health reporter state because Actions run history is unavailable."
+              exit 1
+            }
+            if ! jq -e '.workflow_runs | type == "array"' <<<"$fallback_history" >/dev/null; then
+              echo "::error::Actions returned an invalid workflow run list while recovering reporter state."
+              exit 1
+            fi
+            previous_run_id="$(jq -r --arg current_id "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != ($current_id | tonumber) and .status == "completed")] | sort_by(.updated_at) | last // {} | .id // empty' <<<"$fallback_history")"
+            if [[ -z "$previous_run_id" ]]; then
+              echo "::error::Actions run history is unavailable and no previous completed run could be identified safely."
+              exit 1
+            fi
+          fi
+          if [[ -z "$previous_run_id" ]]; then
+            if [[ "$history_read" != "ok" ]]; then
+              echo "::error::Cannot initialize health reporter state without verified Actions run history."
+              exit 1
+            fi
+            printf '%s\n' '{"version":1,"incidentActive":false,"failureSignature":null,"lastScheduledHealthOutcome":null,"lastScheduledHealthAt":null,"latestHealthFailureAt":null,"pendingNotifications":[]}' > "$state_path"
+            echo "No completed health audit exists yet; initialized durable reporter state."
+          else
+            artifact_response="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/artifacts?per_page=100")"
+            if ! jq -e '.artifacts | type == "array"' <<<"$artifact_response" >/dev/null; then
+              echo "::error::Actions returned an invalid artifact list for previous health run ${previous_run_id}."
+              exit 1
+            fi
+            has_state_artifact="$(jq -r '[.artifacts[] | select(.name == "production-health-reporter-state" and (.expired | not))] | length > 0' <<<"$artifact_response")"
+            if [[ "$has_state_artifact" == "true" ]]; then
+              download_dir="$REPORT_DIR/previous"
+              mkdir -p "$download_dir"
+              if ! gh run download "$previous_run_id" --repo "$GITHUB_REPOSITORY" \
+                --name production-health-reporter-state --dir "$download_dir"; then
+                echo "::error::Could not download the previous health reporter state artifact from run ${previous_run_id}."
+                exit 1
+              fi
+              state_file="$(find "$download_dir" -type f -name state.json -print -quit)"
+              if [[ -z "$state_file" ]]; then
+                echo "::error::The previous health reporter artifact did not contain state.json."
+                exit 1
+              fi
+              cp "$state_file" "$state_path"
+            else
+              previous_jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/jobs?per_page=100")"
+              if ! jq -e '.jobs | type == "array"' <<<"$previous_jobs" >/dev/null; then
+                echo "::error::Actions returned an invalid job list for previous health run ${previous_run_id}."
+                exit 1
+              fi
+              wrote_state="$(jq -r '[.jobs[].steps[]? | select(.name == "Persist health reporter state")] | length > 0' <<<"$previous_jobs")"
+              if [[ "$wrote_state" == "true" ]]; then
+                echo "::error::Previous health run ${previous_run_id} was expected to upload state, but its artifact is missing or expired."
+                exit 1
+              fi
+              previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
+              previous_updated_at='${{ steps.previous-run.outputs.updated_at }}'
+              latest_failure_updated_at='${{ steps.previous-run.outputs.latest_failure_updated_at }}'
+              jq -n \
+                --arg previous_conclusion "$previous_conclusion" \
+                --arg previous_updated_at "$previous_updated_at" \
+                --arg latest_failure_updated_at "$latest_failure_updated_at" \
+                '{version: 1, incidentActive: false, failureSignature: null, lastScheduledHealthOutcome: (if $previous_conclusion == "success" or $previous_conclusion == "failure" then $previous_conclusion else null end), lastScheduledHealthAt: ($previous_updated_at | select(length > 0) // null), latestHealthFailureAt: ($latest_failure_updated_at | select(length > 0) // null), pendingNotifications: []}' \
+                > "$state_path"
+              echo "::warning::The previous run predates durable health state; initialized reporter state from verified Actions history."
+            fi
+          fi
+
+          node --experimental-strip-types scripts/keep-warm-report.ts validate --state "$state_path"
+          echo "state_path=$state_path" >>"$GITHUB_OUTPUT"
+
+      - name: Plan the incident report
+        id: report-plan
+        if: ${{ always() && steps.previous-state.outcome == 'success' }}
+        shell: bash
+        env:
+          HEALTH_OUTCOME: ${{ steps.health.outcome }}
+          HISTORY_READ: ${{ steps.previous-run.outputs.history_read }}
+        run: |
+          set -euo pipefail
+          outcome="$HEALTH_OUTCOME"
+          if [[ "$outcome" != "success" ]]; then outcome=failure; fi
+          node --experimental-strip-types scripts/keep-warm-report.ts plan \
+            --state "$REPORT_DIR/state.json" \
+            --outcome "$outcome" \
+            --event "$GITHUB_EVENT_NAME" \
+            --history-read "${HISTORY_READ:-unavailable}" \
+            --observed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --failing-log /tmp/keep-warm.log \
+            --slack-channel "$SLACK_CHANNEL" \
+            --slack-payload "$REPORT_DIR/slack-payload.json" \
+            --output "$REPORT_DIR/plan.json"
+          cat "$REPORT_DIR/plan.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the complete health report
+        id: health-report-artifact
+        if: >-
+          ${{ always() && ((steps.report-plan.outputs.notification_id != '') || steps.previous-state.outcome != 'success') }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-health-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.REPORT_DIR }}/full-report.txt
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Build a degraded report when prior state is unavailable
+        id: degraded-report
+        if: ${{ always() && steps.previous-state.outcome != 'success' }}
+        shell: bash
+        env:
+          HEALTH_OUTCOME: ${{ steps.health.outcome }}
+          HISTORY_READ: ${{ steps.previous-run.outputs.history_read }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPORT_ARTIFACT_URL: ${{ steps.health-report-artifact.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          args=(
+            --slack-channel "$SLACK_CHANNEL"
+            --outcome "$([[ "$HEALTH_OUTCOME" == "success" ]] && echo success || echo failure)"
+            --history-read "${HISTORY_READ:-unavailable}"
+            --run-url "$RUN_URL"
+            --failing-log /tmp/keep-warm.log
+            --slack-payload "$REPORT_DIR/slack-payload.json"
+          )
+          if [[ -n "$REPORT_ARTIFACT_URL" ]]; then
+            args+=(--report-url "$REPORT_ARTIFACT_URL")
+          fi
+          node --experimental-strip-types scripts/keep-warm-report.ts degraded "${args[@]}"
+          jq -r .text "$REPORT_DIR/slack-payload.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attach the report artifact to the pending health notification
+        if: >-
+          ${{ always() && steps.previous-state.outcome == 'success' && steps.report-plan.outputs.notification_id != '' && steps.health-report-artifact.outputs.artifact-url != '' }}
+        shell: bash
+        env:
+          NOTIFICATION_ID: ${{ steps.report-plan.outputs.notification_id }}
+          REPORT_ARTIFACT_URL: ${{ steps.health-report-artifact.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/keep-warm-report.ts attach-report \
+            --state "$REPORT_DIR/state.json" \
+            --notification-id "$NOTIFICATION_ID" \
+            --report-url "$REPORT_ARTIFACT_URL" \
+            --slack-channel "$SLACK_CHANNEL" \
+            --slack-payload "$REPORT_DIR/slack-payload.json"
+          jq -r .text "$REPORT_DIR/slack-payload.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Trigger PagerDuty for a confirmed health failure
+        id: pagerduty-trigger
+        if: ${{ always() && steps.health.outcome == 'failure' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          HISTORY_READ: ${{ steps.previous-run.outputs.history_read }}
+          PREVIOUS_CONCLUSION: ${{ steps.previous-run.outputs.conclusion }}
+        run: |
+          set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
-            if [[ "$history_read" == "unavailable" ]]; then
+            if [[ "$HISTORY_READ" == "unavailable" ]]; then
               echo "Run history is unavailable; paging this failure to avoid hiding an ongoing outage."
-            elif [[ "$previous_conclusion" != "failure" ]]; then
-              echo "No preceding completed scheduled failure; keeping details in Actions and waiting for confirmation before paging."
+            elif [[ "$PREVIOUS_CONCLUSION" != "failure" ]]; then
+              echo "No preceding completed scheduled failure; waiting for confirmation before paging."
               exit 0
             fi
           fi
-          ISSUE_TITLE="Production health check failing"
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          FAILING="$(grep -E '^\s*(✗|!) ' /tmp/keep-warm.log || true)"
-          if [ -z "$FAILING" ]; then
-            FAILING="(no per-app detail — the audit itself failed to run)"
+          if [[ -z "${PAGERDUTY_ROUTING_KEY:-}" ]]; then
+            echo "::warning::PAGERDUTY_ROUTING_KEY is not configured; no page was sent."
+            exit 0
           fi
-          # Digits are stripped before hashing: latencies and counts differ on
-          # every run, so hashing them made every repeat look like a new
-          # failure and the de-duplication never engaged. The signature is
-          # which apps are failing and how, not by how much.
-          SIGNATURE="$(printf '%s' "$FAILING" | tr -d '0-9' | shasum | cut -c1-12)"
-          # The backticks are literal Markdown fences in the issue body.
-          # shellcheck disable=SC2016
-          BODY="$(printf '%s\n\n```\n%s\n```\n\n%s\n\n<!-- health-signature: %s -->' \
-            "15-minute audit is failing." "$FAILING" "$RUN_URL" "$SIGNATURE")"
-          page_oncall() {
-            if [ -z "${PAGERDUTY_ROUTING_KEY:-}" ]; then
-              echo "::warning::PAGERDUTY_ROUTING_KEY is not configured; GitHub issue fallback is active but no page was sent."
-              return 0
-            fi
-            # The jq program intentionally uses jq variables, not shell vars.
-            # shellcheck disable=SC2016
-            jq -n \
-              --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
-              --arg dedup_key "agent-native-production-health" \
-              --arg summary "Agent-Native production health audit is failing" \
-              --arg source "${{ github.repository }}" \
-              --arg run_url "$RUN_URL" \
-              --arg failing "$FAILING" \
-              --arg signature "$SIGNATURE" \
-              '{routing_key: $routing_key, event_action: "trigger", dedup_key: $dedup_key, payload: {summary: $summary, source: $source, severity: "critical", custom_details: {run_url: $run_url, failing_apps: $failing, health_signature: $signature}}}' \
-              | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
-                  --header 'Content-Type: application/json' \
-                  --data-binary @- \
-                  https://events.pagerduty.com/v2/enqueue
-          }
-          # Page before GitHub Issues bookkeeping. A transient Issues API
-          # failure must not suppress the independent on-call escalation.
-          pagerduty_status=0
-          page_oncall || pagerduty_status=$?
-          # The job is still running, so match on its failed step rather than
-          # its conclusion. A failed lookup is said in the issue, not hidden.
-          JOB_LINKS="$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '[.jobs[] | select(any(.steps[]; .conclusion == "failure")) | "- [\(.name)](\(.url)): failed at step \"\([.steps[] | select(.conclusion == "failure") | .name] | first)\""] | join("\n")')" || JOB_LINKS="(failed-job link unavailable: gh run view failed)"
-          if [ -z "$JOB_LINKS" ]; then JOB_LINKS="(no failed step recorded yet)"; fi
-          BODY="$(printf '%s\n\nFailed job and step:\n%s\n\nReproduce: gh workflow run %s --ref main' "$BODY" "$JOB_LINKS" "keep-neon-warm.yml")"
-          ISSUE_NUMBER=$(gh issue list --repo "${{ github.repository }}" --state open \
-            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
-            --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)
-          if [ -z "$ISSUE_NUMBER" ]; then
-            gh issue create --repo "${{ github.repository }}" \
-              --title "$ISSUE_TITLE" --body "$BODY"
-          else
-            LAST=$(gh issue view "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
-              --json comments,body --jq '[.body] + [.comments[].body] | last')
-            if printf '%s' "$LAST" | grep -q "health-signature: $SIGNATURE"; then
-              echo "Same failure as the last report — issue #$ISSUE_NUMBER already open, not commenting again."
-            else
-              gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
-            fi
-          fi
-          if [ "$pagerduty_status" -ne 0 ]; then
-            echo "::error::PagerDuty delivery failed; GitHub issue reporting completed but the audit remains failed." >&2
-            exit "$pagerduty_status"
-          fi
+          failing="$(grep -E '^\s*(✗|!) ' /tmp/keep-warm.log 2>/dev/null || true)"
+          if [[ -z "$failing" ]]; then failing="(the health audit failed before per-app details were available)"; fi
+          signature="$(printf '%s' "$failing" | tr -d '0-9' | shasum | cut -c1-12)"
+          jq -n \
+            --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
+            --arg dedup_key "agent-native-production-health" \
+            --arg summary "Agent-Native production health audit is failing" \
+            --arg source "$GITHUB_REPOSITORY" \
+            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg failing "$failing" \
+            --arg signature "$signature" \
+            '{routing_key: $routing_key, event_action: "trigger", dedup_key: $dedup_key, payload: {summary: $summary, source: $source, severity: "critical", custom_details: {run_url: $run_url, failing_apps: $failing, health_signature: $signature}}}' \
+            | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
+                --header 'Content-Type: application/json' \
+                --data-binary @- \
+                https://events.pagerduty.com/v2/enqueue
 
-      - name: Close the rolling issue once the fleet is healthy
-        if: success()
+      - name: Resolve PagerDuty after verified recovery
+        id: pagerduty-resolve
+        if: ${{ always() && steps.health.outcome == 'success' }}
+        continue-on-error: true
         shell: bash
+        env:
+          HISTORY_READ: ${{ steps.previous-run.outputs.history_read }}
+          PREVIOUS_CONCLUSION: ${{ steps.previous-run.outputs.conclusion }}
+          PREVIOUS_UPDATED_AT: ${{ steps.previous-run.outputs.updated_at }}
+          LATEST_FAILURE_UPDATED_AT: ${{ steps.previous-run.outputs.latest_failure_updated_at }}
         run: |
           set -euo pipefail
-          history_read='${{ steps.previous-run.outputs.history_read }}'
-          previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
-          previous_updated_at='${{ steps.previous-run.outputs.updated_at }}'
-          latest_failure_updated_at='${{ steps.previous-run.outputs.latest_failure_updated_at }}'
           post_failure_sample=0
-          # GitHub returns UTC ISO-8601 timestamps, so lexical order is chronological.
-          if [[ -n "$previous_updated_at" && -n "$latest_failure_updated_at" ]] && \
-            [[ "$previous_updated_at" > "$latest_failure_updated_at" ]]; then
+          if [[ -n "$PREVIOUS_UPDATED_AT" && -n "$LATEST_FAILURE_UPDATED_AT" && \
+            "$PREVIOUS_UPDATED_AT" > "$LATEST_FAILURE_UPDATED_AT" ]]; then
             post_failure_sample=1
           fi
           if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
-            if [[ "$history_read" != "ok" || "$previous_conclusion" != "success" || \
+            if [[ "$HISTORY_READ" != "ok" || "$PREVIOUS_CONCLUSION" != "success" || \
               "$post_failure_sample" != "1" ]]; then
-              echo "Recovery needs two clean scheduled audits after the latest failed workflow run; previous result was ${previous_conclusion:-unknown}."
+              echo "Recovery needs two clean scheduled audits after the latest failed workflow run; previous result was ${PREVIOUS_CONCLUSION:-unknown}."
               exit 0
             fi
           fi
-          ISSUE_TITLE="Production health check failing"
-          pagerduty_status=0
-          if [ -n "${PAGERDUTY_ROUTING_KEY:-}" ]; then
-            # Resolve before GitHub issue bookkeeping so an Issues API failure
-            # cannot bypass the independent recovery notification.
-            # The jq program intentionally uses jq variables, not shell vars.
-            # shellcheck disable=SC2016
-            jq -n \
-              --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
-              --arg dedup_key "agent-native-production-health" \
-              --arg source "${{ github.repository }}" \
-              '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent-Native production health audit recovered", source: $source, severity: "critical"}}' \
-              | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
-                  --header 'Content-Type: application/json' \
-                  --data-binary @- \
-                  https://events.pagerduty.com/v2/enqueue || pagerduty_status=$?
-          else
-            echo "PagerDuty resolve skipped: PAGERDUTY_ROUTING_KEY is not configured."
+          if [[ -z "${PAGERDUTY_ROUTING_KEY:-}" ]]; then
+            echo "::warning::PAGERDUTY_ROUTING_KEY is not configured; PagerDuty resolve was skipped."
+            exit 0
           fi
-          ISSUE_NUMBER=$(gh issue list --repo "${{ github.repository }}" --state open \
-            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
-            --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)
-          if [ -n "$ISSUE_NUMBER" ]; then
-            gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
-              --comment "Fleet audit is green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          jq -n \
+            --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
+            --arg dedup_key "agent-native-production-health" \
+            --arg source "$GITHUB_REPOSITORY" \
+            '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent-Native production health audit recovered", source: $source, severity: "critical"}}' \
+            | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
+                --header 'Content-Type: application/json' \
+                --data-binary @- \
+                https://events.pagerduty.com/v2/enqueue
+
+      - name: Post the incident transition or recovery to #qa-agent-native
+        id: slack
+        if: >-
+          ${{ always() && ((steps.report-plan.outcome == 'success' && steps.report-plan.outputs.notification_id != '') || steps.previous-state.outcome != 'success') }}
+        continue-on-error: true
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+          errors: false
+          payload-file-path: ${{ env.REPORT_DIR }}/slack-payload.json
+
+      - name: Acknowledge the Slack report in durable state
+        if: >-
+          ${{ always() && steps.previous-state.outcome == 'success' && steps.report-plan.outcome == 'success' && steps.report-plan.outputs.notification_id != '' && steps.slack.outcome == 'success' && steps.slack.outputs.ok == 'true' }}
+        shell: bash
+        env:
+          NOTIFICATION_ID: ${{ steps.report-plan.outputs.notification_id }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/keep-warm-report.ts ack \
+            --state "$REPORT_DIR/state.json" \
+            --notification-id "$NOTIFICATION_ID"
+
+      - name: Report API delivery failures
+        if: always()
+        shell: bash
+        env:
+          REPORT_PLAN_OUTCOME: ${{ steps.report-plan.outcome }}
+          STATE_READ_OUTCOME: ${{ steps.previous-state.outcome }}
+          NOTIFICATION_ID: ${{ steps.report-plan.outputs.notification_id }}
+          SLACK_OUTCOME: ${{ steps.slack.outcome }}
+          SLACK_OK: ${{ steps.slack.outputs.ok }}
+          SLACK_RESPONSE: ${{ steps.slack.outputs.response }}
+          PAGERDUTY_TRIGGER_OUTCOME: ${{ steps.pagerduty-trigger.outcome }}
+          PAGERDUTY_RESOLVE_OUTCOME: ${{ steps.pagerduty-resolve.outcome }}
+        run: |
+          set -euo pipefail
+          failed=0
+          if [[ ( -n "$NOTIFICATION_ID" || "$STATE_READ_OUTCOME" != "success" ) && \
+            ( "$SLACK_OUTCOME" != "success" || "$SLACK_OK" != "true" ) ]]; then
+            reason="$(jq -r '.error // empty' <<<"${SLACK_RESPONSE:-null}" 2>/dev/null || true)"
+            reason="${reason:-no Slack API error code returned; step outcome ${SLACK_OUTCOME:-unknown}}"
+            message="Slack notification failed: chat.postMessage to #qa-agent-native returned \"$reason\". The incident remains pending in Actions state when state was available."
+            echo "::error::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+            failed=1
           fi
-          if [ "$pagerduty_status" -ne 0 ]; then
-            echo "::error::PagerDuty resolve failed; GitHub issue bookkeeping completed only if available." >&2
-            exit "$pagerduty_status"
+          if [[ "$PAGERDUTY_TRIGGER_OUTCOME" == "failure" ]]; then
+            echo "::error::PagerDuty trigger failed; the health audit remains failed." >&2
+            failed=1
           fi
+          if [[ "$PAGERDUTY_RESOLVE_OUTCOME" == "failure" ]]; then
+            echo "::error::PagerDuty resolve failed after the health audit recovered." >&2
+            failed=1
+          fi
+          if [[ "$STATE_READ_OUTCOME" != "success" ]]; then
+            echo "::error::Prior health history/state could not be read; a degraded report was attempted with deduplication marked unknown." >&2
+            failed=1
+          elif [[ "$REPORT_PLAN_OUTCOME" != "success" ]]; then
+            echo "::error::Health reporter state planning did not complete; no Slack report was planned." >&2
+            failed=1
+          fi
+          exit "$failed"
+
+      - name: Persist health reporter state
+        if: ${{ always() && steps.previous-state.outcome == 'success' && steps.report-plan.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-health-reporter-state
+          path: ${{ env.REPORT_DIR }}/state.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true

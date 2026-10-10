@@ -19,15 +19,12 @@ import {
   buildDigest,
   classifyMessage,
   decideNotify,
-  embedState,
   extractState,
   firstErrorLine,
-  ISSUE_BODY_BUDGET,
   lastBetaE2eLine,
   main,
   parseResults,
-  renderComment,
-  renderIssueBody,
+  renderReport,
   renderSlack,
   reproduceCommands,
   shortJobName,
@@ -333,8 +330,7 @@ describe("digest outcomes", () => {
     assert.equal(digest.status, "green");
     assert.equal(digest.entries.length, 0);
     assert.deepEqual(digest.notify, { shouldNotify: false, reason: null });
-    assert.match(renderIssueBody(digest), /Status: GREEN/);
-    assert.equal(renderComment(digest), null);
+    assert.match(renderReport(digest), /Status: GREEN/);
   });
 
   it("reports a product failure with everything needed to act on it", () => {
@@ -368,7 +364,7 @@ describe("digest outcomes", () => {
       "test-results/authed-chat-slides/x/error-context.md",
     ]);
 
-    const body = renderIssueBody(digest);
+    const body = renderReport(digest);
     assert.match(body, /Status: RED/);
     assert.match(
       body,
@@ -393,7 +389,7 @@ describe("digest outcomes", () => {
       body,
       /BETA_E2E_APPS=slides pnpm e2e:beta --project=chat --grep 'slides agent chat completes and restores a turn'/,
     );
-    assert.match(body, /beta-e2e-state:v1/);
+    assert.match(body, /complete report and state file are attached/);
     assert.deepEqual(digest.notify, {
       shouldNotify: true,
       reason: "first-report",
@@ -441,7 +437,7 @@ describe("digest outcomes", () => {
     assert.equal(digest.counts.flaky, 1);
     assert.equal(digest.status, "green");
     assert.equal(digest.entries.length, 0);
-    const body = renderIssueBody(digest);
+    const body = renderReport(digest);
     assert.match(body, /Flaky in this run \(1, passed on retry, not paged\)/);
     // red to green is a recovery, never a flaky page:
     assert.equal(digest.notify.reason, "recovered");
@@ -460,10 +456,7 @@ describe("digest outcomes", () => {
     const digest = buildDigest(input({ slots: [slot("advisory", advisory)] }));
     assert.equal(digest.status, "green");
     assert.equal(digest.advisory.length, 1);
-    assert.match(
-      renderIssueBody(digest),
-      /Advisory findings \(1, non-gating\)/,
-    );
+    assert.match(renderReport(digest), /Advisory findings \(1, non-gating\)/);
   });
 
   it("reports tests skipped for the e2e account's setup as not tested, never as failing", () => {
@@ -518,7 +511,7 @@ describe("digest outcomes", () => {
     assert.equal(digest.entries.length, 0);
     assert.equal(digest.envSkipped.length, 2);
 
-    const body = renderIssueBody(digest);
+    const body = renderReport(digest);
     assert.match(
       body,
       /- Not tested: 2 tests skipped because the e2e account is not set up for them \(slides\): e2e account has no private storage/,
@@ -558,13 +551,13 @@ describe("digest outcomes", () => {
     );
     assert.equal(digest.envSkipped.length, 0);
     assert.doesNotMatch(
-      renderIssueBody(digest),
+      renderReport(digest),
       /Not tested|account is not set up/,
     );
     assert.doesNotMatch(renderSlack(digest), /NOT TESTED/);
   });
 
-  it("keeps the not-tested line in a red run's Slack message and the issue", () => {
+  it("keeps the not-tested line in the full report and Slack message", () => {
     const failing = fakeReport("chat.spec.ts", [
       {
         describe: ["chat agent chat"],
@@ -587,7 +580,7 @@ describe("digest outcomes", () => {
     const slack = renderSlack(digest).split("\n");
     assert.ok(slack.length <= 12);
     assert.ok(slack.some((line) => /^NOT TESTED: 1 test skipped/.test(line)));
-    assert.match(renderIssueBody(digest), /- Not tested: 1 test skipped/);
+    assert.match(renderReport(digest), /- Not tested: 1 test skipped/);
   });
 
   it("reports a test.fixme parked as QUARANTINED with its text, never as a plain skip or a failure", () => {
@@ -642,7 +635,7 @@ describe("digest outcomes", () => {
     assert.equal(digest.entries.length, 0);
     assert.equal(digest.quarantined.length, 2);
 
-    const body = renderIssueBody(digest);
+    const body = renderReport(digest);
     assert.match(
       body,
       /- Quarantined: 2 tests not running \(chat\): steve until 2026-10-15: the Chat app sends the picked engine/,
@@ -656,7 +649,7 @@ describe("digest outcomes", () => {
     );
   });
 
-  it("keeps the quarantine line in a red run's Slack message and the issue", () => {
+  it("keeps the quarantine line in the full report and Slack message", () => {
     const failing = fakeReport("chat.spec.ts", [
       {
         describe: ["chat agent chat"],
@@ -687,7 +680,7 @@ describe("digest outcomes", () => {
     assert.ok(
       slack.some((line) => /^QUARANTINED: 1 test not running/.test(line)),
     );
-    assert.match(renderIssueBody(digest), /- Quarantined: 1 test not running/);
+    assert.match(renderReport(digest), /- Quarantined: 1 test not running/);
   });
 
   it("names a killed job that left no results, with the last [beta-e2e] line", () => {
@@ -714,7 +707,7 @@ describe("digest outcomes", () => {
       entry?.fact?.message,
       'no test results: job "Authenticated chat-slides" cancelled at step "Authenticated chat-slides" after 45m 20s; its artifact holds no results.json; last [beta-e2e] log line: [beta-e2e]   slides: installing the OpenAI key…',
     );
-    const body = renderIssueBody(digest);
+    const body = renderReport(digest);
     assert.match(body, /Jobs and setup without usable test results/);
     assert.match(body, /The operation was canceled/);
     assert.match(body, /actions\/runs\/1000\/artifacts\/5/);
@@ -749,7 +742,7 @@ describe("digest outcomes", () => {
     const [entry] = digest.entries;
     assert.equal(entry?.kind, "setup");
     assert.equal(entry?.class, "env");
-    assert.match(renderIssueBody(digest), /resolved to a@b\.c/);
+    assert.match(renderReport(digest), /resolved to a@b\.c/);
   });
 
   it("reports a globalTimeout kill as infra-timeout with the setup message", () => {
@@ -762,7 +755,7 @@ describe("digest outcomes", () => {
       input({ runResult: "failure", slots: [slot("authed-chat-chat", hung)] }),
     );
     assert.equal(digest.entries[0]?.class, "infra-timeout");
-    assert.match(renderSlack(digest), /Timed out waiting 11m/);
+    assert.match(renderReport(digest), /Timed out waiting 11m/);
   });
 
   it("reports unreadable results as a fact instead of dropping them", () => {
@@ -788,7 +781,7 @@ describe("digest outcomes", () => {
     const digest = buildDigest(input({ runResult: "failure" }));
     assert.equal(digest.status, "red");
     assert.equal(digest.entries[0]?.class, "unclassified");
-    assert.match(renderIssueBody(digest), /no failing test or job identified/);
+    assert.match(renderReport(digest), /no failed job or failing test/);
   });
 
   it("names the app of a journey test that has no describe, so its reproduce command is valid", () => {
@@ -849,49 +842,6 @@ describe("digest outcomes", () => {
     assert.equal(untagged?.app, "analytics");
   });
 
-  it("closes an open issue on a green run even when it has no state marker", () => {
-    const green = (overrides: Partial<DigestInput>) =>
-      buildDigest(
-        input({
-          slots: [
-            slot(
-              "authed-registry",
-              fakeReport("registry.spec.ts", [
-                { title: "ok", status: "expected", project: "registry" },
-              ]),
-            ),
-          ],
-          ...overrides,
-        }),
-      );
-    const decide = (digest: ReturnType<typeof green>) => {
-      const dir = mkdtempSync(path.join(tmpdir(), "beta-e2e-digest-"));
-      try {
-        writeOutputs(digest, dir);
-        const commentFile = path.join(dir, "comment.md");
-        return {
-          decision: JSON.parse(
-            readFileSync(path.join(dir, "decision.json"), "utf8"),
-          ) as { issueAction: string; hasComment: boolean },
-          comment: existsSync(commentFile)
-            ? readFileSync(commentFile, "utf8")
-            : null,
-        };
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
-    };
-    // The legacy issue (#3986) has no marker, so `previous` is null.
-    const legacy = decide(green({ issueNumber: 3986 }));
-    assert.equal(legacy.decision.issueAction, "close");
-    assert.equal(legacy.decision.hasComment, true);
-    assert.match(legacy.comment ?? "", /still open without a red state/);
-    // Nothing open and nothing red before: nothing to close.
-    const none = decide(green({}));
-    assert.equal(none.decision.issueAction, "none");
-    assert.equal(none.comment, null);
-  });
-
   it("flags a slot that stopped at maxFailures", () => {
     const many = fakeReport(
       "settings-navigation.spec.ts",
@@ -906,7 +856,7 @@ describe("digest outcomes", () => {
     );
     assert.deepEqual(digest.stoppedEarly, ["authed-journeys"]);
     assert.match(
-      renderIssueBody(digest),
+      renderReport(digest),
       /Stopped early at maxFailures in: authed-journeys/,
     );
   });
@@ -979,14 +929,10 @@ describe("transitions against the previous run", () => {
       reason: "new-failures",
     });
 
-    const body = renderIssueBody(digest);
+    const body = renderReport(digest);
     assert.match(body, /NEW/);
     assert.match(body, /STILL FAILING since \[#900\]/);
     assert.match(body, /Fixed since the previous run/);
-    assert.match(
-      renderComment(digest) ?? "",
-      /NEW 1, STILL FAILING 1, FIXED 1/,
-    );
   });
 
   it("does not call a failure fixed when its slot produced no results", () => {
@@ -1096,10 +1042,6 @@ describe("transitions against the previous run", () => {
       assert.equal(next.counts.newFailures, 0);
       assert.equal(next.notRun.length, 0);
       assert.deepEqual(next.notify, { shouldNotify: false, reason: null });
-      assert.ok(
-        !(renderComment(next) ?? "").includes("New:"),
-        "a failure that was only NOT RUN last time must not be announced as new",
-      );
     });
 
     it("calls a failure FIXED only after it executed and passed", () => {
@@ -1173,27 +1115,21 @@ describe("transitions against the previous run", () => {
             ),
           ],
           previous: before.state,
-          issueNumber: 3986,
-          issueUrl: "https://github.com/acme/repo/issues/3986",
         }),
       );
       assert.equal(digest.status, "green");
       assert.equal(digest.counts.notRun, 1);
       assert.equal(digest.notify.reason, "recovered");
       assert.match(
-        renderIssueBody(digest),
+        renderReport(digest),
         /Status: GREEN\.\*\* No gating failures in this run\. 1 previously failing test did not run this time, so it is not verified fixed\./,
-      );
-      assert.match(
-        renderComment(digest) ?? "",
-        /1 previously failing test did not run this time/,
       );
       assert.match(renderSlack(digest), /NOT RUN: 1 previously failing test/);
       // A green run drops the tracked state, NOT RUN entries included.
       assert.deepEqual(digest.state.failing, []);
     });
 
-    it("does not comment or notify when only the NOT RUN set changes", () => {
+    it("does not notify when only the NOT RUN set changes", () => {
       const before = redFirst(["a", "b"]);
       const digest = buildDigest(
         input({
@@ -1222,7 +1158,6 @@ describe("transitions against the previous run", () => {
       assert.equal(digest.counts.newFailures, 0);
       assert.equal(digest.counts.fixed, 0);
       assert.equal(digest.stateChanged, false);
-      assert.equal(renderComment(digest), null);
       assert.deepEqual(digest.notify, { shouldNotify: false, reason: null });
       assert.ok(
         digest.entries.every((entry) => entry.kind !== "carried"),
@@ -1230,7 +1165,7 @@ describe("transitions against the previous run", () => {
       );
     });
 
-    it("renders NOT RUN in the issue table and the Slack text", () => {
+    it("renders NOT RUN in the report and Slack text", () => {
       const before = redFirst(["a", "b"]);
       const digest = buildDigest(
         input({
@@ -1252,13 +1187,12 @@ describe("transitions against the previous run", () => {
           previous: before.state,
         }),
       );
-      const body = renderIssueBody(digest);
+      const body = renderReport(digest);
       assert.match(body, /NOT RUN 1\./);
       assert.match(body, /### Not run this time \(1, not verified fixed\)/);
       assert.match(body, /\| NOT RUN \(last failed in \[#900\]/);
       assert.match(body, /1 did not run \(a slot stopped early or timed out\)/);
       assert.match(renderSlack(digest), /NOT RUN 1/);
-      assert.match(renderComment(digest) ?? "", /NOT RUN 1\)/);
     });
 
     it("verifies a setup failure by the slot running tests, and carries it otherwise", () => {
@@ -1330,7 +1264,7 @@ describe("transitions against the previous run", () => {
       );
     });
 
-    it("reads a marker written before kinds were tracked as test failures", () => {
+    it("reads older state artifacts without kinds as test failures", () => {
       const legacy = redState({
         failing: [
           {
@@ -1361,7 +1295,7 @@ describe("transitions against the previous run", () => {
     });
   });
 
-  it("recovers: green after red notifies, comments, and closes", () => {
+  it("recovers: green after red notifies", () => {
     const before = buildDigest(
       input({
         runId: 900,
@@ -1392,14 +1326,10 @@ describe("transitions against the previous run", () => {
     assert.equal(digest.notify.reason, "recovered");
     assert.equal(digest.state.consecutiveRed, 0);
     assert.equal(digest.state.lastGreen, RUN);
-    assert.match(
-      renderComment(digest) ?? "",
-      /Recovered in .*red for 1 consecutive run/,
-    );
     assert.match(renderSlack(digest), /Beta E2E recovered/);
   });
 
-  it("is quiet for an identical red run and comments only on change", () => {
+  it("is quiet for an identical red run and notifies only on change", () => {
     const first = buildDigest(
       input({
         runId: 900,
@@ -1423,7 +1353,6 @@ describe("transitions against the previous run", () => {
       }),
     );
     assert.equal(second.stateChanged, false);
-    assert.equal(renderComment(second), null);
     assert.deepEqual(second.notify, { shouldNotify: false, reason: null });
     assert.equal(second.state.lastNotifiedAt, first.state.lastNotifiedAt);
     assert.equal(second.state.consecutiveRed, 2);
@@ -1448,7 +1377,7 @@ describe("transitions against the previous run", () => {
     assert.equal(digest.notify.reason, "went-red");
     assert.equal(digest.state.consecutiveRed, 1);
     assert.equal(digest.state.lastGreen, 950);
-    assert.match(renderIssueBody(digest), /Last green run: \[#950\]/);
+    assert.match(renderReport(digest), /Last green run: \[#950\]/);
   });
 });
 
@@ -1528,42 +1457,35 @@ describe("decideNotify", () => {
   }
 });
 
-describe("state marker", () => {
-  it("round-trips and survives an issue body around it", () => {
+describe("state artifact", () => {
+  it("round-trips the artifact-backed state as JSON", () => {
     const state = redState({
       failing: [
         { k: "abc", s: "authed-journeys", r: 900, l: "a --> b", c: "product" },
       ],
     });
-    const body = `text\n${embedState(state)}\nmore`;
-    assert.equal(body.split("-->").length, 2);
-    assert.deepEqual(extractState(body), state);
+    assert.deepEqual(extractState(JSON.stringify(state)), state);
   });
 
-  it("returns null when absent and throws when damaged", () => {
+  it("returns null for absent state and rejects invalid artifacts", () => {
     assert.equal(extractState(null), null);
-    assert.equal(
-      extractState("an old comment-style body with no marker"),
-      null,
-    );
+    assert.equal(extractState("null"), null);
+    assert.throws(() => extractState(""), /JSON/);
+    assert.throws(() => extractState("{"), /JSON/);
     assert.throws(
-      () => extractState('<!-- beta-e2e-state:v1 {"v":1'),
-      /truncated/,
-    );
-    assert.throws(
-      () => extractState('<!-- beta-e2e-state:v1 {"v":2,"status":"red"} -->'),
-      /unrecognised/,
+      () => extractState(JSON.stringify({ v: 2, status: "red" })),
+      /state artifact is invalid/,
     );
   });
 });
 
-describe("size limits", () => {
-  it("keeps the issue body under the cap with the marker intact for hundreds of failures", () => {
+describe("full report and Slack rollup", () => {
+  it("keeps every finding in both the report and persisted state", () => {
     const tests = Array.from({ length: 300 }, (_, index) => ({
-      describe: [`app${index % 12} journeys`],
-      title: `case ${index} ${"long title ".repeat(8)}`,
+      describe: ["app" + (index % 12) + " journeys"],
+      title: "case " + index + " " + "long title ".repeat(8),
       project: "journeys",
-      error: `Error: ${"detail ".repeat(400)}`,
+      error: "Error: " + "detail ".repeat(400),
     }));
     const digest = buildDigest(
       input({
@@ -1576,53 +1498,92 @@ describe("size limits", () => {
         ],
       }),
     );
-    const body = renderIssueBody(digest);
-    assert.ok(body.length <= ISSUE_BODY_BUDGET, `body is ${body.length} chars`);
-    assert.match(body, /more failing tests not listed here/);
-    const state = extractState(body);
-    assert.equal(state?.failing.length, 120);
-    assert.equal(state?.overflow, 180);
+    const report = renderReport(digest);
+    assert.match(report, /case 0/);
+    assert.match(report, /case 299/);
+    assert.doesNotMatch(report, /more failing tests not listed here/);
+    assert.equal(digest.state.failing.length, 300);
+    assert.equal(digest.state.overflow, 0);
   });
 
-  it("keeps the Slack message to twelve lines with escaped text", () => {
+  it("rolls finding titles and summaries into one message with the full report link", () => {
     const tests = Array.from({ length: 20 }, (_, index) => ({
-      describe: ["slides <b>agent</b> chat"],
-      title: `case ${index} & more`,
+      describe: ["slides agent chat"],
+      title: "case " + index + " more",
       project: "chat",
-      error: `Error: expected <div> & ${"x".repeat(300)}`,
+      error: "Error: expected value",
     }));
-    const killed = job("Authenticated journeys", "cancelled", [
-      { name: "Authenticated journeys", conclusion: "cancelled" },
-    ]);
     const digest = buildDigest(
       input({
         runResult: "failure",
-        issueUrl: "https://github.com/acme/repo/issues/3986",
-        issueNumber: 3986,
-        jobs: [killed],
-        artifacts: [{ id: 9, name: "beta-e2e-authed-chat-slides-1000" }],
         slots: [slot("authed-chat-slides", fakeReport("chat.spec.ts", tests))],
       }),
     );
     const message = renderSlack(digest);
-    const lines = message.split("\n");
-    assert.ok(lines.length <= 12, `${lines.length} lines`);
     assert.match(
-      lines[1] ?? "",
-      /<https:\/\/github\.com\/acme\/repo\/issues\/3986\|issue #3986>/,
+      message,
+      /<https:\/\/github\.com\/acme\/repo\/actions\/runs\/1000\|run #42>/,
+    );
+    assert.match(message, /Full report and Playwright artifacts/);
+    assert.match(
+      message,
+      /Findings: 20 total; showing 20; 0 omitted from this Slack message/,
+    );
+    assert.match(message, /fingerprint/);
+    assert.match(message, /expected value/);
+    assert.equal(
+      (message.match(/Full report and Playwright artifacts/g) ?? []).length,
+      1,
+    );
+    assert.match(message, /case 0 more/);
+    assert.match(message, /case 19 more/);
+  });
+
+  it("bounds the consolidated finding details and names the overflow", () => {
+    const tests = Array.from({ length: 150 }, (_, index) => ({
+      describe: ["signup review"],
+      title: `case ${index} ${"title ".repeat(24)}`,
+      project: "chat",
+      error: `Error: ${"failure detail ".repeat(20)}`,
+    }));
+    const digest = buildDigest(
+      input({
+        runResult: "failure",
+        slots: [slot("authed-chat-slides", fakeReport("chat.spec.ts", tests))],
+      }),
+    );
+    const message = renderSlack(digest);
+
+    assert.ok(message.length < 40_000);
+    assert.match(
+      message,
+      /Findings: 150 total; showing \d+; \d+ omitted from this Slack message/,
     );
     assert.match(
       message,
-      /<https:\/\/github\.com\/acme\/repo\/actions\/runs\/1000\/job\/\d+\|Authenticated journeys>/,
+      /additional findings are in the full report artifact/,
     );
+    assert.match(renderReport(digest), /case 149/);
+  });
+
+  it("rolls up collection warnings with an exact overflow count", () => {
+    const digest = buildDigest(
+      input({
+        runResult: "failure",
+        jobs: [],
+        notes: Array.from(
+          { length: 100 },
+          (_, index) => `collection warning ${index} ${"detail ".repeat(10)}`,
+        ),
+      }),
+    );
+    const message = renderSlack(digest);
+
     assert.match(
       message,
-      /actions\/runs\/1000\/artifacts\/9\|beta-e2e-authed-chat-slides-1000>/,
+      /Collection warnings: 100 total; showing \d+; \d+ omitted from this Slack message/,
     );
-    assert.match(message, /&lt;b&gt;agent&lt;\/b&gt;|&amp; more/);
-    assert.doesNotMatch(message, /<div>/);
-    assert.match(message, /\+\d+ more in the issue/);
-    assert.ok(lines.every((line) => line.length < 420));
+    assert.match(renderReport(digest), /collection warning 99/);
   });
 });
 
@@ -1684,7 +1645,7 @@ describe("the workflow's slots and the digest agree on names", () => {
 });
 
 describe("command line", () => {
-  it("reads downloaded artifacts and writes the issue, Slack, state, and decision files", () => {
+  it("reads downloaded artifacts and writes the full report, Slack, state, and decision files", () => {
     const root = mkdtempSync(path.join(tmpdir(), "beta-e2e-digest-"));
     try {
       const results = path.join(root, "results");
@@ -1747,10 +1708,6 @@ describe("command line", () => {
         artifacts,
         "--out-dir",
         out,
-        "--issue-url",
-        "https://github.com/acme/repo/issues/1",
-        "--issue-number",
-        "1",
         "--slack-note",
         "Slack notification not configured (secret QA_SLACK_BOT_TOKEN is empty).",
         "--now",
@@ -1761,10 +1718,9 @@ describe("command line", () => {
         readFileSync(path.join(out, "decision.json"), "utf8"),
       );
       assert.equal(decision.status, "red");
-      assert.equal(decision.issueAction, "upsert");
       assert.equal(decision.shouldNotify, true);
-      assert.equal(decision.hasComment, true);
-      const body = readFileSync(path.join(out, "issue.md"), "utf8");
+      assert.equal(decision.notifyReason, "first-report");
+      const body = readFileSync(path.join(out, "report.md"), "utf8");
       assert.match(body, /Slack notification not configured/);
       assert.match(
         body,
@@ -1772,7 +1728,7 @@ describe("command line", () => {
       );
       assert.match(body, /slides agent chat > completes and restores a turn/);
       assert.deepEqual(
-        extractState(body),
+        extractState(readFileSync(path.join(out, "state.json"), "utf8")),
         JSON.parse(readFileSync(path.join(out, "state.json"), "utf8")),
       );
       assert.ok(
@@ -1781,9 +1737,12 @@ describe("command line", () => {
           .filter(Boolean).length <= 12,
       );
 
-      // The next run reads the issue body back as its previous state.
-      const previousBody = path.join(root, "previous.md");
-      writeFileSync(previousBody, body);
+      // The next run reads state.json from the previous run's artifact.
+      const previousState = path.join(root, "previous-state.json");
+      writeFileSync(
+        previousState,
+        readFileSync(path.join(out, "state.json"), "utf8"),
+      );
       const out2 = path.join(root, "out2");
       const greenJobs = path.join(root, "green-jobs.json");
       writeFileSync(
@@ -1806,15 +1765,15 @@ describe("command line", () => {
         "--out-dir",
         out2,
         "--previous-state",
-        previousBody,
+        previousState,
         "--now",
         NOW,
       ]);
       const recovered = JSON.parse(
         readFileSync(path.join(out2, "decision.json"), "utf8"),
       );
-      assert.equal(recovered.issueAction, "close");
       assert.equal(recovered.notifyReason, "recovered");
+      assert.equal(recovered.shouldNotify, true);
       // This run uploaded no results, so the failures it cannot see are NOT
       // RUN, not FIXED, and are said so rather than dropped.
       assert.equal(recovered.fixed, 0);
@@ -1824,15 +1783,15 @@ describe("command line", () => {
     }
   });
 
-  it("says so in the issue when collection notes are passed or the previous marker is damaged", () => {
+  it("reports collection notes and damaged previous state", () => {
     const root = mkdtempSync(path.join(tmpdir(), "beta-e2e-digest-"));
     try {
       const jobs = path.join(root, "jobs.json");
       writeFileSync(jobs, JSON.stringify({ jobs: [] }));
       const artifacts = path.join(root, "artifacts.json");
       writeFileSync(artifacts, JSON.stringify({ artifacts: [] }));
-      const previous = path.join(root, "previous.md");
-      writeFileSync(previous, "body <!-- beta-e2e-state:v1 {broken");
+      const previous = path.join(root, "previous-state.json");
+      writeFileSync(previous, '{"v":2,"status":"red"}');
       const out = path.join(root, "out");
       main([
         "--run-id",
@@ -1856,12 +1815,12 @@ describe("command line", () => {
         "--now",
         NOW,
       ]);
-      const body = readFileSync(path.join(out, "issue.md"), "utf8");
+      const body = readFileSync(path.join(out, "report.md"), "utf8");
       assert.match(body, /Report note: Downloading the artifacts failed\./);
       assert.match(body, /Report note: Job log for 12 could not be fetched\./);
-      assert.match(body, /state marker could not be read/);
+      assert.match(body, /previous state artifact could not be read/);
       // Nothing explained the failed run, and that is said rather than hidden.
-      assert.match(body, /no failing test or job identified/);
+      assert.match(body, /no failed job or failing test/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -282,26 +282,26 @@ production deployment:
 
 ## CI-only variables
 
-| Variable                      | Purpose                                                                                                                                                                                 |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane.                                                                                            |
-| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.                                                                                                    |
-| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.                                                                                               |
-| `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.                                                                                                    |
-| `CI_PR_TITLE`                 | Pull request title passed to the change-scope classifier so a `test:` title cannot hide runtime source changes.                                                                         |
-| `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                                           |
-| `CORE_SHARD`                  | Vitest shard selector for the Core fast-test job.                                                                                                                                       |
-| `CORE_TEST_FILES`             | JSON list of changed Core test files selected for a targeted fast-test shard.                                                                                                           |
-| `CORE_TEST_MODE`              | Selects the full or changed-file mode for a Core fast-test shard.                                                                                                                       |
-| `PACKAGE_SHARDS`              | JSON list of `{ name, shard }` Vitest shards of large workspace packages that one fast-test lane runs.                                                                                  |
-| `TARGETED_WORKSPACE_FILTERS`  | Change-scope test selectors the lane planner receives as `CI_WORKSPACE_FILTERS` on a targeted run.                                                                                      |
-| `FAST_TESTS`                  | Change-scope output the `Fast tests` gate reads to tell a targeted selection from one with no workspace fast tests.                                                                     |
-| `SCRIPT_TESTS`                | JSON list of changed root script tests, plus sibling tests of changed guards, that the `Security guards` job runs.                                                                      |
-| `MIN_FREE_GB`                 | Free-disk threshold, in GB, below which the `free-disk` composite action reclaims runner space.                                                                                         |
-| `QUERY_BUDGET_APPS`           | JSON list of first-party templates the cold-request query budget job builds and measures, chosen by the change-scope classifier.                                                        |
-| `SSR_BOOT_APPS`               | JSON list of templates the SSR cold-start smoke builds and imports, chosen by the change-scope classifier.                                                                              |
-| `NIGHTLY_PATHS`               | Newline-separated publishable paths the scheduled nightly publish compares against its last successful run; must match `auto-publish.yml`'s `push.paths`.                               |
-| `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when keep-warm or scheduled signup checks fail; GitHub issue reporting remains the fallback when it is unset. |
+| Variable                      | Purpose                                                                                                                                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane.                                                                                                                        |
+| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.                                                                                                                                |
+| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.                                                                                                                           |
+| `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.                                                                                                                                |
+| `CI_PR_TITLE`                 | Pull request title passed to the change-scope classifier so a `test:` title cannot hide runtime source changes.                                                                                                     |
+| `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                                                                       |
+| `CORE_SHARD`                  | Vitest shard selector for the Core fast-test job.                                                                                                                                                                   |
+| `CORE_TEST_FILES`             | JSON list of changed Core test files selected for a targeted fast-test shard.                                                                                                                                       |
+| `CORE_TEST_MODE`              | Selects the full or changed-file mode for a Core fast-test shard.                                                                                                                                                   |
+| `PACKAGE_SHARDS`              | JSON list of `{ name, shard }` Vitest shards of large workspace packages that one fast-test lane runs.                                                                                                              |
+| `TARGETED_WORKSPACE_FILTERS`  | Change-scope test selectors the lane planner receives as `CI_WORKSPACE_FILTERS` on a targeted run.                                                                                                                  |
+| `FAST_TESTS`                  | Change-scope output the `Fast tests` gate reads to tell a targeted selection from one with no workspace fast tests.                                                                                                 |
+| `SCRIPT_TESTS`                | JSON list of changed root script tests, plus sibling tests of changed guards, that the `Security guards` job runs.                                                                                                  |
+| `MIN_FREE_GB`                 | Free-disk threshold, in GB, below which the `free-disk` composite action reclaims runner space.                                                                                                                     |
+| `QUERY_BUDGET_APPS`           | JSON list of first-party templates the cold-request query budget job builds and measures, chosen by the change-scope classifier.                                                                                    |
+| `SSR_BOOT_APPS`               | JSON list of templates the SSR cold-start smoke builds and imports, chosen by the change-scope classifier.                                                                                                          |
+| `NIGHTLY_PATHS`               | Newline-separated publishable paths the scheduled nightly publish compares against its last successful run; must match `auto-publish.yml`'s `push.paths`.                                                           |
+| `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when keep-warm or scheduled signup checks fail. QA findings are reported in `#qa-agent-native`; GitHub issues are not used as a fallback. |
 
 ### Clips Chrome Web Store release
 
@@ -357,17 +357,32 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | `SHARD_SELECTED`                  | Set per authenticated shard by the workflow: whether the shard's app is in the run's app selection. Workflow-internal; gates the shard's steps.                                                                                           |
 
 The scheduled `Beta E2E (scheduled)` workflow reports through
-`scripts/beta-e2e-digest.ts`. `QA_SLACK_BOT_TOKEN` is a bot token for the Slack
-app that posts to `#qa-agent-native`; store it only as a GitHub Actions secret.
+`scripts/beta-e2e-digest.ts`. The Beta, production-health, and signup reporters
+publish one consolidated finding report per workflow run to `#qa-agent-native`.
+They retain full run details in GitHub Actions artifacts and do not create
+GitHub issues. `QA_SLACK_BOT_TOKEN` is a bot token for the Slack app; store it
+only as a GitHub Actions secret. If a report is due but Slack is not configured
+or delivery fails, the reporter job fails visibly instead of opening an issue.
 
-| Variable             | Purpose                                                                                                                                    |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `QA_SLACK_BOT_TOKEN` | Slack bot token (`chat:write`) for the scheduled reporter. When empty the report job says so in a warning, the job summary, and the issue. |
-| `SLACK_CHANNEL`      | Slack channel id the reporter posts to (`#qa-agent-native`). Workflow-internal.                                                            |
-| `REPORT_DIR`         | Scratch directory the reporter writes the run's jobs, artifacts, logs, and digest into. Workflow-internal.                                 |
-| `ISSUE_TITLE`        | Exact title of the single rolling issue the reporter updates. Workflow-internal.                                                           |
-| `ISSUE_NUMBER`       | Number of the open rolling issue, when there is one. Workflow-internal.                                                                    |
-| `ISSUE_ACTION`       | What the digest decided to do with the issue (`upsert`, `close`, or `none`). Workflow-internal.                                            |
+| Variable                    | Purpose                                                                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `QA_SLACK_BOT_TOKEN`        | Slack bot token (`chat:write`) for the scheduled reporters. Store it as a GitHub Actions secret.                                                                   |
+| `SLACK_CHANNEL`             | Slack channel id the reporters use for `#qa-agent-native`. Workflow-internal.                                                                                      |
+| `REPORT_DIR`                | Scratch directory the Beta E2E reporter uses for jobs, artifacts, logs, and its digest. Workflow-internal.                                                         |
+| `COLLECT_OUTCOME`           | Result of collecting the Beta E2E run's jobs, artifacts, and logs; a failed collection produces a degraded report. Workflow-internal.                              |
+| `METADATA_INCOMPLETE`       | Whether the Beta E2E reporter could not collect complete run metadata or restore prior state. Workflow-internal.                                                   |
+| `SHOULD_NOTIFY`             | Whether the Beta E2E digest found a report-worthy transition and should post its single consolidated Slack message. Workflow-internal.                             |
+| `HEALTH_OUTCOME`            | Result of the production health audit passed to its reporting step. Workflow-internal.                                                                             |
+| `HISTORY_READ`              | Whether the production health reporter recovered prior run state from its artifact history. `unavailable` means recovery must not be inferred. Workflow-internal.  |
+| `STATE_READ_OUTCOME`        | Result of reading the prior production health reporter state artifact; a failure produces a degraded report. Workflow-internal.                                    |
+| `PREVIOUS_CONCLUSION`       | Conclusion of the prior production health run used to gate recovery notifications. Workflow-internal.                                                              |
+| `REPORT_PLAN_OUTCOME`       | Result of the production health report planning step. A failure keeps the reporter visibly red. Workflow-internal.                                                 |
+| `PAGERDUTY_TRIGGER_OUTCOME` | Result of sending a production health PagerDuty trigger. Workflow-internal.                                                                                        |
+| `PAGERDUTY_RESOLVE_OUTCOME` | Result of sending a production health PagerDuty recovery. Workflow-internal.                                                                                       |
+| `PUBLISH_OUTCOME`           | Result of publishing the signup agent's consolidated report artifact. Workflow-internal.                                                                           |
+| `REVIEW_OUTCOME`            | Result of the signup agent review step. Workflow-internal.                                                                                                         |
+| `EVIDENCE_OUTCOME`          | Result of preserving the signup agent's report and evidence artifact. Workflow-internal.                                                                           |
+| `REPORT_INCOMPLETE`         | Whether the signup agent's consolidated report could not include complete findings. The workflow posts the degraded report, then fails visibly. Workflow-internal. |
 
 ### Scheduled signup E2E canary
 

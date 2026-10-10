@@ -27,11 +27,8 @@ jobs:
     permissions:
       contents: read
 
-  # Reports in one place, once per run: the single open issue is rewritten in
-  # place with the current state (comments only when the set of failures
-  # changes), Slack hears about transitions and a daily reminder rather than every
-  # identical red run, and a missing results file is stated as a fact. The logic
-  # lives in scripts/beta-e2e-digest.ts, which has its own tests.
+  # Keep the complete report and dedup state with this workflow run. Slack gets
+  # one transition/reminder message linking to the run, never one message per test.
   report:
     name: Report beta E2E status
     if: ${{ always() && needs.beta-e2e.result != 'skipped' }}
@@ -41,14 +38,12 @@ jobs:
     permissions:
       actions: read
       contents: read
-      issues: write
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       RUN_ID: ${{ github.run_id }}
       RUN_RESULT: ${{ needs.beta-e2e.result }}
       REPORT_DIR: .tmp/beta-e2e
-      ISSUE_TITLE: "[beta-e2e] Scheduled beta health check failing"
       SLACK_CHANNEL: C0C4U4XRT6X
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -61,30 +56,48 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Collect the run's jobs, artifacts, logs, and the previous state
+      - name: Collect run data and restore the previous state artifact
+        id: collect
+        continue-on-error: true
         run: |
           set -euo pipefail
-          mkdir -p "$REPORT_DIR/results" "$REPORT_DIR/logs" "$REPORT_DIR/out"
+          mkdir -p "$REPORT_DIR/results" "$REPORT_DIR/logs" "$REPORT_DIR/out" "$REPORT_DIR/previous"
           : > "$REPORT_DIR/notes.txt"
           note() {
             echo "$1" >> "$REPORT_DIR/notes.txt"
             echo "::warning::$1"
           }
 
-          # These two are the report's raw material: if either call fails the
-          # step fails loudly rather than reporting from a partial list.
-          gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" --jq '.jobs[]' | jq -s '{jobs: .}' > "$REPORT_DIR/jobs.json"
-          gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[]' | jq -s '{artifacts: .}' > "$REPORT_DIR/artifacts.json"
-
-          have_artifacts="$(jq '[.artifacts[] | select((.name | startswith("beta-e2e-")) and (.expired | not))] | length' "$REPORT_DIR/artifacts.json")"
+          metadata_incomplete=false
+          if gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" --jq '.jobs[]' > "$REPORT_DIR/jobs.ndjson" 2> "$REPORT_DIR/jobs-api-error.txt" && \
+            jq -s '{jobs: .}' "$REPORT_DIR/jobs.ndjson" > "$REPORT_DIR/jobs.json"; then
+            :
+          else
+            detail="$(tr '\r\n' ' ' < "$REPORT_DIR/jobs-api-error.txt" | cut -c 1-300)"
+            note "Could not collect run job metadata; the Slack report will be degraded. ${detail:-GitHub returned unreadable job data.}"
+            printf '{"jobs":[]}\n' > "$REPORT_DIR/jobs.json"
+            metadata_incomplete=true
+          fi
+          if gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[]' > "$REPORT_DIR/artifacts.ndjson" 2> "$REPORT_DIR/artifacts-api-error.txt" && \
+            jq -s '{artifacts: .}' "$REPORT_DIR/artifacts.ndjson" > "$REPORT_DIR/artifacts.json"; then
+            :
+          else
+            detail="$(tr '\r\n' ' ' < "$REPORT_DIR/artifacts-api-error.txt" | cut -c 1-300)"
+            note "Could not collect run artifact metadata; the Slack report will be degraded. ${detail:-GitHub returned unreadable artifact data.}"
+            printf '{"artifacts":[]}\n' > "$REPORT_DIR/artifacts.json"
+            metadata_incomplete=true
+          fi
+          have_artifacts="$(jq '[.artifacts[] | select((.name | startswith("beta-e2e-")) and ((.name | startswith("beta-e2e-digest-")) | not) and (.expired | not))] | length' "$REPORT_DIR/artifacts.json")"
           if [ "$have_artifacts" -gt 0 ]; then
             if ! gh run download "$RUN_ID" --repo "$REPO" --pattern 'beta-e2e-*' --dir "$REPORT_DIR/results"; then
               note "Downloading the beta-e2e artifacts failed, so test results are missing from this report."
+              metadata_incomplete=true
             fi
+          else
+            note "No beta-e2e result artifacts were uploaded, so test findings may be incomplete."
+            metadata_incomplete=true
           fi
 
-          # The last lines of each failed job's log name the host and step a
-          # killed job was in. Keep every [beta-e2e] line plus the log's tail.
           jobs_to_read="$(jq -r '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | .id' "$REPORT_DIR/jobs.json" | head -n 30)"
           for job_id in $jobs_to_read; do
             raw="$(mktemp)"
@@ -92,30 +105,76 @@ jobs:
               { grep -F '[beta-e2e]' "$raw" | tail -n 60 || true; tail -n 300 "$raw"; } > "$REPORT_DIR/logs/$job_id.log"
             else
               note "Could not read the log of job $job_id: $(head -c 200 "$raw.err")"
+              metadata_incomplete=true
             fi
           done
 
-          # The previous state lives in the open issue's body; when there is no
-          # open issue, in the most recently created closed one, which is how a
-          # recovery is remembered across a close.
-          issue_number="$(gh issue list --repo "$REPO" --state open --limit 100 --json number,title | jq -r --arg title "$ISSUE_TITLE" '[.[] | select(.title == $title) | .number] | first // empty')"
-          previous_number="$issue_number"
-          if [ -z "$previous_number" ]; then
-            previous_number="$(gh issue list --repo "$REPO" --state closed --limit 30 --json number,title | jq -r --arg title "$ISSUE_TITLE" '[.[] | select(.title == $title) | .number] | first // empty')"
-          fi
-          if [ -n "$previous_number" ]; then
-            gh issue view "$previous_number" --repo "$REPO" --json body --jq .body > "$REPORT_DIR/previous.md"
-          fi
-          {
-            echo "issue_number=$issue_number"
-            if [ -n "$issue_number" ]; then
-              echo "issue_url=$GITHUB_SERVER_URL/$REPO/issues/$issue_number"
+          current_state_prefix="beta-e2e-digest-$RUN_ID-"
+          current_state_artifact="$(jq -r --arg prefix "$current_state_prefix" '[.artifacts[] | select(.name | startswith($prefix)) | select(.expired | not)] | sort_by(.created_at) | last | .name // empty' "$REPORT_DIR/artifacts.json")"
+          if [ -n "$current_state_artifact" ]; then
+            current_state_dir="$REPORT_DIR/previous/current-attempt"
+            mkdir -p "$current_state_dir"
+            if gh run download "$RUN_ID" --repo "$REPO" --name "$current_state_artifact" --dir "$current_state_dir"; then
+              state_file="$(find "$current_state_dir" -type f -name state.json -print -quit)"
+              if [ -n "$state_file" ]; then
+                cp "$state_file" "$REPORT_DIR/previous/state.json"
+              else
+                note "The previous attempt artifact for run $RUN_ID has no state.json; checking earlier runs."
+                metadata_incomplete=true
+              fi
+            else
+              note "Could not download the previous attempt state artifact for run $RUN_ID; checking earlier runs."
+              metadata_incomplete=true
             fi
-          } >> "$GITHUB_OUTPUT"
-        id: collect
+          fi
 
+          runs_file="$REPORT_DIR/previous/runs.txt"
+          if [ ! -f "$REPORT_DIR/previous/state.json" ] && ! gh api --paginate "repos/$REPO/actions/workflows/beta-e2e-scheduled.yml/runs?branch=main&per_page=100&status=completed" --jq '.workflow_runs[].id' > "$runs_file"; then
+            note "Could not list prior scheduled runs; state comparison starts without a restored artifact."
+            metadata_incomplete=true
+          elif [ ! -f "$REPORT_DIR/previous/state.json" ]; then
+            while IFS= read -r previous_run; do
+              [ -n "$previous_run" ] || continue
+              [ "$previous_run" != "$RUN_ID" ] || continue
+              artifact_list="$REPORT_DIR/previous/artifacts-$previous_run.json"
+              if ! gh api "repos/$REPO/actions/runs/$previous_run/artifacts?per_page=100" > "$artifact_list"; then
+                note "Could not inspect artifacts for prior run $previous_run; continuing state recovery."
+                metadata_incomplete=true
+                continue
+              fi
+              if ! jq -e '.artifacts | type == "array"' "$artifact_list" >/dev/null; then
+                note "GitHub returned invalid artifact metadata for prior run $previous_run; continuing state recovery."
+                metadata_incomplete=true
+                continue
+              fi
+              state_artifact_prefix="beta-e2e-digest-$previous_run-"
+              state_artifact="$(jq -r --arg prefix "$state_artifact_prefix" '[.artifacts[] | select(.name | startswith($prefix)) | select(.expired | not)] | sort_by(.created_at) | last | .name // empty' "$artifact_list")"
+              [ -n "$state_artifact" ] || continue
+
+              download_dir="$REPORT_DIR/previous/download"
+              mkdir -p "$download_dir"
+              if ! gh run download "$previous_run" --repo "$REPO" --name "$state_artifact" --dir "$download_dir"; then
+                note "Could not download the most recent state artifact from run $previous_run; state comparison starts without it."
+                metadata_incomplete=true
+                break
+              fi
+              state_file="$(find "$download_dir" -type f -name state.json -print -quit)"
+              if [ -z "$state_file" ]; then
+                note "The most recent state artifact from run $previous_run has no state.json; state comparison starts without it."
+                metadata_incomplete=true
+              else
+                cp "$state_file" "$REPORT_DIR/previous/state.json"
+              fi
+              break
+            done < "$runs_file"
+          fi
+          if [ ! -f "$REPORT_DIR/previous/state.json" ]; then
+            note "No prior beta-e2e state artifact was restored; this report starts a new comparison."
+          fi
+          echo "metadata_incomplete=$metadata_incomplete" >> "$GITHUB_OUTPUT"
       - name: Check Slack configuration
         id: slack_config
+        if: ${{ always() }}
         env:
           QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
         run: |
@@ -130,14 +189,49 @@ jobs:
             echo "$message" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Build the digest
+      - name: Build the report
         id: digest
+        if: ${{ always() }}
         env:
-          ISSUE_NUMBER: ${{ steps.collect.outputs.issue_number }}
-          ISSUE_URL: ${{ steps.collect.outputs.issue_url }}
           SLACK_NOTE: ${{ steps.slack_config.outputs.slack_note }}
+          METADATA_INCOMPLETE: ${{ steps.collect.outputs.metadata_incomplete }}
+          COLLECT_OUTCOME: ${{ steps.collect.outcome }}
         run: |
           set -euo pipefail
+          mkdir -p "$REPORT_DIR/results" "$REPORT_DIR/logs" "$REPORT_DIR/out" "$REPORT_DIR/previous"
+          metadata_incomplete="${METADATA_INCOMPLETE:-false}"
+          if [ "$COLLECT_OUTCOME" != "success" ]; then
+            metadata_incomplete=true
+            touch "$REPORT_DIR/notes.txt"
+            note="The run-data collector did not complete; findings and deduplication history may be incomplete."
+            echo "$note" >> "$REPORT_DIR/notes.txt"
+            if [ ! -s "$REPORT_DIR/jobs.json" ] || ! jq -e '.jobs | type == "array"' "$REPORT_DIR/jobs.json" >/dev/null; then
+              printf '{"jobs":[]}\n' > "$REPORT_DIR/jobs.json"
+            fi
+            if [ ! -s "$REPORT_DIR/artifacts.json" ] || ! jq -e '.artifacts | type == "array"' "$REPORT_DIR/artifacts.json" >/dev/null; then
+              printf '{"artifacts":[]}\n' > "$REPORT_DIR/artifacts.json"
+            fi
+            if [ ! -f scripts/beta-e2e-digest.ts ] || ! node --experimental-strip-types -e '' >/dev/null 2>&1; then
+              run_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$RUN_ID"
+              report_text=":warning: *Beta E2E report is degraded*\nRun metadata collection failed before the full digest could be built.\nFindings: 1 total; showing 1; 0 omitted from this Slack message.\n• Report collection failure: findings and deduplication history are unknown.\nFull report artifact and collector logs: <$run_url|workflow run>."
+              jq -n --arg channel "$SLACK_CHANNEL" --arg text "$report_text" \
+                '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' \
+                > "$REPORT_DIR/out/slack-payload.json"
+              printf '%s\n' "$report_text" > "$REPORT_DIR/out/slack.txt"
+              printf '# Beta E2E degraded report\n\n%s\n' "$report_text" > "$REPORT_DIR/out/report.md"
+              printf 'null\n' > "$REPORT_DIR/out/state.json"
+              jq -n '{previousStateAvailable: false, status: "red", failing: 1, newFailures: 1, notifyReason: "degraded-collection"}' \
+                > "$REPORT_DIR/out/decision.json"
+              {
+                echo "should_notify=true"
+                echo "notify_reason=degraded-collection"
+                echo "metadata_incomplete=true"
+              } >> "$GITHUB_OUTPUT"
+              echo "## Beta E2E report: DEGRADED" >> "$GITHUB_STEP_SUMMARY"
+              echo "$note" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          fi
           args=(
             --run-id "$RUN_ID" --run-number "$GITHUB_RUN_NUMBER" --run-attempt "$GITHUB_RUN_ATTEMPT"
             --repo "$REPO" --server-url "$GITHUB_SERVER_URL" --sha "$GITHUB_SHA" --event "$GITHUB_EVENT_NAME"
@@ -146,129 +240,126 @@ jobs:
             --artifacts "$REPORT_DIR/artifacts.json" --logs-dir "$REPORT_DIR/logs"
             --out-dir "$REPORT_DIR/out"
           )
-          if [ -f "$REPORT_DIR/previous.md" ]; then args+=(--previous-state "$REPORT_DIR/previous.md"); fi
-          if [ -n "$ISSUE_NUMBER" ]; then args+=(--issue-number "$ISSUE_NUMBER" --issue-url "$ISSUE_URL"); fi
+          if [ -f "$REPORT_DIR/previous/state.json" ]; then args+=(--previous-state "$REPORT_DIR/previous/state.json"); fi
           if [ -n "$SLACK_NOTE" ]; then args+=(--slack-note "$SLACK_NOTE"); fi
           while IFS= read -r line; do
             if [ -n "$line" ]; then args+=(--note "$line"); fi
           done < "$REPORT_DIR/notes.txt"
           node --experimental-strip-types scripts/beta-e2e-digest.ts "${args[@]}"
-          {
-            echo "issue_action=$(jq -r .issueAction "$REPORT_DIR/out/decision.json")"
-            echo "should_notify=$(jq -r .shouldNotify "$REPORT_DIR/out/decision.json")"
-            echo "has_comment=$(jq -r .hasComment "$REPORT_DIR/out/decision.json")"
-          } >> "$GITHUB_OUTPUT"
-          cat "$REPORT_DIR/out/issue.md" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Update the open issue
-        id: issue
-        if: ${{ steps.digest.outputs.issue_action != 'none' }}
-        env:
-          ISSUE_NUMBER: ${{ steps.collect.outputs.issue_number }}
-          ISSUE_ACTION: ${{ steps.digest.outputs.issue_action }}
-          HAS_COMMENT: ${{ steps.digest.outputs.has_comment }}
-        run: |
-          set -euo pipefail
-          out="$REPORT_DIR/out"
-
-          # Labels are best effort and said so: they need a label to exist, and
-          # a failure to create one must not stop the issue being updated.
-          label_args=()
-          if existing="$(gh label list --repo "$REPO" --limit 200 --json name --jq '.[].name')"; then
-            for label in beta-e2e qa; do
-              if ! grep -Fxq "$label" <<< "$existing"; then
-                if ! gh label create "$label" --repo "$REPO" --color 5319e7 --description "Beta E2E health check" > /dev/null; then
-                  echo "::warning::Could not create the \"$label\" label; the issue is not labelled with it."
-                  continue
-                fi
-              fi
-              label_args+=("$label")
-            done
-          else
-            echo "::warning::Could not list labels; the issue is not labelled."
+          if [ -s "$REPORT_DIR/previous/state.json" ]; then
+            prior_state_type="$(jq -r 'type' "$REPORT_DIR/previous/state.json" 2>/dev/null || echo invalid)"
+            if [ "$prior_state_type" != "null" ] && \
+              [ "$(jq -r .previousStateAvailable "$REPORT_DIR/out/decision.json")" != "true" ]; then
+              metadata_incomplete=true
+            fi
           fi
-
-          if [ "$ISSUE_ACTION" = "upsert" ]; then
-            if [ -n "$ISSUE_NUMBER" ]; then
-              edit_args=(--body-file "$out/issue.md")
-              for label in "${label_args[@]}"; do edit_args+=(--add-label "$label"); done
-              gh issue edit "$ISSUE_NUMBER" --repo "$REPO" "${edit_args[@]}"
-              if [ "$HAS_COMMENT" = "true" ]; then
-                gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file "$out/comment.md"
-              fi
-              issue_url="$GITHUB_SERVER_URL/$REPO/issues/$ISSUE_NUMBER"
-            else
-              create_args=(--title "$ISSUE_TITLE" --body-file "$out/issue.md")
-              for label in "${label_args[@]}"; do create_args+=(--label "$label"); done
-              issue_url="$(gh issue create --repo "$REPO" "${create_args[@]}")"
-              ISSUE_NUMBER="${issue_url##*/}"
-            fi
-          elif [ -n "$ISSUE_NUMBER" ]; then
-            # Recovery: record the final state, say so, and close.
-            gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --body-file "$out/issue.md"
-            if [ "$HAS_COMMENT" = "true" ]; then
-              gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file "$out/comment.md"
-            fi
-            gh issue close "$ISSUE_NUMBER" --repo "$REPO"
-            issue_url="$GITHUB_SERVER_URL/$REPO/issues/$ISSUE_NUMBER"
+          if [ "$metadata_incomplete" = "true" ]; then
+            jq -n --arg channel "$SLACK_CHANNEL" --rawfile digest "$REPORT_DIR/out/slack.txt" \
+              '{channel: $channel, text: ":warning: *Beta E2E report is degraded*\nSome run metadata could not be read, so findings may be incomplete. The report below includes every finding we could recover.\n\n" + $digest, unfurl_links: false, unfurl_media: false}' \
+              > "$REPORT_DIR/out/slack-payload.json"
           else
-            echo "No open issue to close."
-            exit 0
+            jq -n --arg channel "$SLACK_CHANNEL" --rawfile text "$REPORT_DIR/out/slack.txt" \
+              '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' > "$REPORT_DIR/out/slack-payload.json"
+          fi
+          if [ "$metadata_incomplete" = "true" ]; then
+            should_notify=true
+            notify_reason=degraded-collection
+          else
+            should_notify="$(jq -r .shouldNotify "$REPORT_DIR/out/decision.json")"
+            notify_reason="$(jq -r .notifyReason "$REPORT_DIR/out/decision.json")"
           fi
           {
-            echo "issue_number=$ISSUE_NUMBER"
-            echo "issue_url=$issue_url"
+            echo "should_notify=$should_notify"
+            echo "notify_reason=$notify_reason"
+            echo "metadata_incomplete=$metadata_incomplete"
           } >> "$GITHUB_OUTPUT"
+          {
+            jq -r '"## Beta E2E report: " + (.status | ascii_upcase) + "\n\n- Gating findings: \(.failing)\n- New failures: \(.newFailures)\n- Notification: \(.notifyReason // "none")"' "$REPORT_DIR/out/decision.json"
+            echo ""
+            echo "[Open the full report and Playwright artifacts]($GITHUB_SERVER_URL/$REPO/actions/runs/$RUN_ID)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Render the Slack message
         id: slack_message
-        if: ${{ steps.digest.outputs.should_notify == 'true' && steps.slack_config.outputs.configured == 'true' }}
-        env:
-          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number || steps.collect.outputs.issue_number }}
-          ISSUE_URL: ${{ steps.issue.outputs.issue_url || steps.collect.outputs.issue_url }}
+        if: ${{ always() && steps.digest.outputs.should_notify == 'true' && steps.slack_config.outputs.configured == 'true' }}
         run: |
           set -euo pipefail
-          args=(
-            --run-id "$RUN_ID" --run-number "$GITHUB_RUN_NUMBER" --repo "$REPO" --server-url "$GITHUB_SERVER_URL"
-            --run-result "$RUN_RESULT"
-            --results-dir "$REPORT_DIR/results" --jobs "$REPORT_DIR/jobs.json"
-            --artifacts "$REPORT_DIR/artifacts.json" --logs-dir "$REPORT_DIR/logs"
-            --out-dir "$REPORT_DIR/out-slack"
-          )
-          if [ -f "$REPORT_DIR/previous.md" ]; then args+=(--previous-state "$REPORT_DIR/previous.md"); fi
-          if [ -n "$ISSUE_NUMBER" ]; then args+=(--issue-number "$ISSUE_NUMBER" --issue-url "$ISSUE_URL"); fi
-          node --experimental-strip-types scripts/beta-e2e-digest.ts "${args[@]}"
-          jq -n --arg channel "$SLACK_CHANNEL" --rawfile text "$REPORT_DIR/out-slack/slack.txt" \
-            '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' > "$REPORT_DIR/slack-payload.json"
+          cp "$REPORT_DIR/out/slack-payload.json" "$REPORT_DIR/slack-payload.json"
 
-      - name: Post to Slack
+      - name: Post the rolled-up Slack report
         id: slack
-        if: ${{ steps.slack_message.outcome == 'success' }}
+        if: ${{ always() && steps.slack_message.outcome == 'success' }}
         continue-on-error: true
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
           method: chat.postMessage
           token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
-          # Do not fail the step on a Slack API error such as not_in_channel:
-          # the next step reads `ok` and the error code and reports them.
           errors: false
           payload-file-path: .tmp/beta-e2e/slack-payload.json
 
-      - name: Say so when the Slack post failed
-        if: ${{ always() && steps.slack_message.outcome == 'success' && (steps.slack.outcome != 'success' || steps.slack.outputs.ok != 'true') }}
+      - name: Verify the Slack report was posted
+        if: ${{ always() && steps.digest.outputs.should_notify == 'true' }}
         env:
-          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number || steps.collect.outputs.issue_number }}
+          SLACK_CONFIGURED: ${{ steps.slack_config.outputs.configured }}
           SLACK_OUTCOME: ${{ steps.slack.outcome }}
+          SLACK_OK: ${{ steps.slack.outputs.ok }}
           SLACK_RESPONSE: ${{ steps.slack.outputs.response }}
+          NOTIFY_REASON: ${{ steps.digest.outputs.notify_reason }}
         run: |
           set -euo pipefail
-          reason="$(jq -r '.error // empty' <<< "${SLACK_RESPONSE:-null}" 2> /dev/null || true)"
-          reason="${reason:-no Slack API error code returned; step outcome $SLACK_OUTCOME}"
-          message="Slack notification failed: chat.postMessage to #qa-agent-native returned \"$reason\". The QA_SLACK_BOT_TOKEN bot must be invited to the channel (/invite) and the token must be valid."
-          echo "::warning::$message"
-          echo "$message" >> "$GITHUB_STEP_SUMMARY"
-          if [ -n "$ISSUE_NUMBER" ]; then
-            body="$REPORT_DIR/out/issue-with-slack-note.md"
-            printf '%s\n\n> %s\n' "$(cat "$REPORT_DIR/out/issue.md")" "$message" > "$body"
-            gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --body-file "$body"
+          if [ "$SLACK_CONFIGURED" = "true" ] && [ "$SLACK_OUTCOME" = "success" ] && [ "$SLACK_OK" = "true" ]; then
+            echo "Posted the $NOTIFY_REASON beta E2E report to #qa-agent-native."
+            echo "Posted the $NOTIFY_REASON beta E2E report to #qa-agent-native." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+          reason="$(jq -r '.error // empty' <<< "${SLACK_RESPONSE:-null}" 2> /dev/null || true)"
+          if [ "$SLACK_CONFIGURED" != "true" ]; then
+            reason="QA_SLACK_BOT_TOKEN is missing"
+          fi
+          reason="${reason:-no Slack API success response; step outcome $SLACK_OUTCOME}"
+          message="Slack notification failed: chat.postMessage to #qa-agent-native returned \"$reason\". The scheduled report was not delivered."
+          echo "::error::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Preserve notification state only after delivery
+        if: ${{ always() && steps.digest.outcome == 'success' }}
+        env:
+          SHOULD_NOTIFY: ${{ steps.digest.outputs.should_notify }}
+          METADATA_INCOMPLETE: ${{ steps.digest.outputs.metadata_incomplete }}
+          SLACK_CONFIGURED: ${{ steps.slack_config.outputs.configured }}
+          SLACK_OUTCOME: ${{ steps.slack.outcome }}
+          SLACK_OK: ${{ steps.slack.outputs.ok }}
+        run: |
+          set -euo pipefail
+          if [ "$SHOULD_NOTIFY" = "true" ] && { [ "$METADATA_INCOMPLETE" = "true" ] || [ "$SLACK_CONFIGURED" != "true" ] || [ "$SLACK_OUTCOME" != "success" ] || [ "$SLACK_OK" != "true" ]; }; then
+            if [ "$(jq -r .previousStateAvailable "$REPORT_DIR/out/decision.json")" = "true" ]; then
+              cp "$REPORT_DIR/previous/state.json" "$REPORT_DIR/out/state.json"
+            else
+              printf 'null\n' > "$REPORT_DIR/out/state.json"
+            fi
+            if [ "$METADATA_INCOMPLETE" = "true" ]; then
+              message="Run metadata collection was incomplete; the prior notification state was retained to avoid a false recovery."
+            else
+              message="Slack delivery failed; the prior notification state was retained so the next scheduled run can retry."
+            fi
+            echo "::warning::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Fail after posting an incomplete metadata report
+        if: ${{ always() && steps.digest.outputs.metadata_incomplete == 'true' && steps.slack.outcome == 'success' && steps.slack.outputs.ok == 'true' }}
+        run: |
+          message="Beta E2E run metadata could not be collected; the degraded report was posted to #qa-agent-native. See the collection notes and run links above."
+          echo "::error::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Upload the full report and dedup state
+        if: ${{ always() && steps.digest.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: beta-e2e-digest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .tmp/beta-e2e/out/
+          retention-days: 90
+          if-no-files-found: error
