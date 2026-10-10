@@ -34,6 +34,7 @@ import {
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   getAgentChatContextState,
+  nextAgentChatStagedAt,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
   removeAgentChatContextItemAndPersist,
@@ -95,6 +96,7 @@ import {
   type AgentSuggestionInput,
   type TiptapComposerHandle,
   AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
+  composerContextFits,
   readAgentPromptAttachment,
 } from "@agent-native/toolkit/composer";
 import {
@@ -1108,6 +1110,7 @@ interface AgentKitSurfaceContextValue {
   onComposerSubmissionPendingChange: (pending: boolean) => void;
   isThinkingVisibleInTranscript: boolean;
   contextItems: AgentChatContextItem[];
+  providerContextItems: { current: readonly AgentChatContextItem[] };
   suggestions: AgentSuggestionInput[];
   showSuggestions: boolean;
   voiceTranscriptMessages: AgentMessage[];
@@ -1963,6 +1966,9 @@ const AgentKitAssistantChatBody = forwardRef<
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const previousPrefillRevisionRef = useRef(prefillRevision);
   const [contextItems, setContextItems] = useState<AgentChatContextItem[]>([]);
+  // Items the composer provider owns; the composer surface keeps this current so
+  // the staging check counts what a submit would also send.
+  const providerContextItems = useRef<readonly AgentChatContextItem[]>([]);
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelectionContext | null>(null);
   const pendingSelectionRef = useRef<PendingSelectionContext | null>(null);
@@ -2885,15 +2891,16 @@ const AgentKitAssistantChatBody = forwardRef<
         ) {
           requestPendingSelectionClear();
         }
-        const usedKeys = new Set(contextItems.map((item) => item.key));
+        // Matched by staging time as well as key, so a replacement staged while this
+        // send was in flight survives the cleanup.
+        const isSent = (item: AgentChatContextItem) =>
+          contextItems.some(
+            (sent) => sent.key === item.key && sent.stagedAt === item.stagedAt,
+          );
         publishAgentChatContextItems(
-          getAgentChatContextState().items.filter(
-            (item) => !usedKeys.has(item.key),
-          ),
+          getAgentChatContextState().items.filter((item) => !isSent(item)),
         );
-        setContextItems((items) =>
-          items.filter((item) => !usedKeys.has(item.key)),
-        );
+        setContextItems((items) => items.filter((item) => !isSent(item)));
       } catch (error) {
         localSubmissionRef.current = false;
         if (queuedMessageReservationId) {
@@ -3369,15 +3376,16 @@ const AgentKitAssistantChatBody = forwardRef<
         ) {
           requestPendingSelectionClear();
         }
-        const usedKeys = new Set(contextItems.map((item) => item.key));
+        // Matched by staging time as well as key, so a replacement staged while this
+        // send was in flight survives the cleanup.
+        const isSent = (item: AgentChatContextItem) =>
+          contextItems.some(
+            (sent) => sent.key === item.key && sent.stagedAt === item.stagedAt,
+          );
         publishAgentChatContextItems(
-          getAgentChatContextState().items.filter(
-            (item) => !usedKeys.has(item.key),
-          ),
+          getAgentChatContextState().items.filter((item) => !isSent(item)),
         );
-        setContextItems((items) =>
-          items.filter((item) => !usedKeys.has(item.key)),
-        );
+        setContextItems((items) => items.filter((item) => !isSent(item)));
         setQueueSubmissionError(null);
         return { status: "submitted" };
       } catch (error) {
@@ -3800,8 +3808,11 @@ const AgentKitAssistantChatBody = forwardRef<
 
   const setContextItem = useCallback(
     (rawItem: AgentChatContextItem, focus = true) => {
-      const item = normalizeAgentChatContextItem(rawItem);
-      if (!item) return;
+      const normalized = normalizeAgentChatContextItem(rawItem);
+      if (!normalized) return;
+      // A caller may carry the staging time of an item it read back; a replacement
+      // must not keep the replaced item's identity.
+      const item = { ...normalized, stagedAt: nextAgentChatStagedAt() };
       const current = getAgentChatContextState().items;
       const next = current
         .filter((candidate) => candidate.key !== item.key)
@@ -3815,10 +3826,12 @@ const AgentKitAssistantChatBody = forwardRef<
     [props.contextNamespace, requestComposerFocus, threadId],
   );
   const removeContextItem = useCallback(
-    (key: string, options?: { threadScoped?: boolean }) => {
+    (key: string, options?: { threadScoped?: boolean; stagedAt?: number }) => {
       const targetKey = options?.threadScoped ? `${key}:${threadId}` : key;
       if (options?.threadScoped) {
-        return removeAgentChatContextItemAndPersist(targetKey).then(() => {
+        return removeAgentChatContextItemAndPersist(targetKey, {
+          stagedAt: options.stagedAt,
+        }).then(() => {
           setContextItems(
             filterAgentChatContextItems(
               getAgentChatContextState().items,
@@ -3858,6 +3871,15 @@ const AgentKitAssistantChatBody = forwardRef<
         writeAssistantChatComposerDraft(props.tabId ?? threadId, text);
         setPrefillRevision((revision) => revision + 1);
       },
+      canStageComposerContextItem: (item) => {
+        const scopedKey = `${item.key}:${threadId}`;
+        return composerContextFits([
+          ...[...contextItems, ...providerContextItems.current].filter(
+            (candidate) => candidate.key !== scopedKey,
+          ),
+          { ...item, key: scopedKey, targetThreadId: threadId },
+        ]);
+      },
       setComposerContextItem: (item, options) => {
         const focus = options?.focus !== false;
         if (!options?.threadScoped) {
@@ -3870,7 +3892,7 @@ const AgentKitAssistantChatBody = forwardRef<
           key: `${item.key}:${threadId}`,
           targetThreadId: threadId,
         };
-        return setAgentChatContextItemAndPersist(scopedItem).then(() => {
+        return setAgentChatContextItemAndPersist(scopedItem).then((staged) => {
           setContextItems(
             filterAgentChatContextItems(
               getAgentChatContextState().items,
@@ -3879,6 +3901,7 @@ const AgentKitAssistantChatBody = forwardRef<
             ),
           );
           if (focus) requestComposerFocus(threadId);
+          return staged;
         });
       },
       removeComposerContextItem: removeContextItem,
@@ -3972,6 +3995,7 @@ const AgentKitAssistantChatBody = forwardRef<
     onComposerSubmissionPendingChange: setComposerSubmissionPending,
     isThinkingVisibleInTranscript,
     contextItems,
+    providerContextItems,
     voiceTranscriptMessages,
     selectionLength,
     suggestions: suggestions ?? [],
@@ -4715,6 +4739,7 @@ function AgentKitComposerSurface({
   setupBouncePulse,
   bounceSetupCard,
   contextItems,
+  providerContextItems,
   selectionLength,
   prefillRevision,
   text,
@@ -4752,6 +4777,7 @@ function AgentKitComposerSurface({
   setupBouncePulse: number;
   bounceSetupCard: () => void;
   contextItems: AgentChatContextItem[];
+  providerContextItems: { current: readonly AgentChatContextItem[] };
   selectionLength: number | null;
   prefillRevision: number;
   text: string;
@@ -4770,6 +4796,12 @@ function AgentKitComposerSurface({
 }) {
   const t = useT();
   const [composerError, setComposerError] = useState<string | null>(null);
+  React.useLayoutEffect(() => {
+    providerContextItems.current = composerContext?.contextItems ?? [];
+    return () => {
+      providerContextItems.current = [];
+    };
+  }, [composerContext?.contextItems, providerContextItems]);
   const mounted = useRef(true);
   const submissionAllowed = useRef(false);
   submissionAllowed.current =

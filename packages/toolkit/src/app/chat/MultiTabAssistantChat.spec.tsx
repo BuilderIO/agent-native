@@ -26,6 +26,7 @@ import type {
 import { buildChatModelGroups } from "@agent-native/core/client/chat-model-groups";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { invalidateClientStatusRequests } from "@agent-native/core/client/status-requests";
+import { ComposerContextError } from "@agent-native/toolkit/composer";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -73,6 +74,7 @@ const chatHandleMocks = vi.hoisted(() => ({
   implementPlan: vi.fn(() => false),
   prefillMessage: vi.fn(),
   setComposerContextItem: vi.fn(),
+  canStageComposerContextItem: vi.fn(() => true),
   removeComposerContextItem: vi.fn(),
   clearComposerContextItems: vi.fn(),
   sendRecoveryMessage: vi.fn(),
@@ -406,6 +408,8 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         implementPlan: chatHandleMocks.implementPlan,
         prefillMessage: chatHandleMocks.prefillMessage,
         setComposerContextItem: chatHandleMocks.setComposerContextItem,
+        canStageComposerContextItem:
+          chatHandleMocks.canStageComposerContextItem,
         removeComposerContextItem: chatHandleMocks.removeComposerContextItem,
         clearComposerContextItems: chatHandleMocks.clearComposerContextItems,
         sendRecoveryMessage: chatHandleMocks.sendRecoveryMessage,
@@ -676,6 +680,90 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("titles a context prefill with the contextLabel it was given", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Tell me more",
+        context: '{"movieId":969681}',
+        contextLabel: "Spider-Man: Brand New Day",
+        submit: false,
+      });
+    });
+
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "agent-chat-prefill-context",
+        title: "Spider-Man: Brand New Day",
+        context: '{"movieId":969681}',
+      }),
+      { focus: false, threadScoped: true },
+    );
+  });
+
+  it("refuses a prefill the composer cannot hold alongside its current context", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.canStageComposerContextItem.mockReturnValueOnce(false);
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+        submitMessageId: "refused-prefill",
+      });
+    });
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.setComposerContextItem).not.toHaveBeenCalled();
+    expect(results).toContainEqual({
+      submitMessageId: "refused-prefill",
+      delivered: false,
+      reason: "context-too-large",
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("alongside the composer's existing context"),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("reports a prefill whose staging check cannot run yet as composer-not-ready", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.canStageComposerContextItem.mockImplementationOnce(() => {
+      throw new ComposerContextError("not-ready");
+    });
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+        submitMessageId: "pending-prefill",
+      });
+    });
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(results).toContainEqual({
+      submitMessageId: "pending-prefill",
+      delivered: false,
+      reason: "composer-not-ready",
+    });
+    consoleError.mockRestore();
+  });
+
   it("waits for thread context persistence before prefilling", async () => {
     const persisted = Promise.withResolvers<void>();
     const results: unknown[] = [];
@@ -711,7 +799,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   });
 
   it("removes persisted thread context when its prefill is cancelled", async () => {
-    const persisted = Promise.withResolvers<void>();
+    const persisted = Promise.withResolvers<{ stagedAt: number }>();
     chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
       persisted.promise,
     );
@@ -727,7 +815,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     cancelAgentChatSubmit("prefill-cancelled-after-persist");
 
     await act(async () => {
-      persisted.resolve();
+      persisted.resolve({ stagedAt: 7 });
       await persisted.promise;
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -735,8 +823,40 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.removeComposerContextItem).toHaveBeenCalledWith(
       "agent-chat-prefill-context",
-      { threadScoped: true },
+      { threadScoped: true, stagedAt: 7 },
     );
+  });
+
+  it("does not remove by key alone when the staged prefill's identity is unknown", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const persisted = Promise.withResolvers<undefined>();
+    chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+      persisted.promise,
+    );
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        submitMessageId: "prefill-cancelled-without-identity",
+      });
+    });
+    cancelAgentChatSubmit("prefill-cancelled-without-identity");
+
+    await act(async () => {
+      persisted.resolve(undefined);
+      await persisted.promise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatHandleMocks.removeComposerContextItem).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Could not identify the staged prefill context"),
+    );
+    consoleError.mockRestore();
   });
 
   it("reports a failed context write without saving the draft", async () => {

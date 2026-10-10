@@ -343,6 +343,7 @@ vi.mock("@agent-native/toolkit/composer", async () => {
       promptAttachments.AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
     readAgentPromptAttachment: promptAttachments.readAgentPromptAttachment,
     snapshotComposerContextItems: contextItems.snapshotComposerContextItems,
+    composerContextFits: contextItems.composerContextFits,
     AgentSuggestionBar: (props: any) => {
       chatMocks.suggestionBarProps = props;
       if (chatMocks.realComposerController) {
@@ -584,13 +585,17 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
       chatMocks.contextItems = items;
     }),
     setAgentChatContextItemAndPersist: async (item: unknown) => {
-      await actual.setAgentChatContextItemAndPersist(
+      const staged = await actual.setAgentChatContextItemAndPersist(
         item as Parameters<typeof actual.setAgentChatContextItemAndPersist>[0],
       );
       chatMocks.contextItems = actual.getAgentChatContextState().items;
+      return staged;
     },
-    removeAgentChatContextItemAndPersist: async (key: string) => {
-      await actual.removeAgentChatContextItemAndPersist(key);
+    removeAgentChatContextItemAndPersist: async (
+      key: string,
+      options?: { stagedAt?: number },
+    ) => {
+      await actual.removeAgentChatContextItemAndPersist(key, options);
       chatMocks.contextItems = actual.getAgentChatContextState().items;
     },
     refreshAgentChatContext: vi.fn(async () => undefined),
@@ -938,6 +943,212 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("reports whether a composer can hold a prefill with its current context", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "agent-chat-prefill-context",
+        title: "Selected rows",
+        context: "Selected rows: a, b",
+      }),
+    ).toBe(true);
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "agent-chat-prefill-context",
+        title: "Selected rows",
+        context: "x".repeat(64 * 1024 + 1),
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps a replacement prefill staged while an earlier send was in flight", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const stage = (context: string) =>
+      act(async () =>
+        ref.current!.setComposerContextItem(
+          {
+            key: "agent-chat-prefill-context",
+            title: "Selected rows",
+            context,
+          },
+          { focus: false, threadScoped: true },
+        ),
+      );
+    await stage("Selected rows: a, b");
+    let finishSend: (value: unknown) => void = () => {};
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSend = resolve;
+        }),
+    );
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Tell me more", [], [], {
+        intent: "immediate",
+      });
+    });
+
+    await stage("Selected rows: c, d");
+    await act(async () => finishSend(undefined));
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "agent-chat-prefill-context:thread-1",
+        context: "Selected rows: c, d",
+      }),
+    ]);
+  });
+
+  it("keeps a replacement staged on the shared path while an earlier send was in flight", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const stage = (context: string) =>
+      act(async () =>
+        ref.current!.setComposerContextItem(
+          { key: "shared-reference", title: "Reference", context },
+          { focus: false },
+        ),
+      );
+    await stage("Reference: a");
+    let finishSend: (value: unknown) => void = () => {};
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSend = resolve;
+        }),
+    );
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Use the reference", [], [], {
+        intent: "immediate",
+      });
+    });
+
+    await stage("Reference: b");
+    await act(async () => finishSend(undefined));
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "shared-reference",
+        context: "Reference: b",
+      }),
+    ]);
+  });
+
+  it("restaging a read-back item during an in-flight send keeps the replacement", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "shared-reference",
+          title: "Reference",
+          context: "Reference: a",
+        },
+        { focus: false },
+      ),
+    );
+    const [readBack] = chatMocks.composerProps.contextItems;
+    let finishSend: (value: unknown) => void = () => {};
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSend = resolve;
+        }),
+    );
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Use the reference", [], [], {
+        intent: "immediate",
+      });
+    });
+
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        { ...readBack, context: "Reference: b" },
+        { focus: false },
+      ),
+    );
+    await act(async () => finishSend(undefined));
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "shared-reference",
+        context: "Reference: b",
+      }),
+    ]);
+  });
+
+  it("counts provider-owned context against the prefill capacity", async () => {
+    const providerItem = {
+      key: "provider-reference",
+      title: "Provider",
+      context: "p".repeat(60 * 1024),
+    };
+    const context: AssistantChatComposerContext = {
+      menuItems: [],
+      contextItems: [providerItem],
+      onRemoveContextItem: vi.fn(),
+      onRetryContextItem: vi.fn(),
+      onInspectContextItem: vi.fn(),
+      dialogs: <div />,
+      prepareSubmission: vi.fn(async () => [providerItem]),
+      submissionAccepted: vi.fn(),
+    };
+    const Provider = ({
+      children,
+    }: AssistantChatComposerContextProviderProps) => children(context);
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps({ composerContextProvider: Provider }), ref);
+
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "prefill",
+        title: "Prefill",
+        context: "x".repeat(1024),
+      }),
+    ).toBe(true);
+    expect(
+      ref.current!.canStageComposerContextItem({
+        key: "prefill",
+        title: "Prefill",
+        context: "x".repeat(8 * 1024),
+      }),
+    ).toBe(false);
+  });
+
+  it("removing a superseded prefill leaves the replacement that took its key", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const stage = (context: string) =>
+      ref.current!.setComposerContextItem(
+        { key: "agent-chat-prefill-context", title: "Selected rows", context },
+        { focus: false, threadScoped: true },
+      );
+    let first: { stagedAt?: number } | void = undefined;
+    await act(async () => {
+      first = await stage("Selected rows: a");
+    });
+    await act(async () => {
+      await stage("Selected rows: b");
+    });
+
+    await act(async () =>
+      ref.current!.removeComposerContextItem("agent-chat-prefill-context", {
+        threadScoped: true,
+        stagedAt: first?.stagedAt,
+      }),
+    );
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "agent-chat-prefill-context:thread-1",
+        context: "Selected rows: b",
+      }),
+    ]);
+  });
+
   it("uses the action widget renderer for action chat UI output", async () => {
     await mount(baseProps());
 
@@ -2062,7 +2273,10 @@ describe("AgentKitAssistantChat host behavior", () => {
       context: "Core selection",
     };
     await act(async () => ref.current!.setComposerContextItem(ambient));
-    expect(chatMocks.composerProps.contextItems).toEqual([ambient, item]);
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      { ...ambient, stagedAt: expect.any(Number) },
+      item,
+    ]);
     expect(chatMocks.composerProps.contextMenuItems).toBe(context.menuItems);
     expect(chatMocks.composerProps.onInspectContextItem).toBeUndefined();
     expect(chatMocks.composerProps.plusMenuMode).toBe("full");
@@ -2143,6 +2357,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       title: "Active app context",
       context: "Selected rows: a, b",
       targetThreadId: "thread-1",
+      stagedAt: expect.any(Number),
     };
     expect(
       (

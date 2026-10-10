@@ -34,6 +34,7 @@ export {
   insertAgentComposerReference,
   isAgentChatSubmitCancelled,
   listAgentChatContext,
+  nextAgentChatStagedAt,
   normalizeAgentChatContextItem,
   normalizeAgentChatContextItems,
   parseSubmitChatMessage,
