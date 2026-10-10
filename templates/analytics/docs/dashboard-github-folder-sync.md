@@ -29,11 +29,11 @@ folder. The next preview treats them as new.
 
 Changes are compared by unit, not by file:
 
-| Unit          | What it covers                                             |
-| ------------- | ---------------------------------------------------------- |
-| `panel:<id>`  | One panel, identified by its stable panel id               |
-| `order`       | The sequence of panel ids                                  |
-| `meta`        | Everything else in the dashboard config, including title   |
+| Unit         | What it covers                                           |
+| ------------ | -------------------------------------------------------- |
+| `panel:<id>` | One panel, identified by its stable panel id             |
+| `order`      | The sequence of panel ids                                |
+| `meta`       | Everything else in the dashboard config, including title |
 
 So an edit to one chart in the app and an edit to a different chart in GitHub
 both apply. A conflict only happens when both sides changed the same unit
@@ -42,18 +42,18 @@ dashboard still syncs.
 
 ## Statuses
 
-| Status              | Meaning                                                             |
-| ------------------- | ------------------------------------------------------------------- |
-| `in-sync`           | Nothing changed on either side                                      |
-| `github-changed`    | GitHub has changes that pull would apply                            |
-| `app-changed`       | The app has changes that export would write                         |
-| `both-changed`      | Both sides changed, on different units. Pull and export both apply  |
-| `conflict`          | Both sides changed the same unit differently. Nothing is applied for it |
-| `not-exported`      | A dashboard in the folder has no file in GitHub yet                 |
-| `new-in-github`     | A file has no dashboard yet. Pull creates it in the folder          |
+| Status              | Meaning                                                                  |
+| ------------------- | ------------------------------------------------------------------------ |
+| `in-sync`           | Nothing changed on either side                                           |
+| `github-changed`    | GitHub has changes that pull would apply                                 |
+| `app-changed`       | The app has changes that export would write                              |
+| `both-changed`      | Both sides changed, on different units. Pull and export both apply       |
+| `conflict`          | Both sides changed the same unit differently. Nothing is applied for it  |
+| `not-exported`      | A dashboard in the folder has no file in GitHub yet                      |
+| `new-in-github`     | A file has no dashboard yet. Pull creates it in the folder               |
 | `removed-in-github` | The file was deleted in GitHub. The dashboard is kept and export refuses |
-| `export-pending`    | An export PR for this dashboard is open                             |
-| `no-access`         | You cannot edit this dashboard, so it is not touched                |
+| `export-pending`    | An export PR for this dashboard is open                                  |
+| `no-access`         | You cannot edit this dashboard, so it is not touched                     |
 
 ## Pull
 
@@ -140,12 +140,12 @@ Do not hand-edit the id. It must match the file name.
 
 ## Actions
 
-| Action                                  | Writes | Purpose                                              |
-| --------------------------------------- | ------ | ---------------------------------------------------- |
-| `configure-dashboard-folder-github-sync` | yes    | Link or unlink a folder                              |
+| Action                                   | Writes | Purpose                                               |
+| ---------------------------------------- | ------ | ----------------------------------------------------- |
+| `configure-dashboard-folder-github-sync` | yes    | Link or unlink a folder                               |
 | `preview-dashboard-folder-github-sync`   | no     | Compare both sides and report each dashboard's status |
-| `apply-dashboard-folder-github-sync`     | yes    | Pull from GitHub                                     |
-| `export-dashboard-folder-to-github`      | PR     | Open a pull request with app changes                 |
+| `apply-dashboard-folder-github-sync`     | yes    | Pull from GitHub                                      |
+| `export-dashboard-folder-to-github`      | PR     | Open a pull request with app changes                  |
 
 ## Permissions
 

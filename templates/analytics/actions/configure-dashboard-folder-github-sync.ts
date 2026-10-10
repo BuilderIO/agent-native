@@ -12,7 +12,9 @@ const linkSchema = z.object({
   branch: z
     .string()
     .optional()
-    .describe("Branch to read from and open export PRs against. Defaults to main."),
+    .describe(
+      "Branch to read from and open export PRs against. Defaults to main.",
+    ),
   path: z
     .string()
     .optional()
