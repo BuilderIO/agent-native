@@ -6,6 +6,7 @@ import {
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import { actionErrorMessage } from "@agent-native/core/client/use-action";
+import { saveApiKeyValue } from "@agent-native/toolkit/app/settings/api-keys/api-keys-client";
 import {
   IconAlertCircle,
   IconCheck,
@@ -47,6 +48,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   collectDictionaryEntries,
   DICTIONARY_EXPORT_PAGE_SIZE,
   dictionaryEntriesToCsv,
@@ -62,6 +68,12 @@ import type {
   IndexRunSummary,
   IndexSchedule,
 } from "../../../server/lib/brain-contract";
+// Pure module (no server imports), so the client shares the server's checks.
+import {
+  DBT_SEMANTIC_LAYER_TOKEN_KEY,
+  validateEnvironmentId,
+  validateSemanticLayerBaseUrl,
+} from "../../../server/lib/dbt-connection";
 import type { SourceIndexBundle } from "../../../server/lib/source-index-schema";
 
 type Translate = ReturnType<typeof useT>;
@@ -69,10 +81,35 @@ type Translate = ReturnType<typeof useT>;
 const DEFAULT_TIMEZONE = "UTC";
 const SOURCE_INDEX_MAX_BYTES = 750_000;
 const RUN_HISTORY_LIMIT = 10;
+const DBT_SOURCE_ID = "dbt";
+// Placeholder only: a real host is never prefilled.
+const DBT_SEMANTIC_LAYER_URL_PLACEHOLDER =
+  "https://<your-host>.semantic-layer.<region>.dbt.com";
 
 interface DbtRepository {
   owner: string;
   repo: string;
+}
+
+interface DbtConnection {
+  connected: boolean;
+  connectionId: string | null;
+  status:
+    | "connected"
+    | "checking"
+    | "needs_reauth"
+    | "error"
+    | "disabled"
+    | null;
+  environmentId: string | null;
+  semanticLayerBaseUrl: string | null;
+  tokenConfigured: boolean;
+  canManage: boolean;
+}
+
+interface DbtConnectionFields {
+  environmentId: string;
+  semanticLayerBaseUrl: string;
 }
 
 type IndexStatusAvailable = {
@@ -245,17 +282,26 @@ function SettingRow({
   );
 }
 
-function SourceStatusRowView({ row }: { row: SourceStatusRow }) {
+function SourceStatusRowView({
+  row,
+  open,
+  onToggle,
+}: {
+  row: SourceStatusRow;
+  /** Set on the dbt row, whose connection form opens below the rows. */
+  open?: boolean;
+  onToggle?: () => void;
+}) {
   const t = useT();
   const formatters = useFormatters();
   const actionLabel =
     row.status === "needs-reauth"
       ? t("dataSources.reconnect")
-      : row.status === "error"
+      : row.status === "connected" || row.status === "error"
         ? t("dataSources.manage")
         : t("dataSources.connect");
   // Only sources with a data-source card have a page to act on.
-  const showAction =
+  const showLink =
     row.status !== null &&
     row.status !== "connected" &&
     getDataSourceById(row.id) !== undefined;
@@ -274,7 +320,16 @@ function SourceStatusRowView({ row }: { row: SourceStatusRow }) {
             {formatters.formatNumber(row.entryCount)}
           </span>
         ) : null}
-        {showAction ? (
+        {onToggle ? (
+          <Button
+            size="sm"
+            variant="outline"
+            aria-expanded={open}
+            onClick={onToggle}
+          >
+            {actionLabel}
+          </Button>
+        ) : showLink ? (
           <Button asChild size="sm" variant="outline">
             <Link to={`/data-sources?source=${row.id}`}>{actionLabel}</Link>
           </Button>
@@ -287,6 +342,7 @@ function SourceStatusRowView({ row }: { row: SourceStatusRow }) {
 function StatusSection() {
   const t = useT();
   const formatters = useFormatters();
+  const [dbtOpen, setDbtOpen] = useState(false);
   const indexQuery = useActionQuery(
     "get-data-dictionary-index-status",
     undefined,
@@ -333,10 +389,20 @@ function StatusSection() {
             </Badge>
           </SettingRow>
         ) : null}
-        {rows.map((row) => (
-          <SourceStatusRowView key={row.id} row={row} />
-        ))}
+        {rows.map((row) =>
+          row.id === DBT_SOURCE_ID ? (
+            <SourceStatusRowView
+              key={row.id}
+              row={row}
+              open={dbtOpen}
+              onToggle={() => setDbtOpen((current) => !current)}
+            />
+          ) : (
+            <SourceStatusRowView key={row.id} row={row} />
+          ),
+        )}
       </div>
+      {dbtOpen ? <DbtConnectionSection /> : null}
       {available && rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {t("dataStatus.noSourceEntries")}
@@ -660,6 +726,221 @@ function DbtRepositorySection() {
         ) : null}
       </div>
     </Section>
+  );
+}
+
+function dbtStatusLabel(connection: DbtConnection, t: Translate): string {
+  if (connection.connected) return t("dataStatus.connected");
+  switch (connection.status) {
+    case "needs_reauth":
+      return t("dataStatus.needsReauth");
+    case "error":
+      return t("dataStatus.error");
+    case "checking":
+      return t("indexPanel.dbtChecking");
+    case "disabled":
+      return t("indexPanel.dbtDisabled");
+    // A "connected" row whose token was removed is not connected.
+    case "connected":
+    case null:
+      return t("dataStatus.notConnected");
+  }
+}
+
+function DbtConnectionSection() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const { canManageOrg, isLoading } = useOrgRole();
+  const environmentIdFieldId = useId();
+  const semanticLayerUrlFieldId = useId();
+  const tokenFieldId = useId();
+  const query = useActionQuery("get-dbt-connection", undefined, {
+    retry: false,
+    staleTime: 30_000,
+  });
+  const save = useActionMutation("save-dbt-connection");
+  const connection = query.data as DbtConnection | undefined;
+  // Keyed on the saved value so a save elsewhere does not drop this unsaved edit.
+  const savedKey = JSON.stringify(connection);
+  const [draft, setDraft] = useState<{
+    basedOn: string;
+    fields: DbtConnectionFields;
+  } | null>(null);
+  const [token, setToken] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  if (isLoading || (!connection && !query.isError)) {
+    return <Skeleton className="h-24 w-full" />;
+  }
+  if (!connection) {
+    return (
+      <p role="alert" className="text-sm text-destructive">
+        {t("indexPanel.dbtReadFailed")}
+      </p>
+    );
+  }
+
+  const saved: DbtConnectionFields = {
+    environmentId: connection.environmentId ?? "",
+    semanticLayerBaseUrl: connection.semanticLayerBaseUrl ?? "",
+  };
+  const statusLabel = t("indexPanel.dbtStatus");
+
+  if (!canManageOrg) {
+    return (
+      <div className="flex flex-col">
+        <SettingRow label={statusLabel}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline">{dbtStatusLabel(connection, t)}</Badge>
+            </TooltipTrigger>
+            <TooltipContent>{t("indexPanel.dbtAdminOnly")}</TooltipContent>
+          </Tooltip>
+        </SettingRow>
+        <SettingRow label={t("indexPanel.dbtEnvironmentId")}>
+          <span className="truncate text-sm">
+            {saved.environmentId || t("indexPanel.notSet")}
+          </span>
+        </SettingRow>
+        <SettingRow label={t("indexPanel.dbtSemanticLayerUrl")}>
+          <span className="truncate text-sm">
+            {saved.semanticLayerBaseUrl || t("indexPanel.notSet")}
+          </span>
+        </SettingRow>
+      </div>
+    );
+  }
+
+  const shown = draft && draft.basedOn === savedKey ? draft.fields : saved;
+  const update = (patch: Partial<DbtConnectionFields>) =>
+    setDraft({
+      basedOn: savedKey,
+      fields: { ...shown, ...patch },
+    });
+  const busy = saving || save.isPending;
+  const canSave =
+    !busy &&
+    shown.environmentId.trim() !== "" &&
+    shown.semanticLayerBaseUrl.trim() !== "" &&
+    (connection.tokenConfigured || token.trim() !== "");
+
+  async function saveConnection() {
+    setSaveError("");
+    // Checked before the token write: saveApiKeyValue overwrites the stored
+    // token, and a bad field would otherwise leave that new token in place.
+    const environment = validateEnvironmentId(shown.environmentId);
+    if (!environment.ok) {
+      setSaveError(environment.message);
+      return;
+    }
+    const baseUrl = validateSemanticLayerBaseUrl(shown.semanticLayerBaseUrl);
+    if (!baseUrl.ok) {
+      setSaveError(baseUrl.message);
+      return;
+    }
+    setSaving(true);
+    try {
+      // The token goes to the secrets route, never through an action, so it
+      // stays out of agent tool history. It must exist before the connection
+      // is saved; save-dbt-connection rejects the save when it does not.
+      const value = token.trim();
+      if (value) {
+        await saveApiKeyValue({
+          name: DBT_SEMANTIC_LAYER_TOKEN_KEY,
+          value,
+          registered: true,
+        });
+      }
+      await save.mutateAsync({
+        environmentId: environment.value,
+        semanticLayerBaseUrl: baseUrl.value,
+      });
+      setToken("");
+      for (const name of [
+        "get-dbt-connection",
+        "get-brain-overview",
+        "data-source-status",
+      ]) {
+        void queryClient.invalidateQueries({ queryKey: ["action", name] });
+      }
+    } catch (error) {
+      setSaveError(
+        actionErrorMessage(error) ??
+          (error instanceof Error && error.message
+            ? error.message
+            : t("indexPanel.dbtSaveFailed")),
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <SettingRow label={statusLabel}>
+        <Badge variant="outline">{dbtStatusLabel(connection, t)}</Badge>
+      </SettingRow>
+      <div className="flex min-w-0 flex-col gap-2">
+        <Label htmlFor={environmentIdFieldId}>
+          {t("indexPanel.dbtEnvironmentId")}
+        </Label>
+        <Input
+          id={environmentIdFieldId}
+          inputMode="numeric"
+          autoComplete="off"
+          value={shown.environmentId}
+          disabled={busy}
+          placeholder={t("indexPanel.dbtEnvironmentPlaceholder")}
+          onChange={(e) => update({ environmentId: e.target.value })}
+        />
+      </div>
+      <div className="flex min-w-0 flex-col gap-2">
+        <Label htmlFor={semanticLayerUrlFieldId}>
+          {t("indexPanel.dbtSemanticLayerUrl")}
+        </Label>
+        <Input
+          id={semanticLayerUrlFieldId}
+          type="url"
+          autoComplete="off"
+          value={shown.semanticLayerBaseUrl}
+          disabled={busy}
+          placeholder={DBT_SEMANTIC_LAYER_URL_PLACEHOLDER}
+          onChange={(e) => update({ semanticLayerBaseUrl: e.target.value })}
+        />
+      </div>
+      <div className="flex min-w-0 flex-col gap-2">
+        <Label htmlFor={tokenFieldId}>{t("indexPanel.dbtToken")}</Label>
+        <Input
+          id={tokenFieldId}
+          type="password"
+          autoComplete="new-password"
+          value={token}
+          disabled={busy}
+          placeholder={
+            connection.tokenConfigured
+              ? t("indexPanel.dbtTokenStored")
+              : t("indexPanel.dbtTokenPlaceholder")
+          }
+          onChange={(e) => setToken(e.target.value)}
+        />
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {saveError ? (
+          <p role="alert" className="me-auto text-sm text-destructive">
+            {saveError}
+          </p>
+        ) : null}
+        <Button
+          size="sm"
+          disabled={!canSave}
+          onClick={() => void saveConnection()}
+        >
+          {busy ? <Spinner className="size-4" /> : null}
+          {busy ? t("indexPanel.saving") : t("indexPanel.dbtSave")}
+        </Button>
+      </div>
+    </div>
   );
 }
 
