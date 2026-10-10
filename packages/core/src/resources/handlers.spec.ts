@@ -593,6 +593,62 @@ Legacy webhook.`,
       expect(mockResourcePut).not.toHaveBeenCalled();
     });
 
+    it("creates an uploaded skill at the next path when the requested one exists", async () => {
+      const created = {
+        id: "new-skill",
+        path: "skills/review-feedback-2/SKILL.md",
+        owner: "test@test.com",
+        content: "new content",
+      };
+      mockResourcePutIfAbsent
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: "skills/review-feedback/SKILL.md",
+          content: "new content",
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
+        1,
+        "test@test.com",
+        "skills/review-feedback/SKILL.md",
+        "new content",
+        "text/markdown",
+        undefined,
+      );
+      expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
+        2,
+        "test@test.com",
+        "skills/review-feedback-2/SKILL.md",
+        "new content",
+        "text/markdown",
+        undefined,
+      );
+    });
+
+    it("rejects a unique skill path outside the skill layout", async () => {
+      const result = await handleCreateResource({
+        _body: {
+          path: "skills/review-feedback.md",
+          content: "new content",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(400);
+      expect(result).toEqual({
+        error: "uniqueSkillPath requires skills/<name>/SKILL.md",
+      });
+      expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+    });
+
     it("creates shared resource when shared flag is set", async () => {
       mockResourcePut.mockResolvedValue({ id: "s1" });
 

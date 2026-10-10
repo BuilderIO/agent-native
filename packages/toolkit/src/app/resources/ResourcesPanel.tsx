@@ -438,6 +438,7 @@ function CreateMenu({
     content: string,
     mimeType?: string,
     opts?: {
+      uniqueSkillPath?: boolean;
       onSuccess?: (resource: ResourceMeta) => void;
       onError?: (err: unknown) => void;
     },
@@ -602,6 +603,7 @@ function CreateMenu({
             : "Failed to save skill file";
         showToast?.("err", msg);
       },
+      uniqueSkillPath: true,
     });
     setOpen(false);
     onCreated?.();
@@ -1724,12 +1726,19 @@ export function ResourcesPanel({
       content: string,
       mimeType?: string,
       opts?: {
+        uniqueSkillPath?: boolean;
         onSuccess?: (resource: ResourceMeta) => void;
         onError?: (err: unknown) => void;
       },
     ) => {
       createResource.mutate(
-        { path, content, mimeType, shared: targetScope === "shared" },
+        {
+          path,
+          content,
+          mimeType,
+          shared: targetScope === "shared",
+          uniqueSkillPath: opts?.uniqueSkillPath,
+        },
         {
           onSuccess: (data) => {
             setSelectedResourceId(data.id);

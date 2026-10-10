@@ -288,9 +288,14 @@ describe("Skills page", () => {
           ) {
             const body = JSON.parse(String(init.body));
             expect(body.shared).toBe(scope === "shared");
-            stored.set(body.path, body.content);
+            expect(body.uniqueSkillPath).toBe(true);
+            let path = body.path;
+            for (let suffix = 2; stored.has(path); suffix += 1) {
+              path = body.path.replace(/\/SKILL\.md$/, `-${suffix}/SKILL.md`);
+            }
+            stored.set(path, body.content);
             const node = leaf(
-              body.path,
+              path,
               scope === "shared" ? "__shared__" : "me@example.test",
               {
                 kind: "skill",

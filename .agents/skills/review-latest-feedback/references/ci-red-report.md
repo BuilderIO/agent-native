@@ -16,8 +16,8 @@ cases, the fingerprint is test-level; otherwise `job-step` is broader and
 requires logs or artifacts for case-level diagnosis. An incomplete or failed
 API query exits 2 and means **CI unavailable**, never an empty result.
 
-Keep every fingerprint and failed occurrence in the feedback-sweep ledger,
-including its run count and links. Record the workflow, run ID and attempt,
+Keep every fingerprint and failed occurrence in the CI triage table in this
+sweep's recap, including its run count and links. Record the workflow, run ID and attempt,
 timestamp, failed job/step, exact fingerprint, and test name or shard when
 available. Classify each fingerprint as **product regression**, **stale spec**,
 **harness flake**, or **infrastructure**, then reproduce locally and fix the
@@ -28,22 +28,24 @@ to find an active owner. An existing issue covers only the exact failure-level
 evidence it names: a run-ID-only match owns only that occurrence, and a workflow
 name alone does not cover every failure in it. Record the matching PR, issue,
 or Codex task as owner and keep every unmatched occurrence actionable. Do not
-create or update GitHub issues to track CI fingerprints; use the current
-feedback-sweep and ship ledgers, linked to the workflow runs, as the durable
-record. If a dedicated workflow already owns a reporter-managed issue, link it
-and leave its updates and recovery lifecycle to that workflow. If no active
-owner or canonical issue can be verified, record the ownership gap and next
-action in the ledger instead of opening a competing ticket.
+create or update GitHub issues to track CI fingerprints. The current sweep's
+recap table is its CI ledger; carry unresolved occurrences into the ship ledger
+and PR recap, linked to their workflow runs. If a dedicated workflow already
+owns a reporter-managed issue, link it and leave its updates and recovery
+lifecycle to that workflow. If no active owner or canonical issue can be
+verified, record the ownership gap and next action in the recap instead of
+opening a competing ticket.
 
 Preserve unresolved failures after they age out of the report's five-day
 window. A failure is recovered only after a later passing run of the same
 workflow and test/fingerprint, or a verified fix with a passing rerun; aging
-out of the report is not recovery. Keep every occurrence's evidence and
-disposition in the ledger even when several failures share one fingerprint.
+out of the report is not recovery. Carry unresolved rows from the prior sweep
+or ship recap into the current table. Keep each occurrence's evidence and
+disposition even when several failures share one fingerprint.
 
 Quarantine only with a named owner, expiry, and an explicitly authorized
 tracking issue. A green result produced by quarantine is a defect. Follow
-quarantined rows until fixed or restored. The recap records run count,
+quarantined rows until fixed or restored. The CI table records run count,
 fingerprint and occurrence counts, query status, classification, disposition,
 evidence, and owner/action.
 

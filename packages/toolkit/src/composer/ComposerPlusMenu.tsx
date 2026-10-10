@@ -177,6 +177,7 @@ export function useComposerDefaultActions({
             content: skillUploadContent,
             mimeType: "text/markdown",
             shared: false,
+            uniqueSkillPath: true,
           }),
         },
       );

@@ -488,6 +488,37 @@ export async function handleCreateResource(event: any) {
 
   const owner = await resolveOwner(event, body.shared);
 
+  if (body.uniqueSkillPath) {
+    const match = /^skills\/([a-z0-9]+(?:-[a-z0-9]+)*)\/SKILL\.md$/i.exec(
+      body.path,
+    );
+    if (!match) {
+      setResponseStatus(event, 400);
+      return { error: "uniqueSkillPath requires skills/<name>/SKILL.md" };
+    }
+
+    const writeOptions =
+      body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+    for (let suffix = 1; suffix <= 1000; suffix += 1) {
+      const path =
+        suffix === 1 ? body.path : `skills/${match[1]}-${suffix}/SKILL.md`;
+      const resource = await resourcePutIfAbsent(
+        owner,
+        path,
+        body.content ?? "",
+        body.mimeType,
+        writeOptions,
+      );
+      if (resource) {
+        setResponseStatus(event, 201);
+        return resource;
+      }
+    }
+
+    setResponseStatus(event, 409);
+    return { error: "Could not find an available path for this skill" };
+  }
+
   if (body.ifNotExists) {
     const existing = await resourceGetByPath(owner, body.path);
     if (existing) {
