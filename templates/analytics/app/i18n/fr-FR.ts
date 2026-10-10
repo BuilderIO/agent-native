@@ -1176,6 +1176,12 @@ export default {
   },
   sqlDashboard: {
     customRange: "Plage personnalisée",
+    allValues: "Tous",
+    searchValues: "Rechercher des valeurs",
+    noValuesFound: "Aucune valeur trouvée",
+    selectAll: "Tout sélectionner",
+    selectOnly: "Uniquement",
+    selectOnlyValue: "Uniquement {{value}}",
     untitledDashboard: "Tableau de bord sans titre",
     dashboardFallback: "tableau de bord",
     viewOnly: "Vous disposez d'un accès en lecture seule à ce tableau de bord.",

@@ -30,6 +30,9 @@ jobs:
   e2e:
     name: ${{ matrix.shard == 'runtime-budget' && 'Runtime budget' || github.event_name == 'pull_request' && 'Design PR E2E' || format('Shard {0}/8', matrix.shard) }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     # Reserve time after the shard timeout for setup and report upload.
     timeout-minutes: 55
     strategy:
@@ -42,7 +45,10 @@ jobs:
           - shard: runtime-budget
     services:
       postgres:
-        image: postgres:17-alpine
+        image: ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+        credentials:
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
         env:
           POSTGRES_DB: design_e2e
           POSTGRES_HOST_AUTH_METHOD: trust
@@ -116,6 +122,18 @@ jobs:
           else
             pnpm exec playwright test --shard=${{ matrix.shard }}/8
           fi
+
+      # These specs skip themselves unless the loopback provider is on, so
+      # without this step nothing in CI proves the model receives uploaded
+      # image bytes or that an ad keeps its exact size.
+      - name: Run chat attachment and sizing loopback E2E
+        if: matrix.shard == 1
+        working-directory: templates/design
+        timeout-minutes: 15
+        env:
+          E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
+          E2E_AI_SIDEBAR_LOOPBACK: "1"
+        run: pnpm exec playwright test e2e/ai-sidebar-reporter-path.spec.ts
 
       - name: Build Design for production
         if: matrix.shard == 'runtime-budget'

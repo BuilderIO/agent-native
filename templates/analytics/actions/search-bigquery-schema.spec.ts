@@ -22,6 +22,7 @@ vi.mock("../server/lib/credentials", () => ({
 }));
 vi.mock("../server/lib/gcloud", () => ({
   getAccessToken: mocks.getAccessToken,
+  raceWithAbort: (value: unknown) => Promise.resolve(value),
 }));
 
 const action = (await import("./search-bigquery-schema")).default;

@@ -494,9 +494,20 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "رفع ملف مهارة",
   "composer.upload": "رفع",
   "composer.uploadFailed": "تعذّر رفع الملف المحدد.",
-  "composer.fileTooLarge": "يتجاوز حجم هذا الملف الحد المسموح للرفع.",
-  "composer.sessionExpired": "انتهت صلاحية جلستك. حدّث الصفحة وحاول مرة أخرى.",
+  "composer.fileTooLarge":
+    "هذا الملف أكبر من حد الرفع البالغ {{size}} ميغابايت.",
+  "composer.sessionExpired":
+    "انتهت صلاحية جلستك. سجّل الدخول مرة أخرى، ثم أرسل رسالتك.",
   "composer.unsupportedFileType": "نوع الملف هذا غير مدعوم.",
+  "composer.uploadUnavailable":
+    "رفع الملفات غير متاح الآن. حاول مرة أخرى بعد قليل.",
+  "composer.uploadOffline":
+    "تعذّر وصول الرفع إلى الخادم. تحقق من اتصالك وحاول مرة أخرى.",
+  "composer.submissionNotReady":
+    "الدردشة ليست جاهزة للإرسال بعد. انتظر لحظة، ثم أرسل مرة أخرى.",
+  "composer.submissionScopeChanged":
+    "تغيّرت هذه الدردشة قبل إرسال رسالتك. أرسلها مرة أخرى.",
+  "composer.attachmentNotSaved": "لم يُحفظ مع هذه الدردشة",
   "composer.useAttachedContext": "استخدم السياق المرفق.",
   "mentions.commands": "الأوامر",
   "mentions.learnMore": "معرفة المزيد",
@@ -1155,6 +1166,7 @@ const messages: ToolkitAgentChatTranslation = {
     "لم يعد بالإمكان متابعة هذا التشغيل. أرسل رسالة للمتابعة.",
   "recovery.retryAttachmentUnavailable":
     "تضمّن هذا الطلب ملفًا لا يمكن إعادة المحاولة به. أرفقه مجددًا في مربع الرسالة، ثم حاول مرة أخرى.",
+  "recovery.retryWithoutAttachment": "إعادة المحاولة بدون المرفق",
   "recovery.deferredSubmissionFailed":
     "تعذّر إرسال هذه الرسالة. تحقّق من اتصالك أو إعدادات الدردشة، ثم أعد المحاولة.",
   "recovery.credentialRejected":

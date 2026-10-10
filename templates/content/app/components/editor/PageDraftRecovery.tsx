@@ -95,7 +95,7 @@ export function PageDraftRecovery({
       !creationPending && !skipDraftRecovery && !skipCreationDraftRecovery,
     createdAt: document.createdAt,
   });
-  const update = useUpdateDocument();
+  const update = useUpdateDocument({ saveOrigin: "recovery" });
   const updateDraft = useUpdatePreviewDocumentDraft();
   const resolveDraft = useResolvePreviewDocumentDraft();
   const [releasedScopeKey, setReleasedScopeKey] = useState<string | null>(null);

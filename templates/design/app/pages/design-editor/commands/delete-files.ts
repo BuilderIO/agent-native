@@ -301,8 +301,8 @@ export async function runDeleteFiles(
     };
   });
 
-  if (activeFile && deleteIds.has(activeFile.id) && nextActiveFile) {
-    setActiveFileId(nextActiveFile.id);
+  if (activeFile && deleteIds.has(activeFile.id)) {
+    setActiveFileId(nextActiveFile?.id ?? null);
   }
   setOverviewSelectedScreenIds?.([]);
   setSelectedElement(null);

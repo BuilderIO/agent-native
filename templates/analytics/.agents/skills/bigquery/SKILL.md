@@ -159,7 +159,13 @@ Require both for exact matches; flag email-only or id-only joins as low-confiden
 - DATE columns need `DATE('2025-11-01')`.
 - Use `DATE(timestamp_col)` before `DATE_TRUNC` to avoid type mismatch errors.
 - Use `QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY updated_at DESC) = 1`
-  for deduplication — cleaner than a subquery.
+  for deduplication — cleaner than a subquery. Put the partition-date filter in
+  the same `WHERE`: a dedupe over a whole table, or a view that dedupes before
+  your filter, scans every partition. For first-party events, read
+  `first_party_analytics_events_raw_query_range(start_date, end_date)`, not the
+  `first_party_analytics_events_raw_query` view. It leaves out `http.response`,
+  which holds most of the `properties` bytes; read that event from the raw table
+  with a narrow date range and an `event_name` filter.
 
 ### Type Casting
 

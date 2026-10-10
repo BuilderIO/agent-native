@@ -1118,6 +1118,12 @@ export default {
   },
   sqlDashboard: {
     customRange: "कस्टम रेंज",
+    allValues: "सभी",
+    searchValues: "मान खोजें",
+    noValuesFound: "कोई मान नहीं मिला",
+    selectAll: "सभी चुनें",
+    selectOnly: "केवल",
+    selectOnlyValue: "केवल {{value}}",
     untitledDashboard: "शीर्षक रहित डैशबोर्ड",
     dashboardFallback: "डैशबोर्ड",
     viewOnly: "आपके पास इस डैशबोर्ड तक केवल देखने की पहुंच है।",

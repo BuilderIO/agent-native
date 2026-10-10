@@ -519,10 +519,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "アップロード",
   "composer.uploadFailed": "選択したファイルをアップロードできませんでした。",
   "composer.fileTooLarge":
-    "このファイルはアップロード可能なサイズ上限を超えています。",
+    "このファイルはアップロード上限の {{size}} MB を超えています。",
   "composer.sessionExpired":
-    "セッションの有効期限が切れました。ページを更新して、もう一度お試しください。",
+    "セッションの有効期限が切れました。もう一度サインインしてから、メッセージを送信してください。",
   "composer.unsupportedFileType": "このファイル形式はサポートされていません。",
+  "composer.uploadUnavailable":
+    "現在ファイルをアップロードできません。しばらくしてからもう一度お試しください。",
+  "composer.uploadOffline":
+    "アップロードがサーバーに届きませんでした。接続を確認して、もう一度お試しください。",
+  "composer.submissionNotReady":
+    "チャットはまだ送信できる状態ではありません。少し待ってから、もう一度送信してください。",
+  "composer.submissionScopeChanged":
+    "メッセージの送信前にこのチャットが変更されました。もう一度送信してください。",
+  "composer.attachmentNotSaved": "このチャットには保存されていません",
   "composer.useAttachedContext": "添付されたコンテキストを使用してください。",
   "mentions.commands": "コマンド",
   "mentions.learnMore": "詳細を見る",
@@ -1166,6 +1175,7 @@ const messages: ToolkitAgentChatTranslation = {
     "この実行はもう続行できません。続けるにはメッセージを送信してください。",
   "recovery.retryAttachmentUnavailable":
     "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",
+  "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.deferredSubmissionFailed":
     "このメッセージを送信できませんでした。接続またはチャットの設定を確認して、もう一度お試しください。",
   "recovery.credentialRejected":

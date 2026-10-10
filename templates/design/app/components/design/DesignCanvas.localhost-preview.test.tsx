@@ -2,6 +2,7 @@
 
 import http, { type Server } from "node:http";
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -16,6 +17,12 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: useActionQueryMock,
 }));
 
+import { i18nCatalog } from "../../i18n";
+import {
+  isPublicDesignViewer,
+  shouldShowLocalhostPreviewRecovery,
+  shouldShowPublicLocalhostPreviewUnavailable,
+} from "../../pages/design-editor/domains/localhost-preview-recovery";
 import {
   getDesignCanvasIframeAllow,
   getLocalNetworkAccessPermissionState,
@@ -54,7 +61,14 @@ beforeEach(() => {
   root.render = (children) =>
     render(
       <QueryClientProvider client={queryClient}>
-        {children}
+        <AgentNativeI18nProvider
+          catalog={i18nCatalog}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          {children}
+        </AgentNativeI18nProvider>
       </QueryClientProvider>,
     );
   queryClient.clear();
@@ -206,6 +220,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         screenId={screenId}
         sourceType="localhost"
         bridgeUrl="http://127.0.0.1:7331"
+        connectionId="localhost_connection"
         previewToken={`preview-${screenId}`}
         liveEditCapability="test-live-edit-capability"
         zoom={100}
@@ -251,6 +266,73 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     }
   });
 
+  it("registers an inactive local preview without replacing runtime callbacks", async () => {
+    const windowGlobals = window as unknown as Record<string, unknown>;
+    const priorHandler = windowGlobals.__designCanvasSendStyleForScreen;
+    const activeRuntimeHandler = vi.fn();
+    windowGlobals.__designCanvasSendStyleForScreen = activeRuntimeHandler;
+    vi.spyOn(
+      externalPreview,
+      "getLocalNetworkAccessPermissionState",
+    ).mockResolvedValue("granted");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ bridgeInstanceId: "bridge-instance" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await act(async () => {
+        root.render(
+          <DesignCanvas
+            content="http://localhost:5173/inactive"
+            contentKey="inactive-screen"
+            screenId="inactive-screen"
+            sourceType="localhost"
+            bridgeUrl="http://127.0.0.1:7331"
+            connectionId="localhost_connection"
+            previewToken="preview-inactive-screen"
+            liveEditCapability="test-live-edit-capability"
+            zoom={100}
+            deviceFrame="none"
+            editMode
+            interactMode={false}
+            registerRuntimeBridge={false}
+            registerLiveEditPreview
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        );
+      });
+
+      await vi.waitFor(() => {
+        expect(
+          fetchMock.mock.calls.some(([input]) =>
+            requestInfoUrl(input).endsWith("/live-edit-bridge"),
+          ),
+        ).toBe(true);
+        expect(
+          container.querySelector<HTMLIFrameElement>(
+            "iframe[data-design-preview-iframe]",
+          )?.src,
+        ).toContain("/live-edit?");
+      });
+      expect(windowGlobals.__designCanvasSendStyleForScreen).toBe(
+        activeRuntimeHandler,
+      );
+    } finally {
+      await act(async () => root.render(null));
+      if (priorHandler === undefined) {
+        delete windowGlobals.__designCanvasSendStyleForScreen;
+      } else {
+        windowGlobals.__designCanvasSendStyleForScreen = priorHandler;
+      }
+    }
+  });
+
   it("aborts bridge registration when an overview screen deactivates or unmounts", async () => {
     const signals: AbortSignal[] = [];
     const fetchMock = vi.fn(
@@ -275,6 +357,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         screenId="screen-account"
         sourceType="localhost"
         bridgeUrl="http://127.0.0.1:7331"
+        connectionId="localhost_connection"
         previewToken="preview-token"
         liveEditCapability="test-live-edit-capability"
         zoom={100}
@@ -630,6 +713,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             screenId="screen-account"
             sourceType="localhost"
             bridgeUrl="http://127.0.0.1:7331"
+            connectionId="localhost_connection"
             previewToken="registration-preview-token"
             liveEditCapability="test-live-edit-capability"
             zoom={100}
@@ -707,6 +791,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-account"
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
+          connectionId="localhost_connection"
           previewToken="registration-preview-token"
           liveEditCapability="test-live-edit-capability"
           onBootReady={onBootReady}
@@ -782,6 +867,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           previewUrlOverride="http://localhost:5173/settings"
           bridgeUrl={bridgeUrl}
+          connectionId="localhost_connection"
           previewToken="registration-preview-token"
           liveEditCapability="test-live-edit-capability"
           onBootReady={onBootReady}
@@ -875,6 +961,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           sourceType="localhost"
           previewUrlOverride="http://localhost:5173/profile"
           bridgeUrl={bridgeUrl}
+          connectionId="localhost_connection"
           previewToken="registration-preview-token"
           liveEditCapability="test-live-edit-capability"
           onBootReady={onBootReady}
@@ -961,6 +1048,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-account"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="stale-preview-token"
           liveEditCapability="test-live-edit-capability"
           onExternalContentSnapshot={() => {}}
@@ -1032,6 +1120,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-library"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="preview-token"
           liveEditCapability="test-live-edit-capability"
           zoom={100}
@@ -1055,6 +1144,80 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       );
       expect(container.textContent).not.toContain("Preparing the live editor");
     });
+  });
+
+  it("does not load a connected localhost URL before preview credentials arrive", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) =>
+      Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/library"
+          contentKey="screen-library"
+          screenId="screen-library"
+          sourceType="localhost"
+          bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
+          designId="design_public"
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    const appOrBridgeRequests = fetchMock.mock.calls
+      .map(([input]) => requestInfoUrl(input))
+      .filter(
+        (url) =>
+          url.startsWith("http://localhost:5173") ||
+          url.startsWith("http://127.0.0.1:7331"),
+      );
+    expect(appOrBridgeRequests).toEqual([]);
+    expect(
+      container
+        .querySelector<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+        ?.getAttribute("src"),
+    ).not.toBe("http://localhost:5173/library");
+  });
+
+  it("never loads a localhost URL without a registered connection and credentials", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) =>
+      Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/library"
+          contentKey="screen-library"
+          screenId="screen-library"
+          sourceType="localhost"
+          zoom={100}
+          deviceFrame="none"
+          editMode={false}
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      container
+        .querySelector<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
+        ?.getAttribute("src"),
+    ).not.toBe("http://localhost:5173/library");
   });
 
   it("refreshes a stale public preview token after a bridge restart", async () => {
@@ -1219,6 +1382,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-account"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="stale-preview-token"
           liveEditCapability="test-live-edit-capability"
           onExternalContentSnapshot={() => {}}
@@ -1260,6 +1424,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-account"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="permission-preview-token"
           liveEditCapability="test-live-edit-capability"
           zoom={100}
@@ -1301,6 +1466,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-account"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="permission-preview-token"
           liveEditCapability="test-live-edit-capability"
           zoom={100}
@@ -1385,6 +1551,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             screenId="screen-account"
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
+            connectionId="localhost_connection"
             previewToken="verification-preview-token"
             liveEditCapability="test-live-edit-capability"
             runtimeVerificationRequest={
@@ -1482,6 +1649,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
             screenId="screen-chat"
             sourceType="localhost"
             bridgeUrl={bridgeUrl}
+            connectionId="localhost_connection"
             previewToken="handoff-preview-token"
             liveEditCapability="test-live-edit-capability"
             externalSnapshotHtml="<!doctype html><html><body><main>Chat preview</main></body></html>"
@@ -1628,6 +1796,7 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
           screenId="screen-settings"
           sourceType="localhost"
           bridgeUrl={bridgeUrl}
+          connectionId="localhost_connection"
           previewToken="example-preview-token"
           liveEditCapability="test-live-edit-capability"
           zoom={100}
@@ -1715,7 +1884,55 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
 });
 
 describe("DesignCanvas localhost screens never render a source snapshot", () => {
-  it("loads the dev-server URL live when the viewer has no bridge entitlement", async () => {
+  it("does not use stored legacy credentials without a registered connection", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) =>
+      Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
+    );
+    const onExternalContentSnapshot = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const unavailable = shouldShowLocalhostPreviewRecovery({
+      sourceType: "localhost",
+      connectionId: undefined,
+      snapshotOnly: false,
+      refreshFailed: false,
+      hasUsablePreviewCredentials: false,
+      connectionUnavailable: false,
+      canEdit: true,
+      publicUnavailable: false,
+      publicVisualEdit: false,
+    });
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/settings"
+          contentKey="legacy-screen-settings"
+          screenId="legacy-screen-settings"
+          sourceType="localhost"
+          bridgeUrl="http://127.0.0.1:7331"
+          previewToken="legacy-preview-token"
+          localhostPreviewUnavailable={unavailable}
+          onExternalContentSnapshot={onExternalContentSnapshot}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "Reconnect this Screen's localhost connection in the inspector, then retry.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onExternalContentSnapshot).not.toHaveBeenCalled();
+    expect(container.querySelector('iframe[src*="localhost:5173"]')).toBeNull();
+  });
+
+  it("does not load a localhost URL or snapshot without bridge entitlement", async () => {
     await act(async () => {
       root.render(
         <DesignCanvas
@@ -1741,8 +1958,8 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     const iframe = container.querySelector<HTMLIFrameElement>(
       "[data-design-preview-iframe]",
     );
-    expect(iframe?.getAttribute("src")).toBe("http://localhost:5173/settings");
-    expect(iframe?.hasAttribute("srcdoc")).toBe(false);
+    expect(iframe?.getAttribute("src") ?? "").not.toContain("localhost:5173");
+    expect(container.querySelector('iframe[src*="localhost:5173"]')).toBeNull();
     expect(container.innerHTML).not.toContain("Frozen snapshot");
   });
 
@@ -1770,10 +1987,198 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
     const iframe = container.querySelector<HTMLIFrameElement>(
       "[data-design-preview-iframe]",
     );
-    expect(iframe?.src).toBe("http://localhost:5173/settings");
-    expect(iframe?.style.pointerEvents).toBe("none");
-    expect(container.textContent).toContain("Preparing live editor");
+    expect(iframe?.getAttribute("src") ?? "").not.toContain("localhost:5173");
+    expect(container.querySelector('iframe[src*="localhost:5173"]')).toBeNull();
   });
+
+  it("surfaces unavailable preview credentials with a recovery message", async () => {
+    const retryLocalhostPreview = vi.fn();
+    const renderCanvas = (isFetching: boolean) => (
+      <DesignCanvas
+        content="http://localhost:5173/settings"
+        contentKey="screen-settings"
+        screenId="screen-settings"
+        sourceType="localhost"
+        localhostPreviewUnavailable
+        onRetryLocalhostPreview={retryLocalhostPreview}
+        localhostPreviewRetryPending={isFetching}
+        zoom={100}
+        deviceFrame="none"
+        editMode
+        interactMode={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    await act(async () => root.render(renderCanvas(true)));
+
+    expect(container.textContent).toContain(
+      "Local preview credentials are unavailable",
+    );
+    expect(container.textContent).toContain(
+      "Reconnect this Screen's localhost connection in the inspector, then retry.",
+    );
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Retry credentials"),
+    );
+    expect(retryButton).toBeTruthy();
+    expect((retryButton as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => root.render(renderCanvas(false)));
+    const readyRetryButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("Retry credentials"));
+    expect((readyRetryButton as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => readyRetryButton?.click());
+    expect(retryLocalhostPreview).toHaveBeenCalledOnce();
+  });
+
+  it("renders recovery UI for refresh failures and legacy screens without a connection id", async () => {
+    const retryLocalhostPreview = vi.fn();
+    const renderRecoveryCanvas = ({
+      connectionId,
+      refreshFailed,
+    }: {
+      connectionId?: string;
+      refreshFailed: boolean;
+    }) => {
+      const unavailable = shouldShowLocalhostPreviewRecovery({
+        sourceType: "localhost",
+        connectionId,
+        snapshotOnly: false,
+        refreshFailed,
+        hasUsablePreviewCredentials: false,
+        connectionUnavailable: false,
+        canEdit: true,
+        publicUnavailable: false,
+        publicVisualEdit: false,
+      });
+
+      return (
+        <DesignCanvas
+          content="http://localhost:5173/settings"
+          contentKey="screen-settings"
+          screenId="screen-settings"
+          sourceType="localhost"
+          connectionId={connectionId}
+          localhostPreviewUnavailable={unavailable}
+          onRetryLocalhostPreview={retryLocalhostPreview}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />
+      );
+    };
+
+    await act(async () =>
+      root.render(
+        renderRecoveryCanvas({
+          connectionId: "local-connection",
+          refreshFailed: true,
+        }),
+      ),
+    );
+
+    expect(container.textContent).toContain(
+      "Local preview credentials are unavailable",
+    );
+
+    await act(async () =>
+      root.render(renderRecoveryCanvas({ refreshFailed: false })),
+    );
+
+    expect(container.textContent).toContain(
+      "Reconnect this Screen's localhost connection in the inspector, then retry.",
+    );
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Retry credentials"),
+    );
+    expect(retryButton).toBeTruthy();
+    await act(async () => retryButton?.click());
+    expect(retryLocalhostPreview).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["legacy screen without a connection id", undefined],
+    ["connected screen", "local-connection"],
+  ])(
+    "explains why public viewers cannot open a %s",
+    async (_label, connectionId) => {
+      const fetchMock = vi.fn((input: RequestInfo | URL) =>
+        Promise.reject(new Error(`Unexpected fetch: ${requestInfoUrl(input)}`)),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const publicViewer = isPublicDesignViewer({
+        publicVisualEdit: false,
+        visibility: "public",
+        accessRole: "viewer",
+      });
+      const localhostPreviewUnavailablePublic =
+        shouldShowPublicLocalhostPreviewUnavailable({
+          sourceType: "localhost",
+          snapshotOnly: false,
+          publicViewer,
+          serverUnavailable: false,
+        });
+      const localhostPreviewUnavailable = shouldShowLocalhostPreviewRecovery({
+        sourceType: "localhost",
+        connectionId,
+        snapshotOnly: false,
+        refreshFailed: false,
+        hasUsablePreviewCredentials: true,
+        connectionUnavailable: false,
+        canEdit: false,
+        publicUnavailable: localhostPreviewUnavailablePublic,
+        publicVisualEdit: false,
+      });
+
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="http://localhost:5173/settings"
+            contentKey="screen-settings"
+            screenId="screen-settings"
+            sourceType="localhost"
+            connectionId={connectionId}
+            bridgeUrl="http://127.0.0.1:7331"
+            previewToken="legacy-preview-token"
+            localhostPreviewUnavailable={localhostPreviewUnavailable}
+            localhostPreviewUnavailablePublic={
+              localhostPreviewUnavailablePublic
+            }
+            onRetryLocalhostPreview={vi.fn()}
+            zoom={100}
+            deviceFrame="none"
+            editMode={false}
+            readOnly
+            interactMode={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      expect(container.textContent).toContain(
+        "Localhost previews are not shared with public viewers.",
+      );
+      expect(
+        Array.from(container.querySelectorAll("button")).some((button) =>
+          button.textContent?.includes("Retry credentials"),
+        ),
+      ).toBe(false);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(
+        container.querySelector('iframe[src*="localhost:5173"]'),
+      ).toBeNull();
+    },
+  );
 
   it("keeps an entitled viewer on the proxied document instead of the snapshot", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -1798,6 +2203,7 @@ describe("DesignCanvas localhost screens never render a source snapshot", () => 
           screenId="screen-settings"
           sourceType="localhost"
           bridgeUrl="http://127.0.0.1:7331"
+          connectionId="localhost_connection"
           previewToken="example-preview-token"
           liveEditCapability="test-live-edit-capability"
           externalSnapshotHtml="<!doctype html><html><body>Frozen snapshot</body></html>"

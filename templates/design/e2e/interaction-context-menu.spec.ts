@@ -91,8 +91,8 @@ async function rightClickNode(page: Page, nodeId: string) {
   await expect(page.getByRole("menu").last()).toBeVisible();
 }
 
-test.describe("interaction: right-click canvas context menu (§17)", () => {
-  test("right-click on a single element shows the standard items in the documented order, and Bring to front actually reorders (one undo restores)", async ({
+test.describe("interaction: right-click canvas context menu", () => {
+  test("right-click on a single element shows the canvas menu items in order, and Bring to front reorders (one undo restores)", async ({
     page,
     request,
   }) => {
@@ -105,7 +105,7 @@ test.describe("interaction: right-click canvas context menu (§17)", () => {
       await rightClickNode(page, "a");
       const menu = page.getByRole("menu").last();
 
-      const expectedOrder = [
+      const designMenuOrder = [
         "Copy",
         "Paste here",
         "Paste to replace",
@@ -131,10 +131,10 @@ test.describe("interaction: right-click canvas context menu (§17)", () => {
         texts.push(label);
       }
       const seenInOrder = texts.filter((label) =>
-        expectedOrder.includes(label),
+        designMenuOrder.includes(label),
       );
       expect(seenInOrder, `menu items were: ${JSON.stringify(texts)}`).toEqual(
-        expectedOrder,
+        designMenuOrder,
       );
 
       const frame = designFrame(page);
@@ -234,7 +234,7 @@ test.describe("interaction: right-click canvas context menu (§17)", () => {
     }
   });
 
-  test("Rename is not offered on the canvas context menu (standard interaction) but is offered on the layer row's context menu", async ({
+  test("Rename is not on the canvas context menu but is on the layer row's context menu", async ({
     page,
     request,
   }) => {

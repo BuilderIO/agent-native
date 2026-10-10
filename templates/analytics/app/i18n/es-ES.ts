@@ -1167,6 +1167,12 @@ export default {
   },
   sqlDashboard: {
     customRange: "Rango personalizado",
+    allValues: "Todos",
+    searchValues: "Buscar valores",
+    noValuesFound: "No se encontraron valores",
+    selectAll: "Seleccionar todo",
+    selectOnly: "Solo",
+    selectOnlyValue: "Solo {{value}}",
     untitledDashboard: "Panel de control sin título",
     dashboardFallback: "panel",
     viewOnly: "Tiene acceso de solo lectura a este panel.",

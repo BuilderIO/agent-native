@@ -825,6 +825,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
   "recovery.retryAttachmentUnavailable":
     "Diese Anfrage enthielt eine Datei, die sich nicht erneut senden lässt. Füge sie im Nachrichtenfeld erneut hinzu und versuche es noch einmal.",
+  "recovery.retryWithoutAttachment": "Ohne Anhang erneut versuchen",
   "recovery.deferredSubmissionFailed":
     "Diese Nachricht konnte nicht gesendet werden. Prüfe deine Verbindung oder Chat-Einstellungen und versuche es erneut.",
   "recovery.credentialRejected":
@@ -1153,10 +1154,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.uploadFailed":
     "Die ausgewählte Datei konnte nicht hochgeladen werden.",
   "composer.fileTooLarge":
-    "Diese Datei überschreitet die zulässige Uploadgröße.",
+    "Diese Datei ist größer als das Upload-Limit von {{size}} MB.",
   "composer.sessionExpired":
-    "Deine Sitzung ist abgelaufen. Aktualisiere die Seite und versuche es erneut.",
+    "Deine Sitzung ist abgelaufen. Melde dich erneut an und sende deine Nachricht dann noch einmal.",
   "composer.unsupportedFileType": "Dieser Dateityp wird nicht unterstützt.",
+  "composer.uploadUnavailable":
+    "Datei-Uploads sind gerade nicht verfügbar. Versuche es gleich noch einmal.",
+  "composer.uploadOffline":
+    "Der Upload hat den Server nicht erreicht. Prüfe deine Verbindung und versuche es erneut.",
+  "composer.submissionNotReady":
+    "Der Chat ist noch nicht sendebereit. Warte einen Moment und sende dann erneut.",
+  "composer.submissionScopeChanged":
+    "Dieser Chat hat sich geändert, bevor deine Nachricht gesendet wurde. Sende sie erneut.",
+  "composer.attachmentNotSaved": "Nicht mit diesem Chat gespeichert",
   "composer.useAttachedContext": "Verwende den angehängten Kontext.",
   "mentions.commands": "Befehle",
   "mentions.learnMore": "Mehr erfahren",

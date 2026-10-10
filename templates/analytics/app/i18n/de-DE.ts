@@ -1177,6 +1177,12 @@ export default {
   },
   sqlDashboard: {
     customRange: "Benutzerdefinierter Zeitraum",
+    allValues: "Alle",
+    searchValues: "Werte suchen",
+    noValuesFound: "Keine Werte gefunden",
+    selectAll: "Alle auswählen",
+    selectOnly: "Nur",
+    selectOnlyValue: "Nur {{value}}",
     untitledDashboard: "Unbenanntes Dashboard",
     dashboardFallback: "Dashboard",
     viewOnly: "Sie haben nur Lesezugriff auf dieses Dashboard.",

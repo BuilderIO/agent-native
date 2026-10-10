@@ -385,6 +385,9 @@ export interface DuplicateScreenArgs {
   duplicateRecoveryRef: RefObject<Map<string, DuplicateScreenRecoveryEntry>>;
   displayedCanvasFrameGeometryById?: CanvasFrameGeometryById;
   files: DesignFile[];
+  getCurrentScreenContentForDuplicate?: (
+    screenId: string,
+  ) => string | undefined;
   focusCreatedScreen: (
     screenId: string,
     geometry: FrameGeometry,
@@ -432,6 +435,7 @@ export function runDuplicateScreen(
     duplicateRecoveryRef,
     displayedCanvasFrameGeometryById,
     files,
+    getCurrentScreenContentForDuplicate,
     focusCreatedScreen,
     id,
     liveFrameGeometryRef,
@@ -525,7 +529,10 @@ export function runDuplicateScreen(
   }
   duplicateInFlightRef.current.add(filename);
   const content =
-    recoveryState?.content ?? reassignDuplicatedNodeIds(source.content);
+    recoveryState?.content ??
+    reassignDuplicatedNodeIds(
+      getCurrentScreenContentForDuplicate?.(screenId) ?? source.content,
+    );
   const fileType =
     recoveryState?.fileType ?? normalizedDesignFileType(source.fileType);
   const sourceOverviewScreen = overviewScreens.find(
@@ -710,6 +717,7 @@ export function runDuplicateScreen(
       filename,
       content,
       fileType,
+      ...(!widgetEmbed ? { duplicateSourceFileId: screenId } : {}),
     } as any);
   const callCreateFile = () => {
     try {
@@ -929,18 +937,24 @@ export function runDuplicateScreen(
         },
       ];
       if (screenMetadata) {
-        dataOperations.push({
-          op: "set",
-          path: ["screenMetadata", nextId],
-          value: screenMetadata,
-        });
+        for (const [field, value] of Object.entries(screenMetadata)) {
+          if (field === "connectionId") continue;
+          dataOperations.push({
+            op: "set",
+            path: ["screenMetadata", nextId, field],
+            value,
+          });
+        }
       }
       if (localhostScreen) {
-        dataOperations.push({
-          op: "set",
-          path: ["localhostScreens", nextId],
-          value: localhostScreen,
-        });
+        for (const [field, value] of Object.entries(localhostScreen)) {
+          if (field === "connectionId") continue;
+          dataOperations.push({
+            op: "set",
+            path: ["localhostScreens", nextId, field],
+            value,
+          });
+        }
       }
       const nextData = applyDesignDataOperations(
         designDataJsonRef.current,
@@ -951,7 +965,10 @@ export function runDuplicateScreen(
         if (!old || typeof old !== "object") return old;
         return { ...old, data: JSON.stringify(nextData) };
       });
-      await updateDesignAsync({ id, dataOperations } as any);
+      await updateDesignAsync({
+        id,
+        dataOperations,
+      } as any);
       optimisticallyInsertCreatedFile({
         fileId: nextId,
         filename,

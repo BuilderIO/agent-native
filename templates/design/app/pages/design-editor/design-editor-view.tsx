@@ -78,6 +78,7 @@ import {
 } from "./editor-helpers";
 import { resolveLocalhostSourceWriteContent } from "./editor-state";
 import { resolveLeftSidebarWidth } from "./left-sidebar-width";
+import { shouldRenderDesignShareControl } from "./mcp-widget-write-capabilities";
 import { hasMinimalInspectorSelection } from "./minimal-inspector";
 import { mergePresenceUsers } from "./presence-users";
 import { getDesignBottomToolbarMode } from "./tool-state";
@@ -106,11 +107,11 @@ import { VisualEditWebMcp } from "./VisualEditWebMcp";
 /* i18n-ignore */
 /* i18n-ignore */
 
-// Mirrors `--design-chrome-rail-width` in app/global.css (8 baseline units ×
+// Mirrors `--design-chrome-rail-width` in app/global.css (7 baseline units ×
 // 8px). The rail is always-on chrome (not measured via a ref) so the very
 // first overview camera render — before any layout effect could measure the
 // DOM — already accounts for it; see chromeInsetLeft below.
-const DESIGN_CHROME_RAIL_WIDTH_PX = 64;
+const DESIGN_CHROME_RAIL_WIDTH_PX = 56;
 
 export function renderDesignEditorView({
   editorCore,
@@ -165,6 +166,7 @@ export function renderDesignEditorView({
     shellMode,
     embedded,
     isVisualEditSurface,
+    widgetEmbed,
     hostOwnsChrome,
     hostEmbeddedEditor,
     mode,
@@ -244,7 +246,6 @@ export function renderDesignEditorView({
     editorPreferences,
     setEditorPreferences,
     handleRequestTweaks,
-    files,
     getComponentExpectedFiles,
     pendingNodeRewriteByFile,
     documentColorFiles,
@@ -852,6 +853,7 @@ export function renderDesignEditorView({
     editorExportAndHandoff,
     editorSourceAndSync,
     design,
+    widgetEmbed,
   });
 
   const minimalUiToggle = (
@@ -917,8 +919,7 @@ export function renderDesignEditorView({
     editorLayerActions,
   });
 
-  // The controls below live in two places: the top bar (docked editor) and
-  // the minimal-UI right bar (which has no top bar). Build each once.
+  // Non-widget minimal UI has no top bar, so its floating bar reuses these controls.
   const presenceControl = hostEmbeddedEditor ? null : (
     <PresenceBar
       activeUsers={mergePresenceUsers(
@@ -958,8 +959,23 @@ export function renderDesignEditorView({
       </Button>
     ) : null;
 
-  const renderShareControl = (dense: boolean) =>
-    hostEmbeddedEditor ? null : canRenderAuthenticatedShare ? (
+  const renderShareControl = (dense: boolean) => {
+    if (hostEmbeddedEditor) return null;
+    if (widgetEmbed) {
+      if (
+        !shouldRenderDesignShareControl({
+          widgetEmbed,
+          canShareDesign,
+          canRenderAuthenticatedShare,
+        })
+      ) {
+        return null;
+      }
+    } else if (!canRenderAuthenticatedShare) {
+      return sessionResolved ? signedOutPersistenceActions : null;
+    }
+
+    return (
       <ShareButton
         resourceType="design"
         resourceId={id}
@@ -988,9 +1004,8 @@ export function renderDesignEditorView({
           "rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]",
         )}
       />
-    ) : sessionResolved ? (
-      signedOutPersistenceActions
-    ) : null;
+    );
+  };
 
   const localPreviewRow =
     activeScreenIsLocalSource &&
@@ -1093,8 +1108,11 @@ export function renderDesignEditorView({
     isVisualEditSurface,
     minimalUi,
     uiHidden,
+    widgetEmbed,
   });
   const topBarControlsVisible = !initialGenerationChromeLimited;
+  const topBarZoomControlVisible =
+    topBarControlsVisible && !responsiveInteractActive;
   // The mode switch used to live in the bottom toolbar, so it keeps that
   // toolbar's gating.
   const topBarShowsModes =
@@ -1107,7 +1125,9 @@ export function renderDesignEditorView({
     }
     handleModeChange(next);
   };
-  const topBarActions = (
+  const topBarActions = widgetEmbed ? (
+    renderShareControl(true)
+  ) : (
     <>
       {renderPendingNodeRewriteControl(isMobileViewport)}
       {reviewFeedbackControl}
@@ -1183,10 +1203,7 @@ export function renderDesignEditorView({
     onAddLocalhostScreen: canEditDesign
       ? handleOpenAddLocalhostScreen
       : undefined,
-    onRemoveScreen:
-      canEditDesign && files.length > 1
-        ? handleRemoveSelectedScreen
-        : undefined,
+    onRemoveScreen: canEditDesign ? handleRemoveSelectedScreen : undefined,
     screenSourcePending: updateScreenSourceMutation.isPending,
     screenBreakpointControls,
     pageStyles,
@@ -1373,18 +1390,22 @@ export function renderDesignEditorView({
             mode={mode}
             onModeChange={handleTopBarModeChange}
             modes={topBarShowsModes ? undefined : []}
+            center={widgetEmbed && minimalUi ? projectTitleControl : undefined}
+            widgetLayout={widgetEmbed}
             zoomControl={
-              topBarControlsVisible && !responsiveInteractActive
-                ? renderZoomControl("topbar")
-                : null
+              topBarZoomControlVisible ? renderZoomControl("topbar") : null
             }
-            presence={topBarControlsVisible ? presenceControl : null}
+            presence={
+              topBarControlsVisible && !widgetEmbed ? presenceControl : null
+            }
             actions={topBarControlsVisible ? topBarActions : null}
             leftInset={chromeInsetLeft}
             narrowLeftInset={
               leftSidebarVisible ? DESIGN_CHROME_RAIL_WIDTH_PX : 0
             }
-            inspectorWidth={rightSidebarVisible ? rightSidebarWidth : undefined}
+            inspectorWidth={
+              rightSidebarVisible && !minimalUi ? rightSidebarWidth : undefined
+            }
           />
         ) : null}
         {renderLeftSidebar({
@@ -1392,7 +1413,6 @@ export function renderDesignEditorView({
           editorHistory,
           editorGenerationAndAccess,
           editorFilesAndSaving,
-          editorActiveScreenAndGeometry,
           editorCanvasAndScreens,
           editorLiveEditsAndPresence,
           editorContentAndComponents,
@@ -1410,7 +1430,6 @@ export function renderDesignEditorView({
           projectMenu,
           projectTitleControl,
           minimalUiToggle,
-          topBarVisible,
           leftContentWidth,
           leftSidebarVisible,
         })}
@@ -1548,6 +1567,7 @@ export function renderDesignEditorView({
           localPreviewRow,
           rightSidebarActions,
           topBarVisible,
+          topBarZoomVisible: topBarZoomControlVisible,
           renderResponsiveInteractBar,
           rightSidebarVisible,
           editPanelProps,

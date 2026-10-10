@@ -20,6 +20,7 @@ import {
   parseAgentQueuedMessage,
   parseAgentRunOptions,
   parseAgentThreadSnapshot,
+  persistableFilePart,
 } from "@agent-native/agentkit/protocol";
 
 import { projectRootAssistantMessages } from "../../agent/thread-message-projection.js";
@@ -280,6 +281,9 @@ function messagePart(
         : typeof part.mimeType === "string"
           ? { mediaType: part.mimeType }
           : {}),
+      ...(part.omitted === "inline-bytes"
+        ? { omitted: "inline-bytes" as const }
+        : {}),
     };
   }
   return {
@@ -1369,10 +1373,6 @@ function assistantMessageIdsByRun(
   return uniqueMessageIdsByRun;
 }
 
-function persistedFileUrl(url?: string): string | undefined {
-  return url && !/^\s*data:/i.test(url) ? url : undefined;
-}
-
 function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
   const sequenceByRun = new Map<string, number>();
   return events.flatMap((event): AgentEvent[] => {
@@ -1483,15 +1483,16 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
         ];
       }
       if (part.type === "file") {
-        const url = persistedFileUrl(part.url);
-        if (!url && !part.fileId) return [];
+        const stored = persistableFilePart(part);
+        if (!stored.url && !stored.fileId && !stored.omitted) return [];
         return [
           {
             type: "file",
-            name: part.name,
-            ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-            ...(url ? { url } : {}),
-            ...(part.fileId ? { fileId: part.fileId } : {}),
+            name: stored.name,
+            ...(stored.mediaType ? { mediaType: stored.mediaType } : {}),
+            ...(stored.url ? { url: stored.url } : {}),
+            ...(stored.fileId ? { fileId: stored.fileId } : {}),
+            ...(stored.omitted ? { omitted: stored.omitted } : {}),
           },
         ];
       }
@@ -2324,6 +2325,15 @@ export function createAgentNativeAgentKitTransport(
       threadId,
       runId: value.runId,
     });
+    if (
+      localRun?.status === "awaiting_approval" ||
+      localRun?.status === "awaiting_input"
+    ) {
+      // The Core turn can be terminal while the protocol run still owns a
+      // pending approval or input request and its resumable event stream.
+      runStatus = localRun.status;
+      error = undefined;
+    }
     return {
       id: localRun?.id ?? value.runId,
       threadId,

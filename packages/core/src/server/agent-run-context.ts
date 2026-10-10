@@ -1,5 +1,6 @@
 import { createError, getHeader, type H3Event } from "h3";
 
+import { AGENT_CHAT_BROWSER_SESSION_ID_FIELD } from "../agent/durable-background.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   ANALYTICS_CLIENT_PLATFORM_HEADER,
@@ -113,6 +114,30 @@ export function readBrowserSessionIdHeader(event: H3Event): string | undefined {
   const value = Array.isArray(raw) ? raw[0] : raw;
   const trimmed = typeof value === "string" ? value.trim() : "";
   return /^[!-~]{1,127}$/.test(trimmed) ? trimmed : undefined;
+}
+
+function readDurableBrowserSessionId(event: H3Event): string | undefined {
+  const body = (event as EventWithAgentRunContext).context?.[
+    "__agentChatBackgroundBody"
+  ];
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return undefined;
+  }
+  const record = body as Record<string, unknown>;
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      record,
+      AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
+    )
+  ) {
+    return undefined;
+  }
+  const value = record[AGENT_CHAT_BROWSER_SESSION_ID_FIELD];
+  if (value === null) return undefined;
+  if (typeof value === "string" && /^[!-~]{1,127}$/.test(value)) {
+    return value;
+  }
+  throw new Error("Malformed browser session id in durable agent run payload.");
 }
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
@@ -287,7 +312,9 @@ export async function resolveAgentRunRequestContext(options: {
 }): Promise<RequestContext> {
   const orgId = await resolveAgentRunOrgId(options);
   const timezone = readAgentRunTimezone(options.event);
-  const browserSessionId = readBrowserSessionIdHeader(options.event);
+  const browserSessionId = options.isBackgroundWorker
+    ? readDurableBrowserSessionId(options.event)
+    : readBrowserSessionIdHeader(options.event);
   const browserTabId = readBrowserTabIdHeader(options.event);
   const identitySessionToken = getRequestIdentitySessionToken(
     options.event,

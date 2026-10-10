@@ -3764,13 +3764,14 @@ describe("createAgentKitProtocolAdapter", () => {
     );
 
     expect(result.at(-1)?.type).toBe("run.completed");
+    const promptWithAttachment = `${originalPrompt}\n[attached: instagram-reference.png image/png ${referenceUrl}]`;
     expect(continuationRequest).toMatchObject({
       model: "continuation-context-model",
       effort: "high",
       autoContinueOfRunId: "run-1",
       history: expect.arrayContaining([
         { role: "user", content: "Earlier project context" },
-        { role: "user", content: originalPrompt },
+        { role: "user", content: promptWithAttachment },
       ]),
       attachments: [
         {
@@ -3790,7 +3791,7 @@ describe("createAgentKitProtocolAdapter", () => {
       structuredHistory: expect.arrayContaining([
         {
           role: "user",
-          content: [{ type: "text", text: originalPrompt }],
+          content: [{ type: "text", text: promptWithAttachment }],
         },
       ]),
       metadata: { turnContextMarker: "preserved" },
@@ -4808,6 +4809,50 @@ describe("createAgentKitProtocolAdapter", () => {
       });
       expect(runId).toBe("run-continued");
       expect(events.map((event) => event.type)).toContain("run.completed");
+    });
+
+    it("re-sends the turn's durable attachment references, never inline bytes", async () => {
+      const { runtime, continueTurn } = stoppedRunRuntime({
+        status: "errored",
+        runId: "run-crashed",
+        turnId: "turn-1",
+        terminalReason: "stale_run",
+      });
+      const transport = createAgentKitProtocolAdapter(runtime);
+
+      await transport.continueRun!({
+        threadId: "thread-1",
+        runId: "run-crashed",
+        attachments: [
+          {
+            type: "file",
+            name: "ad.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/ad.png",
+          },
+          {
+            type: "file",
+            name: "inline.png",
+            mediaType: "image/png",
+            url: "data:image/png;base64,SGVsbG8=",
+          },
+        ],
+      });
+
+      expect(continueTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attachments: [
+            {
+              type: "image",
+              name: "ad.png",
+              mediaType: "image/png",
+              contentType: "image/png",
+              url: "https://files.example.test/ad.png",
+            },
+          ],
+        }),
+      );
+      expect(JSON.stringify(continueTurn.mock.calls)).not.toContain("base64,");
     });
 
     it("refuses with a typed error when the server has no such run", async () => {

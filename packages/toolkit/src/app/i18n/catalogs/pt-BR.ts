@@ -816,6 +816,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta execução não pode mais ser continuada. Envie uma mensagem para seguir.",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitação incluía um arquivo que não pode ser reenviado. Anexe-o novamente no campo de mensagem e tente outra vez.",
+  "recovery.retryWithoutAttachment": "Tentar novamente sem o anexo",
   "recovery.deferredSubmissionFailed":
     "Não foi possível enviar esta mensagem. Verifique sua conexão ou a configuração do chat e tente novamente.",
   "recovery.credentialRejected":
@@ -1138,10 +1139,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.uploadFailed":
     "Não foi possível fazer upload do arquivo selecionado.",
   "composer.fileTooLarge":
-    "Este arquivo excede o limite de tamanho para upload.",
+    "Este arquivo é maior que o limite de upload de {{size}} MB.",
   "composer.sessionExpired":
-    "Sua sessão expirou. Atualize a página e tente novamente.",
+    "Sua sessão expirou. Entre novamente e envie sua mensagem outra vez.",
   "composer.unsupportedFileType": "Este tipo de arquivo não é compatível.",
+  "composer.uploadUnavailable":
+    "O upload de arquivos não está disponível no momento. Tente novamente em instantes.",
+  "composer.uploadOffline":
+    "O upload não conseguiu chegar ao servidor. Verifique sua conexão e tente novamente.",
+  "composer.submissionNotReady":
+    "O chat ainda não está pronto para enviar. Aguarde um momento e envie novamente.",
+  "composer.submissionScopeChanged":
+    "Este chat mudou antes de sua mensagem ser enviada. Envie-a novamente.",
+  "composer.attachmentNotSaved": "Não salvo com este chat",
   "composer.useAttachedContext": "Use o contexto anexado.",
   "mentions.commands": "Comandos",
   "mentions.learnMore": "Saber mais",

@@ -2221,6 +2221,7 @@ describe("mountActionRoutes", () => {
       caller: context?.caller,
       userEmail: context?.userEmail,
       mcpDirectoryWidgetReadOnly: context?.mcpDirectoryWidgetReadOnly,
+      mcpDirectoryWidgetResourceIds: context?.mcpDirectoryWidgetResourceIds,
     }));
     const capability = createMcpDirectoryWidgetReadCapability({
       appId: "agent",
@@ -2277,6 +2278,7 @@ describe("mountActionRoutes", () => {
       caller: "mcp-widget",
       userEmail: "ticket-owner@example.com",
       mcpDirectoryWidgetReadOnly: true,
+      mcpDirectoryWidgetResourceIds: { deckId: "deck-1" },
     });
     expect(run).toHaveBeenCalledOnce();
     expect(mockNotifyActionChange).not.toHaveBeenCalled();
@@ -2368,6 +2370,9 @@ describe("mountActionRoutes", () => {
     const run = vi.fn(async () => ({ ok: true }));
     const actionNames = [
       "update-document",
+      "share-resource",
+      "unshare-resource",
+      "set-resource-visibility",
       "add-database-item",
       "update-database-item",
       "update-design",
@@ -2444,6 +2449,457 @@ describe("mountActionRoutes", () => {
     );
     expect(getOwnerContextFromEvent).toHaveBeenCalledTimes(actionNames.length);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  describe("Content document share routes in a directory widget", () => {
+    const DOCUMENT_ID = "doc-1";
+    const OWNER = "ticket-owner@example.com";
+    const ORG = "org-1";
+    const RESOURCE_URI = "ui://content/shell-v69";
+    const schemaField = { type: "actionSchema" as const };
+    const writeArguments = {
+      "update-document": { id: DOCUMENT_ID, title: schemaField },
+      "share-resource": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        principalType: schemaField,
+        principalId: schemaField,
+        role: schemaField,
+        notify: schemaField,
+        resourceUrl: schemaField,
+        message: schemaField,
+      },
+      "unshare-resource": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        principalType: schemaField,
+        principalId: schemaField,
+      },
+      "set-resource-visibility": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        visibility: schemaField,
+      },
+    };
+    const readArguments = {
+      "list-resource-shares": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+      },
+    };
+    const shareBodies: Record<string, Record<string, unknown>> = {
+      "share-resource": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        principalType: "user",
+        principalId: "teammate@example.com",
+        role: "viewer",
+        notify: false,
+        resourceUrl: "/page/doc-1",
+        message: "Take a look",
+      },
+      "unshare-resource": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        principalType: "user",
+        principalId: "teammate@example.com",
+      },
+      "set-resource-visibility": {
+        resourceType: "document",
+        resourceId: DOCUMENT_ID,
+        visibility: "org",
+      },
+    };
+    const shareActionNames = Object.keys(shareBodies);
+    const unlistedWrites = [
+      "delete-document",
+      "set-document-discoverability",
+      "approve-resource-access-request",
+      "create-agent-resource-link",
+    ];
+    const unlistedReads = ["list-resource-access-requests"];
+    const scopeMismatch =
+      "This widget write capability is scoped to a different user, app resource, or action.";
+    const dataRoutesOnly =
+      "This widget capability only permits its scoped data routes.";
+
+    async function mountShareRoutes() {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async (_args: unknown, context: any) => ({
+        ok: true,
+        caller: context?.caller,
+        readOnly: context?.mcpDirectoryWidgetReadOnly,
+        grantedActions: context?.mcpDirectoryWidgetWrite?.actionNames,
+      }));
+      const schemas: Record<string, z.ZodType> = {
+        "update-document": z.object({
+          id: z.string(),
+          title: z.string().optional(),
+        }),
+        "share-resource": z.object({
+          resourceType: z.string(),
+          resourceId: z.string(),
+          principalType: z.enum(["user", "group", "org"]),
+          principalId: z.string(),
+          role: z
+            .enum(["viewer", "commenter", "editor", "admin"])
+            .default("viewer"),
+          notify: z.boolean().default(true),
+          resourceUrl: z.string().optional(),
+          message: z.string().trim().max(500).optional(),
+        }),
+        "unshare-resource": z.object({
+          resourceType: z.string(),
+          resourceId: z.string(),
+          principalType: z.enum(["user", "group", "org"]),
+          principalId: z.string(),
+        }),
+        "set-resource-visibility": z.object({
+          resourceType: z.string(),
+          resourceId: z.string(),
+          visibility: z.enum(["private", "org", "public"]),
+        }),
+      };
+      const write = (name: string) =>
+        ({
+          http: { method: "POST" },
+          readOnly: false,
+          requiresAuth: true,
+          schema: schemas[name],
+          tool: { parameters: { type: "object", properties: {} } },
+          run,
+        }) as any;
+      const read = () =>
+        ({
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: true,
+          run,
+        }) as any;
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          ...Object.fromEntries(
+            [...Object.keys(writeArguments), ...unlistedWrites].map((name) => [
+              name,
+              write(name),
+            ]),
+          ),
+          "list-resource-shares": read(),
+          ...Object.fromEntries(unlistedReads.map((name) => [name, read()])),
+        },
+        {
+          appId: "content",
+          mcpDirectoryWidgetAppId: "content",
+          mcpDirectoryWidgetResourceUri: RESOURCE_URI,
+          mcpDirectoryWidgetReadActionArguments: {
+            "list-resource-shares": ["resourceType", "resourceId"],
+          },
+          mcpDirectoryWidgetWriteActionArguments: Object.fromEntries(
+            Object.entries(writeArguments).map(([name, args]) => [
+              name,
+              Object.keys(args),
+            ]),
+          ),
+          mcpDirectoryWidgetWriteActionSchemaArguments: Object.fromEntries(
+            Object.entries(writeArguments).map(([name, args]) => [
+              name,
+              Object.entries(args)
+                .filter(([, rule]) => typeof rule !== "string")
+                .map(([argumentName]) => argumentName),
+            ]),
+          ),
+          getOwnerFromEvent: async () => {
+            throw Object.assign(new Error("Unauthenticated"), {
+              statusCode: 401,
+            });
+          },
+        },
+      );
+      const call = async (
+        name: string,
+        args: Record<string, unknown>,
+        method: "GET" | "POST" = "POST",
+      ) => {
+        const query = new URLSearchParams(
+          Object.entries(args).map(([key, value]) => [key, String(value)]),
+        );
+        const event: any = {
+          _method: method,
+          _headers: { "x-agent-native-frontend": "1" },
+          req: {
+            url: `http://app.test/_agent-native/actions/${name}${method === "GET" ? `?${query}` : ""}`,
+            json: async () => args,
+          },
+        };
+        const route = mounted.find(
+          ({ path }) => path === `/_agent-native/actions/${name}`,
+        );
+        const result = await route!.handler(event);
+        return { event, result, status: event._status ?? 200 };
+      };
+      return { call, run };
+    }
+
+    async function widgetSession(
+      scope: "write" | "read",
+      identity: {
+        email?: string;
+        orgId?: string | null;
+        expiresAtMs?: number;
+      } = {},
+    ) {
+      const embedAuth = await import("../shared/embed-auth.js");
+      const resourceIds = {
+        documentId: DOCUMENT_ID,
+        resourceType: "document",
+        spaceId: "space-1",
+      };
+      const capability =
+        scope === "write"
+          ? embedAuth.createMcpDirectoryWidgetWriteCapability({
+              appId: "content",
+              resourceUri: RESOURCE_URI,
+              resourceIds,
+              userEmail: OWNER,
+              orgId: ORG,
+              expiresAtMs: identity.expiresAtMs ?? Date.now() + 60_000,
+              readActionArguments: readArguments,
+              writeActionArguments: writeArguments,
+            })
+          : embedAuth.createMcpDirectoryWidgetReadCapability({
+              appId: "content",
+              resourceUri: RESOURCE_URI,
+              resourceIds,
+              actionArguments: readArguments,
+            });
+      expect(capability).toBeDefined();
+      mockResolveEmbedSessionFromRequest.mockResolvedValue({
+        email: identity.email ?? OWNER,
+        orgId: identity.orgId === undefined ? ORG : identity.orgId,
+        token: "signed-directory-capability",
+        targetPath: `/page/${DOCUMENT_ID}`,
+        scope: capability,
+      });
+    }
+
+    it("runs each share write for the ticketed document as the widget-write caller", async () => {
+      await widgetSession("write");
+      const { call, run } = await mountShareRoutes();
+
+      for (const name of shareActionNames) {
+        const { status, result } = await call(name, shareBodies[name]!);
+        expect(status, name).toBe(200);
+        expect(result, name).toMatchObject({
+          ok: true,
+          caller: "mcp-widget-write",
+          grantedActions: [
+            "set-resource-visibility",
+            "share-resource",
+            "unshare-resource",
+            "update-document",
+          ],
+        });
+      }
+      expect(run).toHaveBeenCalledTimes(shareActionNames.length);
+      expect(run.mock.calls.map(([args]) => args)).toEqual(
+        shareActionNames.map((name) => shareBodies[name]),
+      );
+    });
+
+    it("rejects share writes for another document, another resource type, or an omitted binding", async () => {
+      await widgetSession("write");
+      const { call, run } = await mountShareRoutes();
+
+      for (const name of shareActionNames) {
+        const body = shareBodies[name]!;
+        const { resourceId: _resourceId, ...withoutResourceId } = body;
+        const { resourceType: _resourceType, ...withoutResourceType } = body;
+        const {
+          resourceId: _id,
+          resourceType: _type,
+          ...withoutResourceBinding
+        } = body;
+        const attempts: Record<string, Record<string, unknown>> = {
+          "another document": { ...body, resourceId: "doc-2" },
+          "another resource type": { ...body, resourceType: "form" },
+          "omitted resourceId": withoutResourceId,
+          "omitted resourceType": withoutResourceType,
+          "both omitted": withoutResourceBinding,
+          "unlisted argument": { ...body, ownerEmail: "someone@example.com" },
+        };
+        for (const [label, attempt] of Object.entries(attempts)) {
+          const { status, result } = await call(name, attempt);
+          expect({ name, label, status }).toEqual({
+            name,
+            label,
+            status: 403,
+          });
+          expect(result, `${name} ${label}`).toEqual({ error: scopeMismatch });
+        }
+      }
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("rejects every unlisted action even with a valid write scope", async () => {
+      await widgetSession("write");
+      const { call, run } = await mountShareRoutes();
+
+      for (const name of unlistedWrites) {
+        const { status, result } = await call(name, {
+          resourceType: "document",
+          resourceId: DOCUMENT_ID,
+          id: DOCUMENT_ID,
+        });
+        expect({ name, status }).toEqual({ name, status: 403 });
+        expect(result, name).toEqual({ error: dataRoutesOnly });
+      }
+      for (const name of unlistedReads) {
+        const { status, result } = await call(
+          name,
+          { resourceType: "document", resourceId: DOCUMENT_ID },
+          "GET",
+        );
+        expect({ name, status }).toEqual({ name, status: 403 });
+        expect(result, name).toEqual({ error: dataRoutesOnly });
+      }
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("gives a read-only widget capability no share write route", async () => {
+      await widgetSession("read");
+      const { call, run } = await mountShareRoutes();
+
+      for (const name of [...shareActionNames, "update-document"]) {
+        const { status, result } = await call(
+          name,
+          shareBodies[name] ?? { id: DOCUMENT_ID, title: "Renamed" },
+        );
+        expect({ name, status }).toEqual({ name, status: 403 });
+        expect(result, name).toEqual({ error: dataRoutesOnly });
+      }
+      expect(run).not.toHaveBeenCalled();
+
+      const shares = await call(
+        "list-resource-shares",
+        { resourceType: "document", resourceId: DOCUMENT_ID },
+        "GET",
+      );
+      expect(shares.status).toBe(200);
+      expect(shares.result).toEqual({
+        ok: true,
+        caller: "mcp-widget",
+        readOnly: true,
+      });
+      const otherDocument = await call(
+        "list-resource-shares",
+        { resourceType: "document", resourceId: "doc-2" },
+        "GET",
+      );
+      expect(otherDocument.status).toBe(403);
+      expect(run).toHaveBeenCalledTimes(1);
+    });
+
+    it("binds share writes to the ticketed user and organization", async () => {
+      const { call, run } = await mountShareRoutes();
+
+      for (const identity of [
+        { email: "other@example.com" },
+        { orgId: "org-2" },
+        { orgId: null },
+      ]) {
+        await widgetSession("write", identity);
+        for (const name of shareActionNames) {
+          const { status, result } = await call(name, shareBodies[name]!);
+          expect({ name, identity, status }).toEqual({
+            name,
+            identity,
+            status: 403,
+          });
+          expect(result).toEqual({ error: scopeMismatch });
+        }
+      }
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("expires share writes with the widget grant", async () => {
+      const expiresAtMs = Date.now() + 60_000;
+      await widgetSession("write", { expiresAtMs });
+      const { call, run } = await mountShareRoutes();
+
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(expiresAtMs + 1);
+        for (const name of shareActionNames) {
+          const { event, status, result } = await call(
+            name,
+            shareBodies[name]!,
+          );
+          expect({ name, status }).toEqual({ name, status: 401 });
+          expect(result).toEqual({ error: "Unauthorized" });
+          expect(event._responseHeaders).toMatchObject({
+            "x-agent-native-widget-session-expired": "1",
+          });
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("keeps the share list read authenticated for anonymous callers", async () => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ shares: [] }));
+      mountActionRoutes(
+        {
+          use: vi.fn((path: string, handler: any) =>
+            mounted.push({ path, handler }),
+          ),
+        },
+        {
+          "list-resource-shares": {
+            http: { method: "GET" },
+            readOnly: true,
+            requiresAuth: true,
+            run,
+          } as any,
+        },
+        {
+          appId: "content",
+          mcpDirectoryWidgetAppId: "content",
+          mcpDirectoryWidgetResourceUri: RESOURCE_URI,
+          mcpDirectoryWidgetReadActionArguments: {
+            "list-resource-shares": ["resourceType", "resourceId"],
+          },
+          getOwnerContextFromEvent: async () => ({
+            owner:
+              "public-00000000-0000-4000-8000-000000000001@agent-native.local",
+            anonymous: true,
+          }),
+          getOwnerFromEvent: async () =>
+            "public-00000000-0000-4000-8000-000000000001@agent-native.local",
+        },
+      );
+      const event: any = {
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/list-resource-shares?resourceType=document&resourceId=public-document",
+        },
+      };
+
+      await expect(mounted[0]!.handler(event)).resolves.toEqual({
+        error: "Unauthorized",
+      });
+      expect(event._status).toBe(401);
+      expect(run).not.toHaveBeenCalled();
+    });
   });
 
   it("rechecks workspace app access for authenticated non-widget write calls", async () => {
@@ -2525,6 +2981,144 @@ describe("mountActionRoutes", () => {
       vi.doUnmock("../org/workspace-app-identity.js");
       vi.resetModules();
     }
+  });
+
+  describe("workspace app access on directory read routes", () => {
+    async function callReadRoute(
+      access: "allowed" | "denied" | "unavailable" | "not-configured",
+      caller: "session" | "adapter",
+    ) {
+      vi.resetModules();
+      const workspaceAccess = vi.fn(async () =>
+        access === "denied"
+          ? false
+          : access === "unavailable"
+            ? "unavailable"
+            : true,
+      );
+      vi.doMock("../org/workspace-app-access.js", () => ({
+        isWorkspaceAppAccessAllowed: workspaceAccess,
+        WORKSPACE_APP_ACCESS_UNAVAILABLE: "unavailable",
+        WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE:
+          "Workspace app access is temporarily unavailable.",
+      }));
+      vi.doMock("../org/workspace-app-identity.js", () => ({
+        resolveWorkspaceAccessAppId: () =>
+          access === "not-configured" ? "" : "slides",
+      }));
+
+      try {
+        const { mountActionRoutes } = await import("./action-routes.js");
+        const mounted: Array<{ path: string; handler: any }> = [];
+        const run = vi.fn(async () => ({ shares: [] }));
+        mountActionRoutes(
+          {
+            use: vi.fn((path: string, handler: any) =>
+              mounted.push({ path, handler }),
+            ),
+          },
+          {
+            "list-resource-shares": {
+              http: { method: "GET" },
+              readOnly: false,
+              requiresAuth: true,
+              run,
+            } as any,
+          },
+          {
+            appId: "slides",
+            mcpDirectoryWidgetAppId: "slides",
+            mcpDirectoryWidgetResourceUri: "ui://slides/shell-v69",
+            mcpDirectoryWidgetReadActionArguments: {
+              "list-resource-shares": ["resourceType", "resourceId"],
+            },
+            mcpDirectoryWidgetReadOnlyActions: ["list-resource-shares"],
+            resolveOrgId: async () => "org-1",
+            ...(caller === "adapter"
+              ? {
+                  actionRouteAuth: {
+                    resolveCaller: async () => ({
+                      owner: "reviewer@example.com",
+                      anonymous: false,
+                      orgId: "org-1",
+                    }),
+                  },
+                }
+              : {
+                  getOwnerContextFromEvent: async () => ({
+                    owner: "reviewer@example.com",
+                    anonymous: false,
+                  }),
+                }),
+          },
+        );
+
+        const event: any = {
+          _method: "GET",
+          _headers: {
+            "x-agent-native-frontend": "1",
+            host: "slides.agent-native.test",
+          },
+          _query: { resourceType: "deck", resourceId: "deck-1" },
+          req: {
+            url: "https://slides.agent-native.test/_agent-native/actions/list-resource-shares?resourceType=deck&resourceId=deck-1",
+          },
+        };
+        const route = mounted.find(
+          ({ path }) => path === "/_agent-native/actions/list-resource-shares",
+        );
+        const result = await route!.handler(event);
+        return { event, result, run, workspaceAccess };
+      } finally {
+        vi.doUnmock("../org/workspace-app-access.js");
+        vi.doUnmock("../org/workspace-app-identity.js");
+        vi.resetModules();
+      }
+    }
+
+    it.each(["session", "adapter"] as const)(
+      "rejects a %s caller denied access to the workspace app before reading",
+      async (caller) => {
+        const { event, result, run, workspaceAccess } = await callReadRoute(
+          "denied",
+          caller,
+        );
+
+        expect(event._status).toBe(403);
+        expect(result).toEqual({
+          error: "You do not have access to this workspace app.",
+        });
+        expect(workspaceAccess).toHaveBeenCalledWith("slides", {
+          email: "reviewer@example.com",
+          orgId: "org-1",
+        });
+        expect(run).not.toHaveBeenCalled();
+      },
+    );
+
+    it("answers 503 while workspace app access cannot be checked", async () => {
+      const { event, result, run } = await callReadRoute(
+        "unavailable",
+        "session",
+      );
+
+      expect(event._status).toBe(503);
+      expect(result).toEqual({
+        error: "Workspace app access is temporarily unavailable.",
+      });
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it.each(["allowed", "not-configured"] as const)(
+      "runs the read when workspace app access is %s",
+      async (access) => {
+        const { event, result, run } = await callReadRoute(access, "session");
+
+        expect(event._status).toBeUndefined();
+        expect(result).toEqual({ shares: [] });
+        expect(run).toHaveBeenCalledOnce();
+      },
+    );
   });
 
   it("allows the Design create-file route when workspace app access is not configured", async () => {
@@ -2697,6 +3291,251 @@ describe("mountActionRoutes", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("runs the Slides share actions as mcp-widget-write for the granted deck only, without needsApproval", async () => {
+    const { createMcpDirectoryWidgetWriteCapability } =
+      await import("../shared/embed-auth.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { CHATGPT_DIRECTORY_PROFILE: profile } =
+      await import("../../../../templates/slides/server/lib/chatgpt-directory-tools.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const needsApproval = vi.fn(async () => true);
+    const shareModules = {
+      "list-resource-shares":
+        await import("../sharing/actions/list-resource-shares.js"),
+      "share-resource": await import("../sharing/actions/share-resource.js"),
+      "unshare-resource":
+        await import("../sharing/actions/unshare-resource.js"),
+      "set-resource-visibility":
+        await import("../sharing/actions/set-resource-visibility.js"),
+    };
+    const shareActions = Object.fromEntries(
+      Object.entries(shareModules).map(([name, { default: action }]) => [
+        name,
+        { ...action, run, needsApproval },
+      ]),
+    );
+    // Mirrors the mcpDirectoryWidget*ActionArguments agent-chat-plugin derives
+    // from the profile for actions present in the HTTP registry.
+    const writeRules = profile.widgetWriteActionArguments as Record<
+      string,
+      Record<string, any>
+    >;
+    const readRules = profile.widgetReadActionArguments as Record<
+      string,
+      Record<string, any>
+    >;
+    const schemaArguments = (rules: Record<string, any>) =>
+      Object.entries(rules)
+        .filter(([, rule]) => typeof rule !== "string")
+        .map(([argumentName]) => argumentName);
+    const writeNames = [
+      "share-resource",
+      "unshare-resource",
+      "set-resource-visibility",
+    ];
+    const target = profile.widgetTargets["create-deck"]({}, { id: "deck-a" })!;
+    const materialize = (rules: Record<string, any>) =>
+      Object.fromEntries(
+        Object.entries(rules).map(([argumentName, rule]) => [
+          argumentName,
+          typeof rule === "string" ? target.resourceIds[rule] : rule,
+        ]),
+      );
+    const capability = createMcpDirectoryWidgetWriteCapability({
+      appId: "slides",
+      resourceUri: "ui://slides/shell-v69",
+      resourceIds: target.resourceIds,
+      userEmail: "editor@example.com",
+      orgId: "org-1",
+      expiresAtMs: Date.now() + 60_000,
+      readActionArguments: {
+        "list-resource-shares": materialize(readRules["list-resource-shares"]!),
+      },
+      writeActionArguments: Object.fromEntries(
+        writeNames.map((name) => [name, materialize(writeRules[name]!)]),
+      ),
+    })!;
+    mockResolveEmbedSessionFromRequest.mockResolvedValue({
+      email: "editor@example.com",
+      orgId: "org-1",
+      token: "signed-directory-capability",
+      targetPath: "/deck/deck-a",
+      scope: capability,
+    });
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        ...shareActions,
+        "delete-deck": {
+          http: { method: "POST" },
+          readOnly: false,
+          requiresAuth: true,
+          run,
+        } as any,
+        "create-agent-resource-link": {
+          http: { method: "POST" },
+          readOnly: false,
+          requiresAuth: true,
+          run,
+        } as any,
+      },
+      {
+        appId: "slides",
+        mcpDirectoryWidgetAppId: "slides",
+        mcpDirectoryWidgetResourceUri: "ui://slides/shell-v69",
+        mcpDirectoryWidgetReadActionArguments: {
+          "list-resource-shares": Object.keys(
+            readRules["list-resource-shares"]!,
+          ),
+        },
+        mcpDirectoryWidgetWriteActionArguments: Object.fromEntries(
+          writeNames.map((name) => [name, Object.keys(writeRules[name]!)]),
+        ),
+        mcpDirectoryWidgetWriteActionSchemaArguments: Object.fromEntries(
+          writeNames.map((name) => [name, schemaArguments(writeRules[name]!)]),
+        ),
+        getOwnerFromEvent: async () => {
+          throw Object.assign(new Error("Unauthenticated"), {
+            statusCode: 401,
+          });
+        },
+      },
+    );
+    const post = async (name: string, body: Record<string, unknown>) => {
+      const event: any = {
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: `http://app.test/_agent-native/actions/${name}`,
+          json: async () => body,
+        },
+      };
+      const route = mounted.find(
+        ({ path }) => path === `/_agent-native/actions/${name}`,
+      );
+      const result = await route!.handler(event);
+      return { status: event._status ?? 200, result };
+    };
+    const shareBody = {
+      resourceType: "deck",
+      resourceId: "deck-a",
+      principalType: "user",
+      principalId: "teammate@example.com",
+      role: "viewer",
+      notify: false,
+    };
+
+    await expect(post("share-resource", shareBody)).resolves.toEqual({
+      status: 200,
+      result: { ok: true },
+    });
+    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledWith(
+      shareBody,
+      expect.objectContaining({
+        caller: "mcp-widget-write",
+        userEmail: "editor@example.com",
+        orgId: "org-1",
+        mcpDirectoryWidgetResourceIds: {
+          deckId: "deck-a",
+          resourceType: "deck",
+        },
+        mcpDirectoryWidgetWrite: {
+          appId: "slides",
+          resourceIds: { deckId: "deck-a", resourceType: "deck" },
+          actionNames: [
+            "set-resource-visibility",
+            "share-resource",
+            "unshare-resource",
+          ],
+        },
+      }),
+    );
+    expect(needsApproval).not.toHaveBeenCalled();
+
+    run.mockClear();
+    const unshareBody = {
+      resourceType: "deck",
+      resourceId: "deck-a",
+      principalType: "user",
+      principalId: "teammate@example.com",
+    };
+    const visibilityBody = {
+      resourceType: "deck",
+      resourceId: "deck-a",
+      visibility: "public",
+    };
+    await expect(post("unshare-resource", unshareBody)).resolves.toMatchObject({
+      status: 200,
+    });
+    await expect(
+      post("set-resource-visibility", visibilityBody),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(needsApproval).not.toHaveBeenCalled();
+
+    run.mockClear();
+    const denied = [
+      ["share-resource", { ...shareBody, resourceId: "deck-b" }],
+      ["share-resource", { ...shareBody, resourceType: "document" }],
+      ["share-resource", { ...shareBody, ownerEmail: "me@example.com" }],
+      ["unshare-resource", { ...unshareBody, resourceId: "deck-b" }],
+      ["unshare-resource", { ...unshareBody, resourceType: "document" }],
+      ["set-resource-visibility", { ...visibilityBody, resourceId: "deck-b" }],
+      ["set-resource-visibility", { ...visibilityBody, resourceType: "form" }],
+      ["set-resource-visibility", { ...visibilityBody, extra: true }],
+      ["delete-deck", { id: "deck-a", deckId: "deck-a" }],
+      [
+        "create-agent-resource-link",
+        { resourceType: "deck", resourceId: "deck-a" },
+      ],
+    ] as const;
+    for (const [name, body] of denied) {
+      const { status } = await post(name, body);
+      expect([name, body, status]).toEqual([name, body, 403]);
+    }
+    expect(run).not.toHaveBeenCalled();
+    expect(needsApproval).not.toHaveBeenCalled();
+
+    const read = async (resourceId: string) => {
+      const event: any = {
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        _query: { resourceType: "deck", resourceId },
+        req: {
+          url: `http://app.test/_agent-native/actions/list-resource-shares?resourceType=deck&resourceId=${resourceId}`,
+        },
+      };
+      const route = mounted.find(
+        ({ path }) => path === "/_agent-native/actions/list-resource-shares",
+      );
+      const result = await route!.handler(event);
+      return { status: event._status ?? 200, result };
+    };
+    await expect(read("deck-a")).resolves.toEqual({
+      status: 200,
+      result: { ok: true },
+    });
+    expect(run).toHaveBeenLastCalledWith(
+      { resourceType: "deck", resourceId: "deck-a" },
+      expect.objectContaining({
+        caller: "mcp-widget",
+        mcpDirectoryWidgetResourceIds: {
+          deckId: "deck-a",
+          resourceType: "deck",
+        },
+      }),
+    );
+    run.mockClear();
+    await expect(read("deck-b")).resolves.toMatchObject({ status: 403 });
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("rejects a capability request for a different design", async () => {
@@ -3202,12 +4041,58 @@ describe("mountActionRoutes", () => {
 
     const event = {
       _method: "OPTIONS",
-      _headers: { origin: "https://evil.example" },
+      _headers: {
+        origin: "https://evil.example",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type,x-content-save-origin",
+      },
     };
     const result = await mounted[0].handler(event);
 
     expect(result).toBe("");
     expect(event._status).toBe(403);
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+    expect(actions.mutate.run).not.toHaveBeenCalled();
+  });
+
+  it("allows recovery telemetry headers on credentialed action preflights", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "owner@example.com");
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      mutate: { run: vi.fn(async () => ({ ok: true })) } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, { getOwnerFromEvent });
+
+    const event = {
+      _method: "OPTIONS",
+      _headers: {
+        origin: "tauri://localhost",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type,x-content-save-origin",
+      },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toBe("");
+    expect(event._status).toBe(204);
+    expect(event._responseHeaders["access-control-allow-origin"]).toBe(
+      "tauri://localhost",
+    );
+    expect(event._responseHeaders["access-control-allow-credentials"]).toBe(
+      "true",
+    );
+    expect(
+      event._responseHeaders["access-control-allow-headers"]
+        .toLowerCase()
+        .split(","),
+    ).toContain("x-content-save-origin");
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
     expect(actions.mutate.run).not.toHaveBeenCalled();
   });
@@ -3233,6 +4118,8 @@ describe("mountActionRoutes", () => {
       _method: "OPTIONS",
       _headers: {
         origin: "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "content-type,x-content-save-origin",
       },
     };
     const result = await mounted[0].handler(event);
@@ -3251,6 +4138,7 @@ describe("mountActionRoutes", () => {
     expect(allowHeaders).toContain("x-request-source");
     expect(allowHeaders).toContain("x-user-timezone");
     expect(allowHeaders).toContain("x-agent-native-session-id");
+    expect(allowHeaders.split(",")).toContain("x-content-save-origin");
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
     expect(actions.mutate.run).not.toHaveBeenCalled();
   });

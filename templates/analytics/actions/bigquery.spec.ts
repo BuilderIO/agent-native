@@ -1,14 +1,33 @@
 import { isAgentActionStopError } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const { runQuery, track } = vi.hoisted(() => ({
-  runQuery: vi.fn(),
-  track: vi.fn(),
-}));
+const { runQuery, track, recoverFromSchemaMiss, BigQueryBackendError } =
+  vi.hoisted(() => {
+    class MockBigQueryBackendError extends Error {
+      readonly providerDetail: string | null;
+
+      constructor(providerDetail: string | null) {
+        super("BigQuery job error: invalid_query");
+        this.name = "BigQueryBackendError";
+        this.providerDetail = providerDetail;
+      }
+    }
+
+    return {
+      runQuery: vi.fn(),
+      track: vi.fn(),
+      recoverFromSchemaMiss: vi.fn(),
+      BigQueryBackendError: MockBigQueryBackendError,
+    };
+  });
 
 vi.mock("../server/lib/bigquery", () => ({
-  runQuery: (sql: string, options?: { signal?: AbortSignal }) =>
-    runQuery(sql, options),
+  runQuery,
+  BigQueryBackendError,
+}));
+
+vi.mock("../server/lib/bigquery-schema-recovery", () => ({
+  recoverFromSchemaMiss,
 }));
 
 vi.mock("@agent-native/core/tracking", () => ({
@@ -21,6 +40,7 @@ describe("bigquery action error handling", () => {
   beforeEach(() => {
     runQuery.mockReset();
     track.mockReset();
+    recoverFromSchemaMiss.mockReset();
   });
 
   it("returns a recoverable result (does NOT stop the turn) on a schema/SQL error", async () => {
@@ -54,6 +74,26 @@ describe("bigquery action error handling", () => {
 
     expect(result.message).toBe("Unrecognized name: event_time at [1:201]");
     expect(result.recoverable).toBe(true);
+  });
+
+  it("uses private provider detail for BigQuery schema recovery", async () => {
+    const sql = "SELECT private_field FROM t";
+    const providerDetail = "Unrecognized name: private_field at [1:8]";
+    runQuery.mockRejectedValue(new BigQueryBackendError(providerDetail));
+    recoverFromSchemaMiss.mockResolvedValue({
+      columns: ["public_field:STRING"],
+    });
+
+    const result = (await bigquery.run({ sql })) as Record<string, unknown>;
+
+    expect(recoverFromSchemaMiss).toHaveBeenCalledWith(
+      sql,
+      providerDetail,
+      undefined,
+    );
+    expect(result.message).toBe(providerDetail);
+    expect(result.columns).toEqual(["public_field:STRING"]);
+    expect(result).not.toHaveProperty("providerDetail");
   });
 
   it("treats a query timeout as a cost problem, not a schema problem", async () => {

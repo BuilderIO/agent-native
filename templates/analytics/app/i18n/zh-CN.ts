@@ -1087,6 +1087,12 @@ export default {
   },
   sqlDashboard: {
     customRange: "自定义范围",
+    allValues: "全部",
+    searchValues: "搜索值",
+    noValuesFound: "未找到值",
+    selectAll: "全选",
+    selectOnly: "仅此项",
+    selectOnlyValue: "仅选择 {{value}}",
     untitledDashboard: "无标题仪表板",
     dashboardFallback: "仪表板",
     viewOnly: "您对此仪表板只有查看权限。",

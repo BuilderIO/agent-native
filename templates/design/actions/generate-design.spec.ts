@@ -340,7 +340,7 @@ describe("generate-design action tool schema", () => {
     expect(parameters.properties?.reuseLabels?.type).toBe("string");
     expect(parameters.properties?.contextModeOverride?.type).toBe("string");
     expect(parameters.properties?.devices?.description).toContain(
-      "Preserve exactly the explicitly requested device frames",
+      "this field is ignored",
     );
 
     const parsed = (action as any).schema.safeParse({
@@ -470,6 +470,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       expect.objectContaining({
         app_name: "design",
         output_id: "design-1",
+        generation_attempt_id: expect.stringMatching(/^[A-Za-z0-9_-]{16,128}$/),
         output_type: "design",
         file_count: 1,
         outcome: "completed",
@@ -477,6 +478,24 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
       }),
       undefined,
     );
+    const started = track.mock.calls.find(
+      ([event]) => event === "generation_started",
+    )?.[1];
+    const completed = track.mock.calls.find(
+      ([event]) => event === "generation_completed",
+    )?.[1];
+    expect(started?.generation_attempt_id).toBe(
+      completed?.generation_attempt_id,
+    );
+    expect(result.urlPath).toContain(
+      `generation_attempt_id=${completed?.generation_attempt_id}`,
+    );
+    const link = (action as any).link({ args: {}, result });
+    expect(
+      new URL(link.url, "https://agent-native.test").searchParams.get(
+        "generation_attempt_id",
+      ),
+    ).toBe(completed?.generation_attempt_id);
   });
 
   it("reports generation when a stylesheet is saved for an existing design", async () => {
@@ -864,12 +883,22 @@ describe("generate-design: new-file creation path", () => {
     });
 
     const savedFileId = result.savedFiles[0]!.id;
-    expect(result.urlPath).toBe(
-      `/design/design-1?editorView=overview&screen=${savedFileId}`,
+    const resultUrl = new URL(result.urlPath, "https://agent-native.test");
+    expect(resultUrl.pathname).toBe("/design/design-1");
+    expect(resultUrl.searchParams.get("editorView")).toBe("overview");
+    expect(resultUrl.searchParams.get("screen")).toBe(savedFileId);
+    const generationAttemptId = resultUrl.searchParams.get(
+      "generation_attempt_id",
     );
+    expect(generationAttemptId).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
     const link = action.link?.({ args: {}, result });
     expect(link?.url).toContain(`screen=${savedFileId}`);
     expect(link?.url).toContain("view=editor");
+    expect(
+      new URL(link!.url, "https://agent-native.test").searchParams.get(
+        "generation_attempt_id",
+      ),
+    ).toBe(generationAttemptId);
   });
 
   it("defaults a generated web screen to a desktop canvas and responsive breakpoints", async () => {
@@ -958,6 +987,7 @@ describe("generate-design: new-file creation path", () => {
     const result = await action.run({
       designId: "design-1",
       prompt: "Create an Instagram post at exactly 1080x1080 pixels",
+      devices: ["desktop", "mobile"],
       files: [
         {
           filename: "post.html",
@@ -992,6 +1022,7 @@ describe("generate-design: new-file creation path", () => {
       heightMode: "fixed",
     });
     expect(data.breakpointSet).toBeUndefined();
+    expect(result).toMatchObject({ ignoredDevices: ["desktop", "mobile"] });
   });
 
   it("clears an existing mobile frame when an app screen becomes fixed artwork", async () => {
@@ -1087,6 +1118,67 @@ describe("generate-design: new-file creation path", () => {
     });
   });
 
+  it("pins a new noun-only artwork canvas below the editor's auto-fit height", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Create a banner ad for our spring sale",
+      files: [
+        {
+          filename: "banner.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Spring sale</body></html>",
+        },
+      ],
+      canvasFrames: [
+        { filename: "banner.html", x: 0, y: 0, width: 1200, height: 627 },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const fileId = result.savedFiles[0]!.id;
+    expect(data.canvasFrames).toMatchObject({
+      [fileId]: { width: 1200, height: 627 },
+    });
+    expect(data.screenMetadata).toMatchObject({
+      [fileId]: {
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+    expect(data.breakpointSet).toBeUndefined();
+  });
+
+  it("lets explicit devices override a noun-only artwork guess", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Design a promo banner",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "promo.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Promo</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const fileId = result.savedFiles[0]!.id;
+    const metadata = (
+      data.screenMetadata as Record<string, Record<string, unknown>>
+    )[fileId]!;
+    expect(data.breakpointSet).toMatchObject({
+      breakpoints: [expect.objectContaining({ widthPx: 390 })],
+    });
+    expect(metadata).toMatchObject({ width: 1440, height: 900 });
+    expect(metadata).not.toHaveProperty("breakpointWidths");
+    expect(metadata).not.toHaveProperty("heightMode");
+    expect(result).not.toHaveProperty("ignoredDevices");
+  });
+
   it("rejects unsupported exact dimensions before writing files", async () => {
     await expect(
       action.run({
@@ -1157,7 +1249,7 @@ describe("generate-design: new-file creation path", () => {
     ]);
   });
 
-  it("preserves a fixed screen's non-empty breakpoint override when the prompt stays responsive", async () => {
+  it("preserves a fixed screen's non-empty breakpoint override on content updates", async () => {
     setExistingFile("<html><body>Old post copy</body></html>", {
       filename: "post.html",
     });
@@ -1183,7 +1275,7 @@ describe("generate-design: new-file creation path", () => {
 
     await action.run({
       designId: "design-1",
-      prompt: "Update the responsive dashboard layout",
+      prompt: "Update the social post copy",
       files: [
         {
           filename: "post.html",
@@ -1486,31 +1578,38 @@ describe("generate-design: new-file creation path", () => {
       [fileId]: { width: 1200, height: 627 },
     });
     expect(data.screenMetadata).toMatchObject({
-      [fileId]: { width: 1200, height: 627, breakpointWidths: [] },
+      [fileId]: {
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+        heightMode: "fixed",
+      },
     });
     expect(data.breakpointSet).toBeUndefined();
   });
 
-  it("preserves explicitly requested devices and exact canvas size on existing screens", async () => {
-    setExistingFile("<!doctype html><html><body>Old ad</body></html>", {
-      filename: "ad.html",
-    });
+  it("keeps an exact-size ad free of mobile frames even when devices are passed", async () => {
+    setExistingFile("<!doctype html><html><body>Old screen</body></html>");
     mocks.setDesignData({
+      breakpointSet: {
+        id: "responsive",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
       canvasFrames: {
-        "file-1": { x: 0, y: 0, width: 600, height: 300, z: 0 },
+        "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
       },
       screenMetadata: {
-        "file-1": { width: 600, height: 300, breakpointWidths: [] },
+        "file-1": { width: 1440, height: 900, breakpointWidths: [390] },
       },
     });
 
     const result = await action.run({
       designId: "design-1",
-      prompt: "Create a LinkedIn ad at 1200x627 pixels for desktop and mobile",
+      prompt: "Turn this into a 1200x627 ad",
       devices: ["desktop", "mobile"],
       files: [
         {
-          filename: "ad.html",
+          filename: "index.html",
           fileType: "html",
           content: "<!doctype html><html><body>Launch ad</body></html>",
         },
@@ -1518,19 +1617,54 @@ describe("generate-design: new-file creation path", () => {
     });
 
     const data = mocks.getDesignData();
-    expect(data.breakpointSet).toMatchObject({
-      breakpoints: [expect.objectContaining({ widthPx: 390 })],
-    });
+    expect(data.breakpointSet).toMatchObject({ id: "responsive" });
     expect(data.canvasFrames).toMatchObject({
       "file-1": { width: 1200, height: 627 },
     });
     expect(data.screenMetadata).toMatchObject({
-      "file-1": expect.objectContaining({
+      "file-1": {
         width: 1200,
         height: 627,
-      }),
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
     });
-    expect(result.savedFiles[0]!.id).toBe("file-1");
+    expect(result).toMatchObject({ ignoredDevices: ["desktop", "mobile"] });
+  });
+
+  it("drops a fixed screen's added breakpoints when it is resized", async () => {
+    setExistingFile("<!doctype html><html><body>Old ad</body></html>");
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1200, height: 627, z: 0 },
+      },
+      screenMetadata: {
+        "file-1": {
+          width: 1200,
+          height: 627,
+          breakpointWidths: [390],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Instagram story version of the ad, 1080x1920 canvas",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Story</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.getDesignData().screenMetadata).toMatchObject({
+      "file-1": { width: 1080, height: 1920, breakpointWidths: [] },
+    });
   });
 
   it("derives the base frame and breakpoint set from an explicit devices list", async () => {
