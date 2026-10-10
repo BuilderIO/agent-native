@@ -218,6 +218,531 @@ describe("slide animation element parsing", () => {
     ]);
   });
 
+  it.each([
+    {
+      description: "native paragraphs",
+      html: `<div class="fmd-slide">
+        <div><p>First</p><p>Second</p></div>
+      </div>`,
+      expectedPaths: [
+        [0, 0],
+        [0, 1],
+      ],
+    },
+    {
+      description: "bullet list items",
+      html: `<div class="fmd-slide">
+        <div><ul><li>First</li><li>Second</li></ul></div>
+      </div>`,
+      expectedPaths: [
+        [0, 0, 0],
+        [0, 0, 1],
+      ],
+    },
+  ])("expands by paragraph for $description", ({ html, expectedPaths }) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(
+      expanded?.map(({ id, elementPath, byParagraph, type }) => ({
+        id,
+        elementPath,
+        byParagraph,
+        type,
+      })),
+    ).toEqual(
+      expectedPaths.map((elementPath, paragraphIndex) => ({
+        id: `animation-1-paragraph-${paragraphIndex}`,
+        elementPath,
+        byParagraph: false,
+        type: "slide-up",
+      })),
+    );
+  });
+
+  it("includes nested list items when a surrounding paragraph is selected", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide">
+        <div>
+          <p>Introduction</p>
+          <ul><li>First point</li><li>Second point</li></ul>
+          <p>Closing point</p>
+        </div>
+      </div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0],
+      [0, 1, 0],
+      [0, 1, 1],
+      [0, 2],
+    ]);
+  });
+
+  it("reveals nested list items in their own steps", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><ul>
+        <li>First<ul><li>Nested point</li></ul></li>
+        <li>Second</li>
+      </ul></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0, 0],
+      [0, 0, 0, 0, 0],
+      [0, 0, 1],
+    ]);
+  });
+
+  it("reveals paragraphs within one list item in separate steps", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><ul>
+        <li><p>First paragraph</p><p>Second paragraph</p>
+          <ul><li>Nested point</li></ul>
+        </li>
+        <li>Following item</li>
+      </ul></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0, 0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0, 0, 0],
+      [0, 0, 0, 1],
+      [0, 0, 0, 2, 0],
+      [0, 0, 1],
+    ]);
+  });
+
+  it("reveals list-item paragraphs and nested lists in source order", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><ul>
+        <li><p>First paragraph</p>
+          <ul><li>Nested point</li></ul>
+          <p>Second paragraph</p>
+        </li>
+        <li>Following item</li>
+      </ul></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0, 0, 0],
+      [0, 0, 0, 1, 0],
+      [0, 0, 0, 2],
+      [0, 0, 1],
+    ]);
+  });
+
+  it("reveals inline children and nested lists in source order", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><ul>
+        <li><p>First paragraph</p>
+          <ul><li>Nested point</li></ul>
+          <strong>Inline label</strong>
+          <p>Second paragraph</p>
+        </li>
+        <li>Following item</li>
+      </ul></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0, 0, 0],
+      [0, 0, 0, 1, 0],
+      [0, 0, 0, 2],
+      [0, 0, 0, 3],
+      [0, 0, 1],
+    ]);
+  });
+
+  it("finds nested lists under wrappers between list-item paragraphs", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><ul>
+        <li><p>First paragraph</p>
+          <div><ul><li>Nested point</li></ul></div>
+          <p>Second paragraph</p>
+        </li>
+        <li>Following item</li>
+      </ul></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0, 0, 0],
+      [0, 0, 0, 1, 0, 0],
+      [0, 0, 0, 2],
+      [0, 0, 1],
+    ]);
+  });
+
+  it.each([
+    {
+      description: "bare text",
+      mixedContent: "Intro",
+      nestedListIndex: 1,
+    },
+  ])(
+    "expands list items with $description and wrapped paragraphs separately",
+    ({ mixedContent, nestedListIndex }) => {
+      const doc = new DOMParser().parseFromString(
+        `<div class="fmd-slide"><div><ul>
+          <li>${mixedContent}<div>Section intro<p>First paragraph</p><p>Second paragraph</p></div>
+            <ul><li>Nested point</li></ul>
+          </li>
+          <li>Following item</li>
+        </ul></div></div>`,
+        "text/html",
+      );
+      const root = doc.querySelector<HTMLElement>(".fmd-slide");
+      expect(root).not.toBeNull();
+      if (!root) return;
+
+      const expanded = expandByParagraphAnimations(root, [
+        {
+          id: "animation-1",
+          elementIndex: 0,
+          elementPath: [0, 0, 0],
+          byParagraph: true,
+          type: "slide-up",
+        },
+      ]);
+
+      expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+        [0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 1],
+        [0, 0, 0, nestedListIndex, 0],
+        [0, 0, 1],
+      ]);
+    },
+  );
+
+  it.each([{ elementPath: [0, 0, 0, 0] }, { elementPath: [0, 0, 1, 0] }])(
+    "expands a selected paragraph inside its containing list",
+    ({ elementPath }) => {
+      const doc = new DOMParser().parseFromString(
+        `<div class="fmd-slide"><div><ul>
+          <li><p>First</p></li>
+          <li><p>Second</p></li>
+        </ul></div></div>`,
+        "text/html",
+      );
+      const root = doc.querySelector<HTMLElement>(".fmd-slide");
+      expect(root).not.toBeNull();
+      if (!root) return;
+
+      const expanded = expandByParagraphAnimations(root, [
+        {
+          id: "animation-1",
+          elementIndex: 0,
+          elementPath,
+          byParagraph: true,
+          type: "slide-up",
+        },
+      ]);
+
+      expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+        [0, 0, 0, 0],
+        [0, 0, 1, 0],
+      ]);
+    },
+  );
+
+  it("expands paragraphs wrapped inside a list item independently", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><ul>
+        <li><div><p>First</p><p>Second</p></div></li>
+      </ul></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 1],
+    ]);
+  });
+
+  it("does not expand into unrelated nested text blocks", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div>
+        <p>First</p>
+        <div><p>Separate block one</p><p>Separate block two</p></div>
+        <p>Second</p>
+      </div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0],
+      [0, 2],
+    ]);
+  });
+
+  it("preserves an explicit animation over a by-paragraph expansion", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><p>First</p><p>Second</p></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "all-paragraphs",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+      {
+        id: "second-paragraph",
+        elementIndex: 1,
+        elementPath: [0, 1],
+        byParagraph: false,
+        type: "fade",
+      },
+    ]);
+
+    expect(
+      expanded?.map(({ id, elementPath, byParagraph, type }) => ({
+        id,
+        elementPath,
+        byParagraph,
+        type,
+      })),
+    ).toEqual([
+      {
+        id: "all-paragraphs-paragraph-0",
+        elementPath: [0, 0],
+        byParagraph: false,
+        type: "slide-up",
+      },
+      {
+        id: "second-paragraph",
+        elementPath: [0, 1],
+        byParagraph: false,
+        type: "fade",
+      },
+    ]);
+    expect(expanded && resolveSlideAnimationTargets(root, expanded)).not.toBe(
+      null,
+    );
+
+    const reversed = expandByParagraphAnimations(root, [
+      {
+        id: "second-paragraph",
+        elementIndex: 1,
+        elementPath: [0, 1],
+        byParagraph: false,
+        type: "fade",
+      },
+      {
+        id: "all-paragraphs",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+    expect(
+      reversed?.map(({ elementPath, type }) => ({ elementPath, type })),
+    ).toEqual([
+      { elementPath: [0, 0], type: "slide-up" },
+      { elementPath: [0, 1], type: "fade" },
+    ]);
+  });
+
+  it("uses the first configured effect for overlapping by-paragraph steps", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><p>First</p><p>Second</p></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "first-effect",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "fade",
+      },
+      {
+        id: "second-effect",
+        elementIndex: 1,
+        elementPath: [0, 1],
+        byParagraph: true,
+        type: "zoom",
+      },
+    ]);
+
+    expect(
+      expanded?.map(({ id, elementPath, type }) => ({
+        id,
+        elementPath,
+        type,
+      })),
+    ).toEqual([
+      {
+        id: "first-effect-paragraph-0",
+        elementPath: [0, 0],
+        type: "fade",
+      },
+      {
+        id: "first-effect-paragraph-1",
+        elementPath: [0, 1],
+        type: "fade",
+      },
+    ]);
+  });
+
+  it("expands by paragraph when one native paragraph is selected", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><p>First</p><p>Second</p></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0],
+      [0, 1],
+    ]);
+  });
+
   it("shares the configured effect timing between playback surfaces", () => {
     expect(getElementAnimationValue("appear")).toContain("elem-appear");
     expect(getElementAnimationValue("slide-up")).toContain("elem-slide-up");

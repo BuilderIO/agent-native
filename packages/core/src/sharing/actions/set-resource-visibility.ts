@@ -82,6 +82,12 @@ export default defineAction({
         update.orgId = currentOrgId;
       }
     }
+    if (visibilityChanged) {
+      await reg.assertSharingChange?.({
+        resource: access.resource,
+        change: { kind: "visibility", visibility: args.visibility },
+      });
+    }
     const resourceChanged = visibilityChanged || update.orgId !== undefined;
     const beforeExtensionTargets = await getExtensionShareChangeTargets(
       args.resourceType,

@@ -323,19 +323,23 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
   it("does not copy a legacy payload's inline image bytes into the successor", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
-    await insertRun(runId, thread, turn, {
-      dispatchMode: "background",
-      dispatchPayload: JSON.stringify({
-        message: "look",
-        attachments: [
-          {
-            type: "image",
-            name: "shot.png",
-            data: "data:image/png;base64,iVBORw0KGgo=",
-          },
-        ],
-      }),
-    });
+    await insertRun(runId, thread, turn, { dispatchMode: "background" });
+    // Seed a pre-guard row without using the current persistence boundary.
+    await pglite
+      .prepare("UPDATE agent_runs SET dispatch_payload = ? WHERE id = ?")
+      .run(
+        JSON.stringify({
+          message: "look",
+          attachments: [
+            {
+              type: "image",
+              name: "shot.png",
+              data: "data:image/png;base64,LEGACY_SENTINEL_NOT_IMAGE_BYTES",
+            },
+          ],
+        }),
+        runId,
+      );
     expect(await claimBackgroundRun(runId)).toBe(true);
     await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
 

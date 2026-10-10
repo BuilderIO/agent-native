@@ -1495,6 +1495,7 @@ export default function Index() {
                         <div className="design-library-card-preview">
                           <DesignThumbnail
                             html={design.previewHtml ?? null}
+                            designId={design.id}
                             className="h-full w-full"
                           />
                         </div>

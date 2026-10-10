@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
+import {
+  MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
+  MAX_AGENT_REQUEST_ATTACHMENTS,
+  type AgentSuggestion,
+} from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
 import {
@@ -2020,10 +2024,247 @@ function generateRunId(): string {
 
 export { DurableAttachmentReferenceRequiredError };
 
+function isDataUrlReference(value: unknown): boolean {
+  return typeof value === "string" && /^\s*data:/i.test(value);
+}
+
+function hasDurableAttachmentUrl(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim();
+  if (
+    !normalized ||
+    isDataUrlReference(normalized) ||
+    isRawBase64Payload(normalized) ||
+    !URL.canParse(normalized)
+  ) {
+    return false;
+  }
+  const url = new URL(normalized);
+  return (
+    url.protocol === "https:" &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}
+
+const OMIT_DURABLE_DISPATCH_VALUE = Symbol("omit-durable-dispatch-value");
+const DURABLE_ATTACHMENT_PAYLOAD_FIELDS =
+  /^(?:base64|bytes|body|data|dataurl|image|payload)$/i;
+const DURABLE_ATTACHMENT_REFERENCE_FIELDS =
+  /^(?:preview|referenceUrl|src|thumbnail|url)$/i;
+const DURABLE_INLINE_BASE64_MIN_CHARS = 64;
+const DURABLE_INLINE_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+function isInlineByteArray(value: unknown): boolean {
+  return (
+    (Array.isArray(value) &&
+      value.length > 0 &&
+      value.every(
+        (entry) =>
+          typeof entry === "number" &&
+          Number.isInteger(entry) &&
+          entry >= 0 &&
+          entry <= 255,
+      )) ||
+    ((value instanceof Uint8Array || value instanceof Uint8ClampedArray) &&
+      value.length > 0) ||
+    (value instanceof ArrayBuffer && value.byteLength > 0)
+  );
+}
+
+function isRawBase64Payload(value: string): boolean {
+  const normalized = value.trim();
+  return (
+    normalized.length > 0 &&
+    normalized.length % 4 === 0 &&
+    DURABLE_INLINE_BASE64_RE.test(normalized)
+  );
+}
+
+function isInlineBase64Payload(value: string): boolean {
+  const normalized = value.trim();
+  return (
+    normalized.length >= DURABLE_INLINE_BASE64_MIN_CHARS &&
+    isRawBase64Payload(normalized)
+  );
+}
+
+function isInlineAttachmentPayload(value: unknown): boolean {
+  return (
+    (typeof value === "string" &&
+      (parseBase64DataUrl(value) !== null || isRawBase64Payload(value))) ||
+    isInlineByteArray(value)
+  );
+}
+
+function isAttachmentCollectionField(fieldName: string): boolean {
+  const normalized = fieldName.toLowerCase().replace(/[-_]/g, "");
+  return (
+    normalized.endsWith("attachment") ||
+    normalized.endsWith("attachments") ||
+    normalized === "files" ||
+    normalized === "images"
+  );
+}
+
+function containsDurableAttachmentPayload(
+  value: unknown,
+  attachmentContext = false,
+  fieldName?: string,
+  seen = new WeakMap<object, Set<string>>(),
+): boolean {
+  if (typeof value === "string") {
+    if (!attachmentContext) return false;
+    if (DURABLE_ATTACHMENT_PAYLOAD_FIELDS.test(fieldName ?? "")) {
+      return isInlineAttachmentPayload(value);
+    }
+    return (
+      DURABLE_ATTACHMENT_REFERENCE_FIELDS.test(fieldName ?? "") &&
+      (isDataUrlReference(value) || isRawBase64Payload(value))
+    );
+  }
+  if (!value || typeof value !== "object") return false;
+  const visitKey = `${attachmentContext}:${fieldName ?? ""}`;
+  let visitedContexts = seen.get(value);
+  if (visitedContexts?.has(visitKey)) return false;
+  if (!visitedContexts) {
+    visitedContexts = new Set();
+    seen.set(value, visitedContexts);
+  }
+  visitedContexts.add(visitKey);
+  if (
+    attachmentContext &&
+    DURABLE_ATTACHMENT_PAYLOAD_FIELDS.test(fieldName ?? "") &&
+    isInlineByteArray(value)
+  ) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) =>
+      containsDurableAttachmentPayload(
+        item,
+        attachmentContext,
+        fieldName,
+        seen,
+      ),
+    );
+  }
+
+  const item = value as Record<string, unknown>;
+  const isAttachment =
+    attachmentContext ||
+    item.type === "image" ||
+    item.type === "file" ||
+    item.type === "document" ||
+    [item.contentType, item.mediaType, item.mimeType].some(
+      (mimeType) => typeof mimeType === "string" && /^image\//i.test(mimeType),
+    );
+  return Object.entries(item).some(([key, child]) =>
+    containsDurableAttachmentPayload(
+      child,
+      isAttachment || isAttachmentCollectionField(key),
+      key,
+      seen,
+    ),
+  );
+}
+
+function sanitizeDurableAttachment(
+  value: unknown,
+  attachmentContext = false,
+  requiredAttachment = false,
+  fieldName?: string,
+): unknown {
+  if (attachmentContext && isDataUrlReference(value)) {
+    return OMIT_DURABLE_DISPATCH_VALUE;
+  }
+  const attachmentPayloadField = DURABLE_ATTACHMENT_PAYLOAD_FIELDS.test(
+    fieldName ?? "",
+  );
+  const attachmentReferenceField = DURABLE_ATTACHMENT_REFERENCE_FIELDS.test(
+    fieldName ?? "",
+  );
+  if (
+    attachmentContext &&
+    ((attachmentPayloadField && isInlineAttachmentPayload(value)) ||
+      (attachmentReferenceField &&
+        typeof value === "string" &&
+        (isInlineBase64Payload(value) ||
+          (value.trim().length > 0 && !hasDurableAttachmentUrl(value)))))
+  ) {
+    return OMIT_DURABLE_DISPATCH_VALUE;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) =>
+        sanitizeDurableAttachment(
+          item,
+          attachmentContext,
+          requiredAttachment,
+          fieldName,
+        ),
+      )
+      .filter((item) => item !== OMIT_DURABLE_DISPATCH_VALUE);
+  }
+  if (typeof value === "string") {
+    return stripInlineBytes(value, "placeholder");
+  }
+  if (!value || typeof value !== "object") return value;
+
+  const item = value as Record<string, unknown>;
+  const typedAttachment =
+    item.type === "image" ||
+    item.type === "file" ||
+    item.type === "document" ||
+    [item.contentType, item.mediaType, item.mimeType].some(
+      (mimeType) => typeof mimeType === "string" && /^image\//i.test(mimeType),
+    );
+  const isAttachment = attachmentContext || typedAttachment;
+  const hasInlinePayload =
+    isAttachment && containsDurableAttachmentPayload(item, true);
+  const hasDurableReference =
+    item.type === "image"
+      ? hasDurableAttachmentUrl(item.url)
+      : hasDurableAttachmentUrl(item.url) ||
+        hasDurableAttachmentUrl(item.referenceUrl);
+  const hasInlineReference = [item.url, item.referenceUrl].some(
+    (reference) =>
+      typeof reference === "string" &&
+      reference.trim().length > 0 &&
+      !hasDurableAttachmentUrl(reference),
+  );
+  if (
+    (requiredAttachment || typedAttachment) &&
+    (hasInlinePayload || hasInlineReference) &&
+    !hasDurableReference
+  ) {
+    throw new DurableAttachmentReferenceRequiredError();
+  }
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(item)) {
+    const attachmentCollection = isAttachmentCollectionField(key);
+    const next = sanitizeDurableAttachment(
+      child,
+      isAttachment || attachmentCollection,
+      attachmentCollection,
+      key,
+    );
+    if (next !== OMIT_DURABLE_DISPATCH_VALUE) sanitized[key] = next;
+  }
+  return sanitized;
+}
+
 export function serializeDurableDispatchPayload(
   body: Record<string, unknown>,
 ): string {
-  const payload = JSON.stringify(stripInlineBytes(body, "reject"));
+  const sanitized = sanitizeDurableAttachment(body);
+  if (sanitized === OMIT_DURABLE_DISPATCH_VALUE) {
+    throw new TypeError("Durable dispatch payload could not be serialized");
+  }
+  const payload = JSON.stringify(sanitized);
   if (typeof payload !== "string") {
     throw new TypeError("Durable dispatch payload could not be serialized");
   }
@@ -2277,8 +2518,8 @@ function describeReferenceOnlyAttachment(att: AgentChatAttachment): string {
   return `<chat-attachment-reference-note code="reference-only-unavailable" name="${name}"${contentType} url="${url}">The attachment has a stored reference URL, but no readable contents were included in this request. Do not claim to have read or describe its contents. Use the URL only with an authorized tool or target that can retrieve it, or tell the user its contents were unavailable.</chat-attachment-reference-note>`;
 }
 
-function describeAttachmentPreUploadFailure(): string {
-  return '<chat-attachment-processing-error code="pre-upload-failed">One or more attachments could not be prepared for this request. Their contents may be missing from the model context. Do not claim to have read or seen them; tell the user attachment processing failed and ask them to retry or provide the relevant content in text.</chat-attachment-processing-error>';
+function describeAttachmentPreUploadWarning(): string {
+  return '<chat-attachment-preparation-warning code="pre-upload-failed">The attachment pre-upload step failed. This may affect its durable URL, but it does not prove the contents are unreadable in this request. Inspect any inline payload or reference normally, and only report an attachment as unreadable if the actual payload is missing or invalid.</chat-attachment-preparation-warning>';
 }
 
 function describeMissingAttachmentPayload(att: AgentChatAttachment): string {
@@ -2289,9 +2530,50 @@ function describeMissingAttachmentPayload(att: AgentChatAttachment): string {
   return `<chat-attachment-processing-error code="missing-payload" name="${name}"${contentType}>The attachment arrived without readable file contents or a reference. Do not infer or describe its contents. Tell the user it could not be read and ask them to attach it again.</chat-attachment-processing-error>`;
 }
 
+function describeUnsupportedVisionAttachment(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const contentType = att.contentType
+    ? ` contentType="${escapeAttachmentAttribute(att.contentType)}"`
+    : "";
+  return `<chat-attachment-capability-note code="vision-not-supported" name="${name}"${contentType}>This request's selected model does not support vision, so the image pixels were not sent. Do not describe the image contents. Tell the user that ${name} could not be visually analyzed with the selected model and ask them to choose a vision-capable model.</chat-attachment-capability-note>`;
+}
+
+const MODEL_VISION_CAPABILITY_PATTERNS = [
+  /^(?:meta-llama\/)?llama-4-(?:scout|maverick)(?:-|$)/,
+  /^(?:qwen\/)?qwen3\.(?:6|8)-27b(?:[-:]|$)/,
+  /^(?:qwen\/)?qwen3-vl-32b-instruct(?:[-:]|$)/,
+  /^pixtral(?:[-:]|$)/,
+  /^mistral-(?:large-2512|large-latest|medium-2508|medium-latest|small-2506|small-latest)(?:[-:]|$)/,
+  /^ministral-(?:14b|8b|3b)-2512(?:[-:]|$)/,
+  /^command-a-vision(?:[-:]|$)/,
+  /(?:^|\/)(?:llama4|llama3\.2-vision|gemma3|gemma4|llava|llava-llama3|bakllava|moondream|qwen2\.5vl|qwen2\.5-vl|qwen3-vl|minicpm-v|mistral-small3\.[12])(?=[:/]|$)/,
+];
+
+const MODEL_TEXT_ONLY_IMAGE_PATTERNS = [
+  /(?:^|\/)(?:gemma3(?::|\/)|gemma-3-)(?:270m|1b)(?:[-:]|$)/,
+];
+
+/** @internal exported for unit tests only */
+export function isAgentModelVisionCapable(
+  model: string,
+  engineVision: boolean,
+): boolean {
+  const normalized = model.trim().toLowerCase();
+  if (
+    MODEL_TEXT_ONLY_IMAGE_PATTERNS.some((pattern) => pattern.test(normalized))
+  ) {
+    return false;
+  }
+  return (
+    engineVision ||
+    MODEL_VISION_CAPABILITY_PATTERNS.some((pattern) => pattern.test(normalized))
+  );
+}
+
 export function buildUserContentWithAttachments(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
+  vision?: boolean;
 }): EngineContentPart[] {
   const userContent: EngineContentPart[] = [];
   const textAttachments: string[] = [];
@@ -2310,6 +2592,10 @@ export function buildUserContentWithAttachments(opts: {
     }
 
     if (att.type === "image") {
+      if (opts.vision === false) {
+        textAttachments.push(describeUnsupportedVisionAttachment(att));
+        continue;
+      }
       if (!att.data) {
         if (uploadedUrl) {
           const label = att.name ? `"${att.name}"` : "An image";
@@ -2544,11 +2830,13 @@ function engineStopError(
 export function appendRequestAttachmentContextToResumedHistory(
   messages: EngineMessage[],
   attachments: AgentChatAttachment[] | undefined,
+  options: { vision?: boolean } = {},
 ): void {
   if (!attachments?.length) return;
   const attachmentContent = buildUserContentWithAttachments({
     text: "",
     attachments,
+    vision: options.vision,
   }).filter((part) => part.type !== "text" || part.text.trim());
   if (!attachmentContent.length) return;
 
@@ -5722,10 +6010,12 @@ export async function runAgentLoop(opts: {
             providerOptions.anthropic;
           providerOptions = { ...providerOptions, anthropic };
         }
-        const engineMessages =
-          engine.capabilities.vision === false
-            ? replaceImagesForModelWithoutVision(contextMessages, model)
-            : contextMessages;
+        const engineMessages = isAgentModelVisionCapable(
+          model,
+          engine.capabilities.vision === true,
+        )
+          ? contextMessages
+          : replaceImagesForModelWithoutVision(contextMessages, model);
         const streamOpts = {
           model,
           systemPrompt: completingFollowUpSuggestions
@@ -7308,52 +7598,71 @@ export async function runAgentLoop(opts: {
             throw new Error("Run aborted");
           }
           const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
+          // Only the invoked wording marks a write as possibly run (see
+          // isToolCallTimeoutResult); a timeout before invocation must not use it.
+          let actionInvoked = false;
+          const timeoutMessage = () =>
+            actionInvoked
+              ? `Tool call timed out after ${toolTimeoutMs / 1000} seconds`
+              : `Tool call timed out before the action started after ${toolTimeoutMs / 1000} seconds`;
           const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
           const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
-          const appAuthorization = await resolveTurnAppAuthorization(
-            actionUserEmail ?? undefined,
-            actionOrgId,
-          );
-          const actionContext = {
-            send,
-            userEmail: actionUserEmail ?? undefined,
-            orgId: actionOrgId,
-            appId: opts.appId,
-            ...(appAuthorization
-              ? {
-                  appRoles: appAuthorization.roles,
-                  appPermissions: Object.entries(appAuthorization.permissions)
-                    .filter(([, roles]) =>
-                      roles.some((role) =>
-                        appAuthorization.roles.includes(role),
-                      ),
-                    )
-                    .map(([permission]) => permission),
-                }
-              : {}),
-            caller: opts.actionCaller ?? "tool",
-            automation: opts.automation,
-            networkProtocol: opts.networkProtocol,
-            networkId: opts.networkId,
-            networkPeer: opts.networkPeer,
-            delegationDepth: opts.delegationDepth,
-            visitedApps: opts.visitedApps,
-            blockedA2ATargets,
-            attachments: opts.attachments,
-            signal,
-            actionName: toolCall.name,
-            toolCallId: toolCall.id,
-            ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
-            ...(opts.threadId ? { threadId: opts.threadId } : {}),
-            ...(opts.runId ? { runId: opts.runId } : {}),
-            ...(opts.turnId ? { turnId: opts.turnId } : {}),
-          };
           const requestContext = getRequestContext();
-          const invokeAction = () =>
-            actionEntry.run(
+          // The app-authorization lookup must stay inside the raced action. If it
+          // were awaited before the race, a deadline firing during the await would
+          // reject nothing: the abort listener is attached only inside the race,
+          // and listeners added after an AbortSignal fires never run.
+          const invokeAction = async () => {
+            const appAuthorization = await resolveTurnAppAuthorization(
+              actionUserEmail ?? undefined,
+              actionOrgId,
+            );
+            if (timeoutSignal.aborted) {
+              throw new Error(timeoutMessage());
+            }
+            if (signal.aborted) {
+              throw new Error("Run aborted");
+            }
+            const actionContext = {
+              send,
+              userEmail: actionUserEmail ?? undefined,
+              orgId: actionOrgId,
+              appId: opts.appId,
+              ...(appAuthorization
+                ? {
+                    appRoles: appAuthorization.roles,
+                    appPermissions: Object.entries(appAuthorization.permissions)
+                      .filter(([, roles]) =>
+                        roles.some((role) =>
+                          appAuthorization.roles.includes(role),
+                        ),
+                      )
+                      .map(([permission]) => permission),
+                  }
+                : {}),
+              caller: opts.actionCaller ?? "tool",
+              automation: opts.automation,
+              networkProtocol: opts.networkProtocol,
+              networkId: opts.networkId,
+              networkPeer: opts.networkPeer,
+              delegationDepth: opts.delegationDepth,
+              visitedApps: opts.visitedApps,
+              blockedA2ATargets,
+              attachments: opts.attachments,
+              signal,
+              actionName: toolCall.name,
+              toolCallId: toolCall.id,
+              ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
+              ...(opts.threadId ? { threadId: opts.threadId } : {}),
+              ...(opts.runId ? { runId: opts.runId } : {}),
+              ...(opts.turnId ? { turnId: opts.turnId } : {}),
+            };
+            actionInvoked = true;
+            return actionEntry.run(
               toolCall.input as Record<string, string>,
               actionContext,
             );
+          };
           const actionPromise = Promise.resolve(
             runWithRequestContext(
               {
@@ -7430,11 +7739,7 @@ export async function runAgentLoop(opts: {
             actionPromise,
             new Promise<never>((_, reject) => {
               timeoutSignal.addEventListener("abort", () =>
-                reject(
-                  new Error(
-                    `Tool call timed out after ${toolTimeoutMs / 1000} seconds`,
-                  ),
-                ),
+                reject(new Error(timeoutMessage())),
               );
             }),
             new Promise<never>((_, reject) => {
@@ -8802,6 +9107,7 @@ interface AdmittedQueuedMessagePromotion {
   id: string;
   text: string;
   attachments?: unknown[];
+  requestAttachments?: Record<string, unknown>[];
   metadata?: Record<string, unknown>;
   options?: Record<string, unknown>;
 }
@@ -8810,6 +9116,68 @@ function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function validateQueuedPromotionRequestAttachments(
+  value: unknown,
+): Record<string, unknown>[] | null {
+  if (!Array.isArray(value) || value.length > MAX_AGENT_REQUEST_ATTACHMENTS) {
+    return null;
+  }
+
+  let totalDataChars = 0;
+  const attachments: Record<string, unknown>[] = [];
+  for (const entry of value) {
+    const attachment = queuedPromotionRecord(entry);
+    if (
+      !attachment ||
+      attachment.type !== "image" ||
+      typeof attachment.name !== "string"
+    ) {
+      return null;
+    }
+    for (const key of [
+      "contentType",
+      "data",
+      "url",
+      "referenceUrl",
+      "id",
+      "fileId",
+    ]) {
+      if (hasOwn(attachment, key) && typeof attachment[key] !== "string") {
+        return null;
+      }
+    }
+    const data = attachment.data;
+    const url = attachment.url;
+    if (typeof data === "string") {
+      const parsed = parseBase64DataUrl(data);
+      if (
+        data.length > 3_000_000 ||
+        !/^data:image\/(?:gif|jpeg|png|webp);base64,/i.test(data) ||
+        !parsed ||
+        !/^image\/(?:gif|jpeg|png|webp)$/i.test(parsed.mediaType)
+      ) {
+        return null;
+      }
+      totalDataChars += data.length;
+      if (totalDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS) {
+        return null;
+      }
+    }
+    if (
+      (typeof url === "string" && !hasDurableAttachmentUrl(url)) ||
+      (typeof attachment.referenceUrl === "string" &&
+        !hasDurableAttachmentUrl(attachment.referenceUrl)) ||
+      (typeof data !== "string" &&
+        !hasDurableAttachmentUrl(url) &&
+        !hasDurableAttachmentUrl(attachment.referenceUrl))
+    ) {
+      return null;
+    }
+    attachments.push(attachment);
+  }
+  return attachments;
 }
 
 async function readAdmittedQueuedMessagePromotion(opts: {
@@ -8880,6 +9248,11 @@ async function readAdmittedQueuedMessagePromotion(opts: {
   const attachments = hasOwn(queuedMessage, "attachments")
     ? queuedMessage.attachments
     : undefined;
+  const requestAttachments = hasOwn(queuedMessage, "requestAttachments")
+    ? validateQueuedPromotionRequestAttachments(
+        queuedMessage.requestAttachments,
+      )
+    : undefined;
   const metadata = hasOwn(queuedMessage, "metadata")
     ? queuedMessage.metadata
     : undefined;
@@ -8893,6 +9266,8 @@ async function readAdmittedQueuedMessagePromotion(opts: {
         const file = queuedPromotionRecord(attachment);
         return !file || file.type !== "file" || typeof file.name !== "string";
       })) ||
+    (hasOwn(queuedMessage, "requestAttachments") &&
+      requestAttachments === null) ||
     (metadata !== undefined &&
       (!metadata || typeof metadata !== "object" || Array.isArray(metadata))) ||
     (options !== undefined &&
@@ -8905,6 +9280,7 @@ async function readAdmittedQueuedMessagePromotion(opts: {
     id: messageId,
     text: queuedMessage.text,
     ...(Array.isArray(attachments) ? { attachments } : {}),
+    ...(requestAttachments ? { requestAttachments } : {}),
     ...(metadata ? { metadata: metadata as Record<string, unknown> } : {}),
     ...(options ? { options: options as Record<string, unknown> } : {}),
   };
@@ -8913,28 +9289,140 @@ async function readAdmittedQueuedMessagePromotion(opts: {
 /** @internal exported for unit tests only */
 export function queuedPromotionAttachments(
   attachments: unknown[],
+  requestAttachments: Record<string, unknown>[] = [],
 ): AgentChatAttachment[] {
-  return attachments.map((value) => {
+  const promoted = attachments.map((value) => {
     const file = queuedPromotionRecord(value)!;
+    const data =
+      typeof file.data === "string" && parseBase64DataUrl(file.data)
+        ? file.data
+        : undefined;
+    const mediaType =
+      (typeof file.mediaType === "string" && file.mediaType) ||
+      (typeof file.contentType === "string" && file.contentType) ||
+      (data ? parseBase64DataUrl(data)?.mediaType : undefined);
     // A saved queue entry is always a file part; the media type decides whether
     // the model sees pixels (image) or a file reference.
     const isImage =
-      typeof file.mediaType === "string" &&
-      file.mediaType
-        .split(";", 1)[0]!
-        .trim()
-        .toLowerCase()
-        .startsWith("image/");
+      typeof mediaType === "string" &&
+      mediaType.split(";", 1)[0]!.trim().toLowerCase().startsWith("image/");
     return {
       type: isImage ? "image" : "file",
       name: file.name,
       ...(typeof file.fileId === "string" ? { id: file.fileId } : {}),
-      ...(typeof file.mediaType === "string"
-        ? { mediaType: file.mediaType, contentType: file.mediaType }
-        : {}),
+      ...(mediaType ? { mediaType, contentType: mediaType } : {}),
+      ...(data ? { data } : {}),
       ...(typeof file.url === "string" ? { url: file.url } : {}),
     } as AgentChatAttachment;
   });
+
+  for (const requestAttachment of requestAttachments) {
+    const name = requestAttachment.name as string;
+    const data = requestAttachment.data as string | undefined;
+    const url = requestAttachment.url as string | undefined;
+    const referenceUrl = requestAttachment.referenceUrl as string | undefined;
+    const fileId =
+      (typeof requestAttachment.fileId === "string" &&
+        requestAttachment.fileId) ||
+      (typeof requestAttachment.id === "string" && requestAttachment.id) ||
+      undefined;
+    const imageUrl = url || referenceUrl;
+    const originalIndex = referenceUrl
+      ? promoted.findIndex((attachment) => attachment.url === referenceUrl)
+      : -1;
+    const urlMatchIndex = promoted.findIndex(
+      (attachment) =>
+        attachment.type === "file" &&
+        imageUrl !== undefined &&
+        attachment.url === imageUrl,
+    );
+    const fileIdMatchIndex = fileId
+      ? promoted.findIndex(
+          (attachment) =>
+            attachment.type === "file" &&
+            (attachment as AgentChatAttachment & { id?: string }).id === fileId,
+        )
+      : -1;
+    const matchingIndex = urlMatchIndex >= 0 ? urlMatchIndex : fileIdMatchIndex;
+    const keepsOriginalReference =
+      referenceUrl !== undefined &&
+      imageUrl !== undefined &&
+      referenceUrl !== imageUrl;
+    const fileIdReferenceIndex =
+      keepsOriginalReference &&
+      fileIdMatchIndex >= 0 &&
+      promoted[fileIdMatchIndex]?.url !== imageUrl
+        ? fileIdMatchIndex
+        : -1;
+    const referenceIndex =
+      originalIndex >= 0 ? originalIndex : fileIdReferenceIndex;
+
+    if (keepsOriginalReference) {
+      if (referenceIndex >= 0) {
+        const original = promoted[referenceIndex];
+        promoted[referenceIndex] = {
+          ...original,
+          type: "file",
+          name: original?.name || name,
+          url: originalIndex >= 0 ? referenceUrl : original?.url,
+          referenceOnly: true,
+        };
+      } else {
+        promoted.push({
+          type: "file",
+          name,
+          contentType: requestAttachment.contentType as string | undefined,
+          url: referenceUrl,
+          referenceOnly: true,
+        });
+      }
+    }
+
+    const image: AgentChatAttachment = {
+      type: "image",
+      name,
+      ...(typeof requestAttachment.contentType === "string"
+        ? { contentType: requestAttachment.contentType }
+        : {}),
+      ...(data ? { data } : {}),
+      ...(imageUrl ? { url: imageUrl } : {}),
+      ...(fileId ? { id: fileId } : {}),
+    } as AgentChatAttachment;
+    const replacementIndex =
+      matchingIndex >= 0 && matchingIndex !== referenceIndex
+        ? matchingIndex
+        : -1;
+    if (replacementIndex >= 0) {
+      const existing = promoted[replacementIndex];
+      promoted[replacementIndex] = {
+        ...image,
+        ...("id" in existing ? { id: existing.id } : {}),
+      } as AgentChatAttachment;
+      continue;
+    }
+
+    const duplicateIndex = promoted.findIndex(
+      (attachment) =>
+        attachment.type === "image" &&
+        ((imageUrl !== undefined && attachment.url === imageUrl) ||
+          (fileId !== undefined &&
+            (attachment as AgentChatAttachment & { id?: string }).id ===
+              fileId) ||
+          (data !== undefined && attachment.data === data)),
+    );
+    if (duplicateIndex >= 0) {
+      const existing = promoted[duplicateIndex];
+      promoted[duplicateIndex] = {
+        ...existing,
+        ...image,
+        ...(existing && "id" in existing ? { id: existing.id } : {}),
+      } as AgentChatAttachment;
+    } else {
+      promoted.push(image);
+    }
+  }
+
+  return promoted;
 }
 
 async function emitRunText(run: ActiveRun, text: string): Promise<void> {
@@ -9473,6 +9961,23 @@ export function resolveAgentExperimentModelOverride(options: {
     : undefined;
 }
 
+export function resolveAgentExperimentSelection(options: {
+  requestModel?: string | null;
+  experimentModel?: string | null;
+  assignments: readonly { experimentId: string; variantId: string }[];
+}): {
+  model?: string;
+  assignments: Array<{ experimentId: string; variantId: string }>;
+} {
+  const model = resolveAgentExperimentModelOverride(options);
+  return {
+    ...(model ? { model } : {}),
+    assignments: isConcreteModelSelection(options.requestModel)
+      ? []
+      : [...options.assignments],
+  };
+}
+
 export function resolveAgentModelSelection(options: {
   requestModel?: string | null;
   configuredModel?: string | null;
@@ -9820,6 +10325,7 @@ export function createProductionAgentHandler(
       requestDisplayMessage = admittedQueuedMessage.text;
       requestAttachments = queuedPromotionAttachments(
         admittedQueuedMessage.attachments ?? [],
+        admittedQueuedMessage.requestAttachments,
       );
       hasAttachments = requestAttachments.length > 0;
       requestReferences = [];
@@ -9958,6 +10464,7 @@ export function createProductionAgentHandler(
         throw error;
       }
     }
+    setupMark("aiGate");
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
@@ -10181,8 +10688,8 @@ export function createProductionAgentHandler(
           err instanceof Error ? err.message : String(err),
         );
         requestMessage = requestMessage
-          ? `${requestMessage}\n\n${describeAttachmentPreUploadFailure()}`
-          : describeAttachmentPreUploadFailure();
+          ? `${requestMessage}\n\n${describeAttachmentPreUploadWarning()}`
+          : describeAttachmentPreUploadWarning();
       }
     }
 
@@ -10271,16 +10778,20 @@ export function createProductionAgentHandler(
           await import("../observability/experiments.js");
         const expConfig = await resolveActiveExperimentConfig(ownerEmail);
         if (expConfig) {
-          experimentAssignments = [...expConfig.assignments];
-          const experimentModel = resolveAgentExperimentModelOverride({
+          const experimentSelection = resolveAgentExperimentSelection({
             requestModel,
             experimentModel:
               typeof expConfig.configs.model === "string"
                 ? expConfig.configs.model
                 : undefined,
+            assignments: expConfig.assignments,
           });
-          if (experimentModel) {
-            effectiveModel = normalizeModelForEngine(engine, experimentModel);
+          experimentAssignments = experimentSelection.assignments;
+          if (experimentSelection.model) {
+            effectiveModel = normalizeModelForEngine(
+              engine,
+              experimentSelection.model,
+            );
             modelSelectionSource = "experiment";
           }
         }
@@ -10959,6 +11470,10 @@ export function createProductionAgentHandler(
         filesContext +
         planModeAgentNote,
       attachments: requestAttachments,
+      vision: isAgentModelVisionCapable(
+        effectiveModel,
+        engine.capabilities.vision === true,
+      ),
     });
 
     const historyMessages =
@@ -11224,6 +11739,12 @@ export function createProductionAgentHandler(
           appendRequestAttachmentContextToResumedHistory(
             resumed,
             requestAttachments,
+            {
+              vision: isAgentModelVisionCapable(
+                effectiveModel,
+                engine.capabilities.vision === true,
+              ),
+            },
           );
           appendAgentLoopContinuation(resumed, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),
@@ -11716,6 +12237,11 @@ export function createProductionAgentHandler(
       ` total=${Date.now() - setupT0}` +
       (backgroundRuntimeDetail ? ` ${backgroundRuntimeDetail}` : "") +
       firstRequestPayloadDetail;
+    // Only slow setups are logged: the reported delay is seconds, and the
+    // marks show which step owns it.
+    if (Date.now() - setupT0 >= 1_000) {
+      console.warn(`[agent-chat] slow run setup runId=${runId} ${setupDetail}`);
+    }
 
     const isSynchronousSelfChainContinuation =
       isBackgroundWorker &&

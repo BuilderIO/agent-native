@@ -87,6 +87,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Optionaler Text, nach dem in der Antwort gesucht wird…",
   "observability.promoteMustContainLabel":
     "Text, der in der Antwort der hochgestuften Auswertung geprüft wird",
+  "observability.promoteReviewedPromptLabel":
+    "Manuell geprüfter Prompt (wird nie aus der Produktion kopiert)",
   "observability.promoteNeedsContains":
     "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, der in der Antwort vorkommen muss, bevor du ihn hochstufst.",
   "observability.viewDetails": "Details anzeigen",
@@ -821,9 +823,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
   "recovery.continueUnavailable":
     "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
+  "errorMessages.invalidAttachmentNamed":
+    "Der Modellanbieter hat {{name}} abgelehnt, weil Format oder Größe nicht unterstützt werden. Exportiere Bilder kleiner als PNG, JPEG, GIF oder WebP. Verwende für Dokumente ein unterstütztes Format oder füge den relevanten Text ein und versuche es erneut.",
+  "recovery.retryWithoutAttachment": "Ohne Anhang erneut versuchen",
   "recovery.retryAttachmentUnavailable":
     "Diese Anfrage enthielt eine Datei, die sich nicht erneut senden lässt. Füge sie im Nachrichtenfeld erneut hinzu und versuche es noch einmal.",
-  "recovery.retryWithoutAttachment": "Ohne Anhang erneut versuchen",
   "recovery.deferredSubmissionFailed":
     "Diese Nachricht konnte nicht gesendet werden. Prüfe deine Verbindung oder Chat-Einstellungen und versuche es erneut.",
   "recovery.credentialRejected":

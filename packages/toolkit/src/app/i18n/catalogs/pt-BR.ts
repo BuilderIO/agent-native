@@ -84,6 +84,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Texto opcional a verificar na resposta…",
   "observability.promoteMustContainLabel":
     "Texto a verificar na resposta da avaliação promovida",
+  "observability.promoteReviewedPromptLabel":
+    "Prompt revisado manualmente (nunca copiado da produção)",
   "observability.promoteNeedsContains":
     "Esta execução não tem nenhuma chamada de ferramenta bem-sucedida. Insira o texto que a resposta deve conter antes de promover.",
   "observability.viewDetails": "Ver detalhes",
@@ -812,9 +814,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "Falha ao copiar",
   "recovery.continueUnavailable":
     "Esta execução não pode mais ser continuada. Envie uma mensagem para seguir.",
+  "errorMessages.invalidAttachmentNamed":
+    "O provedor do modelo rejeitou {{name}} porque o formato ou o tamanho não é compatível. Para imagens, exporte um PNG, JPEG, GIF ou WebP menor; para documentos, use um formato compatível ou cole o texto relevante e tente novamente.",
+  "recovery.retryWithoutAttachment": "Tentar novamente sem o anexo",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitação incluía um arquivo que não pode ser reenviado. Anexe-o novamente no campo de mensagem e tente outra vez.",
-  "recovery.retryWithoutAttachment": "Tentar novamente sem o anexo",
   "recovery.deferredSubmissionFailed":
     "Não foi possível enviar esta mensagem. Verifique sua conexão ou a configuração do chat e tente novamente.",
   "recovery.credentialRejected":

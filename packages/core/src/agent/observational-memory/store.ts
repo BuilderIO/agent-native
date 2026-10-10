@@ -14,6 +14,7 @@
 
 import { getDbExec } from "../../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../../db/ddl-guard.js";
+import { widenIntColumnsToBigInt } from "../../db/widen-columns.js";
 import type {
   ObservationalMemoryEntry,
   ObservationalMemoryOwner,
@@ -44,6 +45,10 @@ export async function ensureTable(): Promise<void> {
 
     {
       await ensureTableExists("observational_memory", createSql);
+      await widenIntColumnsToBigInt("observational_memory", [
+        "created_at",
+        "updated_at",
+      ]);
       await ensureIndexExists(
         "observational_memory_thread_tier_idx",
         `CREATE INDEX IF NOT EXISTS observational_memory_thread_tier_idx
