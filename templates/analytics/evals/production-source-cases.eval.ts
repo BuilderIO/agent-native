@@ -108,19 +108,25 @@ const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const PHRASE_EDGE = String.raw`[\p{L}\p{N}_/\p{Pd}]`;
 const GRAIN_NEGATION_PREFIX =
-  /\b(?:(?:do|does|did)\s+)?(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\s+(?:(?:have|has|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
-const GRAIN_NEGATION_SUFFIX =
-  /^\s*(?:(?:is|are|was|were)\s+)?(?:not|never|isn't|isn’t|wasn't|wasn’t|cannot|can't)\s+(?:(?:a|an|the)\s+)?(?:declared|expected|actual|correct|true|valid)\s+grain\b/i;
-const GRAIN_NEGATION_CLAUSE =
-  /^[,;:.]\s*(?:(?:but|which|however)\s+)?(?:(?:this|it|that|the model|the table|the relation)\s+)?(?:(?:is|are|was|were)\s+)?(?:not|never|isn't|isn’t|wasn't|wasn’t|cannot|can't)\s+(?:(?:a|an|the)\s+)?(?:declared|expected|actual|correct|true|valid)\s+grain\b/i;
+  /\b(?:not|(?:do|does|did)\s+not|(?:don|doesn|didn)['’]t|never|no|(?:is|are|was|were)\s+not|(?:isn|aren|wasn|weren)['’]t|cannot|can['’]t)\s+(?:(?:have|has|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
+const GRAIN_NEGATION_MARKER = String.raw`(?:not|never|(?:isn|aren|wasn|weren)['’]t|cannot|can['’]t)`;
+const GRAIN_NEGATION_ADVERBS = String.raw`(?:(?:actually|clearly|definitely|explicitly|likely|necessarily|perhaps|probably|really|truly)\s+)*`;
+const GRAIN_NEGATION_SUFFIX = new RegExp(
+  String.raw`^\s*(?:\(\s*)?(?:(?:is|are|was|were)\s+)?${GRAIN_NEGATION_ADVERBS}${GRAIN_NEGATION_MARKER}\s+(?:(?:a|an|the)\s+)?(?:declared|expected|actual|correct|true|valid)\s+grain\b`,
+  "i",
+);
+const GRAIN_NEGATION_CLAUSE = new RegExp(
+  String.raw`^[,;:.]\s*(?:(?:but|which|however)\s+)?(?:(?:this|it|that|the model|the table|the relation)\s+)?(?:(?:is|are|was|were)\s+)?${GRAIN_NEGATION_ADVERBS}${GRAIN_NEGATION_MARKER}\s+(?:(?:a|an|the)\s+)?(?:declared|expected|actual|correct|true|valid)\s+grain\b`,
+  "i",
+);
 
-function findCompletePhraseIndex(text: string, phrase: string): number {
+function findCompletePhraseIndexes(text: string, phrase: string): number[] {
   const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(
+  const expression = new RegExp(
     `(?<!${PHRASE_EDGE})${escapedPhrase}(?!${PHRASE_EDGE})`,
-    "u",
-  ).exec(text);
-  return match?.index ?? -1;
+    "gu",
+  );
+  return Array.from(text.matchAll(expression), (match) => match.index);
 }
 
 function isNegatedGrainClaim(line: string, index: number, phrase: string) {
@@ -140,12 +146,13 @@ function hasRelationGrainClaim(
 ): boolean {
   const relation = claim.relation.toLowerCase();
   const matchingLines = lines.filter(
-    (line) => findCompletePhraseIndex(line, relation) >= 0,
+    (line) => findCompletePhraseIndexes(line, relation).length > 0,
   );
   return matchingLines.some((line) => {
     const relationsOnLine = allClaims.filter(
       (candidate) =>
-        findCompletePhraseIndex(line, candidate.relation.toLowerCase()) >= 0,
+        findCompletePhraseIndexes(line, candidate.relation.toLowerCase())
+          .length > 0,
     );
     if (relationsOnLine.length !== 1) return false;
 
@@ -156,17 +163,18 @@ function hasRelationGrainClaim(
         candidate.grains[0]?.toLowerCase() !== expectedGrain &&
         candidate.grains.some((grain) => {
           const phrase = grain.toLowerCase();
-          const index = findCompletePhraseIndex(line, phrase);
-          return index >= 0 && !isNegatedGrainClaim(line, index, phrase);
+          return findCompletePhraseIndexes(line, phrase).some(
+            (index) => !isNegatedGrainClaim(line, index, phrase),
+          );
         }),
     );
     if (competingGrain) return false;
 
     return claim.grains.some((grain) => {
       const phrase = grain.toLowerCase();
-      const index = findCompletePhraseIndex(line, phrase);
-      if (index < 0) return false;
-      return !isNegatedGrainClaim(line, index, phrase);
+      return findCompletePhraseIndexes(line, phrase).some(
+        (index) => !isNegatedGrainClaim(line, index, phrase),
+      );
     });
   });
 }

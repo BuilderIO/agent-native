@@ -284,6 +284,60 @@ describe("Analytics synthetic production source evals", () => {
     );
   });
 
+  it("checks every grain mention and catches common negation forms", async () => {
+    const reportFor = (userGrainLine: string) =>
+      runEvals(
+        [cases[0]!],
+        runnerFor({
+          text: [
+            userGrainLine,
+            "dbt_mart.dim_organizations: organization grain",
+            "dbt_intermediate.user_organization_role: membership grain",
+            "user organization membership",
+          ].join("\n"),
+          toolCalls: ["search-bigquery-schema"],
+          ok: true,
+          runId: "eval:multiple-grain-mentions-fixture",
+          durationMs: 0,
+        }),
+        { persist: false },
+      );
+
+    const positiveAfterNegation = await reportFor(
+      "dbt_mart.dim_users_core: not user grain; user grain",
+    );
+    const competingGrainAfterNegation = await reportFor(
+      "dbt_mart.dim_users_core: user grain; not organization grain; organization grain",
+    );
+    const contraction = await reportFor(
+      "dbt_mart.dim_users_core: doesn't have user grain",
+    );
+    const hedgedNegation = await reportFor(
+      "dbt_mart.dim_users_core: user grain is definitely not the declared grain",
+    );
+    const parentheticalNegation = await reportFor(
+      "dbt_mart.dim_users_core: user grain (not the declared grain)",
+    );
+
+    expect(positiveAfterNegation).toMatchObject({
+      total: 1,
+      passed: 1,
+      failed: 0,
+    });
+    expect(competingGrainAfterNegation).toMatchObject({
+      total: 1,
+      passed: 0,
+      failed: 1,
+    });
+    expect(contraction).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(hedgedNegation).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(parentheticalNegation).toMatchObject({
+      total: 1,
+      passed: 0,
+      failed: 1,
+    });
+  });
+
   it("requires complete relation identifiers instead of accepting a prefixed name", async () => {
     const reportFor = (userRelation: string) =>
       runEvals(
