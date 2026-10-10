@@ -1924,6 +1924,7 @@ describe("Neon foreground statement budgets", () => {
   });
 
   it("uses a transaction-local timeout for explicitly budgeted transaction work", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     vi.stubEnv("NETLIFY", "true");
     const query = vi.fn(async (sql: string, args?: unknown[]) => {
       if (sql.includes(";") && args !== undefined) {
