@@ -897,6 +897,219 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     },
   );
 
+  it.each([false, true])(
+    "keeps later sends behind a scheduled delivery (submit=%s)",
+    async (submit) => {
+      assistantChatMockState.deferredHandleThread = "thread-2";
+      const chat = () => <MultiTabAssistantChat storageKey="bridge-test" />;
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        dispatchSubmitChat({
+          message: "Earlier send",
+          submit,
+          targetTabId: "thread-2",
+        }),
+      );
+      vi.useFakeTimers();
+      try {
+        assistantChatMockState.deferredHandleThread = null;
+        await act(async () => root.render(chat()));
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Later send",
+            submit,
+            targetTabId: "thread-2",
+          }),
+        );
+        const delivered = submit
+          ? chatHandleMocks.sendMessage
+          : chatHandleMocks.prefillMessage;
+        expect(delivered).not.toHaveBeenCalled();
+        const reenter = () =>
+          dispatchSubmitChat({
+            message: "Reentrant send",
+            submit,
+            targetTabId: "thread-2",
+          });
+        if (submit)
+          chatHandleMocks.sendMessage.mockImplementationOnce(async () => {
+            reenter();
+            return { status: "submitted" as const };
+          });
+        else chatHandleMocks.prefillMessage.mockImplementationOnce(reenter);
+        await act(async () => vi.advanceTimersByTimeAsync(200));
+        expect(delivered.mock.calls.map(([message]) => message)).toEqual([
+          "Earlier send",
+          "Later send",
+          "Reentrant send",
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("queues navigation prefill behind an older scheduled draft before acknowledging selection", async () => {
+    assistantChatMockState.deferredHandleThread = "thread-2";
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="bridge-test"
+        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      dispatchSubmitChat({
+        message: "Earlier scheduled draft",
+        submit: false,
+        targetTabId: "thread-2",
+      }),
+    );
+    vi.useFakeTimers();
+    try {
+      assistantChatMockState.deferredHandleThread = null;
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: {
+              threadId: "thread-2",
+              prefill: "Later navigation prefill",
+            },
+          }),
+        ),
+      );
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+      expect(outcomes).toEqual(["started"]);
+      await act(async () =>
+        dispatchSubmitChat({
+          message: "Draft after navigation",
+          submit: false,
+          targetTabId: "thread-2",
+        }),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      expect(
+        chatHandleMocks.prefillMessage.mock.calls.map(([message]) => message),
+      ).toEqual(["Earlier scheduled draft", "Later navigation prefill"]);
+      expect(outcomes).toEqual(["started", "selected"]);
+      await act(async () => vi.advanceTimersByTimeAsync(50));
+      expect(
+        chatHandleMocks.prefillMessage.mock.calls.map(([message]) => message),
+      ).toEqual([
+        "Earlier scheduled draft",
+        "Later navigation prefill",
+        "Draft after navigation",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retires a navigation prefill waiting in a delivery lane", async () => {
+    assistantChatMockState.deferredHandleThread = "thread-2";
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="bridge-test"
+        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      dispatchSubmitChat({
+        message: "Earlier lane owner",
+        submit: false,
+        targetTabId: "thread-2",
+      }),
+    );
+    vi.useFakeTimers();
+    try {
+      assistantChatMockState.deferredHandleThread = null;
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2", prefill: "Retired queued prefill" },
+          }),
+        ),
+      );
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2", prefill: "Current queued prefill" },
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(150));
+      expect(
+        chatHandleMocks.prefillMessage.mock.calls.map(([message]) => message),
+      ).toEqual(["Earlier lane owner", "Current queued prefill"]);
+      expect(outcomes).toEqual([
+        "started",
+        "started",
+        "superseded",
+        "selected",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resumes the delivery head after its handle disappears at handoff", async () => {
+    assistantChatMockState.deferredHandleThread = "thread-2";
+    const chat = () => <MultiTabAssistantChat storageKey="bridge-test" />;
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      dispatchSubmitChat({
+        message: "Waiting head",
+        submit: false,
+        targetTabId: "thread-2",
+      }),
+    );
+    vi.useFakeTimers();
+    try {
+      assistantChatMockState.deferredHandleThread = null;
+      await act(async () => root.render(chat()));
+      assistantChatMockState.deferredHandleThread = "thread-2";
+      await act(async () => root.render(chat()));
+      await act(async () => vi.advanceTimersByTimeAsync(50));
+      await act(async () =>
+        dispatchSubmitChat({
+          message: "Later waiting send",
+          submit: false,
+          targetTabId: "thread-2",
+        }),
+      );
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+      assistantChatMockState.deferredHandleThread = null;
+      await act(async () => root.render(chat()));
+      await act(async () => vi.advanceTimersByTimeAsync(150));
+      expect(
+        chatHandleMocks.prefillMessage.mock.calls.map(([message]) => message),
+      ).toEqual(["Waiting head", "Later waiting send"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(["agent-chat:open-thread", "agent-task-open"])(
     "preserves the actual destination when %s follows blocked conversation work",
     async (type) => {
@@ -1391,6 +1604,73 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   });
 
   it.each(["agent-chat:open-thread", "agent-task-open"])(
+    "retires a superseded lookup before its response arrives (%s)",
+    async (eventType) => {
+      let finishLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          }),
+      );
+      const active = new Set<Event>();
+      const outcomes: Array<{ threadId: string; outcome: string }> = [];
+      const chat = () => (
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          onNavigationChange={(event, outcome) => {
+            outcomes.push({
+              threadId: (event as CustomEvent).detail.threadId,
+              outcome,
+            });
+            if (outcome === "started") active.add(event);
+            else active.delete(event);
+          }}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2", prefill: "Stale prefill" },
+          }),
+        ),
+      );
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent(eventType, {
+            detail: { threadId: "thread-3", prefill: "Current prefill" },
+          }),
+        ),
+      );
+      expect(threadMocks.activeThreadId).toBe("thread-3");
+      expect(active.size).toBe(0);
+      expect(
+        outcomes.filter(
+          ({ threadId, outcome }) =>
+            threadId === "thread-2" && outcome === "superseded",
+        ),
+      ).toHaveLength(1);
+      await act(async () => finishLookup("opened"));
+      expect(threadMocks.activeThreadId).toBe("thread-3");
+      expect(active.size).toBe(0);
+      expect(
+        outcomes.filter(
+          ({ threadId, outcome }) =>
+            threadId === "thread-2" && outcome === "superseded",
+        ),
+      ).toHaveLength(1);
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+        "Stale prefill",
+      );
+    },
+  );
+
+  it.each(["agent-chat:open-thread", "agent-task-open"])(
     "keeps a callback-created navigation ahead of an older %s request",
     async (eventType) => {
       const outcomes: Array<{ threadId: string; outcome: string }> = [];
@@ -1439,6 +1719,86 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       );
     },
   );
+
+  it("discards a superseded prefill for the same destination", async () => {
+    assistantChatMockState.deferredHandleThread = "thread-2";
+    const chat = () => <MultiTabAssistantChat storageKey="bridge-test" />;
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2", prefill: "Superseded prefill" },
+        }),
+      ),
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2", prefill: "Current same-tab prefill" },
+        }),
+      ),
+    );
+    assistantChatMockState.deferredHandleThread = null;
+    await act(async () => root.render(chat()));
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+      "Current same-tab prefill",
+    );
+  });
+
+  it("retires an unresolved lookup when its replacement is unavailable", async () => {
+    let finishLookup!: (result: "opened") => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    threadMocks.openThread.mockResolvedValueOnce("unavailable");
+    const outcomes: Array<{ threadId: string; outcome: string }> = [];
+    await act(async () =>
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          onNavigationChange={(event, outcome) =>
+            outcomes.push({
+              threadId: (event as CustomEvent).detail.threadId,
+              outcome,
+            })
+          }
+        />,
+      ),
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2" },
+        }),
+      ),
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-3" },
+        }),
+      ),
+    );
+    expect(outcomes).toContainEqual({
+      threadId: "thread-2",
+      outcome: "superseded",
+    });
+    expect(outcomes).toContainEqual({
+      threadId: "thread-3",
+      outcome: "unavailable",
+    });
+    const settled = [...outcomes];
+    await act(async () => finishLookup("opened"));
+    expect(outcomes).toEqual(settled);
+    expect(threadMocks.switchThread).not.toHaveBeenCalled();
+  });
 
   it.each(["agent-chat:open-thread", "agent-task-open"])(
     "does not reopen a %s destination closed by its start callback",
