@@ -3,6 +3,7 @@ import {
   hasActiveAgentRuns,
   selectAgentSuggestions,
   isCurrentAgentSuggestion,
+  splitAgentKitMessageContext,
   type AgentKitUploadDriver,
   type AgentThreadState,
 } from "@agent-native/agentkit";
@@ -1114,6 +1115,8 @@ interface AgentKitSurfaceContextValue {
   suggestions: AgentSuggestionInput[];
   showSuggestions: boolean;
   voiceTranscriptMessages: AgentMessage[];
+  /** The user's message, shown from submit until the agent client appends it. */
+  optimisticUserMessage: AgentMessage | null;
   selectionLength: number | null;
   prefillRevision: number;
   text: string;
@@ -1887,6 +1890,19 @@ const AgentKitAssistantChatBody = forwardRef<
   const isSubmissionInFlight = history?.isSubmissionInFlight === true;
   const [composerSubmissionPending, setComposerSubmissionPending] =
     useState(false);
+  // Set at submit and cleared when the submit settles. The agent client
+  // appends the real message only after its own awaits, so the transcript
+  // shows this copy in the meantime.
+  const [pendingUserSubmission, setPendingUserSubmission] = useState<{
+    id: number;
+    text: string;
+    threadId: string;
+    baseCount: number;
+  } | null>(null);
+  // A send that settles late must not clear a newer send's pending prompt.
+  const pendingSubmissionIdRef = useRef(0);
+  const messageCountRef = useRef(0);
+  messageCountRef.current = thread.messages.length;
   const [continueSubmissionFailed, setContinueSubmissionFailed] =
     useState(false);
   const [queueSubmissionError, setQueueSubmissionError] = useState<
@@ -2007,8 +2023,40 @@ const AgentKitAssistantChatBody = forwardRef<
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
+  // Scoped to the thread that was submitted to. A reused surface can change
+  // threadId mid-send, and the prior prompt must not show under the new thread.
+  // Hidden only once this prompt's own message lands: another send appending
+  // first must not remove it. Exact text, not containment, so a longer message
+  // that quotes the prompt is not taken for this one.
+  const submittedMessageArrived =
+    pendingUserSubmission !== null &&
+    thread.messages
+      .slice(pendingUserSubmission.baseCount)
+      .some(
+        (message) =>
+          message.role === "user" &&
+          message.parts.some(
+            (part) =>
+              part.type === "text" &&
+              splitAgentKitMessageContext(part.text).message.trim() ===
+                pendingUserSubmission.text.trim(),
+          ),
+      );
+  const optimisticUserMessage: AgentMessage | null =
+    pendingUserSubmission &&
+    pendingUserSubmission.threadId === threadId &&
+    !submittedMessageArrived
+      ? {
+          id: "pending-user-submission",
+          role: "user",
+          parts: [{ type: "text", text: pendingUserSubmission.text }],
+          status: "complete",
+          metadata: { pendingSubmission: true },
+        }
+      : null;
   const hasRenderedMessages =
     thread.messages.length > 0 ||
+    optimisticUserMessage !== null ||
     props.threadContentSlot != null ||
     getAgentKitThreadHandoffMessages(
       thread,
@@ -3077,6 +3125,19 @@ const AgentKitAssistantChatBody = forwardRef<
         reportAgentChatSubmitResult(options.submitMessageId, false, reason);
         return { status: "rejected", reason };
       }
+      const showsUserMessage =
+        !options.hideUserMessage && !options.approvedToolCalls;
+      const pendingSubmissionId = ++pendingSubmissionIdRef.current;
+      if (showsUserMessage) {
+        if (!isThreadRunning()) {
+          setPendingUserSubmission({
+            id: pendingSubmissionId,
+            text,
+            threadId,
+            baseCount: messageCountRef.current,
+          });
+        }
+      }
       try {
         await dispatch(
           text,
@@ -3095,6 +3156,9 @@ const AgentKitAssistantChatBody = forwardRef<
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
       } finally {
+        setPendingUserSubmission((current) =>
+          current?.id === pendingSubmissionId ? null : current,
+        );
         release?.();
       }
     },
@@ -3131,6 +3195,15 @@ const AgentKitAssistantChatBody = forwardRef<
       const release = await acquireSubmission();
       if (!release)
         throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
+      const pendingSubmissionId = ++pendingSubmissionIdRef.current;
+      if (!runWasActiveAtSubmit) {
+        setPendingUserSubmission({
+          id: pendingSubmissionId,
+          text,
+          threadId,
+          baseCount: messageCountRef.current,
+        });
+      }
       try {
         const preparedOptions = prepare ? await prepare() : composerOptions;
         await dispatch(
@@ -3146,6 +3219,9 @@ const AgentKitAssistantChatBody = forwardRef<
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
       } finally {
+        setPendingUserSubmission((current) =>
+          current?.id === pendingSubmissionId ? null : current,
+        );
         release?.();
       }
     },
@@ -3997,6 +4073,7 @@ const AgentKitAssistantChatBody = forwardRef<
     contextItems,
     providerContextItems,
     voiceTranscriptMessages,
+    optimisticUserMessage,
     selectionLength,
     suggestions: suggestions ?? [],
     showSuggestions,
@@ -4330,10 +4407,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   };
   const lastMessage = thread.messages.at(-1);
   const showThinking =
-    surface.isSubmissionInFlight &&
     !surface.isRunning &&
-    lastMessage?.role === "user" &&
-    lastMessage.metadata?.hideUserMessage !== true;
+    (surface.optimisticUserMessage !== null ||
+      (surface.isSubmissionInFlight &&
+        lastMessage?.role === "user" &&
+        lastMessage.metadata?.hideUserMessage !== true));
   const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
     (message) => !threadMessageIds.has(message.id),
   );
@@ -4562,6 +4640,12 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           threadId={threadId}
         />
       ))}
+      {surface.optimisticUserMessage ? (
+        <AgentMessageView
+          value={surface.optimisticUserMessage}
+          threadId={threadId}
+        />
+      ) : null}
       {showThinking ? (
         <div
           className="agentkit-activities agentkit-activities-summary-content"

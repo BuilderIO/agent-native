@@ -109,6 +109,11 @@ import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
+import {
+  analyticsAskThreadIdFromPath,
+  analyticsAskThreadPath,
+  isAnalyticsAskPath,
+} from "@shared/ask-route";
 
 import {
   AlertDialog,
@@ -1326,8 +1331,6 @@ async function fetchSqlDashboardForPrefetch(
   }
 }
 
-const ANALYTICS_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${ANALYTICS_CHAT_STORAGE_KEY}`;
-
 function formatThreadAge(updatedAt: number) {
   const diffMs = Math.max(0, Date.now() - updatedAt);
   const minutes = Math.floor(diffMs / 60_000);
@@ -1362,21 +1365,13 @@ function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
   return threadUpdatedAt(b) - threadUpdatedAt(a);
 }
 
-function persistedAnalyticsThreadId() {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(ANALYTICS_ACTIVE_THREAD_KEY);
-  } catch {
-    return null;
-  }
-}
-
 function AnalyticsChatsSection({
-  isAskRoute,
+  askThreadId,
   open,
   visibilityFilter,
 }: {
-  isAskRoute: boolean;
+  /** The saved thread open on /ask/:threadId; null on the blank /ask page. */
+  askThreadId: string | null;
   open: boolean;
   visibilityFilter: SidebarVisibilityFilter;
 }) {
@@ -1384,10 +1379,7 @@ function AnalyticsChatsSection({
   const t = useT();
   const {
     threads,
-    activeThreadId,
     isLoading: chatsLoading,
-    createThread,
-    switchThread,
     pinThread,
     archiveThread,
     renameThread,
@@ -1417,18 +1409,13 @@ function AnalyticsChatsSection({
         title: threadTitle(thread, t("chat.untitledChat")),
         titleText: threadTitle(thread, t("chat.untitledChat")),
         timestamp:
-          isAskRoute &&
-          (thread.id === activeThreadId ||
-            thread.id === persistedAnalyticsThreadId())
+          thread.id === askThreadId
             ? undefined
             : formatThreadAge(threadUpdatedAt(thread)),
         pinned: Boolean(thread.pinnedAt),
       })),
-    [activeThreadId, isAskRoute, t, visibleThreads],
+    [askThreadId, t, visibleThreads],
   );
-  const displayedActiveThreadId = isAskRoute
-    ? (activeThreadId ?? persistedAnalyticsThreadId())
-    : null;
 
   useEffect(() => {
     const refresh = () => refreshThreads();
@@ -1449,34 +1436,33 @@ function AnalyticsChatsSection({
     };
   }, [refreshThreads]);
 
-  function openThread(threadId: string, options?: { isNew?: boolean }) {
-    switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/ask");
+  function openThread(threadId: string) {
+    navigateWithAgentChatViewTransition(
+      navigate,
+      analyticsAskThreadPath(threadId),
+    );
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
-          detail: { threadId, newThread: options?.isNew === true },
+          detail: { threadId, newThread: false },
         }),
       );
     });
   }
 
-  async function handleNewChat() {
-    const threadId = await createThread();
-    if (threadId) openThread(threadId, { isNew: true });
+  // No thread is created here: the id joins the URL on the first saved message.
+  function handleNewChat() {
+    navigateWithAgentChatViewTransition(navigate, analyticsAskThreadPath(null));
   }
 
   async function handleArchiveThread(threadId: string) {
-    const wasActive =
-      threadId === activeThreadId || threadId === persistedAnalyticsThreadId();
+    const wasActive = threadId === askThreadId;
     const archived = await archiveThread(threadId);
     if (!archived) {
       toast.error(t("chat.archiveFailed"));
       return;
     }
-    if (wasActive) {
-      await handleNewChat();
-    }
+    if (wasActive) handleNewChat();
   }
 
   function handleRenameThread(threadId: string, title: string) {
@@ -1513,9 +1499,9 @@ function AnalyticsChatsSection({
           ))}
         <ChatHistoryRail
           items={chatItems}
-          activeId={displayedActiveThreadId}
+          activeId={askThreadId}
           onSelect={(threadId) => openThread(threadId)}
-          onNewChat={() => void handleNewChat()}
+          onNewChat={handleNewChat}
           railLabels={{
             newChat: t("chat.newChat"),
             showMore: t("sidebar.showMore", {
@@ -1571,7 +1557,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     ? DASHBOARD_SESSION_LOADING_SCOPE
     : dashboardCacheScope(auth);
 
-  const isAskRoute = location.pathname === "/ask";
+  const isAskRoute = isAnalyticsAskPath(location.pathname);
+  const askThreadId = analyticsAskThreadIdFromPath(location.pathname);
   const activeDashboardId = useMemo(() => {
     const match = location.pathname.match(/^\/(?:adhoc|dashboards)\/([^/]+)/);
     if (!match?.[1]) return null;
@@ -2196,7 +2183,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       icon: IconMessageCircle,
       label: t("navigation.ask"),
       href: "/ask",
-      active: location.pathname === "/ask",
+      active: isAskRoute,
       onClick: handleAskClick,
     },
     {
@@ -2383,7 +2370,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                   </button>
                 </div>
                 <AnalyticsChatsSection
-                  isAskRoute={isAskRoute}
+                  askThreadId={askThreadId}
                   open={askOpen}
                   visibilityFilter={askFilter}
                 />

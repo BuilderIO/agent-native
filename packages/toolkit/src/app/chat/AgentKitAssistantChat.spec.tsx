@@ -1385,6 +1385,123 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBeNull();
   });
 
+  it("shows the submitted message and Thinking before the agent client accepts the send", async () => {
+    let acceptSend: () => void = () => undefined;
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          acceptSend = () => resolve(undefined);
+        }),
+    );
+    await mount(baseProps());
+
+    let submission: Promise<unknown> | undefined;
+    await act(async () => {
+      submission = chatMocks.composerProps.onSubmit(
+        "Summarize my inbox",
+        [],
+        [],
+        { intent: "immediate" },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("Summarize my inbox");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "agentChat.status.thinking",
+    );
+
+    await act(async () => {
+      acceptSend();
+      await submission;
+    });
+
+    expect(container.textContent).not.toContain("Summarize my inbox");
+  });
+
+  it("does not show a pending prompt under a different thread after the surface moves", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Summarize my inbox");
+
+    // The thread comes from the agent context, so the switch must reach it there.
+    chatMocks.threadId = "thread-2";
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).not.toContain("Summarize my inbox");
+  });
+
+  it("keeps a pending prompt visible until its own message lands, not another send's", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Summarize my inbox");
+
+    chatMocks.thread.messages = [
+      ...chatMocks.thread.messages,
+      {
+        id: "other-send",
+        role: "user",
+        parts: [{ type: "text", text: "Another prompt" }],
+        status: "complete",
+      },
+    ];
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).toContain("Summarize my inbox");
+  });
+
+  it("does not take a longer message that quotes the prompt for its own", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    chatMocks.thread.messages = [
+      ...chatMocks.thread.messages,
+      {
+        id: "quoting-send",
+        role: "user",
+        parts: [{ type: "text", text: "Summarize my inbox, then archive it" }],
+        status: "complete",
+      },
+    ];
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).toContain("Summarize my inbox");
+  });
+
   it("copies the active run ID from its action menu", async () => {
     const props = baseProps();
     await mount(props);

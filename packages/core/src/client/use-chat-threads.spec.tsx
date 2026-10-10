@@ -1222,6 +1222,42 @@ describe("useChatThreads", () => {
     ).toBe("route-thread");
   });
 
+  it("keeps a chat created on the create route new once the route adopts its id", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness({ routeThreadId }: { routeThreadId: string | null }) {
+      hook = useChatThreads("/chat", "route-adopt-test", null, {
+        routeThreadId,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness routeThreadId={null} />);
+    });
+    const createdId = hook!.activeThreadId;
+    expect(createdId).toBeTruthy();
+
+    // Submit writes the route; the same mounted surface receives its id.
+    await act(async () => {
+      root.render(<Harness routeThreadId={createdId} />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe(createdId);
+    expect(hook!.isNewThread(createdId!)).toBe(true);
+  });
+
   it("treats a route without a thread as create mode and clears saved active thread", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:route-create-test",

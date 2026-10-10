@@ -32,6 +32,7 @@ import {
   listStatusPages,
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
+import { isAnalyticsAskPath } from "../shared/ask-route";
 import { sessionDateBound } from "../shared/session-date-bounds";
 import {
   readSessionEventFilters,
@@ -117,8 +118,8 @@ function isAskPathname(pathname: string): boolean {
   return (
     pathname === "" ||
     pathname === "/" ||
-    pathname === "/ask" ||
-    pathname === "/overview"
+    pathname === "/overview" ||
+    isAnalyticsAskPath(pathname)
   );
 }
 
