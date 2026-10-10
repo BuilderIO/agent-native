@@ -128,6 +128,43 @@ describe("loadMigrationManifestsForProject", () => {
 });
 
 describe("scanDeprecatedImports", () => {
+  it("skips generated React Router route types", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-doctor-react-router-types-"),
+    );
+    roots.push(root);
+    const generatedTypes = path.join(
+      root,
+      ".react-router",
+      "types",
+      "app",
+      "routes",
+      "+types",
+      "chat.ts",
+    );
+    fs.mkdirSync(path.dirname(generatedTypes), { recursive: true });
+    fs.writeFileSync(
+      generatedTypes,
+      'import { AgentSidebar } from "@agent-native/core/client";\nvoid AgentSidebar;\n',
+    );
+
+    expect(
+      scanDeprecatedImports({
+        root,
+        manifests: [
+          {
+            sinceVersion: "0.110.0",
+            moves: {
+              "@agent-native/core/client": {
+                to: "@agent-native/toolkit/app/chat",
+              },
+            },
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
   it("documents removed AgentKit chat exports in their migration guide", () => {
     const manifest = JSON.parse(
       fs.readFileSync(

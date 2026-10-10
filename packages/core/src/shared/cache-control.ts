@@ -10,6 +10,9 @@ export const DEFAULT_SSR_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
 export const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL =
   "public, durable, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600";
 
+export const CHUNK_RECOVERY_BROWSER_CACHE_CONTROL =
+  "public, max-age=0, must-revalidate";
+
 export const DEFAULT_SSR_CACHE_HEADERS = {
   "cache-control": DEFAULT_SSR_CACHE_CONTROL,
   "cdn-cache-control": DEFAULT_SSR_CDN_CACHE_CONTROL,
@@ -134,16 +137,37 @@ export function resolveSsrCacheHeaders(
   return memoizedHeaders;
 }
 
-export function resolveSsrNetlifyQueryVary(varyByQuery = false): string {
+export function resolveChunkRecoveryCacheHeaders(
+  cacheHeaders: Pick<
+    SsrCacheHeaders,
+    "cache-control"
+  > = resolveSsrCacheHeaders(),
+): Readonly<SsrCacheHeaders> {
+  return cacheHeaders["cache-control"] === DISABLED_SSR_CACHE_CONTROL
+    ? DISABLED_SSR_CACHE_HEADERS
+    : {
+        "cache-control": CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+        "cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+        "netlify-cdn-cache-control": DISABLED_SSR_CACHE_CONTROL,
+      };
+}
+
+export function resolveSsrNetlifyQueryVary(
+  varyByQuery = false,
+  varyByLegacyRecovery = false,
+): string {
   if (varyByQuery) return "query";
-  return `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`;
+  if (varyByLegacyRecovery) {
+    return `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`;
+  }
+  return "query=_routes|index";
 }
 
 export function resolveSsrCacheKeyHeaders(
   env: Record<string, string | undefined> = typeof process === "undefined"
     ? {}
     : process.env,
-  options: { varyByQuery?: boolean } = {},
+  options: { varyByQuery?: boolean; varyByLegacyRecovery?: boolean } = {},
 ): Readonly<Record<string, string>> {
   const explicitlyNotNetlify =
     env.NETLIFY_LOCAL === "true" || env.NETLIFY === "false";
@@ -152,8 +176,11 @@ export function resolveSsrCacheKeyHeaders(
   const none: Readonly<Record<string, string>> = Object.freeze({});
   if (!onNetlify) return none;
   return Object.freeze({
-    // guard:allow-ssr-shell-exception — one fixed, public recovery cache-key variant
-    "netlify-vary": resolveSsrNetlifyQueryVary(options.varyByQuery),
+    // guard:allow-ssr-shell-exception — bounded public React Router query keys
+    "netlify-vary": resolveSsrNetlifyQueryVary(
+      options.varyByQuery,
+      options.varyByLegacyRecovery,
+    ),
   });
 }
 

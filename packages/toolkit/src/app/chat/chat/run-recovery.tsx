@@ -667,6 +667,7 @@ export function RunErrorRecoveryCard({
   onContinue,
   onRetry,
   onRetryWithoutAttachments,
+  onRetryWithoutAttachment,
   retryHasUnavailableAttachment = false,
   onFork,
   onDismiss,
@@ -678,11 +679,9 @@ export function RunErrorRecoveryCard({
   onContinue?: () => void;
   continueError?: string | null;
   onRetry: () => void;
-  /**
-   * Resends the request without the attachments a provider rejected. Plain
-   * retry would resend the same attachment and fail the same way.
-   */
+  /** Resends the rejected request without its attachments. */
   onRetryWithoutAttachments?: () => void;
+  onRetryWithoutAttachment?: () => void;
   retryHasUnavailableAttachment?: boolean;
   onFork?: () => void | boolean | Promise<void | boolean>;
   onDismiss: () => void;
@@ -703,8 +702,10 @@ export function RunErrorRecoveryCard({
   // Retrying or continuing sends the rejected attachment again.
   const attachmentRejected = info.errorCode === "invalid_attachment";
   const canRecover = info.recoverable === true && !attachmentRejected;
+  const retryWithoutAttachments =
+    onRetryWithoutAttachments ?? onRetryWithoutAttachment;
   const canRetryWithoutAttachments =
-    attachmentRejected && onRetryWithoutAttachments;
+    attachmentRejected && retryWithoutAttachments;
   const isBuilderCreditsLimit = isCreditsLimitErrorCode(info.errorCode);
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
@@ -980,7 +981,7 @@ export function RunErrorRecoveryCard({
         {canRetryWithoutAttachments && (
           <button
             type="button"
-            onClick={onRetryWithoutAttachments}
+            onClick={retryWithoutAttachments}
             className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-2 text-xs font-medium text-background hover:opacity-90"
           >
             <IconRefresh size={13} />

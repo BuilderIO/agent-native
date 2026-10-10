@@ -231,9 +231,28 @@ describe("ObservabilityDashboard promote control", () => {
     await vi.waitFor(() => {
       const promote = bodyButton("Promote to eval");
       expect(promote).toBeTruthy();
-      expect(promote?.disabled).toBe(false);
+      expect(promote?.disabled).toBe(true);
     });
 
+    const reviewedPrompt = document.body.querySelector<HTMLTextAreaElement>(
+      'textarea[id="promote-eval-prompt-run-promote-1"]',
+    );
+    expect(reviewedPrompt).toBeTruthy();
+    expect(reviewedPrompt?.getAttribute("aria-label")).toBe(
+      "Manually reviewed prompt (never copied from production)",
+    );
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    act(() => {
+      valueSetter?.call(reviewedPrompt, "show active users daily");
+      reviewedPrompt!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    await vi.waitFor(() => {
+      expect(bodyButton("Promote to eval")?.disabled).toBe(false);
+    });
     const promote = bodyButton("Promote to eval");
     const mustContain = document.body.querySelector<HTMLInputElement>(
       'input[aria-label="Text to check for in the promoted eval reply"]',
@@ -257,5 +276,8 @@ describe("ObservabilityDashboard promote control", () => {
       );
     });
     expect(promoteCall).toBeTruthy();
+    expect(JSON.parse(String((promoteCall![1] as RequestInit).body))).toEqual({
+      reviewedPrompt: "show active users daily",
+    });
   });
 });

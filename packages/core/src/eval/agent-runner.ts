@@ -8,15 +8,23 @@ import type {
   EngineMessage,
   EngineTool,
 } from "../agent/engine/types.js";
-import type { ActionEntry, AgentLoopUsage } from "../agent/production-agent.js";
+import type {
+  ActionEntry,
+  ActionCaller,
+  AgentLoopFinalResponseGuard,
+  AgentLoopUsage,
+} from "../agent/production-agent.js";
 import {
-  runAgentLoop,
   actionsToEngineTools,
+  runAgentLoop,
 } from "../agent/production-agent.js";
 import type { AgentChatEvent } from "../agent/types.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import type {
   AgentRunOutput,
+  EvalProductionContext,
   EvalInput,
+  EvalProductionPathRun,
   ScorerAnalyzeContext,
 } from "./types.js";
 
@@ -32,16 +40,37 @@ export type RunAgentLoopFn = (opts: {
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
+  availableTools?: EngineTool[];
+  onUsage?: (usage: AgentLoopUsage) => void;
+  ownerEmail?: string;
+  orgId?: string | null;
+  appId?: string;
+  actionCaller?: ActionCaller;
+  finalResponseGuard?: AgentLoopFinalResponseGuard | null;
+  finalResponseGuardRequestText?: string;
+  runId?: string;
 }) => Promise<AgentLoopUsage>;
 
-export interface AgentRunnerConfig {
-  actions: Record<string, ActionEntry>;
-  systemPrompt?: string;
+interface AgentRunnerConfigBase {
   engine?: AgentEngine;
   model?: string;
   timeoutMs?: number;
   runLoop?: RunAgentLoopFn;
 }
+
+export type AgentRunnerConfig = AgentRunnerConfigBase &
+  (
+    | {
+        productionContext: EvalProductionContext;
+        actions?: Record<string, ActionEntry>;
+        systemPrompt?: string;
+      }
+    | {
+        productionContext?: undefined;
+        actions: Record<string, ActionEntry>;
+        systemPrompt?: string;
+      }
+  );
 
 export interface AgentRunner {
   runAgent(input: EvalInput): Promise<AgentRunOutput>;
@@ -68,6 +97,38 @@ function toEngineMessages(input: EvalInput): EngineMessage[] {
 export async function createAgentRunner(
   config: AgentRunnerConfig,
 ): Promise<AgentRunner> {
+  const productionContext = config.productionContext
+    ? validateProductionContext(config.productionContext)
+    : undefined;
+  const actions = productionContext?.actions ?? config.actions;
+  const systemPrompt =
+    productionContext?.systemPrompt ?? config.systemPrompt ?? "";
+  if (!actions) {
+    throw new Error("Eval runner requires an action registry.");
+  }
+  const productionChatPath = productionContext?.productionChatPath;
+  const runLoop =
+    config.runLoop ??
+    (productionContext ? undefined : (runAgentLoop as RunAgentLoopFn));
+  if (!productionChatPath && !runLoop) {
+    throw new Error(
+      "Production eval requires an adapter that invokes the shared production agent loop.",
+    );
+  }
+  if (productionChatPath && !productionContext?.orgId) {
+    throw new Error(
+      "Production chat evals require an explicit organization id.",
+    );
+  }
+  if (
+    productionChatPath &&
+    (!productionContext?.finalResponseGuard ||
+      Object.values(actions).some((action) => action.readOnly !== true))
+  ) {
+    throw new Error(
+      "Production chat evals require the real final response guard and a read-only adapter action registry.",
+    );
+  }
   const engine =
     config.engine ?? (await resolveEngine({ engineOption: undefined }));
   const modelCandidate =
@@ -75,12 +136,36 @@ export async function createAgentRunner(
     (await getStoredModelForEngine(engine)) ??
     engine.defaultModel;
   const model = normalizeModelForEngine(engine, modelCandidate);
-  const systemPrompt = config.systemPrompt ?? "";
-  const runLoop = config.runLoop ?? (runAgentLoop as RunAgentLoopFn);
   const timeoutMs = config.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS;
-  const tools = actionsToEngineTools(config.actions);
+  const availableTools = actionsToEngineTools(actions);
+  const initialToolNames = productionContext?.initialToolNames
+    ? new Set(productionContext.initialToolNames)
+    : undefined;
+  const tools = initialToolNames
+    ? availableTools.filter((tool) => initialToolNames.has(tool.name))
+    : availableTools;
+  if (productionChatPath && tools.length === 0) {
+    throw new Error(
+      "Production eval context did not expose any initial agent tools.",
+    );
+  }
 
   async function runAgent(input: EvalInput): Promise<AgentRunOutput> {
+    if (productionChatPath) {
+      return runProductionChatPath({
+        productionChatPath,
+        productionContext: productionContext!,
+        input,
+        engine,
+        model,
+        timeoutMs,
+      });
+    }
+    if (!runLoop) {
+      throw new Error(
+        "Production eval requires an adapter that invokes the shared production agent loop.",
+      );
+    }
     const runId = `eval:${crypto.randomUUID()}`;
     const messages = toEngineMessages(input);
 
@@ -100,12 +185,26 @@ export async function createAgentRunner(
     let ok = true;
     let error: string | undefined;
     let eventIndex = 0;
+    let finished = false;
+    let timedOut = false;
+    let partialUsage: AgentLoopUsage | undefined;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
     const started = Date.now();
+    const timeoutError = new Error(
+      `Agent run timed out after ${timeoutMs} ms.`,
+    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort(timeoutError);
+        reject(timeoutError);
+      }, timeoutMs);
+    });
 
     const send = (event: AgentChatEvent): void => {
+      if (finished) return;
       const currentEventIndex = eventIndex++;
       switch (event.type) {
         case "text":
@@ -144,22 +243,63 @@ export async function createAgentRunner(
       }
     };
 
+    let usage: AgentLoopUsage | undefined;
     try {
-      await runLoop({
-        engine,
-        model,
-        systemPrompt,
-        tools,
-        messages,
-        actions: config.actions,
-        send,
-        signal: controller.signal,
-      });
+      const run = () =>
+        runLoop({
+          engine,
+          model,
+          systemPrompt,
+          tools,
+          ...(productionContext ? { availableTools } : {}),
+          messages,
+          actions: actions!,
+          send,
+          signal: controller.signal,
+          onUsage: (next) => {
+            if (finished) return;
+            partialUsage = mergePartialUsage(partialUsage, next);
+          },
+          ...(productionContext
+            ? {
+                ownerEmail: productionContext.ownerEmail,
+                orgId: productionContext.orgId,
+                ...(productionContext.appId
+                  ? { appId: productionContext.appId }
+                  : {}),
+                actionCaller: "tool" as const,
+                finalResponseGuard: productionContext.finalResponseGuard,
+                finalResponseGuardRequestText: input.prompt,
+                runId,
+              }
+            : {}),
+        });
+      usage = await Promise.race([
+        productionContext
+          ? runWithRequestContext(
+              {
+                userEmail: productionContext.ownerEmail,
+                ...(productionContext.orgId
+                  ? { orgId: productionContext.orgId }
+                  : { orgScope: "personal" as const }),
+                isSyntheticTraffic: true,
+              },
+              run,
+            )
+          : run(),
+        timeout,
+      ]);
     } catch (err) {
       ok = false;
-      error = err instanceof Error ? err.message : String(err);
+      error = timedOut
+        ? timeoutError.message
+        : err instanceof Error
+          ? err.message
+          : String(err);
+      if (!controller.signal.aborted) controller.abort(err);
     } finally {
-      clearTimeout(timer);
+      finished = true;
+      if (timer) clearTimeout(timer);
     }
 
     return {
@@ -170,6 +310,7 @@ export async function createAgentRunner(
       error,
       runId,
       durationMs: Date.now() - started,
+      ...((usage ?? partialUsage) ? { usage: usage ?? partialUsage } : {}),
     };
   }
 
@@ -209,4 +350,237 @@ export async function createAgentRunner(
   }
 
   return { runAgent, analyzeContext, engine, model };
+}
+
+async function runProductionChatPath(args: {
+  productionChatPath: NonNullable<EvalProductionContext["productionChatPath"]>;
+  productionContext: EvalProductionContext;
+  input: EvalInput;
+  engine: AgentEngine;
+  model: string;
+  timeoutMs: number;
+}): Promise<AgentRunOutput> {
+  const started = Date.now();
+  const controller = new AbortController();
+  const timeoutError = new Error(
+    `Agent run timed out after ${args.timeoutMs} ms.`,
+  );
+  let timedOut = false;
+  let finished = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let partialUsage: AgentLoopUsage | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, args.timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([
+      runWithRequestContext(
+        {
+          userEmail: args.productionContext.ownerEmail,
+          orgId: args.productionContext.orgId!,
+          isSyntheticTraffic: true,
+        },
+        () =>
+          args.productionChatPath.run({
+            input: args.input,
+            identity: {
+              ownerEmail: args.productionContext.ownerEmail,
+              orgId: args.productionContext.orgId!,
+            },
+            engine: args.engine,
+            model: args.model,
+            signal: controller.signal,
+            onUsage: (usage) => {
+              if (!finished) {
+                partialUsage = mergePartialUsage(partialUsage, usage);
+              }
+            },
+          }),
+      ),
+      timeout,
+    ]);
+    const receiptError = validateProductionPathRun(
+      result,
+      args.productionContext,
+    );
+    const output = result.output;
+    const usage = output.usage ?? partialUsage;
+    if (!usage) {
+      return failedProductionPathOutput(
+        output,
+        "Production chat eval adapter did not return or report usage.",
+        Date.now() - started,
+      );
+    }
+    return {
+      ...output,
+      ok: output.ok && !receiptError,
+      ...(receiptError ? { error: receiptError } : {}),
+      runId: output.runId || `eval:${crypto.randomUUID()}`,
+      durationMs: Date.now() - started,
+      usage,
+    };
+  } catch (err) {
+    if (!controller.signal.aborted) controller.abort(err);
+    return {
+      text: "",
+      toolCalls: [],
+      ok: false,
+      error: timedOut
+        ? timeoutError.message
+        : err instanceof Error
+          ? err.message
+          : String(err),
+      runId: `eval:${crypto.randomUUID()}`,
+      durationMs: Date.now() - started,
+      ...(partialUsage ? { usage: partialUsage } : {}),
+    };
+  } finally {
+    finished = true;
+    if (timer) clearTimeout(timer);
+    if (!controller.signal.aborted && timedOut) {
+      controller.abort(timeoutError);
+    }
+  }
+}
+
+function validateProductionPathRun(
+  result: EvalProductionPathRun,
+  context: EvalProductionContext,
+): string | undefined {
+  if (!result || typeof result !== "object" || !result.output) {
+    return "Production chat eval adapter returned no run output.";
+  }
+  const receipt = result.receipt;
+  if (
+    !receipt ||
+    receipt.productionAgentLoopInvoked !== true ||
+    receipt.requestPreparationInvoked !== true ||
+    receipt.systemPromptBuilt !== true ||
+    receipt.finalResponseGuardInstalled !== true ||
+    receipt.finalResponseGuardApplied !== true ||
+    receipt.usageCaptured !== true
+  ) {
+    return "Production chat eval adapter did not attest chat handling, request preparation, prompt assembly, final guard, and usage capture.";
+  }
+  if (
+    typeof receipt.ownerEmail !== "string" ||
+    typeof receipt.orgId !== "string" ||
+    !Array.isArray(receipt.initialToolNames) ||
+    !Array.isArray(receipt.availableActionNames) ||
+    !Array.isArray(receipt.readOnlyActionNames) ||
+    !receipt.initialToolNames.every((name) => typeof name === "string") ||
+    !receipt.availableActionNames.every((name) => typeof name === "string") ||
+    !receipt.readOnlyActionNames.every((name) => typeof name === "string") ||
+    typeof receipt.prefetchStatus !== "string" ||
+    !["ok", "empty", "timed_out", "failed"].includes(receipt.prefetchStatus)
+  ) {
+    return "Production chat eval adapter returned an incomplete setup receipt.";
+  }
+  if (receipt.prefetchStatus !== "ok" && receipt.prefetchStatus !== "empty") {
+    return `Production chat eval adapter reported unsuccessful prefetch status "${receipt.prefetchStatus}".`;
+  }
+  if (
+    receipt.ownerEmail.trim().toLowerCase() !==
+      context.ownerEmail.trim().toLowerCase() ||
+    receipt.orgId !== context.orgId
+  ) {
+    return "Production chat eval adapter returned a different owner or org context.";
+  }
+  const available = new Set(receipt.availableActionNames);
+  const readOnly = new Set(receipt.readOnlyActionNames);
+  const initial = new Set(receipt.initialToolNames);
+  if (
+    available.size === 0 ||
+    initial.size === 0 ||
+    [...available].some((name) => !readOnly.has(name)) ||
+    [...initial].some((name) => !available.has(name))
+  ) {
+    return "Production chat eval adapter exposed an empty or non-read-only action surface.";
+  }
+  return undefined;
+}
+
+function failedProductionPathOutput(
+  output: AgentRunOutput,
+  error: string,
+  durationMs: number,
+): AgentRunOutput {
+  return { ...output, ok: false, error, durationMs };
+}
+
+function validateProductionContext(
+  context: EvalProductionContext,
+): EvalProductionContext {
+  if (!context || typeof context !== "object") {
+    throw new Error(
+      "Production eval context is required. Add evals/production-context.ts and export resolveProductionEvalContext().",
+    );
+  }
+  if (
+    typeof context.systemPrompt !== "string" ||
+    !context.systemPrompt.trim()
+  ) {
+    throw new Error(
+      "Production eval context must provide the app's non-empty production system prompt.",
+    );
+  }
+  if (
+    typeof context.ownerEmail !== "string" ||
+    !context.ownerEmail.trim() ||
+    !("orgId" in context) ||
+    (context.orgId !== null &&
+      (typeof context.orgId !== "string" || !context.orgId.trim()))
+  ) {
+    throw new Error(
+      "Production eval context must provide an explicit ownerEmail and orgId (use null only for a deliberate personal-org scope).",
+    );
+  }
+  if (
+    !("finalResponseGuard" in context) ||
+    (context.finalResponseGuard !== null &&
+      typeof context.finalResponseGuard !== "function")
+  ) {
+    throw new Error(
+      "Production eval context must explicitly provide finalResponseGuard (null when the app has none).",
+    );
+  }
+  if (
+    !context.actions ||
+    typeof context.actions !== "object" ||
+    Object.keys(context.actions).length === 0
+  ) {
+    throw new Error(
+      "Production eval context must provide the app's production action registry.",
+    );
+  }
+  return context;
+}
+
+function mergePartialUsage(
+  total: AgentLoopUsage | undefined,
+  next: AgentLoopUsage,
+): AgentLoopUsage {
+  return {
+    inputTokens: (total?.inputTokens ?? 0) + next.inputTokens,
+    outputTokens: (total?.outputTokens ?? 0) + next.outputTokens,
+    cacheReadTokens: (total?.cacheReadTokens ?? 0) + next.cacheReadTokens,
+    cacheWriteTokens: (total?.cacheWriteTokens ?? 0) + next.cacheWriteTokens,
+    ...(typeof total?.builderCreditsUsed === "number" ||
+    typeof next.builderCreditsUsed === "number"
+      ? {
+          builderCreditsUsed:
+            (total?.builderCreditsUsed ?? 0) + (next.builderCreditsUsed ?? 0),
+        }
+      : {}),
+    engineName: next.engineName ?? total?.engineName,
+    model: next.model ?? total?.model ?? "unknown",
+    llmCalls: (total?.llmCalls ?? 0) + (next.llmCalls ?? 1),
+    usageReported: true,
+  };
 }
