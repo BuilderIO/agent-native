@@ -1638,7 +1638,12 @@ describe("useBuilderConnectFlow", () => {
 
     await flushAfterPaint();
 
-    expect(container.textContent).toContain("account-exists");
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
   });
 
   it("clears existing-account state while starting a normal sign-in", async () => {
@@ -1679,15 +1684,23 @@ describe("useBuilderConnectFlow", () => {
     });
     await flushAfterPaint();
 
-    expect(container.textContent).toContain("account-exists");
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
 
     act(() => {
       container.querySelector<HTMLButtonElement>("button")?.click();
     });
 
-    expect(container.textContent).toContain(
-      "connecting resolved no-account-exists",
-    );
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured connecting resolved no-account-exists");
     expect(
       container.querySelector('[data-testid="cancel-connect"]'),
     ).toBeTruthy();
@@ -1715,12 +1728,15 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain(
-      "connecting resolved account-exists",
-    );
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured connecting resolved account-exists");
   });
 
-  it("keeps existing-account mode when a login attempt is blocked", async () => {
+  it("keeps the existing-account path available when a login popup is blocked", async () => {
     vi.mocked(fetch).mockImplementation(async () =>
       jsonResponse({
         configured: false,
@@ -1747,13 +1763,23 @@ describe("useBuilderConnectFlow", () => {
     });
     await flushAfterPaint();
 
-    expect(container.textContent).toContain("account-exists");
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
 
     await act(async () => {
       container.querySelector("button")?.click();
     });
 
-    expect(container.textContent).toContain("account-exists");
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
     expect(container.textContent).toContain("Allow popups and try again.");
   });
 

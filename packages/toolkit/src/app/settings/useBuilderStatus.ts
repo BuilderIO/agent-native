@@ -1220,6 +1220,11 @@ export function useBuilderConnectFlow(
       const scopeForStart = startOptions?.scope ?? null;
       const provisionAccountForStart =
         startOptions?.provisionAccount ?? provisionAccount;
+      const restoreExistingAccount = () => {
+        if (!provisionAccountForStart && accountExists) {
+          setAccountExists(true);
+        }
+      };
       const targetGrantAtStart = scopeForStart
         ? connectionsRef.current.grants?.[scopeForStart]
         : undefined;
@@ -1449,6 +1454,7 @@ export function useBuilderConnectFlow(
         if (!openDesktopConnectUrl) {
           connectStartedAtRef.current = null;
           setConnecting(false);
+          restoreExistingAccount();
           setError(t("agentChat.settingsShell.builder.setupStartFailed"));
           return;
         }
@@ -1513,6 +1519,7 @@ export function useBuilderConnectFlow(
           if (!result?.ok) {
             connectStartedAtRef.current = null;
             setConnecting(false);
+            restoreExistingAccount();
             setError(
               result?.error ??
                 t("agentChat.settingsShell.builder.setupStartFailed"),
@@ -1533,6 +1540,7 @@ export function useBuilderConnectFlow(
           if (!embeddedWindow) {
             connectStartedAtRef.current = null;
             setConnecting(false);
+            restoreExistingAccount();
             setError(
               "Couldn't open Builder. Allow popups and try again.",
               "launch",
@@ -1588,6 +1596,7 @@ export function useBuilderConnectFlow(
             if (!mountedRef.current || openedByHost) return;
             connectStartedAtRef.current = null;
             setConnecting(false);
+            restoreExistingAccount();
             setError(
               t("agentChat.settingsShell.builder.setupHostFailed"),
               "launch",
@@ -1677,6 +1686,7 @@ export function useBuilderConnectFlow(
               }
               connectStartedAtRef.current = null;
               setConnecting(false);
+              restoreExistingAccount();
               setError(
                 "Couldn't navigate the Builder popup. Allow popups and try again.",
                 "launch",
@@ -1690,6 +1700,7 @@ export function useBuilderConnectFlow(
             if (!navigateBuilderConnectPopup(opened, trackedFreshUrl)) {
               connectStartedAtRef.current = null;
               setConnecting(false);
+              restoreExistingAccount();
               setError(
                 "Couldn't navigate the Builder popup. Allow popups and try again.",
                 "launch",
@@ -1714,6 +1725,7 @@ export function useBuilderConnectFlow(
       statusConnectUrl,
       trackingFlow,
       trackingSource,
+      accountExists,
     ],
   );
 
