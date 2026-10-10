@@ -295,7 +295,12 @@ describe("run failure telemetry privacy", () => {
       expect(JSON.stringify(events)).not.toContain("Jane Doe");
       expect(
         events.find((event) => event.name === "$ai_span")?.properties,
-      ).toMatchObject({ $ai_error: { terminal_code: "tool_error" } });
+      ).toMatchObject({
+        $ai_error: {
+          message: "Tool call failed (tool_error)",
+          terminal_code: "tool_error",
+        },
+      });
       expect(
         spans.find((span) => span.spanType === "tool_call")?.errorMessage,
       ).toContain(message);
