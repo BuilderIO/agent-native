@@ -1587,7 +1587,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.guards == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -1625,6 +1625,7 @@ jobs:
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
+          pnpm --filter @agent-native/otel build
 
       - name: Test unbounded read guards
         run: >-
@@ -1635,6 +1636,12 @@ jobs:
 
       - name: Run security guards
         run: pnpm guards
+
+      - name: Check the Slides interaction oracle against one full test run
+        working-directory: templates/slides
+        env:
+          VITEST_CONCURRENCY: 100%
+        run: pnpm oracle:ratchet
 
       - name: Run root script tests for this change
         if: ${{ !cancelled() && needs.change-scope.outputs.script_tests != '[]' && needs.change-scope.outputs.script_tests != '' }}
