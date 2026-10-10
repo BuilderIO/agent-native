@@ -3,6 +3,7 @@ import {
   hasActiveAgentRuns,
   selectAgentSuggestions,
   isCurrentAgentSuggestion,
+  splitAgentKitMessageContext,
   type AgentKitUploadDriver,
   type AgentThreadState,
 } from "@agent-native/agentkit";
@@ -2019,7 +2020,8 @@ const AgentKitAssistantChatBody = forwardRef<
   // Scoped to the thread that was submitted to. A reused surface can change
   // threadId mid-send, and the prior prompt must not show under the new thread.
   // Hidden only once this prompt's own message lands: another send appending
-  // first must not remove it.
+  // first must not remove it. Exact text, not containment, so a longer message
+  // that quotes the prompt is not taken for this one.
   const submittedMessageArrived =
     pendingUserSubmission !== null &&
     thread.messages
@@ -2030,7 +2032,8 @@ const AgentKitAssistantChatBody = forwardRef<
           message.parts.some(
             (part) =>
               part.type === "text" &&
-              part.text.includes(pendingUserSubmission.text.trim()),
+              splitAgentKitMessageContext(part.text).message.trim() ===
+                pendingUserSubmission.text.trim(),
           ),
       );
   const optimisticUserMessage: AgentMessage | null =

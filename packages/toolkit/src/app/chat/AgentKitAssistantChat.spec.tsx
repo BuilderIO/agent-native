@@ -1262,6 +1262,35 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.textContent).toContain("Summarize my inbox");
   });
 
+  it("does not take a longer message that quotes the prompt for its own", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    chatMocks.thread.messages = [
+      ...chatMocks.thread.messages,
+      {
+        id: "quoting-send",
+        role: "user",
+        parts: [{ type: "text", text: "Summarize my inbox, then archive it" }],
+        status: "complete",
+      },
+    ];
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).toContain("Summarize my inbox");
+  });
+
   it("copies the active run ID from its action menu", async () => {
     const props = baseProps();
     await mount(props);
