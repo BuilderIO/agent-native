@@ -8046,6 +8046,62 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
+  it("times out transport snapshot writes while waiting behind a stalled write", async () => {
+    let resolveFirstWrite: (() => void) | undefined;
+    let writeCount = 0;
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(() => {
+      writeCount += 1;
+      if (writeCount === 1) {
+        return new Promise<void>((resolve) => {
+          resolveFirstWrite = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+    await mount(baseProps({ createTransport: () => chatMocks.transport }));
+
+    vi.useFakeTimers();
+    try {
+      const persistThreadSnapshot = chatMocks.rootProps.transport
+        .persistThreadSnapshot as (input: unknown) => Promise<void>;
+      const input = {
+        threadId: "stalled-snapshot-queue-thread",
+        snapshot: { messages: [] },
+      };
+      const first = persistThreadSnapshot(input);
+      const firstResult = first.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await act(async () => {
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      const second = persistThreadSnapshot(input);
+      const secondResult = second.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+
+      expect(await firstResult).toMatchObject({ name: "TimeoutError" });
+      expect(await secondResult).toMatchObject({ name: "TimeoutError" });
+      expect(writeCount).toBe(1);
+
+      resolveFirstWrite?.();
+      await act(async () => {
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+      expect(writeCount).toBe(1);
+    } finally {
+      resolveFirstWrite?.();
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
   it("checkpoints changed snapshots during default transport runs", async () => {
     const onSaveThread = vi.fn().mockResolvedValue(true);
     const onMessageCountChange = vi.fn();
@@ -8439,6 +8495,10 @@ describe("AgentKitAssistantChat host behavior", () => {
 
       await act(async () => {
         resolveFirstSave?.(true);
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
         for (let i = 0; i < 16; i++) await Promise.resolve();
       });
       expect(saveOrder).toEqual([

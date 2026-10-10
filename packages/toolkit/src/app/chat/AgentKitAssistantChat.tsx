@@ -278,46 +278,41 @@ function enqueueThreadSnapshotPersistence<T>(
     resolveResult = resolve;
     rejectResult = reject;
   });
-  const start = () => {
-    const controller = new AbortController();
-    const abortFromCaller = () => controller.abort(context?.signal?.reason);
-    if (context?.signal?.aborted) abortFromCaller();
-    else
-      context?.signal?.addEventListener("abort", abortFromCaller, {
-        once: true,
-      });
-    const timeout = window.setTimeout(() => {
-      const error = new Error("Chat thread snapshot persistence timed out.");
-      error.name = "TimeoutError";
-      controller.abort(error);
-    }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
-    const rawOperation = Promise.resolve().then(() => {
-      if (controller.signal.aborted) throw abortError(controller.signal);
-      return persist({ ...context, signal: controller.signal });
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(context?.signal?.reason);
+  if (context?.signal?.aborted) abortFromCaller();
+  else
+    context?.signal?.addEventListener("abort", abortFromCaller, {
+      once: true,
     });
-    void runWithAbortSignal(controller.signal, () => rawOperation).then(
-      resolveResult,
-      rejectResult,
-    );
-    return rawOperation.finally(() => {
-      window.clearTimeout(timeout);
-      context?.signal?.removeEventListener("abort", abortFromCaller);
-    });
+  const timeout = window.setTimeout(() => {
+    const error = new Error("Chat thread snapshot persistence timed out.");
+    error.name = "TimeoutError";
+    controller.abort(error);
+  }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
+  const cleanup = () => {
+    window.clearTimeout(timeout);
+    context?.signal?.removeEventListener("abort", abortFromCaller);
   };
-  const operation = previous.then(start, start);
+  const operation = previous.then(() => {
+    if (controller.signal.aborted) throw abortError(controller.signal);
+    return persist({ ...context, signal: controller.signal });
+  });
   const settled = operation
     .then(
       () => undefined,
       () => undefined,
     )
     .then(() => {
+      cleanup();
       releaseThreadSnapshotQueueSlot(threadSnapshotPersistenceQueueSizes, key);
       if (threadSnapshotPersistenceQueues.get(key) === settled) {
         threadSnapshotPersistenceQueues.delete(key);
       }
     });
   threadSnapshotPersistenceQueues.set(key, settled);
-  void operation.catch(rejectResult);
+  const pending = runWithAbortSignal(controller.signal, () => operation);
+  void pending.then(resolveResult, rejectResult).then(cleanup, cleanup);
   return result;
 }
 
@@ -335,22 +330,16 @@ function enqueueThreadSnapshotSave<T>(
     resolveResult = resolve;
     rejectResult = reject;
   });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => {
+    const error = new Error("Chat thread snapshot persistence timed out.");
+    error.name = "TimeoutError";
+    controller.abort(error);
+  }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
+  const cleanup = () => window.clearTimeout(timeout);
   const operation = previous.then(() => {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => {
-      const error = new Error("Chat thread snapshot persistence timed out.");
-      error.name = "TimeoutError";
-      controller.abort(error);
-    }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
-    const rawOperation = Promise.resolve().then(() => {
-      if (controller.signal.aborted) throw abortError(controller.signal);
-      return save({ signal: controller.signal });
-    });
-    void runWithAbortSignal(controller.signal, () => rawOperation).then(
-      resolveResult,
-      rejectResult,
-    );
-    return rawOperation.finally(() => window.clearTimeout(timeout));
+    if (controller.signal.aborted) throw abortError(controller.signal);
+    return save({ signal: controller.signal });
   });
   const settled = operation
     .then(
@@ -358,13 +347,15 @@ function enqueueThreadSnapshotSave<T>(
       () => undefined,
     )
     .then(() => {
+      cleanup();
       releaseThreadSnapshotQueueSlot(threadSnapshotSaveQueueSizes, key);
       if (threadSnapshotSaveQueues.get(key) === settled) {
         threadSnapshotSaveQueues.delete(key);
       }
     });
   threadSnapshotSaveQueues.set(key, settled);
-  void operation.catch(rejectResult);
+  const pending = runWithAbortSignal(controller.signal, () => operation);
+  void pending.then(resolveResult, rejectResult).then(cleanup, cleanup);
   return result;
 }
 
