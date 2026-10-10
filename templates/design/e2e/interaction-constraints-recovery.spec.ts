@@ -9,15 +9,15 @@ import {
 
 import { appPath, cdpScreenshot, designFrame, gotoEditor } from "./helpers";
 
-const PLAY_ID = "tutorial-constraint-play";
+const PLAY_ID = "workflow-constraint-play";
 
 const CARD_HTML = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8"><title>Constraint recovery</title></head>
   <body style="margin:0;min-height:100vh;background:#fff">
-    <div data-agent-native-node-id="tutorial-card" data-agent-native-layer-name="Card"
+    <div data-agent-native-node-id="workflow-card" data-agent-native-layer-name="Card"
          style="position:absolute;left:24px;top:24px;width:384px;height:339px;padding:12px;box-sizing:border-box;background:#f3f4f6">
-      <div data-agent-native-node-id="tutorial-album-art" data-agent-native-layer-name="Album art"
+      <div data-agent-native-node-id="workflow-album-art" data-agent-native-layer-name="Album art"
            style="position:relative;width:360px;height:240px;background:#e6a26b">
         <div data-agent-native-node-id="${PLAY_ID}" data-agent-native-layer-name="Play button"
              style="position:absolute;left:308px;top:188px;width:40px;height:40px;border-radius:50%;background:#fff;color:#111">Play</div>
@@ -63,7 +63,7 @@ async function action(
 
 async function createCardDesign(page: Page): Promise<string> {
   const created = await action(page.request, "create-design", {
-    title: `Tutorial constraints recovery ${Date.now()}`,
+    title: `Workflow constraints recovery ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created.id ?? created.data?.id;
@@ -189,7 +189,7 @@ test("absolute-position constraint controls survive close, reopen, and reload", 
   });
 
   await page.exposeFunction(
-    "__reportTutorialConstraintUiSample",
+    "__reportWorkflowConstraintUiSample",
     async (sample: UiSample) => {
       diagnostics.uiSamples.push(sample);
       if (
@@ -208,9 +208,9 @@ test("absolute-position constraint controls survive close, reopen, and reload", 
   );
   await page.addInitScript(() => {
     const target = window as typeof window & {
-      __reportTutorialConstraintUiSample?: (sample: UiSample) => Promise<void>;
-      __lastTutorialConstraintUiState?: string;
-      __captureTutorialConstraintSkeleton?: boolean;
+      __reportWorkflowConstraintUiSample?: (sample: UiSample) => Promise<void>;
+      __lastWorkflowConstraintUiState?: string;
+      __captureWorkflowConstraintSkeleton?: boolean;
     };
     const sample = () => {
       const moveButton = Boolean(
@@ -226,11 +226,11 @@ test("absolute-position constraint controls survive close, reopen, and reload", 
         /\/design\//.test(location.pathname) &&
         !moveButton &&
         skeletonBlocks > 0;
-      const captureWindow = Boolean(target.__captureTutorialConstraintSkeleton);
+      const captureWindow = Boolean(target.__captureWorkflowConstraintSkeleton);
       const state = `${moveButton}:${skeletonBlocks}:${screenShells}:${skeleton}`;
-      if (state === target.__lastTutorialConstraintUiState) return;
-      target.__lastTutorialConstraintUiState = state;
-      void target.__reportTutorialConstraintUiSample?.({
+      if (state === target.__lastWorkflowConstraintUiState) return;
+      target.__lastWorkflowConstraintUiState = state;
+      void target.__reportWorkflowConstraintUiSample?.({
         at: new Date().toISOString(),
         url: location.href,
         moveButton,
@@ -258,9 +258,9 @@ test("absolute-position constraint controls survive close, reopen, and reload", 
     await page.evaluate(() => {
       (
         window as typeof window & {
-          __captureTutorialConstraintSkeleton?: boolean;
+          __captureWorkflowConstraintSkeleton?: boolean;
         }
-      ).__captureTutorialConstraintSkeleton = true;
+      ).__captureWorkflowConstraintSkeleton = true;
     });
 
     const constraintSequenceStartedAt = new Date().toISOString();
@@ -339,9 +339,9 @@ test("absolute-position constraint controls survive close, reopen, and reload", 
     await page.evaluate(() => {
       (
         window as typeof window & {
-          __captureTutorialConstraintSkeleton?: boolean;
+          __captureWorkflowConstraintSkeleton?: boolean;
         }
-      ).__captureTutorialConstraintSkeleton = false;
+      ).__captureWorkflowConstraintSkeleton = false;
     });
 
     await page.reload({ waitUntil: "domcontentloaded" });

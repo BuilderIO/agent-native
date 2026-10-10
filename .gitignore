@@ -102,7 +102,5 @@ packages/core/corpus.tmp-*/
 
 .pnpm-store/
 
-.fidelity-shots/
-
 e2e/beta/playwright-report/
 e2e/beta/test-results/

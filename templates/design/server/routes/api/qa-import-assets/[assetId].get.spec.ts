@@ -294,6 +294,8 @@ describe("GET /api/qa-import-assets/:assetId", () => {
       kind: "stream-response",
     });
 
+    expect(mockStat).toHaveBeenNthCalledWith(1, currentPath);
+    expect(mockStat).toHaveBeenNthCalledWith(2, previousPath);
     expect(mockCreateReadStream).toHaveBeenCalledWith(previousPath);
   });
 });

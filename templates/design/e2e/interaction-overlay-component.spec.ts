@@ -36,7 +36,7 @@ async function action(
 
 async function createDesign(request: APIRequestContext) {
   const created = await action(request, "create-design", {
-    title: `Overlay component tutorial ${Date.now()}`,
+    title: `Overlay component workflow ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created.id ?? created.data?.id ?? created.design?.id;

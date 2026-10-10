@@ -2153,31 +2153,6 @@ test.describe("multi-selection", () => {
         `by ${Math.round(measured!.chromeWidth)}px of chrome`,
     ).toBeCloseTo(measured!.contentWidth, -1);
   });
-
-  // Aspirational: no [data-smart-selection], [data-spacing-handle] or
-  // [data-smart-handle] exists in the app yet, so this remains a planned
-  // interaction rather than a guarded behavior.
-  test.fixme("Smart selection exposes spacing handles for evenly spaced layers", async ({
-    page,
-  }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await multiSelect(page, ["Kid One", "Kid Two", "Kid Three"]);
-    const box = (await node(page, "kid-2").boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(1200);
-
-    const handles = await page.evaluate(
-      () =>
-        document.querySelectorAll(
-          "[data-smart-selection],[data-spacing-handle],[data-smart-handle]",
-        ).length,
-    );
-    expect(
-      handles,
-      `The selected layers should expose spacing handles. None appeared.`,
-    ).toBeGreaterThan(0);
-  });
 });
 
 test.describe("frames versus groups", () => {
