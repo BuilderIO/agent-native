@@ -623,7 +623,7 @@ describe("text box creation", () => {
     expect(box.style.height).toBe("");
   });
 
-  it("gives a click-placed box neither height nor min-height (oracle G.textbox-new-resize-to-fit)", async () => {
+  it("gives a click-placed box neither height nor min-height", async () => {
     const editor = await mountEditor(FLOW_SLIDE, { textBoxMode: true });
 
     const box = draw(editor, { x: 100, y: 100 }, { x: 101, y: 100 });

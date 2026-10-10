@@ -177,6 +177,11 @@ describe("oracle schema rules", () => {
     );
   });
 
+  it("rejects an expect on a gap row, which no measurement checks", () => {
+    const gap = { ...validRow, status: "gap", confidence: "gap" };
+    expect(OracleRowSchema.safeParse(gap).success).toBe(false);
+  });
+
   it.each(["resize", "grab", "rotate"])(
     "rejects cursor %s, which the oracle channel does not report",
     (cursor) => {

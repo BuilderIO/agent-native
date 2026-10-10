@@ -30,11 +30,14 @@ export function readMarkdownLedger(markdown: string): MarkdownLedgerRow[] {
   let columns: ColumnIndex | undefined;
   let cellCount = 0;
   for (const line of markdown.split("\n")) {
-    if (!line.startsWith("|")) {
+    // An indented row is still a row. Skipping it would drop its expectation
+    // from the parity checks without any failure.
+    const row = line.trimStart();
+    if (!row.startsWith("|")) {
       columns = undefined;
       continue;
     }
-    const cells = line
+    const cells = row
       .split("|")
       .slice(1, -1)
       .map((cell) => cell.trim());

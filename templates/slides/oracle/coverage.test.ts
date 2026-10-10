@@ -31,6 +31,8 @@ const BaselineSchema = z.strictObject({
   unmeasuredIds: z.array(z.string()),
   // The gap file's ids, so deleting, adding or relabeling a gap row is a diff.
   gapIds: z.array(z.string()),
+  // The measured rows that carry an expect, so dropping one drops its parity check.
+  expectIds: z.array(z.string()),
   uncitedMeasured: z.array(z.string()),
   unknownNegativeInput: z.array(z.string()),
 });
@@ -133,6 +135,20 @@ describe("interaction oracle traceability", () => {
     ).toEqual(baseline.gapIds);
   });
 
+  it("keeps the expect-bearing rows equal to the baseline", () => {
+    const computed = sortedRowIds(
+      readOracleFile("interaction-oracle.json").rows.filter(
+        (row) => row.expect !== undefined,
+      ),
+      "the measured file",
+    );
+    const baseline = readBaseline();
+    expect(
+      computed,
+      driftMessage("expectIds", baseline.expectIds, computed, false),
+    ).toEqual(baseline.expectIds);
+  });
+
   it("cites only rows that exist in the oracle", () => {
     const dangling = [...cited.keys()].filter((id) => !rowIds.has(id));
     const lines = dangling.map(
@@ -141,6 +157,20 @@ describe("interaction oracle traceability", () => {
     expect(
       dangling,
       `Citations name oracle rows that do not exist:\n${lines.join("\n")}\nFix the id in the citing test title or check label.`,
+    ).toEqual([]);
+  });
+
+  it("cites no gap row, since a gap row is a claim that was never measured", () => {
+    const gapIds = new Set(
+      readOracleFile("interaction-oracle-gaps.json").rows.map((row) => row.id),
+    );
+    const citedGap = [...cited.keys()].filter((id) => gapIds.has(id)).sort();
+    const lines = citedGap.map(
+      (id) => `  ${id} (cited in ${(cited.get(id) ?? []).join(", ")})`,
+    );
+    expect(
+      citedGap,
+      `Test titles cite gap rows, which are never measured:\n${lines.join("\n")}\nCut the gap id from the title; a gap row is not coverage.`,
     ).toEqual([]);
   });
 
@@ -172,6 +202,7 @@ describe("interaction oracle traceability", () => {
     const baseline = readBaseline();
     const lists = {
       gapIds: baseline.gapIds,
+      expectIds: baseline.expectIds,
       uncitedMeasured: baseline.uncitedMeasured,
       unknownNegativeInput: baseline.unknownNegativeInput,
     };

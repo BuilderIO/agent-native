@@ -98,6 +98,13 @@ describe("readMarkdownLedger", () => {
     );
   });
 
+  it("reads an indented row rather than skipping its expectation", () => {
+    const rows = readMarkdownLedger(
+      table("  | 1.5 | hover on the border | move | screen-px | high |"),
+    );
+    expect(rows.map((row) => row.id)).toEqual(["1.5"]);
+  });
+
   it("throws on a row that appears before any ledger header", () => {
     expect(() => readMarkdownLedger("| 1.5 | a | b | c | high |")).toThrow(
       /header/,

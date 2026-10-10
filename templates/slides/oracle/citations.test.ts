@@ -546,6 +546,15 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual([]);
   });
 
+  it("counts a focus called through a computed string member or a cast object", () => {
+    const source = [
+      `it["only"]("focused (oracle 9.4)", () => {});`,
+      `(it as any).only("cast (oracle 9.6)", () => {});`,
+      `it("snaps (oracle 9.5)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.4", "9.6"]);
+  });
+
   it("counts ordinary tests when a focus sits inside a hook, which runs at test time", () => {
     const source = [
       `beforeEach(() => { it.only("never runs", () => {}); });`,

@@ -62,21 +62,26 @@ export const OracleExpectSchema = z
     },
   );
 
-export const OracleRowSchema = z.strictObject({
-  id: z.string().regex(ORACLE_ID_PATTERN),
-  family: z.string().min(1),
-  familyName: z.string().min(1),
-  probe: z.string().min(1),
-  result: z.string().min(1),
-  notes: z.string(),
-  confidence: z.enum(ORACLE_CONFIDENCE_VALUES),
-  confidenceNote: z.string().min(1).optional(),
-  status: z.enum(ORACLE_STATUS_VALUES),
-  claim: z.enum(ORACLE_CLAIM_VALUES),
-  inputPath: z.enum(ORACLE_INPUT_PATH_VALUES),
-  source: z.string().min(1).optional(),
-  expect: OracleExpectSchema.optional(),
-});
+export const OracleRowSchema = z
+  .strictObject({
+    id: z.string().regex(ORACLE_ID_PATTERN),
+    family: z.string().min(1),
+    familyName: z.string().min(1),
+    probe: z.string().min(1),
+    result: z.string().min(1),
+    notes: z.string(),
+    confidence: z.enum(ORACLE_CONFIDENCE_VALUES),
+    confidenceNote: z.string().min(1).optional(),
+    status: z.enum(ORACLE_STATUS_VALUES),
+    claim: z.enum(ORACLE_CLAIM_VALUES),
+    inputPath: z.enum(ORACLE_INPUT_PATH_VALUES),
+    source: z.string().min(1).optional(),
+    expect: OracleExpectSchema.optional(),
+  })
+  // A gap row was never measured, so no measurement checks an expect on it.
+  .refine((row) => row.status !== "gap" || row.expect === undefined, {
+    message: "a gap row cannot carry an expect, since nothing measured it",
+  });
 
 export const OracleFileSchema = z.strictObject({
   schemaVersion: z.literal(1),

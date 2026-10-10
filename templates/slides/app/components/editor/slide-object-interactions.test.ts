@@ -1401,7 +1401,7 @@ describe("slide object interactions", () => {
     },
   );
 
-  it("uses Shift aspect locking for corners and midpoint handles (oracle 10.2, oracle G.kbd-resize-keep-aspect)", () => {
+  it("uses Shift aspect locking for corners and midpoint handles (oracle 10.2)", () => {
     expect(
       resizeSlideObject(
         { x: 100, y: 50, width: 200, height: 100 },
@@ -2093,7 +2093,7 @@ describe("slide object interactions", () => {
     expect(applied.get("b")).toEqual({ x: 130, y: 30, width: 50, height: 50 });
   });
 
-  it("snaps object edges and centers to nearby peer anchors and returns guides (oracle 9.2, oracle 9.3, oracle G.snap-to-guides)", () => {
+  it("snaps object edges and centers to nearby peer anchors and returns guides (oracle 9.2, oracle 9.3)", () => {
     const result = snapSlideObjectMove({
       moving: { x: 100, y: 160, width: 80, height: 40 },
       deltaX: 17,
@@ -2114,7 +2114,7 @@ describe("slide object interactions", () => {
     });
   });
 
-  it("snaps both axes to slide anchors, ignores distant targets, and bypasses with Cmd/Ctrl (oracle 9.3, oracle 9.6, oracle G.kbd-suppress-guides)", () => {
+  it("snaps both axes to slide anchors, ignores distant targets, and bypasses with Cmd/Ctrl (oracle 9.3, oracle 9.6)", () => {
     const snapped = snapSlideObjectMove({
       moving: { x: 4, y: 3, width: 80, height: 40 },
       deltaX: -4,
@@ -2137,7 +2137,7 @@ describe("slide object interactions", () => {
     expect(bypassed).toEqual({ deltaX: -4, deltaY: -3, guides: [] });
   });
 
-  it("aligns selected members to their shared bounds without changing size (oracle G.arrange-align-edges)", () => {
+  it("aligns selected members to their shared bounds without changing size", () => {
     const members = [
       {
         objectId: "a",
@@ -2172,7 +2172,7 @@ describe("slide object interactions", () => {
     });
   });
 
-  it("distributes three or more selected members with equal edge gaps (oracle G.arrange-distribute)", () => {
+  it("distributes three or more selected members with equal edge gaps", () => {
     const members = [
       {
         objectId: "a",
@@ -2645,7 +2645,7 @@ describe("slide object groups and rotation", () => {
     expect(resolveSelectionOwner(byId("loose"), root)).toBe(byId("loose"));
   });
 
-  it("groups absolute siblings into one durable wrapper and ungroups at its stack position (oracle 7.8, oracle G.arrange-group)", () => {
+  it("groups absolute siblings into one durable wrapper and ungroups at its stack position (oracle 7.8)", () => {
     const parent = document.createElement("div");
     const first = createFreeformObject("first", { zIndex: 0 });
     const second = createFreeformObject("second", { zIndex: 0 });
@@ -3224,7 +3224,7 @@ describe("slide object groups and rotation", () => {
     expect(readSlideObjectRotation(element)).toBeCloseTo(angle + 15);
   });
 
-  it("normalizes pointer rotation across the angle boundary and snaps only with Shift (oracle 10.7, oracle G.kbd-rotate-mouse-15deg-steps)", () => {
+  it("normalizes pointer rotation across the angle boundary and snaps only with Shift (oracle 10.7)", () => {
     const center = { x: 0, y: 0 };
     const pointAt = (angle: number) => ({
       x: Math.cos((angle * Math.PI) / 180),
@@ -3668,7 +3668,7 @@ describe("resolveFitTextBoxResize", () => {
     }
   });
 
-  it("2.10: Alt resizes width about the centre and moves the top edge (oracle H.10, oracle 10.3, oracle G.kbd-resize-from-center)", () => {
+  it("2.10: Alt resizes width about the centre and moves the top edge (oracle H.10, oracle 10.3)", () => {
     const start = { x: 899.1, y: 328.6, width: 530, height: 370 };
     const next = resize("se", start, 61, 41, { alt: true });
     expect(next.width).toBe(652);
@@ -4170,7 +4170,7 @@ describe("object interaction geometry hardening", () => {
     for (const guide of guides) expect(guide.position).toBe(504);
   });
 
-  it("does not snap to equal spacing when Cmd/Ctrl bypasses snapping (gs-truth 9.6; oracle 9.6, oracle G.kbd-suppress-guides)", () => {
+  it("does not snap to equal spacing when Cmd/Ctrl bypasses snapping (gs-truth 9.6; oracle 9.6)", () => {
     const result = snapSlideObjectMove({
       moving: { x: 450, y: 115, width: 100, height: 40 },
       deltaX: 51,

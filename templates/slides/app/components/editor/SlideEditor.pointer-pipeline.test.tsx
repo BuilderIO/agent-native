@@ -1546,7 +1546,7 @@ describe("SlideEditor pointer pipeline Alt-drag of a multi-selection", () => {
     }));
   };
 
-  it("leaves the originals and drops selected copies at the drag delta (oracle 4.11, oracle G.kbd-duplicate-drag)", async () => {
+  it("leaves the originals and drops selected copies at the drag delta (oracle 4.11)", async () => {
     const { editor, updates } = await mountSelectedPair();
 
     editor.press("callout", { x: 85, y: 262 }, { altKey: true });

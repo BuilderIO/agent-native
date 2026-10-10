@@ -644,17 +644,35 @@ function memberChain(node: unknown): string[] | undefined {
   if (value.type === "Identifier" && typeof value.value === "string") {
     return [value.value];
   }
-  if (value.type === "MemberExpression" && value.computed !== true) {
+  if (
+    VALUE_WRAPPERS.has(String(value.type)) ||
+    value.type === "TsNonNullExpression"
+  ) {
+    return memberChain(value.expression);
+  }
+  if (value.type === "MemberExpression") {
     const object = memberChain(value.object);
-    const property = value.property as AstNode | undefined;
-    if (
-      object === undefined ||
-      property?.type !== "Identifier" ||
-      typeof property.value !== "string"
-    ) {
-      return undefined;
-    }
-    return [...object, property.value];
+    const name = memberName(value);
+    if (object === undefined || name === undefined) return undefined;
+    return [...object, name];
   }
   return undefined;
+}
+
+/**
+ * The name a member expression reads: `.only`, or the string in `["only"]`.
+ * swc wraps a computed key in a Computed node and records no computed flag on
+ * the member, so the wrapper is what marks it.
+ */
+function memberName(member: AstNode): string | undefined {
+  const property = member.property as AstNode | undefined;
+  if (property?.type === "Computed") {
+    const key = property.expression as AstNode | undefined;
+    return key?.type === "StringLiteral" && typeof key.value === "string"
+      ? key.value
+      : undefined;
+  }
+  return property?.type === "Identifier" && typeof property.value === "string"
+    ? property.value
+    : undefined;
 }
