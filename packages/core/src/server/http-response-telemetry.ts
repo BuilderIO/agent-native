@@ -27,7 +27,10 @@ import {
   type TrackingEventScope,
 } from "../observability/tracing.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
-import { getAppBasePathFromViteEnv } from "./app-base-path.js";
+import {
+  getAppBasePathFromViteEnv,
+  stripAppBasePath,
+} from "./app-base-path.js";
 import { httpRouteForRequest } from "./http-route.js";
 
 const REQUEST_ID_HEADER = "x-agent-native-request-id";
@@ -249,8 +252,9 @@ export function normalizeHttpTelemetryPath(pathname: string): string {
 
 function shouldRecordRequestSpan(pathname: string): boolean {
   if (shouldDisableTelemetry()) return false;
-  if (isTrackingIngestPath(pathname)) return false;
-  return !pathname.startsWith("/api/analytics/replay");
+  const appPath = stripAppBasePath(pathname, getAppBasePathFromViteEnv());
+  if (isTrackingIngestPath(appPath)) return false;
+  return !appPath.startsWith("/api/analytics/replay");
 }
 
 function responseStatusCode(event: H3Event, response?: Response): number {
@@ -304,9 +308,9 @@ async function emitTelemetry(
       const span = await startAgentSpan(
         "http.server",
         {
-          "http.method": getMethod(event),
+          "http.request.method": getMethod(event),
           "http.route": route,
-          "http.status_code": statusCode,
+          "http.response.status_code": statusCode,
           "agent.cold_start": state.requestSequence === 1,
           "agent.framework_ready_wait_ms": Math.round(
             state.frameworkReadyWaitMs,
@@ -318,7 +322,7 @@ async function emitTelemetry(
         state.startedAt,
       );
       endAgentSpan(span, {
-        status: statusCode >= 500 ? "error" : "success",
+        status: statusCode >= 500 ? "error" : "unset",
         endTime,
       });
       // coercion-ok: optional OTel export must never affect request handling.

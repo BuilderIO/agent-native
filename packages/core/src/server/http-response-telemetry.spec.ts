@@ -10,7 +10,6 @@ import {
   __resetAgentTracerCache,
   __setAgentTracerForTests,
   SPAN_STATUS_ERROR,
-  SPAN_STATUS_OK,
 } from "../observability/tracing.js";
 import {
   getHttpRequestTelemetryId,
@@ -149,9 +148,9 @@ describe("http response telemetry", () => {
     expect(spans[0]).toMatchObject({
       name: "http.server",
       attributes: {
-        "http.method": "GET",
+        "http.request.method": "GET",
         "http.route": "/_agent-native/actions/:action",
-        "http.status_code": 201,
+        "http.response.status_code": 201,
         "agent.cold_start": true,
         "agent.framework_ready_wait_ms": 12,
         "agent.db_operation_count": 2,
@@ -242,7 +241,7 @@ describe("http response telemetry", () => {
     });
   });
 
-  it("records a 4xx action response as an http.server span with success status", async () => {
+  it("records a 4xx action response as an http.server span with unset status", async () => {
     const spans = captureSpans();
     const { requestHooks, responseHooks } = createHooks();
     const event = eventFor("/_agent-native/actions/get-visual-plan");
@@ -259,10 +258,10 @@ describe("http response telemetry", () => {
       name: "http.server",
       attributes: {
         "http.route": "/_agent-native/actions/:action",
-        "http.status_code": 403,
+        "http.response.status_code": 403,
       },
-      status: { code: SPAN_STATUS_OK },
     });
+    expect(spans[0]?.status).toBeUndefined();
   });
 
   it("marks a 5xx action response as an error span", async () => {
@@ -275,7 +274,7 @@ describe("http response telemetry", () => {
     await responseHooks[0](new Response("boom", { status: 500 }), event);
 
     expect(spans[0]).toMatchObject({
-      attributes: { "http.status_code": 500 },
+      attributes: { "http.response.status_code": 500 },
       status: { code: SPAN_STATUS_ERROR },
     });
   });
@@ -317,7 +316,7 @@ describe("http response telemetry", () => {
 
     expect(spans[0]?.attributes).toMatchObject({
       "http.route": "/_agent-native/actions/:action",
-      "http.status_code": 404,
+      "http.response.status_code": 404,
     });
     expect(JSON.stringify(spans[0]?.attributes)).not.toContain(
       "unknown-customer-value",
@@ -345,9 +344,32 @@ describe("http response telemetry", () => {
       name: "http.server",
       attributes: {
         "http.route": "/mcp/tool/:action",
-        "http.status_code": 401,
+        "http.response.status_code": 401,
       },
     });
+  });
+
+  it("applies analytics exclusions to base-path-mounted requests", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/analytics");
+    const spans = captureSpans();
+    const { requestHooks, responseHooks } = createHooks();
+    processState.requestSequence = 5;
+
+    for (const path of [
+      "/analytics/track",
+      "/analytics/api/analytics/track",
+      "/analytics/api/analytics/replay/session-1",
+    ]) {
+      const event = eventFor(path);
+      await requestHooks[0](event);
+      await responseHooks[0](new Response("", { status: 202 }), event);
+    }
+    expect(spans).toHaveLength(0);
+
+    const event = eventFor("/analytics/api/dashboards");
+    await requestHooks[0](event);
+    await responseHooks[0](new Response("ok"), event);
+    expect(spans).toHaveLength(1);
   });
 
   it("does not start an http.server span for analytics ingestion requests", async () => {
@@ -652,7 +674,7 @@ describe("http response telemetry", () => {
       ]);
       expect(spanAttributes[0]).toMatchObject({
         "http.route": "/_agent-native/agent-chat/runs/:runId/events",
-        "http.status_code": 401,
+        "http.response.status_code": 401,
       });
     } finally {
       unregister();

@@ -352,7 +352,7 @@ export function withAgentSpanContext<T>(
 export function endAgentSpan(
   span: AgentSpan | null,
   result: {
-    status?: "success" | "error";
+    status?: "success" | "error" | "unset";
     errorMessage?: string | null;
     attributes?: Record<string, AgentSpanAttributeValue | null | undefined>;
     endTime?: number;
@@ -371,7 +371,7 @@ export function endAgentSpan(
       if (result.errorMessage) {
         span.recordException({ message: result.errorMessage });
       }
-    } else {
+    } else if (result.status !== "unset") {
       span.setStatus({ code: SPAN_STATUS_OK });
     }
   } catch {
