@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pathForCommand } from "./use-navigation-state";
+import { pathForCommand } from "../app/hooks/use-navigation-state";
 
 describe("pathForCommand", () => {
   it("keeps explicit home navigation at /home when a thread id is present", () => {
