@@ -3,6 +3,7 @@ export interface FixtureInputSnapshot {
   edit: string;
   present: Record<string, number>;
   selectionCollapsed: boolean | null;
+  markerCountsTruncated: boolean;
 }
 
 export interface FixtureInputBucket {
@@ -34,15 +35,21 @@ export function captureFixtureInput(args: {
   const root = document.querySelector(args.editor);
   if (!root) return null;
   const present: Record<string, number> = {};
+  let markerCountsTruncated = false;
   const pattern = new RegExp(`zq${marker[1]}([AB][1-9]\\d{0,2})x`, "g");
   for (const match of (root.textContent ?? "").matchAll(pattern)) {
-    if (!(match[1] in present) && Object.keys(present).length >= 32) continue;
+    if (!(match[1] in present) && Object.keys(present).length >= 32) {
+      markerCountsTruncated = true;
+      continue;
+    }
+    if ((present[match[1]] ?? 0) >= 32) markerCountsTruncated = true;
     present[match[1]] = Math.min(32, (present[match[1]] ?? 0) + 1);
   }
   return {
     phase: args.phase,
     edit: marker[2],
     present,
+    markerCountsTruncated,
     selectionCollapsed: window.getSelection()?.isCollapsed ?? null,
   };
 }
@@ -58,6 +65,7 @@ export function parseFixtureInput(value: unknown): FixtureInputSnapshot | null {
     !data.present ||
     typeof data.present !== "object" ||
     Array.isArray(data.present) ||
+    typeof data.markerCountsTruncated !== "boolean" ||
     !(
       data.selectionCollapsed === null ||
       typeof data.selectionCollapsed === "boolean"
@@ -80,6 +88,7 @@ export function parseFixtureInput(value: unknown): FixtureInputSnapshot | null {
     phase: data.phase as FixtureInputSnapshot["phase"],
     edit: data.edit,
     present: Object.fromEntries(entries),
+    markerCountsTruncated: data.markerCountsTruncated,
     selectionCollapsed: data.selectionCollapsed as boolean | null,
   };
 }

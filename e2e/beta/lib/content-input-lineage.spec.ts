@@ -18,6 +18,7 @@ test("bounded input lineage explicitly reports discarded snapshots", () => {
     edit: "A5",
     present: { A5: 1 },
     selectionCollapsed: true,
+    markerCountsTruncated: false,
   };
   for (let index = 0; index < 32; index++) appendFixtureInput(bucket, snapshot);
   assert.equal(bucket.inputLineage.length, 32);
@@ -28,13 +29,14 @@ test("bounded input lineage explicitly reports discarded snapshots", () => {
 });
 
 test("input lineage retains only bounded fixture presence and caret state", () => {
+  let textContent = "private body zq1234A1x zq1234A3x zq1234A3x zq5678B2x";
   const oldDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
   const oldWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   Object.defineProperty(globalThis, "document", {
     configurable: true,
     value: {
       querySelector: () => ({
-        textContent: "private body zq1234A1x zq1234A3x zq1234A3x zq5678B2x",
+        textContent,
       }),
     },
   });
@@ -54,6 +56,7 @@ test("input lineage retains only bounded fixture presence and caret state", () =
       phase: "before-input",
       edit: "A5",
       present: { A1: 1, A3: 2 },
+      markerCountsTruncated: false,
       selectionCollapsed: false,
     });
     const serialized = JSON.stringify(snapshot);
@@ -67,6 +70,27 @@ test("input lineage retains only bounded fixture presence and caret state", () =
         editor: ".fixture",
       }),
       null,
+    );
+    textContent = Array.from({ length: 33 }, () => "zq1234A1x").join(" ");
+    assert.equal(
+      captureFixtureInput({
+        phase: "after-input",
+        text: " zq1234A5x",
+        editor: ".fixture",
+      })?.markerCountsTruncated,
+      true,
+    );
+    textContent = Array.from(
+      { length: 33 },
+      (_, index) => `zq1234A${index + 1}x`,
+    ).join(" ");
+    assert.equal(
+      captureFixtureInput({
+        phase: "after-input",
+        text: " zq1234A5x",
+        editor: ".fixture",
+      })?.markerCountsTruncated,
+      true,
     );
   } finally {
     if (oldDocument) Object.defineProperty(globalThis, "document", oldDocument);
@@ -82,6 +106,7 @@ test("browser reports cannot persist arbitrary fields or unbounded markers", () 
     edit: "A5",
     present: { A3: 1, A5: 1 },
     selectionCollapsed: true,
+    markerCountsTruncated: false,
   };
   assert.deepEqual(
     parseFixtureInput({ ...valid, secret: "do not retain" }),
@@ -100,6 +125,7 @@ test("browser reports cannot persist arbitrary fields or unbounded markers", () 
       ),
     },
     { ...valid, selectionCollapsed: "private selection" },
+    { ...valid, markerCountsTruncated: "private metadata" },
   ])
     assert.equal(parseFixtureInput(invalid), null);
 });
