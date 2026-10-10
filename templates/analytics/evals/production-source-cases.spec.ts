@@ -96,6 +96,27 @@ describe("Analytics synthetic production source evals", () => {
     expect(report).toMatchObject({ total: 4, passed: 4, failed: 0 });
   });
 
+  it("accepts the complete user-organization membership row unit", async () => {
+    const report = await runEvals(
+      [cases[0]!],
+      runnerFor({
+        text: [
+          "dbt_mart.dim_users_core: one row per user",
+          "dbt_mart.dim_organizations: one row per organization",
+          "dbt_intermediate.user_organization_role: one row per user-organization membership",
+          "user organization membership",
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:membership-row-unit-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 1, failed: 0 });
+  });
+
   it("fails closed on an aborted or failed production run, even with matching text", async () => {
     const report = await runEvals(
       [cases[0]!],

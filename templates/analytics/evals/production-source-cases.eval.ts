@@ -106,6 +106,16 @@ export const sourceContracts = {
 
 const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+const PHRASE_EDGE = String.raw`[\p{L}\p{N}_/\p{Pd}]`;
+
+function findCompletePhraseIndex(text: string, phrase: string): number {
+  const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(
+    `(?<!${PHRASE_EDGE})${escapedPhrase}(?!${PHRASE_EDGE})`,
+    "u",
+  ).exec(text);
+  return match?.index ?? -1;
+}
 
 function hasRelationGrainClaim(
   lines: string[],
@@ -125,13 +135,15 @@ function hasRelationGrainClaim(
     const competingGrain = allClaims.some(
       (candidate) =>
         candidate.grains[0]?.toLowerCase() !== expectedGrain &&
-        candidate.grains.some((grain) => line.includes(grain.toLowerCase())),
+        candidate.grains.some(
+          (grain) => findCompletePhraseIndex(line, grain.toLowerCase()) >= 0,
+        ),
     );
     if (competingGrain) return false;
 
     return claim.grains.some((grain) => {
       const phrase = grain.toLowerCase();
-      const index = line.indexOf(phrase);
+      const index = findCompletePhraseIndex(line, phrase);
       if (index < 0) return false;
       const clauseStart = Math.max(
         line.lastIndexOf(";", index),

@@ -1,4 +1,5 @@
 import { access } from "node:fs/promises";
+import { createRequire } from "node:module";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -349,21 +350,39 @@ function guardProductionEvalOutput(
   };
 }
 
-let productionEvalTypeScriptLoader: Promise<void> | undefined;
+const productionEvalTypeScriptLoaders = new Map<string, Promise<void>>();
 
-async function ensureProductionEvalTypeScriptLoader(): Promise<void> {
-  productionEvalTypeScriptLoader ??= import("tsx/esm/api")
-    .then(({ register }) => {
-      register();
-    })
-    .catch((cause) => {
-      productionEvalTypeScriptLoader = undefined;
-      throw new Error(
-        "Production eval adapters require the app's TypeScript loader `tsx`.",
-        { cause },
-      );
-    });
-  await productionEvalTypeScriptLoader;
+async function ensureProductionEvalTypeScriptLoader(
+  cwd: string,
+): Promise<void> {
+  let loaderPath: string;
+  try {
+    loaderPath = createRequire(nodePath.join(cwd, "package.json")).resolve(
+      "tsx/esm/api",
+    );
+  } catch (cause) {
+    throw new Error(
+      "Production eval adapters require the app's TypeScript loader `tsx`.",
+      { cause },
+    );
+  }
+
+  let loader = productionEvalTypeScriptLoaders.get(loaderPath);
+  if (!loader) {
+    loader = import(pathToFileURL(loaderPath).href)
+      .then(({ register }) => {
+        register();
+      })
+      .catch((cause) => {
+        productionEvalTypeScriptLoaders.delete(loaderPath);
+        throw new Error(
+          "Production eval adapters require the app's TypeScript loader `tsx`.",
+          { cause },
+        );
+      });
+    productionEvalTypeScriptLoaders.set(loaderPath, loader);
+  }
+  await loader;
 }
 
 export async function loadProductionEvalContext(
@@ -387,7 +406,7 @@ export async function loadProductionEvalContext(
     );
   }
 
-  await ensureProductionEvalTypeScriptLoader();
+  await ensureProductionEvalTypeScriptLoader(cwd);
 
   const module = (await import(pathToFileURL(adapterPath).href)) as Record<
     string,

@@ -221,6 +221,7 @@ export default function DataDictionary() {
         of: number;
         truncated: boolean;
         nextPage: string | null;
+        sourceIndexStatus?: SourceIndexStatus["status"];
       }
     | undefined;
 
@@ -330,6 +331,12 @@ export default function DataDictionary() {
               {t("dataDictionary.indexStale", {
                 days: indexStatus.ageDays,
               })}
+            </span>
+          ) : null}
+          {dictionaryPage?.sourceIndexStatus === "unavailable" ||
+          dictionaryPage?.sourceIndexStatus === "invalid" ? (
+            <span className="ms-2 font-medium text-amber-700 dark:text-amber-400">
+              {t("dataDictionary.generatedEntriesMayBeMissing")}
             </span>
           ) : null}
           {indexError ? (

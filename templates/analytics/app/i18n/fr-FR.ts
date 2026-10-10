@@ -630,6 +630,8 @@ export default {
     indexUnreadable:
       "Impossible de lire l’index enregistré ; importez à nouveau un fichier valide.",
     indexReadFailed: "Impossible de vérifier l’index enregistré. Réessayez.",
+    generatedEntriesMayBeMissing:
+      "Des entrées de sources générées peuvent manquer ; les entrées enregistrées restent disponibles.",
     indexReady: "{{count}} définitions de sources générées le {{date}}.",
     indexStale:
       "Cet instantané date de {{days}} jours. Actualisez-le pour vérifier les révisions plus récentes.",

@@ -607,6 +607,8 @@ export default {
       "저장된 소스 인덱스를 읽을 수 없습니다. 유효한 파일을 다시 가져오세요.",
     indexReadFailed:
       "저장된 소스 인덱스를 확인하지 못했습니다. 다시 시도하세요.",
+    generatedEntriesMayBeMissing:
+      "생성된 소스 항목이 누락되었을 수 있습니다. 저장된 항목은 계속 사용할 수 있습니다.",
     indexReady: "{{count}}개의 소스 정의가 {{date}}에 생성되었습니다.",
     indexStale:
       "스냅샷이 {{days}}일 지났습니다. 최신 소스 리비전이 있는지 확인하려면 새로고침하세요.",

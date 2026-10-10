@@ -385,13 +385,16 @@ function dashboardPanelCandidates(args: {
       titleSpecificityPenalty -
       missingQueryPenalty +
       aggregateIntent;
-    if (relevanceScore <= 0) return [];
+    if (rawScore <= 0) return [];
+    const adjustedRelevanceScore = Math.max(1, relevanceScore);
     const dashboardCertified = Boolean(
       args.dashboardUpdatedAt &&
       isDashboardCertified(args.certification, args.dashboardUpdatedAt),
     );
     const score =
-      relevanceScore + (dashboardCertified ? 60 : 0) + (args.favorite ? 20 : 0);
+      adjustedRelevanceScore +
+      (dashboardCertified ? 60 : 0) +
+      (args.favorite ? 20 : 0);
 
     return [
       {

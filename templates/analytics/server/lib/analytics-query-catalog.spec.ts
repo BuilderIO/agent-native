@@ -530,6 +530,41 @@ describe("analytics query catalog", () => {
     expect(results[0]).toMatchObject({ panelId: "quarterly-bookings" });
   });
 
+  it("keeps a partially relevant panel when title penalties exceed its raw match", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search:
+        "monthly active users signups by plan for quarter enterprise adoption retention",
+      limit: 6,
+      dictionaryEntries: [],
+      dashboards: [
+        {
+          id: "d1",
+          title: "Overview",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "monthly-churn-by-region",
+                title: "Monthly Churn by Region Customer Segment",
+                source: "bigquery",
+                sql: "SELECT user_id, event_name FROM usage_by_plan",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        kind: "dashboard-panel",
+        panelId: "monthly-churn-by-region",
+        matchedTerms: expect.arrayContaining(["monthly", "user"]),
+      }),
+    );
+    expect(results[0]?.score).toBeGreaterThan(0);
+  });
+
   it("does not return explicitly retired catalog references", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "account usage",

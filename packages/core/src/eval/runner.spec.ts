@@ -1,4 +1,12 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1114,8 +1122,34 @@ describe("runEvalSuite runner creation", () => {
   it("loads TypeScript production adapters with JavaScript module specifiers", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "agent-native-eval-adapter-"));
     const evalDir = join(cwd, "evals");
+    const tsxApiDir = join(cwd, "node_modules", "tsx", "esm");
+    const loaderRegistered = join(cwd, "loader-registered");
     try {
-      await mkdir(evalDir);
+      await mkdir(evalDir, { recursive: true });
+      await mkdir(tsxApiDir, { recursive: true });
+      const realTsxApiPath = createRequire(import.meta.url).resolve(
+        "tsx/esm/api",
+      );
+      await writeFile(
+        join(cwd, "node_modules", "tsx", "package.json"),
+        JSON.stringify({
+          name: "tsx",
+          type: "module",
+          exports: { "./esm/api": "./esm/api.mjs" },
+        }),
+      );
+      await writeFile(
+        join(tsxApiDir, "api.mjs"),
+        [
+          'import { createRequire } from "node:module";',
+          'import { writeFileSync } from "node:fs";',
+          `const realApi = createRequire(import.meta.url)(${JSON.stringify(realTsxApiPath)});`,
+          "export function register() {",
+          `  writeFileSync(${JSON.stringify(loaderRegistered)}, "registered");`,
+          "  realApi.register();",
+          "}",
+        ].join("\n"),
+      );
       await writeFile(
         join(evalDir, "context-value.ts"),
         'export const contextValue = "loaded-through-tsx";\n',
@@ -1143,6 +1177,9 @@ describe("runEvalSuite runner creation", () => {
       });
 
       expect(context.systemPrompt).toBe("loaded-through-tsx");
+      await expect(readFile(loaderRegistered, "utf8")).resolves.toBe(
+        "registered",
+      );
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

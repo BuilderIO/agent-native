@@ -581,6 +581,8 @@ export default {
     indexNotImported: "尚未导入生成的来源索引。",
     indexUnreadable: "无法读取已保存的来源索引；请重新导入有效文件。",
     indexReadFailed: "无法检查已保存的来源索引，请重试。",
+    generatedEntriesMayBeMissing:
+      "生成的来源条目可能缺失；已保存的条目仍可用。",
     indexReady: "{{count}} 条来源定义，生成于 {{date}}。",
     indexStale:
       "此快照已有 {{days}} 天。请刷新以检查是否有更新的来源修订版本。",

@@ -6,6 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   entries: [] as Array<Record<string, unknown>>,
+  sourceIndexStatus: "available" as
+    | "available"
+    | "not-configured"
+    | "unavailable"
+    | "invalid",
   mutateAsync: vi.fn(async () => ({ success: true })),
   useActionQuery: vi.fn((name: string) => ({
     data:
@@ -16,6 +21,7 @@ const mocks = vi.hoisted(() => ({
             of: mocks.entries.length,
             truncated: false,
             nextPage: null,
+            sourceIndexStatus: mocks.sourceIndexStatus,
           }
         : undefined,
     isLoading: false,
@@ -31,8 +37,13 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) =>
-    key === "dataDictionary.deprecated" ? "deprecated" : key,
+  useT: () => (key: string) => {
+    if (key === "dataDictionary.deprecated") return "deprecated";
+    if (key === "dataDictionary.generatedEntriesMayBeMissing") {
+      return "Generated source entries may be missing; saved entries are still available.";
+    }
+    return key;
+  },
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
@@ -157,6 +168,7 @@ describe("DataDictionary", () => {
   let root: Root;
 
   beforeEach(() => {
+    mocks.sourceIndexStatus = "available";
     mocks.entries = [
       {
         id: "index-model-deprecated",
@@ -198,6 +210,36 @@ describe("DataDictionary", () => {
     expect(badges).toContain("deprecated");
     expect(badges).not.toContain("active");
   });
+
+  it.each(["unavailable", "invalid"] as const)(
+    "warns when the generated source index is %s",
+    async (sourceIndexStatus) => {
+      mocks.sourceIndexStatus = sourceIndexStatus;
+
+      await act(async () => {
+        root.render(<DataDictionary />);
+      });
+
+      expect(container.textContent).toContain(
+        "Generated source entries may be missing; saved entries are still available.",
+      );
+    },
+  );
+
+  it.each(["available", "not-configured"] as const)(
+    "does not show an index warning when the source index is %s",
+    async (sourceIndexStatus) => {
+      mocks.sourceIndexStatus = sourceIndexStatus;
+
+      await act(async () => {
+        root.render(<DataDictionary />);
+      });
+
+      expect(container.textContent).not.toContain(
+        "Generated source entries may be missing; saved entries are still available.",
+      );
+    },
+  );
 
   it("passes the deprecated lifecycle through the edit save", async () => {
     await act(async () => {
