@@ -211,4 +211,40 @@ describe("titleCitations counts only test titles", () => {
     ].join("\n");
     expect(titleCitations(source, "a.test.ts")).toEqual([]);
   });
+
+  it("ignores a citation on an each table with no cases", () => {
+    expect(
+      titleCitations(
+        `it.each([])("moves %s (oracle 1.6)", () => {});`,
+        "a.test.ts",
+      ),
+    ).toEqual([]);
+  });
+
+  it("ignores a citation on an each table it cannot read as literal cases", () => {
+    expect(
+      titleCitations(
+        `it.each(shapes)("moves %s (oracle 1.7)", () => {});`,
+        "a.test.ts",
+      ),
+    ).toEqual([]);
+  });
+
+  it("counts a citation on an each table with literal cases", () => {
+    expect(
+      titleCitations(
+        `it.each(["a", "b"])("moves %s (oracle 1.8)", () => {});`,
+        "a.test.ts",
+      ),
+    ).toEqual(["1.8"]);
+  });
+
+  it("counts a citation on an each table written as a const assertion", () => {
+    expect(
+      titleCitations(
+        `it.each([["a"], ["b"]] as const)("moves %s (oracle 1.9)", () => {});`,
+        "a.test.ts",
+      ),
+    ).toEqual(["1.9"]);
+  });
 });

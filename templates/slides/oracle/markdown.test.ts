@@ -257,6 +257,23 @@ describe("diffLedgerExpectations", () => {
     expect(problems).toHaveLength(1);
   });
 
+  it("rejects an object hit expectation whose only selection is negated", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("3.5", "nothing selected")],
+      [jsonRow({ id: "3.5", expect: { hit: "object" } })],
+    );
+    expect(problems).toHaveLength(1);
+  });
+
+  it("rejects a nothing hit expectation that a mixed result contradicts", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("3.6", "nothing created; selects Beta")],
+      [jsonRow({ id: "3.6", expect: { hit: "nothing" } })],
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/is contradicted by the result/);
+  });
+
   it("rejects a cursor expectation whose name is only negated", () => {
     const problems = diffLedgerExpectations(
       [markdownResult("1.1", "not default, a hover cursor")],

@@ -121,8 +121,19 @@ const HIT_WORDING: Record<NonNullable<OracleExpect["hit"]>, RegExp> = {
   sibling: /\bsibling\b|\bneighbou?r\b/i,
 };
 
+// The outcome words a result must not affirm alongside the expected hit. A
+// result that asserts both "nothing" and "selects" cannot be read as either.
+const HIT_CONTRADICTIONS: Record<NonNullable<OracleExpect["hit"]>, RegExp> = {
+  nothing: /\bselects?\b|\bcaret\b|\bedit\b/i,
+  object: /\bnothing\b|\bdeselect/i,
+  group: /\bchild\b|\bnothing\b|\bdeselect/i,
+  text: /\bnothing\b|\bdeselect/i,
+  child: /\bgroup\b|\bnothing\b|\bdeselect/i,
+  sibling: /\bnothing\b|\bdeselect/i,
+};
+
 const OUTLINE = /\boutline\b/i;
-const NEGATION = /\b(?:no|not|never|nor|without|neither|none)\b/i;
+const NEGATION = /\b(?:no|not|never|nor|without|neither|none|nothing)\b/i;
 const CLAUSE_BREAK = [";", ",", ".", "(", ")"];
 
 /**
@@ -177,13 +188,18 @@ export function diffLedgerExpectations(
         `${json.id}: cursor "${expect.cursor}" is not named in the result`,
       );
     }
-    if (
-      expect.hit !== undefined &&
-      !statesPattern(md.result, HIT_WORDING[expect.hit], "affirmed")
-    ) {
-      problems.push(
-        `${json.id}: hit "${expect.hit}" is not described in the result`,
-      );
+    if (expect.hit !== undefined) {
+      if (!statesPattern(md.result, HIT_WORDING[expect.hit], "affirmed")) {
+        problems.push(
+          `${json.id}: hit "${expect.hit}" is not described in the result`,
+        );
+      } else if (
+        statesPattern(md.result, HIT_CONTRADICTIONS[expect.hit], "affirmed")
+      ) {
+        problems.push(
+          `${json.id}: hit "${expect.hit}" is contradicted by the result`,
+        );
+      }
     }
     if (expect.outlineVisible !== undefined) {
       const polarity = expect.outlineVisible ? "affirmed" : "negated";

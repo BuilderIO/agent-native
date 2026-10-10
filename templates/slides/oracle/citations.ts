@@ -17,6 +17,12 @@ const TEST_MODIFIERS = new Set([
   "skipIf",
   "runIf",
 ]);
+const TABLE_WRAPPERS = new Set([
+  "TsAsExpression",
+  "TsConstAssertion",
+  "TsSatisfiesExpression",
+  "ParenthesisExpression",
+]);
 // A declaration with one of these modifiers may not run, so it cannot be
 // evidence that a row is covered. Its descendants are excluded too.
 const NOT_RUNNABLE = new Set(["skip", "todo", "skipIf", "runIf"]);
@@ -96,6 +102,10 @@ function collectExpression(
   if (node.type !== "CallExpression") return;
   const declaration = testDeclaration(node.callee);
   if (declaration === undefined) return;
+  // A table-driven declaration registers one test per case. A table that is not
+  // a non-empty array literal cannot be shown to register any, so it is not
+  // evidence that a row is covered.
+  if (!tableHasCases(node.callee as AstNode)) return;
   const skipped =
     scope.skipped || declaration.modifiers.some((m) => NOT_RUNNABLE.has(m));
   const hasOnly = declaration.modifiers.includes("only");
@@ -138,6 +148,25 @@ function collectCallback(
   } else {
     collectExpression(body, scope, out);
   }
+}
+
+/**
+ * True for a plain declaration, and for a table-driven one only when its table
+ * is a non-empty array literal. The table is the argument of the callee call:
+ * it.each([...])("title", fn) has the table call as its callee.
+ */
+function tableHasCases(callee: AstNode): boolean {
+  if (callee.type !== "CallExpression") return true;
+  let table = argumentsOf(callee)[0]?.expression as AstNode | undefined;
+  // `as const` and similar wrappers do not change the cases in the table.
+  while (table !== undefined && TABLE_WRAPPERS.has(String(table.type))) {
+    table = table.expression as AstNode | undefined;
+  }
+  return (
+    table?.type === "ArrayExpression" &&
+    Array.isArray(table.elements) &&
+    table.elements.length > 0
+  );
 }
 
 function argumentsOf(call: AstNode): AstNode[] {
