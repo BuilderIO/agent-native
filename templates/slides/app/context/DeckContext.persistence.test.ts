@@ -767,7 +767,10 @@ function setupFetch(options?: {
   // The client coalesces same-tick GETs into one batch POST. Answer each item
   // through this same mock, so every logical call is still recorded in the mock.
   const fetchMock = vi.fn(
-    async (url: string | URL | Request, init?: RequestInit) => {
+    async (
+      url: string | URL | Request,
+      init?: RequestInit,
+    ): Promise<Response> => {
       const href =
         typeof url === "string"
           ? url
@@ -781,9 +784,13 @@ function setupFetch(options?: {
         const { requests } = JSON.parse(String(init.body)) as {
           requests: Array<{ action: string; query: string }>;
         };
-        const results = await Promise.all(
+        const results: Array<{
+          status: number;
+          body?: unknown;
+          error?: unknown;
+        }> = await Promise.all(
           requests.map(async ({ action, query }) => {
-            const res = await fetchMock(
+            const res: Response = await fetchMock(
               `/_agent-native/actions/${action}${query ? `?${query}` : ""}`,
               { method: "GET" },
             );
