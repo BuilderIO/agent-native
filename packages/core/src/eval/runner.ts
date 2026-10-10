@@ -265,6 +265,14 @@ export async function runEvalSuite(
   opts: RunEvalSuiteOptions = {},
 ): Promise<{ report: EvalRunReport; files: string[] }> {
   const cwd = opts.cwd ?? process.cwd();
+  let productionContext = opts.productionContext;
+  if (opts.requireProductionChatPath) {
+    if (!productionContext) {
+      productionContext = await loadProductionEvalContext(cwd, opts.identity);
+    } else if (!opts.evals) {
+      await ensureProductionEvalTypeScriptLoader(cwd);
+    }
+  }
 
   let files: string[] = [];
   let evals = opts.evals;
@@ -285,9 +293,9 @@ export async function runEvalSuite(
 
   let runner = opts.runner;
   if (opts.requireProductionChatPath) {
-    const productionContext =
-      opts.productionContext ??
-      (await loadProductionEvalContext(cwd, opts.identity));
+    if (!productionContext) {
+      throw new Error("Production-path evals require a production context.");
+    }
     requireProductionChatPath(productionContext);
     if (runner) {
       throw new Error(

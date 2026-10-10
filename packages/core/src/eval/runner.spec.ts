@@ -1119,7 +1119,7 @@ describe("runEvalSuite runner creation", () => {
     ).rejects.toThrow("Production eval adapter is missing");
   });
 
-  it("loads TypeScript production adapters with JavaScript module specifiers", async () => {
+  it("registers the app TypeScript loader before importing production eval files", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "agent-native-eval-adapter-"));
     const evalDir = join(cwd, "evals");
     const tsxApiDir = join(cwd, "node_modules", "tsx", "esm");
@@ -1160,23 +1160,62 @@ describe("runEvalSuite runner creation", () => {
           'import { contextValue } from "./context-value.js";',
           "export function resolveProductionEvalContext(identity) {",
           "  return {",
-          "    actions: {},",
+          "    actions: { search: { readOnly: true } },",
           "    systemPrompt: contextValue,",
-          "    finalResponseGuard: null,",
+          "    finalResponseGuard: () => null,",
           "    ownerEmail: identity.ownerEmail,",
           "    orgId: identity.orgId,",
-          "    productionChatPath: { run: async () => ({}) },",
+          "    productionChatPath: {",
+          "      async run({ identity, onUsage }) {",
+          '        onUsage({ inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, model: "fake-model" });',
+          "        return {",
+          '          output: { text: contextValue, toolCalls: [], ok: true, runId: "eval:loader-order", durationMs: 1 },',
+          "          receipt: {",
+          "            productionAgentLoopInvoked: true,",
+          "            requestPreparationInvoked: true,",
+          "            systemPromptBuilt: true,",
+          "            finalResponseGuardInstalled: true,",
+          "            finalResponseGuardApplied: true,",
+          "            usageCaptured: true,",
+          '            prefetchStatus: "ok",',
+          "            ownerEmail: identity.ownerEmail,",
+          "            orgId: identity.orgId,",
+          '            initialToolNames: ["search"],',
+          '            availableActionNames: ["search"],',
+          '            readOnlyActionNames: ["search"],',
+          "          },",
+          "        };",
+          "      },",
+          "    },",
           "  };",
           "}",
         ].join("\n"),
       );
+      await writeFile(
+        join(evalDir, "loader-order.eval.ts"),
+        [
+          'import { readFileSync } from "node:fs";',
+          'import { contextValue } from "./context-value.js";',
+          `if (readFileSync(${JSON.stringify(loaderRegistered)}, "utf8") !== "registered") {`,
+          '  throw new Error("The app TypeScript loader was not registered before eval import.");',
+          "}",
+          "export const loaderOrderEval = {",
+          '  name: "loader-order",',
+          '  input: { prompt: "load app context" },',
+          '  scorers: [{ name: "context-loaded", generateScore(output) { return output.text === contextValue ? 1 : 0; } }],',
+          "};",
+        ].join("\n"),
+      );
 
-      const context = await loadProductionEvalContext(cwd, {
-        ownerEmail: "eval@example.com",
-        orgId: "org-eval",
+      const result = await runEvalSuite({
+        cwd,
+        identity: { ownerEmail: "eval@example.com", orgId: "org-eval" },
+        requireProductionChatPath: true,
+        persist: false,
       });
 
-      expect(context.systemPrompt).toBe("loaded-through-tsx");
+      expect(result.report).toMatchObject({ total: 1, passed: 1, failed: 0 });
+      expect(result.files).toContain(join(evalDir, "loader-order.eval.ts"));
       await expect(readFile(loaderRegistered, "utf8")).resolves.toBe(
         "registered",
       );
