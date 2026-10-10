@@ -2175,7 +2175,7 @@ describe("createBuilderEngine", () => {
     expect(stop?.providerRetryable).toBeUndefined();
   });
 
-  it("maps invalid_request stops into a non-retryable error stop preserving the gateway message and code", async () => {
+  it("keeps invalid_request stop reasons terminal when the message looks transient", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -2185,7 +2185,7 @@ describe("createBuilderEngine", () => {
             reason: "invalid_request",
             requestId: "req_bad_history",
             error:
-              "messages.87: `tool_use` ids were found without `tool_result` blocks immediately after: history_tc_80.",
+              "The request timed out while the upstream provider was temporarily unavailable.",
             errorCode: "tool_message_shape_invalid",
           },
         ]),
@@ -2198,13 +2198,11 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("tool_message_shape_invalid");
-    expect(stop?.error).toContain("history_tc_80");
-    expect(stop?.error?.toLowerCase()).not.toMatch(
-      /rate_limit|overloaded|503|504|gateway error|socket hang up|connection reset|too many requests|timeout/,
-    );
+    expect(stop?.error).toContain("temporarily unavailable");
+    expect(stop?.providerRetryable).toBe(false);
   });
 
-  it("marks no-detail gateway stop errors as retryable gateway errors", async () => {
+  it("marks unclassified no-detail gateway stop errors as retryable", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -2224,7 +2222,65 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_error");
-    expect(stop?.error).toContain("Gateway error (no detail");
+    expect(stop?.error).toBe("Gateway error (no detail)");
+  });
+
+  it("marks no-detail transient gateway codes as retryable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "overloaded_error",
+            requestId: "req_overloaded",
+            privateDiagnostic: "must not be surfaced",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((event) => event.type === "stop");
+    expect(stop).toMatchObject({
+      reason: "error",
+      errorCode: "overloaded_error",
+      error: "Gateway error (no detail)",
+      providerRetryable: true,
+    });
+    expect(JSON.stringify(stop)).not.toContain("must not be surfaced");
+  });
+
+  it("keeps no-detail invalid_request gateway errors terminal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            code: "invalid_request",
+            requestId: "req_invalid_request",
+            privateDiagnostic: "must not be surfaced",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop).toMatchObject({
+      reason: "error",
+      errorCode: "invalid_request",
+      error: "Gateway error (no detail)",
+      providerRetryable: false,
+      requestId: "req_invalid_request",
+    });
+    expect(JSON.stringify(stop)).not.toContain("must not be surfaced");
   });
 
   it("omits named run errors from gateway transport Monitoring payloads", async () => {
@@ -2313,6 +2369,7 @@ describe("createBuilderEngine", () => {
             type: "stop",
             reason: "error",
             requestId: "req_no_detail",
+            privateDiagnostic: "must not be captured",
           },
         ]),
       ),
@@ -2330,6 +2387,7 @@ describe("createBuilderEngine", () => {
     expect(capturedCtx?.tags?.gatewayRequestId).toBe("req_no_detail");
     expect(capturedCtx?.tags?.source).toBe("builder-engine");
     expect(capturedCtx?.extra?.gatewayOrigin).toBe("https://test.example");
+    expect(JSON.stringify(capturedCtx)).not.toContain("must not be captured");
     expect(capturedCtx?.contexts?.builderGateway?.requestId).toBe(
       "req_no_detail",
     );

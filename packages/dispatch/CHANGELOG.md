@@ -1,5 +1,33 @@
 # @agent-native/dispatch
 
+## 0.40.19
+
+### Patch Changes
+
+- 0889356: Redirect the deprecated Dispatch integrations route into Settings and preserve mounted OAuth return paths.
+- a19c641: Send the Dispatch origin to embedded workspace apps so their chat controls can open the host sidebar.
+- df48a4e: Bind cross-app embed-session tokens to the active organization ID while preserving the authenticated user identity.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [e88f35c]
+- Updated dependencies [80e66f8]
+- Updated dependencies [58b7507]
+- Updated dependencies [58b7507]
+- Updated dependencies [0889356]
+- Updated dependencies [3f0fe0f]
+- Updated dependencies [e174642]
+- Updated dependencies [d6f1e18]
+- Updated dependencies
+- Updated dependencies [792ba44]
+- Updated dependencies [8f0ffa5]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [be0d784]
+- Updated dependencies [68deb1e]
+- Updated dependencies [af7acb9]
+- Updated dependencies [217260d]
+- Updated dependencies [6e9fccf]
+  - @agent-native/toolkit@0.206.0
+
 ## 0.40.18
 
 ### Patch Changes
@@ -1187,11 +1215,5 @@
 
 - 6bdf1f7: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
 - 6bdf1f7: Resolve workspace embed pages from an app's canonical home URL instead of a deep A2A link, and allow extensions rendered in the hosted workspace to load in their parent frame.
-
-## 0.27.12
-
-### Patch Changes
-
-- febb983: Retry workspace embed-session minting with the shared A2A secret when a target rejects org-secret authentication, with redacted mint diagnostics. Keep SSO fanout limited to canonical and explicitly registered own-origin apps; path-mounted workspace apps remain same-origin with Dispatch and keep their existing ambient session behavior, so this narrows fanout targets but is not origin isolation.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -106,8 +106,12 @@ export interface RequestContext {
   userEmail?: string;
   /** Keep data-source credentials within the selected org, not the user. */
   credentialScope?: "org";
+  /** Provenance set only after a stored org service token is verified. */
+  verifiedServiceIdentity?: { userEmail: string; orgId: string };
   identityAuthenticatedAtMs?: number;
   identitySessionToken?: string;
+  /** Signed MCP credential issue time, used to revoke derived widget grants. */
+  mcpCredentialIssuedAtMs?: number | null;
   authUserId?: string;
   agentRunAnonymous?: boolean;
   userName?: string;
@@ -179,6 +183,36 @@ export interface RequestContext {
 }
 
 const EXPLICIT_PERSONAL_ORG_SCOPE_KEY = "__anExplicitPersonalOrgScope";
+const VERIFIED_SERVICE_IDENTITY_EVENT_KEY = "__anVerifiedServiceIdentity";
+
+type RequestContextEvent = { context?: Record<string, unknown> };
+
+export function markVerifiedServiceIdentityForEvent(
+  event: RequestContextEvent,
+  identity: { userEmail: string; orgId: string },
+): void {
+  const context = (event.context ??= {});
+  context[VERIFIED_SERVICE_IDENTITY_EVENT_KEY] = identity;
+}
+
+export function getVerifiedServiceIdentityFromEvent(
+  event: RequestContextEvent,
+): { userEmail: string; orgId: string } | undefined {
+  const identity = event.context?.[VERIFIED_SERVICE_IDENTITY_EVENT_KEY] as
+    | { userEmail?: unknown; orgId?: unknown }
+    | undefined;
+  const userEmail = identity?.userEmail;
+  const orgId = identity?.orgId;
+  if (
+    typeof userEmail !== "string" ||
+    !userEmail.trim() ||
+    typeof orgId !== "string" ||
+    !orgId.trim()
+  ) {
+    return undefined;
+  }
+  return { userEmail: userEmail.trim(), orgId: orgId.trim() };
+}
 
 export function markExplicitPersonalOrgScope(event: {
   context?: Record<string, unknown>;
@@ -361,6 +395,18 @@ export function runWithRequestContext<T>(
       Number.isFinite(context.identityAuthenticatedAtMs)
         ? context.identityAuthenticatedAtMs
         : undefined;
+    const inheritedMcpCredentialIssuedAtMs =
+      inheritedUserEmail === contextUserEmail &&
+      typeof inheritedContext?.mcpCredentialIssuedAtMs === "number" &&
+      Number.isSafeInteger(inheritedContext?.mcpCredentialIssuedAtMs)
+        ? inheritedContext.mcpCredentialIssuedAtMs
+        : undefined;
+    const contextMcpCredentialIssuedAtMs =
+      typeof context.mcpCredentialIssuedAtMs === "number" &&
+      Number.isSafeInteger(context.mcpCredentialIssuedAtMs)
+        ? context.mcpCredentialIssuedAtMs
+        : undefined;
+    const clearMcpCredentialIssuedAt = context.mcpCredentialIssuedAtMs === null;
     const inheritedSessionToken =
       inheritedUserEmail === contextUserEmail &&
       typeof inheritedContext?.identitySessionToken === "string"
@@ -373,17 +419,35 @@ export function runWithRequestContext<T>(
         inheritedAuthTime !== undefined
           ? Math.min(inheritedAuthTime, contextAuthTime ?? inheritedAuthTime)
           : (contextAuthTime ?? Date.now()),
+      ...(clearMcpCredentialIssuedAt
+        ? { mcpCredentialIssuedAtMs: null }
+        : inheritedMcpCredentialIssuedAtMs !== undefined ||
+            contextMcpCredentialIssuedAtMs !== undefined
+          ? {
+              mcpCredentialIssuedAtMs:
+                inheritedUserEmail === contextUserEmail &&
+                inheritedMcpCredentialIssuedAtMs !== undefined
+                  ? Math.min(
+                      inheritedMcpCredentialIssuedAtMs,
+                      contextMcpCredentialIssuedAtMs ??
+                        inheritedMcpCredentialIssuedAtMs,
+                    )
+                  : contextMcpCredentialIssuedAtMs,
+            }
+          : {}),
       ...(context.identitySessionToken === undefined && inheritedSessionToken
         ? { identitySessionToken: inheritedSessionToken }
         : {}),
     };
   } else if (
     context.identityAuthenticatedAtMs !== undefined ||
-    context.identitySessionToken !== undefined
+    context.identitySessionToken !== undefined ||
+    context.mcpCredentialIssuedAtMs !== undefined
   ) {
     const contextWithoutIdentityTime = { ...context };
     delete contextWithoutIdentityTime.identityAuthenticatedAtMs;
     delete contextWithoutIdentityTime.identitySessionToken;
+    delete contextWithoutIdentityTime.mcpCredentialIssuedAtMs;
     context = contextWithoutIdentityTime;
   }
   if (

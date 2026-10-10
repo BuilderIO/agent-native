@@ -201,7 +201,7 @@ describe("IntegrationDetailPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders Figma like the prototype: logo breadcrumb, prompts, callout, and both groups", async () => {
+  it("renders the Figma integration detail page with its logo, prompts, callout, and groups", async () => {
     vi.stubGlobal("__AGENT_NATIVE_CONFIG__", { template: "design" });
     await render("figma");
 

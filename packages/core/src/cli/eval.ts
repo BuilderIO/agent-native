@@ -2,11 +2,16 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
+import { registerBuiltinEngines } from "../agent/engine/index.js";
+import { loadEnv } from "../scripts/utils.js";
+
 export type EvalRunCliArgs = {
   command: "run";
   pattern?: string;
   json: boolean;
   threshold?: number;
+  ownerEmail?: string;
+  orgId?: string;
 };
 
 export type EvalPromoteCliArgs = {
@@ -14,6 +19,7 @@ export type EvalPromoteCliArgs = {
   runId: string;
   write?: string;
   json: boolean;
+  reviewedPrompt: string;
   mustContain?: string;
   datasetName?: string;
 };
@@ -52,16 +58,23 @@ function printHelp(): void {
   console.log(`agent-native eval — run agent evals as a CI deploy gate
 
 Usage:
-  agent-native eval [pattern] [--json] [--threshold N]
-  agent-native eval promote <runId> [--write path] [--json] [--must-contain text]
+  agent-native eval [pattern] --owner-email email --org-id id [--json] [--threshold N]
+  agent-native eval promote <runId> --reviewed-prompt text [--write path]
+    [--json] [--must-contain text]
 
 Discovers **/*.eval.ts and evals/*.ts under the current app, runs the agent
 for each eval input, scores the output with the eval's scorers, and exits
 non-zero if any eval scores below its threshold (so it gates CI/deploys).
+Production evals require explicit --owner-email and --org-id values plus an
+evals/production-context.ts adapter that prepares the production prompt and
+invokes the shared production agent loop with its read-only action surface.
+Identity is never inferred from environment or app configuration. This command
+does not persist eval results.
 
-promote maps a completed production run into a defineEval case, persists an
-EvalDataset row, and optionally writes a *.eval.ts the CI gate already
-discovers. The hosted action never writes files. Repeating a promotion
+promote maps a completed production run into a defineEval case using the
+required manually reviewed prompt, persists an EvalDataset row, and optionally
+writes a *.eval.ts the CI gate already discovers. The hosted action never
+writes files. Repeating a promotion
 returns the existing dataset for the same owner and run. The CLI uses the
 signed-in account (or AGENT_USER_EMAIL) so it shares that dataset with the
 dashboard. A run whose event history exceeds the promotion limit is refused
@@ -77,10 +90,15 @@ Arguments:
 
 Options:
   --json             Emit a machine-readable JSON report (for CI).
+  --owner-email      Explicit user identity for the eval request.
+  --org-id           Explicit organization identity for the eval request.
   --threshold N      Override every eval's pass threshold (0..1).
   --write path       Write a loadable *.eval.ts for the promoted case.
+  --reviewed-prompt  Required manually reviewed prompt; production prompt text
+                     is never copied.
   --must-contain txt Optional contains() needle for the promoted case.
-  --dataset-name n   Optional EvalDataset name (defaults to from-trace:<runId>).
+  --dataset-name n   Optional privacy-screened EvalDataset name
+                     (defaults to from-trace:<opaque reference>).
   -h, --help         Show this help.
 
 Authoring (evals/example.eval.ts):
@@ -99,6 +117,7 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
     let runId: string | undefined;
     let write: string | undefined;
     let json = false;
+    let reviewedPrompt: string | undefined;
     let mustContain: string | undefined;
     let datasetName: string | undefined;
 
@@ -124,6 +143,12 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
         i = containVal.next;
         continue;
       }
+      const promptVal = takeValue(argv, i, "--reviewed-prompt");
+      if (promptVal) {
+        reviewedPrompt = promptVal.value;
+        i = promptVal.next;
+        continue;
+      }
       const datasetVal = takeValue(argv, i, "--dataset-name");
       if (datasetVal) {
         datasetName = datasetVal.value;
@@ -139,6 +164,12 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
       console.error("eval promote: <runId> is required");
       process.exit(2);
     }
+    if (!reviewedPrompt?.trim()) {
+      console.error(
+        "eval promote: --reviewed-prompt is required and must not be empty",
+      );
+      process.exit(2);
+    }
     if (write !== undefined && write.length === 0) {
       console.error("eval promote: --write requires a path");
       process.exit(2);
@@ -148,6 +179,7 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
       command: "promote",
       runId,
       json,
+      reviewedPrompt,
       ...(write ? { write } : {}),
       ...(mustContain ? { mustContain } : {}),
       ...(datasetName ? { datasetName } : {}),
@@ -157,11 +189,25 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
   let pattern: string | undefined;
   let json = false;
   let threshold: number | undefined;
+  let ownerEmail: string | undefined;
+  let orgId: string | undefined;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
     if (arg === "--json") {
       json = true;
+    } else if (arg === "--owner-email" || arg.startsWith("--owner-email=")) {
+      const ownerValue = takeValue(argv, i, "--owner-email");
+      if (ownerValue) {
+        ownerEmail = ownerValue.value.trim();
+        i = ownerValue.next;
+      }
+    } else if (arg === "--org-id" || arg.startsWith("--org-id=")) {
+      const orgValue = takeValue(argv, i, "--org-id");
+      if (orgValue) {
+        orgId = orgValue.value.trim();
+        i = orgValue.next;
+      }
     } else if (arg === "--threshold" && argv[i + 1] !== undefined) {
       threshold = Number(argv[++i]);
     } else if (arg.startsWith("--threshold=")) {
@@ -182,7 +228,19 @@ export function parseEvalArgs(argv: string[]): ParsedEvalArgs {
     process.exit(2);
   }
 
-  return { command: "run", pattern, json, threshold };
+  if (Boolean(ownerEmail) !== Boolean(orgId)) {
+    console.error("eval: provide both --owner-email and --org-id");
+    process.exit(2);
+  }
+
+  return {
+    command: "run",
+    pattern,
+    json,
+    threshold,
+    ...(ownerEmail ? { ownerEmail } : {}),
+    ...(orgId ? { orgId } : {}),
+  };
 }
 
 async function readExistingFile(target: string): Promise<string | null> {
@@ -271,6 +329,7 @@ async function runPromote(args: EvalPromoteCliArgs): Promise<void> {
     const loaded = await loadTraceEvalPromotion(
       {
         runId: args.runId,
+        reviewedPrompt: args.reviewedPrompt,
         mustContain: args.mustContain,
         datasetName: args.datasetName,
       },
@@ -357,7 +416,10 @@ export async function runEval(argv: string[]): Promise<void> {
     return;
   }
 
-  const { pattern, json, threshold } = parsed;
+  loadEnv();
+  registerBuiltinEngines();
+
+  const { pattern, json, threshold, ownerEmail, orgId } = parsed;
 
   const { runEvalSuite, formatReport } = await import("../eval/index.js");
 
@@ -367,6 +429,9 @@ export async function runEval(argv: string[]): Promise<void> {
       cwd: process.cwd(),
       pattern,
       thresholdOverride: threshold,
+      ...(ownerEmail && orgId ? { identity: { ownerEmail, orgId } } : {}),
+      requireProductionChatPath: true,
+      persist: false,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -386,11 +451,13 @@ export async function runEval(argv: string[]): Promise<void> {
         ? "No eval files found (looked for **/*.eval.ts and evals/*.ts)."
         : `Found ${files.length} eval file(s) but no defineEval() exports.`;
     if (json) {
-      console.log(JSON.stringify({ ok: true, report, files }, null, 2));
+      console.log(
+        JSON.stringify({ ok: false, error: hint, report, files }, null, 2),
+      );
     } else {
-      console.log(`\n  ${hint}\n`);
+      console.error(`\n  eval failed: ${hint}\n`);
     }
-    process.exit(0);
+    process.exit(1);
   }
 
   if (json) {

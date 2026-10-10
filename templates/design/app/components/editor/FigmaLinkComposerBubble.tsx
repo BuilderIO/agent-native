@@ -173,14 +173,30 @@ export function FigmaLinkComposerBubble({
 
   const handleAgentAction = useCallback(
     (action: FigmaLinkChatAction) => {
-      const prompt = buildFigmaLinkChatPrompt(action, link, designId);
+      const destination = designId
+        ? t("chat.figmaLink.currentDesign")
+        : t("chat.figmaLink.chooseDesign");
+      const prompt = buildFigmaLinkChatPrompt(action, link, {
+        importFrame: t("chat.figmaLink.importFramePrompt", {
+          destination,
+          url: link.url,
+        }),
+        importFile: t("chat.figmaLink.importFilePrompt", { url: link.url }),
+        inspectFrame: t("chat.figmaLink.inspectFramePrompt", {
+          url: link.url,
+        }),
+        inspectFile: t("chat.figmaLink.inspectFilePrompt", {
+          url: link.url,
+        }),
+        exportSvg: t("chat.figmaLink.exportSvgPrompt"),
+      });
       sendToDesignAgentChat({
         ...prompt,
         submit: false,
         openSidebar: false,
       });
     },
-    [designId, link],
+    [designId, link, t],
   );
 
   return (

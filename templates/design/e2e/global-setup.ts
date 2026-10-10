@@ -94,6 +94,84 @@ async function startLoopbackProvider(port: number): Promise<void> {
   }
 }
 
+async function startHttpsAttachmentStorage(
+  httpsPort: number,
+  controlPort: number,
+): Promise<void> {
+  const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
+  if (!runRoot) {
+    throw new Error("HTTPS attachment storage requires an E2E run directory.");
+  }
+  const pidPath = path.join(runRoot, "https-attachment-storage.pid");
+  const child = spawn(
+    process.execPath,
+    [
+      "--import",
+      "tsx/esm",
+      path.join(import.meta.dirname, "https-attachment-storage.ts"),
+    ],
+    {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        E2E_ATTACHMENT_STORAGE_HTTPS_PORT: String(httpsPort),
+        E2E_ATTACHMENT_STORAGE_CONTROL_PORT: String(controlPort),
+        E2E_ATTACHMENT_STORAGE_CERT: path.join(
+          runRoot,
+          "attachment-storage-tls",
+          "attachment-storage-ca.pem",
+        ),
+        E2E_ATTACHMENT_STORAGE_KEY: path.join(
+          runRoot,
+          "attachment-storage-tls",
+          "attachment-storage-key.pem",
+        ),
+      },
+    },
+  );
+  if (!child.pid) throw new Error("HTTPS attachment storage did not start");
+  await mkdir(path.dirname(pidPath), { recursive: true });
+  await writeFile(pidPath, String(child.pid));
+
+  let spawnError: Error | undefined;
+  child.once("error", (error) => {
+    spawnError = error;
+  });
+  const deadline = Date.now() + LOOPBACK_READINESS_TIMEOUT_MS;
+  let lastError: unknown;
+  try {
+    while (Date.now() < deadline) {
+      if (spawnError) throw spawnError;
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:${controlPort}/health` /* e2e-harness-ignore: allocated local stub control port, not an app endpoint */,
+          { signal: AbortSignal.timeout(250) },
+        );
+        if (response.ok) {
+          child.unref();
+          return;
+        }
+        lastError = new Error(`HTTP ${response.status}`);
+      } catch (error) {
+        lastError = error;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, LOOPBACK_READINESS_RETRY_MS),
+      );
+    }
+    const detail =
+      lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(
+      `HTTPS attachment storage did not become ready on port ${controlPort}: ${detail}`,
+    );
+  } catch (error) {
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    await rm(pidPath, { force: true });
+    throw error;
+  }
+}
+
 export const FIXTURE_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -372,8 +450,13 @@ async function seedMentionMember(
 }
 
 export default async function globalSetup(config: FullConfig) {
-  if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1")
+  if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
     await startLoopbackProvider(config.metadata.sidebarLoopbackPort as number);
+    await startHttpsAttachmentStorage(
+      config.metadata.attachmentStorageHttpsPort as number,
+      config.metadata.attachmentStorageControlPort as number,
+    );
+  }
   const baseURL =
     (config.projects[0]?.use?.baseURL as string | undefined) ?? e2eBaseURL();
   await mkdir(AUTH_DIR, { recursive: true });
@@ -451,6 +534,7 @@ export default async function globalSetup(config: FullConfig) {
     try {
       await warmupPage.goto(`${baseURL}/design/${designId}`, {
         waitUntil: "domcontentloaded",
+        timeout: 180_000,
       });
       await warmupPage
         .getByRole("button", { name: "Move", exact: true })

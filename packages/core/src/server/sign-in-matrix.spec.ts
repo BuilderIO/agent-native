@@ -373,6 +373,16 @@ describe("sign-in matrix", () => {
 
     it("surface 4: workspace return normalization never yields an auth entry path", () => {
       expect(normalizeOAuthReturnPath("/dispatch/apps")).toBe("/dispatch/apps");
+      expect(
+        normalizeOAuthReturnPath(
+          "/dispatch/settings/integrations?provider=hubspot",
+        ),
+      ).toBe("/dispatch/settings/integrations?provider=hubspot");
+      expect(
+        normalizeOAuthReturnPath(
+          "/dispatch/admin/integrations?provider=hubspot",
+        ),
+      ).toBe("/dispatch/admin/integrations?provider=hubspot");
       expect(normalizeOAuthReturnPath("/dispatch/dispatch")).toBe("/dispatch");
       expect(normalizeOAuthReturnPath("/dispatch/mail/inbox")).toBe(
         "/mail/inbox",

@@ -26,6 +26,7 @@ import {
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
 import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -37,6 +38,7 @@ import {
 } from "../shared/embed-auth.js";
 import {
   CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_PATH_SUFFIX,
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
 } from "../shared/route-chunk-recovery-bootstrap.js";
@@ -1462,6 +1464,19 @@ async function importGeneratedWorker(
   } = {},
 ) {
   const dir = makeTempDir();
+  const tempNodeModules = path.join(dir, "node_modules");
+  const scopedNodeModules = path.join(tempNodeModules, "@agent-native");
+  fs.mkdirSync(scopedNodeModules, { recursive: true });
+  fs.symlinkSync(
+    path.join(process.cwd(), "packages/core/node_modules/h3"),
+    path.join(tempNodeModules, "h3"),
+    "dir",
+  );
+  fs.symlinkSync(
+    path.join(process.cwd(), "packages/core"),
+    path.join(scopedNodeModules, "core"),
+    "dir",
+  );
   const nodeModules = path.join(dir, "node_modules", "react-router");
   fs.mkdirSync(nodeModules, { recursive: true });
   fs.writeFileSync(
@@ -1491,6 +1506,14 @@ export function createRequestHandler() {
         return new Response('{"ok":true}', {
           headers: {
             "cache-control": "no-cache",
+            "content-type": "application/json",
+          },
+        });
+      }
+      if (url.pathname === "/private-json.data") {
+        return new Response('{"private":true}', {
+          headers: {
+            "cache-control": "private, no-store",
             "content-type": "application/json",
           },
         });
@@ -2167,6 +2190,22 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
   });
 
+  it("preserves explicit cache policy on non-SSR recovery responses", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request(
+        `https://app.test/private-json.data${CHUNK_RECOVERY_PATH_SUFFIX}`,
+      ),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(response.headers.get("cdn-cache-control")).toBeNull();
+    expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
+  });
+
   it("keeps public SSR cache headers for anonymous Cloudflare worker preference cookies", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -2197,7 +2236,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
 
     const source = generateWorkerEntry([], []);
     expect(source).toContain(
-      `const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}"};`,
+      'const SSR_CACHE_KEY_HEADERS = {"netlify-vary":"query=_routes|index"};',
     );
 
     const worker = await importGeneratedWorker(source);
@@ -2207,16 +2246,63 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
       {},
     );
 
-    expect(response.headers.get("netlify-vary")).toBe(
-      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
-    );
+    expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
 
-    const recoveryUrl = new URL("https://app.test/docs/inbox");
-    recoveryUrl.searchParams.set(
+    const legacyRecoveryUrl = new URL("https://app.test/docs/inbox");
+    legacyRecoveryUrl.searchParams.set(
       CHUNK_RECOVERY_QUERY_PARAM,
       CHUNK_RECOVERY_QUERY_VALUE,
     );
+    legacyRecoveryUrl.searchParams.set("tab", "one");
+    const legacyRecovery = await worker.fetch(
+      new Request(legacyRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(legacyRecovery.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(legacyRecovery.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(legacyRecovery.headers.get("netlify-cdn-cache-control")).toBe(
+      "no-store",
+    );
+    expect(legacyRecovery.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    legacyRecoveryUrl.searchParams.set("tab", "two");
+    const legacyRecoveryWithDifferentTab = await worker.fetch(
+      new Request(legacyRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+    expect(legacyRecoveryWithDifferentTab.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    const arbitraryRecoveryUrl = new URL("https://app.test/docs/inbox");
+    arbitraryRecoveryUrl.searchParams.set(
+      CHUNK_RECOVERY_QUERY_PARAM,
+      "arbitrary",
+    );
+    const arbitraryRecovery = await worker.fetch(
+      new Request(arbitraryRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+    expect(arbitraryRecovery.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(arbitraryRecovery.headers.get("netlify-vary")).toBe(
+      "query=_routes|index",
+    );
+
+    const recoveryUrl = new URL(
+      `https://app.test/docs/inbox${CHUNK_RECOVERY_PATH_SUFFIX}/`,
+    );
     recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
+    recoveryUrl.searchParams.set("tab", "unread");
     const recovery = await worker.fetch(
       new Request(recoveryUrl),
       { APP_BASE_PATH: "/docs" },
@@ -2224,17 +2310,12 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     );
 
     expect(recovery.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(recovery.headers.get("cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cdn-cache-control"],
-    );
-    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["netlify-cdn-cache-control"],
-    );
-    expect(recovery.headers.get("netlify-vary")).toBe(
-      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
-    );
+    expect(recovery.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    expect(recovery.headers.get("netlify-vary")).toBe("query=_routes|index");
+    expect(await recovery.clone().text()).toContain("GET /inbox/</body>");
 
     recoveryUrl.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, "arbitrary");
     const arbitrary = await worker.fetch(
@@ -2244,10 +2325,62 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     );
 
     expect(arbitrary.headers.get("cache-control")).toBe(
-      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
     );
-    expect(arbitrary.headers.get("netlify-vary")).toBe(
-      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    expect(arbitrary.headers.get("netlify-vary")).toBe("query=_routes|index");
+  }, 60_000);
+
+  it("normalizes the recovery path before serving the generated static shell", async () => {
+    const source = generateWorkerEntry([], [], [], [], null, [], "", {
+      includeReactRouterSsr: false,
+    });
+    const worker = await importGeneratedWorker(source);
+    const requestedPaths: string[] = [];
+    const response = await worker.fetch(
+      new Request(`https://app.test/docs${CHUNK_RECOVERY_PATH_SUFFIX}`),
+      {
+        APP_BASE_PATH: "/docs",
+        ASSETS: {
+          fetch: async (request: Request) => {
+            requestedPaths.push(new URL(request.url).pathname);
+            if (new URL(request.url).pathname === "/index.html") {
+              return new Response(
+                "<html><head></head><body>shell</body></html>",
+                {
+                  headers: { "content-type": "text/html; charset=utf-8" },
+                },
+              );
+            }
+            return new Response("missing", { status: 404 });
+          },
+        },
+      },
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("data-agent-native-auth-redirect");
+    expect(response.headers.get("speculation-rules")).toBe(
+      '"/docs/_agent-native/speculation-rules.json"',
+    );
+    expect(response.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    expect(requestedPaths).toEqual([
+      `/docs${CHUNK_RECOVERY_PATH_SUFFIX}`,
+      "/index.html",
+    ]);
+  });
+
+  it("emits recovery matching for React Router data suffixes", () => {
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain('pathWithoutTrailingSlash.endsWith("/_.data")');
+    expect(source).toContain('pathWithoutTrailingSlash.endsWith(".data")');
+    expect(source).toContain(
+      "const { routePath } = splitReactRouterDataPathname(pathname)",
     );
   });
 
@@ -2270,7 +2403,7 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
 
-  it("preserves full-query variation for query-sensitive recovery responses", async () => {
+  it("revalidates query-sensitive recovery-path responses in browsers", async () => {
     vi.stubEnv("NETLIFY", "true");
     const source = generateWorkerEntry([], []);
     const worker = await importGeneratedWorker(source, {
@@ -2278,16 +2411,19 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
         [SSR_QUERY_CACHE_KEY_HEADER]: "query",
       },
     });
-    const recoveryUrl = new URL("https://app.test/redirect");
-    recoveryUrl.searchParams.set("from", "home");
-    recoveryUrl.searchParams.set(
-      CHUNK_RECOVERY_QUERY_PARAM,
-      CHUNK_RECOVERY_QUERY_VALUE,
+    const recoveryUrl = new URL(
+      `https://app.test/redirect${CHUNK_RECOVERY_PATH_SUFFIX}`,
     );
+    recoveryUrl.searchParams.set("from", "home");
     recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
 
     const response = await worker.fetch(new Request(recoveryUrl), {}, {});
 
+    expect(response.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
     expect(response.headers.get("netlify-vary")).toBe("query");
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
@@ -2312,6 +2448,16 @@ export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCh
       expect(response.headers.get(name)).toBe(value);
     }
     expect(response.headers.get("set-cookie")).toBeNull();
+
+    const recoveryResponse = await worker.fetch(
+      new Request(`https://app.test/docs/inbox${CHUNK_RECOVERY_PATH_SUFFIX}`),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    for (const [name, value] of Object.entries(DISABLED_SSR_CACHE_HEADERS)) {
+      expect(recoveryResponse.headers.get(name)).toBe(value);
+    }
   });
 
   it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", async () => {
@@ -2851,13 +2997,22 @@ export default {
     const response = await worker.fetch(
       new Request("https://app.test/_agent-native/actions/ping", {
         method: "OPTIONS",
+        headers: {
+          origin: "https://content-ui.example.test",
+          "access-control-request-method": "POST",
+          "access-control-request-headers":
+            "content-type,x-content-save-origin",
+        },
       }),
       {},
       {},
     );
 
     expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(response.headers.get("Access-Control-Allow-Credentials")).toBeNull();
     const allowHeaders = response.headers.get("Access-Control-Allow-Headers");
+    expect(allowHeaders).toContain("X-Content-Save-Origin");
     expect(allowHeaders).toContain("X-Agent-Native-Frontend");
     expect(allowHeaders).toContain("X-Agent-Native-Client-Compatibility");
     expect(allowHeaders).toContain("X-Agent-Native-Build-Id");
@@ -3908,6 +4063,1073 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     expect(
       fs.existsSync(path.join(functionDir, "node_modules", "playwright-core")),
     ).toBe(true);
+  });
+
+  it.each([
+    'import value from "imported"; console.log(value);',
+    'import value from "./node_modules/imported/index.js"; console.log(value);',
+    'const value = require("imported/subpath"); console.log(value);',
+    'const value = require("./node_modules/imported"); console.log(value);',
+  ])(
+    "prunes browser-installer dependencies while retaining runtime reference %s",
+    (entry) => {
+      const functionDir = setupFunctionDir();
+      const manifests: Record<string, Record<string, string>> = {
+        "@puppeteer/browsers": {
+          "installer-cli": "1",
+          shared: "1",
+          imported: "1",
+          peer: "1",
+          "missing-installer-child": "1",
+        },
+        "installer-cli": { "installer-parser": "1" },
+        "installer-parser": {},
+        shared: {},
+        imported: {},
+        runtime: { shared: "1" },
+        peer: {},
+      };
+      for (const [name, dependencies] of Object.entries(manifests)) {
+        const directory = path.join(functionDir, "node_modules", name);
+        fs.mkdirSync(directory, { recursive: true });
+        fs.writeFileSync(
+          path.join(directory, "package.json"),
+          JSON.stringify({
+            name,
+            dependencies,
+            ...(name === "runtime" ? { peerDependencies: { peer: "1" } } : {}),
+          }),
+        );
+        fs.writeFileSync(
+          path.join(directory, "index.js"),
+          "export default {};",
+        );
+      }
+      fs.writeFileSync(
+        path.join(functionDir, "package.json"),
+        JSON.stringify({
+          dependencies: Object.fromEntries(
+            Object.keys(manifests).map((name) => [name, "1"]),
+          ),
+        }),
+      );
+      fs.writeFileSync(path.join(functionDir, "server.mjs"), entry);
+      sanitizeServerlessFunctionPackageManifest(functionDir);
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+      );
+      expect(Object.keys(manifest.dependencies).sort()).toEqual([
+        "imported",
+        "peer",
+        "runtime",
+        "shared",
+      ]);
+      for (const name of [
+        "@puppeteer/browsers",
+        "installer-cli",
+        "installer-parser",
+      ]) {
+        expect(
+          fs.existsSync(path.join(functionDir, "node_modules", name)),
+        ).toBe(false);
+      }
+      for (const name of ["imported", "peer", "runtime", "shared"]) {
+        expect(
+          fs.existsSync(path.join(functionDir, "node_modules", name)),
+        ).toBe(true);
+      }
+    },
+  );
+
+  it("does not keep installer dependencies referenced only by denied puppeteer", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const manifests: Record<string, Record<string, string>> = {
+      "@puppeteer/browsers": { "installer-cli": "1" },
+      "installer-cli": { "installer-parser": "1" },
+      "installer-parser": {},
+      puppeteer: { "@puppeteer/browsers": "1" },
+      runtime: {},
+    };
+    for (const [name, dependencies] of Object.entries(manifests)) {
+      const packageDir = path.join(nodeModulesDir, ...name.split("/"));
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({
+          name,
+          dependencies,
+          ...(name === "runtime"
+            ? { peerDependencies: { puppeteer: "1" } }
+            : {}),
+        }),
+      );
+      fs.writeFileSync(
+        path.join(packageDir, "index.js"),
+        name === "runtime" ? 'require("puppeteer");' : "export default {};",
+      );
+    }
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          Object.keys(manifests).map((name) => [name, "1"]),
+        ),
+      }),
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(manifest.dependencies).toEqual({ runtime: "1" });
+    for (const name of Object.keys(manifests).filter(
+      (name) => name !== "runtime",
+    )) {
+      expect(fs.existsSync(path.join(nodeModulesDir, ...name.split("/")))).toBe(
+        false,
+      );
+    }
+  });
+
+  it("retains installer dependencies needed by a nested runtime package version", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const writePackage = (
+      packageDir: string,
+      name: string,
+      version: string,
+      dependencies: Record<string, string> = {},
+    ) => {
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name, version, dependencies }),
+      );
+    };
+
+    writePackage(
+      path.join(nodeModulesDir, "@puppeteer", "browsers"),
+      "@puppeteer/browsers",
+      "1.0.0",
+      { "versioned-helper": "1", "installer-child": "1" },
+    );
+    writePackage(
+      path.join(nodeModulesDir, "versioned-helper"),
+      "versioned-helper",
+      "1.0.0",
+      { "installer-only-child": "1" },
+    );
+    writePackage(
+      path.join(nodeModulesDir, "installer-child"),
+      "installer-child",
+      "1.0.0",
+    );
+    writePackage(
+      path.join(nodeModulesDir, "installer-only-child"),
+      "installer-only-child",
+      "1.0.0",
+    );
+    writePackage(path.join(nodeModulesDir, "runtime"), "runtime", "1.0.0", {
+      "versioned-helper": "2",
+    });
+    writePackage(
+      path.join(nodeModulesDir, "runtime", "node_modules", "versioned-helper"),
+      "versioned-helper",
+      "2.0.0",
+      { "installer-child": "1" },
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@puppeteer/browsers": "1",
+          "versioned-helper": "1",
+          "installer-child": "1",
+          "installer-only-child": "1",
+          runtime: "1",
+        },
+      }),
+    );
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "installer-child",
+      "runtime",
+      "versioned-helper",
+    ]);
+    expect(fs.existsSync(path.join(nodeModulesDir, "installer-child"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "installer-only-child")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          nodeModulesDir,
+          "runtime",
+          "node_modules",
+          "versioned-helper",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("retains a browser installer explicitly imported by server code", () => {
+    const functionDir = setupFunctionDir();
+    for (const [name, dependencies] of Object.entries({
+      "@puppeteer/browsers": { "installer-cli": "1" },
+      "installer-cli": {},
+    })) {
+      const directory = path.join(functionDir, "node_modules", name);
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(
+        path.join(directory, "package.json"),
+        JSON.stringify({ name, dependencies }),
+      );
+    }
+    const dependencies = { "@puppeteer/browsers": "1", "installer-cli": "1" };
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({ dependencies }),
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "server.mjs"),
+      'import { install } from "@puppeteer/browsers"; console.log(install);',
+    );
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+      ).dependencies,
+    ).toEqual(dependencies);
+    for (const name of Object.keys(dependencies))
+      expect(fs.existsSync(path.join(functionDir, "node_modules", name))).toBe(
+        true,
+      );
+  });
+
+  it("retains candidate references from retained package code and its nested helpers", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const packageDependencies = {
+      "@puppeteer/browsers": {
+        "installer-cli": "1",
+        "installer-parser": "1",
+        "nested-installer-child": "1",
+        "unused-installer-child": "1",
+      },
+      "installer-cli": {},
+      "installer-parser": {},
+      "nested-installer-child": {},
+      "unused-installer-child": {},
+      runtime: {},
+    };
+
+    for (const [name, dependencies] of Object.entries(packageDependencies)) {
+      const packageDir = path.join(nodeModulesDir, ...name.split("/"));
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name, dependencies }),
+      );
+      fs.writeFileSync(
+        path.join(packageDir, "index.js"),
+        name === "runtime"
+          ? 'require("installer-cli"); require("./node_modules/unvisited-package");'
+          : name === "installer-cli"
+            ? 'require("installer-parser");'
+            : "export default {};",
+      );
+    }
+    const nestedUnvisitedPackage = path.join(
+      nodeModulesDir,
+      "runtime",
+      "node_modules",
+      "unvisited-package",
+    );
+    fs.mkdirSync(nestedUnvisitedPackage, { recursive: true });
+    fs.writeFileSync(
+      path.join(nestedUnvisitedPackage, "index.js"),
+      'require("nested-installer-child");',
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          Object.keys(packageDependencies).map((name) => [name, "1"]),
+        ),
+      }),
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "installer-cli",
+      "installer-parser",
+      "nested-installer-child",
+      "runtime",
+    ]);
+    for (const name of [
+      "installer-cli",
+      "installer-parser",
+      "nested-installer-child",
+      "runtime",
+    ]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, name))).toBe(true);
+    }
+    for (const name of ["@puppeteer/browsers", "unused-installer-child"]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, ...name.split("/")))).toBe(
+        false,
+      );
+    }
+  });
+
+  it("resolves candidate references from each nested source directory", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const writePackage = (
+      packageDir: string,
+      name: string,
+      version: string,
+      dependencies: Record<string, string> = {},
+    ) => {
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name, version, dependencies }),
+      );
+    };
+
+    writePackage(
+      path.join(nodeModulesDir, "@puppeteer", "browsers"),
+      "@puppeteer/browsers",
+      "1.0.0",
+      { "candidate-x": "1", "candidate-y": "1" },
+    );
+    writePackage(
+      path.join(nodeModulesDir, "candidate-x"),
+      "candidate-x",
+      "1.0.0",
+    );
+    writePackage(
+      path.join(nodeModulesDir, "candidate-y"),
+      "candidate-y",
+      "1.0.0",
+    );
+    writePackage(path.join(nodeModulesDir, "runtime"), "runtime", "1.0.0");
+
+    const nestedSourceDir = path.join(nodeModulesDir, "runtime", "nestedU");
+    fs.mkdirSync(nestedSourceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(nestedSourceDir, "index.js"),
+      'require("candidate-x");',
+    );
+    writePackage(
+      path.join(nestedSourceDir, "node_modules", "candidate-x"),
+      "candidate-x",
+      "2.0.0",
+      { "candidate-y": "1" },
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@puppeteer/browsers": "1",
+          "candidate-x": "1",
+          "candidate-y": "1",
+          runtime: "1",
+        },
+      }),
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "candidate-x",
+      "candidate-y",
+      "runtime",
+    ]);
+    expect(fs.existsSync(path.join(nodeModulesDir, "candidate-y"))).toBe(true);
+    expect(
+      fs.existsSync(path.join(nestedSourceDir, "node_modules", "candidate-x")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "@puppeteer", "browsers")),
+    ).toBe(false);
+  });
+
+  it("follows literal relative candidate paths instead of nearer package versions", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const writePackage = (
+      packageDir: string,
+      name: string,
+      dependencies: Record<string, string> = {},
+    ) => {
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name, dependencies }),
+      );
+    };
+
+    writePackage(
+      path.join(nodeModulesDir, "@puppeteer", "browsers"),
+      "@puppeteer/browsers",
+      { "candidate-x": "1", "candidate-y": "1" },
+    );
+    writePackage(path.join(nodeModulesDir, "candidate-x"), "candidate-x", {
+      "candidate-y": "1",
+    });
+    writePackage(path.join(nodeModulesDir, "candidate-y"), "candidate-y");
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    writePackage(runtimeDir, "runtime");
+    fs.writeFileSync(
+      path.join(runtimeDir, "index.js"),
+      'require("../candidate-x");',
+    );
+    writePackage(
+      path.join(runtimeDir, "node_modules", "candidate-x"),
+      "candidate-x",
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@puppeteer/browsers": "1",
+          "candidate-x": "1",
+          "candidate-y": "1",
+          runtime: "1",
+        },
+      }),
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "candidate-x",
+      "candidate-y",
+      "runtime",
+    ]);
+    expect(fs.existsSync(path.join(nodeModulesDir, "candidate-y"))).toBe(true);
+    expect(
+      fs.existsSync(path.join(runtimeDir, "node_modules", "candidate-x")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "@puppeteer", "browsers")),
+    ).toBe(false);
+  });
+
+  it("recognizes require.resolve and compact ESM reexports", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const manifests = {
+      "@puppeteer/browsers": {
+        "installer-cli": "1",
+        "installer-meta": "1",
+        "installer-parser": "1",
+        "unused-installer-child": "1",
+      },
+      "installer-cli": {},
+      "installer-meta": {},
+      "installer-parser": {},
+      "unused-installer-child": {},
+    };
+    for (const [name, dependencies] of Object.entries(manifests)) {
+      const packageDir = path.join(nodeModulesDir, ...name.split("/"));
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name, dependencies }),
+      );
+    }
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          Object.keys(manifests).map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "server.mjs"),
+      'const cli = require.resolve("installer-cli"); import.meta.resolve("installer-meta"); export{parse}from"installer-parser";',
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(manifest.dependencies).toEqual({
+      "installer-cli": "1",
+      "installer-meta": "1",
+      "installer-parser": "1",
+    });
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "unused-installer-child")),
+    ).toBe(false);
+  });
+
+  it("retains external package-import target closures across conditions and arrays", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const candidateNames = [
+      "installer-direct",
+      "installer-array",
+      "installer-nested",
+      "installer-runtime",
+      "unused-installer-child",
+    ];
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: Object.fromEntries(
+          candidateNames.map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    const writePackage = (
+      packageDir: string,
+      name: string,
+      options: { source?: string; imports?: Record<string, unknown> } = {},
+    ) => {
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({
+          name,
+          ...(options.imports ? { imports: options.imports } : {}),
+        }),
+      );
+      fs.writeFileSync(
+        path.join(packageDir, "index.js"),
+        options.source ?? "export default {};",
+      );
+    };
+    for (const name of candidateNames) {
+      writePackage(path.join(nodeModulesDir, name), name);
+    }
+    writePackage(path.join(nodeModulesDir, "root-bridge"), "root-bridge", {
+      source: 'require("installer-nested");',
+    });
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    writePackage(runtimeDir, "runtime", {
+      source: 'require("#runtime/feature.js");',
+      imports: {
+        "#runtime/*": {
+          node: ["runtime-bridge/*", { default: "./internal/*.js" }, null],
+          default: [
+            "node:fs",
+            "node:*",
+            "https://*.example.test/runtime.js",
+            "missing-bridge/*",
+          ],
+        },
+      },
+    });
+    writePackage(
+      path.join(runtimeDir, "node_modules", "runtime-bridge"),
+      "runtime-bridge",
+      { source: 'require("installer-runtime");' },
+    );
+    writePackage(
+      path.join(runtimeDir, "node_modules", "installer-runtime"),
+      "installer-runtime",
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        imports: {
+          "#entry/*": {
+            node: [
+              "installer-direct/*",
+              { "node-addons": "./node_modules/installer-array/index.js" },
+            ],
+            default: ["root-bridge/*", "./local/*.js", "node:fs", null],
+          },
+        },
+        dependencies: Object.fromEntries(
+          ["@puppeteer/browsers", "runtime", ...candidateNames].map((name) => [
+            name,
+            "1",
+          ]),
+        ),
+      }),
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "server.mjs"),
+      'import "#entry/feature.js";',
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual(
+      [
+        "installer-array",
+        "installer-direct",
+        "installer-nested",
+        "installer-runtime",
+        "runtime",
+      ].sort(),
+    );
+    for (const name of [
+      "installer-array",
+      "installer-direct",
+      "installer-nested",
+      "installer-runtime",
+    ]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, name))).toBe(true);
+    }
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "unused-installer-child")),
+    ).toBe(false);
+    expect(fs.existsSync(browserDir)).toBe(false);
+  });
+
+  it("retains all candidates for an import-map package-name wildcard", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const candidateNames = [
+      "installer-alpha",
+      "installer-beta",
+      "unused-installer-child",
+    ];
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: Object.fromEntries(
+          candidateNames.map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    for (const name of candidateNames) {
+      const packageDir = path.join(nodeModulesDir, name);
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name }),
+      );
+      fs.writeFileSync(path.join(packageDir, "index.js"), "export {};\n");
+    }
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        imports: { "#installer/*": ["*/feature.js", null] },
+        dependencies: Object.fromEntries(
+          ["@puppeteer/browsers", ...candidateNames].map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "server.mjs"),
+      'import "#installer/feature.js";',
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual(
+      ["@puppeteer/browsers", ...candidateNames].sort(),
+    );
+    expect(fs.existsSync(browserDir)).toBe(true);
+  });
+
+  it("follows resolvable undeclared bare imports from emitted and retained code", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const candidateNames = [
+      "installer-emitted",
+      "installer-retained",
+      "installer-nested",
+      "installer-top-level",
+      "installer-outside",
+      "unused-installer-child",
+    ];
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: Object.fromEntries(
+          candidateNames.map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    const writePackage = (packageDir: string, name: string, source: string) => {
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name }),
+      );
+      fs.writeFileSync(path.join(packageDir, "index.js"), source);
+    };
+    for (const name of candidateNames) {
+      writePackage(path.join(nodeModulesDir, name), name, "export default {};");
+    }
+    writePackage(
+      path.join(nodeModulesDir, "emitted-bridge"),
+      "emitted-bridge",
+      'require("installer-emitted");',
+    );
+    writePackage(
+      path.join(nodeModulesDir, "retained-bridge"),
+      "retained-bridge",
+      'require("installer-retained");',
+    );
+    writePackage(
+      path.join(nodeModulesDir, "versioned-bridge"),
+      "versioned-bridge",
+      'require("installer-top-level");',
+    );
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    writePackage(runtimeDir, "runtime", 'require("retained-bridge");');
+    const nestedSourceDir = path.join(runtimeDir, "nested");
+    fs.mkdirSync(nestedSourceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(nestedSourceDir, "index.js"),
+      'require("versioned-bridge");',
+    );
+    writePackage(
+      path.join(nestedSourceDir, "node_modules", "versioned-bridge"),
+      "versioned-bridge",
+      'require("installer-nested");',
+    );
+    const outsideBridgeDir = path.join(
+      path.dirname(functionDir),
+      "outside-bridge",
+    );
+    writePackage(
+      outsideBridgeDir,
+      "outside-bridge",
+      'require("installer-outside");',
+    );
+    fs.symlinkSync(
+      outsideBridgeDir,
+      path.join(nodeModulesDir, "outside-bridge"),
+      "dir",
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          ["@puppeteer/browsers", "runtime", ...candidateNames].map((name) => [
+            name,
+            "1",
+          ]),
+        ),
+      }),
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "server.mjs"),
+      'import "emitted-bridge"; import "outside-bridge";',
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual(
+      [
+        "installer-emitted",
+        "installer-nested",
+        "installer-retained",
+        "runtime",
+      ].sort(),
+    );
+    for (const name of [
+      "installer-emitted",
+      "installer-nested",
+      "installer-retained",
+    ]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, name))).toBe(true);
+    }
+    for (const name of [
+      "installer-top-level",
+      "installer-outside",
+      "unused-installer-child",
+    ]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, name))).toBe(false);
+    }
+  });
+
+  it("follows in-bounds directory symlinks in retained package code", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: {
+          "installer-retained": "1",
+          "unused-installer-child": "1",
+        },
+      }),
+    );
+    for (const name of ["installer-retained", "unused-installer-child"]) {
+      const packageDir = path.join(nodeModulesDir, name);
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name }),
+      );
+    }
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    const helperDir = path.join(runtimeDir, "helpers");
+    fs.mkdirSync(helperDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runtimeDir, "package.json"),
+      JSON.stringify({ name: "runtime" }),
+    );
+    fs.writeFileSync(path.join(runtimeDir, "index.js"), "export default {};");
+    fs.writeFileSync(
+      path.join(helperDir, "reference.js"),
+      'require("installer-retained");',
+    );
+    fs.symlinkSync("helpers", path.join(runtimeDir, "linked-helpers"), "dir");
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@puppeteer/browsers": "1",
+          "installer-retained": "1",
+          "unused-installer-child": "1",
+          runtime: "1",
+        },
+      }),
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(manifest.dependencies).toEqual({
+      "installer-retained": "1",
+      runtime: "1",
+    });
+    expect(fs.existsSync(path.join(nodeModulesDir, "installer-retained"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "unused-installer-child")),
+    ).toBe(false);
+  });
+
+  it("follows only in-bounds emitted directory symlinks and stops cycles", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const candidateNames = [
+      "installer-emitted",
+      "installer-outside",
+      "unused-installer-child",
+    ];
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: Object.fromEntries(
+          candidateNames.map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    for (const name of candidateNames) {
+      const packageDir = path.join(nodeModulesDir, name);
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name }),
+      );
+    }
+    const routesDir = path.join(functionDir, "routes");
+    const emittedDir = path.join(routesDir, "actual");
+    fs.mkdirSync(emittedDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(emittedDir, "route.js"),
+      'require("installer-emitted");',
+    );
+    fs.symlinkSync("actual", path.join(routesDir, "linked"), "dir");
+    fs.symlinkSync(routesDir, path.join(emittedDir, "cycle"), "dir");
+
+    const outsideDir = path.join(path.dirname(functionDir), "outside-code");
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(outsideDir, "route.js"),
+      'require("installer-outside");',
+    );
+    fs.symlinkSync(outsideDir, path.join(routesDir, "outside"), "dir");
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          ["@puppeteer/browsers", ...candidateNames].map((name) => [name, "1"]),
+        ),
+      }),
+    );
+
+    expect(() =>
+      sanitizeServerlessFunctionPackageManifest(functionDir),
+    ).not.toThrow();
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(manifest.dependencies).toEqual({ "installer-emitted": "1" });
+    expect(fs.existsSync(path.join(nodeModulesDir, "installer-emitted"))).toBe(
+      true,
+    );
+    for (const name of ["installer-outside", "unused-installer-child"]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, name))).toBe(false);
+    }
+  });
+
+  it("skips dangling function-root symlinks but propagates other stat errors", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    fs.mkdirSync(path.join(nodeModulesDir, "@puppeteer", "browsers"), {
+      recursive: true,
+    });
+    const danglingLink = path.join(functionDir, "dangling.mjs");
+    fs.symlinkSync("missing-target.mjs", danglingLink);
+    expect(() =>
+      sanitizeServerlessFunctionPackageManifest(functionDir),
+    ).not.toThrow();
+    expect(fs.lstatSync(danglingLink).isSymbolicLink()).toBe(true);
+
+    fs.mkdirSync(path.join(nodeModulesDir, "@puppeteer", "browsers"), {
+      recursive: true,
+    });
+    const failingLink = path.join(functionDir, "failing.mjs");
+    const failingTarget = path.join(functionDir, "existing-target.mjs");
+    fs.writeFileSync(failingTarget, "export default {};");
+    fs.symlinkSync(path.basename(failingTarget), failingLink);
+    const originalStatSync = fs.statSync;
+    const statSync = vi.spyOn(fs, "statSync");
+    statSync.mockImplementation(((filePath: fs.PathLike) => {
+      if (filePath === failingLink) {
+        throw Object.assign(new Error("stat failed"), { code: "EIO" });
+      }
+      return originalStatSync(filePath);
+    }) as typeof fs.statSync);
+    try {
+      expect(() =>
+        sanitizeServerlessFunctionPackageManifest(functionDir),
+      ).toThrow("stat failed");
+    } finally {
+      statSync.mockRestore();
+    }
+  });
+
+  it("skips dangling JavaScript symlinks in retained packages and emitted subdirectories", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    fs.mkdirSync(path.join(nodeModulesDir, "@puppeteer", "browsers"), {
+      recursive: true,
+    });
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runtimeDir, "package.json"),
+      JSON.stringify({ name: "runtime" }),
+    );
+    fs.writeFileSync(path.join(runtimeDir, "index.js"), "export default {};");
+    const runtimeDanglingFile = path.join(runtimeDir, "dangling.js");
+    fs.symlinkSync("missing-package-target.js", runtimeDanglingFile);
+    const runtimeDirectoryTarget = path.join(runtimeDir, "directory-target");
+    fs.mkdirSync(runtimeDirectoryTarget);
+    const runtimeDirectoryLink = path.join(runtimeDir, "directory.js");
+    fs.symlinkSync(runtimeDirectoryTarget, runtimeDirectoryLink, "dir");
+
+    const routesDir = path.join(functionDir, "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    const emittedDanglingFile = path.join(routesDir, "dangling.js");
+    fs.symlinkSync("missing-route-target.js", emittedDanglingFile);
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: { "@puppeteer/browsers": "1", runtime: "1" },
+      }),
+    );
+
+    expect(() =>
+      sanitizeServerlessFunctionPackageManifest(functionDir),
+    ).not.toThrow();
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+      ).dependencies,
+    ).toEqual({ runtime: "1" });
+    expect(fs.lstatSync(runtimeDanglingFile).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(runtimeDirectoryLink).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(emittedDanglingFile).isSymbolicLink()).toBe(true);
+  });
+
+  it("propagates ENOENT and EIO when scanning regular JavaScript files", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    fs.mkdirSync(path.join(nodeModulesDir, "@puppeteer", "browsers"), {
+      recursive: true,
+    });
+    const routesDir = path.join(functionDir, "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    const regularFile = path.join(routesDir, "route.js");
+    fs.writeFileSync(regularFile, "export default {};");
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({ dependencies: { "@puppeteer/browsers": "1" } }),
+    );
+
+    const originalRealpathSync = fs.realpathSync;
+    const realpathSync = vi.spyOn(fs, "realpathSync");
+    try {
+      for (const code of ["ENOENT", "EIO"] as const) {
+        realpathSync.mockImplementation(((filePath: fs.PathLike) => {
+          if (filePath === regularFile) {
+            throw Object.assign(new Error(`realpath failed: ${code}`), {
+              code,
+            });
+          }
+          return originalRealpathSync(filePath);
+        }) as typeof fs.realpathSync);
+        expect(() =>
+          sanitizeServerlessFunctionPackageManifest(functionDir),
+        ).toThrow(`realpath failed: ${code}`);
+      }
+    } finally {
+      realpathSync.mockRestore();
+    }
   });
 });
 

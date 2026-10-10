@@ -1,16 +1,24 @@
 import {
+  AgentKitUploadError,
   hasActiveAgentRuns,
   selectAgentSuggestions,
   isCurrentAgentSuggestion,
   type AgentKitUploadDriver,
   type AgentThreadState,
 } from "@agent-native/agentkit";
+import {
+  MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
+  isPersistableAttachmentUrl,
+  persistableFilePart,
+} from "@agent-native/agentkit/protocol";
 import type {
   AgentActionResult,
   AgentApprovalRequest,
   AgentConnectionRequest,
   AgentEvent,
   AgentMessage,
+  AgentQueuedMessage,
+  AgentRequestAttachment,
   AgentStreamIntegrityReport,
   AgentTransport,
   AgentThreadSnapshot,
@@ -20,6 +28,7 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import type { AgentChatAttachment } from "@agent-native/core";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
+import { isCreditsLimitErrorCode } from "@agent-native/core/agent/engine/error-detail";
 import {
   appendAgentChatContextToMessage,
   filterAgentChatContextItems,
@@ -27,8 +36,10 @@ import {
   getAgentChatContextState,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
+  removeAgentChatContextItemAndPersist,
   reportAgentChatSubmitResult,
   refreshAgentChatContext,
+  setAgentChatContextItemAndPersist,
   subscribeAgentChatContext,
   type AgentChatContextItem,
 } from "@agent-native/core/client/agent-chat";
@@ -47,7 +58,8 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { dispatchAgentChatRunning } from "@agent-native/core/client/agent-chat";
 import {
-  fetchAgentEngineConfiguredState,
+  agentEngineStatusUrlForChatApi,
+  isLocalRuntimeEngine,
   useAgentEngineConfigured,
   type AgentEngineConfiguredState,
 } from "@agent-native/core/client/agent-chat";
@@ -66,7 +78,12 @@ import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return"
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { useSession } from "@agent-native/core/client/use-session";
 import { AGENTKIT_CHAT_MIGRATION_GUIDE_URL } from "@agent-native/core/package-lifecycle/migration-message";
-import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
+import {
+  parseBase64DataUrl,
+  splitAgentChatContextFromMessage,
+  stripAgentChatContextFromMessage,
+  stripInlineAttachmentPayloads,
+} from "@agent-native/core/shared";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   AgentSuggestionBar,
@@ -77,6 +94,8 @@ import {
   type Reference,
   type AgentSuggestionInput,
   type TiptapComposerHandle,
+  AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
+  readAgentPromptAttachment,
 } from "@agent-native/toolkit/composer";
 import {
   appendRealtimeVoiceTranscriptToRepository,
@@ -84,12 +103,18 @@ import {
   type RealtimeVoiceTranscriptMessage,
 } from "@agent-native/toolkit/composer/realtime-voice-transcript";
 import { IconButton } from "@agent-native/toolkit/design-system";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconAlertTriangle,
   IconCircleCheck,
   IconCopy,
-  IconLoader2,
+  IconDotsVertical,
   IconMessage,
   IconPlayerStopFilled,
   IconQuote,
@@ -297,6 +322,7 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   recoveryEffort?: string;
   recoveryRequestMode?: "act" | "plan";
   deferredFileParts?: FilePart[];
+  deferredRequestAttachments?: AgentRequestAttachment[];
   contextAlreadyIncluded?: boolean;
   pendingSelectionCapturedAt?: number | null;
   skipAmbientSelectionContext?: boolean;
@@ -310,11 +336,13 @@ interface PendingProviderSubmission {
   threadId: string;
   text: string;
   fileParts: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   references: Reference[];
   composerOptions: AgentKitSuggestionSubmitOptions;
   options: AgentKitInternalSendOptions;
   attempts?: number;
   failed?: true;
+  attachmentRestoreRequired?: true;
   claim?: { token: string; expiresAt: number };
 }
 
@@ -353,10 +381,151 @@ function deferredProviderSubmissionsStateKey(threadId: string): string {
   return `${DEFERRED_PROVIDER_SUBMISSIONS_KEY_PREFIX}${encodedThreadId}`;
 }
 
+function isBase64Payload(value: string): boolean {
+  const normalized = value.trim();
+  return (
+    normalized.length > 0 &&
+    normalized.length % 4 === 0 &&
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      normalized,
+    )
+  );
+}
+
+function assertNoInlineAttachmentPayload(
+  value: unknown,
+  path: string,
+  imageContext = false,
+  active = new WeakSet<object>(),
+  fieldName = "",
+): void {
+  if (typeof value === "string") {
+    const payloadField =
+      /^(?:base64|bytes|body|data|dataurl|image|payload)$/i.test(fieldName);
+    const referenceField = /^(?:preview|referenceUrl|src|thumbnail|url)$/i.test(
+      fieldName,
+    );
+    if (
+      isInlineDataUrl(value) &&
+      (imageContext ||
+        payloadField ||
+        fieldName === "preview" ||
+        fieldName === "thumbnail")
+    ) {
+      throw new TypeError(
+        `${path}: inline attachment data cannot be persisted in application state.`,
+      );
+    }
+    if (
+      (payloadField || (imageContext && referenceField)) &&
+      (imageContext || fieldName === "base64") &&
+      isBase64Payload(value)
+    ) {
+      throw new TypeError(
+        `${path}: inline image bytes cannot be persisted in application state.`,
+      );
+    }
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  if (active.has(value)) {
+    throw new TypeError(`${path}: deferred submissions must be JSON data.`);
+  }
+
+  active.add(value);
+  try {
+    if (Array.isArray(value)) {
+      if (
+        imageContext &&
+        /^(?:base64|bytes|data|image|payload|preview|thumbnail)$/i.test(
+          fieldName,
+        ) &&
+        value.length > 0 &&
+        value.every(
+          (entry) =>
+            typeof entry === "number" &&
+            Number.isInteger(entry) &&
+            entry >= 0 &&
+            entry <= 255,
+        )
+      ) {
+        throw new TypeError(
+          `${path}: inline image bytes cannot be persisted in application state.`,
+        );
+      }
+      value.forEach((entry, index) =>
+        assertNoInlineAttachmentPayload(
+          entry,
+          `${path}[${index}]`,
+          imageContext,
+          active,
+          fieldName,
+        ),
+      );
+      return;
+    }
+    if (ArrayBuffer.isView(value) && imageContext) {
+      throw new TypeError(
+        `${path}: inline image bytes cannot be persisted in application state.`,
+      );
+    }
+
+    const record = value as Record<string, unknown>;
+    const attachmentRecord =
+      imageContext ||
+      ["document", "file", "image"].includes(
+        String(record.type ?? "").toLowerCase(),
+      ) ||
+      [record.contentType, record.mediaType, record.mimeType].some(
+        (mimeType) =>
+          typeof mimeType === "string" && /^image\//i.test(mimeType),
+      );
+    for (const [key, entry] of Object.entries(record)) {
+      const isPayloadField = /^(?:base64|bytes|body|data|image|payload)$/i.test(
+        key,
+      );
+      const imagePayloadField =
+        isPayloadField && (attachmentRecord || key === "base64");
+      if (
+        imagePayloadField &&
+        typeof entry === "string" &&
+        (isInlineDataUrl(entry) || isBase64Payload(entry))
+      ) {
+        throw new TypeError(
+          `${path}.${key}: inline image bytes cannot be persisted in application state.`,
+        );
+      }
+      if (
+        (attachmentRecord || key === "preview" || key === "thumbnail") &&
+        /^(?:preview|referenceUrl|src|thumbnail|url)$/i.test(key) &&
+        typeof entry === "string" &&
+        isInlineDataUrl(entry)
+      ) {
+        throw new TypeError(
+          `${path}.${key}: inline attachment data cannot be persisted in application state.`,
+        );
+      }
+      assertNoInlineAttachmentPayload(
+        entry,
+        `${path}.${key}`,
+        attachmentRecord ||
+          /^(?:attachment|attachments|file|files|image|images|reference|references|requestAttachments)$/i.test(
+            key,
+          ),
+        active,
+        key,
+      );
+    }
+  } finally {
+    active.delete(value);
+  }
+}
+
 function parseDeferredProviderSubmissions(
   value: unknown,
   threadId: string,
 ): PendingProviderSubmission[] {
+  assertNoInlineAttachmentPayload(value, "deferredSubmissions");
   if (value === null) return [];
   const state = asRecord(value);
   if (
@@ -372,9 +541,12 @@ function parseDeferredProviderSubmissions(
   return state.submissions.map((value) => {
     const submission = asRecord(value);
     const fileParts = submission?.fileParts;
+    const requestAttachments = submission?.requestAttachments;
     const composerOptions = asRecord(submission?.composerOptions);
     const options = asRecord(submission?.options);
     const claim = asRecord(submission?.claim);
+    const deferredFileParts = options?.deferredFileParts;
+    const deferredRequestAttachments = options?.deferredRequestAttachments;
     if (
       typeof submission?.id !== "string" ||
       submission.threadId !== threadId ||
@@ -385,10 +557,65 @@ function parseDeferredProviderSubmissions(
         return (
           filePart?.type === "file" &&
           typeof filePart.name === "string" &&
-          (typeof filePart.url === "string" ||
-            typeof filePart.fileId === "string")
+          !isInlineDataUrl(filePart.url) &&
+          filePart.data === undefined &&
+          (isDurableAttachmentUrl(filePart.url) ||
+            (typeof filePart.fileId === "string" &&
+              filePart.fileId.trim().length > 0 &&
+              !isInlineDataUrl(filePart.fileId)))
         );
       }) ||
+      (requestAttachments !== undefined &&
+        (!Array.isArray(requestAttachments) ||
+          !requestAttachments.every((attachment) => {
+            const requestAttachment = asRecord(attachment);
+            const durableUrl =
+              requestAttachment &&
+              (isDurableAttachmentUrl(requestAttachment.url)
+                ? requestAttachment.url
+                : isDurableAttachmentUrl(requestAttachment.referenceUrl)
+                  ? requestAttachment.referenceUrl
+                  : undefined);
+            return (
+              requestAttachment?.type === "image" &&
+              typeof requestAttachment.name === "string" &&
+              typeof durableUrl === "string" &&
+              requestAttachment.data === undefined
+            );
+          }))) ||
+      (deferredFileParts !== undefined &&
+        (!Array.isArray(deferredFileParts) ||
+          !deferredFileParts.every((part) => {
+            const filePart = asRecord(part);
+            return (
+              filePart?.type === "file" &&
+              typeof filePart.name === "string" &&
+              !isInlineDataUrl(filePart.url) &&
+              filePart.data === undefined &&
+              (isDurableAttachmentUrl(filePart.url) ||
+                (typeof filePart.fileId === "string" &&
+                  filePart.fileId.trim().length > 0 &&
+                  !isInlineDataUrl(filePart.fileId)))
+            );
+          }))) ||
+      (deferredRequestAttachments !== undefined &&
+        (!Array.isArray(deferredRequestAttachments) ||
+          !deferredRequestAttachments.every((attachment) => {
+            const requestAttachment = asRecord(attachment);
+            const durableUrl =
+              requestAttachment &&
+              (isDurableAttachmentUrl(requestAttachment.url)
+                ? requestAttachment.url
+                : isDurableAttachmentUrl(requestAttachment.referenceUrl)
+                  ? requestAttachment.referenceUrl
+                  : undefined);
+            return (
+              requestAttachment?.type === "image" &&
+              typeof requestAttachment.name === "string" &&
+              typeof durableUrl === "string" &&
+              requestAttachment.data === undefined
+            );
+          }))) ||
       !Array.isArray(submission.references) ||
       !composerOptions ||
       !options ||
@@ -396,6 +623,8 @@ function parseDeferredProviderSubmissions(
         (!Number.isSafeInteger(submission.attempts) ||
           (submission.attempts as number) < 0)) ||
       (submission.failed !== undefined && submission.failed !== true) ||
+      (submission.attachmentRestoreRequired !== undefined &&
+        submission.attachmentRestoreRequired !== true) ||
       (submission.claim !== undefined &&
         (typeof claim?.token !== "string" ||
           typeof claim.expiresAt !== "number" ||
@@ -410,6 +639,11 @@ function parseDeferredProviderSubmissions(
       threadId,
       text: submission.text,
       fileParts: fileParts as FilePart[],
+      ...(Array.isArray(requestAttachments)
+        ? {
+            requestAttachments: requestAttachments as AgentRequestAttachment[],
+          }
+        : {}),
       references: submission.references as Reference[],
       composerOptions: composerOptions as AgentKitSuggestionSubmitOptions,
       options: options as AgentKitInternalSendOptions,
@@ -417,6 +651,9 @@ function parseDeferredProviderSubmissions(
         ? { attempts: submission.attempts }
         : {}),
       ...(submission.failed === true ? { failed: true as const } : {}),
+      ...(submission.attachmentRestoreRequired === true
+        ? { attachmentRestoreRequired: true as const }
+        : {}),
       ...(claim
         ? {
             claim: {
@@ -427,6 +664,244 @@ function parseDeferredProviderSubmissions(
         : {}),
     };
   });
+}
+
+function legacyDurableFileParts(value: unknown): FilePart[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const part = asRecord(entry);
+    if (part?.type !== "file" || typeof part.name !== "string") return [];
+    const url = isDurableAttachmentUrl(part.url) ? part.url : undefined;
+    const fileId =
+      typeof part.fileId === "string" &&
+      part.fileId.trim() &&
+      !isInlineDataUrl(part.fileId)
+        ? part.fileId
+        : undefined;
+    if (!url && !fileId) return [];
+    return [
+      {
+        ...part,
+        ...(url ? { url } : {}),
+        ...(fileId ? { fileId } : {}),
+      } as FilePart,
+    ];
+  });
+}
+
+function legacyDurableRequestAttachments(
+  value: unknown,
+): AgentRequestAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const attachment = asRecord(entry);
+    if (attachment?.type !== "image" || typeof attachment.name !== "string") {
+      return [];
+    }
+    const url = isDurableAttachmentUrl(attachment.url)
+      ? attachment.url
+      : isDurableAttachmentUrl(attachment.referenceUrl)
+        ? attachment.referenceUrl
+        : undefined;
+    return url ? [{ ...attachment, url } as AgentRequestAttachment] : [];
+  });
+}
+
+function containsDeferredInlinePayload(value: unknown): boolean {
+  try {
+    assertNoInlineAttachmentPayload(value, "deferredSubmissions");
+    return false;
+  } catch (error) {
+    if (
+      error instanceof TypeError &&
+      /inline (?:attachment data|image bytes)/i.test(error.message)
+    ) {
+      return true;
+    }
+    throw error;
+  }
+}
+
+function hasDurableReferenceRecovery(
+  reference: unknown,
+  retainedAttachments: unknown[],
+): boolean {
+  const record = asRecord(reference);
+  if (!record) return false;
+  const metadata = asRecord(record.metadata);
+  if (
+    [
+      record.url,
+      record.referenceUrl,
+      metadata?.url,
+      metadata?.referenceUrl,
+    ].some(isDurableAttachmentUrl)
+  ) {
+    return true;
+  }
+
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  if (!name) return false;
+  return retainedAttachments.some((value) => {
+    const attachment = asRecord(value);
+    if (
+      !attachment ||
+      typeof attachment.name !== "string" ||
+      attachment.name.trim().toLowerCase() !== name.toLowerCase()
+    ) {
+      return false;
+    }
+    const isImage =
+      attachment.type === "image" ||
+      [attachment.mediaType, attachment.contentType, attachment.mimeType].some(
+        (type) => typeof type === "string" && /^image\//i.test(type),
+      );
+    const hasDurableLocation =
+      isDurableAttachmentUrl(attachment.url) ||
+      (typeof attachment.fileId === "string" &&
+        attachment.fileId.trim().length > 0 &&
+        !isInlineDataUrl(attachment.fileId));
+    return isImage && hasDurableLocation;
+  });
+}
+
+function hasLostInlineReferencePayload(
+  value: unknown,
+  retainedAttachments: unknown[],
+): boolean {
+  const references = Array.isArray(value) ? value : [value];
+  return references.some(
+    (reference) =>
+      containsDeferredInlinePayload(reference) &&
+      !hasDurableReferenceRecovery(reference, retainedAttachments),
+  );
+}
+
+function sanitizeLegacyDeferredProviderState(
+  value: unknown,
+  threadId: string,
+): DeferredProviderSubmissionsState | null {
+  if (value === null) return null;
+  const state = asRecord(value);
+  if (
+    state?.version !== DEFERRED_PROVIDER_SUBMISSIONS_VERSION ||
+    state.threadId !== threadId ||
+    !Array.isArray(state.submissions)
+  ) {
+    throw new Error(
+      `Deferred AgentKit submissions for ${threadId} have an invalid state shape.`,
+    );
+  }
+
+  const submissions = state.submissions.map((entry) => {
+    if (!containsDeferredInlinePayload(entry))
+      return entry as PendingProviderSubmission;
+    const submission = asRecord(entry);
+    if (!submission) return entry as PendingProviderSubmission;
+    const cleaned = stripInlineAttachmentPayloads(submission) as Record<
+      string,
+      unknown
+    >;
+    const rawOptions = asRecord(cleaned.options) ?? {};
+    const originalOptions = asRecord(submission.options) ?? {};
+    const rawAttachments = submission.requestAttachments;
+    const rawFileParts = submission.fileParts;
+    const requestAttachments = legacyDurableRequestAttachments(rawAttachments);
+    const fileParts = legacyDurableFileParts(rawFileParts);
+    const options = { ...rawOptions };
+    if (rawOptions.deferredRequestAttachments !== undefined) {
+      options.deferredRequestAttachments = legacyDurableRequestAttachments(
+        rawOptions.deferredRequestAttachments,
+      );
+    }
+    if (rawOptions.deferredFileParts !== undefined) {
+      options.deferredFileParts = legacyDurableFileParts(
+        rawOptions.deferredFileParts,
+      );
+    }
+    const lostRequestAttachment =
+      Array.isArray(rawAttachments) &&
+      rawAttachments.some(
+        (attachment) =>
+          containsDeferredInlinePayload(attachment) &&
+          legacyDurableRequestAttachments([attachment]).length === 0,
+      );
+    const lostFilePart =
+      Array.isArray(rawFileParts) &&
+      rawFileParts.some(
+        (part) =>
+          containsDeferredInlinePayload(part) &&
+          legacyDurableFileParts([part]).length === 0,
+      );
+    const lostDeferredRequestAttachment =
+      originalOptions.deferredRequestAttachments !== undefined &&
+      (Array.isArray(originalOptions.deferredRequestAttachments)
+        ? originalOptions.deferredRequestAttachments.some(
+            (attachment) =>
+              containsDeferredInlinePayload(attachment) &&
+              legacyDurableRequestAttachments([attachment]).length === 0,
+          )
+        : containsDeferredInlinePayload(
+            originalOptions.deferredRequestAttachments,
+          ));
+    const lostDeferredFilePart =
+      originalOptions.deferredFileParts !== undefined &&
+      (Array.isArray(originalOptions.deferredFileParts)
+        ? originalOptions.deferredFileParts.some(
+            (part) =>
+              containsDeferredInlinePayload(part) &&
+              legacyDurableFileParts([part]).length === 0,
+          )
+        : containsDeferredInlinePayload(originalOptions.deferredFileParts));
+    const retainedAttachments = [
+      ...fileParts,
+      ...requestAttachments,
+      ...(Array.isArray(options.deferredFileParts)
+        ? options.deferredFileParts
+        : []),
+      ...(Array.isArray(options.deferredRequestAttachments)
+        ? options.deferredRequestAttachments
+        : []),
+    ];
+    const lostReferencePayload = hasLostInlineReferencePayload(
+      submission.references,
+      retainedAttachments,
+    );
+    const lostComposerPayload = containsDeferredInlinePayload(
+      submission.composerOptions,
+    );
+    const unrelatedOptions = { ...originalOptions };
+    delete unrelatedOptions.deferredFileParts;
+    delete unrelatedOptions.deferredRequestAttachments;
+    const lostOtherOptionsPayload =
+      containsDeferredInlinePayload(unrelatedOptions);
+    for (const [key, value] of Object.entries(unrelatedOptions)) {
+      if (containsDeferredInlinePayload(value)) delete options[key];
+    }
+    const { claim: _claim, ...withoutClaim } = cleaned;
+    return {
+      ...withoutClaim,
+      fileParts,
+      requestAttachments,
+      options,
+      ...(lostRequestAttachment ||
+      lostFilePart ||
+      lostDeferredRequestAttachment ||
+      lostDeferredFilePart ||
+      lostReferencePayload ||
+      lostComposerPayload ||
+      lostOtherOptionsPayload
+        ? { failed: true as const, attachmentRestoreRequired: true as const }
+        : {}),
+    } as unknown as PendingProviderSubmission;
+  });
+  return submissions.length > 0
+    ? {
+        version: DEFERRED_PROVIDER_SUBMISSIONS_VERSION,
+        threadId,
+        submissions,
+      }
+    : null;
 }
 
 function runDeferredProviderSubmissionStateOperation<T>(
@@ -453,20 +928,44 @@ function readDeferredProviderSubmissions(
 ): Promise<PendingProviderSubmission[]> {
   return runDeferredProviderSubmissionStateOperation(
     threadId,
-    async (stateKey) =>
-      parseDeferredProviderSubmissions(
-        await readClientAppState<unknown>(stateKey),
-        threadId,
-      ),
+    async (stateKey) => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const persisted = await readClientAppState<unknown>(stateKey);
+        try {
+          return parseDeferredProviderSubmissions(persisted, threadId);
+        } catch (error) {
+          if (!containsDeferredInlinePayload(persisted)) throw error;
+          const expected = persisted === null ? null : asRecord(persisted);
+          if (expected === undefined) throw error;
+          const sanitized = sanitizeLegacyDeferredProviderState(
+            persisted,
+            threadId,
+          );
+          const next = sanitized as Record<string, unknown> | null;
+          parseDeferredProviderSubmissions(sanitized, threadId);
+          if (
+            await compareAndSetClientAppState(stateKey, expected, next, {
+              requestSource: "agentkit-deferred-legacy-cleanup",
+            })
+          ) {
+            return parseDeferredProviderSubmissions(sanitized, threadId);
+          }
+        }
+      }
+      throw new Error(
+        `Deferred AgentKit submissions for ${threadId} changed repeatedly during cleanup.`,
+      );
+    },
   );
 }
 
-function updateDeferredProviderSubmissions(
+export async function updateDeferredProviderSubmissions(
   threadId: string,
   update: (
     submissions: PendingProviderSubmission[],
   ) => PendingProviderSubmission[],
 ): Promise<PendingProviderSubmission[]> {
+  await readDeferredProviderSubmissions(threadId);
   return runDeferredProviderSubmissionStateOperation(
     threadId,
     async (stateKey) => {
@@ -474,6 +973,16 @@ function updateDeferredProviderSubmissions(
         const persisted = await readClientAppState<unknown>(stateKey);
         const current = parseDeferredProviderSubmissions(persisted, threadId);
         const submissions = update(current);
+        parseDeferredProviderSubmissions(
+          submissions.length > 0
+            ? {
+                version: DEFERRED_PROVIDER_SUBMISSIONS_VERSION,
+                threadId,
+                submissions,
+              }
+            : null,
+          threadId,
+        );
         if (JSON.stringify(submissions) === JSON.stringify(current)) {
           return current;
         }
@@ -535,6 +1044,7 @@ type AgentKitComposerSubmit = (
 type AgentKitSuggestionSubmitOptions = PromptComposerSubmitOptions & {
   suggestion?: Exclude<AgentSuggestionInput, string>;
   validateSubmission?: () => void;
+  validateSubmissionScope?: () => void;
   queuedWhileRunActive?: boolean;
 };
 
@@ -580,6 +1090,7 @@ interface AgentKitSurfaceContextValue {
   fileStorageMissing: boolean;
   retryFileStorageStatus: () => void;
   deferredSubmissionFailed: boolean;
+  deferredSubmissionRequiresAttachment: boolean;
   retryDeferredSubmission: () => Promise<void>;
   dismissDeferredSubmission: () => Promise<void>;
   isRunning: boolean;
@@ -606,7 +1117,6 @@ interface AgentKitSurfaceContextValue {
   onTextChange: (text: string) => void;
   onRemoveContextItem: (key: string) => void;
   onClearSelection: () => void;
-  onBeforeSubmit: () => Promise<boolean>;
   onSubmit: AgentKitComposerSubmit;
   sendMessage: (
     text: string,
@@ -627,6 +1137,7 @@ interface AgentKitSurfaceContextValue {
       | "recoveryRequestMode"
       | "recoveryOfRunId"
       | "resumeAfterSetup"
+      | "deferredRequestAttachments"
     >,
   ) => Promise<AssistantChatSubmitResult>;
   submitSuggestion: (suggestion: AgentSuggestionInput) => void;
@@ -901,6 +1412,7 @@ export const AgentKitAssistantChat = forwardRef<
         name: "{{name}}",
       }),
       pastedText: t("agentChat.pastedText.title"),
+      attachmentNotSaved: t("agentChat.composer.attachmentNotSaved"),
       imagePreview: t("agentChat.composer.imagePreview"),
       closePreview: t("agentChat.composer.closePreview"),
       dropFilesToAttach: t("agentChat.composer.dropToAttach"),
@@ -937,30 +1449,42 @@ export const AgentKitAssistantChat = forwardRef<
   const uploadedFilesRef = useRef(new Map<string, FilePart>());
   const upload: AgentKitUploadDriver = useCallback(
     async (target, file, context) => {
+      if (file.size > AGENT_CHAT_UPLOAD_MAX_FILE_BYTES) {
+        throw attachmentTooLargeError(
+          uploadTooLargeMessage(translatorRef.current),
+        );
+      }
       const form = new FormData();
       for (const [key, value] of Object.entries(target.fields ?? {})) {
         form.set(key, value);
       }
       form.set("file", file.body, file.name);
-      const response = await fetch(target.url, {
-        method: target.method,
-        headers: target.headers,
-        body: form,
-        signal: context?.signal,
-      });
-      if (!response.ok) {
-        throw new Error(
-          translatorRef.current(
-            response.status === 415
-              ? "agentChat.composer.unsupportedFileType"
-              : "agentChat.composer.uploadFailed",
-          ),
+      let response: Response;
+      try {
+        response = await fetch(target.url, {
+          method: target.method,
+          headers: target.headers,
+          body: form,
+          signal: context?.signal,
+        });
+      } catch (error) {
+        if (context?.signal?.aborted) throw error;
+        throw Object.assign(
+          new Error(translatorRef.current("agentChat.composer.uploadOffline")),
+          { code: "upload_network_error", retryable: true, cause: error },
         );
+      }
+      // The server's error body is never shown: its text is untranslated.
+      if (!response.ok) {
+        throw uploadHttpError(response.status, translatorRef.current);
       }
       const result: unknown = await response.json();
       const uploaded = asRecord(result);
       if (typeof uploaded?.url !== "string" || !uploaded.url) {
-        throw new TypeError("File upload response did not include a URL.");
+        throw Object.assign(
+          new Error(translatorRef.current("agentChat.composer.uploadFailed")),
+          { code: "upload_invalid_response", retryable: false },
+        );
       }
       uploadedFilesRef.current.set(target.uploadId, {
         type: "file",
@@ -973,6 +1497,7 @@ export const AgentKitAssistantChat = forwardRef<
     [],
   );
   const transportThreadIdRef = useRef(threadId);
+  const tabIdRef = useRef(props.tabId);
   const modelRef = useRef<string | undefined>(props.selectedModel);
   const engineRef = useRef<string | undefined>(props.selectedEngine);
   const effortRef = useRef<AssistantChatAdapterContext["effortRef"]["current"]>(
@@ -991,6 +1516,7 @@ export const AgentKitAssistantChat = forwardRef<
   const injectedRuntimeRef = useRef(props.runtime);
   const adapterReloadKeyRef = useRef(props.adapterReloadKey);
   transportThreadIdRef.current = threadId;
+  tabIdRef.current = props.tabId;
   if (adapterReloadKeyRef.current !== props.adapterReloadKey) {
     adapterReloadKeyRef.current = props.adapterReloadKey;
     injectedRuntimeRef.current = props.runtime;
@@ -1290,64 +1816,41 @@ const AgentKitAssistantChatBody = forwardRef<
   const { controller, threadId, requestComposerFocus } = useAgentKit();
   const control = useAgentKitControl(threadId);
   const thread = useAgentThread(threadId);
+  const queueScopeRef = useRef({
+    threadId,
+    tabId: props.tabId,
+    contextScope: props.contextScope,
+  });
+  queueScopeRef.current = {
+    threadId,
+    tabId: props.tabId,
+    contextScope: props.contextScope,
+  };
   const history = useOptionalAgentKitHistory();
   const suggestionSubmitRef =
     useRef<AgentKitSuggestionSubmitRef["current"]>(null);
   const resumedAfterSetupRef = useRef(new Set<string>());
   const t = useT();
-  const providerChecksEnabled = props.providerStatusChecksEnabled !== false;
+  const providerChecksEnabled = !isLocalRuntimeEngine(props.selectedEngine);
+  const readinessSource = useMemo(
+    () => ({
+      statusUrl: agentEngineStatusUrlForChatApi(
+        props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
+      ),
+      credentials: "include" as const,
+    }),
+    [props.apiUrl],
+  );
   const readiness = useAgentEngineConfigured(providerChecksEnabled, {
     tabId: props.tabId,
     threadId,
+    source: readinessSource,
   });
-  const [submissionReadiness, setSubmissionReadiness] =
-    useState<AgentEngineConfiguredState | null>(null);
-  const readinessRequestIdRef = useRef(0);
-  const providerReadinessRequestRef = useRef<{
-    requestId: number;
-    promise: Promise<AgentEngineConfiguredState>;
-  } | null>(null);
-  const latestResolvedReadinessRef = useRef<{
-    requestId: number;
-    state: AgentEngineConfiguredState;
-  } | null>(null);
-  const passiveReadinessRef = useRef(readiness.state);
-  const providerReadinessPassRef = useRef<number | null>(null);
-  const latestSubmissionReadinessRef = useRef(readiness.state);
-  const resetSubmissionReadiness = useCallback(
-    (state: AgentEngineConfiguredState) => {
-      readinessRequestIdRef.current += 1;
-      providerReadinessRequestRef.current = null;
-      providerReadinessPassRef.current = null;
-      latestSubmissionReadinessRef.current = state;
-      setSubmissionReadiness(null);
-    },
-    [],
-  );
-  useEffect(() => {
-    if (passiveReadinessRef.current !== readiness.state) {
-      const explicitReadinessPassed =
-        providerReadinessPassRef.current === readinessRequestIdRef.current &&
-        latestResolvedReadinessRef.current?.requestId ===
-          readinessRequestIdRef.current &&
-        latestResolvedReadinessRef.current.state === "configured";
-      if (readiness.state === "unavailable" && explicitReadinessPassed) {
-        return;
-      }
-      passiveReadinessRef.current = readiness.state;
-      resetSubmissionReadiness(readiness.state);
-      return;
-    }
-    if (submissionReadiness === readiness.state) {
-      latestSubmissionReadinessRef.current = readiness.state;
-      setSubmissionReadiness(null);
-    }
-  }, [readiness.state, resetSubmissionReadiness, submissionReadiness]);
   const modelCatalogPending =
     props.showModelSelector !== false && props.modelListLoading === true;
   const modelListUnavailable =
     props.showModelSelector !== false && props.modelListError === true;
-  const effectiveReadiness = submissionReadiness ?? readiness.state;
+  const effectiveReadiness = readiness.state;
   const canChat = !providerChecksEnabled || effectiveReadiness === "configured";
   const setupMissing =
     providerChecksEnabled && effectiveReadiness === "missing";
@@ -1360,13 +1863,9 @@ const AgentKitAssistantChatBody = forwardRef<
         : providerChecksEnabled
           ? effectiveReadiness
           : "configured";
-  const composerPreflightRunActiveRef = useRef<boolean | null>(null);
   const retryProviderStatus = useCallback(() => {
-    // A failed pre-send check overrides passive readiness until the passive
-    // state changes, so a retry that re-confirms the same state must drop it.
-    resetSubmissionReadiness(passiveReadinessRef.current);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
-  }, [resetSubmissionReadiness]);
+  }, []);
   const retryModelList = modelListUnavailable
     ? props.onRetryModelList
     : retryProviderStatus;
@@ -1385,6 +1884,11 @@ const AgentKitAssistantChatBody = forwardRef<
   const isSubmissionInFlight = history?.isSubmissionInFlight === true;
   const [composerSubmissionPending, setComposerSubmissionPending] =
     useState(false);
+  const [continueSubmissionFailed, setContinueSubmissionFailed] =
+    useState(false);
+  const [queueSubmissionError, setQueueSubmissionError] = useState<
+    string | null
+  >(null);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -1559,14 +2063,6 @@ const AgentKitAssistantChatBody = forwardRef<
   const bounceSetupCard = useCallback(() => {
     if (setupMissing) setSetupBouncePulse((pulse) => pulse + 1);
   }, [setupMissing]);
-  const reportMissingProvider = useCallback(() => {
-    bounceSetupCard();
-    window.dispatchEvent(
-      new CustomEvent("agent-chat:missing-api-key", {
-        detail: { tabId: props.tabId, threadId },
-      }),
-    );
-  }, [bounceSetupCard, props.tabId, threadId]);
   const lastCustomRunningStateRef = useRef<{
     custom: boolean;
     isRunning: boolean;
@@ -1840,13 +2336,14 @@ const AgentKitAssistantChatBody = forwardRef<
         filterAgentChatContextItems(
           getAgentChatContextState().items,
           props.contextNamespace,
+          threadId,
         ),
       );
     };
     apply();
     void refreshAgentChatContext().then(apply);
     return subscribeAgentChatContext(apply);
-  }, [props.contextNamespace, props.isActiveComposer]);
+  }, [props.contextNamespace, props.isActiveComposer, threadId]);
 
   useEffect(() => {
     if (seenEventsRef.current.threadId !== threadId) {
@@ -2072,139 +2569,21 @@ const AgentKitAssistantChatBody = forwardRef<
     return () => window.clearInterval(interval);
   }, [isRunning]);
 
-  const refreshProviderReadiness = useCallback(async () => {
-    if (!providerChecksEnabled) return "configured";
-    let request = providerReadinessRequestRef.current;
-    if (!request || request.requestId !== readinessRequestIdRef.current) {
-      const requestId = ++readinessRequestIdRef.current;
-      providerReadinessPassRef.current = null;
-      request = {
-        requestId,
-        promise: fetchAgentEngineConfiguredState(true, { fresh: true }),
-      };
-      providerReadinessRequestRef.current = request;
-    }
-    let currentRequest = request;
-    while (true) {
-      const nextReadiness = await currentRequest.promise;
-      if (currentRequest.requestId === readinessRequestIdRef.current) {
-        if (providerReadinessRequestRef.current === currentRequest) {
-          providerReadinessRequestRef.current = null;
-        }
-        latestResolvedReadinessRef.current = {
-          requestId: currentRequest.requestId,
-          state: nextReadiness,
-        };
-        latestSubmissionReadinessRef.current = nextReadiness;
-        setSubmissionReadiness(nextReadiness);
-        return nextReadiness;
-      }
-      const latestRequest = providerReadinessRequestRef.current;
-      if (
-        latestRequest &&
-        latestRequest.requestId === readinessRequestIdRef.current &&
-        latestRequest.requestId > currentRequest.requestId
-      ) {
-        currentRequest = latestRequest;
-        continue;
-      }
-      const latestResolved = latestResolvedReadinessRef.current;
-      if (latestResolved?.requestId === readinessRequestIdRef.current) {
-        return latestResolved.state;
-      }
-      return latestSubmissionReadinessRef.current;
-    }
-  }, [providerChecksEnabled]);
-
-  const acquireSubmission = useCallback(
-    async (useReadinessPass = false) => {
-      const readinessPass = providerReadinessPassRef.current;
-      const hasReadinessPass =
-        useReadinessPass &&
-        readinessPass !== null &&
-        readinessPass === readinessRequestIdRef.current &&
-        latestResolvedReadinessRef.current?.requestId === readinessPass &&
-        latestResolvedReadinessRef.current.state === "configured";
-      if (useReadinessPass) providerReadinessPassRef.current = null;
-      if (
-        isRestoring ||
-        props.composerDisabled ||
-        props.composerSubmissionDisabled
-      )
-        return null;
-      if (providerChecksEnabled) {
-        const currentReadiness = hasReadinessPass
-          ? "configured"
-          : await refreshProviderReadiness();
-        if (currentReadiness !== "configured") {
-          if (currentReadiness === "missing") reportMissingProvider();
-          return null;
-        }
-      }
-      if (history) {
-        const release = await history.beginSubmission();
-        if (!release) return null;
-        return release;
-      }
-      return () => undefined;
-    },
-    [
-      history,
-      isRestoring,
-      props.composerDisabled,
-      props.composerSubmissionDisabled,
-      providerChecksEnabled,
-      refreshProviderReadiness,
-      reportMissingProvider,
-    ],
-  );
-
-  const beforeSubmit = useCallback(async () => {
-    providerReadinessPassRef.current = null;
-    composerPreflightRunActiveRef.current = null;
+  const acquireSubmission = useCallback(async () => {
     if (
       isRestoring ||
       props.composerDisabled ||
       props.composerSubmissionDisabled
-    )
-      return false;
-    const runWasActive = isThreadRunning();
-    if (!providerChecksEnabled) {
-      composerPreflightRunActiveRef.current = runWasActive;
-      return true;
-    }
-    let currentReadiness = await refreshProviderReadiness();
-    let resolvedReadiness = latestResolvedReadinessRef.current;
-    while (
-      currentReadiness === "configured" &&
-      (!resolvedReadiness ||
-        resolvedReadiness.requestId !== readinessRequestIdRef.current ||
-        resolvedReadiness.state !== "configured")
     ) {
-      currentReadiness = await refreshProviderReadiness();
-      resolvedReadiness = latestResolvedReadinessRef.current;
+      return null;
     }
-    if (currentReadiness !== "configured") {
-      if (currentReadiness === "missing") reportMissingProvider();
-      return false;
-    }
-    if (
-      !resolvedReadiness ||
-      resolvedReadiness.requestId !== readinessRequestIdRef.current
-    ) {
-      return false;
-    }
-    composerPreflightRunActiveRef.current = runWasActive;
-    providerReadinessPassRef.current = resolvedReadiness.requestId;
-    return true;
+    if (!history) return () => undefined;
+    return history.beginSubmission();
   }, [
+    history,
     isRestoring,
     props.composerDisabled,
     props.composerSubmissionDisabled,
-    providerChecksEnabled,
-    isThreadRunning,
-    refreshProviderReadiness,
-    reportMissingProvider,
   ]);
 
   const dispatch = useCallback(
@@ -2215,133 +2594,257 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: AgentKitSuggestionSubmitOptions,
       options: AgentKitInternalSendOptions = {},
     ) => {
-      const selectionHydration = pendingSelectionHydrationRef.current;
-      await selectionHydration?.promise;
-      const currentPendingSelection = pendingSelectionRef.current;
-      const selectionRevision = selectionRevisionRef.current;
-      const context =
-        options.recoveryAction || options.contextAlreadyIncluded
-          ? ""
-          : [
-              composerOptions.composerModeContext,
-              formatAgentChatContextItemsForPrompt(
-                composerOptions.contextItems ?? contextItems,
-              ),
-              pendingSelectionPromptContext(currentPendingSelection),
-            ]
-              .filter(Boolean)
-              .join("\n\n");
-      const message = options.contextAlreadyIncluded
-        ? text
-        : appendAgentChatContextToMessage(text, context);
-      const attachments = options.attachments ?? [];
-      const needsFileStorage =
-        files.length > 0 ||
-        attachments.some(
-          (attachment) => !attachment.displayOnly && !attachment.url,
-        );
-      if (needsFileStorage && !fileStorageConfigured) {
-        throw new Error(t("onboarding.fileStorage.title"));
-      }
-      const fileParts =
-        options.deferredFileParts ??
-        (await uploadAgentChatAttachments(control, attachments, files));
-      composerOptions.validateSubmission?.();
-      const selectionChangedDuringSubmission =
-        selectionRevision !== selectionRevisionRef.current ||
-        (options.pendingSelectionCapturedAt !== undefined &&
-          options.pendingSelectionCapturedAt !==
-            (currentPendingSelection?.capturedAt ?? null));
-      const skipAmbientSelectionContext =
-        options.skipAmbientSelectionContext === true ||
-        selectionHydration?.status === "pending" ||
-        isClientAppStateMutationPending("pending-selection-context") ||
-        selectionChangedDuringSubmission ||
-        Boolean(pendingSelectionPromptContext(currentPendingSelection));
-      const requestMode =
-        options.requestMode ??
-        options.recoveryRequestMode ??
-        (props.execMode === "plan" ? "plan" : "act");
-      const model =
-        composerOptions.model ?? options.recoveryModel ?? props.selectedModel;
-      const engine =
+      const selectedEngine =
         composerOptions.engine ??
         options.recoveryEngine ??
         props.selectedEngine;
-      const effort =
-        composerOptions.effort ??
-        options.recoveryEffort ??
-        props.selectedEffort;
-      const contextScope =
-        options.deferredContextScope !== undefined
-          ? (options.deferredContextScope ?? undefined)
-          : props.contextScope;
-      const selectedAgent =
-        options.deferredAgentId !== undefined
-          ? (options.deferredAgentId ?? undefined)
-          : props.selectedAgent;
-      const actionScope = options.actionScope ?? contextScope;
-      const metadata = {
-        ...(composerOptions.suggestion
-          ? { suggestion: composerOptions.suggestion }
-          : {}),
-        ...(options.submitMessageId
-          ? { submitMessageId: options.submitMessageId }
-          : {}),
-        ...(options.usageLabel ? { usageLabel: options.usageLabel } : {}),
-        ...(options.trackInRunsTray ? { trackInRunsTray: true } : {}),
-        ...(skipAmbientSelectionContext
-          ? { agentNativeSkipPendingSelectionContext: true }
-          : {}),
-        ...(actionScope ? { actionScope } : {}),
-        ...(options.approvedToolCalls
-          ? { approvedToolCalls: options.approvedToolCalls }
-          : {}),
-        ...(options.hideUserMessage ? { hideUserMessage: true } : {}),
-        ...(options.recoveryAction || options.deferredSubmissionId
-          ? {
-              custom: {
-                ...(options.recoveryAction
-                  ? { agentNativeRecoveryAction: options.recoveryAction }
-                  : {}),
-                ...(options.recoveryOfRunId
-                  ? { agentNativeRecoveryOfRunId: options.recoveryOfRunId }
-                  : {}),
-                ...(options.resumeAfterSetup
-                  ? { agentNativeResumeAfterSetup: true }
-                  : {}),
-                ...(options.deferredSubmissionId
-                  ? {
-                      agentNativeDeferredSubmissionId:
-                        options.deferredSubmissionId,
-                    }
-                  : {}),
-              },
-            }
-          : {}),
-        ...(options.recoveryAction === "continue"
-          ? { agentNativeInternalContinuation: true }
-          : {}),
-        ...(contextScope ? { chatScope: contextScope } : {}),
-        ...(references.length || options.recoveryReferences?.length
-          ? {
-              references: [
-                ...references,
-                ...(options.recoveryReferences ?? []),
-              ],
-            }
-          : {}),
-        ...(model ? { model } : {}),
-        ...(engine ? { engine } : {}),
-        ...(effort ? { effort } : {}),
-        ...(selectedAgent ? { agentId: selectedAgent } : {}),
-        requestMode,
-      };
-      localSubmissionRef.current = true;
+      const queuedSubmit =
+        !options.recoveryAction &&
+        (composerOptions.queuedWhileRunActive ||
+          composerOptions.intent === "queued");
+      let queuedMessageReservationId: string | undefined;
+      let queueMessagePreflightToken:
+        | Awaited<ReturnType<typeof controller.assertQueueMessageReady>>
+        | undefined;
       try {
+        if (queuedSubmit) {
+          queuedMessageReservationId = control.reserveQueuedMessage?.(
+            text,
+            composerOptions.onLocalSubmit,
+          ).id;
+          if (queuedMessageReservationId) localSubmissionRef.current = true;
+        }
+        if (
+          queuedSubmit &&
+          typeof controller.assertQueueMessageReady === "function"
+        ) {
+          queueMessagePreflightToken = await controller.assertQueueMessageReady(
+            {
+              threadId,
+              text,
+              ...(options.deferredRequestAttachments?.length
+                ? { requestAttachments: options.deferredRequestAttachments }
+                : {}),
+              hasAttachments: Boolean(
+                options.attachments?.length ||
+                files.length ||
+                options.deferredFileParts?.length ||
+                options.deferredRequestAttachments?.length,
+              ),
+              metadata:
+                typeof selectedEngine === "string"
+                  ? { engine: selectedEngine }
+                  : undefined,
+            },
+          );
+        } else {
+          await controller.assertAiSetupReady({
+            engine:
+              typeof selectedEngine === "string" ? selectedEngine : undefined,
+          });
+        }
+        const selectionHydration = pendingSelectionHydrationRef.current;
+        await selectionHydration?.promise;
+        const currentPendingSelection = pendingSelectionRef.current;
+        const selectionRevision = selectionRevisionRef.current;
+        const context =
+          options.recoveryAction || options.contextAlreadyIncluded
+            ? ""
+            : [
+                composerOptions.composerModeContext,
+                formatAgentChatContextItemsForPrompt(
+                  composerOptions.contextItems ?? contextItems,
+                ),
+                pendingSelectionPromptContext(currentPendingSelection),
+              ]
+                .filter(Boolean)
+                .join("\n\n");
+        const message = options.contextAlreadyIncluded
+          ? text
+          : appendAgentChatContextToMessage(text, context);
+        const attachments = options.attachments ?? [];
+        const needsFileStorage = requiresDurableAttachmentUpload(
+          attachments,
+          files,
+        );
+        composerOptions.validateSubmission?.();
+        if (
+          needsFileStorage &&
+          !fileStorageConfigured &&
+          (queuedSubmit ||
+            !canSendInlineImagesWithoutStorage(attachments, files))
+        ) {
+          throw new Error(t("onboarding.fileStorage.title"));
+        }
+        const uploadedAttachments = options.deferredFileParts
+          ? {
+              fileParts: options.deferredFileParts,
+              requestAttachments: options.deferredRequestAttachments ?? [],
+            }
+          : await uploadAgentChatAttachments(control, attachments, files, {
+              storageConfigured: fileStorageConfigured,
+              storageUnavailableMessage: t("onboarding.fileStorage.title"),
+              fileTooLargeMessage: uploadTooLargeMessage(t),
+            });
+        const fileParts = uploadedAttachments.fileParts;
+        let requestAttachments = normalizeRequestAttachmentReferences(
+          options.deferredRequestAttachments ??
+            uploadedAttachments.requestAttachments,
+        );
+        let retryRequestAttachments = requestAttachments.filter(
+          (attachment) =>
+            !attachment.data && isDurableAttachmentUrl(attachment.url),
+        );
+        let retryAttachmentsUnavailable = false;
+        const inlineImageDataChars = requestAttachments.reduce(
+          (total, attachment) => total + (attachment.data?.length ?? 0),
+          0,
+        );
+        if (
+          inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS &&
+          !fileStorageConfigured
+        ) {
+          throw new Error(t("agentChat.composer.requestTooLarge"));
+        }
+        if (requestAttachments.some((attachment) => attachment.data)) {
+          if (!fileStorageConfigured) {
+            if (
+              queuedSubmit ||
+              !canSendInlineImagesWithoutStorage(attachments, files)
+            ) {
+              throw Object.assign(
+                new Error(t("onboarding.fileStorage.title")),
+                {
+                  code: "upload_storage_unavailable",
+                  retryable: false,
+                },
+              );
+            }
+            retryAttachmentsUnavailable = true;
+          } else {
+            const durableAttachments = await uploadRequestAttachments(
+              control,
+              requestAttachments,
+            );
+            requestAttachments =
+              inlineImageDataChars > MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS
+                ? durableAttachments
+                : requestAttachments.map((attachment, index) => {
+                    const durable = durableAttachments[index];
+                    return attachment.data && durable?.url
+                      ? { ...attachment, url: durable.url }
+                      : attachment;
+                  });
+            retryRequestAttachments = durableAttachments.filter(
+              (attachment) =>
+                !attachment.data && isDurableAttachmentUrl(attachment.url),
+            );
+            retryAttachmentsUnavailable =
+              retryRequestAttachments.length !== requestAttachments.length;
+          }
+        }
+        // Readiness was gated before the upload; a provider status refresh during
+        // it must not discard the upload, only a change of thread or scope.
+        composerOptions.validateSubmissionScope?.();
+        const selectionChangedDuringSubmission =
+          selectionRevision !== selectionRevisionRef.current ||
+          (options.pendingSelectionCapturedAt !== undefined &&
+            options.pendingSelectionCapturedAt !==
+              (currentPendingSelection?.capturedAt ?? null));
+        const skipAmbientSelectionContext =
+          options.skipAmbientSelectionContext === true ||
+          selectionHydration?.status === "pending" ||
+          isClientAppStateMutationPending("pending-selection-context") ||
+          selectionChangedDuringSubmission ||
+          Boolean(pendingSelectionPromptContext(currentPendingSelection));
+        const requestMode =
+          options.requestMode ??
+          options.recoveryRequestMode ??
+          (props.execMode === "plan" ? "plan" : "act");
+        const model =
+          composerOptions.model ?? options.recoveryModel ?? props.selectedModel;
+        const engine =
+          composerOptions.engine ??
+          options.recoveryEngine ??
+          props.selectedEngine;
+        const effort =
+          composerOptions.effort ??
+          options.recoveryEffort ??
+          props.selectedEffort;
+        const contextScope =
+          options.deferredContextScope !== undefined
+            ? (options.deferredContextScope ?? undefined)
+            : props.contextScope;
+        const selectedAgent =
+          options.deferredAgentId !== undefined
+            ? (options.deferredAgentId ?? undefined)
+            : props.selectedAgent;
+        const actionScope = options.actionScope ?? contextScope;
+        const customMetadata = {
+          ...(options.recoveryAction
+            ? { agentNativeRecoveryAction: options.recoveryAction }
+            : {}),
+          ...(options.recoveryOfRunId
+            ? { agentNativeRecoveryOfRunId: options.recoveryOfRunId }
+            : {}),
+          ...(options.resumeAfterSetup
+            ? { agentNativeResumeAfterSetup: true }
+            : {}),
+          ...(options.deferredSubmissionId
+            ? {
+                agentNativeDeferredSubmissionId: options.deferredSubmissionId,
+              }
+            : {}),
+          ...(retryRequestAttachments.length
+            ? { agentNativeRetryRequestAttachments: retryRequestAttachments }
+            : {}),
+          ...(retryAttachmentsUnavailable
+            ? { agentNativeRetryAttachmentsUnavailable: true }
+            : {}),
+        };
+        const metadata = {
+          ...(composerOptions.suggestion
+            ? { suggestion: composerOptions.suggestion }
+            : {}),
+          ...(options.submitMessageId
+            ? { submitMessageId: options.submitMessageId }
+            : {}),
+          ...(options.usageLabel ? { usageLabel: options.usageLabel } : {}),
+          ...(options.trackInRunsTray ? { trackInRunsTray: true } : {}),
+          ...(skipAmbientSelectionContext
+            ? { agentNativeSkipPendingSelectionContext: true }
+            : {}),
+          ...(actionScope ? { actionScope } : {}),
+          ...(options.approvedToolCalls
+            ? { approvedToolCalls: options.approvedToolCalls }
+            : {}),
+          ...(options.hideUserMessage ? { hideUserMessage: true } : {}),
+          ...(Object.keys(customMetadata).length
+            ? { custom: customMetadata }
+            : {}),
+          ...(options.recoveryAction === "continue"
+            ? { agentNativeInternalContinuation: true }
+            : {}),
+          ...(contextScope ? { chatScope: contextScope } : {}),
+          ...(references.length || options.recoveryReferences?.length
+            ? {
+                references: [
+                  ...references,
+                  ...(options.recoveryReferences ?? []),
+                ],
+              }
+            : {}),
+          ...(model ? { model } : {}),
+          ...(engine ? { engine } : {}),
+          ...(effort ? { effort } : {}),
+          ...(selectedAgent ? { agentId: selectedAgent } : {}),
+          requestMode,
+        };
+        if (!queuedMessageReservationId) localSubmissionRef.current = true;
         await control.sendMessage({
           text: message,
           attachments: fileParts,
+          ...(requestAttachments.length ? { requestAttachments } : {}),
           queuedWhileRunActive:
             composerOptions.queuedWhileRunActive ||
             composerOptions.intent === "queued",
@@ -2357,7 +2860,21 @@ const AgentKitAssistantChatBody = forwardRef<
             metadata,
           },
           metadata,
-          onLocalSubmit: composerOptions.onLocalSubmit,
+          ...(queuedMessageReservationId ? { queuedMessageReservationId } : {}),
+          ...(queuedSubmit
+            ? {
+                queueMessageHasAttachments: Boolean(
+                  options.attachments?.length ||
+                  files.length ||
+                  options.deferredFileParts?.length ||
+                  options.deferredRequestAttachments?.length,
+                ),
+              }
+            : {}),
+          ...(queueMessagePreflightToken ? { queueMessagePreflightToken } : {}),
+          ...(queuedMessageReservationId
+            ? {}
+            : { onLocalSubmit: composerOptions.onLocalSubmit }),
         });
         reportAgentChatSubmitResult(options.submitMessageId, true);
         if (
@@ -2379,12 +2896,17 @@ const AgentKitAssistantChatBody = forwardRef<
         );
       } catch (error) {
         localSubmissionRef.current = false;
+        if (queuedMessageReservationId) {
+          control.cancelQueuedMessageReservation?.(queuedMessageReservationId);
+        }
         throw error;
       }
     },
     [
       contextItems,
+      controller,
       control,
+      threadId,
       props.contextScope,
       props.execMode,
       props.selectedAgent,
@@ -2413,6 +2935,12 @@ const AgentKitAssistantChatBody = forwardRef<
       if (!release) {
         if (isRestoring) {
           try {
+            const selectedEngine =
+              submittedComposerOptions.engine ?? props.selectedEngine;
+            await controller.assertAiSetupReady({
+              engine:
+                typeof selectedEngine === "string" ? selectedEngine : undefined,
+            });
             const selectionHydration = pendingSelectionHydrationRef.current;
             await selectionHydration?.promise;
             const currentPendingSelection = pendingSelectionRef.current;
@@ -2420,18 +2948,47 @@ const AgentKitAssistantChatBody = forwardRef<
             const attachments = options.attachments ?? [];
             const needsFileStorage =
               !options.deferredFileParts &&
-              (files.length > 0 ||
-                attachments.some(
-                  (attachment) => !attachment.displayOnly && !attachment.url,
-                ));
+              requiresDurableAttachmentUpload(attachments, files);
+            submittedComposerOptions.validateSubmission?.();
             if (needsFileStorage && !fileStorageConfigured) {
               throw new Error(t("onboarding.fileStorage.title"));
             }
             // Persist only URLs or opaque file handles; application_state is
             // not a file store and must never receive attachment bodies.
-            const fileParts =
-              options.deferredFileParts ??
-              (await uploadAgentChatAttachments(control, attachments, files));
+            const uploadedAttachments = options.deferredFileParts
+              ? {
+                  fileParts: options.deferredFileParts,
+                  requestAttachments: options.deferredRequestAttachments ?? [],
+                }
+              : await uploadAgentChatAttachments(control, attachments, files, {
+                  storageConfigured: fileStorageConfigured,
+                  storageUnavailableMessage: t("onboarding.fileStorage.title"),
+                  fileTooLargeMessage: uploadTooLargeMessage(t),
+                });
+            const fileParts = await durableFileParts(
+              control,
+              uploadedAttachments.fileParts,
+              {
+                storageConfigured: fileStorageConfigured,
+                storageUnavailableMessage: t("onboarding.fileStorage.title"),
+              },
+            );
+            if (
+              !fileStorageConfigured &&
+              uploadedAttachments.requestAttachments.some(
+                (attachment) => attachment.data,
+              )
+            ) {
+              throw new Error(t("onboarding.fileStorage.title"));
+            }
+            const requestAttachments = normalizeRequestAttachmentReferences(
+              options.deferredRequestAttachments ??
+                (await uploadRequestAttachments(
+                  control,
+                  uploadedAttachments.requestAttachments,
+                )),
+            );
+            submittedComposerOptions.validateSubmissionScope?.();
             const selectionChangedDuringUpload =
               selectionRevision !== selectionRevisionRef.current;
             const context = options.recoveryAction
@@ -2459,6 +3016,7 @@ const AgentKitAssistantChatBody = forwardRef<
             delete deferredOptions.submitMessageId;
             delete deferredOptions.attachments;
             deferredOptions.contextAlreadyIncluded = true;
+            deferredOptions.deferredRequestAttachments = requestAttachments;
             deferredOptions.deferredSubmissionId =
               submitMessageId ?? createAgentUploadId();
             deferredOptions.deferredAgentId = props.selectedAgent ?? null;
@@ -2470,6 +3028,8 @@ const AgentKitAssistantChatBody = forwardRef<
             delete deferredComposerOptions.attachments;
             delete deferredComposerOptions.onLocalSubmit;
             delete deferredComposerOptions.validateSubmission;
+            delete deferredComposerOptions.validateSubmissionScope;
+            delete deferredComposerOptions.validateSubmissionScope;
             deferredComposerOptions.model ??= props.selectedModel;
             deferredComposerOptions.engine ??= props.selectedEngine;
             deferredComposerOptions.effort ??= props.selectedEffort;
@@ -2478,6 +3038,7 @@ const AgentKitAssistantChatBody = forwardRef<
               threadId,
               text: appendAgentChatContextToMessage(text, context),
               fileParts,
+              ...(requestAttachments.length ? { requestAttachments } : {}),
               references: [...references],
               composerOptions: deferredComposerOptions,
               options: deferredOptions,
@@ -2503,10 +3064,9 @@ const AgentKitAssistantChatBody = forwardRef<
             throw error;
           }
         }
-        const reason =
-          setupMissing || latestSubmissionReadinessRef.current === "missing"
-            ? "engine-not-configured"
-            : "submission-unavailable";
+        const reason = setupMissing
+          ? "engine-not-configured"
+          : "submission-unavailable";
         reportAgentChatSubmitResult(options.submitMessageId, false, reason);
         return { status: "rejected", reason };
       }
@@ -2560,11 +3120,8 @@ const AgentKitAssistantChatBody = forwardRef<
       composerOptions: AgentKitSuggestionSubmitOptions,
       prepare?: () => Promise<PromptComposerSubmitOptions>,
     ) => {
-      const runWasActiveAtSubmit = providerReadinessPassRef.current
-        ? (composerPreflightRunActiveRef.current ?? isThreadRunning())
-        : isThreadRunning();
-      composerPreflightRunActiveRef.current = null;
-      const release = await acquireSubmission(true);
+      const runWasActiveAtSubmit = isThreadRunning();
+      const release = await acquireSubmission();
       if (!release)
         throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
       try {
@@ -2592,6 +3149,271 @@ const AgentKitAssistantChatBody = forwardRef<
       props.composerDisabled,
       props.composerSubmissionDisabled,
       props.tabId,
+      t,
+      threadId,
+    ],
+  );
+
+  const queueImperativeMessage = useCallback(
+    async (
+      text: string,
+      images: string[] = [],
+    ): Promise<AssistantChatSubmitResult> => {
+      if (
+        isRestoring ||
+        props.composerDisabled ||
+        props.composerSubmissionDisabled
+      ) {
+        return { status: "rejected", reason: "submission-unavailable" };
+      }
+
+      if (
+        images.some(
+          (url) => !parseBase64DataUrl(url) && !isDurableAttachmentUrl(url),
+        )
+      ) {
+        throw Object.assign(
+          new TypeError("Images need a data URL or durable reference."),
+          { code: ATTACHMENT_UNREADABLE_SUBMIT_REASON },
+        );
+      }
+      const selectionHydration = pendingSelectionHydrationRef.current;
+      const currentPendingSelection = pendingSelectionRef.current;
+      const selectionRevision = selectionRevisionRef.current;
+      const context = [
+        formatAgentChatContextItemsForPrompt(contextItems),
+        pendingSelectionPromptContext(currentPendingSelection),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const message = appendAgentChatContextToMessage(text, context);
+      let requestAttachments: AgentRequestAttachment[] = images.map(
+        (url, index) => {
+          const parsed = parseBase64DataUrl(url);
+          if (parsed) {
+            return {
+              type: "image" as const,
+              name: `image-${index + 1}`,
+              contentType: parsed.mediaType,
+              data: url,
+            };
+          }
+          return {
+            type: "image" as const,
+            name: `image-${index + 1}`,
+            url,
+          };
+        },
+      );
+      let attachments: FilePart[] = requestAttachments.flatMap((attachment) =>
+        !attachment.data && attachment.url
+          ? [
+              {
+                type: "file" as const,
+                name: attachment.name,
+                ...(attachment.contentType
+                  ? { mediaType: attachment.contentType }
+                  : {}),
+                url: attachment.url,
+              },
+            ]
+          : [],
+      );
+      const requestMode = props.execMode === "plan" ? "plan" : "act";
+      const model = props.selectedModel;
+      const engine = props.selectedEngine;
+      const effort = props.selectedEffort;
+      const skipAmbientSelectionContext =
+        selectionHydration?.status === "pending" ||
+        isClientAppStateMutationPending("pending-selection-context") ||
+        selectionRevision !== selectionRevisionRef.current ||
+        Boolean(pendingSelectionPromptContext(currentPendingSelection));
+      const capturedScope = JSON.stringify([
+        threadId,
+        props.tabId ?? null,
+        props.contextScope?.type ?? null,
+        props.contextScope?.id ?? null,
+      ]);
+      const validateBeforeQueue = () => {
+        const current = queueScopeRef.current;
+        const currentScope = JSON.stringify([
+          current.threadId,
+          current.tabId ?? null,
+          current.contextScope?.type ?? null,
+          current.contextScope?.id ?? null,
+        ]);
+        if (currentScope !== capturedScope) {
+          throw Object.assign(new Error(t("agentChat.error.failed")), {
+            code: "AGENT_CHAT_SUBMISSION_SCOPE_CHANGED",
+          });
+        }
+      };
+      let queuedMessageReservationId: string | undefined;
+      let queueMessagePreflightToken:
+        | Awaited<ReturnType<typeof controller.assertQueueMessageReady>>
+        | undefined;
+      setQueueSubmissionError(null);
+      try {
+        queuedMessageReservationId = control.reserveQueuedMessage?.(message).id;
+        assertAttachmentSizesWithinLimit(
+          requestAttachments.map((attachment) => ({
+            type: "image",
+            name: attachment.name,
+            ...(attachment.contentType
+              ? { contentType: attachment.contentType }
+              : {}),
+            ...(attachment.data ? { data: attachment.data } : {}),
+            ...(attachment.url ? { url: attachment.url } : {}),
+          })),
+          [],
+          t("agentChat.composer.fileTooLarge"),
+        );
+        if (typeof controller.assertQueueMessageReady === "function") {
+          queueMessagePreflightToken = await controller.assertQueueMessageReady(
+            {
+              threadId,
+              text: message,
+              requestAttachments,
+              metadata: engine ? { engine } : undefined,
+            },
+          );
+        } else {
+          await controller.assertAiSetupReady({
+            engine: typeof engine === "string" ? engine : undefined,
+          });
+        }
+        if (requestAttachments.some((attachment) => attachment.data)) {
+          if (!fileStorageConfigured) {
+            throw Object.assign(new Error(t("onboarding.fileStorage.title")), {
+              code: "upload_storage_unavailable",
+            });
+          }
+          requestAttachments = await uploadRequestAttachments(
+            control,
+            requestAttachments,
+          );
+          if (
+            requestAttachments.some(
+              (attachment) =>
+                attachment.data || !isDurableAttachmentUrl(attachment.url),
+            )
+          ) {
+            throw new TypeError(
+              "Queued images require durable URL references.",
+            );
+          }
+          attachments = requestAttachments.map((attachment) => ({
+            type: "file" as const,
+            name: attachment.name,
+            ...(attachment.contentType
+              ? { mediaType: attachment.contentType }
+              : {}),
+            url: attachment.url!,
+          }));
+        }
+        const retryRequestAttachments = requestAttachments.filter(
+          (attachment) => isDurableAttachmentUrl(attachment.url),
+        );
+        if (retryRequestAttachments.length !== requestAttachments.length) {
+          throw new TypeError("Queued images require durable URL references.");
+        }
+        const customMetadata = {
+          ...(retryRequestAttachments.length
+            ? { agentNativeRetryRequestAttachments: retryRequestAttachments }
+            : {}),
+        };
+        const metadata = {
+          ...(skipAmbientSelectionContext
+            ? { agentNativeSkipPendingSelectionContext: true }
+            : {}),
+          ...(props.contextScope
+            ? { actionScope: props.contextScope, chatScope: props.contextScope }
+            : {}),
+          ...(props.selectedAgent ? { agentId: props.selectedAgent } : {}),
+          ...(Object.keys(customMetadata).length
+            ? { custom: customMetadata }
+            : {}),
+          ...(model ? { model } : {}),
+          ...(engine ? { engine } : {}),
+          ...(effort ? { effort } : {}),
+          requestMode,
+        };
+        await control.queueMessage({
+          text: message,
+          attachments,
+          ...(requestAttachments.length ? { requestAttachments } : {}),
+          queuedWhileRunActive: true,
+          ...(queuedMessageReservationId ? { queuedMessageReservationId } : {}),
+          queueMessageHasAttachments: Boolean(
+            attachments.length || requestAttachments.length,
+          ),
+          ...(queueMessagePreflightToken ? { queueMessagePreflightToken } : {}),
+          validateBeforeQueue,
+          options: {
+            model,
+            mode: requestMode,
+            agentId: props.selectedAgent,
+            reasoningEffort:
+              effort && effort !== "auto" && effort !== "max"
+                ? (effort as "low" | "medium" | "high" | "xhigh")
+                : undefined,
+            metadata,
+          },
+          metadata,
+        });
+        const selectionChangedDuringSubmission =
+          selectionRevision !== selectionRevisionRef.current;
+        if (
+          !selectionChangedDuringSubmission &&
+          Boolean(pendingSelectionPromptContext(currentPendingSelection))
+        ) {
+          requestPendingSelectionClear();
+        }
+        const usedKeys = new Set(contextItems.map((item) => item.key));
+        publishAgentChatContextItems(
+          getAgentChatContextState().items.filter(
+            (item) => !usedKeys.has(item.key),
+          ),
+        );
+        setContextItems((items) =>
+          items.filter((item) => !usedKeys.has(item.key)),
+        );
+        setQueueSubmissionError(null);
+        return { status: "submitted" };
+      } catch (error) {
+        if (queuedMessageReservationId) {
+          control.cancelQueuedMessageReservation?.(queuedMessageReservationId);
+        }
+        const reason = submitFailureReason(error);
+        const rejected = setupSubmissionResult(error);
+        setQueueSubmissionError(
+          rejected ? null : queueSubmissionErrorMessage(error, t),
+        );
+        reportAgentChatSubmitResult(
+          undefined,
+          false,
+          rejected?.status === "rejected" ? rejected.reason : reason,
+        );
+        dispatchSetupRequiredEvent(error, props.tabId, threadId);
+        if (rejected) return rejected;
+        throw error;
+      }
+    },
+    [
+      contextItems,
+      control,
+      isRestoring,
+      props.composerDisabled,
+      props.composerSubmissionDisabled,
+      props.contextScope,
+      props.execMode,
+      fileStorageConfigured,
+      props.selectedAgent,
+      props.selectedEffort,
+      props.selectedEngine,
+      props.selectedModel,
+      props.tabId,
+      requestPendingSelectionClear,
       t,
       threadId,
     ],
@@ -2723,6 +3545,7 @@ const AgentKitAssistantChatBody = forwardRef<
           {
             ...submission.options,
             deferredFileParts: submission.fileParts,
+            deferredRequestAttachments: submission.requestAttachments,
             contextAlreadyIncluded: true,
             deferredSubmissionId: submission.id,
           },
@@ -2836,24 +3659,31 @@ const AgentKitAssistantChatBody = forwardRef<
       text: string,
       images?: string[],
       options?: AssistantChatSendOptions,
-    ) =>
-      submit(
-        text,
-        [],
-        [],
-        { intent: isThreadRunning() ? "queued" : "immediate" },
-        {
-          ...options,
-          attachments: [
-            ...(options?.attachments ?? []),
-            ...(images ?? []).map((url) => ({
-              type: "image",
-              name: "image",
-              url,
-            })),
-          ],
-        },
-      ),
+    ) => {
+      try {
+        return await submit(
+          text,
+          [],
+          [],
+          { intent: isThreadRunning() ? "queued" : "immediate" },
+          {
+            ...options,
+            attachments: [
+              ...(options?.attachments ?? []),
+              ...(images ?? []).map((url) => ({
+                type: "image",
+                name: "image",
+                url,
+              })),
+            ],
+          },
+        );
+      } catch (error) {
+        const rejected = setupSubmissionResult(error);
+        if (rejected) return rejected;
+        throw error;
+      }
+    },
     [isThreadRunning, submit],
   );
   const sendRecoveryMessage = useCallback(
@@ -2873,29 +3703,35 @@ const AgentKitAssistantChatBody = forwardRef<
         | "resumeAfterSetup"
       >,
     ) => {
-      return submit(
-        text,
-        [],
-        [],
-        { intent: isThreadRunning() ? "queued" : "immediate" },
-        {
-          hideUserMessage: true,
-          recoveryAction,
-          recoveryReferences: references,
-          ...recoveryOptions,
-          deferredFileParts: [
-            ...(fileParts ?? []),
-            ...(images ?? []).map(
-              (url): FilePart => ({
-                type: "file",
-                name: "image",
-                mediaType: "image",
-                url,
-              }),
-            ),
-          ],
-        },
-      );
+      try {
+        return await submit(
+          text,
+          [],
+          [],
+          { intent: isThreadRunning() ? "queued" : "immediate" },
+          {
+            hideUserMessage: true,
+            recoveryAction,
+            recoveryReferences: references,
+            ...recoveryOptions,
+            deferredFileParts: [
+              ...(fileParts ?? []),
+              ...(images ?? []).map(
+                (url): FilePart => ({
+                  type: "file",
+                  name: "image",
+                  mediaType: "image",
+                  url,
+                }),
+              ),
+            ],
+          },
+        );
+      } catch (error) {
+        const rejected = setupSubmissionResult(error);
+        if (rejected) return rejected;
+        throw error;
+      }
     },
     [isThreadRunning, submit],
   );
@@ -2972,23 +3808,35 @@ const AgentKitAssistantChatBody = forwardRef<
         .concat(item);
       publishAgentChatContextItems(next);
       setContextItems(
-        filterAgentChatContextItems(next, props.contextNamespace),
+        filterAgentChatContextItems(next, props.contextNamespace, threadId),
       );
       if (focus) requestComposerFocus(threadId);
     },
     [props.contextNamespace, requestComposerFocus, threadId],
   );
   const removeContextItem = useCallback(
-    (key: string) => {
+    (key: string, options?: { threadScoped?: boolean }) => {
+      const targetKey = options?.threadScoped ? `${key}:${threadId}` : key;
+      if (options?.threadScoped) {
+        return removeAgentChatContextItemAndPersist(targetKey).then(() => {
+          setContextItems(
+            filterAgentChatContextItems(
+              getAgentChatContextState().items,
+              props.contextNamespace,
+              threadId,
+            ),
+          );
+        });
+      }
       const next = getAgentChatContextState().items.filter(
-        (item) => item.key !== key,
+        (item) => item.key !== targetKey,
       );
       publishAgentChatContextItems(next);
       setContextItems(
-        filterAgentChatContextItems(next, props.contextNamespace),
+        filterAgentChatContextItems(next, props.contextNamespace, threadId),
       );
     },
-    [props.contextNamespace],
+    [props.contextNamespace, threadId],
   );
   const implementPlan = useCallback(() => {
     const canImplement =
@@ -3010,28 +3858,36 @@ const AgentKitAssistantChatBody = forwardRef<
         writeAssistantChatComposerDraft(props.tabId ?? threadId, text);
         setPrefillRevision((revision) => revision + 1);
       },
-      setComposerContextItem: (item, options) =>
-        setContextItem(item, options?.focus !== false),
+      setComposerContextItem: (item, options) => {
+        const focus = options?.focus !== false;
+        if (!options?.threadScoped) {
+          setContextItem(item, focus);
+          return;
+        }
+
+        const scopedItem = {
+          ...item,
+          key: `${item.key}:${threadId}`,
+          targetThreadId: threadId,
+        };
+        return setAgentChatContextItemAndPersist(scopedItem).then(() => {
+          setContextItems(
+            filterAgentChatContextItems(
+              getAgentChatContextState().items,
+              props.contextNamespace,
+              threadId,
+            ),
+          );
+          if (focus) requestComposerFocus(threadId);
+        });
+      },
       removeComposerContextItem: removeContextItem,
       clearComposerContextItems: () => {
         for (const item of contextItems) removeContextItem(item.key);
       },
       sendRecoveryMessage: (text, recoveryAction, images) =>
         sendRecoveryMessage(text, recoveryAction, images),
-      queueMessage: (text, images) =>
-        submit(
-          text,
-          [],
-          [],
-          { intent: "queued" },
-          {
-            attachments: (images ?? []).map((url) => ({
-              type: "image",
-              name: "image",
-              url,
-            })),
-          },
-        ),
+      queueMessage: (text, images) => queueImperativeMessage(text, images),
       isRunning: isThreadRunning,
       hasInFlightWork: () =>
         Object.values(thread.tools).some((tool) => tool.status === "running") ||
@@ -3062,7 +3918,6 @@ const AgentKitAssistantChatBody = forwardRef<
       },
     }),
     [
-      beforeSubmit,
       contextItems,
       implementPlan,
       props.apiUrl,
@@ -3075,8 +3930,8 @@ const AgentKitAssistantChatBody = forwardRef<
       requestComposerFocus,
       send,
       sendRecoveryMessage,
+      queueImperativeMessage,
       setContextItem,
-      submit,
       thread,
       threadId,
     ],
@@ -3096,6 +3951,12 @@ const AgentKitAssistantChatBody = forwardRef<
     fileStorageMissing,
     retryFileStorageStatus,
     deferredSubmissionFailed: deferredProviderSubmissionFailureId !== null,
+    deferredSubmissionRequiresAttachment:
+      pendingProviderSubmissionsRef.current.some(
+        (submission) =>
+          submission.id === deferredProviderSubmissionFailureId &&
+          submission.attachmentRestoreRequired === true,
+      ),
     retryDeferredSubmission,
     dismissDeferredSubmission,
     isRunning,
@@ -3120,7 +3981,6 @@ const AgentKitAssistantChatBody = forwardRef<
     onTextChange: onComposerTextChange,
     onRemoveContextItem: removeContextItem,
     onClearSelection: requestPendingSelectionClear,
-    onBeforeSubmit: beforeSubmit,
     onSubmit: submitPrepared,
     sendMessage: send,
     sendRecoveryMessage,
@@ -3169,10 +4029,31 @@ const AgentKitAssistantChatBody = forwardRef<
         }
         isAwaitingResponse={() => isRunning}
         onServerSettled={reconcileServerSettled}
-        onRetry={() =>
-          void sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
-        }
+        onRetry={(runId) => {
+          const lastUserMessage = [...thread.messages]
+            .reverse()
+            .find((message) => message.role === "user");
+          runContinueWithVisibleError(
+            () =>
+              sendContinueRequest(
+                surfaceContext,
+                retryRequestFrom(lastUserMessage),
+                runId,
+              ),
+            setContinueSubmissionFailed,
+          );
+        }}
       />
+      {continueSubmissionFailed ? (
+        <div role="alert" className="mx-3 mb-2 text-xs text-destructive">
+          {t("agentChat.recovery.continueUnavailable")}
+        </div>
+      ) : null}
+      {queueSubmissionError ? (
+        <div role="alert" className="mx-3 mb-2 text-xs text-destructive">
+          {queueSubmissionError}
+        </div>
+      ) : null}
       {history?.historyLoadFailed ? (
         <div
           role="alert"
@@ -3594,42 +4475,53 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
       {children}
       {activeRunId ? (
         <div
-          className="agentkit-activities-static"
+          className="agentkit-activities-static agentkit-active-run-actions"
           data-agentkit-active-run-id-copy="true"
         >
-          <IconButton
-            label={
-              activeRunRequestIdCopyStatus === "copied"
-                ? t("agentChat.common.copied")
-                : activeRunRequestIdCopyStatus === "failed"
-                  ? t("agentChat.recovery.copyFailed")
-                  : t("agentChat.message.copyRequestId")
-            }
-            title={t("agentChat.message.copyRequestId")}
-            icon={
-              activeRunRequestIdCopyStatus === "copied" ? (
-                <IconCircleCheck aria-hidden="true" />
-              ) : activeRunRequestIdCopyStatus === "failed" ? (
-                <IconAlertTriangle aria-hidden="true" />
-              ) : (
-                <IconCopy aria-hidden="true" />
-              )
-            }
-            size="compact"
-            onPress={() => void copyActiveRunRequestId()}
-          />
           {activeRunRequestIdCopyStatus ? (
             <span
-              className="sr-only"
+              className={cn(
+                "agentkit-active-run-actions-feedback",
+                activeRunRequestIdCopyStatus === "failed" &&
+                  "agentkit-active-run-actions-feedback-error",
+              )}
               role={
                 activeRunRequestIdCopyStatus === "failed" ? "alert" : "status"
               }
             >
+              {activeRunRequestIdCopyStatus === "copied" ? (
+                <IconCircleCheck size={14} aria-hidden="true" />
+              ) : (
+                <IconAlertTriangle size={14} aria-hidden="true" />
+              )}
               {activeRunRequestIdCopyStatus === "copied"
                 ? t("agentChat.common.copied")
                 : t("agentChat.recovery.copyFailed")}
             </span>
           ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <IconButton
+                label={t("agentChat.message.actions")}
+                title={t("agentChat.message.actions")}
+                icon={<IconDotsVertical aria-hidden="true" />}
+                size="compact"
+                className="agentkit-active-run-actions-trigger"
+              />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={6}>
+              <DropdownMenuItem onSelect={() => void copyActiveRunRequestId()}>
+                {activeRunRequestIdCopyStatus === "copied" ? (
+                  <IconCircleCheck size={14} aria-hidden="true" />
+                ) : activeRunRequestIdCopyStatus === "failed" ? (
+                  <IconAlertTriangle size={14} aria-hidden="true" />
+                ) : (
+                  <IconCopy size={14} aria-hidden="true" />
+                )}
+                {t("agentChat.message.copyRequestId")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       ) : null}
       {handoffMessages.map((message) => (
@@ -3674,6 +4566,7 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
             isSubmissionBlocked={!surface.canChat}
             providerStatus={surface.providerStatus}
             modelListUnavailable={surface.modelListUnavailable}
+            showProviderStatusGate={!composerShowsSetupCard(surface)}
             onRetryProviderStatus={
               surface.modelListUnavailable
                 ? surface.retryModelList
@@ -3806,6 +4699,7 @@ function AgentKitComposerSurface({
   fileStorageMissing,
   retryFileStorageStatus,
   deferredSubmissionFailed,
+  deferredSubmissionRequiresAttachment,
   retryDeferredSubmission,
   dismissDeferredSubmission,
   isRunning,
@@ -3827,7 +4721,6 @@ function AgentKitComposerSurface({
   onTextChange,
   onRemoveContextItem,
   onClearSelection,
-  onBeforeSubmit,
   onSubmit,
   submitSuggestion,
   suggestionSubmitRef,
@@ -3846,6 +4739,7 @@ function AgentKitComposerSurface({
   fileStorageMissing: boolean;
   retryFileStorageStatus: () => void;
   deferredSubmissionFailed: boolean;
+  deferredSubmissionRequiresAttachment: boolean;
   retryDeferredSubmission: () => Promise<void>;
   dismissDeferredSubmission: () => Promise<void>;
   isRunning: boolean;
@@ -3864,7 +4758,6 @@ function AgentKitComposerSurface({
   onTextChange: (text: string) => void;
   onRemoveContextItem: (key: string) => void;
   onClearSelection: () => void;
-  onBeforeSubmit: () => Promise<boolean>;
   onSubmit: AgentKitComposerSubmit;
   threadRestore:
     | { status: "ready" | "loading" }
@@ -3899,12 +4792,11 @@ function AgentKitComposerSurface({
   const submissionScope = JSON.stringify([
     threadId,
     props.tabId,
-    props.contextScope,
+    props.contextScope?.type ?? null,
+    props.contextScope?.id ?? null,
   ]);
   const currentSubmissionScope = useRef(submissionScope);
   currentSubmissionScope.current = submissionScope;
-  const currentProviderStatus = useRef(providerStatus);
-  currentProviderStatus.current = providerStatus;
   const { controller } = useAgentKit();
   const composerRef = useRef<TiptapComposerHandle>(null);
   const selectedSuggestionRef = useRef<
@@ -3916,7 +4808,6 @@ function AgentKitComposerSurface({
     references: Reference[],
     options: AgentKitSuggestionSubmitOptions,
   ) => {
-    const submissionProviderStatus = currentProviderStatus.current;
     options = {
       ...options,
       ...(selectedSuggestionRef.current
@@ -3924,25 +4815,36 @@ function AgentKitComposerSurface({
         : {}),
     };
     setComposerError(null);
-    const assertCurrentSubmission = () => {
-      if (
-        !submissionAllowed.current ||
-        !mounted.current ||
-        currentSubmissionScope.current !== submissionScope ||
-        currentProviderStatus.current !== submissionProviderStatus
-      ) {
-        throw new Error(t("agentChat.error.failed"));
-      }
+    const assertSubmissionScope = () => {
       const latest = controller.getThread(threadId);
       if (
-        options.suggestion &&
-        (latest.messages.length || Object.keys(latest.runs).length) &&
-        !isCurrentAgentSuggestion(latest, options.suggestion)
-      )
-        throw new Error(t("agentChat.error.failed"));
+        !mounted.current ||
+        currentSubmissionScope.current !== submissionScope ||
+        (options.suggestion &&
+          (latest.messages.length || Object.keys(latest.runs).length) &&
+          !isCurrentAgentSuggestion(latest, options.suggestion))
+      ) {
+        throw Object.assign(
+          new Error(t("agentChat.composer.submissionScopeChanged")),
+          { code: "submission_scope_changed" },
+        );
+      }
+    };
+    const assertCurrentSubmission = () => {
+      if (!submissionAllowed.current) {
+        throw Object.assign(
+          new Error(t("agentChat.composer.submissionNotReady")),
+          { code: "submission_not_ready" },
+        );
+      }
+      assertSubmissionScope();
     };
     assertCurrentSubmission();
-    options = { ...options, validateSubmission: assertCurrentSubmission };
+    options = {
+      ...options,
+      validateSubmission: assertCurrentSubmission,
+      validateSubmissionScope: assertSubmissionScope,
+    };
     const captured = snapshotComposerContextItems(
       options.contextItems ?? visibleContextItems,
     );
@@ -4113,7 +5015,9 @@ function AgentKitComposerSurface({
           onSwitchToAct={() => props.onExecModeChange?.("build")}
         />
       ) : null}
-      {setupMissing && props.showMissingApiKeySetup !== false ? (
+      {setupMissing &&
+      props.showMissingApiKeySetup !== false &&
+      props.setupCardOwner !== "host" ? (
         <BuilderSetupCard
           fullWidth
           attached
@@ -4150,6 +5054,7 @@ function AgentKitComposerSurface({
       <div className="relative">
         <AgentKitComposer
           threadId={threadId}
+          requireAgentEngine
           disabled={
             (!canChat && !providerSubmissionPending) ||
             props.composerDisabled ||
@@ -4174,9 +5079,8 @@ function AgentKitComposerSurface({
           }
           initialText={text}
           initialTextKey={`${props.tabId ?? threadId}:${prefillRevision}`}
-          requireAgentEngine={false}
+          showMissingApiKeySetup={false}
           onTextChange={onTextChange}
-          onBeforeSubmit={onBeforeSubmit}
           announcePendingSubmission={!isThinkingVisibleInTranscript}
           onSubmissionPendingChange={onComposerSubmissionPendingChange}
           contextItems={visibleContextItems}
@@ -4239,23 +5143,7 @@ function AgentKitComposerSurface({
               {props.composerToolbarSlot}
             </>
           }
-          extraActionButton={
-            <>
-              {props.composerExtraActionButton}
-              {composerSubmissionPending ? (
-                <span
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-                  role="status"
-                  aria-live="polite"
-                  aria-label={t("agentChat.common.waiting")}
-                  data-testid="provider-preflight-pending"
-                >
-                  <IconLoader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
-                  <span>{t("agentChat.common.waiting")}</span>
-                </span>
-              ) : null}
-            </>
-          }
+          extraActionButton={props.composerExtraActionButton}
           includeDefaultSlashCommands
           includeDefaultSlashSkills
           onSlashCommand={props.onSlashCommand}
@@ -4304,18 +5192,24 @@ function AgentKitComposerSurface({
           >
             <IconAlertTriangle className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="flex-1 leading-snug">
-              {t("agentChat.recovery.deferredSubmissionFailed")}
+              {t(
+                deferredSubmissionRequiresAttachment
+                  ? "agentChat.recovery.retryAttachmentUnavailable"
+                  : "agentChat.recovery.deferredSubmissionFailed",
+              )}
             </span>
-            <button
-              type="button"
-              disabled={!canChat || isSubmissionInFlight}
-              onClick={() =>
-                void retryDeferredSubmission().catch(() => undefined)
-              }
-              className="shrink-0 rounded px-2 py-1 font-medium hover:bg-accent disabled:opacity-60"
-            >
-              {t("agentChat.common.retry")}
-            </button>
+            {!deferredSubmissionRequiresAttachment ? (
+              <button
+                type="button"
+                disabled={!canChat || isSubmissionInFlight}
+                onClick={() =>
+                  void retryDeferredSubmission().catch(() => undefined)
+                }
+                className="shrink-0 rounded px-2 py-1 font-medium hover:bg-accent disabled:opacity-60"
+              >
+                {t("agentChat.common.retry")}
+              </button>
+            ) : null}
             <button
               type="button"
               aria-label={t("agentChat.common.dismissError")}
@@ -4705,6 +5599,8 @@ function AgentKitRunFailure({
   const t = useT();
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [continueFailed, setContinueFailed] = useState(false);
+  const [retryWithoutAttachmentFailed, setRetryWithoutAttachmentFailed] =
+    useState(false);
   const authErrorReason =
     error.code === "unauthorized" || error.code === "http_401"
       ? "session-expired"
@@ -4730,11 +5626,23 @@ function AgentKitRunFailure({
       run.id !== runId &&
       Boolean(run.startedAt && supersededAt && run.startedAt > supersededAt),
   );
+  const newerCreditsLimitRun =
+    isCreditsLimitErrorCode(error.code) &&
+    Object.values(thread.runs).some(
+      (run) =>
+        run.id !== runId &&
+        isCreditsLimitErrorCode(run.error?.code) &&
+        ((run.startedAt ?? "") > (supersededAt ?? "") ||
+          ((run.startedAt ?? "") === (supersededAt ?? "") && run.id > runId)),
+    );
   const lastUserMessage = [...thread.messages]
     .reverse()
     .find((message) => message.role === "user");
   const failedPrompt = userMessageForRun(thread.messages, runId);
   const retryRequest = retryRequestFrom(failedPrompt ?? lastUserMessage);
+  const failedAttachmentNames = retryAttachmentNames(retryRequest);
+  const canRetryWithoutAttachment =
+    error.code === "invalid_attachment" && failedAttachmentNames.length > 0;
   const alreadyRetried = wasRetried(
     thread.messages,
     runId,
@@ -4742,6 +5650,21 @@ function AgentKitRunFailure({
     lastUserMessage?.id,
   );
   const retryFailedTurn = () => sendRetryRequest(surface, retryRequest, runId);
+  const retryWithoutAttachments =
+    retryRequest.fileParts.length || retryRequest.requestAttachments.length
+      ? () =>
+          void sendRetryRequest(
+            surface,
+            {
+              ...retryRequest,
+              text: retryRequest.textWithContext,
+              fileParts: [],
+              requestAttachments: [],
+              hasUnavailableAttachment: false,
+            },
+            runId,
+          )
+      : undefined;
   const resumeAfterSetup = useResumeAfterAiSetup(
     `${threadId}:${(failedPrompt ?? lastUserMessage)?.id ?? runId}`,
     setupFailure &&
@@ -4752,16 +5675,16 @@ function AgentKitRunFailure({
   );
   // A refusal the user already moved past is stale; any other failure keeps
   // its Retry so a reloaded thread never shows an unanswered prompt.
-  if (dismissed === runId) return null;
+  if (dismissed === runId || newerCreditsLimitRun) return null;
   if (setupFailure) {
-    if (superseded || alreadyRetried || composerShowsSetupCard(surface)) {
+    if (superseded || alreadyRetried) {
       return null;
     }
+    if (composerShowsSetupCard(surface)) return null;
     return (
       <BuilderSetupCard
         fullWidth
-        attached
-        layout={surface.props.missingApiKeySetupLayout ?? "default"}
+        layout="default"
         onConnected={() => {
           window.dispatchEvent(new Event("agent-engine:configured-changed"));
           resumeAfterSetup();
@@ -4775,16 +5698,26 @@ function AgentKitRunFailure({
   if (error.code === "loop_limit") {
     const details = asRecord(error.details);
     return (
-      <LoopLimitContinueCard
-        info={{
-          ...(typeof details?.maxIterations === "number"
-            ? { maxIterations: details.maxIterations }
-            : {}),
-        }}
-        onContinue={() =>
-          void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
-        }
-      />
+      <>
+        <LoopLimitContinueCard
+          info={{
+            ...(typeof details?.maxIterations === "number"
+              ? { maxIterations: details.maxIterations }
+              : {}),
+          }}
+          onContinue={() =>
+            runContinueWithVisibleError(
+              () => sendContinueRequest(surface, retryRequest, runId),
+              setContinueFailed,
+            )
+          }
+        />
+        {continueFailed ? (
+          <p role="alert" className="mt-2 text-xs text-destructive">
+            {t("agentChat.recovery.continueUnavailable")}
+          </p>
+        ) : null}
+      </>
     );
   }
   if (wasRetried(thread.messages, runId)) return null;
@@ -4793,36 +5726,66 @@ function AgentKitRunFailure({
   const continueStoppedRun = control.canContinueRun
     ? superseded
       ? undefined
-      : () => {
-          setContinueFailed(false);
-          control.continueRun(runId).catch(() => setContinueFailed(true));
-        }
+      : () =>
+          runContinueWithVisibleError(
+            () => control.continueRun(runId),
+            setContinueFailed,
+          )
     : () =>
-        void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue");
+        runContinueWithVisibleError(
+          () => sendContinueRequest(surface, retryRequest, runId),
+          setContinueFailed,
+        );
   const info: RunErrorInfo = {
-    message: formatAgentKitErrorText(error, t),
+    message: canRetryWithoutAttachment
+      ? t("agentChat.errorMessages.invalidAttachmentNamed", {
+          name: failedAttachmentNames.join(", "),
+        })
+      : formatAgentKitErrorText(error, t),
     errorCode: error.code,
     details: formatErrorDetails(error.details),
     runId,
     recoverable: error.retryable,
   };
   return (
-    <RunErrorRecoveryCard
-      info={info}
-      onContinue={continueStoppedRun}
-      continueError={
-        continueFailed ? t("agentChat.recovery.continueUnavailable") : null
-      }
-      onRetry={() => void retryFailedTurn()}
-      retryHasUnavailableAttachment={retryRequest.hasUnavailableAttachment}
-      onFork={async () => {
-        if (!lastUserMessage) return surface.props.onForkChat?.();
-        const fork = await control.fork(lastUserMessage.id);
-        surface.props.onForkedThread?.(fork.id);
-        return true;
-      }}
-      onDismiss={() => setDismissed(runId)}
-    />
+    <>
+      <RunErrorRecoveryCard
+        info={info}
+        onContinue={continueStoppedRun}
+        continueError={
+          continueFailed ? t("agentChat.recovery.continueUnavailable") : null
+        }
+        onRetry={() => void retryFailedTurn()}
+        onRetryWithoutAttachments={retryWithoutAttachments}
+        retryHasUnavailableAttachment={retryRequest.hasUnavailableAttachment}
+        onRetryWithoutAttachment={
+          canRetryWithoutAttachment
+            ? () =>
+                runContinueWithVisibleError(
+                  () =>
+                    sendRetryRequestWithoutAttachments(
+                      surface,
+                      retryRequest,
+                      runId,
+                    ),
+                  setRetryWithoutAttachmentFailed,
+                )
+            : undefined
+        }
+        onFork={async () => {
+          if (!lastUserMessage) return surface.props.onForkChat?.();
+          const fork = await control.fork(lastUserMessage.id);
+          surface.props.onForkedThread?.(fork.id);
+          return true;
+        }}
+        onDismiss={() => setDismissed(runId)}
+      />
+      {retryWithoutAttachmentFailed ? (
+        <p role="alert" className="mt-2 text-xs text-destructive">
+          {t("agentChat.recovery.deferredSubmissionFailed")}
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -4877,15 +5840,21 @@ function retryRequestFrom(message: AgentMessage | undefined) {
     return typeof value === "string" && value.trim() ? value : undefined;
   };
   const fileParts = message?.parts.filter((part) => part.type === "file") ?? [];
+  const parsedRequestAttachments = parseRetryRequestAttachments(
+    custom?.agentNativeRetryRequestAttachments,
+  );
   const mode = metadataString("requestMode");
   const requestMode: "plan" | "act" | undefined =
     mode === "plan" || mode === "act" ? mode : undefined;
   return {
     text: message ? agentMessageText(message) : "",
+    textWithContext: message ? rawAgentMessageText(message) : "",
     fileParts,
-    hasUnavailableAttachment: fileParts.some(
-      (part) => !part.url && !part.fileId,
-    ),
+    requestAttachments: parsedRequestAttachments.attachments,
+    hasUnavailableAttachment:
+      custom?.agentNativeRetryAttachmentsUnavailable === true ||
+      fileParts.some((part) => !hasDurableFilePart(part)) ||
+      parsedRequestAttachments.unavailable,
     references: Array.isArray(metadata?.references)
       ? (metadata.references as Reference[])
       : [],
@@ -4913,12 +5882,132 @@ function sendRetryRequest(
       recoveryEngine: request.engine,
       recoveryEffort: request.effort,
       recoveryOfRunId,
+      ...(request.requestAttachments.length
+        ? { deferredRequestAttachments: request.requestAttachments }
+        : {}),
       ...(resumeAfterSetup ? { resumeAfterSetup } : {}),
       ...(request.requestMode
         ? { recoveryRequestMode: request.requestMode }
         : {}),
     },
   );
+}
+
+function sendContinueRequest(
+  surface: AgentKitSurfaceContextValue,
+  request: ReturnType<typeof retryRequestFrom>,
+  recoveryOfRunId?: string,
+) {
+  if (
+    request.hasUnavailableAttachment ||
+    request.fileParts.some((part) => !hasDurableFilePart(part))
+  ) {
+    throw new TypeError("Cannot continue with unavailable attachments.");
+  }
+  return surface.sendRecoveryMessage(
+    RECOVERY_CONTINUE_PROMPT,
+    "continue",
+    undefined,
+    request.fileParts,
+    request.references,
+    {
+      recoveryModel: request.model,
+      recoveryEngine: request.engine,
+      recoveryEffort: request.effort,
+      ...(recoveryOfRunId ? { recoveryOfRunId } : {}),
+      ...(request.requestAttachments.length
+        ? { deferredRequestAttachments: request.requestAttachments }
+        : {}),
+      ...(request.requestMode
+        ? { recoveryRequestMode: request.requestMode }
+        : {}),
+    },
+  );
+}
+
+function runContinueWithVisibleError(
+  action: () => Promise<unknown>,
+  setFailed: (failed: boolean) => void,
+) {
+  setFailed(false);
+  void Promise.resolve()
+    .then(action)
+    .then((result) => {
+      if (asRecord(result)?.status === "rejected") setFailed(true);
+    })
+    .catch(() => setFailed(true));
+}
+
+function sendRetryRequestWithoutAttachments(
+  surface: AgentKitSurfaceContextValue,
+  request: ReturnType<typeof retryRequestFrom>,
+  recoveryOfRunId: string,
+) {
+  return surface.sendRecoveryMessage(
+    request.text || "Please retry the last request.",
+    "retry",
+    undefined,
+    [],
+    request.references,
+    {
+      recoveryModel: request.model,
+      recoveryEngine: request.engine,
+      recoveryEffort: request.effort,
+      recoveryOfRunId,
+      ...(request.requestMode
+        ? { recoveryRequestMode: request.requestMode }
+        : {}),
+    },
+  );
+}
+
+function retryAttachmentNames(
+  request: ReturnType<typeof retryRequestFrom>,
+): string[] {
+  return [
+    ...new Set(
+      [
+        ...request.fileParts.map((part) => part.name),
+        ...request.requestAttachments.map((attachment) => attachment.name),
+      ]
+        .map((name) => name.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function parseRetryRequestAttachments(value: unknown): {
+  attachments: AgentRequestAttachment[];
+  unavailable: boolean;
+} {
+  if (value === undefined) return { attachments: [], unavailable: false };
+  if (!Array.isArray(value)) return { attachments: [], unavailable: true };
+  const attachments: AgentRequestAttachment[] = [];
+  let unavailable = false;
+  for (const candidate of value) {
+    const record = asRecord(candidate);
+    if (
+      record?.type !== "image" ||
+      typeof record.name !== "string" ||
+      !isDurableAttachmentUrl(record.url) ||
+      record.data !== undefined
+    ) {
+      unavailable = true;
+      continue;
+    }
+    attachments.push({
+      type: "image",
+      name: record.name,
+      ...(typeof record.contentType === "string"
+        ? { contentType: record.contentType }
+        : {}),
+      url: record.url,
+      ...(typeof record.referenceUrl === "string"
+        ? { referenceUrl: record.referenceUrl }
+        : {}),
+    });
+  }
+  return { attachments, unavailable };
 }
 
 /**
@@ -4976,14 +6065,6 @@ function wasRetried(
     )?.agentNativeRecoveryOfRunId;
     return typeof marker === "string" && ids.includes(marker);
   });
-}
-
-/**
- * The composer's own setup card covers a refusal only where it renders: hosts
- * that hide it (Slides home shows a page-level card) still need the thread's.
- */
-function composerShowsSetupCard(surface: AgentKitSurfaceContextValue) {
-  return surface.setupMissing && surface.props.showMissingApiKeySetup !== false;
 }
 
 /** A refusal the user fixes by connecting Builder or adding a provider key. */
@@ -5100,12 +6181,12 @@ function AgentKitRefusedPromptSetup({ threadId }: { threadId: string }) {
       !retryRequest.hasUnavailableAttachment,
     () => sendRetryRequest(surface, retryRequest, refusedRunId!, true),
   );
-  if (alreadyRetried || composerShowsSetupCard(surface)) return null;
+  if (composerShowsSetupCard(surface)) return null;
+  if (alreadyRetried) return null;
   return (
     <BuilderSetupCard
       fullWidth
-      attached
-      layout={surface.props.missingApiKeySetupLayout ?? "default"}
+      layout="default"
       onConnected={() => {
         window.dispatchEvent(new Event("agent-engine:configured-changed"));
         resume();
@@ -5114,6 +6195,16 @@ function AgentKitRefusedPromptSetup({ threadId }: { threadId: string }) {
         refused && !retryRequest.hasUnavailableAttachment ? resume : undefined
       }
     />
+  );
+}
+
+function composerShowsSetupCard(
+  surface: Pick<AgentKitSurfaceContextValue, "setupMissing" | "props">,
+): boolean {
+  return (
+    surface.setupMissing &&
+    (surface.props.showMissingApiKeySetup !== false ||
+      surface.props.setupCardOwner === "host")
   );
 }
 
@@ -5279,6 +6370,27 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+function isInlineDataUrl(value: unknown): value is string {
+  return typeof value === "string" && /^data:/i.test(value.trim());
+}
+
+function isDurableAttachmentUrl(value: unknown): value is string {
+  return isPersistableAttachmentUrl(value);
+}
+
+function hasDurableFilePart(value: unknown): value is FilePart {
+  const filePart = asRecord(value);
+  return (
+    filePart?.type === "file" &&
+    typeof filePart.name === "string" &&
+    filePart.data === undefined &&
+    (isDurableAttachmentUrl(filePart.url) ||
+      (typeof filePart.fileId === "string" &&
+        filePart.fileId.trim().length > 0 &&
+        !isInlineDataUrl(filePart.fileId)))
+  );
+}
+
 function formatErrorDetails(details: unknown): string | undefined {
   if (details == null) return undefined;
   if (typeof details === "string") return details;
@@ -5355,20 +6467,280 @@ async function attachmentToFile(
 const ATTACHMENT_UNREADABLE_SUBMIT_REASON = "attachment-unreadable";
 
 function submitFailureReason(error: unknown): string {
-  return asRecord(error)?.code === ATTACHMENT_UNREADABLE_SUBMIT_REASON
-    ? ATTACHMENT_UNREADABLE_SUBMIT_REASON
-    : "submission-failed";
+  const record = asRecord(error);
+  if (record?.code === ATTACHMENT_UNREADABLE_SUBMIT_REASON) {
+    return ATTACHMENT_UNREADABLE_SUBMIT_REASON;
+  }
+  if (
+    record?.code === "AGENT_CHAT_SUBMISSION_SCOPE_CHANGED" ||
+    record?.code === "submission_scope_changed"
+  ) {
+    return "submission-scope-changed";
+  }
+  if (record?.code === "upload_too_large") {
+    return "attachment-too-large";
+  }
+  if (
+    typeof record?.code === "string" &&
+    (record.code.startsWith("upload_") ||
+      record.code.startsWith("upload_http_"))
+  ) {
+    return "attachment-upload-failed";
+  }
+  if (record?.code === "AGENT_CHAT_AI_SETUP_REQUIRED") {
+    return record.state === "missing"
+      ? "engine-not-configured"
+      : "submission-unavailable";
+  }
+  return "submission-failed";
+}
+
+function queueSubmissionErrorMessage(
+  error: unknown,
+  t: ReturnType<typeof useT>,
+): string {
+  const generic = t("agentChat.error.failed");
+  const record = asRecord(error);
+  if (
+    typeof record?.code !== "string" ||
+    (!record.code.startsWith("upload_") &&
+      !record.code.startsWith("upload_http_"))
+  ) {
+    return generic;
+  }
+  const message = typeof record.message === "string" ? record.message : "";
+  const localizedUploadMessages = [
+    t("agentChat.composer.fileTooLarge"),
+    uploadTooLargeMessage(t),
+    t("agentChat.composer.sessionExpired"),
+    t("agentChat.composer.unsupportedFileType"),
+    t("agentChat.composer.uploadFailed"),
+    t("agentChat.composer.uploadUnavailable"),
+    t("agentChat.composer.uploadOffline"),
+    t("onboarding.fileStorage.title"),
+  ];
+  return localizedUploadMessages.some(
+    (localized) => localized && message.includes(localized),
+  )
+    ? message
+    : generic;
+}
+
+function setupSubmissionResult(
+  error: unknown,
+): AssistantChatSubmitResult | undefined {
+  const record = asRecord(error);
+  if (record?.code !== "AGENT_CHAT_AI_SETUP_REQUIRED") return undefined;
+  return {
+    status: "rejected",
+    reason:
+      record.state === "missing"
+        ? "engine-not-configured"
+        : "submission-unavailable",
+  };
+}
+
+interface UploadedAgentChatAttachments {
+  fileParts: FilePart[];
+  requestAttachments: AgentRequestAttachment[];
+}
+
+const AGENT_CHAT_UPLOAD_MAX_FILE_BYTES = 25 * 1024 * 1024;
+
+function attachmentTooLargeError(message: string): Error {
+  return Object.assign(new Error(message), {
+    code: "upload_too_large",
+    status: 413,
+    retryable: false,
+  });
+}
+
+function assertAttachmentSizesWithinLimit(
+  attachments: readonly AgentChatAttachment[],
+  files: readonly PromptComposerFile[],
+  message: string,
+): void {
+  const hasOversizedFile = files.some(
+    (file) => file.size > AGENT_CHAT_UPLOAD_MAX_FILE_BYTES,
+  );
+  const hasOversizedAttachment = attachments.some((attachment) => {
+    if (attachment.displayOnly || attachment.url) return false;
+    if (attachment.data) {
+      const parsed = parseBase64DataUrl(attachment.data);
+      const base64 = parsed?.data ?? attachment.data;
+      if (/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+        const padding = base64.endsWith("==")
+          ? 2
+          : base64.endsWith("=")
+            ? 1
+            : 0;
+        return (
+          Math.max(0, Math.floor((base64.length * 3) / 4) - padding) >
+          AGENT_CHAT_UPLOAD_MAX_FILE_BYTES
+        );
+      }
+    }
+    return (
+      attachment.text !== undefined &&
+      new TextEncoder().encode(attachment.text).byteLength >
+        AGENT_CHAT_UPLOAD_MAX_FILE_BYTES
+    );
+  });
+  if (hasOversizedFile || hasOversizedAttachment) {
+    throw attachmentTooLargeError(message);
+  }
+}
+
+function uploadTooLargeMessage(t: ReturnType<typeof useT>): string {
+  return t("agentChat.composer.fileTooLarge", {
+    size: AGENT_CHAT_UPLOAD_MAX_FILE_BYTES / 1024 / 1024,
+  });
+}
+
+function uploadHttpError(status: number, t: ReturnType<typeof useT>): Error {
+  const [code, message, retryable]: [string, string, boolean] =
+    status === 413
+      ? ["upload_too_large", uploadTooLargeMessage(t), false]
+      : status === 401 || status === 403
+        ? [
+            "upload_session_expired",
+            t("agentChat.composer.sessionExpired"),
+            false,
+          ]
+        : status === 415
+          ? [
+              "upload_unsupported_type",
+              t("agentChat.composer.unsupportedFileType"),
+              false,
+            ]
+          : status === 408 || status === 429 || status >= 500
+            ? [
+                "upload_unavailable",
+                t("agentChat.composer.uploadUnavailable"),
+                true,
+              ]
+            : [
+                "upload_http_" + status,
+                t("agentChat.composer.uploadFailed"),
+                false,
+              ];
+  return Object.assign(new Error(message), { code, status, retryable });
+}
+
+/**
+ * Durable uploads keyed by the attachment or file they came from, so a send
+ * that failed on one file reuses its siblings' uploads instead of uploading
+ * them again.
+ */
+const uploadedAgentChatSources = new WeakMap<object, FilePart>();
+
+const OPTIMIZABLE_RASTER_IMAGE_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+function isPotentiallyDownscalableImage(args: {
+  mediaType: string;
+  sizeBytes: number;
+}): boolean {
+  const mediaType = args.mediaType.split(";", 1)[0]!.trim().toLowerCase();
+  return (
+    args.sizeBytes > AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES &&
+    OPTIMIZABLE_RASTER_IMAGE_TYPES.has(mediaType)
+  );
+}
+
+function isPotentiallyDownscalableAttachment(
+  attachment: AgentChatAttachment,
+): boolean {
+  if (attachment.displayOnly || attachment.url || !attachment.data) {
+    return false;
+  }
+  const dataUrl = parseBase64DataUrl(attachment.data);
+  const base64 = dataUrl?.data ?? attachment.data;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return false;
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  const sizeBytes = Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+  const mediaType = attachment.contentType ?? dataUrl?.mediaType ?? "";
+  return isPotentiallyDownscalableImage({ mediaType, sizeBytes });
+}
+
+function requiresDurableAttachmentUpload(
+  attachments: readonly AgentChatAttachment[],
+  files: readonly PromptComposerFile[],
+): boolean {
+  return (
+    files.some(
+      (file) =>
+        !isPotentiallyDownscalableImage({
+          mediaType: file.type,
+          sizeBytes: file.size,
+        }),
+    ) ||
+    attachments.some(
+      (attachment) =>
+        !attachment.displayOnly &&
+        !isDurableAttachmentUrl(attachment.url) &&
+        !isPotentiallyDownscalableAttachment(attachment),
+    )
+  );
+}
+
+function canSendInlineImagesWithoutStorage(
+  attachments: readonly AgentChatAttachment[],
+  files: readonly PromptComposerFile[],
+): boolean {
+  return (
+    files.every(
+      (file) =>
+        file.type.startsWith("image/") &&
+        file.size <= AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
+    ) &&
+    attachments.every((attachment) => {
+      if (attachment.displayOnly || isDurableAttachmentUrl(attachment.url)) {
+        return true;
+      }
+      const payload = attachment.data ?? attachment.url;
+      if (!payload) return false;
+      const dataUrl = parseBase64DataUrl(payload);
+      const base64 = dataUrl?.data ?? payload;
+      const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+      const sizeBytes = Math.max(
+        0,
+        Math.floor((base64.length * 3) / 4) - padding,
+      );
+      const mediaType =
+        attachment.contentType ??
+        (attachment.type === "image" ? dataUrl?.mediaType : attachment.type);
+      return (
+        !attachment.storageRequired &&
+        !attachment.storageUploadFailed &&
+        typeof mediaType === "string" &&
+        mediaType.startsWith("image/") &&
+        Boolean(attachment.data || isInlineDataUrl(attachment.url)) &&
+        sizeBytes <= AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES
+      );
+    })
+  );
 }
 
 async function uploadAgentChatAttachments(
   control: ReturnType<typeof useAgentKitControl>,
   attachments: readonly AgentChatAttachment[],
   files: readonly PromptComposerFile[],
-): Promise<FilePart[]> {
+  options: {
+    storageConfigured: boolean;
+    storageUnavailableMessage: string;
+    fileTooLargeMessage: string;
+  },
+): Promise<UploadedAgentChatAttachments> {
   const entries: Array<FilePart | File> = [];
+  const sourceByFile = new Map<File, object>();
   for (const attachment of attachments) {
     if (attachment.displayOnly) continue;
-    if (attachment.url) {
+    if (isDurableAttachmentUrl(attachment.url)) {
       entries.push({
         type: "file",
         name: attachment.name,
@@ -5376,56 +6748,345 @@ async function uploadAgentChatAttachments(
         url: attachment.url,
       });
     } else {
-      const file = await attachmentToFile(attachment);
-      if (file) entries.push(file);
+      const file = await attachmentToFile({
+        ...attachment,
+        url: undefined,
+        ...(isInlineDataUrl(attachment.url)
+          ? { data: attachment.data ?? attachment.url }
+          : {}),
+      });
+      if (file) {
+        entries.push(file);
+        sourceByFile.set(file, attachment);
+      }
     }
   }
   entries.push(...files);
   const pending = entries.filter(
     (entry): entry is File => entry instanceof File,
   );
-  const uploaded = pending.length
-    ? await control.uploadFiles(
-        pending.map((file) => ({
+  const sourceOf = (file: File): object => sourceByFile.get(file) ?? file;
+  const optimizedImages = new Map<
+    File,
+    { data: string; contentType: string }
+  >();
+  for (const file of pending) {
+    if (
+      !file.type.startsWith("image/") ||
+      (options.storageConfigured &&
+        file.size <= AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES)
+    ) {
+      continue;
+    }
+    const attachment = await readAgentPromptAttachment(file);
+    if (!attachment.dataUrl) continue;
+    const mediaType = parseBase64DataUrl(attachment.dataUrl)?.mediaType;
+    if (mediaType) {
+      optimizedImages.set(file, {
+        data: attachment.dataUrl,
+        contentType: mediaType,
+      });
+    }
+  }
+  const uploadedByFile = new Map<File, FilePart>();
+  const filesToUploadNormally = pending.filter(
+    (file) => !optimizedImages.has(file),
+  );
+  if (!options.storageConfigured && filesToUploadNormally.length > 0) {
+    throw new Error(options.storageUnavailableMessage);
+  }
+  const oversized = filesToUploadNormally.flatMap((file, index) =>
+    file.size > AGENT_CHAT_UPLOAD_MAX_FILE_BYTES
+      ? [
+          {
+            index,
+            name: file.name,
+            error: Object.assign(new Error(options.fileTooLargeMessage), {
+              code: "upload_too_large",
+              retryable: false,
+            }),
+          },
+        ]
+      : [],
+  );
+  if (oversized.length) throw new AgentKitUploadError(oversized, []);
+  const filesToUpload = filesToUploadNormally.filter((file) => {
+    const reused = uploadedAgentChatSources.get(sourceOf(file));
+    if (reused) uploadedByFile.set(file, reused);
+    return !reused;
+  });
+  if (filesToUpload.length) {
+    let uploaded: FilePart[];
+    try {
+      uploaded = await control.uploadFiles(
+        filesToUpload.map((file) => ({
           name: file.name,
           mediaType: file.type || "application/octet-stream",
           size: file.size,
           body: file,
         })),
-      )
-    : [];
-  let uploadIndex = 0;
-  return entries.map((entry) =>
-    entry instanceof File ? uploaded[uploadIndex++]! : entry,
-  );
+      );
+    } catch (error) {
+      if (error instanceof AgentKitUploadError) {
+        for (const { index, part } of error.uploaded) {
+          uploadedAgentChatSources.set(sourceOf(filesToUpload[index]!), part);
+        }
+      }
+      throw error;
+    }
+    filesToUpload.forEach((file, index) => {
+      const part = uploaded[index];
+      if (!part || !hasDurableFilePart(part)) {
+        throw new TypeError("File upload did not return every uploaded file.");
+      }
+      uploadedByFile.set(file, part);
+      uploadedAgentChatSources.set(sourceOf(file), part);
+    });
+  }
+  for (const file of pending) {
+    if (
+      !optimizedImages.has(file) ||
+      !options.storageConfigured ||
+      file.size > AGENT_CHAT_UPLOAD_MAX_FILE_BYTES
+    ) {
+      continue;
+    }
+    try {
+      const [part] = await control.uploadFiles([
+        {
+          name: file.name,
+          mediaType: file.type || "application/octet-stream",
+          size: file.size,
+          body: file,
+        },
+      ]);
+      if (part && hasDurableFilePart(part)) uploadedByFile.set(file, part);
+    } catch {
+      // coercion-ok: the resized inline pixels are sent; this upload only adds a reusable URL.
+    }
+  }
+  const fileParts = entries.flatMap((entry) => {
+    if (!(entry instanceof File)) return [entry];
+    const part = uploadedByFile.get(entry);
+    return part ? [part] : [];
+  });
+  const requestAttachments = pending.flatMap((file) => {
+    const optimized = optimizedImages.get(file);
+    if (!optimized) return [];
+    const part = uploadedByFile.get(file);
+    return [
+      {
+        type: "image" as const,
+        name: file.name,
+        contentType: optimized.contentType,
+        data: optimized.data,
+        ...(part?.url && isDurableAttachmentUrl(part.url)
+          ? { referenceUrl: part.url }
+          : {}),
+      },
+    ];
+  });
+  return { fileParts, requestAttachments };
 }
 
-function agentMessageText(message: AgentMessage): string {
-  return message.parts
+async function uploadRequestAttachments(
+  control: ReturnType<typeof useAgentKitControl>,
+  attachments: readonly AgentRequestAttachment[],
+): Promise<AgentRequestAttachment[]> {
+  const inline = attachments.filter((attachment) => attachment.data);
+  if (inline.length === 0) return [...attachments];
+  const files = await Promise.all(
+    inline.map(async (attachment) => {
+      const file = await attachmentToFile({
+        type: "image",
+        name: attachment.name,
+        contentType: attachment.contentType,
+        data: attachment.data,
+      });
+      if (!file) throw new TypeError(`Could not prepare ${attachment.name}.`);
+      return file;
+    }),
+  );
+  const uploaded = await control.uploadFiles(
+    files.map((file) => ({
+      name: file.name,
+      mediaType: file.type || "application/octet-stream",
+      size: file.size,
+      body: file,
+    })),
+  );
+  let uploadIndex = 0;
+  return attachments.map((attachment) => {
+    if (!attachment.data) return attachment;
+    const part = uploaded[uploadIndex++];
+    if (!part?.url || !isDurableAttachmentUrl(part.url)) {
+      throw new TypeError(
+        `The optimized image ${attachment.name} did not receive a durable URL.`,
+      );
+    }
+    const { data: _data, ...reference } = attachment;
+    return { ...reference, url: part.url };
+  });
+}
+
+function normalizeRequestAttachmentReferences(
+  attachments: readonly AgentRequestAttachment[],
+): AgentRequestAttachment[] {
+  return attachments.map((attachment) => {
+    if (isInlineDataUrl(attachment.url) && !attachment.data) {
+      throw new TypeError(
+        "The image " +
+          attachment.name +
+          " has inline bytes in its URL instead of a durable reference.",
+      );
+    }
+    const {
+      url: _inlineUrl,
+      referenceUrl: _inlineReferenceUrl,
+      ...rest
+    } = attachment;
+    return {
+      ...rest,
+      ...(isDurableAttachmentUrl(attachment.url)
+        ? { url: attachment.url }
+        : {}),
+      ...(isDurableAttachmentUrl(attachment.referenceUrl)
+        ? { referenceUrl: attachment.referenceUrl }
+        : {}),
+    };
+  });
+}
+
+/** Stored submissions carry durable references, so inline file bytes upload first. */
+async function durableFileParts(
+  control: ReturnType<typeof useAgentKitControl>,
+  parts: readonly FilePart[],
+  options: { storageConfigured: boolean; storageUnavailableMessage: string },
+): Promise<FilePart[]> {
+  const inline = parts.filter((part) => isInlineDataUrl(part.url));
+  if (inline.length === 0) return [...parts];
+  if (!options.storageConfigured) {
+    throw new Error(options.storageUnavailableMessage);
+  }
+  const uploaded = await control.uploadFiles(
+    await Promise.all(
+      inline.map(async (part) => {
+        const body = await (await fetch(part.url!)).blob();
+        return {
+          name: part.name,
+          mediaType:
+            part.mediaType ?? (body.type || "application/octet-stream"),
+          size: body.size,
+          body,
+        };
+      }),
+    ),
+  );
+  let uploadIndex = 0;
+  return parts.map((part) => {
+    if (!isInlineDataUrl(part.url)) return part;
+    const durable = uploaded[uploadIndex++];
+    if (!durable?.url && !durable?.fileId) {
+      throw new TypeError(part.name + " did not receive a durable reference.");
+    }
+    return durable;
+  });
+}
+
+function rawAgentMessageTextFromParts(parts: AgentMessage["parts"]): string {
+  return parts
     .filter((part) => part.type === "text")
-    .map((part) =>
-      part.type === "text"
-        ? splitAgentChatContextFromMessage(part.text).message
-        : "",
-    )
+    .map((part) => (part.type === "text" ? part.text : ""))
     .join("\n");
 }
 
+export function agentMessageTextFromParts(
+  parts: AgentMessage["parts"],
+): string {
+  return stripAgentChatContextFromMessage(rawAgentMessageTextFromParts(parts));
+}
+
+function rawAgentMessageText(message: AgentMessage): string {
+  return rawAgentMessageTextFromParts(message.parts);
+}
+
+function agentMessageText(message: AgentMessage): string {
+  return agentMessageTextFromParts(message.parts);
+}
+
+function persistedAgentSnapshotValue(value: unknown): unknown {
+  return stripInlineAttachmentPayloads(value);
+}
+
+/**
+ * The live message keeps inline image bytes for display; what is stored keeps
+ * only a durable reference, or a named omitted marker when there is none.
+ */
 function persistedAgentMessage(message: AgentMessage): AgentMessage {
-  return {
+  const persisted = {
     ...message,
     parts: message.parts.map((part) => {
       const record = asRecord(part);
-      if (
-        (record?.type === "file" || record?.type === "image") &&
-        typeof record.data === "string" &&
-        record.data.startsWith("data:")
-      ) {
-        const { data: _data, ...withoutInlineBody } = record;
-        return withoutInlineBody as unknown as AgentMessage["parts"][number];
+      if (record?.type === "file") {
+        return persistableFilePart(record as unknown as FilePart);
       }
-      return part;
+      if (
+        !record ||
+        (!isInlineDataUrl(record.data) && !isInlineDataUrl(record.url))
+      ) {
+        return part;
+      }
+      const { data: _data, url, ...rest } = record;
+      const durableUrl = isInlineDataUrl(url) ? undefined : url;
+      return {
+        ...rest,
+        ...(durableUrl ? { url: durableUrl } : {}),
+        ...(durableUrl || rest.fileId ? {} : { omitted: "inline-bytes" }),
+      } as unknown as AgentMessage["parts"][number];
     }),
+  };
+  return persistedAgentSnapshotValue(persisted) as AgentMessage;
+}
+
+function persistedAgentEvent(event: AgentEvent): AgentEvent {
+  return "message" in event && event.message
+    ? { ...event, message: persistedAgentMessage(event.message) }
+    : event;
+}
+
+function persistedQueuedMessage(
+  message: AgentQueuedMessage,
+): AgentQueuedMessage {
+  return {
+    ...message,
+    ...(message.attachments
+      ? { attachments: message.attachments.map(persistableFilePart) }
+      : {}),
+    ...(message.requestAttachments
+      ? {
+          requestAttachments: message.requestAttachments.flatMap(
+            ({ data: _data, ...reference }) => {
+              const url = isDurableAttachmentUrl(reference.url)
+                ? reference.url
+                : undefined;
+              const referenceUrl = isDurableAttachmentUrl(
+                reference.referenceUrl,
+              )
+                ? reference.referenceUrl
+                : undefined;
+              return url || referenceUrl
+                ? [
+                    {
+                      ...reference,
+                      ...(url ? { url } : {}),
+                      ...(referenceUrl ? { referenceUrl } : {}),
+                    },
+                  ]
+                : [];
+            },
+          ),
+        }
+      : {}),
   };
 }
 
@@ -5442,14 +7103,12 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
       createdAt: message.createdAt,
     },
   }));
-  const firstUserText =
-    messages.find((message) => message.role === "user") &&
-    agentMessageText(messages.find((message) => message.role === "user")!);
-  const latestUserText =
-    [...messages].reverse().find((message) => message.role === "user") &&
-    agentMessageText(
-      [...messages].reverse().find((message) => message.role === "user")!,
-    );
+  const firstUser = messages.find((message) => message.role === "user");
+  const latestUser = [...messages]
+    .reverse()
+    .find((message) => message.role === "user");
+  const firstUserText = firstUser && rawAgentMessageText(firstUser);
+  const latestUserText = latestUser && agentMessageText(latestUser);
   const handoffThread = thread.thread as AgentKitHandoffThreadSnapshot | null;
   const savedTitle = handoffThread?.title?.trim();
   const titleSource: "fallback" | undefined =
@@ -5457,6 +7116,7 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
       ? "fallback"
       : undefined;
   const title = savedTitle || fallbackChatTitle(firstUserText ?? "");
+  const persistedTitle = persistedAgentSnapshotValue(title);
   const runs = Object.entries(thread.runs).map(([id, run]) => ({
     ...run,
     id,
@@ -5464,22 +7124,26 @@ function createAgentKitThreadSnapshot(thread: AgentThreadState) {
   }));
   const agentKit = {
     messages,
-    events: thread.events,
+    events: thread.events.map(persistedAgentEvent),
     runs,
     activeRunIds: thread.activeRunIds,
     toolCalls: Object.values(thread.tools),
     activities: Object.values(thread.activities),
   };
+  const repositorySnapshot = persistedAgentSnapshotValue({
+    headId: messages.at(-1)?.id ?? null,
+    messages: repositoryMessages,
+    queuedMessages: thread.queuedMessages.map(persistedQueuedMessage),
+    agentKit,
+  });
   return {
-    threadData: JSON.stringify({
-      headId: messages.at(-1)?.id ?? null,
-      messages: repositoryMessages,
-      queuedMessages: thread.queuedMessages,
-      agentKit,
-    }),
-    title,
+    threadData: JSON.stringify(repositorySnapshot),
+    title: typeof persistedTitle === "string" ? persistedTitle : "",
     ...(titleSource ? { titleSource } : {}),
-    preview: (latestUserText ?? "").slice(0, 280),
+    preview:
+      (persistedAgentSnapshotValue((latestUserText ?? "").slice(0, 280)) as
+        | string
+        | undefined) ?? "",
     messageCount: messages.length,
   };
 }
@@ -5536,7 +7200,7 @@ function storeAgentKitThreadHandoffSnapshot(
   if (!messages.length) return;
 
   const now = new Date().toISOString();
-  const handoff: AgentKitHandoffThreadSnapshot = {
+  const handoff = persistedAgentSnapshotValue({
     ...(thread.thread ?? {}),
     id: thread.id,
     title: snapshot.title || thread.thread?.title,
@@ -5546,8 +7210,8 @@ function storeAgentKitThreadHandoffSnapshot(
     createdAt: thread.thread?.createdAt ?? messages[0]?.createdAt ?? now,
     updatedAt: thread.thread?.updatedAt ?? messages.at(-1)?.createdAt ?? now,
     messages,
-    queuedMessages: thread.queuedMessages,
-    events: thread.events,
+    queuedMessages: thread.queuedMessages.map(persistedQueuedMessage),
+    events: thread.events.map(persistedAgentEvent),
     runs: Object.entries(thread.runs).map(([id, run]) => ({
       ...run,
       id,
@@ -5587,7 +7251,7 @@ function storeAgentKitThreadHandoffSnapshot(
     interactions: thread.agentInteractions,
     artifacts: thread.artifacts,
     suggestions: thread.suggestions,
-  };
+  }) as AgentKitHandoffThreadSnapshot;
 
   const timestamp = Date.now();
   for (const [existingKey, entry] of threadHandoffSnapshots) {
@@ -5730,21 +7394,28 @@ function appendVoiceTranscriptsToThreadSnapshot(
   const latestUser = [...messages]
     .reverse()
     .find((message) => message.role === "user");
+  const title =
+    snapshot.title ||
+    (firstUser ? fallbackChatTitle(rawAgentMessageText(firstUser)) : "");
+  const persistedTitle = persistedAgentSnapshotValue(title);
+  const persistedPreview = persistedAgentSnapshotValue(
+    latestUser ? agentMessageText(latestUser).slice(0, 280) : "",
+  );
   return {
     ...snapshot,
-    threadData: JSON.stringify({
-      ...parsedRepository,
-      headId: messages.at(-1)?.id ?? null,
-      messages: repositoryMessages,
-      agentKit: {
-        ...agentKit,
-        messages,
-      },
-    }),
-    title:
-      snapshot.title ||
-      (firstUser ? fallbackChatTitle(agentMessageText(firstUser)) : ""),
-    preview: latestUser ? agentMessageText(latestUser).slice(0, 280) : "",
+    threadData: JSON.stringify(
+      persistedAgentSnapshotValue({
+        ...parsedRepository,
+        headId: messages.at(-1)?.id ?? null,
+        messages: repositoryMessages,
+        agentKit: {
+          ...agentKit,
+          messages,
+        },
+      }),
+    ),
+    title: typeof persistedTitle === "string" ? persistedTitle : "",
+    preview: typeof persistedPreview === "string" ? persistedPreview : "",
     messageCount: messages.length,
   };
 }

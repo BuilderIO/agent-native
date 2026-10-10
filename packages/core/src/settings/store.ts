@@ -5,6 +5,7 @@ import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import { getRequestContext } from "../server/request-context.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { createEventEmitter } from "../shared/optional-node-builtins.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -175,6 +176,7 @@ export async function mutateSetting(
       snapshot.rows.length === 0 ? null : (snapshot.rows[0]?.value as string);
     const current = raw == null ? null : JSON.parse(raw);
     const next = await updater(current);
+    assertNoInlineImageBytes(next, `setting "${key}"`);
     const nextRaw = JSON.stringify(next);
     // An unchanged value is not a write: it would bump updated_at and publish
     // a settings event that makes every open page refetch for nothing.
@@ -208,14 +210,16 @@ export async function putSetting(
   value: Record<string, unknown>,
   options?: StoreWriteOptions,
 ): Promise<void> {
+  assertNoInlineImageBytes(value, `setting "${key}"`);
+  const serialized = JSON.stringify(value);
   await ensureTable();
   const client = getDbExec();
   const table = settingsTable();
   await client.execute({
     sql: `INSERT INTO ${table} (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`,
-    args: [key, JSON.stringify(value), Date.now()],
+    args: [key, serialized, Date.now()],
   });
-  requestSettingsCache()?.set(key, JSON.stringify(value));
+  requestSettingsCache()?.set(key, serialized);
   settingsEmitter().emit("settings", {
     source: "settings",
     type: "change",

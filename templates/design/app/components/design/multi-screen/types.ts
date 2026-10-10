@@ -195,6 +195,9 @@ export interface MultiScreenCanvasProps {
   reviewResourceId?: string;
   reviewPinMode?: boolean;
   reviewCommentsHidden?: boolean;
+  pixelGridEnabled?: boolean;
+  snapToPixelGrid?: boolean;
+  showRulers?: boolean;
   reviewCanPost?: boolean;
   reviewCanResolve?: boolean;
   reviewTargetId?: string | null;
@@ -217,6 +220,7 @@ export interface MultiScreenCanvasProps {
     id: string,
     selectionToggle?: { screenId: string; selected: boolean },
   ) => void;
+  onSelectForGesture?: (id: string) => void;
   onEdit?: (id: string) => void;
   metadataById?: Record<string, ScreenMetadata | undefined>;
   screenRootComputedStylesById?: Record<string, Record<string, string>>;
@@ -513,7 +517,8 @@ export interface MultiScreenCanvasProps {
   deferLineupZoomChange?: boolean;
   /**
    * Omitted: the first layout fits every screen. Set (a screen id, or null for
-   * the first screen): it fits that one screen to the pane width instead.
+   * the first screen): it focuses that screen. By default it fits the pane
+   * width; `fitFocusedViewport` fits both axes and centers it.
    */
   initialFitScreenId?: string | null;
   /**
@@ -521,6 +526,8 @@ export interface MultiScreenCanvasProps {
    * pane so it reflows into the pane instead of leaving empty canvas below it.
    */
   fillFocusedViewport?: boolean;
+  /** With `initialFitScreenId` set: center the full screen inside the pane. */
+  fitFocusedViewport?: boolean;
   chromeInsetLeft?: number;
   chromeInsetRight?: number;
   visibleCanvasRectRef?: RefObject<(() => VisibleCanvasRect | null) | null>;
@@ -611,6 +618,7 @@ export type MultiScreenCanvasCameraProps = Pick<
   | "onZoomChange"
   | "initialFitScreenId"
   | "fillFocusedViewport"
+  | "fitFocusedViewport"
 >;
 
 export type MultiScreenCanvasCreationProps = Pick<
@@ -727,7 +735,7 @@ export interface VectorEditOverlayState {
 }
 
 /**
- * Figma-parity on-canvas gradient editing handles (follow-up to IP21's
+ * On-canvas gradient editing handles (follow-up to IP21's
  * inspector-only `GradientEditor`). Supplied by the parent (DesignEditor)
  * whenever a fill's gradient tab is open in the inspector for a selected
  * board/draft primitive or screen frame this canvas renders chrome for; see

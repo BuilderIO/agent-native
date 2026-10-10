@@ -11,6 +11,7 @@ import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import { getDefaultMcpIntegrations } from "@agent-native/core/client/resources";
+import { actionErrorMessage } from "@agent-native/core/client/use-action";
 import { docsUrl } from "@agent-native/core/shared";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
@@ -63,6 +64,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -75,6 +84,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { getIdToken } from "@/lib/auth";
 import {
   dataSourceOAuthReturnPath,
@@ -114,6 +124,7 @@ interface AnalyticsPublicKeyRow {
   lastUsedAt: string | null;
   revokedAt: string | null;
   orgId: string | null;
+  replayAllowedOrigins: string[];
 }
 
 interface GitHubOAuthStatus {
@@ -622,18 +633,28 @@ function GoogleSheetsExportCard({
 }
 
 function SharedConnectionBadge({ status }: { status: SharedConnectionStatus }) {
-  const tone =
-    status.kind === "ready"
-      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-      : status.kind === "needs_grant"
-        ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-        : status.kind === "local_credentials"
-          ? "border-border/60 bg-muted text-muted-foreground"
-          : "border-border/60 bg-background text-muted-foreground";
+  const t = useT();
+  const tone = {
+    ready:
+      "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    needs_grant:
+      "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+    needs_credentials: "border-border/60 bg-background text-muted-foreground",
+    local_credentials: "border-border/60 bg-muted text-muted-foreground",
+    needs_reauth:
+      "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+    error: "border-destructive/30 bg-destructive/10 text-destructive",
+  }[status.kind];
+  const label =
+    status.kind === "needs_reauth"
+      ? t("dataSources.reconnect")
+      : status.kind === "error"
+        ? t("dataSources.connectionFailed")
+        : status.label;
 
   return (
     <Badge variant="outline" className={tone}>
-      {status.label}
+      {label}
     </Badge>
   );
 }
@@ -649,9 +670,13 @@ function SharedConnectionStatusRow({
       ? t("dataSources.sharedReady")
       : status.kind === "needs_grant"
         ? t("dataSources.sharedNeedsGrant")
-        : status.kind === "local_credentials"
-          ? t("dataSources.sharedLocalCredentials")
-          : t("dataSources.sharedFallback");
+        : status.kind === "needs_reauth"
+          ? t("dataSources.sharedNeedsReauth")
+          : status.kind === "error"
+            ? t("dataSources.sharedError")
+            : status.kind === "local_credentials"
+              ? t("dataSources.sharedLocalCredentials")
+              : t("dataSources.sharedFallback");
 
   return (
     <div className="mb-4 flex items-start justify-between gap-3 rounded-md bg-muted/30 p-3">
@@ -1257,6 +1282,9 @@ function DataSourceCard({
 
   const hasInputValues = Object.values(inputValues).some((v) => v.trim());
   const readyViaWorkspace = sharedConnectionStatus?.kind === "ready";
+  const sharedConnectionNeedsReauth =
+    sharedConnectionStatus?.kind === "needs_reauth";
+  const sharedConnectionHasError = sharedConnectionStatus?.kind === "error";
   const showCredentialSetup =
     !locallyConfigured && (!readyViaWorkspace || showLocalCredentials);
   const preferWorkspaceSetup =
@@ -1311,6 +1339,16 @@ function DataSourceCard({
                     ? t("dataSources.ready")
                     : t("dataSources.configured")}
                 </span>
+              ) : sharedConnectionNeedsReauth ? (
+                <span className="flex items-center gap-1.5 text-xs font-medium whitespace-nowrap text-amber-600 dark:text-amber-400">
+                  <IconAlertCircle className="h-3.5 w-3.5" />
+                  {t("dataSources.reconnect")}
+                </span>
+              ) : sharedConnectionHasError ? (
+                <span className="flex items-center gap-1.5 text-xs font-medium whitespace-nowrap text-destructive">
+                  <IconAlertCircle className="h-3.5 w-3.5" />
+                  {t("dataSources.connectionFailed")}
+                </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
                   <IconCircle className="h-3 w-3" />
@@ -1320,7 +1358,9 @@ function DataSourceCard({
               <span className="hidden text-xs font-medium text-foreground/70 sm:inline">
                 {ready
                   ? t("dataSources.editCredentials")
-                  : t("dataSources.connect")}
+                  : sharedConnectionNeedsReauth || sharedConnectionHasError
+                    ? t("dataSources.reconnect")
+                    : t("dataSources.connect")}
               </span>
               {expanded ? (
                 <IconChevronUp className="h-4 w-4 text-muted-foreground" />
@@ -1645,6 +1685,7 @@ function AddDataSourceCTA() {
         </p>
         <PromptComposer
           autoFocus
+          requireAgentEngine
           disabled={isGenerating}
           placeholder={t("dataSources.addDataSourcePlaceholder")}
           draftScope="analytics:add-data-source"
@@ -1664,6 +1705,9 @@ function FirstPartyAnalyticsCard() {
   const [name, setName] = useState(() => t("dataSources.defaultKeyName"));
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [editingOriginsFor, setEditingOriginsFor] =
+    useState<AnalyticsPublicKeyRow | null>(null);
+  const [originDraft, setOriginDraft] = useState("");
 
   const { data, isLoading } = useActionQuery(
     "list-analytics-public-keys",
@@ -1721,6 +1765,30 @@ function FirstPartyAnalyticsCard() {
       });
     },
   });
+
+  const updateKeyOrigins = useActionMutation("update-analytics-public-key", {
+    method: "PUT",
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-analytics-public-keys"],
+      });
+      setEditingOriginsFor(null);
+      setOriginDraft("");
+    },
+  });
+
+  const addReplayOrigins = () => {
+    if (!editingOriginsFor) return;
+    const origins = originDraft
+      .split(/\r?\n/)
+      .map((origin) => origin.trim())
+      .filter(Boolean);
+    if (origins.length === 0) return;
+    updateKeyOrigins.mutate({
+      id: editingOriginsFor.id,
+      addReplayAllowedOrigins: origins,
+    });
+  };
 
   const copyCreatedKey = async () => {
     if (!createdKey) return;
@@ -2032,6 +2100,16 @@ function FirstPartyAnalyticsCard() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-36">
                         <DropdownMenuItem
+                          onSelect={() => {
+                            updateKeyOrigins.reset();
+                            setOriginDraft("");
+                            setEditingOriginsFor(key);
+                          }}
+                        >
+                          {t("dataSources.manageReplayOrigins")}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
                           onSelect={() => revokeKey.mutate({ id: key.id })}
                           disabled={revokeKey.isPending}
                           className="text-destructive focus:text-destructive"
@@ -2051,6 +2129,90 @@ function FirstPartyAnalyticsCard() {
                 ))}
               </div>
             )}
+
+            <Dialog
+              open={editingOriginsFor !== null}
+              onOpenChange={(open) => {
+                if (!open && !updateKeyOrigins.isPending) {
+                  setEditingOriginsFor(null);
+                  setOriginDraft("");
+                }
+              }}
+            >
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>
+                    {t("dataSources.manageReplayOrigins")}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {t("dataSources.replayOriginsDescription")}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium">
+                      {t("dataSources.currentReplayOrigins")}
+                    </p>
+                    {editingOriginsFor?.replayAllowedOrigins.length ? (
+                      <ul className="max-h-32 space-y-1 overflow-y-auto rounded-md bg-muted/40 p-2 text-xs">
+                        {editingOriginsFor.replayAllowedOrigins.map(
+                          (origin) => (
+                            <li key={origin} className="break-all font-mono">
+                              {origin}
+                            </li>
+                          ),
+                        )}
+                      </ul>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        {t("dataSources.anyReplayOriginAllowed")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="analytics-replay-origins"
+                      className="text-xs font-medium"
+                    >
+                      {t("dataSources.originsToAdd")}
+                    </label>
+                    <Textarea
+                      id="analytics-replay-origins"
+                      value={originDraft}
+                      onChange={(event) => setOriginDraft(event.target.value)}
+                      placeholder={t("dataSources.replayOriginsPlaceholder")}
+                      rows={4}
+                      disabled={updateKeyOrigins.isPending}
+                    />
+                  </div>
+                  {updateKeyOrigins.isError && (
+                    <p role="alert" className="text-xs text-destructive">
+                      {actionErrorMessage(updateKeyOrigins.error) ??
+                        t("dataSources.replayOriginsUpdateFailed")}
+                    </p>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setEditingOriginsFor(null)}
+                    disabled={updateKeyOrigins.isPending}
+                  >
+                    {t("dataSources.cancel")}
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={addReplayOrigins}
+                    disabled={updateKeyOrigins.isPending || !originDraft.trim()}
+                  >
+                    {updateKeyOrigins.isPending
+                      ? t("dataSources.addingReplayOrigins")
+                      : t("dataSources.addReplayOrigins")}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </CardContent>
       )}

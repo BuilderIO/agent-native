@@ -124,7 +124,7 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     return readView(container);
   }
 
-  it("moves one accelerated mouse notch by a Figma-sized step, not the per-frame ceiling", async () => {
+  it("moves one accelerated mouse notch by a configured step, not the per-frame ceiling", async () => {
     const surface = await renderSurface();
     const view = await applyTicks(surface, [{ deltaY: -66.7, ctrlKey: true }]);
     expect(view.scale).toBeCloseTo(notchFactor(66.7), 6);

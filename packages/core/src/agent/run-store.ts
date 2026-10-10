@@ -16,6 +16,11 @@ import {
   recordServicePrincipalDenial,
 } from "../org/service-principal-guard.js";
 import { captureError } from "../server/capture-error.js";
+import {
+  assertNoInlineImageBytes,
+  stripInlineBytes,
+  stripInlineBytesFromJson,
+} from "../shared/inline-bytes.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
 import {
   admitAutoContinue,
@@ -379,7 +384,9 @@ export async function writeLedgerEntry(
   try {
     await ensureRunTables();
     const client = getDbExec();
-    let boundedChatUIResultJson = chatUIResultJson ?? null;
+    let boundedChatUIResultJson = chatUIResultJson
+      ? stripInlineBytesFromJson(chatUIResultJson, "placeholder")
+      : null;
     const chatUIResultBytes = boundedChatUIResultJson
       ? new TextEncoder().encode(boundedChatUIResultJson).byteLength
       : 0;
@@ -398,11 +405,12 @@ export async function writeLedgerEntry(
       });
       boundedChatUIResultJson = null;
     }
+    const safeResultSummary = stripInlineBytes(resultSummary, "placeholder");
     const capped =
-      resultSummary.length > LEDGER_RESULT_MAX_CHARS
-        ? resultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
+      safeResultSummary.length > LEDGER_RESULT_MAX_CHARS
+        ? safeResultSummary.slice(0, LEDGER_RESULT_MAX_CHARS) +
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
-        : resultSummary;
+        : safeResultSummary;
     await client.execute({
       sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -416,7 +424,7 @@ export async function writeLedgerEntry(
         threadId,
         toolKey,
         capped,
-        JSON.stringify(artifacts),
+        JSON.stringify(stripInlineBytes(artifacts, "placeholder")),
         resultIsString ?? null,
         boundedChatUIResultJson,
         Date.now(),
@@ -540,6 +548,9 @@ export async function insertRun(
     turnInitiator?: AgentTurnInitiator;
   },
 ): Promise<void> {
+  if (options?.dispatchPayload) {
+    assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
+  }
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
@@ -1152,6 +1163,9 @@ export async function tryClaimRunSlot(
   turnAborted?: boolean;
   continueRefused?: ContinueRefusalCode;
 }> {
+  if (options?.dispatchPayload) {
+    assertNoInlineImageBytes(options.dispatchPayload, "dispatch_payload");
+  }
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
@@ -1727,20 +1741,38 @@ function generateRecoveryRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function staleRecoveryDispatchPayload(payload: string, runId: string): string {
+type StaleRecoveryDispatchPayloadResult =
+  | { ok: true; payload: string }
+  | {
+      ok: false;
+      reason: "malformed_json" | "invalid_shape" | "unsafe_payload";
+    };
+
+function staleRecoveryDispatchPayload(
+  payload: string,
+  runId: string,
+): StaleRecoveryDispatchPayloadResult {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(payload);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return payload;
-    }
-    return JSON.stringify({
-      ...(parsed as Record<string, unknown>),
+    parsed = JSON.parse(payload);
+  } catch {
+    return { ok: false, reason: "malformed_json" };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, reason: "invalid_shape" };
+  }
+
+  try {
+    const serialized = JSON.stringify({
+      ...stripInlineBytes(parsed as Record<string, unknown>, "placeholder"),
       internalContinuation: true,
       // The worker replaces __backgroundRun when rehydrating a payloadRef.
       [AGENT_CHAT_RECOVERY_OF_RUN_FIELD]: runId,
     });
+    assertNoInlineImageBytes(serialized, "stale recovery dispatch_payload");
+    return { ok: true, payload: serialized };
   } catch {
-    return payload;
+    return { ok: false, reason: "unsafe_payload" };
   }
 }
 
@@ -1769,6 +1801,8 @@ async function attemptStaleRunRecovery(
   if (typeof payload !== "string" || payload.length === 0) {
     return { outcome: "not_redispatchable" };
   }
+  const recoveryPayload = staleRecoveryDispatchPayload(payload, runId);
+  if (!recoveryPayload.ok) return { outcome: "not_redispatchable" };
   const threadId = row.thread_id;
   const turnId = row.turn_id ?? runId;
   const startedAt = Number(row.started_at) || 0;
@@ -1836,6 +1870,10 @@ async function attemptStaleRunRecovery(
   const successorRunId = generateRecoveryRunId();
   const now = Date.now();
   const continuationOrder = await nextContinuationOrder(db, threadId, turnId);
+  assertNoInlineImageBytes(
+    recoveryPayload.payload,
+    "stale recovery dispatch_payload",
+  );
   await db.execute({
     sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?, ?) ON CONFLICT (id) DO NOTHING`,
     args: [
@@ -1845,7 +1883,7 @@ async function attemptStaleRunRecovery(
       now,
       now,
       turnId,
-      staleRecoveryDispatchPayload(payload, runId),
+      recoveryPayload.payload,
       continuationOrder,
     ],
   });
@@ -2348,7 +2386,13 @@ export async function insertRunEvent(
         WHERE id = ? AND status <> 'running'
       )
       ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, seq, Date.now(), eventData, runId],
+    args: [
+      runId,
+      seq,
+      Date.now(),
+      stripInlineBytesFromJson(eventData, "placeholder"),
+      runId,
+    ],
   });
 }
 
@@ -3307,6 +3351,11 @@ async function appendTerminalRunEvent(
   const nextSeq = last ? Number(last.seq ?? -1) + 1 : 0;
   await client.execute({
     sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, nextSeq, Date.now(), JSON.stringify(event)],
+    args: [
+      runId,
+      nextSeq,
+      Date.now(),
+      stripInlineBytesFromJson(JSON.stringify(event), "placeholder"),
+    ],
   });
 }

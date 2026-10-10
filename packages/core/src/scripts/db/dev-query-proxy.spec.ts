@@ -14,6 +14,8 @@ vi.mock("../../db/client.js", () => ({
     mockGetRuntimeDatabaseUrl(...args),
   isPgliteUrl: (url: string) => url.toLowerCase().startsWith("pglite:"),
   isProcessAlive: (...args: unknown[]) => mockIsProcessAlive(...args),
+  pgliteClientKeyFromUrl: (url: string) =>
+    `/app/${url.slice("pglite:".length)}`,
 }));
 vi.mock("../../server/dev-action-bridge.js", () => ({
   DEV_ACTION_ORG_HEADER: "x-agent-native-dev-org",

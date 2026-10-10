@@ -24,7 +24,8 @@ vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
 }));
 vi.mock("@agent-native/core/application-state", () => ({
-  listAppState: async () => mocks.appState,
+  listAppState: async (prefix: string) =>
+    mocks.appState.filter((entry) => entry.key.startsWith(prefix)),
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => "me@example.com",
@@ -33,6 +34,8 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: (table: { ownerEmail: unknown }) =>
     sql`${table.ownerEmail} = 'me@example.com'`,
 }));
+
+import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 
 import listAiRequests from "./list-ai-requests";
 
@@ -102,7 +105,147 @@ describe("list-ai-requests", () => {
           currentTitle: "Title when queued",
         },
       ],
+      activeSessions: [],
       titleCandidates: [],
     });
+  });
+
+  it("recovers accepted filler sessions and filters their consumed queue entries", async () => {
+    await insertRecording("rec_filler", "Filler cleanup", "me@example.com");
+    const requestedAt = "2026-09-28T12:00:00.000Z";
+    mocks.appState = [
+      {
+        key: "clips-ai-request-rec_filler",
+        value: {
+          kind: "remove-filler-words",
+          recordingId: "rec_filler",
+          requestedAt,
+        },
+      },
+      {
+        key: "clips-ai-request-status-rec_filler",
+        value: {
+          kind: "remove-filler-words",
+          status: "working",
+          requestedAt,
+          operationId: "operation-1",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          runId: "run-1",
+        },
+      },
+    ];
+
+    const result = await (listAiRequests as any).run({});
+
+    expect(result.requests).toEqual([]);
+    expect(result.activeSessions).toEqual([
+      {
+        recordingId: "rec_filler",
+        kind: "remove-filler-words",
+        status: "working",
+        requestedAt,
+        operationId: "operation-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        runId: "run-1",
+      },
+    ]);
+  });
+
+  it("keeps a working filler request dispatchable until its receipt is persisted", async () => {
+    await insertRecording("rec_filler", "Filler cleanup", "me@example.com");
+    const requestedAt = "2026-09-28T12:00:00.000Z";
+    mocks.appState = [
+      {
+        key: "clips-ai-request-rec_filler",
+        value: {
+          kind: "remove-filler-words",
+          recordingId: "rec_filler",
+          requestedAt,
+        },
+      },
+      {
+        key: "clips-ai-request-status-rec_filler",
+        value: {
+          kind: "remove-filler-words",
+          status: "working",
+          requestedAt,
+          operationId: "operation-1",
+        },
+      },
+    ];
+
+    const result = await (listAiRequests as any).run({});
+
+    expect(result.requests).toHaveLength(1);
+    expect(result.activeSessions).toEqual([]);
+  });
+  it("recovers working sessions for every queued request kind", async () => {
+    await insertRecording("rec_chapters", "Chapters", "me@example.com");
+    const requestedAt = "2026-09-28T12:00:00.000Z";
+    mocks.appState = [
+      {
+        key: "clips-ai-request-status-rec_chapters",
+        value: {
+          kind: "regenerate-chapters",
+          status: "working",
+          requestedAt,
+          operationId: "operation-2",
+          threadId: "thread-2",
+          turnId: "turn-2",
+        },
+      },
+    ];
+
+    const result = await (listAiRequests as any).run({});
+
+    expect(result.activeSessions).toEqual([
+      expect.objectContaining({
+        recordingId: "rec_chapters",
+        kind: "regenerate-chapters",
+        operationId: "operation-2",
+      }),
+    ]);
+  });
+
+  it("recovers only generating workflows that have a background session tab", async () => {
+    await insertRecording("rec_flow", "Workflow", "me@example.com");
+    await insertRecording("rec_legacy", "Legacy", "me@example.com");
+    const requestedAt = "2026-09-28T12:00:00.000Z";
+    const tabId = "clips-workflow:rec_flow:2026:req-1:run";
+    mocks.appState = [
+      {
+        key: "clips-workflow-rec_flow",
+        value: { status: "generating", requestedAt, requestId: "req-1", tabId },
+      },
+      {
+        key: "clips-workflow-rec_legacy",
+        value: {
+          status: "generating",
+          requestedAt,
+          requestId: "req-2",
+          tabId: "clips-workflow:rec_legacy:2026:req-2:chat-abc",
+        },
+      },
+      {
+        key: "clips-workflow-rec_done",
+        value: { status: "ready", requestedAt, requestId: "req-0", tabId },
+      },
+    ];
+
+    const result = await (listAiRequests as any).run({});
+
+    expect(result.activeSessions).toEqual([
+      {
+        recordingId: "rec_flow",
+        kind: "generate-workflow",
+        requestedAt,
+        requestId: "req-1",
+        operationId: tabId,
+        threadId: tabId,
+        turnId: backgroundAgentTurnIdForReceipt(tabId, tabId),
+      },
+    ]);
   });
 });

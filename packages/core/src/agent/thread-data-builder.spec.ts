@@ -2,11 +2,13 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
 import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import {
   buildAssistantMessage,
   buildRepositoryFromCodeAgentTranscript,
   buildUserMessage,
+  containsInlineAttachmentPayload,
   applySubmittedUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
@@ -174,6 +176,125 @@ describe("a client thread save after a refused turn", () => {
 });
 
 describe("extractThreadMeta", () => {
+  it.each([
+    [
+      "<context>Private instructions</context>\nPlan   next week",
+      "Plan next week",
+    ],
+    [
+      '<context source="legacy">Private instructions</context>\nPlan next week',
+      "Plan next week",
+    ],
+    [
+      "Question <context>private</context> still visible",
+      "Question still visible",
+    ],
+    [
+      "Use <context-menu>public</context-menu> and <Context.Provider>public</Context.Provider>.",
+      "Use <context-menu>public</context-menu> and <Context.Provider>public</Context.Provider>.",
+    ],
+    [
+      "<context>hidden </context>\nsecret tail\n</context>\nVisible prompt",
+      "Visible prompt",
+    ],
+    ["<context>Only private instructions", ""],
+    ["Ask @[Steve|private-id]   next week", "Ask @Steve next week"],
+    ["<context>Only private instructions</context>", ""],
+  ])(
+    "strips hidden prompt context from titles and previews: %s",
+    (prompt, visible) => {
+      expect(
+        extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+      ).toEqual({ title: visible.slice(0, 80), preview: visible });
+    },
+  );
+
+  it("chooses the first visible prompt after a context-only user message", () => {
+    expect(
+      extractThreadMeta({
+        messages: [
+          {
+            role: "user",
+            content: "<context>Private instructions only</context>",
+          },
+          {
+            role: "user",
+            content: "Find flights to <context>private note</context>Tokyo",
+          },
+          { role: "user", content: "Book a return flight" },
+        ],
+      }),
+    ).toEqual({
+      title: "Find flights to Tokyo",
+      preview: "Book a return flight",
+    });
+  });
+
+  it("hides nested legacy blocks and ambiguous text between them", () => {
+    const prompt =
+      "Before\n<context>Outer private </context>\nCopied private between blocks\n<context>Inner private</context>\nAfter";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before After", preview: "Before After" });
+  });
+
+  it("treats multiple unencoded legacy blocks as one private span", () => {
+    // Legacy blocks have no trustworthy inner boundary; text between them may be private.
+    const prompt =
+      "Before\n<context>First private block</context>\nBetween\n<context>Second private block</context>\nAfter";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before After", preview: "Before After" });
+  });
+
+  it("fails closed on an unclosed line-start legacy marker", () => {
+    // Unencoded text is ambiguous here; the current producer escapes authored markup.
+    const prompt = "Plan next week\n<context>Private trailing instructions";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Plan next week", preview: "Plan next week" });
+  });
+
+  it("fails closed when a later legacy opener is unclosed", () => {
+    const prompt =
+      "Before\n<context>hidden</context>\n<context>second private remainder";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Before", preview: "Before" });
+  });
+
+  it("uses the encoded producer boundary and restores authored markup", () => {
+    const prompt = "<context>";
+    const content = appendAgentChatContextToMessage(
+      prompt,
+      "private prefix </context> private suffix",
+    );
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content }] }),
+    ).toEqual({ title: prompt, preview: prompt });
+  });
+
+  it("fails closed on an inline unclosed exact context opener", () => {
+    const prompt = "Question <context>private remainder";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: "Question", preview: "Question" });
+  });
+
+  it("preserves a literal closing tag when there is no hidden context block", () => {
+    const prompt = "How should I write the literal </context> tag?";
+
+    expect(
+      extractThreadMeta({ messages: [{ role: "user", content: prompt }] }),
+    ).toEqual({ title: prompt, preview: prompt });
+  });
+
   it("prefers a manual title override while keeping the message preview", () => {
     const meta = extractThreadMeta({
       _titleOverride: "  Renamed   chat ",
@@ -1050,6 +1171,37 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  it("keeps an invalid request with timeout wording visible at continuation boundaries", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "partial answer" } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "Invalid request timed out",
+            errorCode: "invalid_request",
+            providerRetryable: false,
+          },
+        },
+      ],
+      "run-invalid-request",
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-invalid-request",
+      },
+    );
+
+    expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(message?.metadata?.custom?.continued).toBeUndefined();
+    expect(message?.content).toEqual([
+      {
+        type: "text",
+        text: "partial answer\n\nError: The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+      },
+    ]);
+  });
+
   it("ignores the engine's retry verdict when deciding continuation boundaries", () => {
     const message = buildAssistantMessage(
       [
@@ -1129,8 +1281,7 @@ describe("buildAssistantMessage", () => {
         seq: 1,
         event: {
           type: "error",
-          error:
-            'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+          error: "Gateway error (no detail)",
           errorCode: "builder_gateway_error",
           recoverable: true,
         },
@@ -1154,9 +1305,7 @@ describe("buildAssistantMessage", () => {
     expect(
       (message?.metadata.custom as { runError?: { details?: string } })
         ?.runError?.details,
-    ).toBe(
-      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
-    );
+    ).toBe("Gateway error (no detail)");
   });
 
   it("never persists a raw provider connection dump as user-visible text", () => {
@@ -1212,7 +1361,7 @@ describe("buildAssistantMessage", () => {
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
   });
 
-  it("still persists non-recoverable errors", () => {
+  it("keeps missing-provider setup metadata without adding a generic error body", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },
       {
@@ -1227,14 +1376,20 @@ describe("buildAssistantMessage", () => {
 
     const message = buildAssistantMessage(events, "run-missing-key");
 
-    // Persisted from the typed code, so the stored row reads as actionable copy.
     expect(message?.content).toEqual([
       {
         type: "text",
-        text: `checking...\n\nError: ${LLM_MISSING_CREDENTIALS_MESSAGE}`,
+        text: "checking...",
       },
     ]);
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(message?.metadata.custom).toMatchObject({
+      runError: {
+        errorCode: "missing_api_key",
+        message:
+          "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+      },
+    });
   });
 
   it("replaces a non-terminal partial assistant message for the same run", () => {
@@ -3624,6 +3779,18 @@ describe("mergeThreadDataForClientSave", () => {
     expect(merged.queuedMessages).toEqual([]);
   });
 
+  it("does not allow a client save to create the server-owned queue", () => {
+    const merged = mergeThreadDataForClientSave(
+      { messages: [] },
+      {
+        messages: [],
+        queuedMessages: [{ id: "forged", text: "Bypass readiness" }],
+      },
+    );
+
+    expect(merged.queuedMessages).toBeUndefined();
+  });
+
   it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {
     const existing = {
       messages: [
@@ -4249,6 +4416,189 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
 });
 
 describe("upsertUserMessage", () => {
+  it("flags inline image data in attachments but allows plain chat examples", () => {
+    expect(
+      containsInlineAttachmentPayload({
+        messages: [
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "A short example: data:image/png;base64,AA==",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      containsInlineAttachmentPayload({
+        messages: [
+          {
+            message: {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: `Full image payload: data:image/png;base64,${"A".repeat(128)}`,
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        data: "A".repeat(128),
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "tiny.gif",
+        contentType: "image/gif",
+        data: "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        url: "data:image/png;base64,INLINE_BYTES",
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        dataURL: "data:image/png;base64,INLINE_BYTES",
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        dataURL: "A".repeat(128),
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        url: "A".repeat(128),
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "tiny.gif",
+        contentType: "image/gif",
+        url: "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        metadata: { preview: `data:image/png;base64,${"A".repeat(128)}` },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        metadata: { base64: "A".repeat(128) },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "image",
+        name: "reference.png",
+        metadata: { bytes: [0, 1, 2, 255] },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        type: "file",
+        data: "hello",
+      }),
+    ).toBe(false);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [
+          {
+            data: `data:image/png;base64,${"A".repeat(128)}`,
+          },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        metadata: {
+          attachments: [
+            {
+              nested: {
+                payload: {
+                  data: `data:image/png;base64,${"A".repeat(128)}`,
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ data: "A".repeat(128) }],
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ data: "hello" }],
+      }),
+    ).toBe(false);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ metadata: { preview: "A".repeat(128) } }],
+      }),
+    ).toBe(true);
+    expect(
+      containsInlineAttachmentPayload({
+        attachments: [{ bytes: new Uint8Array([0, 1, 2, 255]) }],
+      }),
+    ).toBe(true);
+  });
+
+  it("allows inline-like content in assistant text and tool inputs", () => {
+    expect(
+      containsInlineAttachmentPayload({
+        messages: [
+          {
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "text",
+                  text: `Generated example: data:image/png;base64,${"A".repeat(128)}`,
+                },
+                {
+                  type: "tool-call",
+                  argsText: `data:image/png;base64,${"A".repeat(128)}`,
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
+  });
+
   it("reconciles an already persisted queue submission without duplicating it", () => {
     const user = buildUserMessage({
       text: "Run once",
@@ -4503,6 +4853,125 @@ describe("upsertUserMessage", () => {
     });
   });
 
+  it.each([
+    {
+      name: "data and a data URL",
+      attachment: {
+        type: "image",
+        name: "image.png",
+        contentType: "image/png",
+        data: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+        url: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+      },
+    },
+    {
+      name: "a reference-only data URL",
+      attachment: {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        referenceOnly: true,
+        url: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+      },
+    },
+    {
+      name: "an untyped data URL",
+      attachment: {
+        name: "unknown.png",
+        url: "data:image/png;base64,INLINE_THREAD_SQL_IMAGE_BYTES",
+      },
+    },
+  ])("never persists an inline URL for $name", ({ attachment }) => {
+    const message = buildUserMessage({
+      text: "Keep the attachment visible without storing its bytes",
+      runId: "run-inline-image-url",
+      attachments: [attachment as any],
+    });
+
+    const storedAttachment = message.attachments?.[0];
+    expect(storedAttachment).toBeDefined();
+    expect(storedAttachment.content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("inline data URLs cannot be stored"),
+    });
+    expect(JSON.stringify(message)).not.toContain("data:image/");
+    expect(JSON.stringify(message)).not.toContain(
+      "INLINE_THREAD_SQL_IMAGE_BYTES",
+    );
+  });
+
+  it("does not persist nested unknown attachment payload fields", () => {
+    const message = buildUserMessage({
+      text: "Keep the visible text without storing nested bytes",
+      runId: "run-nested-inline-image",
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          text: "Visible notes",
+          metadata: {
+            attachments: [
+              {
+                url: "data:image/png;base64,NESTED_THREAD_SQL_IMAGE_BYTES",
+              },
+            ],
+          },
+        } as any,
+      ],
+    });
+
+    expect(message.attachments?.[0].content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("Visible notes"),
+    });
+    expect(JSON.stringify(message)).not.toContain("data:image/");
+    expect(JSON.stringify(message)).not.toContain(
+      "NESTED_THREAD_SQL_IMAGE_BYTES",
+    );
+  });
+
+  it("keeps short legacy text data without requiring binary storage", () => {
+    const message = buildUserMessage({
+      text: "Use these legacy notes",
+      runId: "run-legacy-text-data",
+      attachments: [
+        {
+          type: "file",
+          name: "legacy.txt",
+          contentType: "text/plain",
+          data: "hello",
+        } as any,
+      ],
+    });
+
+    expect(message.attachments?.[0].content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("\nhello\n"),
+    });
+    expect(JSON.stringify(message)).not.toContain("connect object storage");
+  });
+
+  it("does not persist raw base64 attachment data without storage", () => {
+    const base64 = "A".repeat(128);
+    const message = buildUserMessage({
+      text: "Keep the attachment visible without storing its bytes",
+      runId: "run-raw-base64-attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "encoded.bin",
+          data: base64,
+        } as any,
+      ],
+    });
+
+    expect(message.attachments?.[0].content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("connect object storage"),
+    });
+    expect(JSON.stringify(message)).not.toContain(base64);
+  });
+
   it("stores file attachments as URL references when a hosted URL exists", () => {
     const attWithUrl = {
       type: "file",
@@ -4667,14 +5136,6 @@ describe("live-client twins", () => {
     throw new Error(`unterminated body for ${name}`);
   };
 
-  const stringConst = (source: string, name: string): string => {
-    const match = new RegExp(`\\b${name}\\s*=\\s*\n?\\s*"([^"]*)"`).exec(
-      source,
-    );
-    expect(match, `${name} not found`).not.toBeNull();
-    return match![1]!;
-  };
-
   it("keeps clearAssistantDraftContent identical to the live client copy", () => {
     expect(
       functionBody(
@@ -4689,23 +5150,13 @@ describe("live-client twins", () => {
     );
   });
 
-  it("keeps the interrupted-tool-result marker identical across all three copies", () => {
-    const client = stringConst(
-      sourceOf("../client/sse-event-processor.ts"),
-      "INTERRUPTED_TOOL_RESULT",
-    );
+  it("keeps the interrupted-tool-result marker identical to the live client copy", async () => {
+    const [{ INTERRUPTED_TOOL_RESULT }, { INTERRUPTED_TOOL_RESULT_MARKER }] =
+      await Promise.all([
+        import("../client/sse-event-processor.js"),
+        import("./engine/translate-anthropic.js"),
+      ]);
 
-    expect(
-      stringConst(
-        sourceOf("./thread-data-builder.ts"),
-        "INTERRUPTED_TOOL_RESULT",
-      ),
-    ).toBe(client);
-    expect(
-      stringConst(
-        sourceOf("./production-agent.ts"),
-        "INTERRUPTED_TOOL_RESULT_MARKER",
-      ),
-    ).toBe(client);
+    expect(INTERRUPTED_TOOL_RESULT_MARKER).toBe(INTERRUPTED_TOOL_RESULT);
   });
 });

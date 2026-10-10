@@ -15,6 +15,14 @@ import {
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
+  MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS,
+  MAX_SESSION_REPLAY_CAPTURE_BYTES,
+  MAX_SESSION_REPLAY_CAPTURE_CHUNK_BYTES,
+  MAX_SESSION_REPLAY_CAPTURE_CHUNKS,
+  MAX_SESSION_REPLAY_CAPTURE_EVENTS,
+  MAX_SESSION_REPLAY_CAPTURE_MANIFEST_BYTES,
+} from "@shared/session-replay-capture";
+import {
   isFailedSessionReplayNetworkStatus,
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
@@ -81,6 +89,20 @@ import { getIdToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
+import {
+  buildReplayViewportTimeline,
+  INCREMENTAL_SOURCE,
+  normalizeReplayEvents,
+  replayAvailabilityErrorKey,
+  replayInitialViewportDimensions,
+  resolveReplayOffsetFromRecordingStart,
+  replayStartedAt,
+  replayViewportDimensionsAtTime,
+  REPLAY_OVERLAY_STYLE_RULES,
+  RRWEB_EVENT_TYPE,
+  type AnyReplayEvent,
+  type ReplayViewportDimensions,
+} from "../../../shared/replay-playback.js";
 import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../../shared/session-events";
 import type { SessionRecordingFriction } from "../../../shared/session-friction";
 import {
@@ -106,6 +128,20 @@ import {
   SessionDevToolsPanel,
 } from "./SessionDevToolsPanel";
 import { SessionFrictionPanel } from "./SessionFriction";
+
+export {
+  buildReplayViewportTimeline,
+  INCREMENTAL_SOURCE,
+  normalizeReplayDimensions,
+  normalizeReplayEvents,
+  replayAvailabilityErrorKey,
+  replayInitialViewportDimensions,
+  replayRouteAtOffset,
+  replayViewportDimensions,
+  replayViewportDimensionsAtTime,
+  REPLAY_OVERLAY_STYLE_RULES,
+  RRWEB_EVENT_TYPE,
+} from "../../../shared/replay-playback.js";
 
 type SessionRecordingSummary = {
   id: string;
@@ -172,7 +208,6 @@ type SessionReplayPlaybackResponse = {
   isComplete: boolean;
 };
 
-type AnyReplayEvent = Record<string, any>;
 type AnyRecord = Record<string, any>;
 
 type ReplayPlayerStatus = "idle" | "loading" | "ready" | "error";
@@ -202,15 +237,6 @@ type SkipRange = {
   endMs: number;
 };
 
-type ReplayViewportDimensions = {
-  width: number;
-  height: number;
-};
-
-type ReplayViewportChange = ReplayViewportDimensions & {
-  offsetMs: number;
-};
-
 const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
 const DEFAULT_SPEED = 2;
@@ -229,7 +255,6 @@ const SCRUBBER_MARKER_LIMIT = 500;
 const TIMELINE_MARKER_LIMIT = 300;
 const TIMELINE_FOLLOW_PAUSE_MS = 4000;
 const REPLAY_CLOCK_UPDATE_INTERVAL_MS = 100;
-export const REPLAY_OVERLAY_STYLE_RULES: string[] = [];
 type ReplayConsoleDiagnostics = ReturnType<
   typeof extractReplayDiagnostics
 >["console"];
@@ -258,24 +283,6 @@ function buildConsoleErrorSignatures(
   return signatures;
 }
 
-const RRWEB_EVENT_TYPE = {
-  FullSnapshot: 2,
-  IncrementalSnapshot: 3,
-  Meta: 4,
-  Custom: 5,
-} as const;
-
-const INCREMENTAL_SOURCE = {
-  Mutation: 0,
-  MouseMove: 1,
-  MouseInteraction: 2,
-  Scroll: 3,
-  ViewportResize: 4,
-  Input: 5,
-  TouchMove: 6,
-  Drag: 12,
-} as const;
-
 const MOUSE_INTERACTION = {
   MouseUp: 0,
   MouseDown: 1,
@@ -294,10 +301,11 @@ export default function SessionDetailPage() {
   const { codeRequiredDialog } = useSendToAgentChat();
   const { data, isLoading, error } = useSessionReplayPlayback(recordingId);
   const recording = data?.recording;
-  const initialSeekMs = useMemo(() => {
+  const initialRecordingOffsetMs = useMemo(() => {
     const raw = searchParams.get("atMs");
-    if (!raw || !/^\d+$/.test(raw)) return 0;
-    return Number(raw);
+    if (raw === null || !/^\d+$/.test(raw)) return null;
+    const offsetMs = Number(raw);
+    return Number.isSafeInteger(offsetMs) ? offsetMs : null;
   }, [searchParams]);
 
   return (
@@ -350,7 +358,10 @@ export default function SessionDetailPage() {
         <DetailSkeleton />
       ) : data && recording ? (
         <div className="min-h-0 flex-1">
-          <ReplayWorkbench response={data} initialSeekMs={initialSeekMs} />
+          <ReplayWorkbench
+            response={data}
+            initialRecordingOffsetMs={initialRecordingOffsetMs}
+          />
         </div>
       ) : null}
     </div>
@@ -457,6 +468,7 @@ function AskSessionPopover({
         </div>
         <PromptComposer
           autoFocus
+          requireAgentEngine
           disabled={isGenerating}
           placeholder={t("sessions.askSessionPlaceholder")}
           draftScope={`analytics:session-replay:${recording.id}`}
@@ -469,13 +481,35 @@ function AskSessionPopover({
 
 function ReplayWorkbench({
   response,
-  initialSeekMs,
+  initialRecordingOffsetMs,
 }: {
   response: SessionReplayPlaybackResponse;
-  initialSeekMs: number;
+  initialRecordingOffsetMs: number | null;
 }) {
   const t = useT();
   const events = useReplayEvents(response);
+  const offsetResolution = useMemo(
+    () =>
+      initialRecordingOffsetMs === null
+        ? null
+        : resolveReplayOffsetFromRecordingStart(
+            events,
+            Date.parse(response.recording.startedAt),
+            initialRecordingOffsetMs,
+          ),
+    [events, initialRecordingOffsetMs, response.recording.startedAt],
+  );
+  const initialSeekMs =
+    initialRecordingOffsetMs === null
+      ? null
+      : (offsetResolution?.playheadOffsetMs ?? 0);
+  const requestedOffsetStatus =
+    response.isComplete && offsetResolution && !offsetResolution.exact
+      ? {
+          requestedOffsetMs: offsetResolution.requestedOffsetMs,
+          availableOffsetMs: offsetResolution.availableOffsetMs,
+        }
+      : null;
   const appEvents = useLab(ANALYTICS_SESSIONS_TRIAGE_LAB);
   const [pageChangesCollapsed, setPageChangesCollapsed] = useState(false);
   const [savingScreenshot, setSavingScreenshot] = useState(false);
@@ -524,6 +558,7 @@ function ReplayWorkbench({
         markers={markers}
         response={response}
         initialSeekMs={initialSeekMs}
+        requestedOffsetStatus={requestedOffsetStatus}
         onTimeUpdate={setCurrentTime}
         registerSeek={registerSeek}
         frictionLab={appEvents}
@@ -554,6 +589,7 @@ function ReplayPlayer({
   markers,
   response,
   initialSeekMs,
+  requestedOffsetStatus,
   onTimeUpdate,
   registerSeek,
   frictionLab,
@@ -563,7 +599,11 @@ function ReplayPlayer({
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
   response: SessionReplayPlaybackResponse;
-  initialSeekMs: number;
+  initialSeekMs: number | null;
+  requestedOffsetStatus: {
+    requestedOffsetMs: number;
+    availableOffsetMs: number;
+  } | null;
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
   frictionLab: boolean;
@@ -851,7 +891,7 @@ function ReplayPlayer({
       const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
       setTotalTime(Number.isFinite(total) ? total : 0);
       const startAt = clamp(
-        initialSeekMs || currentTimeRef.current,
+        initialSeekMs ?? currentTimeRef.current,
         0,
         Number.isFinite(total) ? total : 0,
       );
@@ -1155,6 +1195,21 @@ function ReplayPlayer({
         <Card className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <CardContent className="flex min-h-0 min-w-0 flex-1 flex-col p-0">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-muted/20 p-2">
+              {status === "ready" && requestedOffsetStatus ? (
+                <p
+                  className="mb-2 rounded-md border bg-background px-3 py-2 text-xs text-muted-foreground"
+                  role="status"
+                >
+                  {t("sessions.replayTargetFallback", {
+                    requested: formatClock(
+                      requestedOffsetStatus.requestedOffsetMs,
+                    ),
+                    available: formatClock(
+                      requestedOffsetStatus.availableOffsetMs,
+                    ),
+                  })}
+                </p>
+              ) : null}
               {currentUrl ? (
                 <div
                   className="flex h-8 shrink-0 items-center rounded-t-md border border-b-0 bg-background px-3 font-mono text-xs text-muted-foreground"
@@ -1954,6 +2009,7 @@ function useSessionReplayPlayback(recordingId: string) {
 
 interface FetchSessionReplayPlaybackOptions {
   agentAccessToken?: string;
+  captureThroughOffsetMs?: number;
 }
 
 export async function fetchSessionReplayPlayback(
@@ -1961,6 +2017,34 @@ export async function fetchSessionReplayPlayback(
   options: FetchSessionReplayPlaybackOptions = {},
 ): Promise<SessionReplayPlaybackResponse> {
   const manifest = await fetchReplayManifest(recordingId, options);
+  if (options.captureThroughOffsetMs !== undefined) {
+    if (
+      !isRecord(manifest) ||
+      !isRecord(manifest.recording) ||
+      manifest.recording.id !== recordingId
+    ) {
+      throw new Error("replay_capture_manifest_invalid");
+    }
+    const chunks = await fetchBoundedReplayCaptureChunks(
+      manifest,
+      options,
+      recordingId,
+      options.captureThroughOffsetMs,
+    );
+    const unavailableChunks = chunks.filter(
+      (chunk) => chunk.unavailable,
+    ).length;
+    const loadedBytes = chunks.reduce(
+      (sum, chunk) => sum + chunk.byteLength,
+      0,
+    );
+    return playbackResponseFromChunks(manifest, chunks, {
+      isComplete: chunks.length === manifest.chunks.length,
+      loadedChunks: chunks.length,
+      loadedBytes,
+      unavailableChunks,
+    });
+  }
   const chunks = await fetchReplayChunks(manifest.chunks, options);
   const unavailableChunks = chunks.filter((chunk) => chunk.unavailable).length;
   const loadedBytes = manifest.chunks.reduce(
@@ -1997,7 +2081,7 @@ function playbackResponseFromChunks(
     recording: manifest.recording,
     chunks,
     eventCount,
-    truncated: false,
+    truncated: !progress.isComplete,
     unavailableChunks: progress.unavailableChunks,
     loadedChunks: progress.loadedChunks,
     totalChunks: manifest.chunks.length,
@@ -2018,7 +2102,274 @@ async function fetchReplayManifest(
     options.agentAccessToken,
   );
   if (!response.ok) throw await replayFetchError(response);
-  return (await response.json()) as SessionReplayManifestResponse;
+  const payload =
+    options.captureThroughOffsetMs === undefined
+      ? await response.json()
+      : (
+          await readReplayJsonBounded(
+            response,
+            MAX_SESSION_REPLAY_CAPTURE_MANIFEST_BYTES,
+            "replay_capture_manifest_too_large",
+          )
+        ).value;
+  return payload as SessionReplayManifestResponse;
+}
+
+async function readReplayJsonBounded(
+  response: Response,
+  maxBytes: number,
+  limitError: string,
+): Promise<{
+  value: unknown;
+  byteLength: number;
+  bytes: Uint8Array<ArrayBuffer>;
+}> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("replay_response_body_unavailable");
+  const parts: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > maxBytes) {
+        await reader.cancel();
+        throw new Error(limitError);
+      }
+      parts.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const part of parts) {
+    bytes.set(part, offset);
+    offset += part.byteLength;
+  }
+  try {
+    return {
+      value: JSON.parse(new TextDecoder().decode(bytes)),
+      byteLength,
+      bytes,
+    };
+  } catch {
+    throw new Error("replay_response_invalid");
+  }
+}
+
+async function fetchBoundedReplayCaptureChunks(
+  manifest: SessionReplayManifestResponse,
+  options: FetchSessionReplayPlaybackOptions,
+  recordingId: string,
+  captureThroughOffsetMs: number,
+): Promise<ReplayChunkEvents[]> {
+  if (
+    !isRecord(manifest) ||
+    !isRecord(manifest.recording) ||
+    !Array.isArray(manifest.chunks)
+  ) {
+    throw new Error("replay_capture_manifest_invalid");
+  }
+  const recording = manifest.recording as SessionRecordingSummary;
+  const chunks = manifest.chunks as SessionReplayManifestResponse["chunks"];
+  const recordingStartedAtMs = Date.parse(recording.startedAt);
+  if (
+    !recording ||
+    !Number.isSafeInteger(recordingStartedAtMs) ||
+    !Number.isSafeInteger(captureThroughOffsetMs) ||
+    captureThroughOffsetMs < 0 ||
+    captureThroughOffsetMs > MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS ||
+    !Array.isArray(chunks) ||
+    chunks.length === 0 ||
+    !Number.isSafeInteger(recording.chunkCount) ||
+    recording.chunkCount !== chunks.length ||
+    !Number.isSafeInteger(recording.eventCount) ||
+    recording.eventCount < 0 ||
+    !Number.isSafeInteger(recording.totalBytes) ||
+    recording.totalBytes < 0
+  ) {
+    throw new Error("replay_capture_manifest_invalid");
+  }
+  const targetTimestamp = recordingStartedAtMs + captureThroughOffsetMs;
+  if (!Number.isSafeInteger(targetTimestamp)) {
+    throw new Error("replay_capture_offset_invalid");
+  }
+
+  let manifestBytes = 0;
+  let manifestEvents = 0;
+  for (const [index, chunk] of chunks.entries()) {
+    if (
+      !isRecord(chunk) ||
+      chunk.seq !== index ||
+      !Number.isSafeInteger(chunk.byteLength) ||
+      chunk.byteLength <= 0 ||
+      chunk.byteLength > MAX_SESSION_REPLAY_CAPTURE_CHUNK_BYTES ||
+      !Number.isSafeInteger(chunk.eventCount) ||
+      chunk.eventCount < 0 ||
+      typeof chunk.checksum !== "string" ||
+      !/^[\da-f]{64}$/i.test(chunk.checksum) ||
+      typeof chunk.bytesPath !== "string" ||
+      !isReplayCaptureChunkPath(
+        chunk.bytesPath,
+        recordingId,
+        chunk.seq,
+        options.agentAccessToken,
+      )
+    ) {
+      throw new Error("replay_capture_manifest_invalid");
+    }
+    manifestBytes += chunk.byteLength;
+    manifestEvents += chunk.eventCount;
+    if (
+      !Number.isSafeInteger(manifestBytes) ||
+      !Number.isSafeInteger(manifestEvents)
+    ) {
+      throw new Error("replay_capture_manifest_invalid");
+    }
+  }
+  if (
+    manifestBytes !== recording.totalBytes ||
+    manifestEvents !== recording.eventCount
+  ) {
+    throw new Error("replay_capture_manifest_incomplete");
+  }
+
+  const loaded: ReplayChunkEvents[] = [];
+  let prefixDeclaredBytes = 0;
+  let prefixDeclaredEvents = 0;
+  let receivedBytes = 0;
+  let previousTimestamp = Number.NEGATIVE_INFINITY;
+  for (const chunk of chunks) {
+    if (loaded.length >= MAX_SESSION_REPLAY_CAPTURE_CHUNKS) {
+      throw new Error("replay_capture_chunk_limit_exceeded");
+    }
+    prefixDeclaredBytes += chunk.byteLength;
+    prefixDeclaredEvents += chunk.eventCount;
+    if (
+      prefixDeclaredBytes > MAX_SESSION_REPLAY_CAPTURE_BYTES ||
+      prefixDeclaredEvents > MAX_SESSION_REPLAY_CAPTURE_EVENTS ||
+      !Number.isSafeInteger(prefixDeclaredBytes) ||
+      !Number.isSafeInteger(prefixDeclaredEvents)
+    ) {
+      throw new Error("replay_capture_limit_exceeded");
+    }
+
+    const response = await fetchReplayApi(
+      chunk.bytesPath,
+      options.agentAccessToken,
+    );
+    if (!response.ok) {
+      const error = await replayFetchError(response);
+      if (isUnavailableReplayChunk(response, error)) {
+        loaded.push(replayUnavailableChunk(chunk));
+        break;
+      }
+      throw error;
+    }
+    const responseSequence = response.headers.get("x-session-replay-seq");
+    const responseChecksum = response.headers.get("x-session-replay-checksum");
+    if (
+      responseSequence !== String(chunk.seq) ||
+      responseChecksum?.toLowerCase() !== chunk.checksum.toLowerCase()
+    ) {
+      throw new Error("replay_capture_chunk_header_mismatch");
+    }
+    const {
+      value: payload,
+      byteLength: responseBytes,
+      bytes: responseBody,
+    } = await readReplayJsonBounded(
+      response,
+      MAX_SESSION_REPLAY_CAPTURE_CHUNK_BYTES,
+      "replay_capture_chunk_too_large",
+    );
+    if (responseBytes !== chunk.byteLength) {
+      throw new Error("replay_capture_chunk_size_mismatch");
+    }
+    if (
+      (await replaySha256Hex(responseBody)) !== chunk.checksum.toLowerCase()
+    ) {
+      throw new Error("replay_capture_chunk_checksum_mismatch");
+    }
+    receivedBytes += responseBytes;
+    if (receivedBytes > MAX_SESSION_REPLAY_CAPTURE_BYTES) {
+      throw new Error("replay_capture_limit_exceeded");
+    }
+    const events = replayPayloadEvents(payload);
+    if (events.length !== chunk.eventCount) {
+      throw new Error("replay_capture_chunk_incomplete");
+    }
+    for (const event of events) {
+      if (
+        !isRecord(event) ||
+        !Number.isInteger(event.type) ||
+        event.type < 0 ||
+        event.type > 6 ||
+        typeof event.timestamp !== "number" ||
+        !Number.isFinite(event.timestamp) ||
+        event.timestamp < previousTimestamp
+      ) {
+        throw new Error("replay_capture_event_invalid");
+      }
+      previousTimestamp = event.timestamp;
+    }
+    loaded.push({
+      seq: chunk.seq,
+      checksum: chunk.checksum,
+      byteLength: chunk.byteLength,
+      eventCount: chunk.eventCount,
+      events,
+    });
+    if (previousTimestamp > targetTimestamp) break;
+  }
+  return loaded;
+}
+
+async function replaySha256Hex(
+  bytes: Uint8Array<ArrayBuffer>,
+): Promise<string> {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("replay_capture_checksum_unavailable");
+  }
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function isReplayCaptureChunkPath(
+  bytesPath: string,
+  recordingId: string,
+  seq: number,
+  agentAccessToken?: string,
+): boolean {
+  const origin =
+    globalThis.window?.location?.origin ??
+    globalThis.location?.origin ??
+    "http://localhost";
+  const url = new URL(bytesPath, origin);
+  const queryIsScoped = agentAccessToken
+    ? url.searchParams.size === 1 &&
+      url.searchParams.get(SESSION_REPLAY_AGENT_ACCESS_PARAM) ===
+        agentAccessToken
+    : url.searchParams.size === 0;
+  if (
+    url.origin !== origin ||
+    url.username ||
+    url.password ||
+    !queryIsScoped ||
+    url.hash
+  ) {
+    return false;
+  }
+  const match =
+    /^\/api\/session-replay\/recordings\/([^/]+)\/chunks\/(\d+)$/.exec(
+      url.pathname,
+    );
+  if (!match || Number(match[2]) !== seq) return false;
+  return decodeURIComponent(match[1]!) === recordingId;
 }
 
 async function fetchReplayChunks(
@@ -2245,22 +2596,6 @@ function useReplayEvents(
       ),
     [response.chunks],
   );
-}
-
-/**
- * Stock rrweb consumes the recorded event objects directly. Playback-time URL
- * or CSS rewriting breaks snapshots, responsive rules, fonts, and navigation
- * metadata, so filtering invalid container entries is the only normalization.
- *
- * IMPORTANT — DO NOT add URL/CSS sanitization here. A previous security review
- * changed href/src/_cssText to about:blank and immediately regressed every
- * historical recording that depended on captured styles. Network/privacy
- * controls belong at capture or the sandbox boundary, never in rrweb events.
- */
-export function normalizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
-  return events
-    .filter((event): event is AnyReplayEvent => isRecord(event))
-    .sort((a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0));
 }
 
 export function buildReplayMarkers(
@@ -2703,27 +3038,6 @@ function currentUrlAt(events: AnyReplayEvent[], currentTime: number): string {
   return current;
 }
 
-function hasPlayableReplayEvents(events: unknown[]): boolean {
-  let hasFullSnapshot = false;
-  let hasMeta = false;
-  for (const event of events) {
-    if (!isRecord(event)) continue;
-    if (event.type === RRWEB_EVENT_TYPE.FullSnapshot) hasFullSnapshot = true;
-    if (event.type === RRWEB_EVENT_TYPE.Meta) hasMeta = true;
-    if (hasFullSnapshot && hasMeta) return true;
-  }
-  return false;
-}
-
-export function replayAvailabilityErrorKey(
-  events: unknown[],
-): "noReplayEvents" | "replayUnavailableDescription" | null {
-  if (events.length === 0) return "noReplayEvents";
-  return hasPlayableReplayEvents(events)
-    ? null
-    : "replayUnavailableDescription";
-}
-
 function hideReplayCursorUntilPosition(replayer: any): () => void {
   const cursor = replayer?.mouse as HTMLElement | undefined;
   if (!cursor || typeof MutationObserver === "undefined") return () => {};
@@ -2747,141 +3061,6 @@ function hideReplayCursorUntilPosition(replayer: any): () => void {
   return () => {
     observer?.disconnect();
     observer = null;
-  };
-}
-
-export function replayViewportDimensions(
-  events: AnyReplayEvent[],
-): ReplayViewportDimensions | null {
-  let best: ReplayViewportDimensions | null = null;
-  for (const event of events) {
-    const dims = dimensionsFromReplayEvent(event);
-    if (dims) best = dims;
-  }
-  return best;
-}
-
-export function replayInitialViewportDimensions(
-  events: AnyReplayEvent[],
-): ReplayViewportDimensions | null {
-  for (const event of events) {
-    if (event.type !== RRWEB_EVENT_TYPE.Meta) continue;
-    const dims = dimensionsFromReplayEvent(event);
-    if (dims) return dims;
-  }
-  for (const event of events) {
-    const dims = dimensionsFromReplayEvent(event);
-    if (dims) return dims;
-  }
-  return null;
-}
-
-export function replayRouteAtOffset(
-  events: AnyReplayEvent[],
-  offsetMs: number,
-): string {
-  const target = replayStartedAt(events) + Math.max(0, offsetMs);
-  let href = "";
-  for (const event of events) {
-    if (
-      event.type !== RRWEB_EVENT_TYPE.Meta ||
-      typeof event.data?.href !== "string"
-    ) {
-      continue;
-    }
-    if (Number(event.timestamp ?? 0) > target) break;
-    href = event.data.href;
-  }
-  if (!href) return "";
-  try {
-    const url = new URL(href);
-    return `${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return href.startsWith("/") ? href : "";
-  }
-}
-
-export function buildReplayViewportTimeline(
-  events: AnyReplayEvent[],
-): ReplayViewportChange[] {
-  const initial = replayInitialViewportDimensions(events);
-  if (!initial) return [];
-  const startedAt = replayStartedAt(events);
-  const firstMetaTimestamp = events.reduce((best, event) => {
-    if (event.type !== RRWEB_EVENT_TYPE.Meta) return best;
-    const timestamp = Number(event.timestamp ?? 0);
-    return Number.isFinite(timestamp) && timestamp > 0
-      ? Math.min(best, timestamp)
-      : best;
-  }, Number.POSITIVE_INFINITY);
-  const changes: ReplayViewportChange[] = [{ ...initial, offsetMs: 0 }];
-  for (const event of events) {
-    const timestamp = Number(event.timestamp ?? 0);
-    if (!Number.isFinite(timestamp) || timestamp <= firstMetaTimestamp)
-      continue;
-    const dims = dimensionsFromReplayEvent(event);
-    if (!dims) continue;
-    const previous = changes[changes.length - 1];
-    if (previous?.width === dims.width && previous.height === dims.height) {
-      continue;
-    }
-    changes.push({
-      ...dims,
-      offsetMs: Math.max(0, timestamp - startedAt),
-    });
-  }
-  return changes;
-}
-
-export function replayViewportDimensionsAtTime(
-  changes: ReplayViewportChange[],
-  elapsedMs: number,
-): ReplayViewportDimensions | null {
-  if (changes.length === 0) return null;
-  const target = Math.max(0, elapsedMs);
-  let low = 0;
-  let high = changes.length - 1;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if ((changes[middle]?.offsetMs ?? 0) <= target) low = middle;
-    else high = middle - 1;
-  }
-  const match = changes[low];
-  return match ? { width: match.width, height: match.height } : null;
-}
-
-function dimensionsFromReplayEvent(
-  event: AnyReplayEvent,
-): ReplayViewportDimensions | null {
-  if (event.type === RRWEB_EVENT_TYPE.Meta) {
-    return normalizeReplayDimensions(event.data?.width, event.data?.height);
-  }
-  if (
-    event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
-    event.data?.source === INCREMENTAL_SOURCE.ViewportResize
-  ) {
-    return normalizeReplayDimensions(event.data?.width, event.data?.height);
-  }
-  return null;
-}
-
-export function normalizeReplayDimensions(
-  width: unknown,
-  height: unknown,
-): ReplayViewportDimensions | null {
-  if (
-    typeof width !== "number" ||
-    typeof height !== "number" ||
-    !Number.isFinite(width) ||
-    !Number.isFinite(height) ||
-    width <= 0 ||
-    height <= 0
-  ) {
-    return null;
-  }
-  return {
-    width: Math.round(width),
-    height: Math.round(height),
   };
 }
 
@@ -2919,17 +3098,6 @@ export function filterReplayMarkers(
       .toLowerCase();
     return haystack.includes(needle);
   });
-}
-
-function replayStartedAt(events: AnyReplayEvent[]): number {
-  let startedAt = Number.POSITIVE_INFINITY;
-  for (const event of events) {
-    const timestamp = Number(event.timestamp);
-    if (Number.isFinite(timestamp) && timestamp > 0) {
-      startedAt = Math.min(startedAt, timestamp);
-    }
-  }
-  return Number.isFinite(startedAt) ? startedAt : 0;
 }
 
 function replayDuration(events: AnyReplayEvent[]): number {
@@ -3064,6 +3232,7 @@ function visitorLabel(
 ): string {
   const email = emailLike(recording.userId) || emailLike(recording.userKey);
   if (email) return email;
+  if (recording.userId === null) return t("sessions.anonymous");
   return (
     recording.userId ||
     recording.userKey ||

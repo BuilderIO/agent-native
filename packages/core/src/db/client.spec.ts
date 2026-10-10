@@ -725,6 +725,8 @@ describe("pgliteDataDirFromUrl", () => {
     expect(pgliteDataDirFromUrl("pglite:./data/pglite")).toBe("./data/pglite");
     expect(pgliteDataDirFromUrl("pglite:///tmp/pglite")).toBe("/tmp/pglite");
     expect(pgliteDataDirFromUrl("pglite:memory")).toBe("memory://");
+    expect(pgliteDataDirFromUrl("pglite:memory:")).toBe("memory://");
+    expect(pgliteDataDirFromUrl("pglite:/memory:")).toBe("memory://");
     expect(pgliteDataDirFromUrl("pglite:")).toBe("./data/pglite");
   });
 
@@ -1922,6 +1924,7 @@ describe("Neon foreground statement budgets", () => {
   });
 
   it("uses a transaction-local timeout for explicitly budgeted transaction work", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     vi.stubEnv("NETLIFY", "true");
     const query = vi.fn(async (sql: string, args?: unknown[]) => {
       if (sql.includes(";") && args !== undefined) {

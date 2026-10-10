@@ -22,6 +22,7 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import type { EditorMountMode } from "@shared/editor-mount-outcomes";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -83,6 +84,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
@@ -109,6 +111,7 @@ import {
   isEditorDraftSaveAccepted,
   type EditorDraftSaveResult,
 } from "./editor-draft-save";
+import { observeEditorMount } from "./editor-mount-telemetry";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
@@ -1548,6 +1551,8 @@ function writeContentSelectionState(value: unknown) {
 }
 
 interface VisualEditorProps {
+  visitKey?: string;
+  editorMountMode?: EditorMountMode;
   documentId?: string;
   contentSpaceId?: string;
   content: string;
@@ -1585,6 +1590,9 @@ interface VisualEditorProps {
   awareness?: Awareness | null;
   user?: { name: string; color: string; email?: string; avatarUrl?: string };
   editable?: boolean;
+  directoryWidgetEditing?: boolean;
+  /** Where the widget's docked formatting toolbar renders, under the page toolbar. */
+  widgetFormattingSlot?: HTMLElement | null;
   suggesting?: boolean;
   widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
@@ -1628,10 +1636,8 @@ interface VisualEditorProps {
     startOffset: number;
     beforeMarkdown: string;
   }) => void;
-  initialSelection?:
-    | { from: number; prefix: string; suffix: string }
-    | VisualEditorSelectionSnapshot
-    | null;
+  initialSelection?: VisualEditorInitialSelection | null;
+  onInitialSelectionApplied?: (selection: VisualEditorInitialSelection) => void;
   onSuggestionAnchorsChange?: (suggestionIds: string[]) => void;
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
@@ -1669,6 +1675,10 @@ export interface VisualEditorSelectionSnapshot {
   head: number;
   docJson: string;
 }
+
+export type VisualEditorInitialSelection =
+  | { from: number; prefix: string; suffix: string }
+  | VisualEditorSelectionSnapshot;
 
 export interface VisualEditorSelectionController {
   captureSelection: (options?: {
@@ -1820,6 +1830,16 @@ export function suggestionReplacementIntentForTransaction(
   };
 }
 
+function hasSemanticCollaborationContent(value: string): boolean {
+  return (
+    value
+      .split(/\r?\n/)
+      .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
+      .join("\n")
+      .trim().length > 0
+  );
+}
+
 export function shouldSeedCollaborativeContent({
   content,
   currentMarkdown,
@@ -1829,12 +1849,10 @@ export function shouldSeedCollaborativeContent({
   currentMarkdown: string;
   fragmentLength: number;
 }): boolean {
-  const semanticMarkdown = currentMarkdown
-    .split(/\r?\n/)
-    .filter((line) => !/^<empty-block\b[^>]*\/>$/.test(line.trim()))
-    .join("\n")
-    .trim();
-  return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
+  return (
+    hasSemanticCollaborationContent(content) &&
+    (fragmentLength === 0 || !hasSemanticCollaborationContent(currentMarkdown))
+  );
 }
 
 export function parseNfmForCollabReconcile(
@@ -3000,6 +3018,8 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 }
 
 export function VisualEditor({
+  visitKey,
+  editorMountMode,
   documentId,
   contentSpaceId,
   content,
@@ -3021,6 +3041,8 @@ export function VisualEditor({
   awareness,
   user,
   editable = true,
+  directoryWidgetEditing = false,
+  widgetFormattingSlot = null,
   suggesting = false,
   widgetLoadDiagnosticsActive = false,
   localFileMode = false,
@@ -3044,6 +3066,7 @@ export function VisualEditor({
   onHoverSuggestion,
   onSuggestionReplacementIntent,
   initialSelection,
+  onInitialSelectionApplied,
   onSuggestionAnchorsChange,
   showCommentIndicators = true,
   onJoinTitle,
@@ -3422,6 +3445,9 @@ export function VisualEditor({
   };
 
   const historyEditorRef = useRef<CoreEditor | null>(null);
+  const historyControllerRef = useRef<VisualEditorHistoryController | null>(
+    null,
+  );
   const acknowledgedRestoreRef = useRef<{
     documentId: string | null;
     content: string;
@@ -3432,6 +3458,18 @@ export function VisualEditor({
     ReturnType<typeof setTimeout> | undefined
   >(undefined);
   const editor = useEditor({
+    onCreate: ({ editor }) => {
+      if (editor.isDestroyed || !editor.view.dom.isConnected) return;
+      if (documentId && visitKey !== undefined) {
+        observeEditorMount(
+          editor,
+          documentId,
+          visitKey,
+          editorMountMode ??
+            (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
+        );
+      }
+    },
     extensions,
     content: ydoc ? undefined : nfmToDoc(content),
     editorProps: {
@@ -3728,10 +3766,11 @@ export function VisualEditor({
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) {
+      historyControllerRef.current = null;
       onHistoryControllerChange?.(null);
       return;
     }
-    onHistoryControllerChange?.({
+    const historyController: VisualEditorHistoryController = {
       undo: () => runPersistableHistoryCommand(editor, "undo"),
       redo: () => runPersistableHistoryCommand(editor, "redo"),
       replaceWithAuthoritativeContent: (snapshot) => {
@@ -3765,14 +3804,19 @@ export function VisualEditor({
         }
         return applied;
       },
-    });
+    };
+    historyControllerRef.current = historyController;
+    onHistoryControllerChange?.(historyController);
     const initialHistoryState = {
       canUndo: editor.can().undo(),
       canRedo: editor.can().redo(),
     };
     deliveredHistoryStateRef.current = initialHistoryState;
     onHistoryStateChange?.(initialHistoryState);
-    return () => onHistoryControllerChange?.(null);
+    return () => {
+      historyControllerRef.current = null;
+      onHistoryControllerChange?.(null);
+    };
   }, [
     editor,
     documentId,
@@ -4196,6 +4240,17 @@ export function VisualEditor({
 
   const editableMarkedRef = useRef(false);
   useEffect(() => {
+    if (editor && !editor.isDestroyed && documentId && visitKey !== undefined) {
+      observeEditorMount.contextChanged(
+        editor,
+        documentId,
+        visitKey,
+        editorMountMode ??
+          (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
+      );
+    }
+  }, [editor, editable, documentId, visitKey, suggesting, editorMountMode]);
+  useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     editor.setEditable(editable);
     if (editable && !referenceDepth && !editableMarkedRef.current) {
@@ -4487,10 +4542,11 @@ export function VisualEditor({
       if (!editor.isDestroyed) {
         editor.view.dispatch(editor.state.tr.setSelection(selection!));
         editor.view.focus();
+        onInitialSelectionApplied?.(initialSelection);
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [editable, editor, initialSelection]);
+  }, [editable, editor, initialSelection, onInitialSelectionApplied]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -4585,6 +4641,15 @@ export function VisualEditor({
     );
   }
 
+  const widgetFormattingToolbar = (
+    <BubbleToolbar
+      docked
+      editor={editor}
+      onUndo={() => historyControllerRef.current?.undo()}
+      onRedo={() => historyControllerRef.current?.redo()}
+    />
+  );
+
   return (
     <div
       ref={wrapperRef}
@@ -4596,7 +4661,13 @@ export function VisualEditor({
         containerRef={wrapperRef}
         ttlMs={CONTENT_RECENT_EDIT_TTL_MS}
       />
-      {editable ? (
+      {editable && directoryWidgetEditing ? (
+        widgetFormattingSlot ? (
+          createPortal(widgetFormattingToolbar, widgetFormattingSlot)
+        ) : (
+          <div className="sticky top-0 z-10">{widgetFormattingToolbar}</div>
+        )
+      ) : editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
       ) : null}
       {editable ? (
@@ -4605,6 +4676,7 @@ export function VisualEditor({
           documentId={documentId}
           contentSpaceId={contentSpaceId}
           suggesting={suggesting}
+          directoryWidgetEditing={directoryWidgetEditing}
           notionPageId={notionPageId}
           onDraftCommitted={() =>
             Promise.resolve(

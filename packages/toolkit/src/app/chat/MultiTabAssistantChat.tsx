@@ -90,6 +90,7 @@ import type {
 import { fallbackChatTitle } from "./fallback-chat-title.js";
 
 type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
+const PREFILL_CONTEXT_KEY = "agent-chat-prefill-context";
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -102,6 +103,7 @@ interface ModelSelection {
 
 interface PendingSend {
   message: string;
+  prefillContext?: AgentChatContextItem;
   images?: string[];
   attachments?: AgentChatAttachment[];
   submit: boolean;
@@ -129,10 +131,54 @@ interface PendingDelivery {
 }
 
 /** The single path that hands a queued send to a mounted chat ref. */
+async function deliverPendingPrefill(
+  ref: AssistantChatHandle,
+  send: PendingSend,
+): Promise<void> {
+  if (send.prefillContext) {
+    try {
+      const contextWrite = ref.setComposerContextItem(send.prefillContext, {
+        focus: false,
+        threadScoped: true,
+      });
+      if (contextWrite && typeof contextWrite.then === "function") {
+        await contextWrite;
+      }
+    } catch {
+      reportAgentChatSubmitResult(
+        send.submitMessageId,
+        false,
+        "context-persistence-failed",
+      );
+      return;
+    }
+  }
+  if (isAgentChatSubmitCancelled(send.submitMessageId)) {
+    if (send.prefillContext) {
+      await ref.removeComposerContextItem(send.prefillContext.key, {
+        threadScoped: true,
+      });
+    }
+    return;
+  }
+  try {
+    ref.prefillMessage(send.message);
+  } catch {
+    reportAgentChatSubmitResult(send.submitMessageId, false, "prefill-failed");
+    return;
+  }
+  reportAgentChatSubmitResult(send.submitMessageId, true);
+}
+
 function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
-    ref.prefillMessage(send.message);
+    void deliverPendingPrefill(ref, send).catch((error: unknown) => {
+      console.error(
+        "Could not finish a cancelled chat prefill cleanup.",
+        error,
+      );
+    });
     return;
   }
   // Every field is decided once, here; a separate "has options" condition
@@ -1232,7 +1278,10 @@ export function MultiTabAssistantChat({
       item: AgentChatContextItem,
       options?: { focus?: boolean },
     ) => {
-      if (filterAgentChatContextItems([item], contextNamespace).length === 0) {
+      if (
+        filterAgentChatContextItems([item], contextNamespace, threadId)
+          .length === 0
+      ) {
         return;
       }
       const ref = chatRefs.current.get(threadId);
@@ -2138,12 +2187,23 @@ export function MultiTabAssistantChat({
 
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
-      const fullMessage = context
-        ? appendAgentChatContextToMessage(message, context)
-        : message;
+      const prefillContext =
+        context && !submit
+          ? {
+              key: PREFILL_CONTEXT_KEY,
+              title: translate("composer.activeAppContext"),
+              context,
+              ...(contextNamespace ? { contextNamespace } : {}),
+            }
+          : undefined;
+      const fullMessage =
+        context && submit
+          ? appendAgentChatContextToMessage(message, context)
+          : message;
 
       const send: PendingSend = {
         message: fullMessage,
+        ...(prefillContext ? { prefillContext } : {}),
         images,
         attachments,
         submit,
@@ -2281,6 +2341,7 @@ export function MultiTabAssistantChat({
     availableModels,
     bumpModelSelectionVersion,
     clearContextInTab,
+    contextNamespace,
     createThread,
     isNewThread,
     openTabIds,
@@ -3261,6 +3322,8 @@ export function MultiTabAssistantChat({
               tabId === activeThreadId || mountedTabsRef.current.has(tabId),
           )
           .map((tabId) => {
+            const isKnownNewThread =
+              newThreadIds.current.has(tabId) || isNewThread(tabId);
             const modelSelection = resolveThreadModelSelection(tabId);
             const modelSelectionPending =
               !hostManagedModels && modelListLoading && !modelSelection;
@@ -3296,9 +3359,7 @@ export function MultiTabAssistantChat({
                   isolateHistoryByScope={isolateHistoryByScope}
                   isActiveComposer={!contentHidden && tabId === activeThreadId}
                   apiUrl={apiUrl}
-                  isNewThread={
-                    newThreadIds.current.has(tabId) || isNewThread(tabId)
-                  }
+                  isNewThread={isKnownNewThread}
                   onThreadRestoreNotFound={
                     tabId === activeThreadId &&
                     (props.agentChatSurface !== "desktop" ||
@@ -3306,7 +3367,7 @@ export function MultiTabAssistantChat({
                       ? clearActiveTab
                       : undefined
                   }
-                  isThreadStateLoading={isLoading}
+                  isThreadStateLoading={isLoading && !isKnownNewThread}
                   onMessageCountChange={(count) => {
                     setMessageCounts((prev) =>
                       prev[tabId] === count

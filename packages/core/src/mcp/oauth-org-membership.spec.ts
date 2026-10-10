@@ -174,10 +174,17 @@ async function docsVisibleTo(accessToken: string): Promise<string[]> {
   const { auth, mcpOrgId } = await authenticateMcpRequest(accessToken);
   if (!auth.authed) return [];
   const db = drizzle(await getPgliteClient(process.env.DATABASE_URL!));
+  const verifiedServiceIdentity =
+    auth.identity?.identityAssurance === "service" &&
+    auth.identity.userEmail &&
+    auth.identity.orgId === mcpOrgId
+      ? { userEmail: auth.identity.userEmail, orgId: auth.identity.orgId }
+      : undefined;
   return runWithRequestContext(
     {
       userEmail: auth.identity?.userEmail,
       orgId: mcpOrgId,
+      ...(verifiedServiceIdentity ? { verifiedServiceIdentity } : {}),
       ...(auth.identity?.orgId === null
         ? { orgScope: "personal" as const }
         : {}),
@@ -1250,6 +1257,7 @@ describe("MCP OAuth issuance-owner cutover", () => {
       orgId: ORG,
       scope: "mcp:read",
       resource: getMcpOAuthResource(appEvent("/mcp"))!,
+      grantCreatedAtMs: Date.now(),
     });
     await getDbExec().execute(
       "ALTER TABLE mcp_oauth_refresh_tokens ADD COLUMN IF NOT EXISTS issued_for_email TEXT",

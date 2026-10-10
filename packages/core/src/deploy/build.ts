@@ -2,7 +2,7 @@
 
 import { execFileSync } from "child_process";
 import fs from "fs";
-import { createRequire } from "module";
+import { createRequire, isBuiltin } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 import { runInNewContext } from "vm";
@@ -49,6 +49,7 @@ import {
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
+  resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -63,6 +64,11 @@ import {
   toPublicFrameworkPath,
 } from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import {
+  CHUNK_RECOVERY_PATH_SUFFIX,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -1356,6 +1362,8 @@ export function generateWorkerEntry(
 ): string {
   const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
   const ssrCacheHeaders = resolveSsrCacheHeaders();
+  const chunkRecoveryCacheHeaders =
+    resolveChunkRecoveryCacheHeaders(ssrCacheHeaders);
   const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
   const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
     resolveAuthCookieNamespace().frameworkCookieName,
@@ -1607,6 +1615,61 @@ function stripAppBasePath(pathname) {
     return pathname.slice(basePath.length) || "/";
   }
   return pathname;
+}
+
+function splitReactRouterDataPathname(pathname) {
+  const trailingSlash = pathname.endsWith("/") ? "/" : "";
+  const pathWithoutTrailingSlash = trailingSlash
+    ? pathname.slice(0, -trailingSlash.length)
+    : pathname;
+  if (pathWithoutTrailingSlash.endsWith("/_.data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -"/_.data".length),
+      dataSuffix: "/_.data",
+      trailingSlash,
+    };
+  }
+  if (pathWithoutTrailingSlash.endsWith(".data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -".data".length),
+      dataSuffix: ".data",
+      trailingSlash,
+    };
+  }
+  return { routePath: pathWithoutTrailingSlash, dataSuffix: "", trailingSlash };
+}
+
+function stripChunkRecoveryPathSuffix(pathname) {
+  const { routePath, dataSuffix, trailingSlash } =
+    splitReactRouterDataPathname(pathname);
+  const routeHasTrailingSlash = routePath.endsWith("/");
+  const routePathWithoutTrailingSlash = routeHasTrailingSlash
+    ? routePath.slice(0, -1)
+    : routePath;
+  if (!routePathWithoutTrailingSlash.endsWith(CHUNK_RECOVERY_PATH_SUFFIX)) {
+    return pathname;
+  }
+
+  const routePathWithoutAlias =
+    routePathWithoutTrailingSlash.slice(0, -CHUNK_RECOVERY_PATH_SUFFIX.length) ||
+    "/";
+  const separator = routePathWithoutAlias === "/" && dataSuffix.startsWith("/")
+    ? dataSuffix.slice(1)
+    : dataSuffix;
+  const suffix = separator + trailingSlash;
+  return routePathWithoutAlias === "/" && suffix === "/"
+    ? "/"
+    : routePathWithoutAlias + suffix;
+}
+
+function isChunkRecoveryPath(pathname) {
+  const { routePath } = splitReactRouterDataPathname(pathname);
+  return routePath.replace(/\\/+$/, "").endsWith(CHUNK_RECOVERY_PATH_SUFFIX);
+}
+
+function isLegacyChunkRecoveryRequest(url) {
+  const values = url.searchParams.getAll(CHUNK_RECOVERY_QUERY_PARAM);
+  return values.length === 1 && values[0] === CHUNK_RECOVERY_QUERY_VALUE;
 }
 
 function parseActionSearchParams(searchParams) {
@@ -2005,8 +2068,12 @@ function injectHeadScript(html, script) {
 
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
+const CHUNK_RECOVERY_ALIAS_CACHE_HEADERS = ${JSON.stringify(chunkRecoveryCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
+const CHUNK_RECOVERY_PATH_SUFFIX = ${JSON.stringify(CHUNK_RECOVERY_PATH_SUFFIX)};
+const CHUNK_RECOVERY_QUERY_PARAM = ${JSON.stringify(CHUNK_RECOVERY_QUERY_PARAM)};
+const CHUNK_RECOVERY_QUERY_VALUE = ${JSON.stringify(CHUNK_RECOVERY_QUERY_VALUE)};
 const SSR_AUTH_REDIRECT_COOKIE_NAME = ${JSON.stringify(ssrAuthRedirectCookieName)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
@@ -2099,7 +2166,7 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
  * Always overwrite route cache hints so generated edge workers cannot drift
  * from the canonical Nitro/Netlify handler or send normal pages to origin.
  */
-function applyDefaultSsrCacheHeader(headers, status, pathname) {
+function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias = false, isLegacyRecovery = false) {
   const varyByQuery =
     (headers.get(SSR_QUERY_CACHE_KEY_HEADER) || "").trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
@@ -2126,9 +2193,16 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
     ? SSR_CACHE_KEY_HEADERS["netlify-vary"]
       ? "query"
       : undefined
-    : SSR_CACHE_KEY_HEADERS["netlify-vary"];
+    : isLegacyRecovery && SSR_CACHE_KEY_HEADERS["netlify-vary"]
+      ? SSR_CACHE_KEY_HEADERS["netlify-vary"] + "|" + CHUNK_RECOVERY_QUERY_PARAM
+      : SSR_CACHE_KEY_HEADERS["netlify-vary"];
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");
+  if (isRecoveryAlias || isLegacyRecovery) {
+    for (const [name, value] of Object.entries(CHUNK_RECOVERY_ALIAS_CACHE_HEADERS)) {
+      headers.set(name, value);
+    }
+  }
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
@@ -2165,7 +2239,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname, request) {
+async function rewriteMountedResponse(response, basePath, pathname, request, isRecoveryAlias = false, isLegacyRecovery = false) {
   const clientConfigScript =
     [
       getSentryClientConfigScript(),
@@ -2178,7 +2252,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, isRecoveryAlias, isLegacyRecovery);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
@@ -2237,7 +2311,9 @@ function requestForAnonymousSsr(request) {
 
 function isStaticAppShellRequest(request) {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
-  const p = stripAppBasePath(new URL(request.url).pathname);
+  const p = stripChunkRecoveryPathSuffix(
+    stripAppBasePath(new URL(request.url).pathname)
+  );
   if (
     p.startsWith("/.well-known/") ||
     isFrameworkPath(p) ||
@@ -2254,7 +2330,11 @@ function isStaticAppShellRequest(request) {
 async function fetchStaticAppShell(request, env) {
   if (!env?.ASSETS || !isStaticAppShellRequest(request)) return null;
   const basePath = getAppBasePath();
-  const p = stripAppBasePath(new URL(request.url).pathname);
+  const requestUrl = new URL(request.url);
+  const appPath = stripAppBasePath(requestUrl.pathname);
+  const isRecoveryAlias = isChunkRecoveryPath(appPath);
+  const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
+  const p = stripChunkRecoveryPathSuffix(appPath);
   const shellRequest = requestWithPathname(
     requestWithMethod(request, "GET"),
     "/index.html",
@@ -2276,9 +2356,18 @@ async function fetchStaticAppShell(request, env) {
       basePath,
       p,
       request,
+      isRecoveryAlias,
+      isLegacyRecovery,
     );
   }
-  return rewriteMountedResponse(response, basePath, p, request);
+  return rewriteMountedResponse(
+    response,
+    basePath,
+    p,
+    request,
+    isRecoveryAlias,
+    isLegacyRecovery,
+  );
 }
 
 // API route handlers
@@ -2314,7 +2403,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Test-Traffic,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Content-Save-Origin,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Test-Traffic,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -2363,7 +2452,11 @@ ${
   const rrHandler = createRequestHandler(() => serverBuild);
   app.all("/**", defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
-    const p = stripAppBasePath(new URL(event.req.url).pathname);
+    const requestUrl = new URL(event.req.url);
+    const appPath = stripAppBasePath(requestUrl.pathname);
+    const isRecoveryAlias = isChunkRecoveryPath(appPath);
+    const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
+    const p = stripChunkRecoveryPathSuffix(appPath);
     if (
       p.startsWith("/.well-known/") ||
       isFrameworkPath(p) ||
@@ -2390,14 +2483,18 @@ ${
         }),
         basePath,
         p,
-        getRequest
+        getRequest,
+        isRecoveryAlias,
+        isLegacyRecovery
       );
     }
     return rewriteMountedResponse(
       await runWithRequestContext(anonymousContext, () => rrHandler(request)),
       basePath,
       p,
-      request
+      request,
+      isRecoveryAlias,
+      isLegacyRecovery
     );
   }));`
     : ""
@@ -4918,6 +5015,394 @@ function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
   );
 }
 
+function exclusiveBrowserInstallerPackages(functionDir: string): Set<string> {
+  const nodeModulesDir = path.join(functionDir, "node_modules");
+  if (!fs.existsSync(path.join(nodeModulesDir, "@puppeteer/browsers")))
+    return new Set();
+  const functionRoot = fs.realpathSync(functionDir);
+  const isWithinFunction = (directory: string): boolean => {
+    const relative = path.relative(functionRoot, directory);
+    return (
+      relative === "" ||
+      (relative !== ".." &&
+        !relative.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(relative))
+    );
+  };
+  const packageSegments = (name: string): string[] | null => {
+    const segments = name.split("/");
+    if (
+      !name ||
+      name.includes("\\") ||
+      segments.some(
+        (segment) => !segment || segment === "." || segment === "..",
+      ) ||
+      segments.length > 2 ||
+      (segments.length === 2 && !segments[0].startsWith("@")) ||
+      (segments.length === 1 && segments[0].startsWith("@"))
+    )
+      return null;
+    return segments;
+  };
+  const resolvePackageDirectory = (
+    segments: string[],
+    fromPackageDir?: string,
+    resolvedPackageDir?: string,
+  ): string | null => {
+    if (resolvedPackageDir) {
+      const resolved = fs.realpathSync(resolvedPackageDir);
+      if (!isWithinFunction(resolved)) return null;
+      return fs.statSync(resolved).isDirectory() ? resolved : null;
+    }
+    let current = fromPackageDir ?? functionRoot;
+    if (!isWithinFunction(current)) return null;
+    while (isWithinFunction(current)) {
+      if (
+        current === functionRoot ||
+        path.basename(current) !== "node_modules"
+      ) {
+        const candidate = path.join(current, "node_modules", ...segments);
+        if (fs.existsSync(candidate)) {
+          const resolved = fs.realpathSync(candidate);
+          // A nearer out-of-bound install must not fall through to another version.
+          if (!isWithinFunction(resolved)) return null;
+          if (fs.statSync(resolved).isDirectory()) return resolved;
+          return null;
+        }
+      }
+      if (current === functionRoot) break;
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      current = parent;
+    }
+    return null;
+  };
+  type PackageReference = {
+    name: string;
+    fromPackageDir: string;
+    resolvedPackageDir?: string;
+  };
+  type PackageRequest = string | PackageReference;
+  const candidateReferencesByFile = new Map<string, PackageReference[]>();
+  const packageReferencesByDirectory = new Map<string, PackageReference[]>();
+  const isEnoent = (error: unknown) =>
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ENOENT";
+  const isMissingDanglingSymlink = (fileStats: fs.Stats, error: unknown) =>
+    fileStats.isSymbolicLink() && isEnoent(error);
+  const resolveScannablePath = (
+    filePath: string,
+  ): { path: string; stats: fs.Stats } | null => {
+    const fileStats = fs.lstatSync(filePath);
+    let resolvedPath: string;
+    try {
+      resolvedPath = fs.realpathSync(filePath);
+    } catch (error) {
+      if (isMissingDanglingSymlink(fileStats, error)) return null;
+      throw error;
+    }
+    if (!isWithinFunction(resolvedPath)) return null;
+    let stats: fs.Stats;
+    try {
+      stats = fs.statSync(filePath);
+    } catch (error) {
+      if (isMissingDanglingSymlink(fileStats, error)) return null;
+      throw error;
+    }
+    return { path: resolvedPath, stats };
+  };
+  const collect = (
+    roots: Iterable<PackageRequest>,
+    scanPackageReferences?: (packageDir: string) => Iterable<PackageReference>,
+  ): Set<string> => {
+    const collected = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (request: PackageRequest, parentPackageDir?: string) => {
+      const name = typeof request === "string" ? request : request.name;
+      const fromPackageDir =
+        typeof request === "string" ? parentPackageDir : request.fromPackageDir;
+      const segments = packageSegments(name);
+      if (!segments) return;
+      if (
+        scanPackageReferences &&
+        SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)
+      )
+        return;
+      collected.add(name);
+      const packageDir = resolvePackageDirectory(
+        segments,
+        fromPackageDir,
+        typeof request === "string" ? undefined : request.resolvedPackageDir,
+      );
+      if (!packageDir) return;
+      const manifest = readPackageManifest(packageDir);
+      const version =
+        typeof manifest?.version === "string" ? manifest.version : "";
+      const identity = `${packageDir}\0${version}`;
+      if (visited.has(identity)) return;
+      visited.add(identity);
+      if (scanPackageReferences) {
+        for (const reference of scanPackageReferences(packageDir))
+          visit(reference);
+      }
+      for (const field of [
+        ...RUNTIME_PACKAGE_DEPENDENCY_FIELDS,
+        "peerDependencies",
+      ]) {
+        const dependencies = manifest?.[field];
+        if (
+          !dependencies ||
+          typeof dependencies !== "object" ||
+          Array.isArray(dependencies)
+        )
+          continue;
+        for (const dependency of Object.keys(dependencies))
+          visit(dependency, packageDir);
+      }
+    };
+    for (const root of roots) visit(root);
+    return collected;
+  };
+  const candidates = collect([
+    "puppeteer",
+    "puppeteer-core",
+    "chromium-bidi",
+    "@puppeteer/browsers",
+  ]);
+  const findResolvedCandidate = (
+    specifier: string,
+    fromPackageDir: string,
+  ): { name: string; resolvedPackageDir: string } | undefined => {
+    if (
+      !specifier.startsWith("./") &&
+      !specifier.startsWith("../") &&
+      !path.isAbsolute(specifier)
+    )
+      return;
+    const target = path.resolve(fromPackageDir, specifier);
+    if (!isWithinFunction(target)) return;
+    let match:
+      | { name: string; resolvedPackageDir: string; markerStart: number }
+      | undefined;
+    for (const name of candidates) {
+      if (SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)) continue;
+      const marker = `${path.sep}node_modules${path.sep}${name
+        .split("/")
+        .join(path.sep)}`;
+      const markerStart = target.lastIndexOf(marker);
+      const suffix = target[markerStart + marker.length];
+      if (markerStart < 0 || (suffix !== undefined && suffix !== path.sep))
+        continue;
+      const candidateDir = target.slice(0, markerStart + marker.length);
+      if (!fs.existsSync(candidateDir)) continue;
+      const resolvedPackageDir = fs.realpathSync(candidateDir);
+      if (
+        !isWithinFunction(resolvedPackageDir) ||
+        !fs.statSync(resolvedPackageDir).isDirectory()
+      )
+        continue;
+      if (!match || markerStart > match.markerStart)
+        match = { name, resolvedPackageDir, markerStart };
+    }
+    return (
+      match && {
+        name: match.name,
+        resolvedPackageDir: match.resolvedPackageDir,
+      }
+    );
+  };
+  const isNonPackageSpecifier = (specifier: string) =>
+    path.isAbsolute(specifier) ||
+    specifier.startsWith(".") ||
+    specifier.startsWith("#") ||
+    /^[A-Za-z][A-Za-z\d+.-]*:/.test(specifier);
+  const findResolvedPackage = (
+    specifier: string,
+    fromPackageDir: string,
+  ): { name: string; resolvedPackageDir: string } | undefined => {
+    const relativeCandidate = findResolvedCandidate(specifier, fromPackageDir);
+    if (relativeCandidate) return relativeCandidate;
+    if (isNonPackageSpecifier(specifier)) return;
+    const specifierSegments = specifier.split("/");
+    const name = specifierSegments[0]?.startsWith("@")
+      ? specifierSegments.slice(0, 2).join("/")
+      : specifierSegments[0];
+    const segments = name && packageSegments(name);
+    if (
+      !name ||
+      !segments ||
+      isBuiltin(name) ||
+      SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)
+    )
+      return;
+    const resolvedPackageDir = resolvePackageDirectory(
+      segments,
+      fromPackageDir,
+    );
+    return resolvedPackageDir ? { name, resolvedPackageDir } : undefined;
+  };
+  const findPackageImportReferences = (
+    packageDir: string,
+    packageManifest = readPackageManifest(packageDir),
+  ): PackageReference[] => {
+    const imports = packageManifest?.imports;
+    if (!imports || typeof imports !== "object" || Array.isArray(imports))
+      return [];
+    const targets: string[] = [];
+    const collectTargets = (value: unknown) => {
+      if (typeof value === "string") {
+        targets.push(value);
+      } else if (Array.isArray(value)) {
+        for (const target of value) collectTargets(target);
+      } else if (value && typeof value === "object") {
+        for (const target of Object.values(value)) collectTargets(target);
+      }
+    };
+    for (const target of Object.values(imports)) collectTargets(target);
+    const references = new Map<string, PackageReference>();
+    for (const target of targets) {
+      const resolved = findResolvedPackage(target, packageDir);
+      if (resolved) {
+        const reference = { ...resolved, fromPackageDir: packageDir };
+        references.set(
+          `${reference.name}\0${reference.resolvedPackageDir}`,
+          reference,
+        );
+        continue;
+      }
+      if (isNonPackageSpecifier(target)) continue;
+      const targetSegments = target.split("/");
+      const packageName = targetSegments[0]?.startsWith("@")
+        ? targetSegments.slice(0, 2).join("/")
+        : targetSegments[0];
+      if (packageName?.includes("*")) {
+        for (const name of candidates) {
+          if (SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name)) continue;
+          const reference = { name, fromPackageDir: packageDir };
+          references.set(`${name}\0`, reference);
+        }
+        continue;
+      }
+    }
+    return [...references.values()];
+  };
+  const manifest = readPackageManifest(functionDir);
+  // Nitro's manifest flattens transitive dependencies, so installer children
+  // are not independent runtime roots merely because they appear there.
+  const retained = new Set(
+    PACKAGE_DEPENDENCY_FIELDS.flatMap((field) =>
+      Object.keys((manifest?.[field] as Record<string, unknown>) ?? {}),
+    ).filter(
+      (name) =>
+        !candidates.has(name) &&
+        !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name),
+    ),
+  );
+  const findCandidateReferences = (
+    resolvedFilePath: string,
+  ): PackageReference[] => {
+    const cached = candidateReferencesByFile.get(resolvedFilePath);
+    if (cached) return cached;
+    const fromPackageDir = path.dirname(resolvedFilePath);
+    const source = fs.readFileSync(resolvedFilePath, "utf8");
+    const references = new Map<string, PackageReference>();
+    const addReference = (reference: PackageReference) => {
+      const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
+      references.set(identity, reference);
+    };
+    const literalSpecifier =
+      /\b(?:import|export)\s*(?:[^;'"`]*?\s*from\s*)?(['"`])([^'"`]+)\1|\b(?:import\s*\.\s*meta\s*\.\s*resolve|import|require(?:\s*\.\s*resolve)?)\s*\(\s*(['"`])([^'"`]+)\3/g;
+    for (const match of source.matchAll(literalSpecifier)) {
+      const specifier = match[2] ?? match[4];
+      if (!specifier) continue;
+      const resolved = findResolvedPackage(specifier, fromPackageDir);
+      if (resolved) addReference({ ...resolved, fromPackageDir });
+    }
+    for (const name of candidates) {
+      if (
+        !SERVERLESS_FUNCTION_PACKAGE_DENYLIST.has(name) &&
+        source.includes(name) &&
+        (hasExternalSsrRuntimeReference(source, name) ||
+          ["/", '"', "'", "`"].some((boundary) =>
+            source.includes(`node_modules/${name}${boundary}`),
+          ))
+      )
+        addReference({ name, fromPackageDir });
+    }
+    const found = [...references.values()];
+    candidateReferencesByFile.set(resolvedFilePath, found);
+    return found;
+  };
+  const collectTreeReferences = (roots: Iterable<string>) => {
+    const references = new Map<string, PackageReference>();
+    const visitedDirectories = new Set<string>();
+    const visitedFiles = new Set<string>();
+    const visit = (entryPath: string) => {
+      const resolved = resolveScannablePath(entryPath);
+      if (!resolved) return;
+      if (resolved.stats.isDirectory()) {
+        if (visitedDirectories.has(resolved.path)) return;
+        visitedDirectories.add(resolved.path);
+        for (const entry of fs.readdirSync(resolved.path, {
+          withFileTypes: true,
+        })) {
+          if (
+            entry.isDirectory() ||
+            entry.isSymbolicLink() ||
+            (entry.isFile() && /\.(?:[cm]?js)$/.test(entry.name))
+          )
+            visit(path.join(resolved.path, entry.name));
+        }
+        return;
+      }
+      if (
+        !resolved.stats.isFile() ||
+        !/\.(?:[cm]?js)$/.test(path.basename(entryPath)) ||
+        visitedFiles.has(resolved.path)
+      )
+        return;
+      visitedFiles.add(resolved.path);
+      for (const reference of findCandidateReferences(resolved.path)) {
+        const identity = `${reference.name}\0${reference.fromPackageDir}\0${reference.resolvedPackageDir ?? ""}`;
+        references.set(identity, reference);
+      }
+    };
+    for (const root of roots) visit(root);
+    return [...references.values()];
+  };
+  const emittedRoots = fs
+    .readdirSync(functionDir, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.name !== "node_modules" &&
+        (entry.isDirectory() ||
+          entry.isSymbolicLink() ||
+          (entry.isFile() && /\.(?:[cm]?js)$/.test(entry.name))),
+    )
+    .map((entry) => path.join(functionDir, entry.name));
+  const emittedReferences = collectTreeReferences(emittedRoots);
+  const needed = collect(
+    [
+      ...retained,
+      ...emittedReferences,
+      ...findPackageImportReferences(functionDir, manifest),
+    ],
+    (packageDir) => {
+      const cached = packageReferencesByDirectory.get(packageDir);
+      if (cached) return cached;
+      const references = [
+        ...collectTreeReferences([packageDir]),
+        ...findPackageImportReferences(packageDir),
+      ];
+      packageReferencesByDirectory.set(packageDir, references);
+      return references;
+    },
+  );
+  return new Set([...candidates].filter((name) => !needed.has(name)));
+}
+
 export function sanitizeServerlessFunctionPackageManifest(
   functionDir: string | undefined,
 ): void {
@@ -4933,12 +5418,16 @@ export function sanitizeServerlessFunctionPackageManifest(
     return;
   }
 
+  const deniedPackages = new Set([
+    ...SERVERLESS_FUNCTION_PACKAGE_DENYLIST,
+    ...exclusiveBrowserInstallerPackages(functionDir),
+  ]);
   let removed = 0;
   for (const field of PACKAGE_DEPENDENCY_FIELDS) {
     const deps = packageJson[field];
     if (!deps || typeof deps !== "object" || Array.isArray(deps)) continue;
     const depRecord = deps as Record<string, unknown>;
-    for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+    for (const packageName of deniedPackages) {
       if (Object.prototype.hasOwnProperty.call(depRecord, packageName)) {
         delete depRecord[packageName];
         removed++;
@@ -4950,7 +5439,7 @@ export function sanitizeServerlessFunctionPackageManifest(
   }
 
   const nodeModulesDir = path.join(functionDir, "node_modules");
-  for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+  for (const packageName of deniedPackages) {
     const packageDir = path.join(nodeModulesDir, ...packageName.split("/"));
     if (fs.existsSync(packageDir)) {
       fs.rmSync(packageDir, { recursive: true, force: true });

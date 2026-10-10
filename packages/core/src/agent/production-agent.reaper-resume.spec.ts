@@ -169,6 +169,7 @@ async function recover(
   };
   const handler = createProductionAgentHandler({
     systemPrompt: "Test",
+    assertAiSetupReady: async () => {},
     engine,
     skipFilesContext: true,
     runSoftTimeoutMs: 60_000,

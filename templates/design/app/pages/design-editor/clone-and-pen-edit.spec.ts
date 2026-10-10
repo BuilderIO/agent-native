@@ -802,7 +802,7 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
       // "Runtime Panel" is an explicit runtime name; the unnamed plain <div>
       // has no id/class/aria-label so layerNameFor() falls back to the tag
       // ("Frame") — the clone must derive the SAME tag fallback, never the
-      // literal "Copy" (Figma parity: a duplicate keeps the identical name).
+      // literal "Copy" (a duplicate keeps the identical name).
     ).toEqual(["Runtime Panel", "Frame"]);
     expect(result!.htmlFragments[0]).not.toContain('id="runtime-panel"');
     expect(result!.htmlFragments[1]).not.toContain(

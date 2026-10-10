@@ -1,13 +1,63 @@
 import { Window } from "happy-dom";
 import { expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  resolveAccess: vi.fn(),
+  track: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/server", () => ({}));
-vi.mock("@agent-native/core/server/request-context", () => ({}));
-vi.mock("@agent-native/core/sharing", () => ({}));
-vi.mock("@agent-native/core/tracking", () => ({}));
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestUserEmail: () => "local@example.com",
+}));
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: mocks.resolveAccess,
+}));
+vi.mock("@agent-native/core/tracking", () => ({ track: mocks.track }));
 vi.mock("../server/db/index.js", () => ({}));
 
-import { buildStandaloneHtml } from "./export-html";
+import exportHtml, { buildStandaloneHtml } from "./export-html";
+
+it("reports a failed HTML export once, then rethrows", async () => {
+  mocks.resolveAccess.mockResolvedValue({
+    resource: { data: JSON.stringify({ slides: [] }) },
+  });
+
+  await expect(
+    exportHtml.run({ deckId: "deck-1" }, { caller: "ui" } as never),
+  ).rejects.toThrow("Cannot export empty deck");
+
+  expect(mocks.track).toHaveBeenCalledTimes(1);
+  expect(mocks.track.mock.calls[0][0]).toBe("deck_exported");
+  expect(mocks.track.mock.calls[0][1]).toMatchObject({
+    caller: "ui",
+    output_id: "deck-1",
+    output_type: "deck",
+    export_format: "html",
+    render_location: "server",
+    status: "failed",
+    error_type: "empty_deck",
+    slide_count: 0,
+  });
+});
+
+it("does not attribute a failed export to a deck the caller cannot access", async () => {
+  mocks.track.mockClear();
+  mocks.resolveAccess.mockResolvedValue(null);
+
+  await expect(
+    exportHtml.run({ deckId: "someone-elses-deck" }, { caller: "ui" } as never),
+  ).rejects.toThrow("Deck not found");
+
+  expect(mocks.track).toHaveBeenCalledTimes(1);
+  const properties = mocks.track.mock.calls[0][1];
+  expect(properties).toMatchObject({
+    export_format: "html",
+    status: "failed",
+    error_type: "deck_not_found",
+  });
+  expect(properties).not.toHaveProperty("output_id");
+});
 
 it("navigates exported slides with controls and keyboard", async () => {
   const window = new Window({ settings: { enableJavaScriptEvaluation: true } });
@@ -211,4 +261,22 @@ it("leaves Home and End available to focused media controls", async () => {
   }
 
   await window.happyDOM.abort();
+});
+
+it("numbers each exported slide and ships the slide-number counter rules", () => {
+  const html = buildStandaloneHtml("Deck", [
+    {
+      id: "one",
+      content:
+        '<p><span data-slide-number="pad"></span> / <span data-slide-total="pad"></span></p>',
+    },
+    { id: "two", content: "<p>Second</p>" },
+  ]);
+
+  expect(html).toContain('data-slide-index="1" data-slide-count="2"');
+  expect(html).toContain('data-slide-index="2" data-slide-count="2"');
+  expect(html).toContain("--slide-index: 2; --slide-count: 2;");
+  expect(html).toContain("counter-set: slide-number var(--slide-index)");
+  expect(html).toContain("counter(slide-number, decimal-leading-zero)");
+  expect(html).toMatch(/<span data-slide-number="pad"><\/span>/);
 });

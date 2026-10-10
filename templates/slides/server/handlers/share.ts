@@ -17,6 +17,7 @@ import { eq, lt } from "drizzle-orm";
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
 import { getDb, schema } from "../db";
+import { trackSlides } from "../lib/slides-tracking.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
@@ -45,19 +46,30 @@ export const shareDeck = defineEventHandler(async (event) => {
     return { error: auth.error };
   }
   const session = auth.context;
-  if (!session.email) {
+  const userEmail = session.email;
+  if (!userEmail) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
 
   return withSlidesRequestContext(
     event,
-    async () => createShareLink(event, deck.id),
+    async () => createShareLink(event, deck.id, userEmail),
     session,
   );
 });
 
-async function createShareLink(event: any, deckId: string) {
+/**
+ * Links a viewer's `/share/<token>` visit back to this deck in the warehouse,
+ * which recomputes the same value from the path with
+ * `SUBSTR(TO_HEX(SHA256(token)), 1, 16)`. It must stay an unkeyed hash for
+ * that join to work; the raw token grants view access and is never tracked.
+ */
+function shareTokenHash(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex").slice(0, 16);
+}
+
+async function createShareLink(event: any, deckId: string, userEmail: string) {
   const db = getDb();
   let storedDeck: any;
   let title = "Untitled";
@@ -119,6 +131,17 @@ async function createShareLink(event: any, deckId: string) {
     designSystemData,
     createdAt: now,
   });
+
+  trackSlides(
+    "share_link_created",
+    {
+      output_id: deckId,
+      output_type: "deck",
+      share_type: "presentation_link",
+      share_token_hash: shareTokenHash(token),
+    },
+    { userId: userEmail },
+  );
 
   db.delete(schema.deckShareLinks)
     .where(

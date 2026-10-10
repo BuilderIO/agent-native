@@ -317,6 +317,8 @@ const messages = {
     silenceWorking: "Eliminando silencios…",
     silenceCompleted: "Eliminación de silencios completada",
     silenceFailed: "No se pudieron eliminar los silencios",
+    silenceEditsUnreadable:
+      "No se pudieron leer las ediciones guardadas, así que no se eliminaron los silencios.",
     generatePrSummary: "Generar resumen de relaciones públicas",
     generateSop: "Generar SOP",
     generateSopTooltip:
@@ -348,7 +350,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Contexto de clip legible por el agente",
     agentInstructions:
-      "Obtenga agentContextUrl para la transcripción y el marco JPEG URLs. Busque el cuadro URLs para VER la pantalla, no solo leer la transcripción.",
+      "Abre primero agentContextUrl. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo.",
     untitledClip: "Clip sin título",
     incorrectPassword: "Contraseña incorrecta",
     passwordProtected: "Este clip está protegido con contraseña.",
@@ -613,7 +615,7 @@ const messages = {
     openInCodex: "Abrir en Codex",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
-      "Obtén esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Usa transcript.segments para el contexto hablado, obtén recommendedFrames o las URLs de la API de fotogramas para ver la pantalla y revisa browserDiagnostics si está presente para ver registros de consola redactados y metadatos de solicitudes fetch/XHR.",
+      "Lee esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo. Usa también browserDiagnostics si está disponible para informar de un error.",
     agentTokenDescription:
       "Enlace temporal de solo lectura para agentes, porque este clip no es público. Caduca en 2 horas.",
     agentPublicDescription:

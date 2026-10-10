@@ -1101,6 +1101,13 @@ export function useActionMutation<
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
     timeoutMs?: number;
+    headers?:
+      | Record<string, string>
+      | ((
+          variables: TVariables extends undefined
+            ? ActionParams<TName>
+            : TVariables,
+        ) => Record<string, string> | undefined);
   },
 ) {
   const queryClient = useQueryClient();
@@ -1109,6 +1116,7 @@ export function useActionMutation<
     onSuccess,
     skipActionQueryInvalidation = false,
     timeoutMs,
+    headers,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -1121,6 +1129,7 @@ export function useActionMutation<
     mutationFn: (params) =>
       actionFetch<D>(actionName, method, params as Record<string, any>, {
         timeoutMs,
+        headers: typeof headers === "function" ? headers(params) : headers,
       }),
     onSuccess: (...args: [any, any, any]) => {
       // A write that succeeded may have fixed whatever was failing reads.

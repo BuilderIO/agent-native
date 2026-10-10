@@ -7,6 +7,7 @@ export {
 export {
   appendAgentChatContextToMessage,
   splitAgentChatContextFromMessage,
+  stripAgentChatContextFromMessage,
   type AgentChatMessageParts,
 } from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
@@ -65,6 +66,7 @@ export {
   type ParsedBase64DataUrl,
   type ParsedDataUrl,
 } from "./data-url.js";
+export { stripInlineAttachmentPayloads } from "./attachments.js";
 export {
   DEFAULT_REASONING_EFFORT,
   REASONING_EFFORTS,
