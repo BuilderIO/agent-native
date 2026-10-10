@@ -775,6 +775,8 @@ const messages = {
     switchToNightly: "Passer aux versions Nightly",
     switchToStable: "Passer aux versions stables",
     retry: "Réessayer",
+    mountError:
+      "Clips n’a pas pu trouver son chemin dans cet espace de travail. Demandez à l’administrateur de vérifier la configuration du chemin de l’application.",
     heroDescription:
       "Un enregistreur de barre de menus pour l’écran, la caméra et écran + caméra. Démarrage en un clic, bulle caméra déplaçable et lien de partage instantané à l’arrêt.",
     versionReleased: "Version {{version}} — publiée {{date}}",

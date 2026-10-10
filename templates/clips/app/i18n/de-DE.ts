@@ -779,6 +779,8 @@ const messages = {
     switchToNightly: "Zu Nightly-Builds wechseln",
     switchToStable: "Zu stabilen Builds wechseln",
     retry: "Erneut versuchen",
+    mountError:
+      "Clips konnte seinen Pfad im Workspace nicht ermitteln. Bitte den Workspace-Administrator, die App-Pfadkonfiguration zu prüfen.",
     heroDescription:
       "Ein Menüleisten-Recorder für Bildschirm, Kamera und Bildschirm + Kamera. Ein-Klick-Start, verschiebbare Kamerablase, Link zum sofortigen Teilen, wenn Sie anhalten.",
     versionReleased: "Version {{version}} – veröffentlicht {{date}}",

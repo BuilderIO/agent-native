@@ -722,6 +722,8 @@ const messages = {
     switchToNightly: "切换到 Nightly 构建",
     switchToStable: "切换到稳定版构建",
     retry: "重试",
+    mountError:
+      "Clips 无法找到其在此工作区中的路径。请联系工作区管理员检查应用挂载配置。",
     heroDescription:
       "用于屏幕、相机和屏幕+相机的菜单栏记录器。一键启动，可拖动相机气泡，停止时即时分享链接。",
     versionReleased: "版本 {{version}} — 发布 {{date}}",

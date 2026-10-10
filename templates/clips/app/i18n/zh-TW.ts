@@ -723,6 +723,8 @@ const messages = {
     switchToNightly: "切換至 Nightly 建置",
     switchToStable: "切換至穩定版建置",
     retry: "重試",
+    mountError:
+      "Clips 無法找到其在此工作區中的路徑。請聯絡工作區管理員檢查應用程式掛載設定。",
     heroDescription:
       "用於螢幕、相機和螢幕+相機的選單欄紀錄器。一鍵啟動，可拖動相機氣泡，停止時即時分享連結。",
     versionReleased: "版本 {{version}} — 發布 {{date}}",

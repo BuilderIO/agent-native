@@ -767,6 +767,8 @@ const messages = {
     switchToNightly: "Nightly ビルドに切り替え",
     switchToStable: "安定版ビルドに切り替え",
     retry: "再試行",
+    mountError:
+      "Clips のワークスペース内のパスを特定できませんでした。ワークスペース管理者にアプリのマウント設定を確認してもらってください。",
     heroDescription:
       "画面、カメラ、画面+カメラのメニューバーレコーダー。ワンクリックで開始、ドラッグ可能なカメラバブル、停止時のインスタント共有リンク。",
     versionReleased: "バージョン {{version}} — リリースされた {{date}}",

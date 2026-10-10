@@ -754,6 +754,8 @@ const messages = {
     switchToNightly: "Nightly 빌드로 전환",
     switchToStable: "안정 버전 빌드로 전환",
     retry: "다시 시도",
+    mountError:
+      "Clips가 이 워크스페이스에서 경로를 찾지 못했습니다. 워크스페이스 관리자에게 앱 마운트 구성을 확인해 달라고 요청하세요.",
     heroDescription:
       "화면, 카메라, 화면 + 카메라용 메뉴 막대 레코더입니다. 원클릭 시작, 드래그 가능한 카메라 버블, 중지 시 즉시 공유 링크.",
     versionReleased: "버전 {{version}} — {{date}} 출시",
