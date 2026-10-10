@@ -1,8 +1,4 @@
-import {
-  isInlineDataUrl,
-  isPersistableAttachmentUrl,
-} from "@agent-native/agentkit/protocol";
-
+import { isInlineDataUrl, isPersistableAttachmentUrl } from "./attachments.js";
 import { parseDataUrl } from "./data-url.js";
 
 /**

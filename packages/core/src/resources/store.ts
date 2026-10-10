@@ -1,7 +1,5 @@
 import crypto from "crypto";
 
-import { isPersistableAttachmentUrl } from "@agent-native/agentkit/protocol";
-
 import { getDbExec, type DbExec } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -34,6 +32,7 @@ import {
   putSetting,
   type StoreWriteOptions,
 } from "../settings/store.js";
+import { isPersistableAttachmentUrl } from "../shared/attachments.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 

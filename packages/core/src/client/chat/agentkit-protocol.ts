@@ -38,7 +38,6 @@ import {
   createCapabilityUnavailableError,
   createCapabilityUnsupportedError,
   inferAgentActivityKind,
-  isPersistableAttachmentUrl,
   negotiateAgentKitProtocolVersion,
   resumeEntryFromApproval,
   resumeOptionId,
@@ -53,6 +52,7 @@ import {
   type AutoContinueRefusalCode,
 } from "../../agent/auto-continue.js";
 import type { AgentChatAttachment } from "../../agent/types.js";
+import { isPersistableAttachmentUrl } from "../../shared/attachments.js";
 import { parseBase64DataUrl } from "../../shared/data-url.js";
 import {
   emitChatFirstOpenApp,

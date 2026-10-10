@@ -1,5 +1,3 @@
-import { isPersistableAttachmentUrl } from "@agent-native/agentkit/protocol";
-
 const ATTACHMENT_BODY_FIELDS = new Set([
   "base64",
   "bytes",
@@ -31,6 +29,24 @@ const ATTACHMENT_CONTEXT_FIELDS = new Set([
   "references",
   "requestattachments",
 ]);
+
+export function isInlineDataUrl(value: unknown): value is string {
+  return typeof value === "string" && /^\s*data:/i.test(value);
+}
+
+export function isPersistableAttachmentUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !value.trim()) return false;
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" &&
+    Boolean(url.hostname) &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}
 
 function isBase64Payload(value: unknown): value is string {
   return (
