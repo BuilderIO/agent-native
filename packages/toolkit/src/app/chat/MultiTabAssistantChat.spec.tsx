@@ -570,6 +570,14 @@ describe("MultiTabAssistantChatHeaderProps", () => {
 
     expect(legacyHeaderProps.activeTabIsPersisted).toBeUndefined();
   });
+
+  it("provides persisted status as a required boolean to header callbacks", () => {
+    expectTypeOf<
+      Parameters<
+        NonNullable<MultiTabAssistantChatProps["renderHeader"]>
+      >[0]["activeTabIsPersisted"]
+    >().toEqualTypeOf<boolean>();
+  });
 });
 
 describe("MultiTabAssistantChat postMessage bridge", () => {

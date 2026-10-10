@@ -946,6 +946,13 @@ export interface MultiTabAssistantChatHeaderProps {
   tabCount: number;
 }
 
+export type MultiTabAssistantChatHeaderCallbackProps = Omit<
+  MultiTabAssistantChatHeaderProps,
+  "activeTabIsPersisted"
+> & {
+  activeTabIsPersisted: boolean;
+};
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export type MultiTabAssistantChatProps = Omit<
@@ -955,9 +962,13 @@ export type MultiTabAssistantChatProps = Omit<
   /** Show the tab bar. Default: true */
   showTabBar?: boolean;
   /** Optional custom single-row header renderer */
-  renderHeader?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
+  renderHeader?: (
+    props: MultiTabAssistantChatHeaderCallbackProps,
+  ) => React.ReactNode;
   /** Optional page-level top-bar actions renderer for the active tab. */
-  renderOverlay?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
+  renderOverlay?: (
+    props: MultiTabAssistantChatHeaderCallbackProps,
+  ) => React.ReactNode;
   /** Hide the chat content while keeping the header visible. Used when CLI/resources mode is active. */
   contentHidden?: boolean;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
@@ -3168,7 +3179,7 @@ export function MultiTabAssistantChat({
     }
   }
 
-  const headerProps: MultiTabAssistantChatHeaderProps = {
+  const headerProps: MultiTabAssistantChatHeaderCallbackProps = {
     tabs,
     activeTabId: activeThreadId ?? "",
     activeTabMessageCount: activeThreadId
