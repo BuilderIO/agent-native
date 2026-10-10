@@ -332,7 +332,23 @@ function requestWithSignupAttribution(
       return Reflect.get(target, key, target);
     },
   });
-  return new Request(request.url, init as RequestInit);
+  const copy = new Request(request.url, init as RequestInit);
+  // Worker-added properties are not part of a Request copy, so carry them over.
+  const { cf, waitUntil } = request as Request & {
+    cf?: unknown;
+    waitUntil?: unknown;
+  };
+  if (cf !== undefined) {
+    Object.defineProperty(copy, "cf", { configurable: true, value: cf });
+  }
+  if (typeof waitUntil === "function") {
+    Object.defineProperty(copy, "waitUntil", {
+      configurable: true,
+      value: waitUntil,
+      writable: true,
+    });
+  }
+  return copy;
 }
 
 function headersWithSignupAttribution(
