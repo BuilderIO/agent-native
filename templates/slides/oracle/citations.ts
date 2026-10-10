@@ -14,14 +14,19 @@ const TEST_MODIFIERS = new Set([
   "concurrent",
   "fails",
   "sequential",
+  "skipIf",
+  "runIf",
 ]);
+// A declaration with one of these modifiers may not run, so it cannot be
+// evidence that a row is covered. Its descendants are excluded too.
+const NOT_RUNNABLE = new Set(["skip", "todo", "skipIf", "runIf"]);
 
 type AstNode = Record<string, unknown>;
 
 /**
- * Row ids cited from the title argument of test calls in one source file.
- * Reading the parsed title, not the raw text, keeps citations in assertion
- * messages, comments, helpers and test bodies from counting as coverage.
+ * Row ids cited from the title argument of test calls that can run, in one
+ * source file. Reading the parsed title, not the raw text, keeps citations in
+ * assertion messages, comments, helpers and test bodies from counting.
  * A file that does not parse throws, so a broken test file cannot drop its
  * citations silently.
  */
@@ -31,26 +36,37 @@ export function titleCitations(source: string, fileName: string): string[] {
     tsx: fileName.endsWith(".tsx"),
   });
   const ids: string[] = [];
-  forEachNode(ast, (node) => {
-    if (node.type !== "CallExpression") return;
-    const title = titleText(firstArgument(node));
-    if (title === undefined || !isTestCallee(node.callee)) return;
-    for (const match of title.matchAll(CITATION_PATTERN)) {
-      ids.push(match[1]);
-    }
-  });
+  collectTitleCitations(ast, false, ids);
   return ids;
 }
 
-function forEachNode(value: unknown, visit: (node: AstNode) => void): void {
+function collectTitleCitations(
+  value: unknown,
+  inSkipped: boolean,
+  ids: string[],
+): void {
   if (Array.isArray(value)) {
-    for (const item of value) forEachNode(item, visit);
+    for (const item of value) collectTitleCitations(item, inSkipped, ids);
     return;
   }
   if (typeof value !== "object" || value === null) return;
   const node = value as AstNode;
-  if (typeof node.type === "string") visit(node);
-  for (const child of Object.values(node)) forEachNode(child, visit);
+  let skipped = inSkipped;
+  if (node.type === "CallExpression") {
+    const modifiers = testModifiers(node.callee);
+    if (modifiers !== undefined) {
+      skipped = inSkipped || modifiers.some((m) => NOT_RUNNABLE.has(m));
+      const title = titleText(firstArgument(node));
+      if (!skipped && title !== undefined) {
+        for (const match of title.matchAll(CITATION_PATTERN)) {
+          ids.push(match[1]);
+        }
+      }
+    }
+  }
+  for (const child of Object.values(node)) {
+    collectTitleCitations(child, skipped, ids);
+  }
 }
 
 function firstArgument(call: AstNode): AstNode | undefined {
@@ -74,37 +90,46 @@ function titleText(node: AstNode | undefined): string | undefined {
   return undefined;
 }
 
-function identifierName(node: unknown): string | undefined {
-  const value = node as AstNode | undefined;
-  return value?.type === "Identifier" && typeof value.value === "string"
-    ? value.value
-    : undefined;
+/**
+ * The modifiers after a test function name, for a call that is a test
+ * declaration: it("..."), it.only("..."), it.skip.each([...])("...").
+ * Returns undefined for any other call.
+ */
+function testModifiers(callee: unknown): string[] | undefined {
+  const node = callee as AstNode;
+  // it.skip.each([...])("title"): the outer call's callee is the table call.
+  const chainNode = node.type === "CallExpression" ? node.callee : node;
+  const chain = memberChain(chainNode);
+  if (chain === undefined || chain.length === 0) return undefined;
+  const [base, ...modifiers] = chain;
+  if (!TEST_FUNCTIONS.has(base)) return undefined;
+  if (modifiers.some((m) => !TEST_MODIFIERS.has(m))) return undefined;
+  if (node.type === "CallExpression" && !modifiers.includes("each")) {
+    if (!modifiers.some((m) => m === "skipIf" || m === "runIf")) {
+      return undefined;
+    }
+  }
+  return modifiers;
 }
 
-function isTestCallee(callee: unknown): boolean {
-  const node = callee as AstNode;
-  const direct = identifierName(node);
-  if (direct !== undefined) return TEST_FUNCTIONS.has(direct);
-  if (node.type === "MemberExpression") {
-    const object = identifierName(node.object);
-    const property = identifierName(node.property);
-    return (
-      object !== undefined &&
-      property !== undefined &&
-      TEST_FUNCTIONS.has(object) &&
-      TEST_MODIFIERS.has(property)
-    );
+/** The dotted names of an identifier or plain member chain, e.g. it.skip.each. */
+function memberChain(node: unknown): string[] | undefined {
+  const value = node as AstNode | undefined;
+  if (value === undefined) return undefined;
+  if (value.type === "Identifier" && typeof value.value === "string") {
+    return [value.value];
   }
-  // it.each([...])("title", fn): the outer call takes the title.
-  if (node.type === "CallExpression") {
-    const inner = node.callee as AstNode;
-    if (inner.type !== "MemberExpression") return false;
-    const object = identifierName(inner.object);
-    return (
-      object !== undefined &&
-      TEST_FUNCTIONS.has(object) &&
-      identifierName(inner.property) === "each"
-    );
+  if (value.type === "MemberExpression" && value.computed !== true) {
+    const object = memberChain(value.object);
+    const property = value.property as AstNode | undefined;
+    if (
+      object === undefined ||
+      property?.type !== "Identifier" ||
+      typeof property.value !== "string"
+    ) {
+      return undefined;
+    }
+    return [...object, property.value];
   }
-  return false;
+  return undefined;
 }

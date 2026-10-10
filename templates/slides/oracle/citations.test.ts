@@ -91,4 +91,41 @@ describe("titleCitations counts only test titles", () => {
       ),
     ).toEqual([]);
   });
+
+  it("ignores a citation on it.skip, it.todo and it.skipIf, which do not run", () => {
+    const source = [
+      `it.skip("moves (oracle 1.1)", () => {});`,
+      `it.todo("resizes (oracle 1.2)");`,
+      `it.skipIf(true)("snaps (oracle 1.3)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("ignores tests inside a skipped suite", () => {
+    const source = [
+      `describe.skip("group", () => {`,
+      `  it("moves (oracle 2.1)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("ignores a citation on a skipped each() table", () => {
+    const source = [
+      "it.skip.each([1, 2])(",
+      '  "resizes %s (oracle 10.1)",',
+      "  (n) => {},",
+      ");",
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("still counts only, concurrent and fails declarations", () => {
+    const source = [
+      `it.only("moves (oracle 4.8)", () => {});`,
+      `it.concurrent("snaps (oracle 4.9)", () => {});`,
+      `it.fails("crops (oracle 3.6)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["4.8", "4.9", "3.6"]);
+  });
 });
