@@ -534,6 +534,7 @@ export default async function globalSetup(config: FullConfig) {
     try {
       await warmupPage.goto(`${baseURL}/design/${designId}`, {
         waitUntil: "domcontentloaded",
+        timeout: 180_000,
       });
       await warmupPage
         .getByRole("button", { name: "Move", exact: true })

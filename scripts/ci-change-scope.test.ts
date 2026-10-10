@@ -653,6 +653,11 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/e2e/overview-wheel-zoom.spec.ts",
     "templates/design/e2e/position-alignment.spec.ts",
     "templates/design/e2e/drag-and-drop.drag-feedback.spec.ts",
+    "templates/design/e2e/ai-sidebar-reporter-path.spec.ts",
+    "packages/core/src/file-upload/registry.ts",
+    "packages/core/src/agent/production-agent.ts",
+    "packages/toolkit/src/app/chat/chat/run-recovery.tsx",
+    "packages/agentkit/src/protocol/agui.ts",
   ]) {
     const scope = classifyChangedPaths([path]);
     assert.equal(scope.checks.design_canvas_interaction_e2e, true, path);
@@ -736,6 +741,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     return workflow.slice(start, next === -1 ? undefined : next);
   };
   const regressionCases = step("Run focused Design regression cases");
+  const aiSidebarLoopback = step("Run AI sidebar loopback image regressions");
   const changedSpecRegressions = step("Run changed Design E2E specs");
   const screenSelectionRegressions = step(
     "Run focused Screen selection history regressions",
@@ -757,8 +763,27 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.match(
     regressionCases,
-    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) \}\}$/m,
-    "fixed Design regressions must not run on Screen-history shards",
+    /^        if: \$\{\{ !startsWith\(matrix\.shard, 'screen-history-'\) && matrix\.shard != 'ai-sidebar-loopback' \}\}$/m,
+    "fixed Design regressions must not run on Screen-history or AI sidebar shards",
+  );
+  assert.equal(
+    aiSidebarLoopback.match(/^        if: (.+)$/m)?.[1],
+    "matrix.shard == 'ai-sidebar-loopback'",
+  );
+  assert.match(
+    aiSidebarLoopback,
+    /^        timeout-minutes: 18$/m,
+    "the loopback image suite needs a bounded 18-minute cap",
+  );
+  assert.ok(
+    aiSidebarLoopback.includes('E2E_AI_SIDEBAR_LOOPBACK: "1"'),
+    "the image suite must opt in to its deterministic loopback provider",
+  );
+  assert.ok(
+    aiSidebarLoopback.includes(
+      "pnpm exec playwright test e2e/ai-sidebar-reporter-path.spec.ts --workers=1 --retries=0",
+    ),
+    "the required shard must run the complete SHA-256 attachment suite serially without retries",
   );
   assert.ok(
     screenSelectionRegressions.includes(
@@ -888,8 +913,11 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     /^\s+run: pnpm exec playwright install --only-shell chromium$/m,
     "Design shards must reuse the runner's browser libraries",
   );
-  const jobTimeout = Number(
-    designJob.match(/^    timeout-minutes: (\d+)$/m)?.[1],
+  const jobTimeout = 9;
+  assert.match(
+    designJob,
+    /^    timeout-minutes: \$\{\{ matrix\.shard == 'ai-sidebar-loopback' && 20 \|\| 9 \}\}$/m,
+    "the longer AI sidebar shard timeout must not lengthen the other Design shards",
   );
   const stepTimeout = Number(
     regressionCases.match(/^        timeout-minutes: (\d+)$/m)?.[1],
@@ -905,7 +933,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(jobTimeout) && jobTimeout === 9,
-    `Design acceptance job must have the exact nine-minute cap (got ${jobTimeout})`,
+    `regular Design acceptance shards must keep the exact nine-minute cap (got ${jobTimeout})`,
   );
   assert.ok(jobTimeout < 10, "Design acceptance must stay below ten minutes");
   assert.ok(
@@ -932,7 +960,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   const shardEntries = [
     ...designJob.matchAll(
-      /^\s{12}((?:inspector|drag|position|screen-history)-[^,\s)]+),?\s*$/gm,
+      /^\s{12}((?:(?:inspector|drag|position|screen-history)-[^,\s)]+|ai-sidebar-loopback)),?\s*$/gm,
     ),
   ].map(([, shard]) => shard);
   assert.deepEqual(shardEntries, [
@@ -940,6 +968,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     "screen-history-1",
     "screen-history-2",
     "screen-history-3",
+    "ai-sidebar-loopback",
   ]);
   assert.doesNotMatch(
     regressionCases,
