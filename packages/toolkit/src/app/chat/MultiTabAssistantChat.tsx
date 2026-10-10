@@ -995,6 +995,26 @@ export type MultiTabAssistantChatProps = Omit<
   onActiveModelEngineChange?: (engine: ModelEngineConfig | null) => void;
 };
 
+type ChatHeaderTypeCheck<T extends true> = T;
+type ChatHeaderTypeMatch<A, B> = [A] extends [B]
+  ? [B] extends [A]
+    ? true
+    : false
+  : false;
+type ChatHeaderCallbackStatusIsBoolean = ChatHeaderTypeCheck<
+  ChatHeaderTypeMatch<
+    Parameters<
+      NonNullable<MultiTabAssistantChatProps["renderHeader"]>
+    >[0]["activeTabIsPersisted"],
+    boolean
+  >
+>;
+type LegacyChatHeaderStatusRemainsOptional = ChatHeaderTypeCheck<
+  {} extends Pick<MultiTabAssistantChatHeaderProps, "activeTabIsPersisted">
+    ? true
+    : false
+>;
+
 export function MultiTabAssistantChat({
   showTabBar = true,
   renderHeader,

@@ -551,10 +551,6 @@ function ensureLocalStorage() {
 
 describe("MultiTabAssistantChatHeaderProps", () => {
   it("keeps persisted status optional for existing custom header props", () => {
-    expectTypeOf<
-      MultiTabAssistantChatHeaderProps["activeTabIsPersisted"]
-    >().toEqualTypeOf<boolean | undefined>();
-
     const legacyHeaderProps: MultiTabAssistantChatHeaderProps = {
       tabs: [],
       activeTabId: "thread-1",
@@ -569,14 +565,6 @@ describe("MultiTabAssistantChatHeaderProps", () => {
     };
 
     expect(legacyHeaderProps.activeTabIsPersisted).toBeUndefined();
-  });
-
-  it("provides persisted status as a required boolean to header callbacks", () => {
-    expectTypeOf<
-      Parameters<
-        NonNullable<MultiTabAssistantChatProps["renderHeader"]>
-      >[0]["activeTabIsPersisted"]
-    >().toEqualTypeOf<boolean>();
   });
 });
 
