@@ -7,6 +7,7 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { runMigrations, type MigrationEntry } from "../db/migrations.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 const TABLE = "automation_scheduler_health";
 const DEFAULT_APP_ID = "default";
@@ -81,7 +82,7 @@ let initPromise: Promise<void> | undefined;
 
 export async function ensureHealthTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
         CREATE TABLE IF NOT EXISTS ${TABLE} (
           id TEXT PRIMARY KEY,
@@ -151,6 +152,7 @@ export async function ensureHealthTable(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }

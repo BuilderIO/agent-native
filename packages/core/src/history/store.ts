@@ -1,5 +1,6 @@
 import { getDbExec, isUniqueViolation } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
   HistoryActorKind,
@@ -36,7 +37,7 @@ export interface QueryResourceVersionsInput {
 
 export async function ensureResourceVersionsTable(): Promise<void> {
   if (!historyTableInitPromise) {
-    historyTableInitPromise = (async () => {
+    const historyTableInitPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `CREATE TABLE IF NOT EXISTS agent_resource_versions (
       id TEXT PRIMARY KEY,
       resource_type TEXT NOT NULL,
@@ -76,6 +77,9 @@ export async function ensureResourceVersionsTable(): Promise<void> {
         await ensureIndexExists("idx_agent_resource_versions_org", indexes[2]);
       }
     })();
+    historyTableInitPromise = retainRequestDbPoolScope(
+      historyTableInitPromiseWithRequestDbPoolScope,
+    );
   }
 
   await historyTableInitPromise;

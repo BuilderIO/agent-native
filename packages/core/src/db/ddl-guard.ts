@@ -20,6 +20,7 @@ import {
   isMigrationAuthorizedRuntime,
   withMigrationExecutionRuntime,
 } from "./migration-runtime.js";
+import { retainRequestDbPoolScope } from "./request-pool-context.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -132,13 +133,13 @@ function schemaSnapshot(client: DbExec, injected: boolean) {
   if (injected) {
     let pending = injectedSnapshots.get(client);
     if (!pending) {
-      pending = loadSchemaSnapshot(client);
+      pending = retainRequestDbPoolScope(loadSchemaSnapshot(client));
       injectedSnapshots.set(client, pending);
     }
     return pending;
   }
   if (!globalSnapshot) {
-    globalSnapshot = loadSchemaSnapshot(client);
+    globalSnapshot = retainRequestDbPoolScope(loadSchemaSnapshot(client));
   }
   return globalSnapshot;
 }

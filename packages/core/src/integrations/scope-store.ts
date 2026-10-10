@@ -6,6 +6,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 let initPromise: Promise<void> | undefined;
 
@@ -85,7 +86,7 @@ const TRUST_VALUES = new Set<IntegrationConversationTrust>([
 
 export async function ensureTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const db = getDbExec();
       const createSql = `CREATE TABLE IF NOT EXISTS integration_conversation_scopes (
         id TEXT PRIMARY KEY,
@@ -149,6 +150,7 @@ export async function ensureTable(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }

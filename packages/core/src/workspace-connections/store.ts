@@ -17,6 +17,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -331,7 +332,7 @@ function workspaceConnectionGrantsTable(): string {
 
 export async function ensureWorkspaceConnectionsTable(): Promise<void> {
   if (!_initPromise) {
-    _initPromise = (async () => {
+    const _initPromiseWithRequestDbPoolScope = (async () => {
       const table = workspaceConnectionsTable();
       const grantsTable = workspaceConnectionGrantsTable();
 
@@ -556,6 +557,7 @@ export async function ensureWorkspaceConnectionsTable(): Promise<void> {
       _initPromise = undefined;
       throw err;
     });
+    _initPromise = retainRequestDbPoolScope(_initPromiseWithRequestDbPoolScope);
   }
   return _initPromise;
 }

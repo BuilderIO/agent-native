@@ -433,6 +433,26 @@ function cloudflareModuleTimerRestoreScript(): string {
 }`;
 }
 
+function cloudflareRequestMetadataScript(): string {
+  return `function copyCloudflareRequestMetadata(source, target) {
+  if (source.cf !== undefined) {
+    Object.defineProperty(target, "cf", {
+      configurable: true,
+      value: source.cf,
+    });
+  }
+  if (typeof source.waitUntil === "function") {
+    Object.defineProperty(target, "waitUntil", {
+      configurable: true,
+      value: source.waitUntil,
+      writable: true,
+    });
+  }
+  return target;
+}
+`;
+}
+
 function cloudflareModuleTimerShimPrefix(): string {
   return (
     `/* ${CF_MODULE_TIMER_SHIM_MARKER} */` +
@@ -533,7 +553,10 @@ async function runSweep(h, env, ctx) {
 export function generateCloudflareModuleWorkerEntry(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  return `let handler;
+  return `import { runWithRequestDbPoolScope } from "@agent-native/core/db/request-pool-context";
+
+${cloudflareRequestMetadataScript()}
+let handler;
 
 async function loadHandler() {
   handler ??= (await import("./index.mjs")).default;
@@ -546,10 +569,41 @@ ${cloudflareModuleTimerRestoreScript()}
 
 ${cloudflareSweepTriggerScript(publicRecurringJobsSweepPath(env))}
 
+function createRequestDbPoolScopeContext(ctx) {
+  if (!ctx || (typeof ctx !== "object" && typeof ctx !== "function")) {
+    return ctx;
+  }
+  const scopedCtx = Object.create(Object.getPrototypeOf(ctx));
+  const copied = new Set();
+  for (
+    let source = ctx;
+    source && source !== Object.prototype;
+    source = Object.getPrototypeOf(source)
+  ) {
+    for (const key of Reflect.ownKeys(source)) {
+      if (key === "constructor" || copied.has(key)) continue;
+      copied.add(key);
+      const descriptor = Object.getOwnPropertyDescriptor(source, key);
+      Object.defineProperty(scopedCtx, key, {
+        configurable: true,
+        enumerable: descriptor?.enumerable ?? true,
+        get() {
+          const value = Reflect.get(ctx, key, ctx);
+          return typeof value === "function" ? value.bind(ctx) : value;
+        },
+      });
+    }
+  }
+  return scopedCtx;
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (typeof ctx?.waitUntil === "function") {
-      const requestWithWaitUntil = new Request(request);
+      const requestWithWaitUntil = copyCloudflareRequestMetadata(
+        request,
+        new Request(request),
+      );
       requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);
       request = requestWithWaitUntil;
     }
@@ -559,37 +613,54 @@ export default {
     return h.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
-    initializeBindings(env);
-    const h = await loadHandler();
-    __cfRestoreModuleTimers();
-    await Promise.all([
-      h.scheduled?.(controller, env, ctx),
-      controller?.cron === SWEEP_CRON ? runSweep(h, env, ctx) : undefined,
-    ]);
+    const scopedCtx = createRequestDbPoolScopeContext(ctx);
+    return runWithRequestDbPoolScope(true, scopedCtx, async () => {
+      initializeBindings(env);
+      const h = await loadHandler();
+      __cfRestoreModuleTimers();
+      await Promise.all([
+        h.scheduled?.(controller, env, scopedCtx),
+        controller?.cron === SWEEP_CRON
+          ? runSweep(h, env, scopedCtx)
+          : undefined,
+      ]);
+    });
   },
   async email(message, env, ctx) {
-    initializeBindings(env);
-    const h = await loadHandler();
-    __cfRestoreModuleTimers();
-    return h.email?.(message, env, ctx);
+    const scopedCtx = createRequestDbPoolScopeContext(ctx);
+    return runWithRequestDbPoolScope(true, scopedCtx, async () => {
+      initializeBindings(env);
+      const h = await loadHandler();
+      __cfRestoreModuleTimers();
+      return h.email?.(message, env, scopedCtx);
+    });
   },
   async queue(batch, env, ctx) {
-    initializeBindings(env);
-    const h = await loadHandler();
-    __cfRestoreModuleTimers();
-    return h.queue?.(batch, env, ctx);
+    const scopedCtx = createRequestDbPoolScopeContext(ctx);
+    return runWithRequestDbPoolScope(true, scopedCtx, async () => {
+      initializeBindings(env);
+      const h = await loadHandler();
+      __cfRestoreModuleTimers();
+      return h.queue?.(batch, env, scopedCtx);
+    });
   },
   async tail(traces, env, ctx) {
-    initializeBindings(env);
-    const h = await loadHandler();
-    __cfRestoreModuleTimers();
-    return h.tail?.(traces, env, ctx);
+    const scopedCtx = createRequestDbPoolScopeContext(ctx);
+    return runWithRequestDbPoolScope(true, scopedCtx, async () => {
+      initializeBindings(env);
+      const h = await loadHandler();
+      __cfRestoreModuleTimers();
+      return h.tail?.(traces, env, scopedCtx);
+    });
   },
   async trace(traces, env, ctx) {
-    initializeBindings(env);
-    const h = await loadHandler();
-    __cfRestoreModuleTimers();
-    return h.trace?.(traces, env, ctx);
+    const scopedCtx = createRequestDbPoolScopeContext(ctx);
+    return runWithRequestDbPoolScope(true, scopedCtx, async () => {
+      initializeBindings(env);
+      const h = await loadHandler();
+      __cfRestoreModuleTimers();
+      return h.trace?.(traces, env, scopedCtx);
+    });
   },
 };
 `;
@@ -1581,6 +1652,7 @@ import {
 ${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
 ${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
 ${includeReactRouterSsr ? `import { runWithRequestContext } from "${EDGE_SERVER_ENTRYPOINT}";` : ""}
+${cloudflareRequestMetadataScript()}
 
 function normalizeAppBasePath(value) {
   if (!value || value === "/") return "";
@@ -1716,9 +1788,7 @@ function requestWithMountedApiPrefixStripped(request) {
     return request;
   }
   url.pathname = strippedPathname;
-  const rewritten = new Request(url, request);
-  rewritten.waitUntil = request.waitUntil;
-  return rewritten;
+  return copyCloudflareRequestMetadata(request, new Request(url, request));
 }
 
 function prefixMountedPath(path, basePath) {
@@ -2307,25 +2377,31 @@ async function rewriteMountedResponse(response, basePath, pathname, request, isR
 }
 
 function requestWithMethod(request, method) {
-  return new Request(request.url, {
-    method,
-    headers: request.headers,
-    signal: request.signal,
-  });
+  return copyCloudflareRequestMetadata(
+    request,
+    new Request(request.url, {
+      method,
+      headers: request.headers,
+      signal: request.signal,
+    }),
+  );
 }
 
 function requestWithPathname(request, pathname) {
   const url = new URL(request.url);
   if (url.pathname === pathname) return request;
   url.pathname = pathname;
-  return new Request(url, request);
+  return copyCloudflareRequestMetadata(request, new Request(url, request));
 }
 
 function requestForAnonymousSsr(request) {
   const headers = new Headers(request.headers);
   headers.delete("cookie");
   headers.delete("authorization");
-  return new Request(request, { headers });
+  return copyCloudflareRequestMetadata(
+    request,
+    new Request(request, { headers }),
+  );
 }
 
 function isStaticAppShellRequest(request) {
@@ -2531,7 +2607,10 @@ export default {
   async fetch(request, env, ctx) {
     // Attach the request-scoped continuation hook before any URL rewrite.
     if (typeof ctx?.waitUntil === "function") {
-      const requestWithWaitUntil = new Request(request);
+      const requestWithWaitUntil = copyCloudflareRequestMetadata(
+        request,
+        new Request(request),
+      );
       requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);
       request = requestWithWaitUntil;
     }

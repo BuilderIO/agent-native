@@ -102,6 +102,7 @@
     "./server/entry-server": "./dist/server/entry-server.js",
     "./server/ssr-handler": "./dist/server/ssr-handler.js",
     "./server/agent-discovery": "./dist/server/agent-discovery.js",
+    "./db/request-pool-context": "./dist/db/request-pool-context.js",
     "./server/request-context": "./dist/server/request-context.js",
     "./server/design-token-utils": "./dist/server/design-token-utils.js",
     "./server/poll": "./dist/server/poll.js",

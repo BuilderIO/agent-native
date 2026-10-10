@@ -78,6 +78,17 @@ export function getCurrentRequestDbPoolScope(): PoolRequestScope | undefined {
   return storage.getStore();
 }
 
+/**
+ * Keeps the request pool that owns a shared initialization promise alive until
+ * its work settles, even if the request stops awaiting it first.
+ */
+export function retainRequestDbPoolScope<T>(promise: Promise<T>): Promise<T> {
+  const scope = storage.getStore();
+  if (!scope) return promise;
+  const release = acquireLease(scope);
+  return promise.finally(release);
+}
+
 export function getOrCreateRequestDbPool<T extends RequestDbPool>(
   key: string,
   create: () => T,

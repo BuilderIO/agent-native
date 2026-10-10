@@ -18,6 +18,7 @@ import {
 } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { appMigratesAtRelease } from "../db/migration-policy.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
   parseExtensionChangeMarker,
@@ -534,9 +535,10 @@ export class AppSyncState {
   async ensureSyncEventsTable(): Promise<boolean> {
     if (syncEventsDisabled()) return false;
     if (!this.syncEventsInitPromise) {
-      this.syncEventsInitPromise = (async () => {
-        const client = this.getDb();
-        const createSql = `
+      this.syncEventsInitPromise = retainRequestDbPoolScope(
+        (async () => {
+          const client = this.getDb();
+          const createSql = `
         CREATE TABLE IF NOT EXISTS sync_events (
           id TEXT PRIMARY KEY,
           version BIGINT NOT NULL,
@@ -552,51 +554,52 @@ export class AppSyncState {
         )
       `;
 
-        const guardOptions = { injectedClient: client };
-        await ensureTableExists("sync_events", createSql, guardOptions);
-        // Retention bookkeeping must never stop event writes: without this
-        // table the prune fails on its own, loudly, and events keep flowing.
-        try {
-          await ensureTableExists(
-            SYNC_EVENTS_PRUNE_STATE_TABLE,
-            SYNC_EVENTS_PRUNE_STATE_CREATE_SQL,
+          const guardOptions = { injectedClient: client };
+          await ensureTableExists("sync_events", createSql, guardOptions);
+          // Retention bookkeeping must never stop event writes: without this
+          // table the prune fails on its own, loudly, and events keep flowing.
+          try {
+            await ensureTableExists(
+              SYNC_EVENTS_PRUNE_STATE_TABLE,
+              SYNC_EVENTS_PRUNE_STATE_CREATE_SQL,
+              guardOptions,
+            );
+          } catch (error) {
+            console.error(
+              `[agent-native] sync_events_prune_state_unavailable: could not ensure ${SYNC_EVENTS_PRUNE_STATE_TABLE}; sync events still persist, retention prune will fail until it exists:`,
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+          // `version` is the only index the read and the prune can use: the read
+          // ORs owner/org/resource_type, so (owner, version) and (org_id, version)
+          // were never scanned and only multiplied the write cost of every event.
+          await ensureIndexExists(
+            "sync_events_version_idx",
+            "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
             guardOptions,
           );
-        } catch (error) {
-          console.error(
-            `[agent-native] sync_events_prune_state_unavailable: could not ensure ${SYNC_EVENTS_PRUNE_STATE_TABLE}; sync events still persist, retention prune will fail until it exists:`,
-            error instanceof Error ? error.message : String(error),
-          );
-        }
-        // `version` is the only index the read and the prune can use: the read
-        // ORs owner/org/resource_type, so (owner, version) and (org_id, version)
-        // were never scanned and only multiplied the write cost of every event.
-        await ensureIndexExists(
-          "sync_events_version_idx",
-          "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
-          guardOptions,
-        );
-        if (this.dbAssignedVersions) {
-          await ensureTableExists(
-            "sync_version",
-            "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
-            guardOptions,
-          );
-          await client.execute(SEED_SYNC_VERSION_SQL);
-        }
-        this.syncEventsInitFailures = 0;
-        return true;
-      })().catch((error: unknown) => {
-        this.syncEventsInitPromise = undefined;
-        this.syncEventsInitFailures++;
-        if (this.syncEventsInitFailures === 1) {
-          console.error(
-            "[agent-native] sync_events_unavailable: could not ensure sync_events; durable real-time events are not written until it recovers:",
-            error instanceof Error ? error.message : String(error),
-          );
-        }
-        return false;
-      });
+          if (this.dbAssignedVersions) {
+            await ensureTableExists(
+              "sync_version",
+              "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
+              guardOptions,
+            );
+            await client.execute(SEED_SYNC_VERSION_SQL);
+          }
+          this.syncEventsInitFailures = 0;
+          return true;
+        })().catch((error: unknown) => {
+          this.syncEventsInitPromise = undefined;
+          this.syncEventsInitFailures++;
+          if (this.syncEventsInitFailures === 1) {
+            console.error(
+              "[agent-native] sync_events_unavailable: could not ensure sync_events; durable real-time events are not written until it recovers:",
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+          return false;
+        }),
+      );
     }
     return this.syncEventsInitPromise;
   }

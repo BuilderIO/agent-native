@@ -99,6 +99,7 @@ function toWebRequest(event: H3Event): Request {
 type H3App = H3AppShim;
 import { getDbExec, describeDbError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { resolveLocaleFromRequest } from "../localization/server.js";
 import { readMcpOAuthFlowCookiePayload } from "../mcp-client/oauth-flow-cookie.js";
@@ -1862,7 +1863,7 @@ let sessionMaxAge = DEFAULT_MAX_AGE;
 
 export async function ensureSessionTable(): Promise<void> {
   if (!_sessionInitPromise) {
-    _sessionInitPromise = (async () => {
+    const _sessionInitPromiseWithRequestDbPoolScope = (async () => {
       const createSql = `
           CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
@@ -1885,6 +1886,9 @@ export async function ensureSessionTable(): Promise<void> {
       _sessionInitPromise = undefined;
       throw err;
     });
+    _sessionInitPromise = retainRequestDbPoolScope(
+      _sessionInitPromiseWithRequestDbPoolScope,
+    );
   }
   return _sessionInitPromise;
 }

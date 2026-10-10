@@ -142,6 +142,78 @@ describe("Cloudflare request database pool scope", () => {
     expect(pool.end).toHaveBeenCalledOnce();
   });
 
+  it("keeps a shared initializer's owning pool alive after a sibling fails early", async () => {
+    workerGlobal.__env__ = {};
+    const { sharedDbPool } = await import("./client.js");
+    const { retainRequestDbPoolScope, runWithRequestDbPoolScope } =
+      await import("./request-pool-context.js");
+    const created: Pool[] = [];
+    const facade = sharedDbPool(
+      "request-test",
+      "postgres://db.test/app",
+      () => {
+        const pool: Pool = {
+          id: `pool-${created.length + 1}`,
+          query: vi.fn(async () => pool.id),
+          end: vi.fn(async () => {}),
+        };
+        created.push(pool);
+        return pool;
+      },
+    );
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let continueInitializer!: () => void;
+    const initializerGate = new Promise<void>((resolve) => {
+      continueInitializer = resolve;
+    });
+    let sharedInitialization: Promise<void> | undefined;
+    const ensureInitialized = () => {
+      sharedInitialization ??= retainRequestDbPoolScope(
+        (async () => {
+          await facade.query();
+          markStarted();
+          await initializerGate;
+          await facade.query();
+        })(),
+      );
+      return sharedInitialization;
+    };
+
+    const first = runWithRequestDbPoolScope(true, undefined, () =>
+      Promise.all([
+        ensureInitialized(),
+        Promise.reject(new Error("sibling failed")),
+      ]),
+    );
+    await expect(first).rejects.toThrow("sibling failed");
+    await started;
+    expect(created).toHaveLength(1);
+    expect(created[0].end).not.toHaveBeenCalled();
+
+    const runWaitingRequest = () =>
+      runWithRequestDbPoolScope(true, undefined, async () => {
+        await ensureInitialized();
+        return facade.query();
+      });
+    const second = runWaitingRequest();
+    const third = runWaitingRequest();
+    continueInitializer();
+
+    await expect(Promise.all([second, third])).resolves.toEqual([
+      "pool-2",
+      "pool-3",
+    ]);
+    expect(created.map((pool) => pool.query.mock.calls.length)).toEqual([
+      2, 1, 1,
+    ]);
+    expect(created.map((pool) => pool.end.mock.calls.length)).toEqual([
+      1, 1, 1,
+    ]);
+  });
+
   it("keeps response-stream database work in scope and closes after completion", async () => {
     workerGlobal.__env__ = {};
     const { sharedDbPool } = await import("./client.js");

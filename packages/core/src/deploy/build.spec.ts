@@ -3,7 +3,7 @@ import fs from "fs";
 import { createRequire } from "module";
 import os from "os";
 import path from "path";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -791,8 +791,12 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).toContain('process.env.NODE_ENV === "production";\n}');
     expect(entry).not.toContain("globalThis.__cf_ctx");
     expect(entry).toContain(
-      "const requestWithWaitUntil = new Request(request);",
+      "const requestWithWaitUntil = copyCloudflareRequestMetadata(",
     );
+    expect(entry).toContain(
+      'import { runWithRequestDbPoolScope } from "@agent-native/core/db/request-pool-context";',
+    );
+    expect(entry).toContain("return runWithRequestDbPoolScope(true, ctx");
     expect(entry).toContain(
       "requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);",
     );
@@ -811,6 +815,7 @@ describe("Cloudflare module Worker entry", () => {
 
   it("restores the real setInterval before the loaded handler runs, even on a cold isolate", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const marker = "__test_captured_set_interval__";
     fs.writeFileSync(
       path.join(dir, "index.mjs"),
@@ -855,6 +860,7 @@ export default {
 
   it("copies immutable incoming Requests before attaching waitUntil", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const marker = "__test_cloudflare_module_request__";
     fs.writeFileSync(
       path.join(dir, "index.mjs"),
@@ -864,6 +870,7 @@ export default {
     const body = await request.text();
     globalThis.${marker} = {
       request,
+      cf: request.cf,
       url: request.url,
       method: request.method,
       contentType: request.headers.get("content-type"),
@@ -880,13 +887,14 @@ export default {
     const entryPath = path.join(dir, "worker.mjs");
     fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
 
-    const request = Object.freeze(
-      new Request("https://app.test/api/pools?mode=module", {
-        method: "POST",
-        headers: { "content-type": "text/plain" },
-        body: "module-payload",
-      }),
-    );
+    const request = new Request("https://app.test/api/pools?mode=module", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "module-payload",
+    });
+    const cf = { colo: "SJC", asn: 15169 };
+    Object.defineProperty(request, "cf", { configurable: true, value: cf });
+    Object.freeze(request);
     const waitUntilPromises: Promise<unknown>[] = [];
     const ctx = {
       waitUntil(promise: Promise<unknown>) {
@@ -903,6 +911,7 @@ export default {
       expect(await response.text()).toBe("ok");
       const observed = (globalThis as Record<string, unknown>)[marker] as {
         request: Request;
+        cf: unknown;
         url: string;
         method: string;
         contentType: string | null;
@@ -911,6 +920,7 @@ export default {
         waitUntilConfigurable: boolean;
       };
       expect(observed.request).not.toBe(request);
+      expect(observed.cf).toBe(cf);
       expect(observed.url).toBe("https://app.test/api/pools?mode=module");
       expect(observed.method).toBe("POST");
       expect(observed.contentType).toBe("text/plain");
@@ -922,6 +932,103 @@ export default {
       await expect(waitUntilPromises[0]).resolves.toBe(
         "module-background-work",
       );
+    } finally {
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("scopes every non-HTTP event and retains its pool through waitUntil", async () => {
+    const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
+    const marker = "__test_cloudflare_event_scopes__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+import {
+  getCurrentRequestDbPoolScope,
+  getOrCreateRequestDbPool,
+} from "@agent-native/core/db/request-pool-context";
+
+function record(name, ctx) {
+  const scope = getCurrentRequestDbPoolScope();
+  if (!scope) throw new Error("missing request pool scope: " + name);
+  const pool = getOrCreateRequestDbPool("event-test", () => ({ ended: false, async end() { this.ended = true; } }));
+  globalThis.${marker}.events.push({ name, scope, pool });
+  if (name === "queue" && !(ctx instanceof globalThis.${marker}.Context)) {
+    throw new Error("event context lost its host prototype");
+  }
+  if (name === "queue") {
+    ctx.waitUntil(new Promise((resolve) => {
+      globalThis.${marker}.finishQueue = resolve;
+    }).then(() => {
+      if (getCurrentRequestDbPoolScope() !== scope) {
+        throw new Error("waitUntil lost the event scope");
+      }
+      if (pool.ended) throw new Error("event pool closed before waitUntil work");
+    }));
+  }
+}
+
+export default {
+  async fetch() { return new Response("ok"); },
+  scheduled(_controller, _env, ctx) { record("scheduled", ctx); },
+  email(_message, _env, ctx) { record("email", ctx); },
+  queue(_batch, _env, ctx) { record("queue", ctx); },
+  tail(_traces, _env, ctx) { record("tail", ctx); },
+  trace(_traces, _env, ctx) { record("trace", ctx); },
+};
+`,
+    );
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const waitUntilPromises: Promise<unknown>[] = [];
+    class MockExecutionContext {
+      waitUntil(promise: Promise<unknown>) {
+        if (!Object.isFrozen(this)) {
+          throw new Error("waitUntil was not bound to the host context");
+        }
+        waitUntilPromises.push(promise);
+      }
+    }
+    const ctx = Object.freeze(new MockExecutionContext());
+    const state = {
+      events: [] as Array<{
+        name: string;
+        scope: object;
+        pool: { ended: boolean };
+      }>,
+      finishQueue: undefined as (() => void) | undefined,
+      Context: MockExecutionContext,
+    };
+    (globalThis as Record<string, unknown>)[marker] = state;
+
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+      await worker.scheduled({ cron: "manual" }, {}, {});
+      await worker.email({}, {}, {});
+      await worker.queue({}, {}, ctx);
+      await worker.tail([], {}, {});
+      await worker.trace([], {}, {});
+
+      expect(state.events.map(({ name }) => name)).toEqual([
+        "scheduled",
+        "email",
+        "queue",
+        "tail",
+        "trace",
+      ]);
+      expect(new Set(state.events.map(({ scope }) => scope)).size).toBe(5);
+      expect(waitUntilPromises).toHaveLength(1);
+      expect(ctx).toBeInstanceOf(MockExecutionContext);
+      expect(state.events[2].pool.ended).toBe(false);
+
+      state.finishQueue?.();
+      await expect(waitUntilPromises[0]).resolves.toBeUndefined();
+      expect(state.events[2].pool.ended).toBe(true);
     } finally {
       Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
       fs.rmSync(dir, { recursive: true, force: true });
@@ -984,6 +1091,7 @@ export default {
 
   it("sweeps on the sweep cron with a token the sweep route accepts", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     fs.writeFileSync(
       path.join(dir, "index.mjs"),
       `
@@ -1389,6 +1497,17 @@ function makeTempDir(): string {
   return dir;
 }
 
+const corePackageRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
+
+function linkCorePackageForWorker(dir: string): void {
+  const packageLink = path.join(dir, "node_modules", "@agent-native", "core");
+  fs.mkdirSync(path.dirname(packageLink), { recursive: true });
+  fs.symlinkSync(corePackageRoot, packageLink, "dir");
+}
+
 describe("Netlify static cache headers", () => {
   it("writes the shared SWR policy and preserves app-owned headers", () => {
     const publishDir = fs.mkdtempSync(
@@ -1541,6 +1660,8 @@ async function importGeneratedWorker(
   options: {
     responseHeaders?: Record<string, string>;
     rootDataLocation?: string;
+    frameworkEdgeStub?: boolean;
+    requestObserverMarker?: string;
   } = {},
 ) {
   const dir = makeTempDir();
@@ -1552,11 +1673,33 @@ async function importGeneratedWorker(
     path.join(tempNodeModules, "h3"),
     "dir",
   );
-  fs.symlinkSync(
-    path.join(process.cwd(), "packages/core"),
-    path.join(scopedNodeModules, "core"),
-    "dir",
-  );
+  if (options.frameworkEdgeStub) {
+    const packageDir = path.join(scopedNodeModules, "core");
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        type: "module",
+        exports: { "./server/edge": "./server-edge.js" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(packageDir, "server-edge.js"),
+      `export function getAppConfig() { return { app: { homePath: "/home" }, analytics: {} }; }
+export function getFrameworkRoutePrefix() { return ""; }
+export function getSsrAuthRedirectScript() { return ""; }
+export function resolveAppHomePath() { return "/home"; }
+export function runWithRequestContext(_context, callback) { return callback(); }
+`,
+    );
+  } else {
+    fs.symlinkSync(
+      corePackageRoot,
+      path.join(scopedNodeModules, "core"),
+      "dir",
+    );
+  }
   const nodeModules = path.join(dir, "node_modules", "react-router");
   fs.mkdirSync(nodeModules, { recursive: true });
   fs.writeFileSync(
@@ -1568,6 +1711,18 @@ async function importGeneratedWorker(
     `
 export function createRequestHandler() {
   return async (request) => {
+    const requestObserverMarker = ${JSON.stringify(options.requestObserverMarker ?? null)};
+    if (requestObserverMarker) {
+      globalThis[requestObserverMarker] = {
+        cf: request.cf,
+        url: request.url,
+        method: request.method,
+        cookie: request.headers.get("cookie"),
+        authorization: request.headers.get("authorization"),
+        waitUntil: typeof request.waitUntil,
+      };
+      request.waitUntil?.(Promise.resolve("pages-ssr-background-work"));
+    }
     const url = new URL(request.url);
     if (url.pathname.endsWith(".data")) {
       if (url.pathname === "/.data") {
@@ -1723,6 +1878,7 @@ export default async (event) => {
   const body = await request.text();
   globalThis.${marker} = {
     request,
+    cf: request.cf,
     url: request.url,
     method: request.method,
     contentType: request.headers.get("content-type"),
@@ -1753,14 +1909,19 @@ export default async (event) => {
           "/docs",
           { includeReactRouterSsr: false },
         ),
+        { frameworkEdgeStub: true },
       );
-      const request = Object.freeze(
-        new Request("https://app.test/docs/api/pools?mode=pages", {
+      const request = new Request(
+        "https://app.test/docs/api/pools?mode=pages",
+        {
           method: "POST",
           headers: { "content-type": "text/plain" },
           body: "pages-payload",
-        }),
+        },
       );
+      const cf = { colo: "LAX", asn: 64512 };
+      Object.defineProperty(request, "cf", { configurable: true, value: cf });
+      Object.freeze(request);
       const waitUntilPromises: Promise<unknown>[] = [];
       const ctx = {
         waitUntil(promise: Promise<unknown>) {
@@ -1774,6 +1935,7 @@ export default async (event) => {
         expect(await response.text()).toBe("ok");
         const observed = (globalThis as Record<string, unknown>)[marker] as {
           request: Request;
+          cf: unknown;
           url: string;
           method: string;
           contentType: string | null;
@@ -1782,6 +1944,7 @@ export default async (event) => {
           waitUntilConfigurable: boolean;
         };
         expect(observed.request).not.toBe(request);
+        expect(observed.cf).toBe(cf);
         expect(observed.url).toBe("https://app.test/api/pools?mode=pages");
         expect(observed.method).toBe("POST");
         expect(observed.contentType).toBe("text/plain");
@@ -1792,6 +1955,59 @@ export default async (event) => {
         expect(waitUntilPromises).toHaveLength(1);
         await expect(waitUntilPromises[0]).resolves.toBe(
           "pages-background-work",
+        );
+      } finally {
+        Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      }
+    });
+
+    it("preserves Cloudflare metadata through anonymous Pages SSR request rewrites", async () => {
+      const marker = "__test_cloudflare_pages_ssr_request__";
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry([], [], [], [], null, [], "/docs", {
+          includeReactRouterSsr: true,
+        }),
+        { frameworkEdgeStub: true, requestObserverMarker: marker },
+      );
+      const request = new Request("https://app.test/docs/private-json.data", {
+        method: "HEAD",
+        headers: {
+          cookie: "session=private",
+          authorization: "Bearer private",
+        },
+      });
+      const cf = { colo: "SJC", asn: 15169 };
+      Object.defineProperty(request, "cf", { configurable: true, value: cf });
+      Object.freeze(request);
+      const waitUntilPromises: Promise<unknown>[] = [];
+      const ctx = {
+        waitUntil(promise: Promise<unknown>) {
+          waitUntilPromises.push(promise);
+        },
+      };
+
+      try {
+        const response = await worker.fetch(request, {}, ctx);
+        const observed = (globalThis as Record<string, unknown>)[marker] as {
+          cf: unknown;
+          url: string;
+          method: string;
+          cookie: string | null;
+          authorization: string | null;
+          waitUntil: string;
+        };
+
+        expect(response.status).toBe(200);
+        expect(observed.cf).toBe(cf);
+        expect(observed.url).toBe("https://app.test/private-json.data");
+        expect(observed.method).toBe("GET");
+        expect(observed.cookie).toBeNull();
+        expect(observed.authorization).toBeNull();
+        expect(observed.waitUntil).toBe("function");
+        expect(request.waitUntil).toBeUndefined();
+        expect(waitUntilPromises).toHaveLength(1);
+        await expect(waitUntilPromises[0]).resolves.toBe(
+          "pages-ssr-background-work",
         );
       } finally {
         Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);

@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
+import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 
 let initPromise: Promise<void> | undefined;
 
@@ -7,7 +8,7 @@ export const INTEGRATION_AWAITING_INPUT_TTL_MS = 24 * 60 * 60 * 1000;
 
 export async function ensureTable(): Promise<void> {
   if (!initPromise) {
-    initPromise = (async () => {
+    const initPromiseWithRequestDbPoolScope = (async () => {
       const client = getDbExec();
       const createSql = `
         CREATE TABLE IF NOT EXISTS integration_awaiting_inputs (
@@ -29,6 +30,7 @@ export async function ensureTable(): Promise<void> {
       initPromise = undefined;
       throw error;
     });
+    initPromise = retainRequestDbPoolScope(initPromiseWithRequestDbPoolScope);
   }
   return initPromise;
 }
