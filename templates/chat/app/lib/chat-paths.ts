@@ -10,7 +10,6 @@ export const NEW_CHAT_PATH = "/chat";
 
 const FAILED_CHAT_HANDOFF_PREFIX = "agent-native.chat.failed-handoff:";
 const MAX_FAILED_HANDOFF_BYTES = 64 * 1024;
-const MAX_HANDOFF_TEXT_LENGTH = 24 * 1024;
 const MAX_HANDOFF_FIELD_LENGTH = 8 * 1024;
 const MAX_HANDOFF_ITEMS = 20;
 const INVALID_JSON_VALUE = Symbol("invalid-json-value");
@@ -87,11 +86,7 @@ export type FailedChatHandoffWriteResult =
   | { status: "stored" }
   | {
       status: "invalid";
-      reason:
-        | "invalid-thread-id"
-        | "message-too-large"
-        | "invalid-options"
-        | "payload-too-large";
+      reason: "invalid-thread-id" | "invalid-options" | "payload-too-large";
     }
   | { status: "unavailable"; cause: unknown };
 
@@ -354,10 +349,6 @@ export function writeFailedChatHandoff(
   if (!threadId.trim() || threadId.length > 512) {
     return { status: "invalid", reason: "invalid-thread-id" };
   }
-  if (text.length > MAX_HANDOFF_TEXT_LENGTH) {
-    invalidateExistingFailedChatHandoff(threadId);
-    return { status: "invalid", reason: "message-too-large" };
-  }
   const normalizedOptions = normalizeComposerOptions(options);
   if (!normalizedOptions) {
     invalidateExistingFailedChatHandoff(threadId);
@@ -417,9 +408,7 @@ export function readFailedChatHandoff(
       return { status: "invalid", reason: "invalid-envelope" };
     }
     const options = normalizeComposerOptions(envelope.options);
-    if (!options || envelope.text.length > MAX_HANDOFF_TEXT_LENGTH) {
-      return { status: "invalid", reason: "invalid-envelope" };
-    }
+    if (!options) return { status: "invalid", reason: "invalid-envelope" };
     return { status: "found", handoff: { text: envelope.text, options } };
   } catch (cause) {
     return { status: "unavailable", cause };

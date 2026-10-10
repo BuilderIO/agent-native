@@ -162,56 +162,70 @@ function ChatThreadRouteContent({
     restoredHandoffResult.status === "found"
       ? restoredHandoffResult.handoff
       : null;
-  const [failedInitialDraft, setFailedInitialDraft] =
-    useState<FailedInitialDraft | null>(() => {
-      return restoredHandoff
-        ? {
-            text: restoredHandoff.text,
-            options: restoredHandoff.options,
-            attempt: 0,
-            threadId: resolvedThreadId,
-            unsaved: false,
-          }
-        : null;
-    });
+  const [failedInitialDrafts, setFailedInitialDrafts] = useState<
+    Map<string, FailedInitialDraft>
+  >(() => {
+    return restoredHandoff
+      ? new Map([
+          [
+            resolvedThreadId,
+            {
+              text: restoredHandoff.text,
+              options: restoredHandoff.options,
+              attempt: 0,
+              threadId: resolvedThreadId,
+              unsaved: false,
+            },
+          ],
+        ])
+      : new Map();
+  });
+  const failedInitialDraftsRef = useRef(failedInitialDrafts);
   const restoredForRoute = restoredHandoff;
   const failedDraftForRoute =
-    failedInitialDraft?.threadId === resolvedThreadId
-      ? failedInitialDraft
-      : restoredForRoute
-        ? {
-            text: restoredForRoute.text,
-            options: restoredForRoute.options,
-            attempt: 0,
-            threadId: resolvedThreadId,
-            unsaved: false,
-          }
-        : null;
+    failedInitialDrafts.get(resolvedThreadId) ??
+    (restoredForRoute
+      ? {
+          text: restoredForRoute.text,
+          options: restoredForRoute.options,
+          attempt: 0,
+          threadId: resolvedThreadId,
+          unsaved: false,
+        }
+      : null);
   const failedInitialDraftRef = useRef(failedDraftForRoute);
   failedInitialDraftRef.current = failedDraftForRoute;
   const failedInitialDraftAttemptRef = useRef(0);
+  const setFailedInitialDraftForThread = useCallback(
+    (threadId: string, draft: FailedInitialDraft | null) => {
+      const next = new Map(failedInitialDraftsRef.current);
+      if (draft) next.set(threadId, draft);
+      else next.delete(threadId);
+      failedInitialDraftsRef.current = next;
+      setFailedInitialDrafts(next);
+    },
+    [],
+  );
   useEffect(() => {
     reportHandoffStorageFailure(
       restoredHandoffResult,
       "Could not restore the failed Chat handoff",
     );
-    setFailedInitialDraft((current) => {
-      if (current?.threadId === resolvedThreadId) return current;
-      return restoredHandoff
-        ? {
-            text: restoredHandoff.text,
-            options: restoredHandoff.options,
-            attempt: 0,
-            threadId: resolvedThreadId,
-            unsaved: false,
-          }
-        : null;
+    if (failedInitialDraftsRef.current.has(resolvedThreadId)) return;
+    if (!restoredHandoff) return;
+    setFailedInitialDraftForThread(resolvedThreadId, {
+      text: restoredHandoff.text,
+      options: restoredHandoff.options,
+      attempt: 0,
+      threadId: resolvedThreadId,
+      unsaved: false,
     });
   }, [
     reportHandoffStorageFailure,
     resolvedThreadId,
     restoredHandoff,
     restoredHandoffResult,
+    setFailedInitialDraftForThread,
   ]);
   const handleInitialMessageFailure = useCallback(
     (
@@ -232,21 +246,31 @@ function ChatThreadRouteContent({
         unsaved: persistence.status !== "stored",
       };
       failedInitialDraftRef.current = failedDraft;
-      setFailedInitialDraft(failedDraft);
+      setFailedInitialDraftForThread(resolvedThreadId, failedDraft);
     },
-    [reportHandoffStorageFailure, resolvedThreadId],
+    [
+      reportHandoffStorageFailure,
+      resolvedThreadId,
+      setFailedInitialDraftForThread,
+    ],
   );
   const handleInitialMessageAccepted = useCallback(() => {
     reportHandoffStorageFailure(
       clearFailedChatHandoff(resolvedThreadId),
       "Could not clear the accepted Chat handoff",
     );
-    if (failedInitialDraftRef.current?.threadId === resolvedThreadId) {
-      failedInitialDraftRef.current = null;
-      setFailedInitialDraft(null);
+    if (failedInitialDraftsRef.current.has(resolvedThreadId)) {
+      if (failedInitialDraftRef.current?.threadId === resolvedThreadId) {
+        failedInitialDraftRef.current = null;
+      }
+      setFailedInitialDraftForThread(resolvedThreadId, null);
     }
     setHandoffStorageRevision((revision) => revision + 1);
-  }, [reportHandoffStorageFailure, resolvedThreadId]);
+  }, [
+    reportHandoffStorageFailure,
+    resolvedThreadId,
+    setFailedInitialDraftForThread,
+  ]);
   const updateFailedInitialDraft = useCallback(
     (
       update: Partial<FailedChatHandoffEnvelope> & {
@@ -274,9 +298,13 @@ function ChatThreadRouteContent({
         persistence,
         "Could not save the failed Chat handoff",
       );
-      setFailedInitialDraft(nextDraft);
+      setFailedInitialDraftForThread(resolvedThreadId, nextDraft);
     },
-    [reportHandoffStorageFailure, resolvedThreadId],
+    [
+      reportHandoffStorageFailure,
+      resolvedThreadId,
+      setFailedInitialDraftForThread,
+    ],
   );
 
   const [transport] = useState(() =>
@@ -757,11 +785,17 @@ function ChatInitialMessage({
     if (persistence.status !== "stored") {
       clearRouteState();
       onFailure(message, options, persistence);
-      return;
+      if (
+        persistence.status !== "invalid" ||
+        persistence.reason !== "payload-too-large"
+      ) {
+        return;
+      }
+    } else {
+      // Router state survives a reload, so drop it before sending or a refresh
+      // cannot distinguish a pending send from a failed one.
+      clearRouteState();
     }
-    // Router state survives a reload, so drop it before sending or a refresh
-    // cannot distinguish a pending send from a failed one.
-    clearRouteState();
     const context = [
       composerOptions?.composerModeContext,
       contextItems?.map((item) => item.context).join("\n\n"),

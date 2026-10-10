@@ -163,10 +163,10 @@ describe("failed Chat handoff storage", () => {
     removeItem.mockRestore();
   });
 
-  it("rejects oversized or non-serializable payloads instead of saving partial state", () => {
+  it("rejects oversized UTF-8 envelopes and non-serializable payloads", () => {
     expect(
-      writeFailedChatHandoff("thread-one", "x".repeat(24 * 1024 + 1), {}),
-    ).toEqual({ status: "invalid", reason: "message-too-large" });
+      writeFailedChatHandoff("thread-one", "漢".repeat(24 * 1024), {}),
+    ).toEqual({ status: "invalid", reason: "payload-too-large" });
     expect(
       writeFailedChatHandoff("thread-one", "Retry this", {
         uploadedAttachments: [

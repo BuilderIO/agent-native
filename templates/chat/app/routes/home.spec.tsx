@@ -1148,6 +1148,58 @@ describe("ChatRoute AgentKit surface", () => {
     ).toBe("chat.recoveryDraftUnsaved");
   });
 
+  it("sends a multibyte prompt when its recovery envelope exceeds the byte limit", async () => {
+    routeState.threadId = "large-prompt-chat";
+    const message = "漢".repeat(24 * 1024);
+    routeState.locationState = { initialMessage: message };
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
+    expect(routeState.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: message,
+    });
+    expect(readFailedChatHandoff("large-prompt-chat")).toEqual({
+      status: "absent",
+    });
+  });
+
+  it("retains an unsaved recovery draft while switching between threads", async () => {
+    routeState.threadId = "chat-from-home";
+    routeState.locationState = { initialMessage: "Keep this request" };
+    const setItemSpy = vi
+      .spyOn(window.sessionStorage, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("Storage is full", "QuotaExceededError");
+      });
+    restoreSessionStorageSetItem = () => setItemSpy.mockRestore();
+
+    await act(async () => root.render(<ChatRoute />));
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: "Keep this request" },
+    });
+
+    routeState.threadId = "another-thread";
+    routeState.locationState = null;
+    await act(async () => root.render(<ChatRoute />));
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: undefined },
+    });
+    expect(
+      container.querySelector('[data-testid="chat-recovery-draft-unsaved"]'),
+    ).toBeNull();
+
+    routeState.threadId = "chat-from-home";
+    await act(async () => root.render(<ChatRoute />));
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: "Keep this request" },
+    });
+    expect(
+      container.querySelector('[data-testid="chat-recovery-draft-unsaved"]')
+        ?.textContent,
+    ).toBe("chat.recoveryDraftUnsaved");
+  });
+
   it("does not restore an accepted handoff when session storage refuses removal", async () => {
     routeState.threadId = "accepted-chat";
     routeState.locationState = { initialMessage: "Send this once" };
@@ -1186,7 +1238,7 @@ describe("ChatRoute AgentKit surface", () => {
 
     await act(async () => root.render(<ChatRoute />));
 
-    const editedDraft = "x".repeat(24 * 1024 + 1);
+    const editedDraft = "漢".repeat(24 * 1024);
     const onTextChange = (
       routeState.chatProps?.composerProps as {
         onTextChange: (text: string) => void;
