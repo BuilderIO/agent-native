@@ -19,6 +19,11 @@ const mocks = vi.hoisted(() => ({
   putUserSetting: vi.fn(async () => undefined),
   readSourceIndex: vi.fn(async () => ({ status: "not-configured" })),
   sourceIndexDictionaryEntries: vi.fn(() => []),
+  requireAnalyticsAdminContext: vi.fn(async () => ({
+    userEmail: "user@example.test",
+    orgId: "org_test",
+    role: "owner",
+  })),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -42,6 +47,10 @@ vi.mock("../server/lib/source-index-store.js", () => ({
   sourceIndexDictionaryEntries: mocks.sourceIndexDictionaryEntries,
 }));
 
+vi.mock("../server/lib/db-admin-connections.js", () => ({
+  requireAnalyticsAdminContext: mocks.requireAnalyticsAdminContext,
+}));
+
 const { default: action } = await import("./save-data-dictionary-entry");
 
 describe("save-data-dictionary-entry schema", () => {
@@ -51,6 +60,11 @@ describe("save-data-dictionary-entry schema", () => {
     mocks.getUserSetting.mockResolvedValue(null);
     mocks.readSourceIndex.mockResolvedValue({ status: "not-configured" });
     mocks.sourceIndexDictionaryEntries.mockReturnValue([]);
+    mocks.requireAnalyticsAdminContext.mockResolvedValue({
+      userEmail: "user@example.test",
+      orgId: "org_test",
+      role: "owner",
+    });
   });
 
   it("parses CLI boolean strings explicitly", async () => {
@@ -195,6 +209,73 @@ describe("save-data-dictionary-entry schema", () => {
       "org_test",
       "data-dict-current-model",
       expect.objectContaining({ status: "active" }),
+    );
+  });
+
+  it("rejects an org save by a non-admin before writing", async () => {
+    mocks.requireAnalyticsAdminContext.mockRejectedValueOnce(
+      new Error(
+        "Only organization owners and admins can use Analytics admin tools.",
+      ),
+    );
+
+    await expect(
+      action.run(
+        {
+          id: "current-model",
+          metric: "Current model",
+          definition: "Current.",
+        },
+        {} as never,
+      ),
+    ).rejects.toThrow("Only organization owners and admins");
+
+    expect(mocks.requireAnalyticsAdminContext).toHaveBeenCalledWith({
+      userEmail: "user@example.test",
+      orgId: "org_test",
+    });
+    expect(mocks.putOrgSetting).not.toHaveBeenCalled();
+  });
+
+  it("writes an org save after the admin gate passes", async () => {
+    await action.run(
+      {
+        id: "current-model",
+        metric: "Current model",
+        definition: "Current.",
+      },
+      {} as never,
+    );
+
+    expect(mocks.requireAnalyticsAdminContext).toHaveBeenCalledWith({
+      userEmail: "user@example.test",
+      orgId: "org_test",
+    });
+    expect(mocks.putOrgSetting).toHaveBeenCalledWith(
+      "org_test",
+      "data-dict-current-model",
+      expect.objectContaining({ author: "user@example.test" }),
+    );
+  });
+
+  it("writes a personal save without an org and skips the admin gate", async () => {
+    mocks.getRequestOrgId.mockReturnValueOnce("");
+
+    await action.run(
+      {
+        id: "current-model",
+        metric: "Current model",
+        definition: "Current.",
+      },
+      {} as never,
+    );
+
+    expect(mocks.requireAnalyticsAdminContext).not.toHaveBeenCalled();
+    expect(mocks.putOrgSetting).not.toHaveBeenCalled();
+    expect(mocks.putUserSetting).toHaveBeenCalledWith(
+      "user@example.test",
+      "data-dict-current-model",
+      expect.objectContaining({ author: "user@example.test" }),
     );
   });
 });
