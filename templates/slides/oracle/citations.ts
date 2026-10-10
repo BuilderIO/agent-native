@@ -50,7 +50,7 @@ const FUNCTION_NODES = new Set([
   "FunctionDeclaration",
   "ClassMethod",
   "PrivateMethod",
-  "ObjectMethod",
+  "MethodProperty",
   "Constructor",
   "GetterProperty",
   "SetterProperty",
@@ -73,6 +73,9 @@ type ImportContext = {
   functions: Map<string, string>;
   // Local names bound to the whole vitest module.
   namespaces: Set<string>;
+  // Names this file binds to something other than Vitest, which shadow a
+  // Vitest global of the same name.
+  shadowed: Set<string>;
 };
 
 /**
@@ -89,6 +92,7 @@ export function titleCitations(source: string, fileName: string): string[] {
     tsx: /[jt]sx$/.test(fileName),
   });
   const imports = readVitestImports(ast.body);
+  declaredNames(ast.body, imports.shadowed);
   const registrations: Registration[] = [];
   collectRegistrations(
     ast.body,
@@ -119,17 +123,22 @@ function readVitestImports(statements: unknown): ImportContext {
   const imports: ImportContext = {
     functions: new Map(),
     namespaces: new Set(),
+    shadowed: new Set(),
   };
   if (!Array.isArray(statements)) return imports;
   for (const statement of statements as AstNode[]) {
     if (statement.type !== "ImportDeclaration") continue;
-    if ((statement.source as AstNode).value !== "vitest") continue;
+    const fromVitest = (statement.source as AstNode).value === "vitest";
     const specifiers = Array.isArray(statement.specifiers)
       ? (statement.specifiers as AstNode[])
       : [];
     for (const specifier of specifiers) {
       const local = (specifier.local as AstNode).value;
       if (typeof local !== "string") continue;
+      if (!fromVitest) {
+        imports.shadowed.add(local);
+        continue;
+      }
       if (specifier.type === "ImportNamespaceSpecifier") {
         imports.namespaces.add(local);
       } else if (specifier.type === "ImportSpecifier") {
@@ -142,6 +151,54 @@ function readVitestImports(statements: unknown): ImportContext {
     }
   }
   return imports;
+}
+
+/**
+ * Every name the file declares itself: variables, functions, classes,
+ * parameters and catch bindings. A declared name shadows a Vitest global of the
+ * same name, so a call through it registers no Vitest test.
+ */
+function declaredNames(value: unknown, out: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) declaredNames(item, out);
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+  const node = value as AstNode;
+  if (node.type === "VariableDeclarator") addPatternNames(node.id, out);
+  if (node.type === "FunctionDeclaration" || node.type === "ClassDeclaration") {
+    addPatternNames(node.identifier, out);
+  }
+  if (node.type === "CatchClause") addPatternNames(node.param, out);
+  if (Array.isArray(node.params)) {
+    for (const param of node.params) addPatternNames(param, out);
+  }
+  for (const child of Object.values(node)) declaredNames(child, out);
+}
+
+/** The names a binding pattern declares. */
+function addPatternNames(pattern: unknown, out: Set<string>): void {
+  if (typeof pattern !== "object" || pattern === null) return;
+  const node = pattern as AstNode;
+  if (node.type === "Identifier" && typeof node.value === "string") {
+    out.add(node.value);
+  } else if (node.type === "Parameter") {
+    addPatternNames(node.pat, out);
+  } else if (node.type === "AssignmentPattern") {
+    addPatternNames(node.left, out);
+  } else if (node.type === "RestElement") {
+    addPatternNames(node.argument, out);
+  } else if (node.type === "ArrayPattern" && Array.isArray(node.elements)) {
+    for (const element of node.elements) addPatternNames(element, out);
+  } else if (node.type === "ObjectPattern" && Array.isArray(node.properties)) {
+    for (const property of node.properties as AstNode[]) {
+      if (property.type === "KeyValuePatternProperty") {
+        addPatternNames(property.value, out);
+      } else {
+        addPatternNames(property, out);
+      }
+    }
+  }
 }
 
 /**
@@ -275,7 +332,8 @@ function tableHasCases(callee: AstNode): boolean {
       Array.isArray(template.expressions) && template.expressions.length > 0
     );
   }
-  if (callee.type !== "CallExpression") return true;
+  // A direct call such as it.each("title", fn) has no table to read cases from.
+  if (callee.type !== "CallExpression") return false;
   let table = argumentsOf(callee)[0]?.expression as AstNode | undefined;
   // `as const` and similar wrappers do not change the cases in the table.
   while (table !== undefined && TABLE_WRAPPERS.has(String(table.type))) {
@@ -417,6 +475,8 @@ function resolveFunction(
   }
   const imported = imports.functions.get(head);
   if (imported !== undefined) return { name: imported, modifiers: rest };
+  // The name is Vitest's global only when nothing in this file shadows it.
+  if (imports.shadowed.has(head)) return undefined;
   return { name: head, modifiers: rest };
 }
 

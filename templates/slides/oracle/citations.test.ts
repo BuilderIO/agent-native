@@ -423,4 +423,34 @@ describe("titleCitations counts only test titles", () => {
     ].join("\n");
     expect(titleCitations(source, "a.test.ts")).toEqual(["4.1"]);
   });
+
+  it("ignores a direct each call that has no table", () => {
+    expect(
+      titleCitations(`it.each("moves (oracle 6.1)", () => {});`, "a.test.ts"),
+    ).toEqual([]);
+  });
+
+  it("ignores a direct for call that has no table", () => {
+    expect(
+      titleCitations(`it.for("moves (oracle 6.2)", () => {});`, "a.test.ts"),
+    ).toEqual([]);
+  });
+
+  it("ignores a test through a locally declared function that shadows the global", () => {
+    const source = [
+      `function it(name: string, fn: () => void) {}`,
+      `it("moves (oracle 6.3)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("keeps reading after a return inside an object-literal method", () => {
+    const source = [
+      `describe("group", () => {`,
+      `  const helper = { run() { return; } };`,
+      `  it("moves (oracle 6.4)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["6.4"]);
+  });
 });
