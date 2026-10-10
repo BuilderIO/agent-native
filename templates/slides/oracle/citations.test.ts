@@ -509,6 +509,14 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual([]);
   });
 
+  it("counts ordinary tests when a focus sits inside a test body, which runs after focus is decided", () => {
+    const source = [
+      `it("outer", () => { it.only("never registers (oracle 8.8)", () => {}); });`,
+      `it("snaps (oracle 8.9)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["8.9"]);
+  });
+
   it("counts a test after a block-scoped const that ends with its block", () => {
     const source = [
       `describe("group", () => {`,

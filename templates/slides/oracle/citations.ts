@@ -110,9 +110,9 @@ export function titleCitations(source: string, fileName: string): string[] {
     registrations,
     context,
   );
-  // Vitest runs only the focused tests of a file that has a focused one. A
-  // focused declaration in unreachable code still changes the file's run, so
-  // the whole file counts as focused and only reachable focused tests cite.
+  // Vitest runs only the focused tests of a file that has a focused one, and it
+  // reads that focus from the calls that execute during collection. A focus the
+  // scanner cannot rule out as unexecuted counts for the whole file.
   const fileFocused = containsFocus(ast.body, context);
   const ids: string[] = [];
   for (const registration of registrations) {
@@ -483,6 +483,11 @@ function containsFocus(value: unknown, context: Context): boolean {
   if (node.type === "CallExpression") {
     const declaration = testDeclaration(node.callee, context);
     if (declaration?.modifiers.includes("only")) return true;
+    // A test body runs after Vitest has decided the file's focus, so a focus
+    // inside one changes nothing. Only the declaration's own callee is read.
+    if (declaration !== undefined && declaration.base !== "describe") {
+      return containsFocus(node.callee, context);
+    }
   }
   const inner = enterScope(node, context);
   return Object.values(node).some((child) => containsFocus(child, inner));

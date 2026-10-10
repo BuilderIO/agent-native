@@ -140,7 +140,7 @@ const HIT_WORDING: Record<NonNullable<OracleExpect["hit"]>, RegExp> = {
 // The outcome words a result must not affirm alongside the expected hit. A
 // result that asserts both "nothing" and "selects" cannot be read as either.
 const HIT_CONTRADICTIONS: Record<NonNullable<OracleExpect["hit"]>, RegExp> = {
-  nothing: /\bselects?\b|\bcaret\b|\bedit\b/i,
+  nothing: /\bselect(?:s|ed|ion)?\b|\bcaret\b|\bedit\b/i,
   object: /\bnothing\b|\bdeselect/i,
   group: /\bchild\b|\bnothing\b|\bdeselect/i,
   text: /\bnothing\b|\bdeselect/i,
