@@ -78,6 +78,42 @@ describe("failed Chat handoff storage", () => {
     expect(readFailedChatHandoff("thread-one")).toEqual({ status: "absent" });
   });
 
+  it("omits nullish optional fields from composer references", () => {
+    const reference = {
+      type: "mention",
+      path: "actions/hello.ts",
+      name: "hello.ts",
+      source: "workspace",
+      refId: null,
+      slotKey: undefined,
+      slotLabel: null,
+      metadata: null,
+    } as never;
+
+    expect(
+      writeFailedChatHandoff("thread-one", "Use this action", {
+        references: [reference],
+      }),
+    ).toEqual({ status: "stored" });
+    expect(readFailedChatHandoff("thread-one")).toEqual({
+      status: "found",
+      handoff: {
+        text: "Use this action",
+        options: {
+          mode: "act",
+          references: [
+            {
+              type: "mention",
+              path: "actions/hello.ts",
+              name: "hello.ts",
+              source: "workspace",
+            },
+          ],
+        },
+      },
+    });
+  });
+
   it("accepts the composer context limit and rejects values above it", () => {
     const contextItems = Array.from(
       { length: COMPOSER_CONTEXT_MAX_ITEMS },

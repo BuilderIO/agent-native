@@ -494,13 +494,44 @@ function ChatRunFailure({
     !Array.isArray(originalRequest.metadata)
       ? (originalRequest.metadata as Record<string, unknown>)
       : {};
+  const originalMode =
+    originalMetadata.mode === "act" || originalMetadata.mode === "plan"
+      ? originalMetadata.mode
+      : originalMetadata.requestMode === "act" ||
+          originalMetadata.requestMode === "plan"
+        ? originalMetadata.requestMode
+        : undefined;
   const originalComposerOptions = initialComposerOptionsFromState({
-    initialComposerOptions: { references: originalMetadata.references },
+    initialComposerOptions: {
+      ...(typeof originalMetadata.engine === "string"
+        ? { engine: originalMetadata.engine }
+        : {}),
+      ...(typeof originalMetadata.model === "string"
+        ? { model: originalMetadata.model }
+        : {}),
+      ...(typeof originalMetadata.effort === "string"
+        ? { effort: originalMetadata.effort }
+        : {}),
+      ...(originalMode ? { mode: originalMode } : {}),
+      ...(Array.isArray(originalMetadata.references)
+        ? { references: originalMetadata.references }
+        : {}),
+      ...(Array.isArray(originalMetadata.contextItems)
+        ? { contextItems: originalMetadata.contextItems }
+        : {}),
+    },
   });
-  const originalReferences =
+  const originalComposerSettings: ChatInitialComposerOptions =
     originalComposerOptions.status === "valid"
-      ? (originalComposerOptions.options.references ?? [])
-      : [];
+      ? originalComposerOptions.options
+      : { mode: "act" };
+  const originalReferences = originalComposerSettings.references ?? [];
+  const hasOriginalExecutionSettings = Boolean(
+    originalMode ||
+    originalComposerSettings.engine ||
+    originalComposerSettings.model ||
+    originalComposerSettings.effort,
+  );
   const originalAttachments =
     originalRequest?.parts?.filter((part) => part.type === "file") ?? [];
   const [retryItems, setRetryItems] = useState<{
@@ -551,21 +582,53 @@ function ChatRunFailure({
         .filter((part) => part.type === "text")
         .map((part) => part.text)
         .join("\n") ?? "";
+    const retryMetadata = {
+      ...(originalComposerSettings.engine
+        ? { engine: originalComposerSettings.engine }
+        : {}),
+      ...(originalComposerSettings.model
+        ? { model: originalComposerSettings.model }
+        : {}),
+      ...(originalComposerSettings.effort
+        ? { effort: originalComposerSettings.effort }
+        : {}),
+      ...(visibleRetryItems.references.length
+        ? { references: visibleRetryItems.references }
+        : {}),
+      ...(originalComposerSettings.contextItems === undefined
+        ? {}
+        : { contextItems: originalComposerSettings.contextItems }),
+      ...(originalMode
+        ? { mode: originalMode, requestMode: originalMode }
+        : {}),
+      custom: {
+        agentNativeRecoveryAction: "retry",
+        agentNativeRecoveryOfRunId: runId,
+      },
+    };
+    const retryRunOptions: AgentRunOptions = {
+      ...(originalComposerSettings.model
+        ? { model: originalComposerSettings.model }
+        : {}),
+      ...(originalMode ? { mode: originalMode } : {}),
+      ...(originalComposerSettings.effort &&
+      !["auto", "max"].includes(originalComposerSettings.effort)
+        ? {
+            reasoningEffort: originalComposerSettings.effort as NonNullable<
+              AgentRunOptions["reasoningEffort"]
+            >,
+          }
+        : {}),
+      metadata: retryMetadata,
+    };
     let send: unknown;
     try {
       send = controller.sendMessage({
         threadId,
         text: prompt || t("chat.retryPreviousRequest"),
         ...(attachments.length ? { attachments } : {}),
-        metadata: {
-          ...(visibleRetryItems.references.length
-            ? { references: visibleRetryItems.references }
-            : {}),
-          custom: {
-            agentNativeRecoveryAction: "retry",
-            agentNativeRecoveryOfRunId: runId,
-          },
-        },
+        ...(hasOriginalExecutionSettings ? { options: retryRunOptions } : {}),
+        metadata: retryMetadata,
       });
     } catch (error) {
       retryStartedForRunsRef.current.delete(runId);
@@ -576,7 +639,16 @@ function ChatRunFailure({
       retryStartedForRunsRef.current.delete(runId);
       captureException(error, { tags: { area: "chat_retry" } });
     });
-  }, [controller, originalRequest, runId, t, threadId, visibleRetryItems]);
+  }, [
+    controller,
+    originalComposerSettings,
+    originalMode,
+    originalRequest,
+    runId,
+    t,
+    threadId,
+    visibleRetryItems,
+  ]);
   const isFirstMessage = userRequests.length === 1 && !hasRetryForThisRun;
   if (
     isFirstMessage &&

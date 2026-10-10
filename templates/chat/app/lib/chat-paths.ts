@@ -150,6 +150,7 @@ function copyOptionalString(
 ): boolean {
   if (!(key in source)) return true;
   const value = source[key];
+  if (value === undefined || value === null) return true;
   if (typeof value !== "string" || value.length > maxLength) return false;
   target[key] = value;
   return true;
@@ -169,7 +170,11 @@ function normalizeReference(value: unknown): Reference | null {
   for (const key of ["refType", "refId", "slotKey", "slotLabel"]) {
     if (!copyOptionalString(value, key, result, 4096)) return null;
   }
-  if ("metadata" in value) {
+  if (
+    "metadata" in value &&
+    value.metadata !== undefined &&
+    value.metadata !== null
+  ) {
     const metadata = normalizeJsonValue(value.metadata);
     if (!isRecord(metadata)) return null;
     result.metadata = metadata;

@@ -469,6 +469,13 @@ describe("ChatRoute AgentKit surface", () => {
             mediaType: "application/pdf",
           },
         ],
+        metadata: {
+          engine: "anthropic",
+          model: "claude-example",
+          effort: "high",
+          mode: "plan",
+          requestMode: "plan",
+        },
       },
     ];
     act(() => root.render(<ChatRoute />));
@@ -515,7 +522,28 @@ describe("ChatRoute AgentKit surface", () => {
           mediaType: "application/pdf",
         },
       ],
+      options: {
+        model: "claude-example",
+        mode: "plan",
+        reasoningEffort: "high",
+        metadata: {
+          engine: "anthropic",
+          model: "claude-example",
+          effort: "high",
+          mode: "plan",
+          requestMode: "plan",
+          custom: {
+            agentNativeRecoveryAction: "retry",
+            agentNativeRecoveryOfRunId: "run-one",
+          },
+        },
+      },
       metadata: {
+        engine: "anthropic",
+        model: "claude-example",
+        effort: "high",
+        mode: "plan",
+        requestMode: "plan",
         custom: {
           agentNativeRecoveryAction: "retry",
           agentNativeRecoveryOfRunId: "run-one",
