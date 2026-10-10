@@ -2975,9 +2975,21 @@ export async function hydrateStructuredHistoryImageReferences(
   const resolutions = new Map<string, StructuredHistoryImageResolution>();
   if (!Array.isArray(history)) return resolutions;
 
-  for (const message of history) {
+  // Spend the shared request budget on recent prior images first. Engine
+  // conversion still walks history forward, preserving message chronology.
+  for (
+    let messageIndex = history.length - 1;
+    messageIndex >= 0;
+    messageIndex--
+  ) {
+    const message = history[messageIndex];
     if (message?.role !== "user" || !Array.isArray(message.content)) continue;
-    for (const part of message.content) {
+    for (
+      let partIndex = message.content.length - 1;
+      partIndex >= 0;
+      partIndex--
+    ) {
+      const part = message.content[partIndex];
       if (!isStructuredHistoryImageReference(part)) continue;
       const key = structuredHistoryImageReferenceKey(part);
       if (resolutions.has(key)) continue;

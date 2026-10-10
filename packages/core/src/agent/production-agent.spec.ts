@@ -20,7 +20,10 @@ import {
 } from "../app-config/run-lifecycle-invariants.js";
 import * as chatThreadStore from "../chat-threads/store.js";
 import * as dbClient from "../db/client.js";
-import { createOwnedAttachmentHydrationBudget } from "../file-upload/owned-attachment.js";
+import {
+  createOwnedAttachmentHydrationBudget,
+  MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+} from "../file-upload/owned-attachment.js";
 import * as preUploadAttachmentsModule from "../file-upload/pre-upload-attachments.js";
 import * as fileUploadRegistry from "../file-upload/registry.js";
 import {
@@ -2004,6 +2007,72 @@ describe("buildUserContentWithAttachments", () => {
       expect(findProvider).toHaveBeenCalledWith(url);
       expect(fetchMock).toHaveBeenCalledOnce();
       expect(JSON.stringify(history)).not.toContain(PNG_BASE64);
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("prioritizes the newest history images within the shared candidate budget", async () => {
+    const urls = Array.from(
+      { length: MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES + 1 },
+      (_, index) => `https://storage.example.test/uploads/image-${index}.png`,
+    );
+    const history = urls.map((url, index) => ({
+      role: "user" as const,
+      content: [
+        { type: "text" as const, text: `Image ${index}` },
+        {
+          type: "image-reference" as const,
+          url,
+          name: `image-${index}.png`,
+          mediaType: "image/png",
+        },
+      ],
+    }));
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const requestedUrls: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      requestedUrls.push(String(input));
+      return new Response(Buffer.from(PNG_BASE64, "base64"), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(requestedUrls).toEqual(urls.slice(1).reverse());
+      expect(messages?.map((message) => message.content[0])).toEqual(
+        urls.map((_, index) => ({ type: "text", text: `Image ${index}` })),
+      );
+      expect(messages?.map((message) => message.content[1]?.type)).toEqual([
+        "text",
+        ...urls.slice(1).map(() => "image"),
+      ]);
+      expect(messages?.[0]?.content[1]).toEqual(
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining(
+            "the request reached its limit for checking image attachments",
+          ),
+        }),
+      );
+      expect(messages?.slice(1).map((message) => message.content[1])).toEqual(
+        urls.slice(1).map(() => ({
+          type: "image",
+          data: PNG_BASE64,
+          mediaType: "image/png",
+        })),
+      );
     } finally {
       findProvider.mockRestore();
       vi.unstubAllGlobals();

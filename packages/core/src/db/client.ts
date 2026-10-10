@@ -1708,7 +1708,9 @@ function disposePostgresPoolEventually(
   pool: { end: () => Promise<unknown> },
   label: string,
 ): void {
-  if (!pool || typeof pool !== "object") return;
+  if (!pool || (typeof pool !== "object" && typeof pool !== "function")) {
+    return;
+  }
   if (recyclingPostgresPools.has(pool)) return;
   recyclingPostgresPools.add(pool);
   void pool.end().catch((err: unknown) => {
@@ -2042,7 +2044,9 @@ async function createDbExecInternal(
               client,
               "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
             );
-            const result = await runHoldingPoolConnection(pool, () => fn(tx));
+            const result = await runHoldingPoolConnection(activePool, () =>
+              fn(tx),
+            );
             await queryNeonClient(client, "COMMIT");
             releaseClient();
             return result;
@@ -2167,11 +2171,17 @@ async function createDbExecInternal(
     let pool = trackSingletonResources
       ? sharedDbPool("postgres-js", url, createPool)
       : createPool();
+    const getPool = () => resolveSharedDbPool("postgres-js", url, pool);
     const recyclePool = (timedOutPool: PostgresPool) => {
-      if (pool === timedOutPool) {
-        pool = createPool();
-        if (trackSingletonResources) {
-          replaceSharedDbPool("postgres-js", url, timedOutPool, pool);
+      if (getPool() === timedOutPool) {
+        const replacement = createPool();
+        if (isRequestScopedPoolFacade(pool)) {
+          replaceSharedDbPool("postgres-js", url, timedOutPool, replacement);
+        } else {
+          pool = replacement;
+          if (trackSingletonResources) {
+            replaceSharedDbPool("postgres-js", url, timedOutPool, replacement);
+          }
         }
       }
       disposePostgresPoolEventually(timedOutPool, "timed-out pooled query");
@@ -2185,7 +2195,7 @@ async function createDbExecInternal(
         const result = await retryOnConnectionError<
           ArrayLike<unknown> & { count?: number }
         >(() => {
-          const queryPool = pool;
+          const queryPool = getPool();
           assertPoolConnectionAvailable(queryPool, "getDbExec().execute()");
           const query = queryPool.unsafe(pgSql, args as any[]);
           return withDbTimeout(
@@ -2202,7 +2212,8 @@ async function createDbExecInternal(
         };
       },
       async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
-        const result = await pool.begin(async (txSql: any) => {
+        const activePool = getPool();
+        const result = await activePool.begin(async (txSql: any) => {
           const tx: DbExec = {
             async execute(sql) {
               const { rawSql, args } = sqlAndArgs(sql);
@@ -2226,13 +2237,13 @@ async function createDbExecInternal(
               };
             },
           };
-          return runHoldingPoolConnection(pool, () => fn(tx));
+          return runHoldingPoolConnection(activePool, () => fn(tx));
         });
         return result as T;
       },
       async close() {
         if (trackSingletonResources) return closeSharedDbPools();
-        await pool.end();
+        await getPool().end();
       },
     };
   }

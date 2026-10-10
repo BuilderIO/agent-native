@@ -49,6 +49,7 @@ describe("transactions on a one-connection Neon pool", () => {
     const { closeDbExec } = await import("./client.js");
     await closeDbExec();
     vi.unstubAllEnvs();
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
     vi.resetModules();
   });
 
@@ -57,6 +58,20 @@ describe("transactions on a one-connection Neon pool", () => {
     vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "pool-self-deadlock-test");
     // Longer than the test's own deadline, so only the guard can finish first.
     vi.stubEnv("DB_OP_TIMEOUT_MS", "5000");
+    const { pool, pglite, stats } = await createSingleConnectionNeonPool();
+    const { getRuntimeDatabaseUrl, sharedDbPool } = await import("./client.js");
+    sharedDbPool(
+      "neon",
+      getRuntimeDatabaseUrl("pglite:./data/pglite"),
+      () => pool,
+    );
+    return { pglite, stats };
+  }
+
+  async function bootWorkerPool() {
+    vi.stubEnv("DATABASE_URL", SINGLE_CONNECTION_NEON_URL);
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "250");
+    vi.stubGlobal("__cf_env", {});
     const { pool, pglite, stats } = await createSingleConnectionNeonPool();
     const { getRuntimeDatabaseUrl, sharedDbPool } = await import("./client.js");
     sharedDbPool(
@@ -78,6 +93,26 @@ describe("transactions on a one-connection Neon pool", () => {
         await getDbExec().execute("SELECT 1 AS ok");
       }),
     ).rejects.toBeInstanceOf(DbPoolSelfDeadlockError);
+
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(stats.maxWaiting).toBe(0);
+  });
+
+  it("checks the active request pool identity inside a Worker transaction", async () => {
+    const { stats } = await bootWorkerPool();
+    const { getDbExec } = await import("./client.js");
+    const { runWithRequestDbPoolScope } =
+      await import("./request-pool-context.js");
+    const { DbPoolSelfDeadlockError } = await import("./pool-self-deadlock.js");
+
+    const startedAt = Date.now();
+    await runWithRequestDbPoolScope(true, undefined, async () => {
+      await expect(
+        getDbExec().transaction(async () => {
+          await getDbExec().execute("SELECT 1 AS ok");
+        }),
+      ).rejects.toBeInstanceOf(DbPoolSelfDeadlockError);
+    });
 
     expect(Date.now() - startedAt).toBeLessThan(1_000);
     expect(stats.maxWaiting).toBe(0);
