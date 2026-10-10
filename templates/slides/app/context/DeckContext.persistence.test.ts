@@ -33,7 +33,7 @@ import { toast } from "sonner";
 import { normalizeSlidePadding } from "../lib/normalize-slide-padding";
 
 const orgQueryState = vi.hoisted(() => ({
-  data: undefined as unknown,
+  data: { orgId: null } as unknown,
   isLoading: false,
 }));
 
@@ -850,7 +850,7 @@ function deletedDeck(
 describe("DeckContext deck creation persistence", () => {
   beforeEach(() => {
     _resetSyncTransportRegistryForTests();
-    orgQueryState.data = undefined;
+    orgQueryState.data = { orgId: null };
     orgQueryState.isLoading = false;
     vi.stubGlobal("EventSource", MockEventSource);
     vi.stubGlobal("BroadcastChannel", undefined);
