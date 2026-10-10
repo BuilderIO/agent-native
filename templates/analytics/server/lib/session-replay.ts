@@ -200,12 +200,21 @@ export interface ParsedSessionReplayIngest {
   errorCount: number;
   networkErrorCount: number;
   rageClickCount: number;
+  /** Values supplied as cumulative snapshots by older replay clients. */
+  signalOverrides?: Partial<ReplaySignalCounts>;
   privacyMode: string;
   status: "active" | "completed";
   metadata: Record<string, unknown>;
   /** Derived from the upload's rrweb events; never taken from client metadata. */
   viewport?: RecordedReplayViewport | null;
   chunks: NormalizedSessionReplayChunk[];
+}
+
+interface ReplaySignalCounts {
+  pageCount: number;
+  errorCount: number;
+  networkErrorCount: number;
+  rageClickCount: number;
 }
 
 export interface SessionRecordingSummary {
@@ -854,6 +863,40 @@ function numberFrom(...values: unknown[]): number | null {
   return null;
 }
 
+function replaySignalOverrides(
+  body: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+): Partial<ReplaySignalCounts> {
+  const pageCount = numberFrom(
+    body.pageCount,
+    body.page_count,
+    metadata.pageCount,
+  );
+  const errorCount = numberFrom(
+    body.errorCount,
+    body.error_count,
+    metadata.errorCount,
+  );
+  const networkErrorCount = numberFrom(
+    body.networkErrorCount,
+    body.network_error_count,
+    metadata.networkErrorCount,
+  );
+  const rageClickCount = numberFrom(
+    body.rageClickCount,
+    body.rage_click_count,
+    body.rageClicks,
+    metadata.rageClickCount,
+    metadata.rageClicks,
+  );
+  return {
+    ...(pageCount === null ? {} : { pageCount }),
+    ...(errorCount === null ? {} : { errorCount }),
+    ...(networkErrorCount === null ? {} : { networkErrorCount }),
+    ...(rageClickCount === null ? {} : { rageClickCount }),
+  };
+}
+
 export interface ReplayViewport {
   width: number;
   height: number;
@@ -1143,6 +1186,16 @@ function deriveReplaySignals({
   };
 }
 
+function replaySignalUpdate(
+  column: AnyColumn,
+  override: number | undefined,
+  delta: number,
+) {
+  return override === undefined
+    ? sql`${column} + ${delta}`
+    : sql`greatest(${column}, ${override})`;
+}
+
 export function parseSessionReplayIngestPayload(
   raw: unknown,
 ): ParsedSessionReplayIngest {
@@ -1226,6 +1279,7 @@ export function parseSessionReplayIngestPayload(
     context,
     hostname,
   });
+  const signalOverrides = replaySignalOverrides(body, metadata);
   const startedAt =
     replayTimestamp(body.startedAt ?? body.startTime ?? body.timestamp) ||
     replayMinIso(chunks.map((chunk) => chunk.startedAt)) ||
@@ -1286,6 +1340,7 @@ export function parseSessionReplayIngestPayload(
     errorCount: signals.errorCount,
     networkErrorCount: signals.networkErrorCount,
     rageClickCount: signals.rageClickCount,
+    ...(Object.keys(signalOverrides).length ? { signalOverrides } : {}),
     privacyMode: signals.privacyMode,
     status,
     metadata,
@@ -1747,10 +1802,10 @@ export async function recordSessionReplayChunks(
         startedAt: clampedInput.startedAt,
         endedAt: clampedInput.endedAt,
         durationMs: clampedInput.durationMs,
-        pageCount: clampedInput.pageCount,
-        errorCount: clampedInput.errorCount,
-        networkErrorCount: clampedInput.networkErrorCount,
-        rageClickCount: clampedInput.rageClickCount,
+        pageCount: 0,
+        errorCount: 0,
+        networkErrorCount: 0,
+        rageClickCount: 0,
         privacyMode: clampedInput.privacyMode,
         firstUrl: clampedInput.url,
         lastUrl: clampedInput.url,
@@ -1910,6 +1965,16 @@ export async function recordSessionReplayChunks(
   const allChunks = [...existingChunks, ...rowsToInsert].map((chunk: any) =>
     clampReplayChunkTiming(chunk, ingestedAt),
   );
+  const insertedSeqs = new Set(rowsToInsert.map((row) => row.seq));
+  const acceptedChunks = clampedInput.chunks.filter((chunk) =>
+    insertedSeqs.has(chunk.seq),
+  );
+  const signalDeltas = deriveReplaySignals({
+    body: {},
+    metadata: {},
+    chunks: acceptedChunks,
+    url: wasEmptyRecording ? clampedInput.url : null,
+  });
   const chunkCount = allChunks.length;
   const eventCount = allChunks.reduce(
     (sum, chunk: any) => sum + Number(chunk.eventCount ?? 0),
@@ -1941,14 +2006,18 @@ export async function recordSessionReplayChunks(
     clampedInput.metadata,
     clampedInput.viewport,
   );
-  const errorCount = Math.max(
-    Number(recording.errorCount ?? 0),
-    clampedInput.errorCount,
-  );
-  const rageClickCount = Math.max(
-    Number(recording.rageClickCount ?? 0),
-    clampedInput.rageClickCount,
-  );
+  const signalOverrides = clampedInput.signalOverrides ?? {};
+  const errorCount =
+    signalOverrides.errorCount === undefined
+      ? Number(recording.errorCount ?? 0) + signalDeltas.errorCount
+      : Math.max(Number(recording.errorCount ?? 0), signalOverrides.errorCount);
+  const rageClickCount =
+    signalOverrides.rageClickCount === undefined
+      ? Number(recording.rageClickCount ?? 0) + signalDeltas.rageClickCount
+      : Math.max(
+          Number(recording.rageClickCount ?? 0),
+          signalOverrides.rageClickCount,
+        );
   const recordingEnded =
     clampedInput.status === "completed" || recording.status === "completed";
   const recordedSessionId =
@@ -1963,19 +2032,25 @@ export async function recordSessionReplayChunks(
     startedAt,
     endedAt,
     durationMs,
-    chunkCount,
-    eventCount,
-    totalBytes,
-    pageCount: Math.max(
-      Number(recording.pageCount ?? 0),
-      clampedInput.pageCount,
+    chunkCount: sql`${schema.sessionRecordings.chunkCount} + ${rowsToInsert.length}`,
+    eventCount: sql`${schema.sessionRecordings.eventCount} + ${rowsToInsert.reduce((sum, row) => sum + Number(row.eventCount ?? 0), 0)}`,
+    totalBytes: sql`${schema.sessionRecordings.totalBytes} + ${rowsToInsert.reduce((sum, row) => sum + Number(row.byteLength ?? 0), 0)}`,
+    pageCount: sql`greatest(${schema.sessionRecordings.pageCount}, ${signalOverrides.pageCount ?? clampedInput.pageCount})`,
+    errorCount: replaySignalUpdate(
+      schema.sessionRecordings.errorCount,
+      signalOverrides.errorCount,
+      signalDeltas.errorCount,
     ),
-    errorCount,
-    networkErrorCount: Math.max(
-      Number(recording.networkErrorCount ?? 0),
-      clampedInput.networkErrorCount,
+    networkErrorCount: replaySignalUpdate(
+      schema.sessionRecordings.networkErrorCount,
+      signalOverrides.networkErrorCount,
+      signalDeltas.networkErrorCount,
     ),
-    rageClickCount,
+    rageClickCount: replaySignalUpdate(
+      schema.sessionRecordings.rageClickCount,
+      signalOverrides.rageClickCount,
+      signalDeltas.rageClickCount,
+    ),
     privacyMode:
       clampedInput.privacyMode !== "unknown"
         ? clampedInput.privacyMode
@@ -2040,7 +2115,6 @@ export async function recordSessionReplayChunks(
     throw error;
   }
 
-  const insertedSeqs = new Set(rowsToInsert.map((row) => row.seq));
   await recordReplayFriction({
     recordingId: recording.id,
     sessionId: recordedSessionId,
