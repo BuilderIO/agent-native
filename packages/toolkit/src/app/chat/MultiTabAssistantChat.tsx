@@ -137,7 +137,7 @@ interface PendingDelivery {
   send: PendingSend;
   targetReported?: boolean;
   isCurrent?: () => boolean;
-  onDelivered?: () => void;
+  onResult?: (delivered: boolean) => void;
   /** Applied to whichever thread this send lands on; a queued send outlives the handler that parsed it. */
   modelOverride?: ModelSelection;
 }
@@ -147,10 +147,10 @@ async function deliverPendingPrefill(
   ref: AssistantChatHandle,
   send: PendingSend,
   isCurrent: () => boolean,
-  onHandoff: () => boolean,
+  onHandoff: (delivered: boolean) => boolean,
 ): Promise<void> {
   const reportResult = (delivered: boolean, reason?: string) => {
-    if (onHandoff())
+    if (onHandoff(delivered))
       reportAgentChatSubmitResult(send.submitMessageId, delivered, reason);
   };
   let stagedAt: number | undefined;
@@ -211,7 +211,8 @@ async function deliverPendingPrefill(
   }
   try {
     ref.prefillMessage(send.message);
-  } catch {
+  } catch (error) {
+    console.error("Could not apply the chat prefill.", error);
     reportResult(false, "prefill-failed");
     return;
   }
@@ -222,7 +223,7 @@ function deliverPendingSend(
   ref: AssistantChatHandle,
   send: PendingSend,
   isCurrent: () => boolean,
-  onHandoff: () => boolean,
+  onHandoff: (delivered: boolean) => boolean,
 ): void | Promise<void> {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
@@ -232,7 +233,7 @@ function deliverPendingSend(
           "Could not finish a cancelled chat prefill cleanup.",
           error,
         );
-        if (onHandoff())
+        if (onHandoff(false))
           reportAgentChatSubmitResult(
             send.submitMessageId,
             false,
@@ -2244,15 +2245,17 @@ export function MultiTabAssistantChat({
           const waitForPrefill =
             !delivery.send.submit && !!delivery.send.prefillContext;
           let awaitingPrefill = waitForPrefill;
+          let delivered = false;
           if (!waitForPrefill) pendingDeliveries.current.splice(index, 1);
           lane.handedOff = true;
-          const onHandoff = () => {
+          const onHandoff = (result: boolean) => {
             if (
               !isCurrent() ||
               isAgentChatSubmitCancelled(delivery.send.submitMessageId)
             )
               return false;
             awaitingPrefill = false;
+            delivered = result;
             pendingDeliveries.current = pendingDeliveries.current.filter(
               (pending) => pending !== delivery,
             );
@@ -2273,7 +2276,7 @@ export function MultiTabAssistantChat({
               (pending) => pending !== delivery,
             );
             try {
-              if (current && notify) delivery.onDelivered?.();
+              if (current && notify) delivery.onResult?.(delivered);
             } finally {
               if (deliveryLanes.current.get(threadId) === lane)
                 deliveryLanes.current.delete(threadId);
@@ -2847,11 +2850,15 @@ export function MultiTabAssistantChat({
           isCurrent: () =>
             pendingNavigations.current.get(key) === navigation &&
             navigation?.generation === latestNavigationRequestRef.current,
-          onDelivered: () =>
+          onResult: (delivered) =>
             setNavigationSettlements((current) =>
               current.map((pending) =>
                 pending === settlement
-                  ? { ...pending, prefill: undefined }
+                  ? {
+                      ...pending,
+                      outcome: delivered ? "selected" : "failed",
+                      prefill: delivered ? undefined : pending.prefill,
+                    }
                   : pending,
               ),
             ),

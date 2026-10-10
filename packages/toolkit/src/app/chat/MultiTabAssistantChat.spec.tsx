@@ -1081,6 +1081,98 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     }
   });
 
+  it("reports failed navigation prefill and accepts an explicit retry", async () => {
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="bridge-test"
+        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    chatHandleMocks.prefillMessage.mockImplementationOnce(() => {
+      throw new Error("Draft insertion failed");
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: {
+            threadId: "thread-2",
+            prefill: "Retryable navigation draft",
+          },
+        }),
+      );
+    });
+    expect(outcomes).toEqual(["started", "failed"]);
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: {
+            threadId: "thread-2",
+            prefill: "Retryable navigation draft",
+          },
+        }),
+      );
+    });
+    expect(outcomes).toEqual(["started", "failed", "started", "selected"]);
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels drafts dependent on a failed navigation prefill", async () => {
+    await mountNavigationSidebar();
+    const results: unknown[] = [];
+    const recordResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    chatHandleMocks.prefillMessage.mockImplementationOnce(() => {
+      throw new Error("Draft insertion failed");
+    });
+    try {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: {
+              threadId: "thread-2",
+              prefill: "Failed navigation draft",
+            },
+          }),
+        );
+        dispatchSubmitChat({
+          message: "Dependent draft",
+          submit: false,
+          openSidebar: false,
+          submitMessageId: "failed-navigation-dependent-draft",
+        });
+      });
+      expect(results).toEqual([
+        {
+          submitMessageId: "failed-navigation-dependent-draft",
+          delivered: false,
+          reason: "navigation-failed",
+        },
+      ]);
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+        "Dependent draft",
+      );
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-2", prefill: "Explicit retry draft" },
+          }),
+        );
+      });
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+        "Explicit retry draft",
+      );
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    }
+  });
+
   it("retires a navigation prefill waiting in a delivery lane", async () => {
     assistantChatMockState.deferredHandleThread = "thread-2";
     const outcomes: string[] = [];
