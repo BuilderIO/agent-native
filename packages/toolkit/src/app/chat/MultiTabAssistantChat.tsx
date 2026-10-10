@@ -89,6 +89,7 @@ import {
 import type {
   AssistantChatProps,
   AssistantChatHandle,
+  AssistantChatSnapshotSaveSource,
   AssistantChatSendOptions,
 } from "./chat/surface-types.js";
 import { fallbackChatTitle } from "./fallback-chat-title.js";
@@ -931,6 +932,7 @@ export interface MultiTabAssistantChatHeaderProps {
   tabs: ChatTab[];
   activeTabId: string;
   activeTabMessageCount: number;
+  activeTabIsPersisted?: boolean;
   setActiveTabId: (tabId: string) => void;
   addTab: () => void;
   closeTab: (tabId: string) => void;
@@ -944,6 +946,13 @@ export interface MultiTabAssistantChatHeaderProps {
   tabCount: number;
 }
 
+export type MultiTabAssistantChatHeaderCallbackProps = Omit<
+  MultiTabAssistantChatHeaderProps,
+  "activeTabIsPersisted"
+> & {
+  activeTabIsPersisted: boolean;
+};
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export type MultiTabAssistantChatProps = Omit<
@@ -953,9 +962,13 @@ export type MultiTabAssistantChatProps = Omit<
   /** Show the tab bar. Default: true */
   showTabBar?: boolean;
   /** Optional custom single-row header renderer */
-  renderHeader?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
+  renderHeader?: (
+    props: MultiTabAssistantChatHeaderCallbackProps,
+  ) => React.ReactNode;
   /** Optional page-level top-bar actions renderer for the active tab. */
-  renderOverlay?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
+  renderOverlay?: (
+    props: MultiTabAssistantChatHeaderCallbackProps,
+  ) => React.ReactNode;
   /** Hide the chat content while keeping the header visible. Used when CLI/resources mode is active. */
   contentHidden?: boolean;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
@@ -981,6 +994,28 @@ export type MultiTabAssistantChatProps = Omit<
   /** Reports the exact model engine selected for the active thread. */
   onActiveModelEngineChange?: (engine: ModelEngineConfig | null) => void;
 };
+
+type ChatHeaderTypeCheck<T extends true> = T;
+type ChatHeaderTypeMatch<A, B> = [A] extends [B]
+  ? [B] extends [A]
+    ? true
+    : false
+  : false;
+// eslint-disable-next-line no-unused-vars -- Enforced by the toolkit package typecheck.
+type ChatHeaderCallbackStatusIsBoolean = ChatHeaderTypeCheck<
+  ChatHeaderTypeMatch<
+    Parameters<
+      NonNullable<MultiTabAssistantChatProps["renderHeader"]>
+    >[0]["activeTabIsPersisted"],
+    boolean
+  >
+>;
+// eslint-disable-next-line no-unused-vars -- Enforced by the toolkit package typecheck.
+type LegacyChatHeaderStatusRemainsOptional = ChatHeaderTypeCheck<
+  {} extends Pick<MultiTabAssistantChatHeaderProps, "activeTabIsPersisted">
+    ? true
+    : false
+>;
 
 export function MultiTabAssistantChat({
   showTabBar = true,
@@ -1201,6 +1236,8 @@ export function MultiTabAssistantChat({
     restoredThreadIdOnListFailure,
     evictedThreadIds,
     isNewThread,
+    isThreadPersisted,
+    confirmThreadSnapshotPersisted,
     pinThread,
     renameThread,
   } = useChatThreads(apiUrl, storageKey, scope, {
@@ -1236,6 +1273,23 @@ export function MultiTabAssistantChat({
   const [showHistory, setShowHistory] = useState(false);
   const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+  const [, setThreadPersistenceVersion] = useState(0);
+  const handleThreadSnapshotPersisted = useCallback(
+    (threadId: string, messageCount: number) => {
+      confirmThreadSnapshotPersisted(threadId);
+      if (newThreadIds.current.delete(threadId)) {
+        setThreadPersistenceVersion((version) => version + 1);
+      }
+      if (
+        messageCount > 0 &&
+        threadId === activeThreadIdRef.current &&
+        urlThreadIdRef.current !== threadId
+      ) {
+        writeThreadUrl(threadId);
+      }
+    },
+    [confirmThreadSnapshotPersisted, writeThreadUrl],
+  );
   const latestOpenThreadRequestRef = useRef(0);
 
   useEffect(() => {
@@ -2922,6 +2976,22 @@ export function MultiTabAssistantChat({
     };
   }, [chatCommandVersion, switchThread]);
 
+  const saveThreadDataForTab = useCallback(
+    async (
+      threadId: string,
+      data: Parameters<typeof saveThreadData>[1],
+      context?: { signal?: AbortSignal },
+    ) => {
+      const saved = context
+        ? await saveThreadData(threadId, data, context)
+        : await saveThreadData(threadId, data);
+      if (saved && data.threadData !== "")
+        newThreadIds.current.delete(threadId);
+      return saved;
+    },
+    [saveThreadData],
+  );
+
   const handleGenerateTitle = useCallback(
     (
       threadId: string,
@@ -2931,7 +3001,7 @@ export function MultiTabAssistantChat({
       void generateTitle(threadId, message, selection).then((title) => {
         const resolvedTitle = title ?? fallbackChatTitle(message);
         if (!resolvedTitle) return;
-        void saveThreadData(threadId, {
+        void saveThreadDataForTab(threadId, {
           threadData: "",
           title: resolvedTitle,
           preview: message.slice(0, 120),
@@ -2939,7 +3009,7 @@ export function MultiTabAssistantChat({
         });
       });
     },
-    [generateTitle, saveThreadData],
+    [generateTitle, saveThreadDataForTab],
   );
 
   const handleSaveThread = useCallback(
@@ -2952,20 +3022,19 @@ export function MultiTabAssistantChat({
         messageCount: number;
         titleSource?: "fallback";
       },
-    ) => {
-      void saveThreadData(threadId, {
-        ...data,
-        threadData: "",
-      });
-      if (
-        data.messageCount > 0 &&
-        threadId === activeThreadIdRef.current &&
-        urlThreadIdRef.current !== threadId
-      ) {
-        writeThreadUrl(threadId);
-      }
+      context?: { signal?: AbortSignal },
+      source: AssistantChatSnapshotSaveSource = "transport",
+    ): Promise<boolean> => {
+      return saveThreadDataForTab(
+        threadId,
+        {
+          ...data,
+          threadData: source === "host-fallback" ? data.threadData : "",
+        },
+        context,
+      );
     },
-    [saveThreadData, writeThreadUrl],
+    [saveThreadDataForTab],
   );
 
   // ─── Slash command handler ──────────────────────────────────────────
@@ -3132,12 +3201,18 @@ export function MultiTabAssistantChat({
     }
   }
 
-  const headerProps: MultiTabAssistantChatHeaderProps = {
+  const headerProps: MultiTabAssistantChatHeaderCallbackProps = {
     tabs,
     activeTabId: activeThreadId ?? "",
     activeTabMessageCount: activeThreadId
       ? (messageCounts[activeThreadId] ?? 0)
       : 0,
+    activeTabIsPersisted: Boolean(
+      activeThreadId &&
+      !newThreadIds.current.has(activeThreadId) &&
+      !isNewThread(activeThreadId) &&
+      isThreadPersisted(activeThreadId),
+    ),
     setActiveTabId: switchThread,
     addTab,
     closeTab,
@@ -3455,6 +3530,7 @@ export function MultiTabAssistantChat({
                     props.onMessageCountChange?.(count);
                   }}
                   onSaveThread={handleSaveThread}
+                  onThreadSnapshotPersisted={handleThreadSnapshotPersisted}
                   onGenerateTitle={handleGenerateTitle}
                   onSlashCommand={handleSlashCommand}
                   onForkedThread={(forkedId) =>

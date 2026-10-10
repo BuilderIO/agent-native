@@ -46,6 +46,7 @@ jobs:
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
+      slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
       changeset: ${{ steps.scope.outputs.changeset }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
       lanes_matrix: ${{ steps.lanes.outputs.matrix }}
@@ -1587,7 +1588,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.guards == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -1625,6 +1626,7 @@ jobs:
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
+          pnpm --filter @agent-native/otel build
 
       - name: Test unbounded read guards
         run: >-
@@ -1635,6 +1637,13 @@ jobs:
 
       - name: Run security guards
         run: pnpm guards
+
+      - name: Check the Slides interaction oracle against one full test run
+        if: ${{ !cancelled() && needs.change-scope.outputs.slides_oracle == 'true' }}
+        working-directory: templates/slides
+        env:
+          VITEST_CONCURRENCY: 100%
+        run: pnpm oracle:ratchet
 
       - name: Run root script tests for this change
         if: ${{ !cancelled() && needs.change-scope.outputs.script_tests != '[]' && needs.change-scope.outputs.script_tests != '' }}

@@ -12,7 +12,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
-import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import { hasCrossedCanvasDragThreshold } from "@agent-native/toolkit/canvas-interactions";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
@@ -149,7 +148,6 @@ import {
   type SlideShapeType,
 } from "./EditorActionCluster";
 import { hasInlineHeight } from "./fit-text-object";
-import { FollowingSlideStack } from "./FollowingSlideStack";
 import ImageCropOverlay, {
   writeImageCropPercentGeometry,
 } from "./ImageCropOverlay";
@@ -1121,12 +1119,6 @@ interface SlideEditorProps {
   comments?: CommentThread[];
   /** Opens the thread anchored to text the user clicked on the canvas. */
   onSelectCommentThread?: (threadId: string) => void;
-  /** MCP App widget only: every slide in the deck. The ones after this one are
-   *  stacked below it at the same width so a slide shorter than the pane is
-   *  followed by the next ones instead of an empty band. */
-  deckSlides?: readonly Slide[];
-  /** Makes a clicked following slide the current slide. */
-  onSelectFollowingSlide?: (slideId: string) => void;
   /** Objects the last Undo/Redo changed; selected once the slide shows them. */
   undoSelection?: UndoSelectionRequest | null;
   /** The editor is done with `undoSelection` (applied or not applicable). */
@@ -1731,8 +1723,6 @@ export default function SlideEditor({
   onToggleObjectFit,
   onChangeObjectPosition,
   agentActive,
-  deckSlides,
-  onSelectFollowingSlide,
   undoSelection,
   onUndoSelectionConsumed,
   slideIndex = 0,
@@ -1766,9 +1756,6 @@ export default function SlideEditor({
   onComment,
 }: SlideEditorProps) {
   const t = useT();
-  // The host pane owns every surface around the slide, so the widget shows the
-  // slide alone: top-aligned, filling the width, with no toolbar rows or notes.
-  const widgetEmbed = useIsMcpAppWidgetEmbed();
   const layoutOverflowWarningEnabled = useLabState(
     SLIDES_LAYOUT_OVERFLOW_WARNING.key,
   ).enabled;
@@ -2062,7 +2049,6 @@ export default function SlideEditor({
         canvasHeight: dims.height,
         horizontalPadding,
         verticalPadding,
-        fillViewport: widgetEmbed,
       });
 
       setFitCanvasZoom(nextFitZoom);
@@ -2090,14 +2076,7 @@ export default function SlideEditor({
       observer?.disconnect();
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [dims.width, dims.height, widgetEmbed]);
-
-  // The widget scrolls through the slides that follow this one, so a newly
-  // selected slide starts at the top of the pane.
-  useEffect(() => {
-    const scrollContainer = scrollContainerRef.current;
-    if (widgetEmbed && scrollContainer) scrollContainer.scrollTop = 0;
-  }, [slide.id, widgetEmbed]);
+  }, [dims.width, dims.height]);
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits). The
@@ -10391,9 +10370,9 @@ export default function SlideEditor({
 
   return (
     <div
-      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--slides-editor-surface)] ${
-        widgetEmbed ? "" : "rounded-l-lg"
-      } ${animationsOpen || layersOpen ? "rounded-r-lg" : ""}`}
+      className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
+        animationsOpen || layersOpen ? "rounded-r-lg" : ""
+      }`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
       {!readOnly && wideContextToolbarSlot
@@ -10449,11 +10428,7 @@ export default function SlideEditor({
               >
                 <div
                   ref={canvasTrackRef}
-                  className={`flex min-h-full w-max min-w-full justify-center ${
-                    widgetEmbed
-                      ? "flex-col items-center"
-                      : "items-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
-                  }`}
+                  className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
                   onPointerDown={handleCanvasBackgroundPointerDown}
                 >
                   <div
@@ -10495,11 +10470,7 @@ export default function SlideEditor({
                           <SlideRenderer
                             slide={slide}
                             slidePosition={slidePosition}
-                            className={
-                              widgetEmbed
-                                ? "rounded-none!"
-                                : "shadow-2xl shadow-black/40"
-                            }
+                            className="shadow-2xl shadow-black/40"
                             designSystem={designSystem}
                             aspectRatio={aspectRatio}
                             onOverflowChange={handleOverflowChange}
@@ -10630,16 +10601,6 @@ export default function SlideEditor({
                       </ContextMenuContent>
                     </ContextMenu>
                   </div>
-                  {widgetEmbed && deckSlides && onSelectFollowingSlide ? (
-                    <FollowingSlideStack
-                      slides={deckSlides}
-                      afterSlideId={slide.id}
-                      width={canvasWidth}
-                      aspectRatio={aspectRatio}
-                      designSystem={designSystem}
-                      onSelect={onSelectFollowingSlide}
-                    />
-                  ) : null}
                 </div>
               </div>
             </div>
@@ -10652,13 +10613,11 @@ export default function SlideEditor({
           : null}
       </div>
 
-      {!widgetEmbed && (
-        <SpeakerNotesPanel
-          notes={slide.notes}
-          onChange={(notes) => onUpdateSlide({ notes })}
-          readOnly={readOnly}
-        />
-      )}
+      <SpeakerNotesPanel
+        notes={slide.notes}
+        onChange={(notes) => onUpdateSlide({ notes })}
+        readOnly={readOnly}
+      />
 
       {!imageCrop && selectionRect && !selectedElementSelector && (
         <ImageSelectionOutline

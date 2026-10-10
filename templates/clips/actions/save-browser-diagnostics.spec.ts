@@ -130,4 +130,35 @@ describe("save-browser-diagnostics", () => {
     expect(stored[0].status).toBeUndefined();
     expect(stored[1].status).toBe(200);
   });
+
+  it("accepts entries from up to 30 seconds before the recording started, and keeps their tab", async () => {
+    const schema = (saveBrowserDiagnostics as any).schema;
+    const entry = {
+      timestampMs: 1,
+      elapsedMs: -30_000,
+      level: "warn",
+      message: "before the start",
+      tabId: 3,
+    };
+    expect(
+      schema.safeParse({ recordingId: "rec-1", consoleLogs: [entry] }).success,
+    ).toBe(true);
+    expect(
+      schema.safeParse({
+        recordingId: "rec-1",
+        consoleLogs: [{ ...entry, elapsedMs: -30_001 }],
+      }).success,
+    ).toBe(false);
+
+    await (saveBrowserDiagnostics as any).run({
+      recordingId: "rec-1",
+      source: "browser-recorder",
+      phase: "recording",
+      consoleLogs: [entry],
+      interactionEvents: [],
+      networkRequests: [],
+    });
+    const stored = JSON.parse(mocks.insertedValues!.consoleLogsJson as string);
+    expect(stored[0]).toMatchObject({ elapsedMs: -30_000, tabId: 3 });
+  });
 });

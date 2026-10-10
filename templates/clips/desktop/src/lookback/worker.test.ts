@@ -522,4 +522,108 @@ describe("processRecordingContextItem", () => {
       error: "network down",
     });
   });
+
+  it("fails the item when its footage claim is rejected with 400, trashing the footage before claiming without it", async () => {
+    const update = vi.fn(async (input: RecordingContextUpdate) => {
+      if (input.mediaRecordingId !== undefined) {
+        throw new ClipsActionError("Footage is not private.", 400);
+      }
+      return input;
+    });
+    const deps = fakeDeps({ update });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(update.mock.calls.map(([input]) => input)).toEqual([
+      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
+      { id: "ctx1", status: "processing" },
+      { id: "ctx1", status: "failed", error: "Footage is not private." },
+    ]);
+    const [trashedAt] = vi.mocked(deps.trashRecording).mock.invocationCallOrder;
+    const [, claimedWithoutFootageAt] =
+      vi.mocked(update).mock.invocationCallOrder;
+    expect(trashedAt).toBeLessThan(claimedWithoutFootageAt ?? 0);
+    expect(deps.uploadWindow).not.toHaveBeenCalled();
+  });
+
+  it("skips the item without a failed write when the footage-less claim after a 400 is refused with 409", async () => {
+    const update = vi.fn(async (input: RecordingContextUpdate) => {
+      if (input.mediaRecordingId !== undefined) {
+        throw new ClipsActionError("Footage is not private.", 400);
+      }
+      throw new ClipsActionError("Already claimed.", 409);
+    });
+    const deps = fakeDeps({ update });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "skipped",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("fails a held claim whose upload is rejected with 422, without a second claim", async () => {
+    const update = vi.fn(async (input: RecordingContextUpdate) => input);
+    const message =
+      "native recording upload returned 422 Unprocessable Entity: bad chunk";
+    const deps = fakeDeps({
+      update,
+      uploadWindow: vi.fn(async () => {
+        throw new Error(message);
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    // The claim that named the footage landed, so a footage-less claim would be refused.
+    expect(update.mock.calls.map(([input]) => input)).toEqual([
+      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
+      { id: "ctx1", status: "failed", error: message },
+    ]);
+    // A rejection is definitive, so the item is not read back before failing.
+    expect(deps.currentItem).not.toHaveBeenCalled();
+  });
+
+  it("reads the item back before failing an upload rejected with a status other than 400 or 422", async () => {
+    const deps = fakeDeps({
+      uploadWindow: vi.fn(async () => {
+        throw new Error(
+          "native recording upload returned 500 Internal Server Error: boom",
+        );
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.currentItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails the item when its ready write is rejected with 400 and trashes its footage", async () => {
+    const update = vi.fn(async (input: RecordingContextUpdate) => {
+      if (input.status === "ready") {
+        throw new ClipsActionError("Duration must be positive.", 400);
+      }
+      return input;
+    });
+    const deps = fakeDeps({ update });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.currentItem).not.toHaveBeenCalled();
+    expect(update.mock.calls.slice(-1)[0]?.[0]).toEqual({
+      id: "ctx1",
+      status: "failed",
+      error: "Duration must be positive.",
+    });
+  });
 });

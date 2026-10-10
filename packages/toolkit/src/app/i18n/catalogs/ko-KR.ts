@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "대기 중",
   "agent.completed": "작업을 완료했습니다",
   "agent.failed": "주의가 필요합니다",
+  "agent.failureReason.failed": "완료하지 못했습니다",
+  "agent.failureReason.setup": "먼저 설정이 필요합니다",
+  "agent.failureReason.auth": "액세스가 거부되었습니다",
+  "agent.failureReason.timeout": "응답이 너무 늦었습니다",
+  "agent.failureReason.budget": "시간이 부족했습니다",
+  "agent.failureReason.response": "사용할 수 있는 결과가 없습니다",
   "agent.closed": "종료했습니다",
   "approval.alwaysAllow": "항상 허용",
   "approval.alwaysAllowHint":

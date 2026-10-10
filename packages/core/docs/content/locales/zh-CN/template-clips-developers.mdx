@@ -91,18 +91,21 @@ pnpm dev
 
 ### 屏幕记忆（Rewind）
 
-| Action                                                                                                                          | 它的作用                                                                     |
-| ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | 读取本地 Rewind 缓冲区                                                       |
-| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | 把 Rewind 历史记录添加到一个剪辑的审核与批准流程                             |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | 应用一个已批准的扩展；先强制将该剪辑设为私密                                 |
-| `request-recording-context`                                                                                                     | 仅限所有者。在剪辑开始之前请求更早的屏幕时间；该剪辑会变为私密               |
-| `list-recording-context`                                                                                                        | 剪辑当前的更早屏幕时间项：其时间窗口和状态（观看者访问权限）                 |
-| `list-pending-recording-context`                                                                                                | 你拥有的剪辑中的待处理项，供桌面导出工作进程使用                             |
-| `update-recording-context`                                                                                                      | 桌面工作进程将某项标记为 `processing`、`ready` 或 `failed`                   |
-| `set-recording-context-window`                                                                                                  | 在其 5 分钟原始时间窗口内裁剪某项；该项会回到 `pending` 并重新导出           |
-| `remove-recording-context`                                                                                                      | 移除某项，并将其画面录制移到回收站                                           |
-| `rewind_preview_window`, `rewind_preview_discard`                                                                               | 仅限桌面应用（Tauri 命令，而非动作）。创建或删除某个窗口的本地预览。从不上传 |
+| Action                                                                                                                          | 它的作用                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | 读取本地 Rewind 缓冲区                                                                                     |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | 已弃用的兼容动作。使用它们的编辑器选项已被移除；如需更早的屏幕时间，请改用 `request-recording-context`     |
+| `apply-rewind-extension`                                                                                                        | 已弃用的兼容动作。为已移除的编辑器选项应用一个已批准的扩展                                                 |
+| `make-recording-private-for-rewind`                                                                                             | 先强制将该剪辑设为私密                                                                                     |
+| `request-recording-context`                                                                                                     | 仅限所有者。在剪辑开始之前请求更早的屏幕时间；该剪辑会变为私密                                             |
+| `request-recording-context` (`deviceId`)                                                                                        | 可选。为该项标记录制此剪辑的设备，使只有该设备的桌面应用会导出它。未传入时，表示没有记录设备               |
+| `list-recording-context`                                                                                                        | 剪辑当前的更早屏幕时间项：其时间窗口和状态（观看者访问权限）                                               |
+| `list-pending-recording-context`                                                                                                | 你拥有的剪辑中的待处理项，供桌面导出工作进程使用                                                           |
+| `list-pending-recording-context` (`deviceId`)                                                                                   | 可选。传入 `deviceId` 时，只返回该设备捕获的项，以及没有设备记录的项。不传入时，列表不做过滤（旧版客户端） |
+| `update-recording-context`                                                                                                      | 桌面工作进程将某项标记为 `processing`、`ready` 或 `failed`                                                 |
+| `set-recording-context-window`                                                                                                  | 在其 5 分钟原始时间窗口内裁剪某项；该项会回到 `pending` 并重新导出                                         |
+| `remove-recording-context`                                                                                                      | 仅限所有者。移除某项，并将其画面录制移到回收站。桌面编辑视图和转录标签页的面板都会调用它                   |
+| `rewind_preview_window`, `rewind_preview_discard`                                                                               | 仅限桌面应用（Tauri 命令，而非动作）。创建或删除某个窗口的本地预览。从不上传                               |
 
 ### 跨应用和洞察
 
@@ -130,6 +133,19 @@ pnpm dev
 | `get-playback-position`, `save-playback-position`, `get-recording-player-data`        | 恢复播放；完整的转录文本和诊断信息                               |
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | 匿名的第三方嵌入流程。参阅[嵌入剪辑](/docs/template-clips-embed) |
 | `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | 嵌入式缺陷报告启动器和 Chrome 扩展程序诊断信息                   |
+
+## 浏览器诊断
+
+Chrome 扩展程序会为录制附加控制台和网络诊断信息，`save-browser-diagnostics` 负责保存这些信息。每条控制台和网络条目都带有 `tabId`。
+
+| 主题     | 行为                                                                                                                       |
+| -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 标签页   | 每次录制最多五个：起始标签页，然后是最近 10 分钟内活跃过的标签页，最近活跃的排在前面。录制期间用户切换到的标签页也会附加。 |
+| 超过五个 | 除焦点标签页外，最久未活跃的标签页会被分离。其此前的条目仍保留在录制中。                                                   |
+| 回溯     | 录制开始前最多 30 秒，受页面自身的控制台历史和资源计时列表限制。这些条目的 `elapsedMs` 为负值。                            |
+| `tabId`  | 设置在每条控制台和网络条目上。                                                                                             |
+| `method` | 回溯网络条目为 `"UNKNOWN"`，它们来自资源计时，没有 HTTP 方法。实时请求会报告方法。                                         |
+| 不收集   | 请求和响应的正文及请求头。控制台和网络条目在上传前会经过编辑处理。                                                         |
 
 ## 数据模型
 

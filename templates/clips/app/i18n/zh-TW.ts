@@ -34,8 +34,16 @@ const messages = {
     retry: "重試",
     playSelection: "播放所選範圍",
     removeFailed: "無法刪除已捨棄錄製的更早螢幕時間。",
-    scrubberStart: "開始",
-    scrubberEnd: "結束",
+    removeFailedAction: "無法移除更早的螢幕時間，請再試一次。",
+    removeAction: "移除更早的螢幕時間",
+    removeConfirmTitle: "要移除更早的螢幕時間嗎？",
+    removeConfirmBody: "畫面會移至廢紙簍，剪輯也不再包含這些畫面。",
+    removeConfirm: "移除",
+    removed: "已移除更早的螢幕時間",
+    scrubberFromBefore: "從 {{offset}} 前開始",
+    scrubberFromStart: "從錄製開始處",
+    scrubberToBefore: "到 {{offset}} 前",
+    scrubberToStart: "到錄製開始處",
     scrubberLength: "長度",
     scrubberStartHandle: "範圍開始",
     scrubberEndHandle: "範圍結束",
@@ -47,6 +55,7 @@ const messages = {
     empty: "此剪輯沒有附加更早的螢幕時間。",
     larger: "放大",
     editHint: "請在 Clips Desktop 中編輯時間範圍。",
+    waitingOtherDevice: "正在等待錄製此剪輯的裝置",
   },
   agentChat: {
     setup: {
@@ -831,7 +840,7 @@ const messages = {
     labWisprFlowDescription: "顯示或隱藏 Clips Desktop 中的語音聽寫。",
     labLookbackContext: "包含較早的螢幕時間",
     labLookbackContextDescription:
-      "將錄製前最多五分鐘的較早螢幕時間作為被動脈絡附加到錄影中。預設關閉。",
+      "將錄製前最多五分鐘的較早螢幕時間作為被動脈絡附加到錄影中。",
     uploadWorkspaceTitle: "目前工作區",
     uploadWorkspaceDescription:
       "選擇 Clips 用於新錄製內容（包括桌面上傳）的工作區。",
@@ -2099,20 +2108,6 @@ const messages = {
     guideStartTitle: "點選 Start notes",
     guideStartDescription:
       "通話開始時，使用桌面提醒或選單列中的 Start Meeting Notes 項目。",
-  },
-  rewindExtension: {
-    title: "加入錄製前的內容",
-    description:
-      "從本機 Rewind 選取一段時間並加入此剪輯開頭。不會自動加入任何內容。",
-    progressLabel: "Rewind 記錄處理進度",
-    privateFirstTitle: "先將此剪輯設為私人",
-    privateFirstDescription:
-      "本機 Rewind 記錄可能包含你開始錄製前的內容。此操作會將剪輯設為私人。如果仍有人擁有直接存取權，Clips 會先停止，讓你在分享設定中移除他們。",
-    makePrivateContinue: "設為私人並繼續",
-    add30Seconds: "加入前 30 秒",
-    add5Minutes: "加入前 5 分鐘",
-    add5MinutesDescription: "適合找回較長說明的開頭部分。",
-    privateReady: "此剪輯已設為私人。現在可以加入本機 Rewind 記錄。",
   },
   browserDiagnostics: {
     debug: "偵錯",

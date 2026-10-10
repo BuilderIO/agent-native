@@ -12,6 +12,8 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  // Member details are returned only to owners and admins, so a viewer's cache must not keep them.
+  persistInBrowser: false,
   run: async (_args, ctx) => {
     const role = await workspaceUserGroupRole(ctx?.orgId, ctx?.userEmail);
     if (!role) throw new Error("Workspace membership is required.");

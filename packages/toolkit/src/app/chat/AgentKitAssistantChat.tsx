@@ -17,9 +17,11 @@ import type {
   AgentApprovalRequest,
   AgentConnectionRequest,
   AgentEvent,
+  AgentInteraction,
   AgentMessage,
   AgentQueuedMessage,
   AgentRequestAttachment,
+  AgentRequestContext,
   AgentStreamIntegrityReport,
   AgentTransport,
   AgentThreadSnapshot,
@@ -134,11 +136,13 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 
 import {
   AgentKitChat,
   AgentKitComposer,
   AgentApprovalPrompt,
+  AgentInteractionItem,
   AgentMessageView,
   useAgentKit,
   useAgentKitControl,
@@ -189,6 +193,7 @@ import type {
   AssistantChatComposerContext,
   AssistantChatHandle,
   AssistantChatProps,
+  AssistantChatSnapshotSaveSource,
   AssistantChatSendOptions,
   AssistantChatSubmitResult,
 } from "./chat/surface-types.js";
@@ -230,6 +235,19 @@ const PENDING_SELECTION_TTL_MS = 5 * 60 * 1000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const THREAD_HANDOFF_TTL_MS = 60_000;
 const MAX_THREAD_HANDOFF_SNAPSHOTS = 20;
+const MAX_PENDING_THREAD_SNAPSHOT_WRITES = 8;
+const MAX_THREAD_SNAPSHOT_SAVE_RETRIES = 3;
+const THREAD_SNAPSHOT_SAVE_TIMEOUT_MS = 30_000;
+const THREAD_SNAPSHOT_SAVE_RETRY_DELAY_MS = 1_000;
+const threadSnapshotPersistenceQueues = new Map<string, Promise<void>>();
+const threadSnapshotSaveQueues = new Map<string, Promise<void>>();
+const threadSnapshotPersistenceQueueSizes = new Map<string, number>();
+const threadSnapshotSaveQueueSizes = new Map<string, number>();
+// An aborted write can still commit remotely, so keep its queue fenced until it settles.
+const stalledThreadSnapshotPersistenceQueues = new Set<string>();
+const stalledThreadSnapshotSaveQueues = new Set<string>();
+const latestThreadSnapshotGenerations = new Map<string, number>();
+let threadSnapshotGeneration = 0;
 const DEFERRED_PROVIDER_SUBMISSIONS_VERSION = 1;
 const DEFERRED_PROVIDER_SUBMISSION_CLAIM_TTL_MS = 15 * 60 * 1000;
 const DEFERRED_PROVIDER_SUBMISSION_MAX_RETRIES = 3;
@@ -250,11 +268,281 @@ const deferredProviderSubmissionOperations = new Map<
 const RECOVERY_CONTINUE_PROMPT =
   "Continue from where you left off and finish my last request. Do not repeat completed work.";
 
+function enqueueThreadSnapshotPersistence<T>(
+  key: string,
+  persist: (context: AgentRequestContext) => Promise<T> | T,
+  context?: AgentRequestContext,
+): Promise<T> {
+  if (stalledThreadSnapshotPersistenceQueues.has(key)) {
+    return Promise.reject(threadSnapshotQueueStalledError());
+  }
+  if (
+    !reserveThreadSnapshotQueueSlot(threadSnapshotPersistenceQueueSizes, key)
+  ) {
+    return Promise.reject(threadSnapshotQueueFullError());
+  }
+  const previous =
+    threadSnapshotPersistenceQueues.get(key) ?? Promise.resolve();
+  let resolveResult!: (value: T | PromiseLike<T>) => void;
+  let rejectResult!: (reason?: unknown) => void;
+  const result = new Promise<T>((resolve, reject) => {
+    resolveResult = resolve;
+    rejectResult = reject;
+  });
+  let operationStarted = false;
+  let operationSettled = false;
+  let slotReleased = false;
+  const releaseSlot = () => {
+    if (slotReleased) return;
+    slotReleased = true;
+    releaseThreadSnapshotQueueSlot(threadSnapshotPersistenceQueueSizes, key);
+  };
+  const controller = new AbortController();
+  const onAbort = () => {
+    if (operationStarted && !operationSettled) {
+      stalledThreadSnapshotPersistenceQueues.add(key);
+    }
+  };
+  controller.signal.addEventListener("abort", onAbort, { once: true });
+  const abortFromCaller = () => controller.abort(context?.signal?.reason);
+  if (context?.signal?.aborted) abortFromCaller();
+  else
+    context?.signal?.addEventListener("abort", abortFromCaller, {
+      once: true,
+    });
+  let writeTimeout: number | undefined;
+  const queueWaitTimeout = window.setTimeout(() => {
+    const error = new Error("Chat thread snapshot persistence timed out.");
+    error.name = "TimeoutError";
+    controller.abort(error);
+  }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
+  const cleanup = () => {
+    window.clearTimeout(queueWaitTimeout);
+    if (writeTimeout !== undefined) window.clearTimeout(writeTimeout);
+    context?.signal?.removeEventListener("abort", abortFromCaller);
+    controller.signal.removeEventListener("abort", onAbort);
+  };
+  const operation = previous.then(() => {
+    if (controller.signal.aborted) throw abortError(controller.signal);
+    operationStarted = true;
+    window.clearTimeout(queueWaitTimeout);
+    writeTimeout = window.setTimeout(() => {
+      const error = new Error("Chat thread snapshot persistence timed out.");
+      error.name = "TimeoutError";
+      controller.abort(error);
+    }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
+    return persist({ ...context, signal: controller.signal });
+  });
+  const settled = operation
+    .then(
+      () => undefined,
+      () => undefined,
+    )
+    .then(() => {
+      operationSettled = true;
+      stalledThreadSnapshotPersistenceQueues.delete(key);
+      cleanup();
+      releaseSlot();
+      if (threadSnapshotPersistenceQueues.get(key) === settled) {
+        threadSnapshotPersistenceQueues.delete(key);
+      }
+    });
+  threadSnapshotPersistenceQueues.set(key, settled);
+  const pending = runWithAbortSignal(controller.signal, () => operation);
+  void pending.then(resolveResult, rejectResult).then(cleanup, cleanup);
+  return result;
+}
+
+function enqueueThreadSnapshotSave<T>(
+  key: string,
+  save: (context: AgentRequestContext) => Promise<T> | T,
+): Promise<T> {
+  if (stalledThreadSnapshotSaveQueues.has(key)) {
+    return Promise.reject(threadSnapshotQueueStalledError());
+  }
+  if (!reserveThreadSnapshotQueueSlot(threadSnapshotSaveQueueSizes, key)) {
+    return Promise.reject(threadSnapshotQueueFullError());
+  }
+  const previous = threadSnapshotSaveQueues.get(key) ?? Promise.resolve();
+  let resolveResult!: (value: T | PromiseLike<T>) => void;
+  let rejectResult!: (reason?: unknown) => void;
+  const result = new Promise<T>((resolve, reject) => {
+    resolveResult = resolve;
+    rejectResult = reject;
+  });
+  let operationStarted = false;
+  let operationSettled = false;
+  let slotReleased = false;
+  const releaseSlot = () => {
+    if (slotReleased) return;
+    slotReleased = true;
+    releaseThreadSnapshotQueueSlot(threadSnapshotSaveQueueSizes, key);
+  };
+  const controller = new AbortController();
+  const onAbort = () => {
+    if (operationStarted && !operationSettled) {
+      stalledThreadSnapshotSaveQueues.add(key);
+    }
+  };
+  controller.signal.addEventListener("abort", onAbort, { once: true });
+  let writeTimeout: number | undefined;
+  const queueWaitTimeout = window.setTimeout(() => {
+    const error = new Error("Chat thread snapshot persistence timed out.");
+    error.name = "TimeoutError";
+    controller.abort(error);
+  }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
+  const cleanup = () => {
+    window.clearTimeout(queueWaitTimeout);
+    if (writeTimeout !== undefined) window.clearTimeout(writeTimeout);
+    controller.signal.removeEventListener("abort", onAbort);
+  };
+  const operation = previous.then(() => {
+    if (controller.signal.aborted) throw abortError(controller.signal);
+    operationStarted = true;
+    window.clearTimeout(queueWaitTimeout);
+    writeTimeout = window.setTimeout(() => {
+      const error = new Error("Chat thread snapshot persistence timed out.");
+      error.name = "TimeoutError";
+      controller.abort(error);
+    }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
+    return save({ signal: controller.signal });
+  });
+  const settled = operation
+    .then(
+      () => undefined,
+      () => undefined,
+    )
+    .then(() => {
+      operationSettled = true;
+      stalledThreadSnapshotSaveQueues.delete(key);
+      cleanup();
+      releaseSlot();
+      if (threadSnapshotSaveQueues.get(key) === settled) {
+        threadSnapshotSaveQueues.delete(key);
+      }
+    });
+  threadSnapshotSaveQueues.set(key, settled);
+  const pending = runWithAbortSignal(controller.signal, () => operation);
+  void pending.then(resolveResult, rejectResult).then(cleanup, cleanup);
+  return result;
+}
+
+function runWithAbortSignal<T>(
+  signal: AbortSignal,
+  operation: () => Promise<T> | T,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = () => finish(() => reject(abortError(signal)));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    void Promise.resolve()
+      .then(() => {
+        if (signal.aborted) throw abortError(signal);
+        return operation();
+      })
+      .then(
+        (value) => finish(() => resolve(value)),
+        (error: unknown) => finish(() => reject(error)),
+      );
+  });
+}
+
+function abortError(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason;
+  const error = new Error("Chat thread snapshot persistence was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+function reserveThreadSnapshotQueueSlot(
+  queueSizes: Map<string, number>,
+  key: string,
+): boolean {
+  const pending = queueSizes.get(key) ?? 0;
+  if (pending >= MAX_PENDING_THREAD_SNAPSHOT_WRITES) return false;
+  queueSizes.set(key, pending + 1);
+  return true;
+}
+
+function releaseThreadSnapshotQueueSlot(
+  queueSizes: Map<string, number>,
+  key: string,
+): void {
+  const pending = queueSizes.get(key) ?? 0;
+  if (pending <= 1) queueSizes.delete(key);
+  else queueSizes.set(key, pending - 1);
+}
+
+function threadSnapshotQueueFullError(): Error {
+  const error = new Error("Too many chat thread snapshot writes are pending.");
+  error.name = "ThreadSnapshotQueueFullError";
+  Object.assign(error, { code: "thread_snapshot_queue_full" });
+  return error;
+}
+
+function threadSnapshotQueueStalledError(): Error {
+  const error = new Error(
+    "A previous chat thread snapshot write has not settled after cancellation.",
+  );
+  error.name = "ThreadSnapshotQueueStalledError";
+  Object.assign(error, { code: "thread_snapshot_queue_stalled" });
+  return error;
+}
+
+function withSerializedThreadSnapshotPersistence(
+  transport: AgentTransport,
+  persistenceKeyForThread: (threadId: string) => string,
+): AgentTransport {
+  const persist = transport.persistThreadSnapshot;
+  if (!persist) return transport;
+
+  const boundMethods = new Map<PropertyKey, Function>();
+  return new Proxy(transport, {
+    get(target, property) {
+      if (property === "persistThreadSnapshot") {
+        return (
+          ...args: Parameters<
+            NonNullable<AgentTransport["persistThreadSnapshot"]>
+          >
+        ) =>
+          enqueueThreadSnapshotPersistence(
+            persistenceKeyForThread(args[0].threadId),
+            (context) => persist.call(target, args[0], context),
+            args[1],
+          );
+      }
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== "function") return value;
+      const cached = boundMethods.get(property);
+      if (cached) return cached;
+      const bound = value.bind(target);
+      boundMethods.set(property, bound);
+      return bound;
+    },
+  });
+}
+
 function withCoreSnapshotPersistence(
   customTransport: AgentTransport,
   coreTransport: AgentTransport,
+  persistenceKeyForThread: (threadId: string) => string,
 ): AgentTransport {
-  if (customTransport === coreTransport) return customTransport;
+  if (customTransport === coreTransport) {
+    return withSerializedThreadSnapshotPersistence(
+      customTransport,
+      persistenceKeyForThread,
+    );
+  }
   const corePersist = coreTransport.persistThreadSnapshot;
   if (!corePersist) {
     throw new TypeError("Core transport must persist thread snapshots.");
@@ -263,22 +551,40 @@ function withCoreSnapshotPersistence(
   let disposed = false;
   const persistThreadSnapshot: NonNullable<
     AgentTransport["persistThreadSnapshot"]
-  > = async (...args) => {
-    const writes = [
-      ...(customTransport.persistThreadSnapshot
-        ? [customTransport.persistThreadSnapshot.call(customTransport, ...args)]
-        : []),
-      corePersist.call(coreTransport, ...args),
-    ];
-    const results = await Promise.allSettled(writes);
-    const errors = results.flatMap((result) =>
-      result.status === "rejected" ? [result.reason] : [],
+  > = (...args) =>
+    enqueueThreadSnapshotPersistence(
+      persistenceKeyForThread(args[0].threadId),
+      async (context) => {
+        const writes = [
+          ...(customTransport.persistThreadSnapshot
+            ? [
+                Promise.resolve().then(() =>
+                  customTransport.persistThreadSnapshot!.call(
+                    customTransport,
+                    args[0],
+                    context,
+                  ),
+                ),
+              ]
+            : []),
+          Promise.resolve().then(() =>
+            corePersist.call(coreTransport, args[0], context),
+          ),
+        ];
+        const results = await Promise.allSettled(writes);
+        const errors = results.flatMap((result) =>
+          result.status === "rejected" ? [result.reason] : [],
+        );
+        if (errors.length === 1) throw errors[0];
+        if (errors.length > 1) {
+          throw new AggregateError(
+            errors,
+            "Thread snapshot persistence failed.",
+          );
+        }
+      },
+      args[1],
     );
-    if (errors.length === 1) throw errors[0];
-    if (errors.length > 1) {
-      throw new AggregateError(errors, "Thread snapshot persistence failed.");
-    }
-  };
   const dispose = async () => {
     if (disposed) return;
     disposed = true;
@@ -1186,6 +1492,9 @@ const agentKitRegistry = {
     "connect-builder": AgentKitTool,
     "connect-file-storage": AgentKitTool,
   },
+  agentInteractions: {
+    failed: AgentKitFailedInteraction,
+  },
 };
 
 export const AgentKitAssistantChat = forwardRef<
@@ -1608,6 +1917,15 @@ export const AgentKitAssistantChat = forwardRef<
       scopeRef,
       surface,
     };
+    const persistenceKeyForThread = (persistedThreadId: string) =>
+      createAgentKitThreadHandoffKey(
+        {
+          apiUrl,
+          browserTabId: props.browserTabId,
+          contextScope: scopeRef.current,
+        },
+        persistedThreadId,
+      );
     const customTransport = createTransportRef.current;
     if (customTransport) {
       const persistenceTransport = createAgentNativeAgentKitTransport({
@@ -1628,6 +1946,7 @@ export const AgentKitAssistantChat = forwardRef<
       return withCoreSnapshotPersistence(
         customTransport(adapterContext),
         persistenceTransport,
+        persistenceKeyForThread,
       );
     }
     const runtimeOptions: CreateAgentNativeChatRuntimeOptions = {
@@ -1654,30 +1973,33 @@ export const AgentKitAssistantChat = forwardRef<
         return scopeRef.current;
       },
     };
-    const builtTransport = createAgentNativeAgentKitTransport({
-      apiUrl: props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
-      runtime:
-        injectedRuntimeRef.current ??
-        createAgentNativeChatRuntime(runtimeOptions),
-      browserTabId: props.browserTabId,
-      get threadId() {
-        return transportThreadIdRef.current;
-      },
-      surface,
-      get scope() {
-        return scopeRef.current;
-      },
-      get isolateHistoryByScope() {
-        return isolateHistoryByScopeRef.current;
-      },
-      adapter: {
-        textFormat: "markdown",
-        get autoContinueLabel() {
-          return autoContinueLabelRef.current;
+    const builtTransport = withSerializedThreadSnapshotPersistence(
+      createAgentNativeAgentKitTransport({
+        apiUrl: props.apiUrl ?? agentNativePath("/_agent-native/agent-chat"),
+        runtime:
+          injectedRuntimeRef.current ??
+          createAgentNativeChatRuntime(runtimeOptions),
+        browserTabId: props.browserTabId,
+        get threadId() {
+          return transportThreadIdRef.current;
         },
-      },
-      operations,
-    });
+        surface,
+        get scope() {
+          return scopeRef.current;
+        },
+        get isolateHistoryByScope() {
+          return isolateHistoryByScopeRef.current;
+        },
+        adapter: {
+          textFormat: "markdown",
+          get autoContinueLabel() {
+            return autoContinueLabelRef.current;
+          },
+        },
+        operations,
+      }),
+      persistenceKeyForThread,
+    );
     const getThreadSnapshot = builtTransport.getThreadSnapshot;
     if (!getThreadSnapshot || injectedRuntimeRef.current) return builtTransport;
     return {
@@ -2078,7 +2400,38 @@ const AgentKitAssistantChatBody = forwardRef<
     ids: new Set<string>(),
   });
   const lastSavedThreadDataRef = useRef<string | null>(null);
-  const saveSnapshotRef = useRef<() => void>(() => undefined);
+  const latestThreadDataRef = useRef<string | null>(null);
+  const lastSavedMetadataSnapshotRef = useRef({
+    persistenceKey: "",
+    threadData: null as string | null,
+  });
+  const latestMetadataSnapshotRef = useRef({
+    persistenceKey: "",
+    threadData: null as string | null,
+  });
+  const metadataSaveInFlightRef = useRef(false);
+  const savingThreadDataRef = useRef(new Set<string>());
+  const retryThreadSaveTimerRef = useRef<number | null>(null);
+  const threadSaveRetryRef = useRef({
+    threadData: null as string | null,
+    retries: 0,
+    exhausted: false,
+    failureReported: false,
+  });
+  const completionSnapshotRetryRef = useRef({
+    threadData: null as string | null,
+    pending: false,
+    retried: false,
+  });
+  const snapshotGenerationRef = useRef({
+    persistenceKey: "",
+    threadData: null as string | null,
+    generation: 0,
+  });
+  const saveMetadataSnapshotRef = useRef<() => void>(() => undefined);
+  const saveSnapshotRef = useRef<
+    (metadataOnly?: boolean, allowCompletionRetry?: boolean) => void
+  >(() => undefined);
   const isUnmountingRef = useRef(false);
   const localSubmissionRef = useRef(false);
   const latestAssistant = useMemo(
@@ -2087,6 +2440,359 @@ const AgentKitAssistantChatBody = forwardRef<
         .reverse()
         .find((message) => message.role === "assistant"),
     [thread.messages],
+  );
+
+  const saveThreadSnapshot = useCallback(
+    (
+      snapshot: ReturnType<typeof createAgentKitThreadSnapshot>,
+      allowCompletionRetry = false,
+    ) => {
+      const onSaveThread = props.onSaveThread;
+      if (!onSaveThread) return;
+      const persistenceKey = createAgentKitThreadHandoffKey(props, threadId);
+      if (
+        snapshotGenerationRef.current.persistenceKey !== persistenceKey ||
+        snapshotGenerationRef.current.threadData !== snapshot.threadData
+      ) {
+        latestThreadDataRef.current = snapshot.threadData;
+        threadSaveRetryRef.current = {
+          threadData: snapshot.threadData,
+          retries: 0,
+          exhausted: false,
+          failureReported: false,
+        };
+        completionSnapshotRetryRef.current = {
+          threadData: snapshot.threadData,
+          pending: false,
+          retried: false,
+        };
+        if (retryThreadSaveTimerRef.current !== null) {
+          window.clearTimeout(retryThreadSaveTimerRef.current);
+          retryThreadSaveTimerRef.current = null;
+        }
+        const generation = ++threadSnapshotGeneration;
+        snapshotGenerationRef.current = {
+          persistenceKey,
+          threadData: snapshot.threadData,
+          generation,
+        };
+        latestThreadSnapshotGenerations.set(persistenceKey, generation);
+      }
+      let retry = threadSaveRetryRef.current;
+      const completionRetry = completionSnapshotRetryRef.current;
+      if (
+        allowCompletionRetry &&
+        retry.threadData === snapshot.threadData &&
+        completionRetry.threadData === snapshot.threadData &&
+        !completionRetry.retried
+      ) {
+        completionRetry.pending = true;
+        if (retry.exhausted) {
+          completionRetry.pending = false;
+          completionRetry.retried = true;
+          retry = {
+            ...retry,
+            retries: 0,
+            exhausted: false,
+          };
+          threadSaveRetryRef.current = retry;
+        }
+      }
+      if (
+        retry.exhausted &&
+        retry.threadData === snapshot.threadData &&
+        !isUnmountingRef.current
+      ) {
+        return;
+      }
+      if (retryThreadSaveTimerRef.current !== null) return;
+      if (snapshot.threadData === lastSavedThreadDataRef.current) {
+        return;
+      }
+      if (savingThreadDataRef.current.has(snapshot.threadData)) {
+        return;
+      }
+      let generation = latestThreadSnapshotGenerations.get(persistenceKey);
+      if (generation === undefined) {
+        generation = ++threadSnapshotGeneration;
+        snapshotGenerationRef.current = {
+          persistenceKey,
+          threadData: snapshot.threadData,
+          generation,
+        };
+        latestThreadSnapshotGenerations.set(persistenceKey, generation);
+      }
+      savingThreadDataRef.current.add(snapshot.threadData);
+      const finish = (saved: boolean) => {
+        savingThreadDataRef.current.delete(snapshot.threadData);
+        if (
+          latestThreadSnapshotGenerations.get(persistenceKey) !== generation
+        ) {
+          if (
+            latestThreadDataRef.current !== snapshot.threadData &&
+            latestThreadDataRef.current !== lastSavedThreadDataRef.current &&
+            !isUnmountingRef.current &&
+            savingThreadDataRef.current.size === 0
+          ) {
+            saveSnapshotRef.current();
+          }
+          return;
+        }
+        if (
+          latestThreadDataRef.current !== snapshot.threadData &&
+          latestThreadDataRef.current !== lastSavedThreadDataRef.current &&
+          !isUnmountingRef.current &&
+          savingThreadDataRef.current.size === 0
+        ) {
+          saveSnapshotRef.current();
+          return;
+        }
+        if (saved && latestThreadDataRef.current === snapshot.threadData) {
+          lastSavedThreadDataRef.current = snapshot.threadData;
+          lastSavedMetadataSnapshotRef.current = {
+            persistenceKey,
+            threadData: snapshot.threadData,
+          };
+          try {
+            props.onThreadSnapshotPersisted?.(threadId, snapshot.messageCount);
+          } catch (error) {
+            console.error(
+              "Failed to report the saved chat thread snapshot.",
+              error,
+            );
+          }
+          if (retryThreadSaveTimerRef.current !== null) {
+            window.clearTimeout(retryThreadSaveTimerRef.current);
+            retryThreadSaveTimerRef.current = null;
+          }
+          threadSaveRetryRef.current = {
+            threadData: snapshot.threadData,
+            retries: 0,
+            exhausted: false,
+            failureReported: false,
+          };
+          latestThreadSnapshotGenerations.delete(persistenceKey);
+        } else if (
+          !saved &&
+          latestThreadDataRef.current === snapshot.threadData &&
+          threadSaveRetryRef.current.threadData === snapshot.threadData &&
+          retryThreadSaveTimerRef.current === null
+        ) {
+          if (
+            !isUnmountingRef.current &&
+            threadSaveRetryRef.current.retries <
+              MAX_THREAD_SNAPSHOT_SAVE_RETRIES
+          ) {
+            threadSaveRetryRef.current.retries += 1;
+            retryThreadSaveTimerRef.current = window.setTimeout(
+              () => {
+                retryThreadSaveTimerRef.current = null;
+                if (
+                  !isUnmountingRef.current &&
+                  latestThreadSnapshotGenerations.get(persistenceKey) ===
+                    generation
+                ) {
+                  saveSnapshotRef.current();
+                }
+              },
+              THREAD_SNAPSHOT_SAVE_RETRY_DELAY_MS *
+                2 ** (threadSaveRetryRef.current.retries - 1),
+            );
+          } else {
+            threadSaveRetryRef.current.exhausted = true;
+            latestThreadSnapshotGenerations.delete(persistenceKey);
+            const completionRetry = completionSnapshotRetryRef.current;
+            const shouldRetryCompletionSnapshot =
+              !isUnmountingRef.current &&
+              completionRetry.threadData === snapshot.threadData &&
+              completionRetry.pending &&
+              !completionRetry.retried;
+            if (
+              !shouldRetryCompletionSnapshot &&
+              !threadSaveRetryRef.current.failureReported
+            ) {
+              threadSaveRetryRef.current.failureReported = true;
+              toast.error(t("agentChat.common.saveFailed"));
+            }
+            if (shouldRetryCompletionSnapshot) {
+              completionRetry.pending = false;
+              completionRetry.retried = true;
+              threadSaveRetryRef.current = {
+                threadData: snapshot.threadData,
+                retries: 0,
+                exhausted: false,
+                failureReported: threadSaveRetryRef.current.failureReported,
+              };
+              saveSnapshotRef.current();
+            }
+          }
+        }
+      };
+      const threadDataSave = enqueueThreadSnapshotSave(
+        persistenceKey,
+        async (requestContext) => {
+          if (
+            latestThreadSnapshotGenerations.get(persistenceKey) !== generation
+          ) {
+            return false;
+          }
+
+          const messages = agentKitMessagesFromThreadSnapshot(snapshot);
+          let saveSource: AssistantChatSnapshotSaveSource = "transport";
+          try {
+            if (controller.persistThreadSnapshotWithResult) {
+              const persisted =
+                await controller.persistThreadSnapshotWithResult(
+                  threadId,
+                  messages,
+                  requestContext,
+                );
+              if (persisted === false) return false;
+              if (persisted === undefined) saveSource = "host-fallback";
+            } else {
+              saveSource = "host-fallback";
+              await controller.persistThreadSnapshot(threadId, messages);
+            }
+          } catch (error) {
+            console.error(
+              "Failed to persist the chat transport snapshot.",
+              error,
+            );
+            return false;
+          }
+          if (
+            latestThreadSnapshotGenerations.get(persistenceKey) !==
+              generation ||
+            requestContext.signal?.aborted
+          ) {
+            return false;
+          }
+
+          try {
+            // Legacy controller persistence can resolve for expected
+            // deferrals, so the host write below is the confirmation here.
+            return (
+              (await onSaveThread(
+                threadId,
+                snapshot,
+                requestContext,
+                saveSource,
+              )) !== false
+            );
+          } catch (error) {
+            console.error("Failed to save the chat thread snapshot.", error);
+            return false;
+          }
+        },
+      );
+      void threadDataSave.then(finish, (error: unknown) => {
+        if ((error as Error)?.name !== "TimeoutError") {
+          console.error("Failed to persist the chat thread snapshot.", error);
+        }
+        finish(false);
+      });
+    },
+    [
+      controller,
+      props.apiUrl,
+      props.browserTabId,
+      props.contextScope,
+      props.createTransport,
+      props.onSaveThread,
+      props.onThreadSnapshotPersisted,
+      t,
+      threadId,
+    ],
+  );
+  const saveThreadMetadata = useCallback(
+    (snapshot: ReturnType<typeof createAgentKitThreadSnapshot>) => {
+      const onSaveThread = props.onSaveThread;
+      if (!onSaveThread || isUnmountingRef.current) return;
+      const persistenceKey = createAgentKitThreadHandoffKey(props, threadId);
+      const lastSaved = lastSavedMetadataSnapshotRef.current;
+      if (
+        lastSaved.persistenceKey === persistenceKey &&
+        lastSaved.threadData === snapshot.threadData
+      ) {
+        return;
+      }
+      const latest = latestMetadataSnapshotRef.current;
+      if (
+        metadataSaveInFlightRef.current &&
+        latest.persistenceKey === persistenceKey &&
+        latest.threadData === snapshot.threadData
+      ) {
+        return;
+      }
+      latestMetadataSnapshotRef.current = {
+        persistenceKey,
+        threadData: snapshot.threadData,
+      };
+      if (metadataSaveInFlightRef.current) return;
+      metadataSaveInFlightRef.current = true;
+
+      void enqueueThreadSnapshotSave(persistenceKey, async (context) => {
+        const current = latestMetadataSnapshotRef.current;
+        const lastSavedSnapshot = lastSavedMetadataSnapshotRef.current;
+        if (
+          lastSavedSnapshot.persistenceKey === persistenceKey &&
+          lastSavedSnapshot.threadData === snapshot.threadData
+        ) {
+          return true;
+        }
+        if (
+          current.persistenceKey !== persistenceKey ||
+          current.threadData !== snapshot.threadData
+        ) {
+          return false;
+        }
+        try {
+          return (
+            (await onSaveThread(threadId, snapshot, context, "metadata")) !==
+            false
+          );
+        } catch (error) {
+          console.error("Failed to save chat thread metadata.", error);
+          return false;
+        }
+      })
+        .then((saved) => {
+          const current = latestMetadataSnapshotRef.current;
+          if (
+            saved &&
+            current.persistenceKey === persistenceKey &&
+            current.threadData === snapshot.threadData
+          ) {
+            lastSavedMetadataSnapshotRef.current = {
+              persistenceKey,
+              threadData: snapshot.threadData,
+            };
+          }
+        })
+        .catch((error: unknown) => {
+          if ((error as Error)?.name !== "TimeoutError") {
+            console.error("Failed to persist chat thread metadata.", error);
+          }
+        })
+        .finally(() => {
+          metadataSaveInFlightRef.current = false;
+          const current = latestMetadataSnapshotRef.current;
+          if (
+            !isUnmountingRef.current &&
+            (current.persistenceKey !== persistenceKey ||
+              current.threadData !== snapshot.threadData)
+          ) {
+            saveMetadataSnapshotRef.current();
+          }
+        });
+    },
+    [
+      props.apiUrl,
+      props.browserTabId,
+      props.contextScope,
+      props.onSaveThread,
+      threadId,
+    ],
   );
   const isRunning = hasActiveAgentRuns(thread);
   const lastMessage = thread.messages.at(-1);
@@ -2505,14 +3211,15 @@ const AgentKitAssistantChatBody = forwardRef<
         terminalEventAdded = true;
       }
     }
-    if (
-      addedUserMessage ||
-      terminalEventAdded ||
-      (!isRunning &&
-        thread.messages.at(-1)?.role === "assistant" &&
-        thread.messages.at(-1)?.status === "complete")
-    ) {
-      saveSnapshotRef.current();
+    const completedAssistantSnapshot =
+      !isRunning &&
+      thread.messages.at(-1)?.role === "assistant" &&
+      thread.messages.at(-1)?.status === "complete";
+    if (addedUserMessage || terminalEventAdded || completedAssistantSnapshot) {
+      saveSnapshotRef.current(
+        false,
+        terminalEventAdded || completedAssistantSnapshot,
+      );
     }
     reportMessageCount(
       thread.messages.length +
@@ -2522,7 +3229,10 @@ const AgentKitAssistantChatBody = forwardRef<
     );
   }, [isRunning, props, thread, threadId, voiceTranscriptMessages]);
 
-  saveSnapshotRef.current = () => {
+  saveSnapshotRef.current = (
+    metadataOnly = false,
+    allowCompletionRetry = false,
+  ) => {
     const transcripts = voiceTranscriptsRef.current.messages;
     if (thread.messages.length === 0 && transcripts.length === 0) {
       return;
@@ -2547,22 +3257,19 @@ const AgentKitAssistantChatBody = forwardRef<
         snapshot,
       );
     }
-    if (!props.onSaveThread) return;
-    if (snapshot.threadData === lastSavedThreadDataRef.current) return;
-    lastSavedThreadDataRef.current = snapshot.threadData;
-    if (props.createTransport) {
-      void controller.persistThreadSnapshot(
-        threadId,
-        agentKitMessagesFromThreadSnapshot(snapshot),
-      );
-    }
-    props.onSaveThread(threadId, snapshot);
+    if (metadataOnly) saveThreadMetadata(snapshot);
+    else saveThreadSnapshot(snapshot, allowCompletionRetry);
   };
+  saveMetadataSnapshotRef.current = () => saveSnapshotRef.current(true);
 
   useEffect(() => {
     isUnmountingRef.current = false;
     return () => {
       isUnmountingRef.current = true;
+      if (retryThreadSaveTimerRef.current !== null) {
+        window.clearTimeout(retryThreadSaveTimerRef.current);
+        retryThreadSaveTimerRef.current = null;
+      }
       saveSnapshotRef.current();
     };
   }, []);
@@ -2594,19 +3301,10 @@ const AgentKitAssistantChatBody = forwardRef<
         thread,
         transcripts,
       );
-      if (props.onSaveThread) {
-        lastSavedThreadDataRef.current = snapshot.threadData;
-        if (props.createTransport) {
-          void controller.persistThreadSnapshot(
-            threadId,
-            agentKitMessagesFromThreadSnapshot(snapshot),
-          );
-        }
-        props.onSaveThread(threadId, snapshot);
-      }
+      saveThreadSnapshot(snapshot);
       return true;
     },
-    [controller, isRestoring, isRunning, props, thread, threadId],
+    [isRestoring, isRunning, props, saveThreadSnapshot, thread, threadId],
   );
 
   useEffect(() => {
@@ -4101,11 +4799,7 @@ const AgentKitAssistantChatBody = forwardRef<
             { threadId: targetThreadId, runId, requestId },
             request,
           ) => {
-            if (targetThreadId !== threadId) {
-              throw new Error(
-                "Cannot resume a connection request in another chat.",
-              );
-            }
+            if (targetThreadId !== threadId) return "not-owner";
             return control.resolveConnectionRequest(runId, requestId, {
               status: "connected",
               message: request.message,
@@ -4180,7 +4874,7 @@ const AgentKitAssistantChatBody = forwardRef<
         composerProps={{ attachmentsEnabled: fileStorageConfigured }}
         hasRenderedMessages={hasRenderedMessages}
         emptyComposerPlacement={
-          props.centerComposerWhenEmpty ? "center" : "bottom"
+          props.centerComposerWhenEmpty && !isRestoring ? "center" : "bottom"
         }
         title={props.showHeader === false ? undefined : props.emptyStateText}
         autoScroll
@@ -4509,18 +5203,18 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   ) {
     return (
       <div
-        className="flex h-full flex-col gap-3 p-4"
+        className="flex h-full flex-col gap-6 p-4"
         aria-busy="true"
         role="status"
       >
         <span className="sr-only">{t("agentChat.empty.loadingChat")}</span>
-        <div className="flex justify-end">
-          <div className="h-8 w-32 animate-pulse rounded-lg bg-muted" />
+        <div className="flex justify-end" aria-hidden="true">
+          <div className="h-20 w-2/3 max-w-[38rem] animate-pulse rounded-2xl bg-muted motion-reduce:animate-none" />
         </div>
-        <div className="flex flex-col gap-1.5">
-          <div className="h-4 w-48 animate-pulse rounded bg-muted" />
-          <div className="h-4 w-64 animate-pulse rounded bg-muted" />
-          <div className="h-4 w-40 animate-pulse rounded bg-muted" />
+        <div className="flex flex-col gap-2.5" aria-hidden="true">
+          <div className="h-3.5 w-full max-w-[38rem] animate-pulse rounded bg-muted motion-reduce:animate-none" />
+          <div className="h-3.5 w-[88%] max-w-[33rem] animate-pulse rounded bg-muted motion-reduce:animate-none" />
+          <div className="h-3.5 w-[64%] max-w-[24rem] animate-pulse rounded bg-muted motion-reduce:animate-none" />
         </div>
       </div>
     );
@@ -5669,6 +6363,20 @@ function AgentKitReasoning({
       resetKey={resetKey}
     />
   );
+}
+
+function AgentKitFailedInteraction(
+  props: AgentKitRenderProps<AgentInteraction>,
+) {
+  const t = useT();
+  const reasonKey = props.value.metadata?.failureReasonKey;
+  if (typeof reasonKey !== "string") return <AgentInteractionItem {...props} />;
+  // The key comes from persisted run state, so one this build does not know
+  // falls back to the generic reason rather than printing the key.
+  const detail = t(reasonKey, {
+    defaultValue: t("agentChat.agent.failureReason.failed"),
+  });
+  return <AgentInteractionItem {...props} value={{ ...props.value, detail }} />;
 }
 
 function AgentKitConnectionRequest({

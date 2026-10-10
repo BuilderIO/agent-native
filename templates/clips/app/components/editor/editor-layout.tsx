@@ -77,7 +77,6 @@ import {
   savePlaybackSpeedPreference,
   SLOW_SPEED_CEILING,
 } from "@/lib/playback-speed";
-import { canOfferRewindHistory } from "@/lib/rewind-visibility";
 import {
   addCut,
   addSplitAt,
@@ -115,7 +114,6 @@ import { ChaptersEditor } from "./chapters-editor";
 import { EditorToolbar } from "./editor-toolbar";
 import { RedactionLane } from "./redaction-lane";
 import { RedactionOverlay } from "./redaction-overlay";
-import { RewindExtensionDialog } from "./rewind-extension-dialog";
 import { StitchManager } from "./stitch-manager";
 import { ThumbnailPicker } from "./thumbnail-picker";
 import { Timeline } from "./timeline";
@@ -468,7 +466,6 @@ export function EditorLayout({
 
   const [thumbOpen, setThumbOpen] = useState(false);
   const [stitchOpen, setStitchOpen] = useState(false);
-  const [rewindOpen, setRewindOpen] = useState(false);
   const [chaptersOpen, setChaptersOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1611,10 +1608,6 @@ export function EditorLayout({
             onOpenThumbnailPicker={() => setThumbOpen(true)}
             onOpenChapters={() => setChaptersOpen((v) => !v)}
             onOpenStitch={() => setStitchOpen(true)}
-            onOpenRewind={() => setRewindOpen(true)}
-            rewindAlreadyAdded={Boolean(savedEdits.rewindOriginalStartMs)}
-            rewindAvailable={canOfferRewindHistory(playerData?.role)}
-            rewindRequiresPrivate={recording?.visibility !== "private"}
             chaptersOpen={chaptersOpen}
           />
 
@@ -1932,25 +1925,6 @@ export function EditorLayout({
         onOpenChange={setStitchOpen}
         seedRecordingId={recordingId}
       />
-      {canOfferRewindHistory(playerData?.role) ? (
-        <RewindExtensionDialog
-          open={rewindOpen}
-          onOpenChange={setRewindOpen}
-          recordingId={recordingId}
-          durationMs={durationMs}
-          width={recording.width}
-          height={recording.height}
-          videoFormat={videoFormat}
-          hasAudio={Boolean(recording.hasAudio)}
-          visibility={recording.visibility}
-          onVisibilityChanged={async () => {
-            await playerDataQuery.refetch();
-          }}
-          onApplied={async () => {
-            await playerDataQuery.refetch();
-          }}
-        />
-      ) : null}
       <FileStorageSetupPopover
         open={storageSetupOpen}
         onOpenChange={setStorageSetupOpen}

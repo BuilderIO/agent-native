@@ -170,11 +170,46 @@ describe("ScreenHistoryScrubber", () => {
     return el;
   }
 
-  it("shows the offsets and the selected length", () => {
+  function readouts() {
+    return Array.from(
+      container.querySelectorAll("span"),
+      (span) => span.textContent,
+    );
+  }
+
+  it("reads the start as its distance before the recording start and the end as the recording start", () => {
     render();
     expect(handle("start").getAttribute("aria-valuetext")).toBe("−5:00");
     expect(handle("end").getAttribute("aria-valuetext")).toBe("0:00");
-    expect(container.textContent).toContain("5 min");
+    expect(readouts()).toEqual([
+      "From 5:00 before",
+      "Length 5 min",
+      "To recording start",
+    ]);
+  });
+
+  it("reads a trimmed end as its distance before the recording start", () => {
+    render({ value: { startedAt: at("10:01:00"), endedAt: at("10:02:00") } });
+    expect(readouts()).toEqual([
+      "From 4:00 before",
+      "Length 1 min",
+      "To 3:00 before",
+    ]);
+  });
+
+  it("uses the labels the caller passes", () => {
+    render({
+      labels: {
+        fromBefore: (duration) => `Starts ${duration} earlier`,
+        length: "Span",
+        toStart: "Ends at the recording",
+      },
+    });
+    expect(readouts()).toEqual([
+      "Starts 5:00 earlier",
+      "Span 5 min",
+      "Ends at the recording",
+    ]);
   });
 
   it("highlights the selection and draws the playhead only when given one", () => {
