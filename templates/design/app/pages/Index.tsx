@@ -365,12 +365,30 @@ export default function Index() {
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
   const { session: suggestionSession } = useSession();
-  const homeSuggestionsCacheScope = JSON.stringify([
+  const homeSuggestionsIdentity = [
     suggestionSession?.authUserId ??
       suggestionSession?.userId ??
       suggestionSession?.email ??
       "anonymous",
     suggestionSession?.orgId ?? "",
+  ];
+  const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
+  const homeSuggestionsProfile = useActionQuery<{
+    onboardingRole?: string | null;
+  }>(
+    "get-user-profile",
+    {},
+    {
+      enabled: quickActionsEnabled,
+      queryKeyScope: [homeSuggestionsIdentityScope],
+      staleTime: 0,
+    },
+  );
+  const homeSuggestionsProfileReady =
+    quickActionsEnabled && homeSuggestionsProfile.data !== undefined;
+  const homeSuggestionsCacheScope = JSON.stringify([
+    ...homeSuggestionsIdentity,
+    homeSuggestionsProfile.data?.onboardingRole ?? null,
   ]);
   const fallbackHomeSuggestions = useMemo(
     () =>
@@ -391,6 +409,7 @@ export default function Index() {
       suggestions: HomeSuggestion[];
     } | null>(null);
   const homeSuggestionsSnapshot =
+    homeSuggestionsProfileReady &&
     homeSuggestionsSnapshotState?.scope === homeSuggestionsCacheScope
       ? homeSuggestionsSnapshotState.suggestions
       : null;
@@ -398,7 +417,7 @@ export default function Index() {
     "generate-home-suggestions",
     {},
     {
-      enabled: quickActionsEnabled && homeSuggestionsSnapshot === null,
+      enabled: homeSuggestionsProfileReady && homeSuggestionsSnapshot === null,
       queryKeyScope: [homeSuggestionsCacheScope],
       retry: false,
       staleTime: (query) =>
@@ -411,24 +430,24 @@ export default function Index() {
     },
   );
   const readyHomeSuggestions =
-    quickActionsEnabled &&
+    homeSuggestionsProfileReady &&
     homeSuggestionsQuery.data?.status === "ready" &&
     homeSuggestionsQuery.data.suggestions.length === 3
       ? homeSuggestionsQuery.data.suggestions
       : null;
   const homeSuggestionsUnavailable =
     !homeSuggestionsQuery.isFetching &&
-    (agentEngine.state === "unavailable" ||
-      (quickActionsEnabled &&
-        (homeSuggestionsQuery.isError ||
-          homeSuggestionsQuery.data?.status === "unavailable" ||
-          (homeSuggestionsQuery.data?.status === "ready" &&
-            homeSuggestionsQuery.data.suggestions.length !== 3))));
+    quickActionsEnabled &&
+    (homeSuggestionsQuery.isError ||
+      homeSuggestionsQuery.data?.status === "unavailable" ||
+      (homeSuggestionsQuery.data?.status === "ready" &&
+        homeSuggestionsQuery.data.suggestions.length !== 3));
   useEffect(() => {
     if (homeSuggestionsSnapshot !== null) return;
     const result = homeSuggestionsQuery.data;
     if (
       quickActionsEnabled &&
+      homeSuggestionsProfileReady &&
       result?.status === "ready" &&
       result.suggestions.length === 3
     ) {
@@ -436,12 +455,24 @@ export default function Index() {
         scope: homeSuggestionsCacheScope,
         suggestions: result.suggestions,
       });
+    } else if (
+      quickActionsEnabled &&
+      homeSuggestionsProfileReady &&
+      homeSuggestionsUnavailable
+    ) {
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsCacheScope,
+        suggestions: fallbackHomeSuggestions,
+      });
     }
   }, [
     homeSuggestionsQuery.data,
     homeSuggestionsSnapshot,
     homeSuggestionsCacheScope,
     quickActionsEnabled,
+    homeSuggestionsProfileReady,
+    homeSuggestionsUnavailable,
+    fallbackHomeSuggestions,
   ]);
   const homeSuggestions =
     homeSuggestionsSnapshot ??
@@ -450,8 +481,7 @@ export default function Index() {
   const homeSuggestionsLoading =
     homeSuggestionsSnapshot === null &&
     readyHomeSuggestions === null &&
-    (homeSuggestionsQuery.isFetching ||
-      (!agentEngineMissing && !homeSuggestionsUnavailable));
+    (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -1326,10 +1356,9 @@ export default function Index() {
           </div>
         }
         quickActions={
-          !agentEngineMissing &&
-          (homeSuggestionsLoading ||
-            homeSuggestionsUnavailable ||
-            homeSuggestionsSnapshot !== null) ? (
+          homeSuggestionsLoading ||
+          homeSuggestionsUnavailable ||
+          homeSuggestionsSnapshot !== null ? (
             <AgentSuggestionBar
               loading={homeSuggestionsLoading}
               announceUpdates

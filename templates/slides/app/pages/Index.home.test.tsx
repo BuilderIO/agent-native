@@ -34,7 +34,12 @@ const suggestionQuery = vi.hoisted(() => ({
   retrying: false,
   unavailable: false,
   cachedReady: false,
+  profileRole: "design",
+  profileFetching: false,
+  profileError: false,
+  profileScope: null as readonly unknown[] | null,
   options: null as {
+    queryKeyScope?: readonly unknown[];
     staleTime?: unknown;
     refetchOnMount?: unknown;
     refetchOnWindowFocus?: unknown;
@@ -251,12 +256,30 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     _args: unknown,
     options?: {
       enabled?: boolean;
+      queryKeyScope?: readonly unknown[];
       staleTime?: unknown;
       refetchOnMount?: unknown;
       refetchOnWindowFocus?: unknown;
       refetchOnReconnect?: unknown;
     },
   ) => {
+    if (name === "get-user-profile") {
+      suggestionQuery.profileScope = options?.queryKeyScope ?? null;
+      const enabled = options?.enabled !== false;
+      return {
+        data:
+          enabled && !suggestionQuery.profileError
+            ? { onboardingRole: suggestionQuery.profileRole }
+            : undefined,
+        isLoading: enabled && suggestionQuery.profileFetching,
+        isFetching: enabled && suggestionQuery.profileFetching,
+        isSuccess:
+          enabled &&
+          !suggestionQuery.profileError &&
+          !suggestionQuery.profileFetching,
+        isError: enabled && suggestionQuery.profileError,
+      };
+    }
     if (name === "generate-home-suggestions") {
       suggestionQuery.enabled = options?.enabled;
       suggestionQuery.options = options ?? null;
@@ -317,7 +340,15 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   getBrowserTabId: () => "home-test",
   deleteClientAppState: vi.fn().mockResolvedValue(undefined),
   useSession: () => ({
-    session: signedIn.value ? { user: { email: "home@example.test" } } : null,
+    session: signedIn.value
+      ? {
+          authUserId: "viewer-a",
+          userId: "viewer-a",
+          email: "home@example.test",
+          orgId: "org-a",
+          user: { email: "home@example.test" },
+        }
+      : null,
     status: signedIn.unreachable
       ? "unavailable"
       : signedIn.value
@@ -551,6 +582,10 @@ beforeEach(() => {
   suggestionQuery.retrying = false;
   suggestionQuery.unavailable = false;
   suggestionQuery.cachedReady = false;
+  suggestionQuery.profileRole = "design";
+  suggestionQuery.profileFetching = false;
+  suggestionQuery.profileError = false;
+  suggestionQuery.profileScope = null;
   suggestionQuery.options = null;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
   inactiveHomeQueries.templateLibraryEnabled = true;
@@ -1801,15 +1836,65 @@ describe("Slides prompt-led home", () => {
     ).toBeNull();
   });
 
-  it("retries suggestions after readiness recovers", async () => {
+  it("keeps suggestions stable during profile refresh and resamples for a new role", async () => {
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("button", { name: "Build a pitch" });
+
+    expect(suggestionQuery.profileScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a"]),
+    ]);
+    expect(suggestionQuery.options?.queryKeyScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a", "design"]),
+    ]);
+
+    suggestionQuery.profileFetching = true;
+    rerenderHome();
+    expect(screen.getByRole("button", { name: "Build a pitch" })).toBeTruthy();
+    expect(
+      screen.getByLabelText("home.suggestedPrompts").getAttribute("aria-busy"),
+    ).not.toBe("true");
+
+    homeSuggestions.value = [
+      {
+        id: "product-suggestion-1",
+        label: "Plan a product launch",
+        prompt: "Create a launch plan for a new product feature.",
+      },
+      {
+        id: "product-suggestion-2",
+        label: "Map the customer journey",
+        prompt: "Create a customer journey map for product onboarding.",
+      },
+      {
+        id: "product-suggestion-3",
+        label: "Review product metrics",
+        prompt: "Create a product metrics review for the leadership team.",
+      },
+    ];
+    suggestionQuery.profileRole = "product";
+    suggestionQuery.profileFetching = false;
+    rerenderHome();
+
+    expect(
+      await screen.findByRole("button", { name: "Plan a product launch" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Build a pitch" })).toBeNull();
+    expect(suggestionQuery.options?.queryKeyScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a", "product"]),
+    ]);
+  });
+
+  it("keeps the suggestion slot while readiness recovers", async () => {
     agentEngine.state = "unavailable";
     agentEngine.missing = false;
     const { rerenderHome } = renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
 
     expect(
-      screen.getByRole("button", { name: "Create a product pitch deck" }),
-    ).toBeTruthy();
+      screen
+        .getByLabelText("home.suggestedPrompts")
+        .querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
     expect(suggestionQuery.enabled).toBe(false);
 
     agentEngine.state = "configured";
@@ -1824,7 +1909,7 @@ describe("Slides prompt-led home", () => {
     expect(suggestionQuery.enabled).toBe(false);
   });
 
-  it("retries unavailable results while keeping ready samples fresh", async () => {
+  it("keeps unavailable suggestions stable until the next home load", async () => {
     suggestionQuery.unavailable = true;
     const { rerenderHome } = renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
@@ -1832,7 +1917,7 @@ describe("Slides prompt-led home", () => {
     expect(
       screen.getByRole("button", { name: "Create a product pitch deck" }),
     ).toBeTruthy();
-    expect(suggestionQuery.enabled).toBe(true);
+    expect(suggestionQuery.enabled).toBe(false);
 
     const staleTime = suggestionQuery.options?.staleTime as (
       query: never,
@@ -1871,6 +1956,14 @@ describe("Slides prompt-led home", () => {
 
     suggestionQuery.unavailable = false;
     rerenderHome();
+    expect(
+      screen.getByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeTruthy();
+    expect(suggestionQuery.enabled).toBe(false);
+
+    // A fresh home load retries unavailable data and can choose a new sample.
+    cleanup();
+    renderHome();
     expect(
       await screen.findByRole("button", { name: "Build a pitch" }),
     ).toBeTruthy();
@@ -2019,9 +2112,8 @@ describe("Slides prompt-led home", () => {
       expect(promptProps.mock.lastCall![0].onBeforeSubmit).toBeUndefined();
       expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
       const suggestionBar = screen.queryByLabelText("home.suggestedPrompts");
-      const loading = state === "unknown";
-      const unavailable = state === "unavailable";
-      expect(Boolean(suggestionBar)).toBe(ready || loading || unavailable);
+      const loading = !ready;
+      expect(Boolean(suggestionBar)).toBe(true);
       expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBe(
         loading ? "true" : null,
       );
@@ -2029,12 +2121,10 @@ describe("Slides prompt-led home", () => {
         Boolean(screen.queryByRole("button", { name: "Build a pitch" })),
       ).toBe(ready);
       expect(
-        Boolean(
-          screen.queryByRole("button", {
-            name: "Create a product pitch deck",
-          }),
-        ),
-      ).toBe(unavailable);
+        screen.queryByRole("button", {
+          name: "Create a product pitch deck",
+        }),
+      ).toBeNull();
       if (ready) {
         expect(
           screen.getByRole<HTMLButtonElement>("button", {

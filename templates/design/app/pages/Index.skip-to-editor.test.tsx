@@ -41,6 +41,10 @@ const mocks = vi.hoisted(() => ({
     email: "viewer-a@example.test",
     orgId: "org-a",
   },
+  suggestionRole: "design",
+  suggestionProfileFetching: false,
+  suggestionProfileError: false,
+  suggestionProfileQueryScope: null as readonly unknown[] | null,
   suggestionQueryScope: null as readonly unknown[] | null,
   suggestionQueryOptions: null as {
     enabled?: boolean;
@@ -151,6 +155,23 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
       refetchOnReconnect?: unknown;
     },
   ) => {
+    if (name === "get-user-profile") {
+      mocks.suggestionProfileQueryScope = options?.queryKeyScope ?? null;
+      const enabled = options?.enabled !== false;
+      return {
+        data:
+          enabled && !mocks.suggestionProfileError
+            ? { onboardingRole: mocks.suggestionRole }
+            : undefined,
+        isLoading: enabled && mocks.suggestionProfileFetching,
+        isFetching: enabled && mocks.suggestionProfileFetching,
+        isSuccess:
+          enabled &&
+          !mocks.suggestionProfileError &&
+          !mocks.suggestionProfileFetching,
+        isError: enabled && mocks.suggestionProfileError,
+      };
+    }
     if (name === "list-designs") {
       if (params.compact === "true") {
         if (params.createdBy === "all") mocks.summaryParams = params;
@@ -524,6 +545,10 @@ beforeEach(async () => {
     email: "viewer-a@example.test",
     orgId: "org-a",
   };
+  mocks.suggestionRole = "design";
+  mocks.suggestionProfileFetching = false;
+  mocks.suggestionProfileError = false;
+  mocks.suggestionProfileQueryScope = null;
   mocks.suggestionQueryScope = null;
   mocks.suggestionQueryOptions = null;
   mocks.systemsEnabled = true;
@@ -824,9 +849,16 @@ describe("Index skip to editor", () => {
     ).toBe(false);
   });
 
-  it("hides home suggestions while provider setup is pending", async () => {
+  it("reserves the suggestion slot while provider setup is missing", async () => {
     mocks.agentEngine = { state: "missing", missing: true, canChat: false };
     await act(async () => root.render(<Index />));
+    const bar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
     expect(container.textContent).not.toContain("Generated dashboard");
     expect(container.textContent).not.toContain("chat.suggestionLandingPage");
   });
@@ -855,7 +887,7 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Another dashboard");
   });
 
-  it("retries suggestions after readiness recovers", async () => {
+  it("keeps the suggestion slot while readiness recovers", async () => {
     await act(async () => root.render(null));
     mocks.agentEngine = {
       state: "unavailable",
@@ -864,7 +896,11 @@ describe("Index skip to editor", () => {
     };
     await act(async () => root.render(<Index />));
 
-    expect(container.textContent).toContain("chat.suggestionLandingPage");
+    expect(
+      container
+        .querySelector('[aria-label="home.suggestedPrompts"]')
+        ?.getAttribute("aria-busy"),
+    ).toBe("true");
     expect(mocks.suggestionPending).toBe(false);
 
     mocks.agentEngine = { state: "configured", missing: false, canChat: true };
@@ -881,7 +917,7 @@ describe("Index skip to editor", () => {
     await act(async () => root.render(<Index />));
 
     expect(container.textContent).toContain("chat.suggestionLandingPage");
-    expect(mocks.suggestionQueryOptions?.enabled).toBe(true);
+    expect(mocks.suggestionQueryOptions?.enabled).toBe(false);
 
     const staleTime = mocks.suggestionQueryOptions?.staleTime as (
       query: never,
@@ -918,6 +954,10 @@ describe("Index skip to editor", () => {
     expect(refetchOnReconnect(ready)).toBe(false);
 
     mocks.suggestionUnavailable = false;
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).toContain("chat.suggestionLandingPage");
+
+    await act(async () => root.render(null));
     await act(async () => root.render(<Index />));
     expect(container.textContent).toContain("Generated dashboard");
   });
@@ -965,6 +1005,9 @@ describe("Index skip to editor", () => {
     await act(async () => root.render(<Index />));
     expect(container.textContent).toContain("Generated dashboard");
     expect(mocks.suggestionQueryScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a", "design"]),
+    ]);
+    expect(mocks.suggestionProfileQueryScope).toEqual([
       JSON.stringify(["viewer-a", "org-a"]),
     ]);
 
@@ -980,7 +1023,20 @@ describe("Index skip to editor", () => {
     expect(container.textContent).toContain("Viewer B dashboard");
     expect(container.textContent).not.toContain("Generated dashboard");
     expect(mocks.suggestionQueryScope).toEqual([
+      JSON.stringify(["viewer-b", "org-b", "design"]),
+    ]);
+    expect(mocks.suggestionProfileQueryScope).toEqual([
       JSON.stringify(["viewer-b", "org-b"]),
+    ]);
+
+    mocks.suggestionRole = "product";
+    mocks.suggestionLabel = "Product dashboard";
+    await act(async () => root.render(<Index />));
+
+    expect(container.textContent).toContain("Product dashboard");
+    expect(container.textContent).not.toContain("Viewer B dashboard");
+    expect(mocks.suggestionQueryScope).toEqual([
+      JSON.stringify(["viewer-b", "org-b", "product"]),
     ]);
   });
 
@@ -991,7 +1047,7 @@ describe("Index skip to editor", () => {
     { state: "configured", missing: false, ready: true },
     { state: "configured", missing: true, ready: false },
   ])(
-    "wires the shared composer gate and suggestions for $state (missing=$missing)",
+    "keeps the suggestion slot reserved for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
       await act(async () => root.render(null));
       mocks.agentEngine = { state, missing, canChat: ready };
@@ -1014,22 +1070,15 @@ describe("Index skip to editor", () => {
       const suggestionBar = container.querySelector<HTMLElement>(
         '[aria-label="home.suggestedPrompts"]',
       );
-      const loading = state === "unknown";
-      const unavailable = state === "unavailable";
-      expect(Boolean(suggestionBar)).toBe(ready || loading || unavailable);
+      const loading = !ready;
+      expect(Boolean(suggestionBar)).toBe(true);
       expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBe(
         loading ? "true" : null,
       );
       expect(container.textContent?.includes("Generated dashboard")).toBe(
         ready,
       );
-      if (unavailable) {
-        expect(container.textContent).toContain("chat.suggestionLandingPage");
-      } else {
-        expect(container.textContent).not.toContain(
-          "chat.suggestionLandingPage",
-        );
-      }
+      expect(container.textContent).not.toContain("chat.suggestionLandingPage");
     },
   );
 

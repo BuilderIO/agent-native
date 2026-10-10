@@ -652,10 +652,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     refetch: refetchWorkspaceDefaults,
   } = useWorkspaceDefaults(isHome);
   const { session, status: sessionStatus } = useSession();
-  const homeSuggestionsCacheScope = JSON.stringify([
+  const homeSuggestionsIdentity = [
     session?.authUserId ?? session?.userId ?? session?.email ?? "anonymous",
     session?.orgId ?? "",
-  ]);
+  ];
+  const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
   // `session` is null while the check is loading or the server is unreachable,
   // neither of which means signed out. Only a definitive answer sends the user
   // to sign in; otherwise the server stays the authority on the request.
@@ -685,12 +686,30 @@ export default function Index({ active = true }: { active?: boolean }) {
       })),
     [t],
   );
+  const homeSuggestionsProfile = useActionQuery<{
+    onboardingRole?: string | null;
+  }>(
+    "get-user-profile",
+    {},
+    {
+      enabled: quickActionsEnabled,
+      queryKeyScope: [homeSuggestionsIdentityScope],
+      staleTime: 0,
+    },
+  );
+  const homeSuggestionsProfileReady =
+    quickActionsEnabled && homeSuggestionsProfile.data !== undefined;
+  const homeSuggestionsCacheScope = JSON.stringify([
+    ...homeSuggestionsIdentity,
+    homeSuggestionsProfile.data?.onboardingRole ?? null,
+  ]);
   const [homeSuggestionsSnapshotState, setHomeSuggestionsSnapshotState] =
     useState<{
       scope: string;
       suggestions: HomeSuggestion[];
     } | null>(null);
   const homeSuggestionsSnapshot =
+    homeSuggestionsProfileReady &&
     homeSuggestionsSnapshotState?.scope === homeSuggestionsCacheScope
       ? homeSuggestionsSnapshotState.suggestions
       : null;
@@ -701,7 +720,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       enabled:
         isHome &&
         showNewDeckPrompt &&
-        quickActionsEnabled &&
+        homeSuggestionsProfileReady &&
         homeSuggestionsSnapshot === null,
       queryKeyScope: [homeSuggestionsCacheScope],
       retry: false,
@@ -715,24 +734,24 @@ export default function Index({ active = true }: { active?: boolean }) {
     },
   );
   const readyHomeSuggestions =
-    quickActionsEnabled &&
+    homeSuggestionsProfileReady &&
     homeSuggestionsQuery.data?.status === "ready" &&
     homeSuggestionsQuery.data.suggestions.length === 3
       ? homeSuggestionsQuery.data.suggestions
       : null;
   const homeSuggestionsUnavailable =
     !homeSuggestionsQuery.isFetching &&
-    (agentEngine.state === "unavailable" ||
-      (quickActionsEnabled &&
-        (homeSuggestionsQuery.isError ||
-          homeSuggestionsQuery.data?.status === "unavailable" ||
-          (homeSuggestionsQuery.data?.status === "ready" &&
-            homeSuggestionsQuery.data.suggestions.length !== 3))));
+    quickActionsEnabled &&
+    (homeSuggestionsQuery.isError ||
+      homeSuggestionsQuery.data?.status === "unavailable" ||
+      (homeSuggestionsQuery.data?.status === "ready" &&
+        homeSuggestionsQuery.data.suggestions.length !== 3));
   useEffect(() => {
     if (homeSuggestionsSnapshot !== null) return;
     const result = homeSuggestionsQuery.data;
     if (
       quickActionsEnabled &&
+      homeSuggestionsProfileReady &&
       result?.status === "ready" &&
       result.suggestions.length === 3
     ) {
@@ -740,12 +759,24 @@ export default function Index({ active = true }: { active?: boolean }) {
         scope: homeSuggestionsCacheScope,
         suggestions: result.suggestions,
       });
+    } else if (
+      quickActionsEnabled &&
+      homeSuggestionsProfileReady &&
+      homeSuggestionsUnavailable
+    ) {
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsCacheScope,
+        suggestions: fallbackHomeSuggestions,
+      });
     }
   }, [
     homeSuggestionsQuery.data,
     homeSuggestionsSnapshot,
     homeSuggestionsCacheScope,
     quickActionsEnabled,
+    homeSuggestionsProfileReady,
+    homeSuggestionsUnavailable,
+    fallbackHomeSuggestions,
   ]);
   const homeSuggestions =
     homeSuggestionsSnapshot ??
@@ -756,8 +787,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     showNewDeckPrompt &&
     homeSuggestionsSnapshot === null &&
     readyHomeSuggestions === null &&
-    (homeSuggestionsQuery.isFetching ||
-      (!agentEngineMissing && !homeSuggestionsUnavailable));
+    (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
@@ -2726,7 +2756,6 @@ export default function Index({ active = true }: { active?: boolean }) {
       quickActions={
         isHome &&
         showNewDeckPrompt &&
-        !agentEngineMissing &&
         (homeSuggestionsLoading ||
           homeSuggestionsUnavailable ||
           homeSuggestionsSnapshot !== null) ? (
