@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { nextOccurrence } from "./cron.js";
 import { parseJobFrontmatter } from "./scheduler.js";
 import { createJobTools } from "./tools.js";
 
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourcePutIfAbsentMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
@@ -18,6 +20,7 @@ const dbExecuteMock = vi.hoisted(() => vi.fn());
 vi.mock("../resources/store.js", () => ({
   resourcePut: resourcePutMock,
   resourcePutIfAbsent: resourcePutIfAbsentMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
   resourceGetByPath: resourceGetByPathMock,
   resourceList: resourceListMock,
   resourceDelete: resourceDeleteMock,
@@ -99,6 +102,14 @@ describe("manage-jobs tool", () => {
     getIntegrationRequestContextMock.mockReturnValue(undefined);
     resourcePutMock.mockResolvedValue(undefined);
     resourcePutIfAbsentMock.mockResolvedValue({ id: "created" });
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => ({
+        id: "r1",
+        owner: input.owner,
+        path: input.path,
+        content: input.content,
+      }),
+    );
     resourceDeleteMock.mockResolvedValue(true);
   });
 
@@ -416,7 +427,7 @@ describe("manage-jobs tool", () => {
       );
       expect(out.updated).toBe(true);
       expect(out.enabled).toBe(false);
-      expect(resourcePutMock).toHaveBeenCalledTimes(1);
+      expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(1);
     });
 
     it("BLOCKS a non-creator non-admin from updating another user's shared job", async () => {
@@ -457,7 +468,7 @@ describe("manage-jobs tool", () => {
         await run({ action: "update", name: "j", enabled: "false" }),
       );
       expect(out.updated).toBe(true);
-      expect(resourcePutMock).toHaveBeenCalledTimes(1);
+      expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(1);
     });
 
     it("fails closed (denies) when the admin role lookup throws", async () => {
@@ -532,7 +543,8 @@ describe("manage-jobs tool", () => {
       );
       expect(out.schedule).toBe("*/30 * * * *");
       expect(out.nextRun).toBeTruthy();
-      const putContent: string = resourcePutMock.mock.calls[0][2];
+      const putContent: string =
+        resourcePutIfCurrentMock.mock.calls[0][0].content;
       const { meta } = parseJobFrontmatter(putContent);
       expect(meta.schedule).toBe("*/30 * * * *");
       expect(putContent).toContain("slackChannelId: C0BUK2293SA");
@@ -550,7 +562,9 @@ describe("manage-jobs tool", () => {
         await run({ action: "update", name: "j", reasoningEffort: "low" }),
       );
       expect(out.reasoningEffort).toBe("low");
-      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      const { meta } = parseJobFrontmatter(
+        resourcePutIfCurrentMock.mock.calls[0][0].content,
+      );
       expect(meta.reasoningEffort).toBe("low");
     });
 
@@ -604,6 +618,422 @@ describe("manage-jobs tool", () => {
 
       expect(out.error).toMatch(/is an automation.*manage-automations/);
       expect(resourcePutMock).not.toHaveBeenCalled();
+    });
+
+    it("re-applies the edit over run state written while it was read", async () => {
+      const before = [
+        "---",
+        'schedule: "0 9 * * *"',
+        "enabled: true",
+        "createdBy: alice@example.com",
+        "lastStatus: success",
+        'lastRun: "2026-10-01T00:00:00.000Z"',
+        "---",
+        "",
+        "Summarize the inbox.",
+      ].join("\n");
+      const concurrentRun = [
+        "---",
+        'schedule: "0 9 * * *"',
+        "enabled: true",
+        "createdBy: alice@example.com",
+        "lastStatus: running",
+        'lastRun: "2026-10-07T09:00:00.000Z"',
+        'nextRun: "2026-10-08T09:00:00.000Z"',
+        "---",
+        "",
+        "Summarize the inbox.",
+      ].join("\n");
+      resourceGetByPathMock
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: before,
+          updatedAt: 1,
+        })
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: concurrentRun,
+          updatedAt: 2,
+        });
+      resourcePutIfCurrentMock
+        .mockResolvedValueOnce(null)
+        .mockImplementationOnce(
+          async (input: { owner: string; path: string; content: string }) => ({
+            id: "r1",
+            owner: input.owner,
+            path: input.path,
+            content: input.content,
+          }),
+        );
+
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", enabled: "false" }),
+      );
+
+      expect(out.updated).toBe(true);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(2);
+      const written: string = resourcePutIfCurrentMock.mock.calls[1][0].content;
+      expect(written).toContain("enabled: false");
+      expect(written).toContain("lastStatus: running");
+      expect(written).toContain("2026-10-07T09:00:00.000Z");
+      expect(written).toContain("2026-10-08T09:00:00.000Z");
+      // The response reports what landed, including the run state kept.
+      expect(out.enabled).toBe(false);
+      expect(out.nextRun).toBe("2026-10-08T09:00:00.000Z");
+    });
+
+    it("fails loudly when the job keeps changing while it is updated", async () => {
+      resourceGetByPathMock.mockResolvedValue({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/j.md",
+        content: sharedJobContent({ createdBy: "alice@example.com" }),
+        updatedAt: 1,
+      });
+      resourcePutIfCurrentMock.mockResolvedValue(null);
+
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", enabled: "false" }),
+      );
+
+      expect(out.error).toMatch(/changed while it was updated/i);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+    });
+
+    it("re-derives nextRun over a schedule another writer changed", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-10T12:00:00.000Z"));
+      try {
+        const scheduled = (schedule: string) =>
+          [
+            "---",
+            `schedule: "${schedule}"`,
+            "timezone: UTC",
+            "enabled: true",
+            "createdBy: alice@example.com",
+            "---",
+            "",
+            "Summarize the inbox.",
+          ].join("\n");
+        resourceGetByPathMock
+          .mockResolvedValueOnce({
+            id: "r1",
+            owner: SHARED_OWNER,
+            path: "jobs/j.md",
+            content: scheduled("0 9 * * *"),
+            updatedAt: 1,
+          })
+          .mockResolvedValueOnce({
+            id: "r1",
+            owner: SHARED_OWNER,
+            path: "jobs/j.md",
+            content: scheduled("0 21 * * *"),
+            updatedAt: 2,
+          });
+        resourcePutIfCurrentMock
+          .mockResolvedValueOnce(null)
+          .mockImplementationOnce(
+            async (input: {
+              owner: string;
+              path: string;
+              content: string;
+            }) => ({
+              id: "r1",
+              owner: input.owner,
+              path: input.path,
+              content: input.content,
+            }),
+          );
+
+        await run({ action: "update", name: "j", timezone: "Asia/Tokyo" });
+
+        const written: string =
+          resourcePutIfCurrentMock.mock.calls[1][0].content;
+        const { meta } = parseJobFrontmatter(written);
+        expect(meta.schedule).toBe("0 21 * * *");
+        expect(meta.timezone).toBe("Asia/Tokyo");
+        expect(meta.nextRun).toBe(
+          nextOccurrence("0 21 * * *", undefined, "Asia/Tokyo").toISOString(),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("leaves a failure recorded after the edit was read alone", async () => {
+      const paused = [
+        "---",
+        'schedule: "0 9 * * *"',
+        "enabled: false",
+        "createdBy: alice@example.com",
+        "lastStatus: paused",
+        'lastErrorCode: "missing_credentials"',
+        "consecutiveFailures: 3",
+        'pausedReason: "missing_credentials"',
+        'pausedAt: "2026-10-01T00:00:00.000Z"',
+        "---",
+        "",
+        "Summarize the inbox.",
+      ].join("\n");
+      const concurrentFailure = [
+        "---",
+        'schedule: "0 9 * * *"',
+        "enabled: false",
+        "createdBy: alice@example.com",
+        "lastStatus: error",
+        'lastErrorCode: "http_502"',
+        "consecutiveFailures: 1",
+        'pausedReason: "http_502"',
+        'pausedAt: "2026-10-10T00:00:00.000Z"',
+        "---",
+        "",
+        "Summarize the inbox.",
+      ].join("\n");
+      resourceGetByPathMock
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: paused,
+          updatedAt: 1,
+        })
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: concurrentFailure,
+          updatedAt: 2,
+        });
+      resourcePutIfCurrentMock
+        .mockResolvedValueOnce(null)
+        .mockImplementationOnce(
+          async (input: { owner: string; path: string; content: string }) => ({
+            id: "r1",
+            owner: input.owner,
+            path: input.path,
+            content: input.content,
+          }),
+        );
+
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", enabled: "true" }),
+      );
+
+      expect(out.updated).toBe(true);
+      const written: string = resourcePutIfCurrentMock.mock.calls[1][0].content;
+      expect(written).toContain("enabled: true");
+      expect(written).toContain('lastErrorCode: "http_502"');
+      expect(written).toContain("consecutiveFailures: 1");
+      expect(written).not.toContain("missing_credentials");
+    });
+
+    it("leaves an active run marker alone when enabling a paused job", async () => {
+      const paused = [
+        "---",
+        'schedule: "0 9 * * *"',
+        "enabled: false",
+        "createdBy: alice@example.com",
+        "lastStatus: paused",
+        'lastErrorCode: "missing_credentials"',
+        "consecutiveFailures: 3",
+        'pausedReason: "missing_credentials"',
+        'pausedAt: "2026-10-01T00:00:00.000Z"',
+        "---",
+        "",
+        "Summarize the inbox.",
+      ].join("\n");
+      // A manual run started after the read: same failure fields, new status.
+      const activeRun = paused
+        .replace("lastStatus: paused", "lastStatus: running")
+        .replace(
+          'pausedAt: "2026-10-01T00:00:00.000Z"',
+          'pausedAt: "2026-10-01T00:00:00.000Z"\nlastRun: "2026-10-10T09:00:00.000Z"',
+        );
+      resourceGetByPathMock
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: paused,
+          updatedAt: 1,
+        })
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: activeRun,
+          updatedAt: 2,
+        });
+      resourcePutIfCurrentMock
+        .mockResolvedValueOnce(null)
+        .mockImplementationOnce(
+          async (input: { owner: string; path: string; content: string }) => ({
+            id: "r1",
+            owner: input.owner,
+            path: input.path,
+            content: input.content,
+          }),
+        );
+
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", enabled: "true" }),
+      );
+
+      expect(out.updated).toBe(true);
+      const written: string = resourcePutIfCurrentMock.mock.calls[1][0].content;
+      expect(written).toContain("enabled: true");
+      expect(written).toContain("lastStatus: running");
+      expect(written).toContain('lastErrorCode: "missing_credentials"');
+    });
+
+    it("keeps a newer lastError even when the failure tuple matches", async () => {
+      const before = [
+        "---",
+        'schedule: "0 9 * * *"',
+        "enabled: false",
+        "createdBy: alice@example.com",
+        "lastStatus: paused",
+        'lastError: "old detail"',
+        'lastErrorCode: "missing_credentials"',
+        "consecutiveFailures: 3",
+        'pausedReason: "missing_credentials"',
+        'pausedAt: "2026-10-01T00:00:00.000Z"',
+        "---",
+        "",
+        "Summarize the inbox.",
+      ].join("\n");
+      const concurrentDetail = before.replace(
+        'lastError: "old detail"',
+        'lastError: "new http_502 detail"',
+      );
+      resourceGetByPathMock
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: before,
+          updatedAt: 1,
+        })
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: concurrentDetail,
+          updatedAt: 2,
+        });
+      resourcePutIfCurrentMock
+        .mockResolvedValueOnce(null)
+        .mockImplementationOnce(
+          async (input: { owner: string; path: string; content: string }) => ({
+            id: "r1",
+            owner: input.owner,
+            path: input.path,
+            content: input.content,
+          }),
+        );
+
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", enabled: "true" }),
+      );
+
+      expect(out.updated).toBe(true);
+      const written: string = resourcePutIfCurrentMock.mock.calls[1][0].content;
+      expect(written).toContain('lastError: "new http_502 detail"');
+    });
+
+    it("does not clear a run marker that was already active when read", async () => {
+      const runningPaused = [
+        "---",
+        'schedule: "0 9 * * *"',
+        "enabled: false",
+        "createdBy: alice@example.com",
+        "lastStatus: running",
+        'lastRun: "2026-10-10T09:00:00.000Z"',
+        'lastErrorCode: "missing_credentials"',
+        "consecutiveFailures: 3",
+        'pausedReason: "missing_credentials"',
+        'pausedAt: "2026-10-01T00:00:00.000Z"',
+        "---",
+        "",
+        "Summarize the inbox.",
+      ].join("\n");
+      resourceGetByPathMock.mockResolvedValueOnce({
+        id: "r1",
+        owner: SHARED_OWNER,
+        path: "jobs/j.md",
+        content: runningPaused,
+        updatedAt: 1,
+      });
+
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", enabled: "true" }),
+      );
+
+      expect(out.updated).toBe(true);
+      const written: string = resourcePutIfCurrentMock.mock.calls[0][0].content;
+      expect(written).toContain("enabled: true");
+      expect(written).toContain("lastStatus: running");
+      expect(written).toContain('lastErrorCode: "missing_credentials"');
+      expect(written).not.toContain("pausedReason");
+      expect(written).not.toContain("pausedAt");
+    });
+
+    it("denies the retry when the job became an automation", async () => {
+      resourceGetByPathMock
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: sharedJobContent({ createdBy: "alice@example.com" }),
+          updatedAt: 1,
+        })
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: eventAutomationContent(),
+          updatedAt: 2,
+        });
+      resourcePutIfCurrentMock.mockResolvedValueOnce(null);
+
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", enabled: "false" }),
+      );
+
+      expect(out.error).toMatch(/Only the job's creator/);
+      expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("denies the retry when the job's creator changed", async () => {
+      resourceGetByPathMock
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: sharedJobContent({ createdBy: "alice@example.com" }),
+          updatedAt: 1,
+        })
+        .mockResolvedValueOnce({
+          id: "r1",
+          owner: SHARED_OWNER,
+          path: "jobs/j.md",
+          content: sharedJobContent({ createdBy: "mallory@example.com" }),
+          updatedAt: 2,
+        });
+      resourcePutIfCurrentMock.mockResolvedValueOnce(null);
+      dbExecuteMock.mockResolvedValue({ rows: [] });
+
+      const out = JSON.parse(
+        await run({ action: "update", name: "j", enabled: "false" }),
+      );
+
+      expect(out.error).toMatch(/Only the job's creator/);
+      expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(1);
     });
   });
 
