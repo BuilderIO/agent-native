@@ -5,6 +5,8 @@ import {
   defineAction,
   ActionContractError,
   isActionContractError,
+  isActionPreExecutionFailure,
+  type ActionRunContext,
   AgentActionStopError,
   AgentConnectionRequiredError,
   isAgentActionStopError,
@@ -1002,6 +1004,35 @@ describe("defineAction — outputSchema (return-value validation)", () => {
 });
 
 describe("defineAction — authorize", () => {
+  it("preserves a denial without treating the same error from a later handler as pre-execution", async () => {
+    const denial = Object.assign(new Error("Not authorized"), {
+      statusCode: 403,
+    });
+    let allowed = false;
+    const run = vi.fn(async () => {
+      throw denial;
+    });
+    const action = defineAction({
+      description: "Write with authorization",
+      schema: z.object({}),
+      authorize: () => {
+        if (!allowed) throw denial;
+      },
+      run,
+    });
+    const first: ActionRunContext = { caller: "tool" };
+    const second: ActionRunContext = { caller: "tool" };
+    await expect(action.run({}, first)).rejects.toBe(denial);
+    expect(run).not.toHaveBeenCalled();
+    expect(isActionPreExecutionFailure(denial, first)).toBe(true);
+    expect(isActionPreExecutionFailure(denial, second)).toBe(false);
+    allowed = true;
+    await expect(action.run({}, second)).rejects.toBe(denial);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(isActionPreExecutionFailure(denial, second)).toBe(false);
+    await expect(action.run({}, first)).rejects.toBe(denial);
+    expect(isActionPreExecutionFailure(denial, first)).toBe(false);
+  });
   it("runs the gate before the body and passes args + ctx through", async () => {
     const authorize = vi.fn();
     const run = vi.fn(async () => ({ ok: true }));

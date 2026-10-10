@@ -62,13 +62,15 @@ beforeEach(() => {
 
 async function recover(
   events: AgentChatEvent[] | Error,
-  ignoreContext: boolean | "after-read" = false,
+  ignoreContext: boolean | "after-read" | "verify-live" = false,
   isRecovery: boolean | "client" | "continuation" = true,
   failFinalization:
     | boolean
     | "serialization"
     | "action"
     | "validation"
+    | "authorization"
+    | "access"
     | "precondition"
     | "connection" = false,
   resumeContinue?: "auto" | "manual",
@@ -118,6 +120,30 @@ async function recover(
     async *stream(options): AsyncIterable<EngineEvent> {
       seen.push(structuredClone(options.messages));
       const context = JSON.stringify(options.messages);
+      if (ignoreContext === "verify-live" && seen.length <= 4) {
+        const read = seen.length % 2 === 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call",
+              id: `live-${seen.length}`,
+              name: read ? "check-email" : "send-email",
+              input: read
+                ? {}
+                : {
+                    ...EMAIL,
+                    body:
+                      seen.length === 2
+                        ? EMAIL.body
+                        : "Your refund has been approved.",
+                  },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+        return;
+      }
       if (ignoreContext === "after-read" && seen.length === 1) {
         yield {
           type: "assistant-content",
@@ -197,6 +223,18 @@ async function recover(
               schema: z
                 .object({ to: z.string(), body: z.string() })
                 .refine(() => false, "Recipient is not eligible"),
+              run: sendEmail,
+            })
+          : {}),
+        ...(failFinalization === "authorization" ||
+        failFinalization === "access"
+          ? defineAction({
+              description: "Send email",
+              readOnly: false,
+              schema: z.object({ to: z.string(), body: z.string() }),
+              ...(failFinalization === "authorization"
+                ? { authorize: () => false }
+                : { access: { scope: "app" as const } }),
               run: sendEmail,
             })
           : {}),
@@ -353,11 +391,21 @@ describe("reaper successor resume context", () => {
     expect(result.sendEmail).not.toHaveBeenCalled();
     expect(result.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
   });
-  it.each(["validation", "precondition", "connection"] as const)(
+  it.each([
+    "validation",
+    "precondition",
+    "connection",
+    "authorization",
+    "access",
+  ] as const)(
     "keeps a typed pre-execution refusal distinct from an unknown write (%s)",
     async (failure) => {
       const first = await recover([], false, false, failure);
-      if (failure === "validation")
+      if (
+        failure === "validation" ||
+        failure === "authorization" ||
+        failure === "access"
+      )
         expect(first.sendEmail).not.toHaveBeenCalled();
       const events = (await getRunEventsSince(first.runId, -1)).map(
         ({ eventData }) => JSON.parse(eventData) as AgentChatEvent,
@@ -377,6 +425,12 @@ describe("reaper successor resume context", () => {
       expect(next.sendEmail).toHaveBeenCalledTimes(1);
     },
   );
+  it("refreshes verification reads and blocks a reworded retry after a live unknown write", async () => {
+    const result = await recover([], "verify-live", false, "action");
+    expect(result.checkEmail).toHaveBeenCalledTimes(2);
+    expect(result.sendEmail).toHaveBeenCalledTimes(1);
+    expect(result.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
+  });
   it.each(["auto", "manual"] as const)(
     "recovers a killed %s continuation with its original prompt and unique tool ids",
     async (trigger) => {

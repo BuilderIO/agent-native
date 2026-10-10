@@ -125,7 +125,7 @@ import {
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
-import type { AgentChatEvent, RunEvent } from "./types.js";
+import type { AgentChatAttachment, AgentChatEvent, RunEvent } from "./types.js";
 
 function createProductionAgentHandler(
   options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
@@ -302,6 +302,25 @@ function actionEntry(opts: {
       ? { parallelSafe: opts.parallelSafe }
       : {}),
     run: async (args) => `ran:${JSON.stringify(args)}`,
+  };
+}
+
+function preExecutionCheckedWrite(
+  check: (args: Record<string, unknown>) => Promise<unknown>,
+): ActionEntry {
+  const run = vi.fn(async () => "saved");
+  return {
+    ...actionEntry({ readOnly: false }),
+    ...defineAction({
+      description: "Test checked write",
+      schema: z.record(z.string(), z.unknown()),
+      readOnly: false,
+      authorize: async (args) => {
+        await check(args);
+        return true;
+      },
+      run,
+    }),
   };
 }
 
@@ -2697,6 +2716,33 @@ describe("buildUserContentWithAttachments", () => {
 });
 
 describe("appendRequestAttachmentContextToResumedHistory", () => {
+  it("does not duplicate files or text already combined with the original prompt", () => {
+    const attachments: AgentChatAttachment[] = [
+      {
+        type: "file",
+        name: "refund.pdf",
+        contentType: "application/pdf",
+        data: `data:application/pdf;base64,${PDF_BASE64}`,
+      },
+      {
+        type: "file",
+        name: "refund.txt",
+        contentType: "text/plain",
+        text: "Unique refund attachment text",
+      },
+    ];
+    const content = buildUserContentWithAttachments({
+      text: "Finish this refund",
+      attachments,
+      vision: true,
+    });
+    const original = structuredClone(content);
+    const messages: EngineMessage[] = [{ role: "user", content }];
+    appendRequestAttachmentContextToResumedHistory(messages, attachments, {
+      vision: true,
+    });
+    expect(messages[0]?.content).toEqual(original);
+  });
   it("restores image pixels and visible attachment failures on durable continuation", () => {
     const messages: EngineMessage[] = [
       {
@@ -10092,7 +10138,7 @@ describe("runAgentLoop", () => {
 
   it("retains the mutating tool's keyed repeat-error count", async () => {
     let attempts = 0;
-    const write = vi.fn(async () => {
+    const check = vi.fn(async () => {
       attempts += 1;
       if (attempts <= 2 || attempts === 4) fail("same failure");
       return "saved";
@@ -10102,10 +10148,10 @@ describe("runAgentLoop", () => {
         name: "repair",
         input: { id: "same" },
       })),
-      { repair: { ...actionEntry({ readOnly: false }), run: write } },
+      { repair: preExecutionCheckedWrite(check) },
     );
 
-    expect(write).toHaveBeenCalledTimes(4);
+    expect(check).toHaveBeenCalledTimes(4);
     expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
       4,
     );
@@ -10120,7 +10166,7 @@ describe("runAgentLoop", () => {
 
   it("retains the mutating tool's across-argument repeat-error count", async () => {
     let attempts = 0;
-    const write = vi.fn(async () => {
+    const check = vi.fn(async () => {
       attempts += 1;
       if (attempts <= 2 || attempts === 4) fail("same failure");
       return "saved";
@@ -10131,14 +10177,11 @@ describe("runAgentLoop", () => {
         input: { id: index },
       })),
       {
-        "repair-across-arguments": {
-          ...actionEntry({ readOnly: false }),
-          run: write,
-        },
+        "repair-across-arguments": preExecutionCheckedWrite(check),
       },
     );
 
-    expect(write).toHaveBeenCalledTimes(4);
+    expect(check).toHaveBeenCalledTimes(4);
     expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
       4,
     );
@@ -10232,11 +10275,9 @@ describe("runAgentLoop", () => {
         input: { id },
       })),
       {
-        "edit-panel": {
-          ...actionEntry({ readOnly: false }),
-          run: async () =>
-            fail("panel width must be a number\nsecond line of detail"),
-        },
+        "edit-panel": preExecutionCheckedWrite(async () =>
+          fail("panel width must be a number\nsecond line of detail"),
+        ),
       },
     );
 
@@ -10266,7 +10307,7 @@ describe("runAgentLoop", () => {
         [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
         {
           "run-query": {
-            ...actionEntry({ readOnly: false }),
+            ...actionEntry({ readOnly: true }),
             run: async () =>
               fail(
                 JSON.stringify(
@@ -10315,7 +10356,7 @@ describe("runAgentLoop", () => {
         [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
         {
           "run-query": {
-            ...actionEntry({ readOnly: false }),
+            ...actionEntry({ readOnly: true }),
             run: async () => fail(errorText),
           },
         },
@@ -10336,7 +10377,7 @@ describe("runAgentLoop", () => {
       [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
       {
         "run-query": {
-          ...actionEntry({ readOnly: false }),
+          ...actionEntry({ readOnly: true }),
           run: async () => fail(`${"a".repeat(299)}${"😀".repeat(5)}`),
         },
       },
@@ -10358,11 +10399,9 @@ describe("runAgentLoop", () => {
         input: { id },
       })),
       {
-        "edit-panel": {
-          ...actionEntry({ readOnly: false }),
-          run: async (args: Record<string, unknown>) =>
-            fail(`panel[${args.id}].width must be a number`),
-        },
+        "edit-panel": preExecutionCheckedWrite(async (args) =>
+          fail(`panel[${args.id}].width must be a number`),
+        ),
       },
     );
 
@@ -10917,13 +10956,13 @@ describe("runAgentLoop", () => {
 
   it("lets the model revise arguments after a role mismatch", async () => {
     let streamCalls = 0;
-    const run = vi.fn(async (input: { panelId: string }) => {
+    const authorize = vi.fn(async (input: { panelId: string }) => {
       if (input.panelId === "p1") {
         throw new Error(
           "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
         );
       }
-      return "updated";
+      return true;
     });
     const engine: AgentEngine = {
       name: "test",
@@ -10970,14 +11009,23 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        "mutate-dashboard": { ...actionEntry({}), run },
+        "mutate-dashboard": {
+          ...actionEntry({}),
+          ...defineAction({
+            description: "Mutate dashboard",
+            schema: z.object({ panelId: z.string() }),
+            readOnly: false,
+            authorize,
+            run: vi.fn(async () => "updated"),
+          }),
+        },
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
       maxIterations: 3,
     });
 
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(authorize).toHaveBeenCalledTimes(2);
     expect(events).not.toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -16493,9 +16541,7 @@ describe("runAgentLoop endsTurn", () => {
 
   it("keeps the turn running when the endsTurn action fails", async () => {
     const { engine, streamCalls } = yieldEngine();
-    const run = vi.fn(async () => {
-      throw new Error("'options' must be a non-empty JSON array.");
-    });
+    const run = vi.fn(async () => "asked");
     const outcomes: AgentLoopOutcome[] = [];
 
     await runAgentLoop({
@@ -16507,8 +16553,16 @@ describe("runAgentLoop endsTurn", () => {
       actions: {
         "ask-question": {
           ...actionEntry({ readOnly: false }),
-          endsTurn: true,
-          run,
+          ...defineAction({
+            description: "Ask a question",
+            schema: z.object({
+              question: z.string(),
+              options: z.array(z.string()).min(1),
+            }),
+            readOnly: false,
+            endsTurn: true,
+            run,
+          }),
         },
       },
       send: () => {},
@@ -16516,6 +16570,7 @@ describe("runAgentLoop endsTurn", () => {
       signal: new AbortController().signal,
     });
 
+    expect(run).not.toHaveBeenCalled();
     expect(streamCalls()).toBe(2);
     expect(outcomes).toEqual([{ state: "completed" }]);
   });

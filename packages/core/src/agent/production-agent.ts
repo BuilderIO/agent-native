@@ -33,11 +33,13 @@ import {
   ActionInputValidationError,
   describeToolParameterSignature,
   isActionContractError,
+  isActionPreExecutionFailure,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
   type ActionAutomationContext,
   type ActionCaller,
+  type ActionRunContext,
   type WriteReceipt,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
@@ -2863,9 +2865,13 @@ export function appendRequestAttachmentContextToResumedHistory(
           existing.type === "image" && candidate.type === "image"
             ? existing.data === candidate.data &&
               existing.mediaType === candidate.mediaType
-            : existing.type === "text" && candidate.type === "text"
-              ? existing.text === candidate.text
-              : false,
+            : existing.type === "file" && candidate.type === "file"
+              ? existing.data === candidate.data &&
+                existing.mediaType === candidate.mediaType &&
+                existing.filename === candidate.filename
+              : existing.type === "text" && candidate.type === "text"
+                ? existing.text.includes(candidate.text.trim())
+                : false,
         ),
     );
     message.content.push(...missingContent);
@@ -5834,6 +5840,7 @@ export async function runAgentLoop(opts: {
     messages,
     actions,
   );
+  const unknownWriteToolNames = new Set<string>();
   const {
     sameArguments: repeatedToolErrors,
     sameTool: repeatedToolErrorsAnyArgs,
@@ -6915,9 +6922,15 @@ export async function runAgentLoop(opts: {
       let toolDoneEmitted = false;
       let actionInvoked = false;
       let actionRefused = false;
+      let invokedActionContext: ActionRunContext | undefined;
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ) => {
+        if (event.outcomeUnknown) {
+          unknownWriteToolNames.add(toolCall.name);
+          readOnlyToolResultCache.clear();
+          duplicateReadOnlyToolCalls.clear();
+        }
         if (event.id) settleRepeatedToolCall(event.id);
         send(event);
         toolDoneEmitted = true;
@@ -7331,6 +7344,7 @@ export async function runAgentLoop(opts: {
         const priorInterruptions = Math.max(
           writeToolInterruptions.get(writeCacheKey) ?? 0,
           unknownJournalCalls,
+          unknownWriteToolNames.has(toolCall.name) ? 1 : 0,
         );
 
         if (priorInterruptions > 0) {
@@ -7684,6 +7698,7 @@ export async function runAgentLoop(opts: {
               ...(opts.turnId ? { turnId: opts.turnId } : {}),
             };
             actionInvoked = true;
+            invokedActionContext = actionContext;
             return actionEntry.run(
               toolCall.input as Record<string, string>,
               actionContext,
@@ -7930,6 +7945,7 @@ export async function runAgentLoop(opts: {
         } catch (err: any) {
           actionRefused =
             err instanceof ActionInputValidationError ||
+            isActionPreExecutionFailure(err, invokedActionContext) ||
             isAgentConnectionRequiredError(err) ||
             ((isActionContractError(err) || isAgentActionStopError(err)) &&
               err.errorCode === "permanent_precondition");
@@ -7989,18 +8005,6 @@ export async function runAgentLoop(opts: {
             result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message, err)}`;
           }
           isError = true;
-        }
-        if (
-          !actionIsReadOnly &&
-          isError &&
-          typeof result === "string" &&
-          isToolCallTimeoutResult(result)
-        ) {
-          const key = toolCallCacheKey(toolCall.name, toolCall.input);
-          writeToolInterruptions.set(
-            key,
-            (writeToolInterruptions.get(key) ?? 0) + 1,
-          );
         }
         if (isError) {
           receipt = undefined;

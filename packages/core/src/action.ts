@@ -878,19 +878,32 @@ function wrapRunWithAccess(
   authorize: ActionAuthorize<any> | undefined,
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   return async function accessCheckedRun(args: any, ctx?: ActionRunContext) {
-    if (access) {
-      await assertRegisteredActionAccess(access, args, ctx);
-    }
-    if (authorize) {
-      const verdict = await authorize(args, ctx);
-      if (verdict === false) {
-        const err = new Error("Not authorized") as Error & {
-          statusCode: number;
-        };
-        err.name = "ForbiddenError";
-        err.statusCode = 403;
-        throw err;
+    if (ctx) actionPreExecutionFailures.delete(ctx);
+    try {
+      if (access) {
+        await assertRegisteredActionAccess(access, args, ctx);
       }
+      if (authorize) {
+        const verdict = await authorize(args, ctx);
+        if (verdict === false) {
+          const err = new Error("Not authorized") as Error & {
+            statusCode: number;
+          };
+          err.name = "ForbiddenError";
+          err.statusCode = 403;
+          throw err;
+        }
+      }
+    } catch (error) {
+      if (ctx && error !== null && typeof error === "object") {
+        let failures = actionPreExecutionFailures.get(ctx);
+        if (!failures) {
+          failures = new WeakSet<object>();
+          actionPreExecutionFailures.set(ctx, failures);
+        }
+        failures.add(error);
+      }
+      throw error;
     }
     return run(args, ctx);
   };
@@ -1420,6 +1433,25 @@ const preValidatedForContext = new WeakMap<
 >();
 
 export class ActionInputValidationError extends Error {}
+
+// Bind to the invocation context: reusing an error object in a later handler
+// must not make a potentially completed write look like a wrapper refusal.
+const actionPreExecutionFailures = new WeakMap<
+  ActionRunContext,
+  WeakSet<object>
+>();
+
+export function isActionPreExecutionFailure(
+  error: unknown,
+  ctx: ActionRunContext | undefined,
+): boolean {
+  return (
+    ctx !== undefined &&
+    error !== null &&
+    typeof error === "object" &&
+    actionPreExecutionFailures.get(ctx)?.has(error) === true
+  );
+}
 
 export async function validateActionArgs(
   schema: StandardSchemaV1,
