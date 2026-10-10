@@ -168,6 +168,20 @@ describe("generate-home-suggestions", () => {
     });
   });
 
+  it("skips unrelated arrays before the suggestion bank in prose", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.999);
+    mocks.completeText.mockResolvedValue({
+      text: `Use three principles [1, 2, 3], then try these ideas:\n${JSON.stringify(suggestions)}`,
+    });
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).resolves.toEqual({
+      status: "ready",
+      suggestions: suggestions.slice(0, 3),
+    });
+  });
+
   it("rejects a JSON object containing a nested suggestions array", async () => {
     mocks.completeText.mockResolvedValue({
       text: JSON.stringify({ suggestions }),
