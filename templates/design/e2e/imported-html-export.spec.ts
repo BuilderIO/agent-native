@@ -11,6 +11,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type FrameLocator,
   type Locator,
   type Page,
 } from "@playwright/test";
@@ -212,6 +213,88 @@ async function openPngExport(page: Page): Promise<Locator> {
   await expect(pngMenuItem).toBeVisible();
   await expect(pngMenuItem).toBeEnabled();
   return pngMenuItem;
+}
+
+async function reportTrustedPreviewRoute(
+  page: Page,
+  previewFrame: FrameLocator,
+  screenId: string,
+  routePath: string,
+  marker: string,
+): Promise<string | null> {
+  await page.evaluate(
+    ({ screenId, marker }) => {
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+      );
+      const source = iframe?.contentWindow;
+      if (!iframe || !source) throw new Error("preview iframe is unavailable");
+
+      const routeProbeWindow = window as Window & {
+        __designRouteProbe?: Promise<string | null>;
+      };
+      routeProbeWindow.__designRouteProbe = new Promise((resolve, reject) => {
+        const getTargetPath = () => {
+          try {
+            const iframeUrl = new URL(iframe.src, window.location.href);
+            const targetUrl = iframeUrl.searchParams.get("url");
+            return targetUrl ? new URL(targetUrl).pathname : iframeUrl.pathname;
+          } catch {
+            return null;
+          }
+        };
+        const timeout = window.setTimeout(() => {
+          window.removeEventListener("message", onMessage);
+          reject(new Error("preview route report was not received"));
+        }, 10_000);
+        const onMessage = (event: MessageEvent) => {
+          if (
+            event.source !== source ||
+            event.data?.type !== "agent-native:live-route-path" ||
+            event.data?.__routeProbeMarker !== marker
+          ) {
+            return;
+          }
+          window.removeEventListener("message", onMessage);
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              window.clearTimeout(timeout);
+              resolve(getTargetPath());
+            });
+          });
+        };
+        window.addEventListener("message", onMessage);
+      });
+    },
+    { screenId, marker },
+  );
+
+  await previewFrame.locator("html").evaluate(
+    (_, { routePath, marker }) => {
+      window.parent.postMessage(
+        {
+          type: "agent-native:live-route-path",
+          routePath,
+          __routeProbeMarker: marker,
+        },
+        "*",
+      );
+    },
+    { routePath, marker },
+  );
+
+  return page.evaluate(async () => {
+    const routeProbeWindow = window as Window & {
+      __designRouteProbe?: Promise<string | null>;
+    };
+    const routeProbe = routeProbeWindow.__designRouteProbe;
+    if (!routeProbe) throw new Error("preview route receipt was not armed");
+    try {
+      return await routeProbe;
+    } finally {
+      delete routeProbeWindow.__designRouteProbe;
+    }
+  });
 }
 
 function safeError(error: unknown) {
@@ -553,9 +636,16 @@ test("static design documents retain their rendered pixels through Design PNG ex
           connectionId: string;
           bridgeToken: string;
           previewToken: string;
+          screens: Array<{ id: string; path: string }>;
         };
         designId = opened.designId;
         designIds.push(designId);
+        const previewScreenId = opened.screens.find(
+          (screen) => screen.path === `/${entry.name}`,
+        )?.id;
+        if (!previewScreenId) {
+          throw new Error(`created design has no screen for /${entry.name}`);
+        }
         connection ??= {
           connectionId: opened.connectionId,
           bridgeToken: opened.bridgeToken,
@@ -582,27 +672,28 @@ test("static design documents retain their rendered pixels through Design PNG ex
           await allowLocalAccess.click();
         }
         const preview = exportPage.locator(
-          'iframe[data-design-preview-iframe][data-design-source-type="localhost"]',
+          `iframe[data-design-preview-iframe][data-design-source-type="localhost"][data-screen-iframe-id="${previewScreenId}"]`,
         );
-        const previewCount = entry.name === "effects-transforms" ? 2 : 1;
-        await expect(preview).toHaveCount(previewCount, { timeout: 30_000 });
-        for (let index = 0; index < previewCount; index++) {
-          await expect
-            .poll(() =>
-              preview
-                .nth(index)
-                .contentFrame()
-                .locator("[data-agent-native-node-id]")
-                .count(),
-            )
-            .toBeGreaterThan(0);
-          await waitForLivePixels(
-            preview.nth(index).contentFrame().locator("html"),
-          );
-        }
-        const previewFrame = preview.first().contentFrame();
+        await expect(preview).toHaveCount(1, { timeout: 30_000 });
+        const previewFrame = preview.contentFrame();
+        await expect
+          .poll(() =>
+            previewFrame.locator("[data-agent-native-node-id]").count(),
+          )
+          .toBeGreaterThan(0);
         const previewHtml = previewFrame.locator("html");
         const previewReadiness = await waitForLivePixels(previewHtml);
+        if (entry.name === "effects-transforms") {
+          stage.name = "preview route report";
+          const routeAfterStartupReport = await reportTrustedPreviewRoute(
+            exportPage,
+            previewFrame,
+            previewScreenId,
+            "srcdoc",
+            `route-probe-${designId}`,
+          );
+          expect(routeAfterStartupReport).toBe(`/${entry.name}`);
+        }
         stage.name = "source screenshot";
         await sourcePage.setViewportSize(viewport);
         await sourcePage.goto(`${sourceUrl}/${entry.name}`, {
