@@ -52,6 +52,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "sync-local-folder-source",
   "sync-manifest-local-folder-source",
   "transcribe-media",
+  "undo-content-import",
   "update-document",
 ]);
 
@@ -96,7 +97,10 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "restore-document",
 ]);
 
-const DOCUMENT_DISCOVERY_MUTATIONS = new Set(["create-document"]);
+const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
+  "create-document",
+  "import-content",
+]);
 
 const PREVIEW_DRAFT_MUTATIONS = new Set([
   "resolve-preview-document-draft",
