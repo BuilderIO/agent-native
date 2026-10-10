@@ -1,11 +1,5 @@
 // @vitest-environment happy-dom
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ widget: false }));
@@ -19,31 +13,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { SlideStyleSnapshot } from "./slide-style";
 import { SlideContextToolbar } from "./SlideContextToolbar";
 
-type ResizeCallback = (
-  entries: Array<{ contentRect: { width: number } }>,
-) => void;
-
 let toolbarWidth = 0;
-let resizeCallbacks: ResizeCallback[] = [];
 
 class FakeResizeObserver {
-  constructor(private readonly callback: ResizeCallback) {
-    resizeCallbacks.push(callback);
-  }
   observe() {}
   unobserve() {}
-  disconnect() {
-    resizeCallbacks = resizeCallbacks.filter((cb) => cb !== this.callback);
-  }
-}
-
-function resizeTo(width: number) {
-  toolbarWidth = width;
-  act(() => {
-    for (const callback of resizeCallbacks) {
-      callback([{ contentRect: { width } }]);
-    }
-  });
+  disconnect() {}
 }
 
 function snapshot(
@@ -87,7 +62,7 @@ function snapshot(
 
 function renderToolbar(style: SlideStyleSnapshot) {
   const onArrange = vi.fn();
-  render(
+  const view = render(
     <TooltipProvider>
       <SlideContextToolbar
         snapshot={style}
@@ -98,13 +73,16 @@ function renderToolbar(style: SlideStyleSnapshot) {
       />
     </TooltipProvider>,
   );
-  return { onArrange, toolbar: screen.getByRole("toolbar") };
+  return { onArrange, toolbar: screen.getByRole("toolbar"), view };
 }
+
+// React's generated ids differ between two renders of the same tree.
+const stableMarkup = (html: string) =>
+  html.replace(/«r[0-9a-z]+»|_r_[0-9a-z]+_|:r[0-9a-z]+:/g, "id");
 
 beforeEach(() => {
   state.widget = false;
   toolbarWidth = 0;
-  resizeCallbacks = [];
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     () => ({ width: toolbarWidth }) as DOMRect,
@@ -117,43 +95,33 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("contextual toolbar in a narrow widget pane", () => {
-  it("keeps every inline control outside a widget, whatever the width", () => {
-    toolbarWidth = 400;
-    const { toolbar } = renderToolbar(snapshot());
+describe("contextual toolbar in a widget pane", () => {
+  it.each([400, 1040])(
+    "renders the same toolbar as the app at %s px",
+    (width) => {
+      toolbarWidth = width;
+      const standard = stableMarkup(
+        renderToolbar(snapshot()).toolbar.outerHTML,
+      );
+      cleanup();
 
-    expect(toolbar.getAttribute("data-compact")).toBeNull();
-    expect(screen.getByLabelText("Opacity")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Send to back" })).toBeTruthy();
-  });
+      state.widget = true;
+      const embedded = stableMarkup(
+        renderToolbar(snapshot()).toolbar.outerHTML,
+      );
 
-  it("keeps the single scrolling row in a wide widget pane", () => {
-    state.widget = true;
-    toolbarWidth = 1040;
-    const { toolbar } = renderToolbar(snapshot());
+      expect(embedded).toBe(standard);
+    },
+  );
 
-    expect(toolbar.getAttribute("data-compact")).toBeNull();
-    expect(toolbar.className).not.toContain("flex-wrap");
-    expect(screen.getByLabelText("Opacity")).toBeTruthy();
-  });
-
-  it("wraps and moves secondary object controls into Controls in a narrow pane", () => {
+  it("keeps every inline control in a narrow widget pane", () => {
     state.widget = true;
     toolbarWidth = 400;
     const { toolbar, onArrange } = renderToolbar(snapshot());
 
-    expect(toolbar.getAttribute("data-compact")).toBe("true");
-    expect(toolbar.className).toContain("flex-wrap");
-    // The fill stays inline; the rest of the appearance moved.
-    expect(screen.getByRole("button", { name: /Fill/ })).toBeTruthy();
-    expect(screen.queryByLabelText("Opacity")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Send to back" })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Controls" }));
-
+    expect(toolbar.getAttribute("data-compact")).toBeNull();
+    expect(toolbar.className).not.toContain("flex-wrap");
     expect(screen.getByLabelText("Opacity")).toBeTruthy();
-    expect(screen.getByLabelText("Corner radius")).toBeTruthy();
-    expect(screen.getByLabelText("Stroke weight")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Send to back" }));
     expect(onArrange).toHaveBeenCalledWith("back");
   });
@@ -174,17 +142,5 @@ describe("contextual toolbar in a narrow widget pane", () => {
       expect(screen.getAllByLabelText(name).length).toBeGreaterThan(0);
     }
     expect(screen.getByLabelText("Size")).toBeTruthy();
-  });
-
-  it("returns to the single row when the pane grows", () => {
-    state.widget = true;
-    toolbarWidth = 400;
-    const { toolbar } = renderToolbar(snapshot());
-    expect(toolbar.getAttribute("data-compact")).toBe("true");
-
-    resizeTo(900);
-
-    expect(toolbar.getAttribute("data-compact")).toBeNull();
-    expect(screen.getByLabelText("Opacity")).toBeTruthy();
   });
 });
