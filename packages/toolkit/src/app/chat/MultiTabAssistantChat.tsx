@@ -889,6 +889,7 @@ export type MultiTabAssistantChatProps = Omit<
   /** Reports the exact model engine selected for the active thread. */
   onActiveModelEngineChange?: (engine: ModelEngineConfig | null) => void;
   onCommandListenersReadyChange?: (ready: boolean) => void;
+  onReferenceTargetChange?: () => void;
 };
 
 export function MultiTabAssistantChat({
@@ -911,6 +912,7 @@ export function MultiTabAssistantChat({
   onModelChange: hostOnModelChange,
   onActiveModelEngineChange,
   onCommandListenersReadyChange,
+  onReferenceTargetChange,
   ...props
 }: MultiTabAssistantChatProps) {
   const translate = useT();
@@ -2746,6 +2748,10 @@ export function MultiTabAssistantChat({
     return () => onCommandListenersReadyChange?.(false);
   }, [onCommandListenersReadyChange]);
 
+  useEffect(() => {
+    onReferenceTargetChange?.();
+  }, [activeThreadId, onReferenceTargetChange]);
+
   // Watch for agent-issued chat-command in application-state. The shared
   // DB-sync transport advances this key-specific version, so the command gets
   // one initial read and one read per actual write instead of a 2s loop.
@@ -3281,6 +3287,9 @@ export function MultiTabAssistantChat({
               <div
                 key={tabId}
                 className="flex-1 min-h-0 flex-col"
+                data-agent-chat-reference-target={
+                  tabId === activeThreadId ? tabId : undefined
+                }
                 style={{
                   display:
                     contentHidden || tabId !== activeThreadId ? "none" : "flex",

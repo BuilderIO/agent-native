@@ -129,7 +129,11 @@ type AgentPanelStyle = React.CSSProperties & {
   viewTransitionName?: string;
 };
 
-type PendingPanelEvent = { event: Event; order: number };
+type PendingPanelEvent = {
+  event: Event;
+  order: number;
+  referenceTargetId?: string | null;
+};
 
 const SIDEBAR_STORAGE_KEY = "agent-native-sidebar-width";
 const SIDEBAR_DRAWER_KEY = "agent-native-sidebar-wide-drawer";
@@ -614,6 +618,38 @@ export function AgentSidebar({
   const pendingEventOrder = useRef(0);
   const replayingPanelEvent = useRef<Event | null>(null);
   const drainScheduled = useRef(false);
+  const getReferenceTargetId = useCallback(
+    () =>
+      panelElementRef.current
+        ?.querySelector("[data-agent-chat-reference-target]")
+        ?.getAttribute("data-agent-chat-reference-target") ?? null,
+    [],
+  );
+  const bindPendingReferences = useCallback(() => {
+    const targetId = getReferenceTargetId();
+    if (!targetId) return;
+    for (const pending of pendingPanelEvents.current) {
+      if (pending.referenceTargetId === null)
+        pending.referenceTargetId = targetId;
+    }
+  }, [getReferenceTargetId]);
+  const isReferenceTargetReady = useCallback(
+    (targetId: string | null) => {
+      const element = composerElementRef.current;
+      return (
+        composerReadyRef.current &&
+        element !== null &&
+        panelElementRef.current !== null &&
+        panelElementRef.current.contains(element) &&
+        targetId === getReferenceTargetId() &&
+        (element
+          .closest("[data-agent-chat-reference-target]")
+          ?.getAttribute("data-agent-chat-reference-target") ?? null) ===
+          targetId
+      );
+    },
+    [getReferenceTargetId],
+  );
   const drainPendingPanelEvents = useCallback(() => {
     if (drainScheduled.current) return;
     drainScheduled.current = true;
@@ -625,7 +661,7 @@ export function AgentSidebar({
           const conversationReady =
             conversation &&
             (!isComposerReferenceEvent(conversation.event) ||
-              composerReadyRef.current);
+              isReferenceTargetReady(conversation.referenceTargetId ?? null));
           const queue =
             control &&
             (!conversationReady || control.order < conversation.order)
@@ -650,14 +686,18 @@ export function AgentSidebar({
         );
       }
     });
-  }, []);
+  }, [isReferenceTargetReady]);
+  const onReferenceTargetChange = useCallback(() => {
+    bindPendingReferences();
+    drainPendingPanelEvents();
+  }, [bindPendingReferences, drainPendingPanelEvents]);
   const onPanelReadyChange = useCallback(
     (ready: boolean) => {
       panelReadyRef.current = ready;
       if (!ready) return;
-      drainPendingPanelEvents();
+      onReferenceTargetChange();
     },
-    [drainPendingPanelEvents],
+    [onReferenceTargetChange],
   );
 
   useEffect(() => {
@@ -780,10 +820,16 @@ export function AgentSidebar({
           : new CustomEvent(event.type, {
               detail: (event as CustomEvent).detail,
             });
-      queue.push({ event: queued, order: pendingEventOrder.current++ });
+      queue.push({
+        event: queued,
+        order: pendingEventOrder.current++,
+        referenceTargetId: isComposerReferenceEvent(event)
+          ? getReferenceTargetId()
+          : undefined,
+      });
       setHasPendingPanelEvents(true);
       setBackgroundPanelActive(true);
-      drainPendingPanelEvents();
+      onReferenceTargetChange();
     };
     const shouldRetainEvent = (
       event: Event,
@@ -827,7 +873,7 @@ export function AgentSidebar({
       if (
         !shouldRetainEvent(
           event,
-          composerReadyRef.current,
+          isReferenceTargetReady(getReferenceTargetId()),
           pendingPanelEvents.current,
         )
       )
@@ -860,7 +906,7 @@ export function AgentSidebar({
         !shouldRetainEvent(
           event,
           isComposerReferenceEvent(event)
-            ? composerReadyRef.current
+            ? isReferenceTargetReady(getReferenceTargetId())
             : panelReadyRef.current,
           pendingPanelEvents.current,
         )
@@ -933,7 +979,14 @@ export function AgentSidebar({
         handleComposerUnavailable,
       );
     };
-  }, [ownsPanel, setOpenPersisted, drainPendingPanelEvents]);
+  }, [
+    ownsPanel,
+    setOpenPersisted,
+    drainPendingPanelEvents,
+    getReferenceTargetId,
+    onReferenceTargetChange,
+    isReferenceTargetReady,
+  ]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -1381,6 +1434,7 @@ export function AgentSidebar({
             >
               <AgentSidebarPanel
                 onReadyChange={onPanelReadyChange}
+                onReferenceTargetChange={onReferenceTargetChange}
                 emptyStateText={emptyStateText}
                 suggestions={suggestions}
                 dynamicSuggestions={dynamicSuggestions}

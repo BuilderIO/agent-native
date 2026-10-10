@@ -701,6 +701,130 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     },
   );
 
+  it.each([
+    { transport: "custom", cold: false, close: false },
+    { transport: "message", cold: false, close: false },
+    { transport: "custom", cold: true, close: false },
+    { transport: "message", cold: true, close: false },
+    { transport: "custom", cold: false, close: true },
+  ])(
+    "holds a queued $transport reference for its original tab (cold=$cold, close=$close)",
+    async ({ transport, cold, close }) => {
+      assistantChatMockState.referenceProbe = true;
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      threadMocks.threads.push({
+        ...threadMocks.threads[0],
+        id: "thread-2",
+        title: "Other thread",
+      });
+      window.localStorage.setItem(
+        openTabsStorageKey("bridge-test"),
+        JSON.stringify(["thread-1", "thread-2"]),
+      );
+      const sidebar = () => (
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSidebar
+              defaultOpen={!cold}
+              storageKey="bridge-test"
+              showMissingApiKeySetup={false}
+            >
+              <div>Content</div>
+            </AgentSidebar>
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(sidebar());
+      });
+      await act(async () => {
+        root.render(sidebar());
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      if (cold) expect(container.querySelector(".tiptap")).toBeNull();
+      const detail = {
+        label: "Original tab document",
+        refType: "file",
+        refId: "/original-tab.md",
+        slotKey: "document",
+        insertMessageId: `original-tab-${transport}`,
+      };
+      await act(async () => {
+        window.dispatchEvent(
+          transport === "custom"
+            ? new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, { detail })
+            : new MessageEvent("message", {
+                origin: window.location.origin,
+                data: {
+                  type: AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+                  data: detail,
+                },
+              }),
+        );
+        dispatchSubmitChat({
+          message: "Use the original tab document",
+          submit: false,
+          openSidebar: false,
+        });
+      });
+      if (close) {
+        await act(async () =>
+          window.dispatchEvent(new CustomEvent("agent-chat:close-current-tab")),
+        );
+        expect(
+          container.querySelector('[data-reference-thread="thread-1"]'),
+        ).toBeNull();
+      }
+      assistantChatMockState.referenceDisabled = false;
+      await act(async () => threadMocks.switchThread("thread-2"));
+      expect(assistantChatMockState.referenceDeliveries).toEqual([]);
+      expect(
+        container.querySelector('[data-reference-thread="thread-2"]')
+          ?.textContent,
+      ).not.toContain("Original tab document");
+      const controls: string[] = [];
+      const recordControl = (event: Event) => controls.push(event.type);
+      window.addEventListener("agent-panel:open-settings", recordControl);
+      window.addEventListener("agent-panel:set-mode", recordControl);
+      try {
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent("agent-panel:open-settings", {
+              detail: { section: "api-keys" },
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent("agent-panel:set-mode", {
+              detail: { mode: "chat" },
+            }),
+          );
+        });
+        expect(controls).toEqual([
+          "agent-panel:open-settings",
+          "agent-panel:set-mode",
+        ]);
+        expect(assistantChatMockState.referenceDeliveries).toEqual([]);
+      } finally {
+        window.removeEventListener("agent-panel:open-settings", recordControl);
+        window.removeEventListener("agent-panel:set-mode", recordControl);
+      }
+      await act(async () => threadMocks.switchThread("thread-1"));
+      expect(assistantChatMockState.referenceDeliveries).toEqual([
+        {
+          threadId: "thread-1",
+          context: expect.stringContaining("Original tab document"),
+        },
+      ]);
+      expect(
+        container.querySelector('[data-reference-thread="thread-2"]')
+          ?.textContent,
+      ).not.toContain("Original tab document");
+    },
+  );
+
   it.each(["agent-chat:open-thread", "agent-task-open"])(
     "preserves the actual destination when %s follows blocked conversation work",
     async (type) => {
