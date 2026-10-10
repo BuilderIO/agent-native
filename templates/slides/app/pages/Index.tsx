@@ -698,7 +698,9 @@ export default function Index({ active = true }: { active?: boolean }) {
     },
   );
   const homeSuggestionsProfileReady =
-    quickActionsEnabled && homeSuggestionsProfile.data !== undefined;
+    quickActionsEnabled &&
+    (homeSuggestionsProfile.data !== undefined ||
+      homeSuggestionsProfile.isError);
   const homeSuggestionsCacheScope = JSON.stringify([
     ...homeSuggestionsIdentity,
     homeSuggestionsProfile.data?.onboardingRole ?? null,
@@ -710,7 +712,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     } | null>(null);
   const homeSuggestionsSnapshot =
     homeSuggestionsProfileReady &&
-    homeSuggestionsSnapshotState?.scope === homeSuggestionsCacheScope
+    homeSuggestionsSnapshotState?.scope === homeSuggestionsIdentityScope
       ? homeSuggestionsSnapshotState.suggestions
       : null;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
@@ -756,7 +758,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       result.suggestions.length === 3
     ) {
       setHomeSuggestionsSnapshotState({
-        scope: homeSuggestionsCacheScope,
+        scope: homeSuggestionsIdentityScope,
         suggestions: result.suggestions,
       });
     } else if (
@@ -765,7 +767,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       homeSuggestionsUnavailable
     ) {
       setHomeSuggestionsSnapshotState({
-        scope: homeSuggestionsCacheScope,
+        scope: homeSuggestionsIdentityScope,
         suggestions: fallbackHomeSuggestions,
       });
     }
@@ -773,6 +775,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     homeSuggestionsQuery.data,
     homeSuggestionsSnapshot,
     homeSuggestionsCacheScope,
+    homeSuggestionsIdentityScope,
     quickActionsEnabled,
     homeSuggestionsProfileReady,
     homeSuggestionsUnavailable,

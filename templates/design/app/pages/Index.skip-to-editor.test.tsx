@@ -962,6 +962,40 @@ describe("Index skip to editor", () => {
     expect(container.textContent).toContain("Generated dashboard");
   });
 
+  it("loads suggestions after the profile lookup fails", async () => {
+    await act(async () => root.render(null));
+    mocks.suggestionProfileError = true;
+    mocks.suggestionPending = true;
+    await act(async () => root.render(<Index />));
+
+    const bar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(mocks.suggestionQueryOptions?.enabled).toBe(true);
+    expect(mocks.suggestionQueryScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a", null]),
+    ]);
+    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+
+    mocks.suggestionPending = false;
+    await act(async () => root.render(<Index />));
+
+    expect(container.textContent).toContain("Generated dashboard");
+    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
+
+    mocks.suggestionProfileError = false;
+    mocks.suggestionRole = "product";
+    mocks.suggestionLabel = "Recovered product dashboard";
+    await act(async () => root.render(<Index />));
+
+    expect(container.textContent).toContain("Generated dashboard");
+    expect(container.textContent).not.toContain("Recovered product dashboard");
+    expect(mocks.suggestionQueryOptions?.enabled).toBe(false);
+  });
+
   it("shows the skeleton while retrying a cached unavailable result", async () => {
     await act(async () => root.render(null));
     mocks.suggestionRetrying = true;
@@ -1033,11 +1067,12 @@ describe("Index skip to editor", () => {
     mocks.suggestionLabel = "Product dashboard";
     await act(async () => root.render(<Index />));
 
-    expect(container.textContent).toContain("Product dashboard");
-    expect(container.textContent).not.toContain("Viewer B dashboard");
+    expect(container.textContent).toContain("Viewer B dashboard");
+    expect(container.textContent).not.toContain("Product dashboard");
     expect(mocks.suggestionQueryScope).toEqual([
       JSON.stringify(["viewer-b", "org-b", "product"]),
     ]);
+    expect(mocks.suggestionQueryOptions?.enabled).toBe(false);
   });
 
   it.each([

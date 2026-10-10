@@ -1836,7 +1836,48 @@ describe("Slides prompt-led home", () => {
     ).toBeNull();
   });
 
-  it("keeps suggestions stable during profile refresh and resamples for a new role", async () => {
+  it("loads suggestions after the profile lookup fails", async () => {
+    suggestionQuery.profileError = true;
+    suggestionQuery.pending = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const bar = screen.getByLabelText("home.suggestedPrompts");
+    expect(suggestionQuery.enabled).toBe(true);
+    expect(suggestionQuery.options?.queryKeyScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a", null]),
+    ]);
+    expect(bar.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+
+    suggestionQuery.pending = false;
+    rerenderHome();
+
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+
+    suggestionQuery.profileError = false;
+    suggestionQuery.profileRole = "product";
+    homeSuggestions.value = [
+      {
+        id: "recovered-product-suggestion",
+        label: "Plan a product launch",
+        prompt: "Create a launch plan for a new product feature.",
+      },
+    ];
+    rerenderHome();
+
+    expect(screen.getByRole("button", { name: "Build a pitch" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Plan a product launch" }),
+    ).toBeNull();
+    expect(suggestionQuery.enabled).toBe(false);
+  });
+
+  it("keeps suggestions stable during profile refreshes and role changes", async () => {
     const { rerenderHome } = renderHome();
     await screen.findByRole("button", { name: "Build a pitch" });
 
@@ -1875,10 +1916,11 @@ describe("Slides prompt-led home", () => {
     suggestionQuery.profileFetching = false;
     rerenderHome();
 
+    expect(screen.getByRole("button", { name: "Build a pitch" })).toBeTruthy();
     expect(
-      await screen.findByRole("button", { name: "Plan a product launch" }),
-    ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Build a pitch" })).toBeNull();
+      screen.queryByRole("button", { name: "Plan a product launch" }),
+    ).toBeNull();
+    expect(suggestionQuery.enabled).toBe(false);
     expect(suggestionQuery.options?.queryKeyScope).toEqual([
       JSON.stringify(["viewer-a", "org-a", "product"]),
     ]);
