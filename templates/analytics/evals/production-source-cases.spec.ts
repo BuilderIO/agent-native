@@ -210,6 +210,68 @@ describe("Analytics synthetic production source evals", () => {
     expect(contract.relationGrains).toHaveLength(2);
   });
 
+  it("rejects a negation that follows the expected grain phrase", async () => {
+    const reportFor = (userGrainLine: string) =>
+      runEvals(
+        [cases[0]!],
+        runnerFor({
+          text: [
+            userGrainLine,
+            "dbt_mart.dim_organizations: organization grain",
+            "dbt_intermediate.user_organization_role: membership grain",
+            "user organization membership",
+          ].join("\n"),
+          toolCalls: ["search-bigquery-schema"],
+          ok: true,
+          runId: "eval:trailing-grain-negation-fixture",
+          durationMs: 0,
+        }),
+        { persist: false },
+      );
+
+    const positive = await reportFor(
+      "dbt_mart.dim_users_core: user grain is documented",
+    );
+    const negative = await reportFor(
+      "dbt_mart.dim_users_core: user grain is not the declared grain",
+    );
+
+    expect(positive).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(negative).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(negative.results[0]?.scores[0]?.reason).toContain(
+      "dbt_mart.dim_users_core did not declare its expected user grain",
+    );
+  });
+
+  it("requires complete relation identifiers instead of accepting a prefixed name", async () => {
+    const reportFor = (userRelation: string) =>
+      runEvals(
+        [cases[0]!],
+        runnerFor({
+          text: [
+            `${userRelation}: user grain`,
+            "dbt_mart.dim_organizations: organization grain",
+            "dbt_intermediate.user_organization_role: membership grain",
+            "user organization membership",
+          ].join("\n"),
+          toolCalls: ["search-bigquery-schema"],
+          ok: true,
+          runId: "eval:complete-relation-identifier-fixture",
+          durationMs: 0,
+        }),
+        { persist: false },
+      );
+
+    const complete = await reportFor("dbt_mart.dim_users_core");
+    const prefixed = await reportFor("_backupdbt_mart.dim_users_core");
+
+    expect(complete).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(prefixed).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(prefixed.results[0]?.scores[0]?.reason).toContain(
+      "dbt_mart.dim_users_core did not declare its expected user grain",
+    );
+  });
+
   it("rejects outdated activity and account grain labels", async () => {
     const activityReport = await runEvals(
       [cases[1]!],

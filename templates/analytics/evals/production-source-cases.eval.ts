@@ -107,6 +107,8 @@ export const sourceContracts = {
 const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const PHRASE_EDGE = String.raw`[\p{L}\p{N}_/\p{Pd}]`;
+const GRAIN_NEGATION =
+  /\b(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\b/;
 
 function findCompletePhraseIndex(text: string, phrase: string): number {
   const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -123,10 +125,13 @@ function hasRelationGrainClaim(
   allClaims: RelationGrainClaim[],
 ): boolean {
   const relation = claim.relation.toLowerCase();
-  const matchingLines = lines.filter((line) => line.includes(relation));
+  const matchingLines = lines.filter(
+    (line) => findCompletePhraseIndex(line, relation) >= 0,
+  );
   return matchingLines.some((line) => {
-    const relationsOnLine = allClaims.filter((candidate) =>
-      line.includes(candidate.relation.toLowerCase()),
+    const relationsOnLine = allClaims.filter(
+      (candidate) =>
+        findCompletePhraseIndex(line, candidate.relation.toLowerCase()) >= 0,
     );
     if (relationsOnLine.length !== 1) return false;
 
@@ -151,8 +156,21 @@ function hasRelationGrainClaim(
         line.lastIndexOf(".", index),
       );
       const precedingClause = line.slice(clauseStart + 1, index);
-      return !/\b(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\b/.test(
-        precedingClause,
+      const phraseEnd = index + phrase.length;
+      const followingClauseEnd = [
+        line.indexOf(";", phraseEnd),
+        line.indexOf(",", phraseEnd),
+        line.indexOf(".", phraseEnd),
+      ]
+        .filter((boundary) => boundary >= 0)
+        .sort((left, right) => left - right)[0];
+      const followingClause = line.slice(
+        phraseEnd,
+        followingClauseEnd ?? line.length,
+      );
+      return (
+        !GRAIN_NEGATION.test(precedingClause) &&
+        !GRAIN_NEGATION.test(followingClause)
       );
     });
   });

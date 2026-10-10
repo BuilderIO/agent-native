@@ -155,4 +155,49 @@ describe("list-data-dictionary", () => {
       sourceIndexGeneratedAt: "2026-10-10T00:00:00.000Z",
     });
   });
+
+  it("preserves generated metadata when a partial saved overlay is blank", async () => {
+    mocks.listOrgSettings.mockResolvedValue({
+      "saved-index-copy": {
+        id: "index-generated",
+        metric: "Reviewed name",
+        definition: " ",
+        grain: "",
+        owner: "   ",
+        table: "",
+      },
+    });
+    mocks.sourceIndexDictionaryEntries.mockReturnValue([
+      {
+        id: "index-generated",
+        metric: "Generated name",
+        definition: "Generated definition",
+        grain: "one row per user",
+        owner: "Data team",
+        table: "analytics.users",
+        entryType: "model",
+        sourcePath: "models/users.sql",
+        sourceRevision: "abcdef1234567",
+        sourceIndexGeneratedAt: "2026-10-10T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await action.run({ limit: 50 }, {} as never);
+    const entry = result.results.find(
+      (candidate: Record<string, unknown>) =>
+        candidate.id === "index-generated",
+    );
+
+    expect(entry).toMatchObject({
+      metric: "Reviewed name",
+      definition: "Generated definition",
+      grain: "one row per user",
+      owner: "Data team",
+      table: "analytics.users",
+      entryType: "model",
+      sourcePath: "models/users.sql",
+      sourceRevision: "abcdef1234567",
+      sourceIndexGeneratedAt: "2026-10-10T00:00:00.000Z",
+    });
+  });
 });
