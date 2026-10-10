@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { preparePrivateReplayScreenshotPreviewDocument } from "./private-replay-screenshot-preview";
+import {
+  preparePrivateReplayScreenshotPreviewDocument,
+  replacePrivateScreenshotSrcsetPlaceholder,
+} from "./private-replay-screenshot-preview";
 
 describe("private replay screenshot preview bridge", () => {
   it("moves only local private screenshot sources into the parent bridge", () => {
@@ -81,6 +84,33 @@ describe("private replay screenshot preview bridge", () => {
       "picture.querySelectorAll('source[' + srcsetMarker + ']')",
     );
     expect(prepared.html).not.toContain(route);
+  });
+
+  it("replaces exact srcset placeholders without corrupting longer indices", () => {
+    const placeholder = (index: number) =>
+      `data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=#agent-native-private-replay-${index}`;
+    const firstPlaceholder = placeholder(1);
+    const tenthPlaceholder = placeholder(10);
+    const original = `${firstPlaceholder} 2x, ${tenthPlaceholder} 10x`;
+
+    const firstHydrated = replacePrivateScreenshotSrcsetPlaceholder(
+      original,
+      firstPlaceholder,
+      "blob:https://design.example.test/first",
+    );
+    expect(firstHydrated).toBe(
+      `blob:https://design.example.test/first 2x, ${tenthPlaceholder} 10x`,
+    );
+
+    expect(
+      replacePrivateScreenshotSrcsetPlaceholder(
+        firstHydrated,
+        tenthPlaceholder,
+        "blob:https://design.example.test/tenth",
+      ),
+    ).toBe(
+      "blob:https://design.example.test/first 2x, blob:https://design.example.test/tenth 10x",
+    );
   });
 
   it("removes private screenshot sources when there is no owning design scope", () => {

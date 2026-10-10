@@ -88,9 +88,42 @@ function privateScreenshotPlaceholder(index: number): string {
   return `${PRIVATE_SCREENSHOT_PLACEHOLDER}#agent-native-private-replay-${index}`;
 }
 
+export function replacePrivateScreenshotSrcsetPlaceholder(
+  srcset: string,
+  placeholder: string,
+  objectUrl: string,
+): string {
+  let nextIndex = 0;
+  let lastCopiedIndex = 0;
+  let result = "";
+
+  while (nextIndex < srcset.length) {
+    const candidateStart = srcset.indexOf(placeholder, nextIndex);
+    if (candidateStart === -1) break;
+
+    const candidateEnd = candidateStart + placeholder.length;
+    const startsAtBoundary =
+      candidateStart === 0 || /[\s,]/.test(srcset[candidateStart - 1]!);
+    const endsAtBoundary =
+      candidateEnd === srcset.length || /[\s,]/.test(srcset[candidateEnd]!);
+    if (startsAtBoundary && endsAtBoundary) {
+      result += srcset.slice(lastCopiedIndex, candidateStart) + objectUrl;
+      lastCopiedIndex = candidateEnd;
+      nextIndex = candidateEnd;
+    } else {
+      nextIndex = candidateStart + 1;
+    }
+  }
+
+  return lastCopiedIndex === 0
+    ? srcset
+    : result + srcset.slice(lastCopiedIndex);
+}
+
 function previewBootstrap(nonce: string, parentOrigin: string): string {
   return `<script data-agent-native-private-replay-screenshot-bridge>
 (function() {
+  var replacePrivateScreenshotSrcsetPlaceholder = ${replacePrivateScreenshotSrcsetPlaceholder.toString()};
   var nonce = ${JSON.stringify(nonce)};
   var parentOrigin = ${JSON.stringify(parentOrigin)};
   var marker = ${JSON.stringify(PRIVATE_SCREENSHOT_ATTRIBUTE)};
@@ -195,7 +228,7 @@ function previewBootstrap(nonce: string, parentOrigin: string): string {
           var candidates = JSON.parse(element.getAttribute(srcsetMarker) || '[]');
           var srcset = element.getAttribute('srcset') || '';
           candidates.forEach(function(candidate) {
-            if (candidate.index === data.index) srcset = srcset.split(candidate.placeholder).join(objectUrl);
+            if (candidate.index === data.index) srcset = replacePrivateScreenshotSrcsetPlaceholder(srcset, candidate.placeholder, objectUrl);
           });
           element.setAttribute('srcset', srcset);
         });
