@@ -591,6 +591,12 @@ function isAbortFailure(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
+function isExpectedRequestCancellation(error: unknown): boolean {
+  return (
+    errorProperty(error, "code") === "request_aborted" || isAbortFailure(error)
+  );
+}
+
 function toError(error: unknown, code = "agentkit_client_error"): AgentError {
   const errorCode = errorProperty(error, "code");
   const correlationId = errorProperty(error, "correlationId");
@@ -4422,10 +4428,14 @@ export class AgentKitClient implements AgentKitController {
         context,
       );
       if (!result) return true;
-      this.fail(result.error, "thread_snapshot_persist_failed");
+      if (!isExpectedRequestCancellation(result.error)) {
+        this.fail(result.error, "thread_snapshot_persist_failed");
+      }
       return false;
     } catch (error) {
-      this.fail(error, "thread_snapshot_persist_failed");
+      if (!isExpectedRequestCancellation(error)) {
+        this.fail(error, "thread_snapshot_persist_failed");
+      }
       return false;
     }
   }

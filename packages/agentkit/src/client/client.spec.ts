@@ -3334,48 +3334,59 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
-  it("passes snapshot cancellation to the transport and reports the abort", async () => {
-    let transportSignal: AbortSignal | undefined;
-    const persistThreadSnapshot = vi.fn(
-      (_input: unknown, context?: { signal?: AbortSignal }) =>
-        new Promise<void>((_resolve, reject) => {
-          transportSignal = context?.signal;
-          transportSignal?.addEventListener(
-            "abort",
-            () => reject(transportSignal?.reason),
-            { once: true },
-          );
-        }),
-    );
-    const transport = createTransport([]);
-    transport.persistThreadSnapshot = persistThreadSnapshot;
-    const client = new AgentKitClient({ transport });
-    const abortController = new AbortController();
+  it.each(["caller abort", "checkpoint timeout"] as const)(
+    "does not fail the client for a snapshot %s",
+    async (cancellation) => {
+      let transportSignal: AbortSignal | undefined;
+      const persistThreadSnapshot = vi.fn(
+        (_input: unknown, context?: { signal?: AbortSignal }) =>
+          new Promise<void>((_resolve, reject) => {
+            transportSignal = context?.signal;
+            transportSignal?.addEventListener(
+              "abort",
+              () => reject(transportSignal?.reason),
+              { once: true },
+            );
+          }),
+      );
+      const transport = createTransport([]);
+      transport.persistThreadSnapshot = persistThreadSnapshot;
+      const onError = vi.fn();
+      const client = new AgentKitClient({ transport, onError });
+      const abortController = new AbortController();
 
-    const saving = client.persistThreadSnapshotWithResult(
-      "thread-1",
-      undefined,
-      {
-        signal: abortController.signal,
-      },
-    );
-    await vi.waitFor(() =>
-      expect(persistThreadSnapshot).toHaveBeenCalledOnce(),
-    );
-    abortController.abort();
+      const saving = client.persistThreadSnapshotWithResult(
+        "thread-1",
+        undefined,
+        {
+          signal: abortController.signal,
+        },
+      );
+      await vi.waitFor(() =>
+        expect(persistThreadSnapshot).toHaveBeenCalledOnce(),
+      );
+      if (cancellation === "checkpoint timeout") {
+        const timeout = new Error(
+          "Chat thread snapshot persistence timed out.",
+        );
+        timeout.name = "TimeoutError";
+        abortController.abort(timeout);
+      } else {
+        abortController.abort();
+      }
 
-    await expect(saving).resolves.toBe(false);
-    expect(persistThreadSnapshot).toHaveBeenCalledWith(
-      expect.objectContaining({ threadId: "thread-1" }),
-      expect.objectContaining({ signal: expect.anything() }),
-    );
-    expect(transportSignal?.aborted).toBe(true);
-    expect(client.getSnapshot()).toMatchObject({
-      connection: "error",
-      error: { code: "request_aborted" },
-    });
-    await client.shutdown();
-  });
+      await expect(saving).resolves.toBe(false);
+      expect(persistThreadSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: "thread-1" }),
+        expect.objectContaining({ signal: expect.anything() }),
+      );
+      expect(transportSignal?.aborted).toBe(true);
+      expect(client.getSnapshot()).toMatchObject({ connection: "idle" });
+      expect(client.getSnapshot()).not.toHaveProperty("error");
+      expect(onError).not.toHaveBeenCalled();
+      await client.shutdown();
+    },
+  );
 
   it("reloads the durable annotation after a concurrent snapshot update", async () => {
     const original = {
