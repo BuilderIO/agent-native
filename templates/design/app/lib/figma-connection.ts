@@ -1,4 +1,7 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  WorkspaceAppMountResolutionError,
+  agentNativePath,
+} from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
 
 export const FIGMA_ACCESS_TOKEN_SECRET_KEY = "FIGMA_ACCESS_TOKEN";
@@ -25,7 +28,9 @@ export interface FigmaConnectionStatus {
   managed?: boolean;
 }
 
-const SECRETS_ENDPOINT = agentNativePath("/_agent-native/secrets");
+function secretsEndpoint(): string {
+  return agentNativePath("/_agent-native/secrets");
+}
 
 async function responseError(
   response: Response,
@@ -65,7 +70,7 @@ function redactSubmittedSecret(message: string, secret: string): string {
 export async function getFigmaConnectionStatus(options?: {
   signal?: AbortSignal;
 }): Promise<FigmaConnectionStatus> {
-  const response = await fetch(SECRETS_ENDPOINT, {
+  const response = await fetch(secretsEndpoint(), {
     method: "GET",
     credentials: "same-origin",
     signal: options?.signal,
@@ -97,7 +102,10 @@ export async function getFigmaConnectionStatus(options?: {
           { method: "GET", signal: options?.signal },
         )
           .then((result) => result.available)
-          .catch(() => false)
+          .catch((error) => {
+            if (error instanceof WorkspaceAppMountResolutionError) throw error;
+            return false;
+          })
       : false;
 
   return {
@@ -124,17 +132,15 @@ export async function saveFigmaAccessToken(
   const token = value.trim();
   if (!token) throw new Error("Enter a Figma access token.");
 
+  const endpoint = `${secretsEndpoint()}/${FIGMA_ACCESS_TOKEN_SECRET_KEY}`;
   let response: Response;
   try {
-    response = await fetch(
-      `${SECRETS_ENDPOINT}/${FIGMA_ACCESS_TOKEN_SECRET_KEY}`,
-      {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: token }),
-      },
-    );
+    response = await fetch(endpoint, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: token }),
+    });
   } catch (reason) {
     const message =
       reason instanceof Error && reason.message.trim()

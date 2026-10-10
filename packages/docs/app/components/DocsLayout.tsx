@@ -90,7 +90,11 @@ export default function DocsLayout({
         </div>
       </main>
       {toc && toc.length > 0 ? (
-        <TableOfContents items={toc} markdownUrl={markdownUrl} />
+        <TableOfContents
+          key={location.pathname}
+          items={toc}
+          markdownUrl={markdownUrl}
+        />
       ) : (
         <div className="hidden w-[200px] shrink-0 xl:block" />
       )}

@@ -56,6 +56,7 @@ import {
 import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
 import {
   MultiTabAssistantChat,
+  type MultiTabAssistantChatHeaderCallbackProps,
   type MultiTabAssistantChatHeaderProps,
   type MultiTabAssistantChatProps,
 } from "./MultiTabAssistantChat.js";
@@ -403,11 +404,14 @@ export function shouldShowAgentPanelPageNewChatButton(
   tabs: MultiTabAssistantChatHeaderProps["tabs"],
   activeTabId: string,
   activeTabMessageCount: number,
+  activeTabIsPersisted = false,
 ) {
   return shouldShowAgentPanelPageHeader(
     tabs,
     activeTabId,
     activeTabMessageCount,
+    false,
+    activeTabIsPersisted,
   );
 }
 
@@ -416,9 +420,11 @@ export function shouldShowAgentPanelPageHeader(
   activeTabId: string,
   activeTabMessageCount: number,
   showWhenEmpty = false,
+  activeTabIsPersisted = false,
 ) {
   if (!activeTabId) return false;
   if (activeTabMessageCount > 0) return true;
+  if (activeTabIsPersisted) return true;
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   return Boolean(
@@ -1638,12 +1644,13 @@ function AgentPanelInner({
     ({
       activeTabId,
       activeTabMessageCount,
+      activeTabIsPersisted,
       addTab,
       clearActiveTab,
       showHistory,
       tabs,
       toggleHistory,
-    }: MultiTabAssistantChatHeaderProps) => {
+    }: MultiTabAssistantChatHeaderCallbackProps) => {
       const activeTab = activeTabId
         ? tabs.find((tab) => tab.id === activeTabId)
         : undefined;
@@ -1652,15 +1659,20 @@ function AgentPanelInner({
         activeTabId,
         activeTabMessageCount,
         showPageHeaderWhenEmpty,
+        activeTabIsPersisted,
       );
       const canShareActiveTab =
-        activeTab && (activeTabMessageCount > 0 || activeTab.status !== "idle");
+        activeTab &&
+        (activeTabIsPersisted ||
+          activeTabMessageCount > 0 ||
+          activeTab.status !== "idle");
       const showNewChatAction =
         showPageNewChatButton &&
         shouldShowAgentPanelPageNewChatButton(
           tabs,
           activeTabId,
           activeTabMessageCount,
+          activeTabIsPersisted,
         );
 
       return (
@@ -1837,7 +1849,7 @@ function AgentPanelInner({
       closeAllTabs,
       showHistory,
       toggleHistory,
-    }: MultiTabAssistantChatHeaderProps) => {
+    }: MultiTabAssistantChatHeaderCallbackProps) => {
       const { activeTab, childTabs, focusParentId, hasSubTabs, mainTabs } =
         getAgentPanelChatTabGroups(tabs, activeTabId);
       const showSidebarChatTabs =

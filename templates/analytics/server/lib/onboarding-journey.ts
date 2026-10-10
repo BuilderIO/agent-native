@@ -49,13 +49,13 @@ import {
 
 // Both backends cap a query result at 5,000 rows; stay under it so a full page
 // is never mistaken for a cut one.
-const EVENT_PAGE_ROWS = 4_000;
-const MAX_ONBOARDING_EVENT_READ_PAGES = 2;
+export const ONBOARDING_EVENT_PAGE_ROWS = 4_000;
+export const MAX_ONBOARDING_EVENT_READ_PAGES = 2;
 const MAX_ONBOARDING_JOURNEY_FOLLOWUP_TERMINALS = 2_000;
 const MAX_FOLLOWUP_QUERY_CHARS = 800_000;
 const MAX_FOLLOWUP_QUERY_TOKENS = 50_000;
 const ONBOARDING_QUERY_TIMEOUT_MS = 20_000;
-const ONBOARDING_EVENTS_MAX_BYTES_BILLED = 25_000_000_000;
+export const ONBOARDING_EVENTS_MAX_BYTES_BILLED = 25_000_000_000;
 const ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED = 10_000_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -475,6 +475,40 @@ interface EventRead {
   truncationReason: "max_event_rows" | "backend_result" | "page_budget" | null;
 }
 
+export interface OnboardingJourneyEventPageRequest {
+  sql: string;
+  limit: number;
+  offset: number;
+  eventDateRange: { startDate: string; endDate: string };
+}
+
+export function buildOnboardingJourneyEventPageRequest(
+  filters: OnboardingJourneyEventsFilters,
+  maxEventRows: number,
+  offset: number,
+  observation: OnboardingJourneyObservationWindow,
+  freezeReceivedAt: boolean,
+): OnboardingJourneyEventPageRequest {
+  if (!Number.isSafeInteger(maxEventRows) || maxEventRows < 1) {
+    throw new Error("Journey event row budget must be a positive integer");
+  }
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > maxEventRows) {
+    throw new Error("Journey event page offset is outside the row budget");
+  }
+  const limit = Math.min(ONBOARDING_EVENT_PAGE_ROWS, maxEventRows + 1 - offset);
+  return {
+    sql: buildOnboardingJourneyEventsSql(
+      filters,
+      { limit, offset },
+      observation,
+      { freezeReceivedAt },
+    ),
+    limit,
+    offset,
+    eventDateRange: onboardingJourneyEventDateRange(filters, observation),
+  };
+}
+
 async function readJourneyEvents(
   scope: AnalyticsScope,
   filters: OnboardingJourneyEventsFilters,
@@ -487,7 +521,7 @@ async function readJourneyEvents(
   const maxPages =
     sink === "bigquery"
       ? MAX_ONBOARDING_EVENT_READ_PAGES
-      : Math.ceil((maxEventRows + 1) / EVENT_PAGE_ROWS);
+      : Math.ceil((maxEventRows + 1) / ONBOARDING_EVENT_PAGE_ROWS);
   const raw: Record<string, unknown>[] = [];
   let truncated = false;
   let truncationReason: EventRead["truncationReason"] = null;
@@ -498,28 +532,24 @@ async function readJourneyEvents(
   for (;;) {
     throwIfAborted(signal);
     // One row past the budget tells a full read from a cut one.
-    const limit = Math.min(EVENT_PAGE_ROWS, maxEventRows + 1 - raw.length);
+    const request = buildOnboardingJourneyEventPageRequest(
+      filters,
+      maxEventRows,
+      raw.length,
+      observation,
+      freezeReceivedAt,
+    );
     let page: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
     try {
-      page = await queryFirstPartyAnalytics(
-        buildOnboardingJourneyEventsSql(
-          filters,
-          {
-            limit,
-            offset: raw.length,
-          },
-          observation,
-          { freezeReceivedAt },
-        ),
-        scope,
-        {
-          cache: true,
-          timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
-          maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
-          eventDateRange: onboardingJourneyEventDateRange(filters, observation),
-          signal,
-        },
-      );
+      page = await queryFirstPartyAnalytics(request.sql, scope, {
+        cache: true,
+        timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
+        maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
+        eventDateRange: request.eventDateRange,
+        scopedEventsSingleScan: true,
+        scopedEventsProjection: "onboarding_journey",
+        signal,
+      });
     } catch (error) {
       if (signal?.aborted || isAbortError(error)) throw error;
       throw new OnboardingJourneyReadError(error, pages + 1);
@@ -532,7 +562,7 @@ async function readJourneyEvents(
       truncationReason = "backend_result";
       break;
     }
-    if (page.rows.length < limit) break;
+    if (page.rows.length < request.limit) break;
     if (raw.length > maxEventRows) {
       truncated = true;
       truncationReason = "max_event_rows";
@@ -643,7 +673,7 @@ function groupSessions(rows: readonly JourneyEventRow[]): {
   };
 }
 
-function freezeObservationWindow(
+export function freezeOnboardingJourneyObservationWindow(
   args: OnboardingJourneyEventsFilters,
 ): OnboardingJourneyObservationWindow {
   const requestedAtMs = Date.now();
@@ -1536,7 +1566,7 @@ export async function getOnboardingJourney(
   signal?: AbortSignal,
 ): Promise<JourneyTree | JourneySummary> {
   throwIfAborted(signal);
-  const observation = freezeObservationWindow(args);
+  const observation = freezeOnboardingJourneyObservationWindow(args);
   let read: EventRead;
   try {
     read = await readJourneyEvents(

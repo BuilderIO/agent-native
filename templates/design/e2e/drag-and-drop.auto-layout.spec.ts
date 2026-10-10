@@ -678,7 +678,7 @@ test("physical oversized free layer stays beside an empty auto-layout target", a
     });
     await page.mouse.move(
       target.x + target.width * 0.75,
-      target.y + target.height / 2,
+      target.y + target.height * 0.75,
       { steps: 24 },
     );
     await expect
@@ -690,10 +690,45 @@ test("physical oversized free layer stays beside an empty auto-layout target", a
     await page.mouse.up();
 
     await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toMatch(
-        /data-agent-native-node-id="plain-target"[\s\S]*data-agent-native-node-id="oversized-source"/,
-      );
+      .poll(
+        async () => {
+          const html = await indexHtml(page, designId);
+          return preview(page).evaluate((_body, documentHtml: string) => {
+            const parsed = new DOMParser().parseFromString(
+              documentHtml,
+              "text/html",
+            );
+            const source = parsed.querySelector(
+              '[data-agent-native-node-id="oversized-source"]',
+            ) as HTMLElement | null;
+            const target = parsed.querySelector(
+              '[data-agent-native-node-id="plain-target"]',
+            );
+            return {
+              sourceParent: source?.parentElement?.tagName ?? null,
+              targetParent: target?.parentElement?.tagName ?? null,
+              sourceFollowsTarget: Boolean(
+                source &&
+                target &&
+                target.compareDocumentPosition(source) &
+                  Node.DOCUMENT_POSITION_FOLLOWING,
+              ),
+              sourcePosition: source?.style.position ?? null,
+              sourceLeft: source?.style.left ?? null,
+              sourceTop: source?.style.top ?? null,
+            };
+          }, html);
+        },
+        { timeout: 5_000 },
+      )
+      .toEqual({
+        sourceParent: "BODY",
+        targetParent: "BODY",
+        sourceFollowsTarget: true,
+        sourcePosition: "",
+        sourceLeft: "",
+        sourceTop: "",
+      });
     await openEditor(page, designId);
     const state = await preview(page).evaluate(() => {
       const source = document.querySelector(
@@ -708,12 +743,19 @@ test("physical oversized free layer stays beside an empty auto-layout target", a
             ? "BODY"
             : source?.parentElement?.getAttribute("data-agent-native-node-id"),
         targetContains: !!target && !!source && target.contains(source),
+        sourceFollowsTarget: Boolean(
+          source &&
+          target &&
+          target.compareDocumentPosition(source) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
         position: source ? getComputedStyle(source).position : null,
       };
     });
     expect(state).toEqual({
       sourceParent: "BODY",
       targetContains: false,
+      sourceFollowsTarget: true,
       position: "static",
     });
     expect(state.sourceParent).not.toBe("flow");

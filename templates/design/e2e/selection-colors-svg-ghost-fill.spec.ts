@@ -235,3 +235,232 @@ test("Selection colors replaces a grouped SVG fill without stale inspector color
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
 });
+
+test("adding a fill to mixed pasted SVG paths updates each vector paint", async ({
+  page,
+  request,
+}) => {
+  const created = await action(request, "create-design", {
+    title: `Mixed pasted SVG fill ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId: string | undefined =
+    created?.id ?? created?.data?.id ?? created?.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+  let screenId = "";
+
+  try {
+    const file = await action(request, "create-file", {
+      designId,
+      filename: "screen.html",
+      content:
+        '<!doctype html><html><head></head><body style="margin:0"><main style="position:relative;width:640px;height:480px"></main></body></html>',
+      fileType: "html",
+    });
+    screenId = file?.id ?? file?.data?.id ?? "";
+    if (!screenId) throw new Error("create-file returned no screen id");
+    await gotoEditor(page, designId);
+    await enterDirectMode(page, { screenId });
+
+    const svg =
+      '<svg width="100" height="40" viewBox="0 0 100 40"><g><path d="M0 0h40v40H0z" fill="#f97316"/><path d="M60 0h40v40H60z" fill="#16a34a"/></g></svg>';
+    const frame = designFrame(page, screenId);
+    const pasteAccepted = await frame
+      .locator("body")
+      .evaluate((body, source) => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File([source], "clipboard.svg", {
+            type: "image/svg+xml",
+          }),
+        );
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        body.dispatchEvent(event);
+        return event.defaultPrevented;
+      }, svg);
+    expect(pasteAccepted).toBe(true);
+
+    const pastedSvg = frame.locator(
+      'svg[data-agent-native-layer-name="Pasted SVG"]',
+    );
+    const paths = pastedSvg.locator("path");
+    await expect(paths).toHaveCount(2);
+    await expandAllLayers(page);
+    const layers = page.getByRole("tree", { name: "Layers" });
+    const pathRows = layers.locator('[role="treeitem"][aria-level="4"]');
+    await expect(pathRows).toHaveCount(2);
+    await pathRows.nth(0).click();
+    await pathRows.nth(1).click({ modifiers: ["Shift"] });
+    const selectedRows = layers.locator(
+      '[role="treeitem"][aria-selected="true"]',
+    );
+    await expect(selectedRows).toHaveCount(2);
+
+    const readFills = () =>
+      paths.evaluateAll((shapes) =>
+        shapes.map((shape) => getComputedStyle(shape).fill),
+      );
+    const before = await readFills();
+    expect(before).toHaveLength(2);
+    expect(before[0]).not.toBe(before[1]);
+
+    const fillSection = page
+      .getByRole("heading", { name: "Fill", exact: true })
+      .locator("xpath=ancestor::section");
+    await expect(
+      fillSection.getByText("Click + to replace mixed content", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await fillSection
+      .getByRole("button", { name: "Add fill", exact: true })
+      .click();
+
+    await expect
+      .poll(async () => {
+        const fills = await readFills();
+        return fills.length === 2 && fills[0] === fills[1];
+      })
+      .toBe(true);
+    const after = await readFills();
+    expect(after[0]).not.toBe(before[0]);
+    expect(after[1]).not.toBe(before[1]);
+    const saved = await readSource(page, designId, screenId);
+    expect(saved).toContain("fill: rgb(217 217 217)");
+  } finally {
+    await action(page.request, "delete-design", { id: designId }).catch(
+      () => {},
+    );
+  }
+});
+
+test("equivalent SVG paint spellings show one shared fill", async ({
+  page,
+  request,
+}) => {
+  const created = await action(request, "create-design", {
+    title: `Equivalent SVG paints ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId: string | undefined =
+    created?.id ?? created?.data?.id ?? created?.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+
+  try {
+    const file = await action(request, "create-file", {
+      designId,
+      filename: "screen.html",
+      content:
+        '<!doctype html><html><head></head><body style="margin:0"><main style="position:relative;width:640px;height:480px"></main></body></html>',
+      fileType: "html",
+    });
+    const screenId: string | undefined = file?.id ?? file?.data?.id;
+    if (!screenId) throw new Error("create-file returned no screen id");
+    await gotoEditor(page, designId);
+    await enterDirectMode(page, { screenId });
+
+    const svg =
+      '<svg width="100" height="40" viewBox="0 0 100 40"><g><path data-agent-native-layer-name="Warm left" d="M0 0h40v40H0z" fill="#d9d9d9"/><path data-agent-native-layer-name="Warm right" d="M60 0h40v40H60z" fill="rgb(217 217 217)"/></g></svg>';
+    const frame = designFrame(page, screenId);
+    const pasteAccepted = await frame
+      .locator("body")
+      .evaluate((body, source) => {
+        const transfer = new DataTransfer();
+        transfer.items.add(
+          new File([source], "clipboard.svg", {
+            type: "image/svg+xml",
+          }),
+        );
+        const event = new ClipboardEvent("paste", {
+          bubbles: true,
+          cancelable: true,
+          clipboardData: transfer,
+        });
+        body.dispatchEvent(event);
+        return event.defaultPrevented;
+      }, svg);
+    expect(pasteAccepted).toBe(true);
+
+    await expandAllLayers(page);
+    const layers = page.getByRole("tree", { name: "Layers" });
+    const pathRows = layers.locator('[role="treeitem"][aria-level="4"]');
+    await expect(pathRows).toHaveCount(2);
+    await pathRows.nth(0).click();
+    await pathRows.nth(1).click({ modifiers: ["Shift"] });
+    await expect(
+      layers.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(2);
+
+    const fillSection = page
+      .getByRole("heading", { name: "Fill", exact: true })
+      .locator("xpath=ancestor::section");
+    await expect(
+      fillSection.getByText("Click + to replace mixed content", {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      fillSection.getByRole("button", { name: "Open color picker" }),
+    ).toBeVisible();
+    await expect(
+      fillSection.getByRole("textbox", { name: "Color", exact: true }),
+    ).toHaveValue("D9D9D9");
+
+    const selectionColors = page
+      .locator("section")
+      .filter({
+        has: page.getByRole("heading", {
+          name: "Selection colors",
+          exact: true,
+        }),
+      })
+      .first();
+    const showColors = selectionColors.getByRole("button", {
+      name: "Show selection colors",
+    });
+    if (await showColors.count()) await showColors.click();
+    const colorLabels = () =>
+      selectionColors
+        .locator('button[aria-label^="#"]')
+        .evaluateAll((buttons) =>
+          buttons
+            .map((button) => button.getAttribute("aria-label")?.toLowerCase())
+            .filter((label): label is string => Boolean(label)),
+        );
+    await expect.poll(colorLabels).toEqual(["#d9d9d9"]);
+
+    await page.reload();
+    await enterDirectMode(page, { screenId });
+    await expandAllLayers(page);
+    const reloadedLayers = page.getByRole("tree", { name: "Layers" });
+    const reloadedRows = reloadedLayers.locator(
+      '[role="treeitem"][aria-level="4"]',
+    );
+    await expect(reloadedRows).toHaveCount(2);
+    await reloadedRows.nth(0).click();
+    await reloadedRows.nth(1).click({ modifiers: ["Shift"] });
+    await expect(
+      reloadedLayers.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toHaveCount(2);
+    const reloadedFillSection = page
+      .getByRole("heading", { name: "Fill", exact: true })
+      .locator("xpath=ancestor::section");
+    await expect(
+      reloadedFillSection.getByText("Click + to replace mixed content", {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      reloadedFillSection.getByRole("textbox", {
+        name: "Color",
+        exact: true,
+      }),
+    ).toHaveValue("D9D9D9");
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});

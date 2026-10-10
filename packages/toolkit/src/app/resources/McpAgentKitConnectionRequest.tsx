@@ -191,11 +191,20 @@ export function McpAgentKitConnectionRequestCard({
   );
 }
 
+/**
+ * Returned by `onResume` when the saved request belongs to another chat. The
+ * record is left for its owner, so nothing is cleared, retried, or reported.
+ */
+export type McpAgentKitResumeNotOwned = "not-owner";
+
 export interface McpAgentKitConnectionResumeProps {
   onResume: (
     target: McpAgentKitConnectionTarget,
     request: McpConnectionResumeRequest,
-  ) => void | Promise<void>;
+  ) =>
+    | void
+    | McpAgentKitResumeNotOwned
+    | Promise<void | McpAgentKitResumeNotOwned>;
   onMessageResume?: (
     request: McpConnectionResumeRequest,
   ) => void | Promise<void>;
@@ -219,10 +228,15 @@ export function McpAgentKitConnectionResume({
       const pending = getPendingMcpConnectionResume();
       if (!pending) return;
       processingRef.current = true;
+      setFailed(false);
       try {
         if (pending.agentKit) {
           try {
-            await onResumeRef.current(pending.agentKit, pending);
+            const outcome = await onResumeRef.current(
+              pending.agentKit,
+              pending,
+            );
+            if (outcome === "not-owner") return;
           } catch (error) {
             if (
               !(error instanceof Error) ||
@@ -238,7 +252,6 @@ export function McpAgentKitConnectionResume({
           await onMessageResumeRef.current(pending);
         }
         clearMcpConnectionResume(pending);
-        setFailed(false);
       } finally {
         processingRef.current = false;
       }

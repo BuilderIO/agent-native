@@ -1128,6 +1128,7 @@ export interface ActionEntry {
   allowInPlanMode?: boolean;
   planMode?: import("../action.js").ActionPlanModeConfig<any>;
   changeEvents?: boolean;
+  persistInBrowser?: boolean;
   changeResource?: (
     input: any,
     result: any,
@@ -1693,6 +1694,20 @@ export interface PreparedAgentRequest {
   message?: string;
   displayMessage?: string;
   attachments?: AgentChatAttachment[];
+  /** Server-prepared context that must not be persisted as current-turn uploads. */
+  contextAttachments?: AgentChatAttachment[];
+  contextNote?: string;
+  /** Resolve model-specific context only after the effective model is known. */
+  prepareAfterModel?: (details: {
+    model: string;
+    vision: boolean;
+  }) =>
+    | void
+    | Pick<PreparedAgentRequest, "contextAttachments" | "contextNote">
+    | Promise<void | Pick<
+        PreparedAgentRequest,
+        "contextAttachments" | "contextNote"
+      >>;
   jevPromptCandidates?: JevPromptContextCandidate[];
   jevFallbackCandidateIds?: string[];
   /**
@@ -7597,52 +7612,71 @@ export async function runAgentLoop(opts: {
             throw new Error("Run aborted");
           }
           const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
+          // Only the invoked wording marks a write as possibly run (see
+          // isToolCallTimeoutResult); a timeout before invocation must not use it.
+          let actionInvoked = false;
+          const timeoutMessage = () =>
+            actionInvoked
+              ? `Tool call timed out after ${toolTimeoutMs / 1000} seconds`
+              : `Tool call timed out before the action started after ${toolTimeoutMs / 1000} seconds`;
           const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
           const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
-          const appAuthorization = await resolveTurnAppAuthorization(
-            actionUserEmail ?? undefined,
-            actionOrgId,
-          );
-          const actionContext = {
-            send,
-            userEmail: actionUserEmail ?? undefined,
-            orgId: actionOrgId,
-            appId: opts.appId,
-            ...(appAuthorization
-              ? {
-                  appRoles: appAuthorization.roles,
-                  appPermissions: Object.entries(appAuthorization.permissions)
-                    .filter(([, roles]) =>
-                      roles.some((role) =>
-                        appAuthorization.roles.includes(role),
-                      ),
-                    )
-                    .map(([permission]) => permission),
-                }
-              : {}),
-            caller: opts.actionCaller ?? "tool",
-            automation: opts.automation,
-            networkProtocol: opts.networkProtocol,
-            networkId: opts.networkId,
-            networkPeer: opts.networkPeer,
-            delegationDepth: opts.delegationDepth,
-            visitedApps: opts.visitedApps,
-            blockedA2ATargets,
-            attachments: opts.attachments,
-            signal,
-            actionName: toolCall.name,
-            toolCallId: toolCall.id,
-            ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
-            ...(opts.threadId ? { threadId: opts.threadId } : {}),
-            ...(opts.runId ? { runId: opts.runId } : {}),
-            ...(opts.turnId ? { turnId: opts.turnId } : {}),
-          };
           const requestContext = getRequestContext();
-          const invokeAction = () =>
-            actionEntry.run(
+          // The app-authorization lookup must stay inside the raced action. If it
+          // were awaited before the race, a deadline firing during the await would
+          // reject nothing: the abort listener is attached only inside the race,
+          // and listeners added after an AbortSignal fires never run.
+          const invokeAction = async () => {
+            const appAuthorization = await resolveTurnAppAuthorization(
+              actionUserEmail ?? undefined,
+              actionOrgId,
+            );
+            if (timeoutSignal.aborted) {
+              throw new Error(timeoutMessage());
+            }
+            if (signal.aborted) {
+              throw new Error("Run aborted");
+            }
+            const actionContext = {
+              send,
+              userEmail: actionUserEmail ?? undefined,
+              orgId: actionOrgId,
+              appId: opts.appId,
+              ...(appAuthorization
+                ? {
+                    appRoles: appAuthorization.roles,
+                    appPermissions: Object.entries(appAuthorization.permissions)
+                      .filter(([, roles]) =>
+                        roles.some((role) =>
+                          appAuthorization.roles.includes(role),
+                        ),
+                      )
+                      .map(([permission]) => permission),
+                  }
+                : {}),
+              caller: opts.actionCaller ?? "tool",
+              automation: opts.automation,
+              networkProtocol: opts.networkProtocol,
+              networkId: opts.networkId,
+              networkPeer: opts.networkPeer,
+              delegationDepth: opts.delegationDepth,
+              visitedApps: opts.visitedApps,
+              blockedA2ATargets,
+              attachments: opts.attachments,
+              signal,
+              actionName: toolCall.name,
+              toolCallId: toolCall.id,
+              ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
+              ...(opts.threadId ? { threadId: opts.threadId } : {}),
+              ...(opts.runId ? { runId: opts.runId } : {}),
+              ...(opts.turnId ? { turnId: opts.turnId } : {}),
+            };
+            actionInvoked = true;
+            return actionEntry.run(
               toolCall.input as Record<string, string>,
               actionContext,
             );
+          };
           const actionPromise = Promise.resolve(
             runWithRequestContext(
               {
@@ -7719,11 +7753,7 @@ export async function runAgentLoop(opts: {
             actionPromise,
             new Promise<never>((_, reject) => {
               timeoutSignal.addEventListener("abort", () =>
-                reject(
-                  new Error(
-                    `Tool call timed out after ${toolTimeoutMs / 1000} seconds`,
-                  ),
-                ),
+                reject(new Error(timeoutMessage())),
               );
             }),
             new Promise<never>((_, reject) => {
@@ -10067,6 +10097,8 @@ export function createProductionAgentHandler(
     let requestHistory = submittedHistory;
     let requestStructuredHistory = submittedStructuredHistory;
     let requestReferences = submittedReferences;
+    let requestContextAttachments: AgentChatAttachment[] = [];
+    let requestContextNote = "";
     let requestModel = submittedModel;
     let requestEngine = submittedEngine;
     let requestEffort = submittedEffort;
@@ -10481,6 +10513,12 @@ export function createProductionAgentHandler(
       if (Array.isArray(preparedRequest.attachments)) {
         requestAttachments = preparedRequest.attachments;
       }
+      if (Array.isArray(preparedRequest.contextAttachments)) {
+        requestContextAttachments = preparedRequest.contextAttachments;
+      }
+      if (typeof preparedRequest.contextNote === "string") {
+        requestContextNote = preparedRequest.contextNote;
+      }
       if (Array.isArray(preparedRequest.jevPromptCandidates)) {
         jevPromptCandidates = preparedRequest.jevPromptCandidates;
       }
@@ -10790,6 +10828,10 @@ export function createProductionAgentHandler(
       requestEffort,
       configuredEffort: options.reasoningEffort,
     });
+    const modelSupportsVision = isAgentModelVisionCapable(
+      effectiveModel,
+      engine.capabilities.vision === true,
+    );
 
     options.onEngineResolved?.(engine, effectiveModel);
 
@@ -10857,6 +10899,27 @@ export function createProductionAgentHandler(
           controller.close();
         },
       });
+    }
+
+    const modelPreparedContext = await preparedRequest?.prepareAfterModel?.({
+      model: effectiveModel,
+      vision: modelSupportsVision,
+    });
+    if (modelPreparedContext) {
+      if (Array.isArray(modelPreparedContext.contextAttachments)) {
+        requestContextAttachments = [
+          ...requestContextAttachments,
+          ...modelPreparedContext.contextAttachments,
+        ];
+      }
+      if (typeof modelPreparedContext.contextNote === "string") {
+        requestContextNote = [
+          requestContextNote,
+          modelPreparedContext.contextNote,
+        ]
+          .filter(Boolean)
+          .join("\n");
+      }
     }
 
     setupMark("prepDone");
@@ -11452,12 +11515,13 @@ export function createProductionAgentHandler(
         prefetchNote +
         priorConnectionContextNote(priorConnection) +
         filesContext +
-        planModeAgentNote,
-      attachments: requestAttachments,
-      vision: isAgentModelVisionCapable(
-        effectiveModel,
-        engine.capabilities.vision === true,
-      ),
+        planModeAgentNote +
+        (requestContextAttachments.length > 0
+          ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
+          : "") +
+        (requestContextNote ? `\n\n${requestContextNote}` : ""),
+      attachments: [...requestContextAttachments, ...requestAttachments],
+      vision: modelSupportsVision,
     });
 
     const historyMessages =

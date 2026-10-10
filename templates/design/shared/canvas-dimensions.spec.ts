@@ -363,6 +363,7 @@ describe("resolveCanvasIntent", () => {
     ["Create a display leaderboard", "Leaderboard", 728, 90],
     ["Create a leaderboard ad", "Leaderboard", 728, 90],
     ["Create a leaderboard banner", "Leaderboard", 728, 90],
+    ["Create a mobile leaderboard", "Mobile Leaderboard", 320, 50],
     ["Create a mobile leaderboard ad", "Mobile Leaderboard", 320, 50],
     ["Create an email header", "Email Header", 600, 200],
   ])("resolves %s to %s", (prompt, preset, width, height) => {
@@ -410,7 +411,6 @@ describe("resolveCanvasIntent", () => {
     "Design an ad campaign manager",
     "Create a sales leaderboard",
     "Create a mobile leaderboard app",
-    "Create a mobile leaderboard",
     "Build a mobile leaderboard component",
     "Create a display leaderboard editor",
     "Create a display leaderboard screen",

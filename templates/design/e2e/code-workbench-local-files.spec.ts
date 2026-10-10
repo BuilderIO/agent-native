@@ -33,6 +33,7 @@ let reactBundlePath = "";
 let reactAppUrl = "";
 let devServer: Server | null = null;
 let bridge: DesignConnectBridge | null = null;
+const snapshotFailurePaths = new Set<string>();
 
 function reactFixtureSource(): string {
   const source = `import React from "react";
@@ -224,11 +225,12 @@ test.beforeAll(async ({ request }, workerInfo) => {
   await bundleReactFixture();
 
   devServer = http.createServer((req, res) => {
-    if (req.url?.startsWith("/visual-edit-dead")) {
-      req.socket.destroy();
+    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    if (snapshotFailurePaths.has(pathname)) {
+      res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Snapshot fixture unavailable.");
       return;
     }
-    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
     if (pathname === "/react") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
@@ -984,49 +986,139 @@ test("keeps a URL screen selected when its static snapshot fails", async ({
   page,
   request,
 }) => {
-  const opened = await postAction(request, "add-localhost-screens", {
-    designId,
-    paths: ["/visual-edit-dead"],
-  });
-  const screenId = opened.screens?.[0]?.id;
-  if (!screenId) throw new Error(`Missing dead-route screen: ${opened}`);
+  const unavailablePath = "/visual-edit-dead";
+  const expectedUrl = new URL(unavailablePath, reactAppUrl).toString();
+  snapshotFailurePaths.add(unavailablePath);
+  let unavailablePreviewMatcher: ((url: URL) => boolean) | undefined;
+  let blockedPreviewRequests = 0;
+  try {
+    await openDesignWithLocalNetworkPermission(page);
 
-  const readDesign = async () => {
-    const response = await page.request.get(
-      `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
-    );
-    if (!response.ok()) {
-      throw new Error(
-        `get-design failed: ${response.status()} ${await response.text()}`,
+    unavailablePreviewMatcher = (url) =>
+      url.pathname === "/live-edit" &&
+      url.searchParams.get("url") === expectedUrl;
+    await page.route(unavailablePreviewMatcher, (route) => {
+      blockedPreviewRequests += 1;
+      return route.abort();
+    });
+
+    const opened = await postAction(request, "add-localhost-screens", {
+      designId,
+      paths: [unavailablePath],
+    });
+    const screenId = opened.screens?.[0]?.id;
+    if (!screenId) throw new Error(`Missing dead-route screen: ${opened}`);
+
+    const readDesign = async () => {
+      const response = await page.request.get(
+        `${baseURL}/_agent-native/actions/get-design?id=${encodeURIComponent(designId)}`,
       );
+      if (!response.ok()) {
+        throw new Error(
+          `get-design failed: ${response.status()} ${await response.text()}`,
+        );
+      }
+      return response.json();
+    };
+
+    const beforeDesign = await readDesign();
+    const beforeData = JSON.parse(beforeDesign.data ?? "{}") as Record<
+      string,
+      any
+    >;
+    const beforeFile = beforeDesign.files.find(
+      (file: { id?: string }) => file.id === screenId,
+    );
+    if (typeof beforeFile?.content !== "string") {
+      throw new Error(`URL screen ${screenId} has no readable source file`);
     }
-    return response.json();
-  };
+    expect(beforeData.screenMetadata?.[screenId]).toMatchObject({
+      sourceType: "localhost",
+      url: expectedUrl,
+      path: unavailablePath,
+      connectionId,
+    });
 
-  await openDesignWithLocalNetworkPermission(page);
+    await page.reload({ waitUntil: "commit" });
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
+    await expect.poll(() => blockedPreviewRequests).toBeGreaterThan(0);
 
-  const screenRow = page
-    .getByRole("tree", { name: "Layers" })
-    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
-  await expect(screenRow).toBeVisible();
-  await screenRow.click();
-  await expect(page.getByLabel("Screen URL")).toHaveValue(/visual-edit-dead/);
+    const screenRow = page
+      .getByRole("tree", { name: "Layers" })
+      .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
+    await expect(screenRow).toBeVisible();
+    await screenRow.click();
+    const screenUrlInput = page.getByLabel("Screen URL");
+    await expect(screenUrlInput).toHaveValue(expectedUrl);
 
-  await page.getByRole("tab", { name: "Static", exact: true }).click();
+    const updateRequestPromise = page.waitForRequest(
+      (nextRequest) =>
+        nextRequest
+          .url()
+          .includes("/_agent-native/actions/update-screen-source") &&
+        nextRequest.method() === "POST",
+    );
+    const updateResponsePromise = page.waitForResponse(
+      (response) =>
+        response
+          .url()
+          .includes("/_agent-native/actions/update-screen-source") &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("tab", { name: "Static", exact: true }).click();
 
-  await expect(page.getByLabel("Screen URL")).toBeVisible();
-  await expect
-    .poll(async () => {
-      const design = await readDesign();
-      const data = JSON.parse(design.data ?? "{}") as Record<string, any>;
-      return data.screenMetadata?.[screenId]?.sourceType;
-    })
-    .toBe("localhost");
-  await expect(
-    page
-      .locator("[data-sonner-toast], [role='alert']")
-      .filter({ hasText: /snapshot|bridge|failed|could not/i }),
-  ).toBeVisible({ timeout: 10_000 });
+    const updateRequest = await updateRequestPromise;
+    const updateInput = updateRequest.postDataJSON() as Record<string, unknown>;
+    expect(updateInput).toMatchObject({
+      designId,
+      fileId: screenId,
+      sourceType: "static",
+    });
+    expect(updateInput).not.toHaveProperty("snapshotHtml");
+
+    const updateResponse = await updateResponsePromise;
+    expect(updateResponse.status()).toBe(424);
+    const updateError = await updateResponse.json();
+    expect(updateError.error).toMatch(/snapshot failed \(503\)/i);
+
+    await expect(screenUrlInput).toBeVisible();
+    await expect(screenUrlInput).toHaveValue(expectedUrl);
+    await expect(
+      page
+        .locator("[data-sonner-toast], [role='alert']")
+        .filter({ hasText: /snapshot|bridge|failed|could not/i }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    const afterDesign = await readDesign();
+    const afterData = JSON.parse(afterDesign.data ?? "{}") as Record<
+      string,
+      any
+    >;
+    const afterFile = afterDesign.files.find(
+      (file: { id?: string }) => file.id === screenId,
+    );
+    expect(afterFile?.content).toBe(beforeFile.content);
+    expect(afterData.screenMetadata?.[screenId]).toMatchObject({
+      sourceType: "localhost",
+      url: expectedUrl,
+      path: unavailablePath,
+      connectionId,
+    });
+    expect(afterData.localhostScreens?.[screenId]).toMatchObject({
+      sourceType: "localhost",
+      url: expectedUrl,
+      path: unavailablePath,
+      connectionId,
+    });
+  } finally {
+    if (unavailablePreviewMatcher) {
+      await page.unroute(unavailablePreviewMatcher);
+    }
+    snapshotFailurePaths.delete(unavailablePath);
+  }
 });
 
 test("registers an inactive local Screen at its current bridge endpoint", async ({

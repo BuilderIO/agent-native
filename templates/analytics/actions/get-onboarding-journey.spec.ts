@@ -53,6 +53,15 @@ beforeEach(() => mocks.getOnboardingJourney.mockReset());
 afterEach(() => vi.restoreAllMocks());
 
 describe("get-onboarding-journey read failures", () => {
+  it("bounds event rows below Design's journey count limit", () => {
+    expect(
+      action.schema.parse({ ...args, maxEventRows: 200_000 }).maxEventRows,
+    ).toBe(200_000);
+    expect(() =>
+      action.schema.parse({ ...args, maxEventRows: 200_001 }),
+    ).toThrow();
+  });
+
   it("forwards the action cancellation signal to the journey read", async () => {
     mocks.getOnboardingJourney.mockResolvedValueOnce({ status: "complete" });
     const signal = new AbortController().signal;

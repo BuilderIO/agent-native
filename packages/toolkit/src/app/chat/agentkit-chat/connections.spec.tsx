@@ -101,6 +101,67 @@ describe("McpAgentKitConnectionResume", () => {
     });
   });
 
+  it("leaves a request owned by another chat untouched and silent", async () => {
+    const target = { threadId: "thread-2", runId: "run-1", requestId: "req-1" };
+    saveMcpConnectionResume("Restore the request.", target);
+    const onResume = vi.fn().mockResolvedValue("not-owner");
+    const onMessageResume = vi.fn();
+    const container = document.createElement("div");
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <McpAgentKitConnectionResume
+          onResume={onResume}
+          onMessageResume={onMessageResume}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onResume).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(onMessageResume).not.toHaveBeenCalled();
+    expect(getPendingMcpConnectionResume()).toMatchObject({
+      message: "Restore the request.",
+      agentKit: target,
+    });
+  });
+
+  it("lets only the owning chat resume and clear one completion signal", async () => {
+    const target = { threadId: "thread-1", runId: "run-1", requestId: "req-1" };
+    saveMcpConnectionResume("Restore the request.", target);
+    let finishOwnerResume = () => {};
+    const ownerResume = vi.fn(
+      () => new Promise<void>((resolve) => (finishOwnerResume = resolve)),
+    );
+    const otherResume = vi.fn().mockResolvedValue("not-owner");
+    const container = document.createElement("div");
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <>
+          <McpAgentKitConnectionResume onResume={otherResume} />
+          <McpAgentKitConnectionResume onResume={ownerResume} />
+        </>,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(otherResume).toHaveBeenCalledOnce();
+    expect(ownerResume).toHaveBeenCalledOnce();
+    expect(getPendingMcpConnectionResume()).not.toBeNull();
+
+    await act(async () => {
+      finishOwnerResume();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(getPendingMcpConnectionResume()).toBeNull();
+  });
+
   it("resumes a completed popup after remount and continues when the run is gone", async () => {
     window.history.replaceState({}, "", "/chat/thread-1");
     const target = {

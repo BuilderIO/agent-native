@@ -20,6 +20,7 @@ vi.mock("../analytics.js", () => ({
   trackEvent: trackEventMock,
 }));
 
+import { SessionPreloadContext } from "../use-session.js";
 import {
   __resetOnboardingEventDedupeForTests,
   __resetOnboardingSummaryReadsForTests,
@@ -307,6 +308,67 @@ describe("useOnboarding — summary timeout", () => {
     });
     expect(latest?.loading).toBe(false);
     expect(latest?.error).toBeNull();
+  });
+});
+
+describe("useOnboarding — hinted session preload", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function Harness() {
+    useOnboarding({ initialFirstRun: true });
+    return null;
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("reads the onboarding summary only after the session stops preloading", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/onboarding/summary")) {
+        return jsonResponse({
+          steps: [],
+          dismissed: false,
+          profile: { appId: "app", appName: "App", capabilities: [] },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const summaryReads = () =>
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/onboarding/summary"),
+      ).length;
+    // Passive effects flush when the act scope that rendered them closes, so
+    // the scheduled read only starts once the render's act has ended.
+    const renderHarness = async (preloading: boolean) => {
+      await act(async () => {
+        root.render(
+          <SessionPreloadContext.Provider value={preloading}>
+            <Harness />
+          </SessionPreloadContext.Provider>,
+        );
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      });
+    };
+
+    await renderHarness(true);
+    expect(summaryReads()).toBe(0);
+
+    await renderHarness(false);
+    expect(summaryReads()).toBe(1);
   });
 });
 

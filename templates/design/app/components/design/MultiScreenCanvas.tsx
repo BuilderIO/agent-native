@@ -93,6 +93,7 @@ import {
   memo,
   useRef,
   useState,
+  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -767,6 +768,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const { resolvedTheme } = useTheme();
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const panHitTestShieldRef = useRef<HTMLDivElement | null>(null);
+  const panGestureActiveRef = useRef(false);
+  const panPreviousCursorRef = useRef<string | null>(null);
   const initialCanvasFocusPendingRef = useRef(true);
   const initialCanvasFocusAttemptedRef = useRef(false);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -1271,7 +1275,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const handledSelectAllRequestRef = useRef(selectAllRequest);
   const handledClearSelectionRequestRef = useRef(clearSelectionRequest);
   const [isDragging, setIsDragging] = useState(false);
-  const [isPanning, setIsPanning] = useState(false);
+  const isPanning = panGestureActiveRef.current;
   const wheelGestureActiveRef = useRef(false);
   const wheelGestureMutedElementsRef = useRef<Map<HTMLElement, string> | null>(
     null,
@@ -1514,7 +1518,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const pendingChromeSettleRef = useRef(false);
   const chromeSettleTimerRef = useRef<number | null>(null);
   const [chromeSettling, setChromeSettling] = useState(false);
-  const wheelGestureChromeConsumersRef = useRef<HTMLElement[] | null>(null);
+  const wheelGestureChromeConsumersRef = useRef<Map<
+    string,
+    HTMLElement[]
+  > | null>(null);
+  const wheelGestureStyledConsumersRef = useRef<Set<HTMLElement> | null>(null);
   const lastCameraMoveAtRef = useRef(Number.NEGATIVE_INFINITY);
   const cameraSettleTimerRef = useRef<number | null>(null);
   const [cameraSettledTick, setCameraSettledTick] = useState(0);
@@ -2151,16 +2159,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
 
   useEffect(() => {
-    panRef.current = pan;
-  }, [pan]);
-
-  useEffect(() => {
     marqueeRef.current = marquee;
   }, [marquee]);
-
-  useEffect(() => {
-    zoomRef.current = canvasZoom;
-  }, [canvasZoom]);
 
   useLayoutEffect(() => {
     frameGeometryRef.current = frameGeometry;
@@ -2630,6 +2630,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     return () => {
       dragCleanup.current?.();
+      panHitTestShieldRef.current?.remove();
+      panHitTestShieldRef.current = null;
+      panGestureActiveRef.current = false;
+      panPreviousCursorRef.current = null;
       duplicateCleanup.current?.();
       if (feedbackTimerRef.current !== null) {
         window.clearTimeout(feedbackTimerRef.current);
@@ -5569,7 +5573,45 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [boardCodeLayerSource, boardFileContent, boardFileId],
   );
 
+  const clearPanHitTestShield = useCallback(() => {
+    panHitTestShieldRef.current?.remove();
+    panHitTestShieldRef.current = null;
+    panGestureActiveRef.current = false;
+    const surface = surfaceRef.current;
+    if (surface && panPreviousCursorRef.current !== null) {
+      surface.style.cursor = panPreviousCursorRef.current;
+    }
+    panPreviousCursorRef.current = null;
+  }, []);
+
+  const installPanHitTestShield = useCallback(() => {
+    const surface = surfaceRef.current;
+    if (!surface || panHitTestShieldRef.current) return;
+    const shield = document.createElement("div");
+    shield.dataset.multiScreenCanvasPanShield = "";
+    shield.setAttribute("aria-hidden", "true");
+    Object.assign(shield.style, {
+      position: "absolute",
+      inset: "0",
+      zIndex: "2147483647",
+      pointerEvents: "auto",
+      cursor: "grabbing",
+      backgroundColor: "transparent",
+      touchAction: "none",
+      contain: "strict",
+    });
+    surface.append(shield);
+    panHitTestShieldRef.current = shield;
+  }, []);
+
   const finishDrag = useCallback(() => {
+    if (panGestureActiveRef.current) {
+      startTransition(() => {
+        setPan(panRef.current);
+        setCanvasZoom(zoomRef.current);
+      });
+      recomputePenPointerForViewChangeRef.current();
+    }
     if (feedbackTimerRef.current !== null) {
       window.clearTimeout(feedbackTimerRef.current);
       feedbackTimerRef.current = null;
@@ -5578,7 +5620,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     liveFrameDragPositionsRef.current.clear();
     liveFrameDragSelectionPositionRef.current = null;
     setIsDragging(false);
-    setIsPanning(false);
     setMarquee(null);
     setCreationPreview(null);
     setAlignmentGuides([]);
@@ -5589,8 +5630,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     primitiveDropTargetRef.current = null;
     setPrimitiveDropTarget(null);
     boardElementResizeCancel.current = null;
+    clearPanHitTestShield();
     dragCleanup.current?.();
-  }, []);
+  }, [clearPanHitTestShield, startTransition]);
 
   const scaleScreenContents = useCallback(
     (
@@ -5781,9 +5823,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           );
         } else if (state.type === "pan") {
           panRef.current = { ...state.originPan };
-          setPan(panRef.current);
+          zoomRef.current = state.originZoom;
           applyViewToDomRef.current();
-          recomputePenPointerForViewChangeRef.current();
+          if (lastReportedZoomRef.current !== zoomRef.current) {
+            lastReportedZoomRef.current = zoomRef.current;
+            onZoomChangeRef.current?.(zoomRef.current);
+          }
         } else if (state.type === "marquee") {
           marqueeLifecycleRef.current += 1;
           onLayerMarqueeSelectionChange?.([], {
@@ -5924,30 +5969,44 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         type: "pan",
         originClient: { x: e.clientX, y: e.clientY },
         originPan: panRef.current,
+        originZoom: zoomRef.current,
       };
-      setIsPanning(true);
+      panGestureActiveRef.current = true;
+      const surface = surfaceRef.current;
+      if (surface) {
+        panPreviousCursorRef.current = surface.style.cursor;
+        surface.style.cursor = "grabbing";
+      }
+      installPanHitTestShield();
 
+      // Incremental, not absolute from originPan: a wheel zoom mid-drag moves
+      // panRef, and the mouseup flush replays the last pointer position, which
+      // would otherwise snap the pan back to the drag origin.
+      let lastPanPointer = { x: e.clientX, y: e.clientY };
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
         if (!state || state.type !== "pan") return;
-        const nextPan = {
-          x: state.originPan.x + ev.clientX - state.originClient.x,
-          y: state.originPan.y + ev.clientY - state.originClient.y,
+        panRef.current = {
+          x: panRef.current.x + ev.clientX - lastPanPointer.x,
+          y: panRef.current.y + ev.clientY - lastPanPointer.y,
         };
-        panRef.current = nextPan;
+        lastPanPointer = { x: ev.clientX, y: ev.clientY };
         applyViewToDomRef.current();
         scheduleViewCommitRef.current();
       };
 
       const handlePanEnd = () => {
-        setPan(panRef.current);
-        recomputePenPointerForViewChangeRef.current();
         finishDrag();
       };
 
       installDragListeners(handleMouseMove, handlePanEnd);
     },
-    [cancelPendingStaticBoardSelection, finishDrag, installDragListeners],
+    [
+      cancelPendingStaticBoardSelection,
+      finishDrag,
+      installDragListeners,
+      installPanHitTestShield,
+    ],
   );
 
   const beginMarquee = useCallback(
@@ -9763,12 +9822,40 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const chromeScaleValue = String(nextScale > 0 ? 1 / nextScale : 1);
       const gestureConsumers = wheelGestureChromeConsumersRef.current;
       if (gestureConsumers) {
-        // An inherited custom property changed on the world restyles every
-        // screen under it; mid-gesture only the chrome that reads it updates.
-        gestureConsumers.forEach((element) =>
-          element.style.setProperty(CHROME_SCALE_CSS_VAR, chromeScaleValue),
+        const viewport = getOverscannedViewportCanvasBounds(
+          surfaceSizeRef.current,
+          p,
+          zoomRef.current,
+          0,
         );
-      } else {
+        const updateConsumers = (elements: readonly HTMLElement[]) => {
+          elements.forEach((element) => {
+            if (
+              element.style.getPropertyValue(CHROME_SCALE_CSS_VAR) ===
+              chromeScaleValue
+            ) {
+              return;
+            }
+            element.style.setProperty(CHROME_SCALE_CSS_VAR, chromeScaleValue);
+            wheelGestureStyledConsumersRef.current?.add(element);
+          });
+        };
+        updateConsumers(gestureConsumers.get("") ?? []);
+        if (viewport) {
+          // Offscreen chrome inherits the settled scale until it enters view.
+          screenPaintCandidatesRef.current.forEach((candidate) => {
+            if (
+              !isFrameWithinOverscannedViewport(candidate.geometry, viewport)
+            ) {
+              return;
+            }
+            const consumers = gestureConsumers.get(candidate.id);
+            if (consumers) updateConsumers(consumers);
+          });
+        }
+      } else if (
+        world.style.getPropertyValue(CHROME_SCALE_CSS_VAR) !== chromeScaleValue
+      ) {
         world.style.setProperty(CHROME_SCALE_CSS_VAR, chromeScaleValue);
       }
     }
@@ -9829,7 +9916,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       wheelGestureActiveRef.current = false;
       setWheelCameraGestureActive(false);
       const world = worldRef.current;
-      const consumers = wheelGestureChromeConsumersRef.current;
+      const styledConsumers = wheelGestureStyledConsumersRef.current;
+      wheelGestureStyledConsumersRef.current = null;
       wheelGestureChromeConsumersRef.current = null;
       if (world) {
         world.style.willChange = "";
@@ -9838,7 +9926,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           String(zoomRef.current > 0 ? 100 / zoomRef.current : 1),
         );
       }
-      consumers?.forEach((element) =>
+      styledConsumers?.forEach((element) =>
         element.style.removeProperty(CHROME_SCALE_CSS_VAR),
       );
       const muted = wheelGestureMutedElementsRef.current;
@@ -9852,12 +9940,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
     }
     setCanvasZoom(zoomRef.current);
-    setPan(panRef.current);
+    if (!panGestureActiveRef.current || shouldSettleChrome) {
+      setPan(panRef.current);
+      recomputePenPointerForViewChange();
+    }
     if (lastReportedZoomRef.current !== zoomRef.current) {
       lastReportedZoomRef.current = zoomRef.current;
       onZoomChangeRef.current?.(zoomRef.current);
     }
-    recomputePenPointerForViewChange();
   }, [recomputePenPointerForViewChange, startChromeSettle]);
 
   const scheduleViewCommit = useCallback(
@@ -10010,34 +10100,56 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     releaseWidgetFit,
   ]);
 
-  const markWheelGestureActive = useCallback(() => {
-    if (wheelGestureActiveRef.current) return;
-    cancelPendingStaticBoardSelection();
-    wheelGestureActiveRef.current = true;
-    setWheelCameraGestureActive(true);
-    const world = worldRef.current;
-    if (world) {
-      // Holding the raster scale lets the GPU scale one texture instead of
-      // re-rastering every screen per step; the settle re-rasters once.
-      // compositing-ok: gesture-scoped, cleared in commitView.
-      world.style.willChange = "transform";
-      wheelGestureChromeConsumersRef.current = Array.from(
-        world.querySelectorAll<HTMLElement>("[data-an-chrome-scale]"),
-      );
-    }
-    const surface = surfaceRef.current;
-    if (!surface) return;
-    const muted = new Map<HTMLElement, string>();
-    surface
-      .querySelectorAll<HTMLElement>(
-        "[data-screen-content], [data-board-surface-layer]",
-      )
-      .forEach((element) => {
-        muted.set(element, element.style.pointerEvents);
-        element.style.pointerEvents = "none";
-      });
-    wheelGestureMutedElementsRef.current = muted;
-  }, [cancelPendingStaticBoardSelection]);
+  const markWheelGestureActive = useCallback(
+    (zoomChangesChrome: boolean) => {
+      const world = worldRef.current;
+      const collectChromeConsumers = () => {
+        if (!world) return;
+        const consumersByFrameId = new Map<string, HTMLElement[]>();
+        world
+          .querySelectorAll<HTMLElement>("[data-an-chrome-scale]")
+          .forEach((element) => {
+            const frameId =
+              element.closest<HTMLElement>("[data-frame-id]")?.dataset
+                .frameId ?? "";
+            const consumers = consumersByFrameId.get(frameId);
+            if (consumers) consumers.push(element);
+            else consumersByFrameId.set(frameId, [element]);
+          });
+        wheelGestureChromeConsumersRef.current = consumersByFrameId;
+        wheelGestureStyledConsumersRef.current = new Set();
+      };
+      if (wheelGestureActiveRef.current) {
+        if (zoomChangesChrome && !wheelGestureChromeConsumersRef.current) {
+          collectChromeConsumers();
+        }
+        return;
+      }
+      cancelPendingStaticBoardSelection();
+      wheelGestureActiveRef.current = true;
+      setWheelCameraGestureActive(true);
+      if (world) {
+        // Holding the raster scale lets the GPU scale one texture instead of
+        // re-rastering every screen per step; the settle re-rasters once.
+        // compositing-ok: gesture-scoped, cleared in commitView.
+        world.style.willChange = "transform";
+      }
+      if (zoomChangesChrome) collectChromeConsumers();
+      const surface = surfaceRef.current;
+      if (!surface) return;
+      const muted = new Map<HTMLElement, string>();
+      surface
+        .querySelectorAll<HTMLElement>(
+          "[data-screen-content], [data-board-surface-layer]",
+        )
+        .forEach((element) => {
+          muted.set(element, element.style.pointerEvents);
+          element.style.pointerEvents = "none";
+        });
+      wheelGestureMutedElementsRef.current = muted;
+    },
+    [cancelPendingStaticBoardSelection],
+  );
 
   const flushPendingWheelGesture = useCallback(() => {
     wheelGestureFrameRef.current = null;
@@ -10081,7 +10193,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     if (!moved) return;
     releaseWidgetFit();
     panRef.current = nextPan;
-    markWheelGestureActive();
+    markWheelGestureActive(settleChrome);
     applyViewToDom();
     scheduleViewCommit(settleChrome ? { settleChrome: true } : undefined);
   }, [
@@ -11060,7 +11172,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     protectedLiveScreenIds,
     surfaceSize,
   ]);
-
   // The widget camera: the opened screen with its breakpoint frames, as they
   // render now, fit whole and centered in the pane. It is a function of the
   // pane and the rendered group only, so every size, measured-height or
@@ -11162,8 +11273,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         canvasZoom,
       ),
       admitNew:
+        !isPanning &&
+        !wheelGestureActiveRef.current &&
         performance.now() - lastCameraMoveAtRef.current >=
-        LIVE_EDITOR_ADMIT_IDLE_MS,
+          LIVE_EDITOR_ADMIT_IDLE_MS,
     });
     const previous = liveEditorScreenIdsRef.current;
     liveEditorScreenIdsRef.current = next;
@@ -11181,6 +11294,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     canvasZoom,
     editorProtectedScreenIds,
     exportPreviewScreenId,
+    isPanning,
     levelOfDetail,
     pan,
     surfaceSize,
@@ -11685,10 +11799,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             bottom: focusedInteract ? 0 : undefined,
             transform: focusedInteractFrame
               ? `translate(${surfaceSize.width / 2 - (SURFACE_PADDING + focusedInteractFrame.geometry.x + focusedInteractFrame.geometry.width / 2) * scale}px, ${surfaceSize.height / 2 - (SURFACE_PADDING + focusedInteractFrame.geometry.y + focusedInteractFrame.geometry.height / 2) * scale}px) scale(${scale})`
-              : `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+              : `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${zoomRef.current / 100})`,
             transformOrigin: "top left",
             visibility: focusedInteract ? "hidden" : undefined,
-            [CHROME_SCALE_CSS_VAR]: chromeScale,
+            [CHROME_SCALE_CSS_VAR]:
+              zoomRef.current > 0 ? 100 / zoomRef.current : 1,
           } as CSSProperties
         }
       >
@@ -13566,6 +13681,8 @@ const Screen = memo(function Screen({
     !isSelected &&
     !groupSelected &&
     !suppressFrameChromeForChild;
+  const showFrameChrome =
+    cullTier === "visible" || isActive || isSelected || focusedInteract;
   const screenContentInteractive =
     Boolean(screenContent) &&
     (interactMode ||
@@ -13740,111 +13857,115 @@ const Screen = memo(function Screen({
           onStartFrameDrag(screen.id, e);
         }}
       >
-        <div
-          data-frame-label
-          className="absolute left-1 top-1/2 flex min-w-0 items-center gap-1.5"
-          onMouseEnter={() => updateDirectHover(true)}
-          onMouseLeave={() => updateDirectHover(false)}
-          data-an-chrome-scale
-          style={{
-            width: labelInfoMaxWidth,
-            maxWidth: labelInfoMaxWidth,
-            visibility: frameLabelHidden ? "hidden" : undefined,
-            transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-            transformOrigin: "left center",
-            transition: getChromeLabelTransition(chromeSettling),
-          }}
-        >
-          {/* The screen label has no leading decoration; its text carries the
+        {showFrameChrome ? (
+          <>
+            <div
+              data-frame-label
+              className="absolute left-1 top-1/2 flex min-w-0 items-center gap-1.5"
+              onMouseEnter={() => updateDirectHover(true)}
+              onMouseLeave={() => updateDirectHover(false)}
+              data-an-chrome-scale
+              style={{
+                width: labelInfoMaxWidth,
+                maxWidth: labelInfoMaxWidth,
+                visibility: frameLabelHidden ? "hidden" : undefined,
+                transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
+                transformOrigin: "left center",
+                transition: getChromeLabelTransition(chromeSettling),
+              }}
+            >
+              {/* The screen label has no leading decoration; its text carries the
               screen name and breakpoint state. */}
-          <span
-            data-frame-title
-            className={cn(
-              "min-w-0 flex-1 truncate !text-[11px] font-medium",
-              labelEmphasized
-                ? "text-[var(--design-editor-accent-color)]"
-                : activeOrEmphasized
-                  ? "text-foreground"
-                  : "text-muted-foreground",
-            )}
-            title={screen.filename}
-          >
-            {display}
-          </span>
-          {pendingReview && onReviewPendingScreen ? (
+              <span
+                data-frame-title
+                className={cn(
+                  "min-w-0 flex-1 truncate !text-[11px] font-medium",
+                  labelEmphasized
+                    ? "text-[var(--design-editor-accent-color)]"
+                    : activeOrEmphasized
+                      ? "text-foreground"
+                      : "text-muted-foreground",
+                )}
+                title={screen.filename}
+              >
+                {display}
+              </span>
+              {pendingReview && onReviewPendingScreen ? (
+                <button
+                  type="button"
+                  data-node-rewrite-review-badge
+                  className="flex h-5 shrink-0 items-center gap-1 rounded-full border border-border bg-background/95 px-1.5 !text-[9px] font-medium text-foreground shadow-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  title={t("designEditor.nodeRewrite.reviewCandidate")}
+                  aria-label={t("designEditor.nodeRewrite.reviewCandidate")}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onReviewPendingScreen(screen.id);
+                  }}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                >
+                  <span className="size-1.5 rounded-full bg-primary" />
+                  {t("designEditor.nodeRewrite.reviewCandidate")}
+                </button>
+              ) : null}
+              {metadata.source === "fusion" ? (
+                <span
+                  data-frame-source-badge="fusion"
+                  className="shrink-0 rounded-sm bg-muted-foreground/15 px-1 !text-[9px] font-medium uppercase tracking-wide text-muted-foreground"
+                  title={
+                    "Backed by a running app" /* i18n-ignore short frame badge, mirrors other frame-chrome literals in this file */
+                  }
+                >
+                  {
+                    "App" /* i18n-ignore short frame badge, mirrors other frame-chrome literals in this file */
+                  }
+                </span>
+              ) : null}
+            </div>
             <button
               type="button"
-              data-node-rewrite-review-badge
-              className="flex h-5 shrink-0 items-center gap-1 rounded-full border border-border bg-background/95 px-1.5 !text-[9px] font-medium text-foreground shadow-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              title={t("designEditor.nodeRewrite.reviewCandidate")}
-              aria-label={t("designEditor.nodeRewrite.reviewCandidate")}
+              data-frame-full-view
+              data-compact={compactFullView || undefined}
+              className={cn(
+                "absolute right-1 top-1/2 z-40 flex h-5 shrink-0 items-center overflow-hidden rounded-md border border-border bg-background/95 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
+                compactFullView ? "w-5 justify-center px-0" : "gap-1 px-1.5",
+                "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                fullViewVisible && "opacity-100",
+              )}
+              data-an-chrome-scale
+              style={{
+                display: focusedInteract ? "none" : undefined,
+                maxWidth: fullViewMaxWidth,
+                transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
+                transformOrigin: "right center",
+                transition: getChromeLabelTransition(
+                  chromeSettling && fullViewVisible,
+                ),
+              }}
+              aria-label={frameActionLabel}
+              title={frameActionLabel}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onReviewPendingScreen(screen.id);
+                onEdit(screen.id, event);
               }}
               onMouseDown={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
               }}
+              onMouseEnter={() => updateDirectHover(true)}
+              onMouseLeave={() => updateDirectHover(false)}
             >
-              <span className="size-1.5 rounded-full bg-primary" />
-              {t("designEditor.nodeRewrite.reviewCandidate")}
+              <IconFocus2 className="size-3 shrink-0" />
+              <span className={cn("truncate", compactFullView && "sr-only")}>
+                {frameActionLabel}
+              </span>
             </button>
-          ) : null}
-          {metadata.source === "fusion" ? (
-            <span
-              data-frame-source-badge="fusion"
-              className="shrink-0 rounded-sm bg-muted-foreground/15 px-1 !text-[9px] font-medium uppercase tracking-wide text-muted-foreground"
-              title={
-                "Backed by a running app" /* i18n-ignore short frame badge, mirrors other frame-chrome literals in this file */
-              }
-            >
-              {
-                "App" /* i18n-ignore short frame badge, mirrors other frame-chrome literals in this file */
-              }
-            </span>
-          ) : null}
-        </div>
-        <button
-          type="button"
-          data-frame-full-view
-          data-compact={compactFullView || undefined}
-          className={cn(
-            "absolute right-1 top-1/2 z-40 flex h-5 shrink-0 items-center overflow-hidden rounded-md border border-border bg-background/95 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
-            compactFullView ? "w-5 justify-center px-0" : "gap-1 px-1.5",
-            "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            fullViewVisible && "opacity-100",
-          )}
-          data-an-chrome-scale
-          style={{
-            display: focusedInteract ? "none" : undefined,
-            maxWidth: fullViewMaxWidth,
-            transform: `translateY(-50%) scale(var(${CHROME_SCALE_CSS_VAR}, ${chromeScale}))`,
-            transformOrigin: "right center",
-            transition: getChromeLabelTransition(
-              chromeSettling && fullViewVisible,
-            ),
-          }}
-          aria-label={frameActionLabel}
-          title={frameActionLabel}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onEdit(screen.id, event);
-          }}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-          }}
-          onMouseEnter={() => updateDirectHover(true)}
-          onMouseLeave={() => updateDirectHover(false)}
-        >
-          <IconFocus2 className="size-3 shrink-0" />
-          <span className={cn("truncate", compactFullView && "sr-only")}>
-            {frameActionLabel}
-          </span>
-        </button>
+          </>
+        ) : null}
       </div>
       <div
         data-screen-card
@@ -14048,41 +14169,45 @@ const Screen = memo(function Screen({
             />
           ) : null}
         </span>
-        <span
-          data-screen-hover-outline
-          className={cn(
-            "pointer-events-none absolute inset-0 z-10 rounded-[inherit] border border-[var(--design-editor-accent-color)] transition-opacity",
-            showHoverChrome ? "opacity-100" : "opacity-0",
-          )}
-          style={{
-            borderWidth: chromeScale,
-            transition: getChromeBorderTransition(
-              chromeSettling && showHoverChrome,
-            ),
-          }}
-          aria-hidden="true"
-        />
+        {showFrameChrome ? (
+          <span
+            data-screen-hover-outline
+            className={cn(
+              "pointer-events-none absolute inset-0 z-10 rounded-[inherit] border border-[var(--design-editor-accent-color)] transition-opacity",
+              showHoverChrome ? "opacity-100" : "opacity-0",
+            )}
+            style={{
+              borderWidth: chromeScale,
+              transition: getChromeBorderTransition(
+                chromeSettling && showHoverChrome,
+              ),
+            }}
+            aria-hidden="true"
+          />
+        ) : null}
         <span className="pointer-events-none absolute inset-0 rounded-[inherit] border border-black/5" />
-        <ResizeHandles
-          active={false}
-          enabled={
-            !focusedInteract &&
-            !selectionOutlined &&
-            !elementSelectedInScreen &&
-            !penActive &&
-            !creationToolActive &&
-            handlesEnabled
-          }
-          showOnHover={false}
-          showRotate
-          chromeScale={chromeScale}
-          chromeSettling={chromeSettling}
-          rotationDeg={geometry.rotation ?? 0}
-          frameWidth={geometry.width}
-          frameHeight={geometry.height}
-          onStartResize={(handle, e) => onStartResize(screen.id, handle, e)}
-          onStartRotate={(e) => onStartRotate(screen.id, e)}
-        />
+        {showFrameChrome ? (
+          <ResizeHandles
+            active={false}
+            enabled={
+              !focusedInteract &&
+              !selectionOutlined &&
+              !elementSelectedInScreen &&
+              !penActive &&
+              !creationToolActive &&
+              handlesEnabled
+            }
+            showOnHover={false}
+            showRotate
+            chromeScale={chromeScale}
+            chromeSettling={chromeSettling}
+            rotationDeg={geometry.rotation ?? 0}
+            frameWidth={geometry.width}
+            frameHeight={geometry.height}
+            onStartResize={(handle, e) => onStartResize(screen.id, handle, e)}
+            onStartRotate={(e) => onStartRotate(screen.id, e)}
+          />
+        ) : null}
       </div>
 
       {/* Multi-breakpoint preview row.
@@ -14090,7 +14215,8 @@ const Screen = memo(function Screen({
           the screen has breakpointWidths set. Each frame shares the same
           srcdoc content at a different viewport width. The active breakpoint
           is highlighted and clicking a frame header sets the edit scope. */}
-      {!focusedInteract &&
+      {showFrameChrome &&
+      !focusedInteract &&
       screen.breakpointWidths &&
       screen.breakpointWidths.length > 0 ? (
         <BreakpointPreviewRow
@@ -14213,8 +14339,9 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
     prev.penActive === next.penActive &&
     prev.creationToolActive === next.creationToolActive &&
     prev.canvasGestureActive === next.canvasGestureActive &&
-    prev.chromeScale === next.chromeScale &&
-    prev.chromeSettling === next.chromeSettling &&
+    (next.cullTier !== "visible" ||
+      (prev.chromeScale === next.chromeScale &&
+        prev.chromeSettling === next.chromeSettling)) &&
     prev.onPick === next.onPick &&
     prev.onEdit === next.onEdit &&
     prev.onEnterFrame === next.onEnterFrame &&

@@ -57,6 +57,7 @@ import {
   hasActiveAgentRuns,
   selectLatestAgentRun,
   reduceAgentEvent,
+  retireSupersededConnectionRequests,
   settleRunProjection,
   type AgentKitSnapshot,
   type AgentRunState,
@@ -376,11 +377,25 @@ export interface AgentKitController {
   getSnapshot(): AgentKitSnapshot;
   subscribe(listener: AgentKitListener): () => void;
   getThread(threadId: ThreadId): AgentThreadState;
-  /** Persist the current thread snapshot, optionally with a host-filtered message list. */
+  /**
+   * Persist through the configured transport when supported. Expected
+   * cancellation or queue deferral resolves without confirming that it saved;
+   * use persistThreadSnapshotWithResult() when the caller needs that status.
+   * Unexpected transport failures reject.
+   */
   persistThreadSnapshot(
     threadId: ThreadId,
     messages?: AgentMessage[],
   ): Promise<void>;
+  /**
+   * Return true when saved, false when failed, cancelled, or deferred, or
+   * undefined when unsupported.
+   */
+  persistThreadSnapshotWithResult?(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+    context?: AgentRequestContext,
+  ): Promise<boolean | undefined>;
   openThread(
     threadId: ThreadId,
     context?: AgentRequestContext,
@@ -579,6 +594,21 @@ function errorIsRetryable(error: unknown, fallback = true): boolean {
 
 function isAbortFailure(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
+}
+
+function isExpectedRequestCancellation(error: unknown): boolean {
+  return (
+    errorProperty(error, "code") === "request_aborted" || isAbortFailure(error)
+  );
+}
+
+function isExpectedThreadSnapshotDeferral(error: unknown): boolean {
+  const code = errorProperty(error, "code");
+  return (
+    isExpectedRequestCancellation(error) ||
+    code === "thread_snapshot_queue_full" ||
+    code === "thread_snapshot_queue_stalled"
+  );
 }
 
 function toError(error: unknown, code = "agentkit_client_error"): AgentError {
@@ -4390,16 +4420,53 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     messages?: AgentMessage[],
   ): Promise<void> {
-    const result = await this.persistThreadSnapshotToTransport(
+    const result = await this.captureThreadSnapshotPersistence(
       threadId,
       messages,
     );
-    if (result) this.fail(result.error, "thread_snapshot_persist_failed");
+    if (!result || isExpectedThreadSnapshotDeferral(result.error)) return;
+    this.fail(result.error, "thread_snapshot_persist_failed");
+    throw new Error("Thread snapshot persistence failed.");
+  }
+
+  public async persistThreadSnapshotWithResult(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+    context?: AgentRequestContext,
+  ): Promise<boolean | undefined> {
+    if (!this.transport.persistThreadSnapshot) return undefined;
+    const result = await this.captureThreadSnapshotPersistence(
+      threadId,
+      messages,
+      context,
+    );
+    if (!result) return true;
+    if (!isExpectedThreadSnapshotDeferral(result.error)) {
+      this.fail(result.error, "thread_snapshot_persist_failed");
+    }
+    return false;
+  }
+
+  private async captureThreadSnapshotPersistence(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+    context?: AgentRequestContext,
+  ): Promise<{ error: unknown } | undefined> {
+    try {
+      return await this.persistThreadSnapshotToTransport(
+        threadId,
+        messages,
+        context,
+      );
+    } catch (error) {
+      return { error };
+    }
   }
 
   private persistThreadSnapshotToTransport(
     threadId: ThreadId,
     messages?: AgentMessage[],
+    context?: AgentRequestContext,
   ): Promise<{ error: unknown } | undefined> {
     const persist = this.transport.persistThreadSnapshot;
     if (!persist) return Promise.resolve(undefined);
@@ -4442,8 +4509,9 @@ export class AgentKitClient implements AgentKitController {
         return messageId ? [{ messageId, widget }] : [];
       }),
     };
-    return this.invokeRequest(this.createRequestContext(), (requestContext) =>
-      persist({ threadId, snapshot }, requestContext),
+    return this.invokeRequest(
+      this.createRequestContext(context),
+      (requestContext) => persist({ threadId, snapshot }, requestContext),
     )
       .then(() => undefined)
       .catch((error) => ({ error }));
@@ -4714,7 +4782,10 @@ export class AgentKitClient implements AgentKitController {
         this.scheduleQueuePromotion(threadId, true);
       }
     }
-    if (persistenceError) {
+    if (
+      persistenceError &&
+      !isExpectedThreadSnapshotDeferral(persistenceError.error)
+    ) {
       this.fail(persistenceError.error, "thread_snapshot_persist_failed");
     }
   }
@@ -4831,16 +4902,21 @@ export class AgentKitClient implements AgentKitController {
       (run): run is TerminalRunState =>
         this.isTerminalStatus(run.status) && !pendingCatchUpRunIds.has(run.id),
     );
-    const settled = terminalRuns.reduce(
-      (currentThread, run) =>
-        settleRunProjection(
-          currentThread,
-          run.id,
-          unconfirmableCatchUpRunIds.has(run.id) ? "failed" : run.status,
-          run.completedAt ?? this.now(),
-          run.activeMessageId,
-        ),
-      thread,
+    // A snapshot lists a request with the status it had when it was written, so
+    // every load re-retires what the live event order already retired.
+    const settled = retireSupersededConnectionRequests(
+      terminalRuns.reduce(
+        (currentThread, run) =>
+          settleRunProjection(
+            currentThread,
+            run.id,
+            unconfirmableCatchUpRunIds.has(run.id) ? "failed" : run.status,
+            run.completedAt ?? this.now(),
+            run.activeMessageId,
+            run.status,
+          ),
+        thread,
+      ),
     );
     if (
       pendingCatchUpRunIds.size > 0 ||
@@ -5536,12 +5612,18 @@ export class AgentKitClient implements AgentKitController {
           : current.events === baseline.events
             ? loaded.events
             : this.mergeEvents(loaded.events, live.events),
-      agents: mergeRecordProjection(
-        loaded.agents,
-        baseline.agents,
-        live.agents,
-        "agents",
-      ),
+      // Participants are never removed, and durable history drops agent.*
+      // events without listing agents, so a loaded registry can only add to
+      // or refresh the live one.
+      agents: {
+        ...live.agents,
+        ...mergeRecordProjection(
+          loaded.agents,
+          baseline.agents,
+          live.agents,
+          "agents",
+        ),
+      },
       agentInteractions: mergeListProjection(
         loaded.agentInteractions,
         baseline.agentInteractions,

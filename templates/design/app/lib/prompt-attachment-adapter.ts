@@ -1,6 +1,10 @@
 import type { PromptComposerProps } from "@agent-native/toolkit/app/chat/composer/index";
 
-import { MAX_UPLOAD_BYTES } from "@/lib/upload-limits";
+import { isVisualImageAttachment } from "@/lib/chat-image-attachments";
+import {
+  MAX_IMAGE_ATTACHMENT_BYTES,
+  MAX_UPLOAD_BYTES,
+} from "@/lib/upload-limits";
 
 const DESIGN_PROMPT_ATTACHMENT_ACCEPT = [
   ".html",
@@ -25,14 +29,21 @@ const DESIGN_PROMPT_ATTACHMENT_ACCEPT = [
 
 export function createDesignPromptAttachmentAdapter(
   attachmentLimitMessage: string,
+  imageAttachmentLimitMessage = attachmentLimitMessage,
 ) {
   return {
     accept: DESIGN_PROMPT_ATTACHMENT_ACCEPT,
     async add({ file }) {
-      if (file.size > MAX_UPLOAD_BYTES) throw new Error(attachmentLimitMessage);
+      if (isVisualImageAttachment(file)) {
+        if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+          throw new Error(imageAttachmentLimitMessage);
+        }
+      } else if (file.size > MAX_UPLOAD_BYTES) {
+        throw new Error(attachmentLimitMessage);
+      }
       return {
         id: crypto.randomUUID(),
-        type: /\.(png|jpe?g|webp|gif)$/i.test(file.name) ? "image" : "document",
+        type: isVisualImageAttachment(file) ? "image" : "document",
         name: file.name,
         contentType: file.type || "application/octet-stream",
         file,

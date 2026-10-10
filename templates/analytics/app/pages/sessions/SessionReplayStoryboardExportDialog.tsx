@@ -25,6 +25,7 @@ import { getIdToken } from "@/lib/auth";
 import {
   captureReplayScreenshot,
   ReplayScreenshotAssetError,
+  ReplayScreenshotCaptureError,
 } from "./session-replay-screenshot";
 
 const MAX_REPLAYS = 3;
@@ -187,6 +188,10 @@ export function SessionReplayStoryboardExportDialog({
     if (error instanceof ReplayScreenshotAssetError) {
       console.warn("Replay screenshot capture rejected", error.reason);
       return t("sessions.screenshotUnsupportedAssets");
+    }
+    if (error instanceof ReplayScreenshotCaptureError) {
+      console.warn("Replay screenshot capture rejected", error.reason);
+      return t("sessions.storyboardCaptureFailed");
     }
     return error instanceof Error
       ? error.message
@@ -365,7 +370,10 @@ export function SessionReplayStoryboardExportDialog({
             if (controller.signal.aborted) {
               throw new Error(t("sessions.storyboardCanceled"));
             }
-            if (captureError instanceof ReplayScreenshotAssetError) {
+            if (
+              captureError instanceof ReplayScreenshotAssetError ||
+              captureError instanceof ReplayScreenshotCaptureError
+            ) {
               throw captureError;
             }
             throw new Error(t("sessions.storyboardCaptureFailed"));

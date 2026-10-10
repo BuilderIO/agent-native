@@ -38,7 +38,6 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      issues: write
     env:
       SIGNUP_E2E_APPS: all
       SIGNUP_E2E_ENVIRONMENTS: ${{ inputs.environments || 'beta' }}
@@ -46,8 +45,8 @@ jobs:
       MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
       MAILOSAUR_SERVER_ID: ${{ secrets.MAILOSAUR_SERVER_ID }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      SLACK_CHANNEL: C0C4U4XRT6X
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -90,18 +89,39 @@ jobs:
           fi
 
       - name: Publish findings
+        id: publish
         if: ${{ always() }}
+        continue-on-error: true
         run: |
           set -euo pipefail
           findings="e2e/signup/test-results/signup-agent/findings.md"
           if [ ! -s "$findings" ]; then
-            # No file means the journey or the review did not complete. That is a
-            # lane failure, not a clean result, and the step above has already
-            # failed for it — say so rather than printing a reassuring summary.
-            echo "### Signup agent review" >> "$GITHUB_STEP_SUMMARY"
-            echo "No findings file was produced; the run did not complete a review." >> "$GITHUB_STEP_SUMMARY"
+            # A missing report is incomplete evidence, not a clean review.
+            {
+              echo "### Signup agent review"
+              echo "No findings file was produced; the run did not complete a review."
+            } >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "actionable=true"
+              echo "has_findings=true"
+              echo "incomplete=true"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          if grep -qiE '^\|[[:space:]]*(high|medium)[[:space:]]*\|' "$findings"; then
+            actionable=true
+          else
+            actionable=false
+          fi
+          if grep -qiE '^\|[[:space:]]*(high|medium|low)[[:space:]]*\|' "$findings"; then
+            has_findings=true
+          else
+            has_findings=false
+          fi
+          {
+            echo "actionable=$actionable"
+            echo "has_findings=$has_findings"
+          } >> "$GITHUB_OUTPUT"
           {
             echo "### Signup agent review"
             echo
@@ -110,34 +130,112 @@ jobs:
             echo "[run]($RUN_URL)"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Open or update the advisory issue
-        if: ${{ success() && steps.classify.outputs.inconclusive != 'true' }}
-        run: |
-          set -euo pipefail
-          findings="e2e/signup/test-results/signup-agent/findings.md"
-          [ -s "$findings" ] || exit 0
-
-          title="[signup-agent] Model-reported signup issues"
-          number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title \
-            | jq -r --arg t "$title" '[.[] | select(.title == $t) | .number] | first // empty')"
-
-          if grep -qiE '^\| *(high|medium)' "$findings"; then
-            body="$(printf 'A scheduled agent review reported issues in the signup flow.\n\nRun: %s\n\n%s\n\nThis lane is advisory: it never fails a build and never pages. Close this issue once the findings are triaged.\n' "$RUN_URL" "$(cat "$findings")")"
-            if [ -n "$number" ]; then
-              gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
-            else
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
-            fi
-          elif [ -n "$number" ]; then
-            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" \
-              --body "The latest agent review reported no high or medium findings: $RUN_URL"
-            gh issue close "$number" --repo "$GITHUB_REPOSITORY"
-          fi
-
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: evidence
         if: ${{ always() }}
+        continue-on-error: true
         with:
           name: signup-agent-${{ github.run_id }}
           path: e2e/signup/test-results/signup-agent/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 90
+
+      - name: Check Slack configuration
+        id: slack_config
+        if: >-
+          ${{ always() && (steps.classify.outputs.inconclusive != 'true' || steps.evidence.outcome == 'failure') && (steps.review.outcome != 'success' || steps.publish.outcome != 'success' || steps.publish.outputs.has_findings == 'true' || steps.evidence.outcome == 'failure') }}
+        env:
+          QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "$QA_SLACK_BOT_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            message="Slack notification not configured: QA_SLACK_BOT_TOKEN is empty, so the signup agent report could not be sent to #qa-agent-native."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::error::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Build the consolidated Slack report
+        if: ${{ always() && steps.slack_config.outputs.configured == 'true' }}
+        env:
+          ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          REPORT_INCOMPLETE: ${{ steps.publish.outputs.incomplete == 'true' || steps.publish.outcome != 'success' || steps.evidence.outcome == 'failure' }}
+          FINDINGS_PATH: e2e/signup/test-results/signup-agent/findings.md
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.evidence.outcome }}
+        run: |
+          set -euo pipefail
+          targets="${SIGNUP_AGENT_APPS:-daily rotation}"
+          if [ "$REVIEW_OUTCOME" != "success" ]; then
+            status="did not complete successfully"
+          elif [ "$PUBLISH_OUTCOME" != "success" ]; then
+            status="could not publish its report"
+          elif [ "$EVIDENCE_OUTCOME" = "failure" ]; then
+            status="could not preserve its full report artifact"
+          elif [ "$REPORT_INCOMPLETE" = "true" ]; then
+            status="did not produce a complete findings report"
+          elif [ "${{ steps.publish.outputs.actionable }}" = "true" ]; then
+            status="reported high or medium findings"
+          elif [ "${{ steps.publish.outputs.has_findings }}" = "true" ]; then
+            status="reported low findings"
+          else
+            status="reported no findings"
+          fi
+          mkdir -p .tmp
+          args=(
+            --findings "$FINDINGS_PATH"
+            --status "$status"
+            --targets "$targets"
+            --environments "$SIGNUP_E2E_ENVIRONMENTS"
+            --run-url "$RUN_URL"
+            --out-dir .tmp/signup-agent
+            --incomplete "$REPORT_INCOMPLETE"
+          )
+          if [ -n "$ARTIFACT_URL" ]; then args+=(--artifact-url "$ARTIFACT_URL"); fi
+          node --experimental-strip-types scripts/signup-agent-rollup.ts "${args[@]}"
+          jq -n --arg channel "$SLACK_CHANNEL" --rawfile text .tmp/signup-agent/signup-agent-slack.txt \
+            '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' \
+            > .tmp/signup-agent-slack-payload.json
+          {
+            echo "### Signup agent Slack report"
+            echo
+            cat .tmp/signup-agent/signup-agent-slack.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post the consolidated report to Slack
+        id: slack
+        if: ${{ always() && steps.slack_config.outputs.configured == 'true' }}
+        continue-on-error: true
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+          errors: false
+          payload-file-path: .tmp/signup-agent-slack-payload.json
+
+      - name: Report Slack delivery failure
+        if: ${{ always() && steps.slack_config.outputs.configured == 'true' && (steps.slack.outcome != 'success' || steps.slack.outputs.ok != 'true') }}
+        env:
+          SLACK_OUTCOME: ${{ steps.slack.outcome }}
+          SLACK_RESPONSE: ${{ steps.slack.outputs.response }}
+        run: |
+          set -euo pipefail
+          reason="$(jq -r '.error // empty' <<< "${SLACK_RESPONSE:-null}" 2> /dev/null || true)"
+          reason="${reason:-no Slack API error code returned; step outcome $SLACK_OUTCOME}"
+          message="Slack notification failed: chat.postMessage to #qa-agent-native returned \"$reason\". The QA_SLACK_BOT_TOKEN bot must be invited to the channel and the token must be valid. No GitHub issue fallback was used."
+          echo "::error::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Fail after posting an incomplete report
+        if: >-
+          ${{ always() && steps.slack.outcome == 'success' && steps.slack.outputs.ok == 'true' && (steps.review.outcome != 'success' || steps.publish.outputs.incomplete == 'true' || steps.publish.outcome != 'success' || steps.evidence.outcome == 'failure') }}
+        run: |
+          message="Signup agent evidence was incomplete or could not be uploaded; the degraded report was posted to #qa-agent-native. See the workflow run for details."
+          echo "::error::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          exit 1

@@ -106,6 +106,7 @@ export function sourceIndexDictionaryEntries(bundle: SourceIndexBundle) {
     source: entry.source,
     ...(entry.sourceKind ? { sourceKind: entry.sourceKind } : {}),
     ...(entry.entryType ? { entryType: entry.entryType } : {}),
+    status: entry.status,
     ...(entry.owner ? { owner: entry.owner } : {}),
     ...(entry.grain ? { grain: entry.grain } : {}),
     ...(entry.primaryEntity ? { primaryEntity: entry.primaryEntity } : {}),

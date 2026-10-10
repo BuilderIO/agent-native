@@ -7,7 +7,7 @@ import {
   postAction,
   setBaseURL,
 } from "./drag-and-drop.shared";
-import { appPath, designFrame, selectByText } from "./helpers";
+import { appPath, designFrame, enterDirectMode, selectByText } from "./helpers";
 
 test.beforeEach(async ({}, testInfo) => setBaseURL(testInfo));
 
@@ -93,7 +93,64 @@ test("screen route aliases target the authored iframe, not a board or neighborin
         page.getByRole("button", { name: "Move", exact: true }),
       ).toBeVisible({ timeout: 30_000 });
 
-      const selection = await selectByText(page, DUPLICATE_TEXT);
+      const checksHandshakeBeforeSelection =
+        parameter === "screen" && value === firstScreen!.id;
+      if (checksHandshakeBeforeSelection) {
+        await enterDirectMode(page, {
+          screenId: firstScreen!.id!,
+          waitForBridgeReady: true,
+        });
+        await page
+          .locator(
+            `iframe[data-design-preview-iframe][data-screen-iframe-id="${firstScreen!.id}"]`,
+          )
+          .evaluate((iframe) => {
+            const frame = iframe as HTMLIFrameElement;
+            const source = frame.contentWindow;
+            if (!source) {
+              throw new Error("selected screen iframe is unavailable");
+            }
+            const parentWindow = window as Window & {
+              __e2eEditorChromeReadyResponses?: number;
+            };
+            parentWindow.__e2eEditorChromeReadyResponses = 0;
+            window.addEventListener("message", (event: MessageEvent) => {
+              if (
+                event.source === source &&
+                (event.data as { type?: string } | null)?.type ===
+                  "agent-native:editor-chrome-ready"
+              ) {
+                parentWindow.__e2eEditorChromeReadyResponses =
+                  (parentWindow.__e2eEditorChromeReadyResponses ?? 0) + 1;
+              }
+            });
+          });
+      }
+
+      let editorChromeReadyBeforeClick: boolean | undefined;
+      let selection: Awaited<ReturnType<typeof selectByText>>;
+      if (checksHandshakeBeforeSelection) {
+        const originalMouseClick = page.mouse.click.bind(page.mouse);
+        page.mouse.click = async (
+          ...args: Parameters<typeof page.mouse.click>
+        ) => {
+          editorChromeReadyBeforeClick = await page.evaluate(() => {
+            const pageWindow = window as Window & {
+              __e2eEditorChromeReadyResponses?: number;
+            };
+            return (pageWindow.__e2eEditorChromeReadyResponses ?? 0) > 0;
+          });
+          return originalMouseClick(...args);
+        };
+        try {
+          selection = await selectByText(page, DUPLICATE_TEXT);
+        } finally {
+          page.mouse.click = originalMouseClick;
+        }
+        expect(editorChromeReadyBeforeClick).toBe(true);
+      } else {
+        selection = await selectByText(page, DUPLICATE_TEXT);
+      }
       expect(selection.sourceId).toBe("first-target");
       await expect.poll(() => activeOverlays(page)).toContain("selection");
       expect(await activeOverlays(page, secondScreen!.id!)).not.toContain(

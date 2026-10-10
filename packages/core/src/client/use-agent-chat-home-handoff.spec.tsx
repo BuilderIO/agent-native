@@ -133,9 +133,10 @@ describe("useAgentChatHomeHandoffLinks", () => {
     container?.remove();
     root = null;
     container = null;
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     window.sessionStorage.clear();
     window.localStorage.clear();
-    vi.unstubAllGlobals();
     vi.useRealTimers();
     window.history.replaceState({}, "", "/");
   });

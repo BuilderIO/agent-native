@@ -466,6 +466,7 @@ export function endsAfterToolResultWithoutAssistantFinal(
       event.type === "clear" ||
       event.type === "error" ||
       event.type === "missing_api_key" ||
+      event.type === "connection_required" ||
       event.type === "auto_continue" ||
       event.type === "loop_limit"
     ) {
@@ -491,6 +492,7 @@ export function endsDuringActionPreparation(run: ActiveRun): boolean {
       event.type === "tool_start" ||
       event.type === "tool_done" ||
       event.type === "approval_required" ||
+      event.type === "connection_required" ||
       event.type === "clear" ||
       event.type === "error" ||
       event.type === "missing_api_key" ||

@@ -63,6 +63,7 @@ export const sourceIndexEntrySchema = z
     source: z.string().regex(SAFE_SOURCE),
     sourceKind: z.enum(SOURCE_INDEX_KINDS).optional(),
     entryType: z.enum(SOURCE_INDEX_ENTRY_TYPES).optional(),
+    status: z.enum(["active", "deprecated"]).default("active"),
     semanticScope: z.enum(SOURCE_INDEX_SCOPES).optional(),
     owner: z.string().trim().min(1).max(160).optional(),
     grain: z.string().trim().min(1).max(500).optional(),

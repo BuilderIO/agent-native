@@ -758,6 +758,7 @@ export default defineAction({
           "preservationRequired" in saved ||
           "superseded" in saved ||
           resultDocument.title !== draft.title ||
+          !("content" in resultDocument) ||
           resultDocument.content !== draft.content
         ) {
           await restoreClaimedDraft(draft);
