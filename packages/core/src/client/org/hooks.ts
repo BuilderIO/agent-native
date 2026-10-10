@@ -14,7 +14,6 @@ import type {
 } from "../../org/types.js";
 import { agentNativePath } from "../api-path.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
-import { notifySessionInvalidated } from "../use-session.js";
 
 const ORG_BASE = "/_agent-native/org";
 
@@ -335,7 +334,9 @@ export function useSwitchOrg() {
       }),
     onSuccess: async () => {
       // The persisted-results scope follows the session's org; re-read it before
-      // refetching, or this org's results are saved under the old one.
+      // refetching, or this org's results are saved under the old one. Loaded here,
+      // not at import: use-session pulls in frame.ts, which touches window on load.
+      const { notifySessionInvalidated } = await import("../use-session.js");
       await notifySessionInvalidated();
       await qc.invalidateQueries();
     },

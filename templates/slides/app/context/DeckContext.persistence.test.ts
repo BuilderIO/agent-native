@@ -318,7 +318,10 @@ function setupFetch(options?: {
       }),
       { status: 409 },
     );
-  const fetchMock = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+  const handle = (
+    url: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
     const href =
       typeof url === "string"
         ? url
@@ -759,7 +762,46 @@ function setupFetch(options?: {
     }
 
     return Promise.resolve(new Response("", { status: 200 }));
-  });
+  };
+
+  // The client coalesces same-tick GETs into one batch POST. Answer each item
+  // through this same mock, so every logical call is still recorded in the mock.
+  const fetchMock = vi.fn(
+    async (url: string | URL | Request, init?: RequestInit) => {
+      const href =
+        typeof url === "string"
+          ? url
+          : url instanceof URL
+            ? url.toString()
+            : url.url;
+      if (
+        href.includes("/_agent-native/actions/get-actions-batch") &&
+        init?.method === "POST"
+      ) {
+        const { requests } = JSON.parse(String(init.body)) as {
+          requests: Array<{ action: string; query: string }>;
+        };
+        const results = await Promise.all(
+          requests.map(async ({ action, query }) => {
+            const res = await fetchMock(
+              `/_agent-native/actions/${action}${query ? `?${query}` : ""}`,
+              { method: "GET" },
+            );
+            const text = await res.text();
+            const body = text ? JSON.parse(text) : undefined;
+            return res.status < 400
+              ? { status: res.status, body }
+              : { status: res.status, error: body };
+          }),
+        );
+        return new Response(JSON.stringify({ results }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return handle(url, init);
+    },
+  );
 
   vi.stubGlobal("fetch", fetchMock);
   return {
@@ -8556,6 +8598,10 @@ describe("DeckContext deck creation persistence", () => {
 
     deferNextGetDeck();
     const staleRefresh = result.current.refreshOpenDeck("shared-deck");
+    // The same-tick GET batch is flushed on a microtask; let it run.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(hasDeferredGetDeck()).toBe(true);
 
     resolveDeferredPatch();

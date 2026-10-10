@@ -164,8 +164,30 @@ describe("DocumentToolbar in an MCP App widget", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        mocks.fetchUrls.push(String(input));
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const href = String(input);
+        if (
+          href.includes("/_agent-native/actions/get-actions-batch") &&
+          init?.method === "POST"
+        ) {
+          // Same-tick GETs travel as one batch POST. Record each logical request
+          // and answer every item, as the real batch route does.
+          const { requests } = JSON.parse(String(init.body)) as {
+            requests: Array<{ action: string; query: string }>;
+          };
+          for (const { action, query } of requests) {
+            mocks.fetchUrls.push(
+              `/_agent-native/actions/${action}${query ? `?${query}` : ""}`,
+            );
+          }
+          return new Response(
+            JSON.stringify({
+              results: requests.map(() => ({ status: 200, body: {} })),
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        mocks.fetchUrls.push(href);
         return new Response("{}", {
           status: 200,
           headers: { "content-type": "application/json" },
