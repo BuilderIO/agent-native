@@ -796,7 +796,10 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).toContain(
       'import { runWithRequestDbPoolScope } from "@agent-native/core/db/request-pool-context";',
     );
-    expect(entry).toContain("return runWithRequestDbPoolScope(true, ctx");
+    expect(entry).toContain("function createRequestDbPoolScopeContext(ctx)");
+    expect(entry).toContain(
+      "return runWithRequestDbPoolScope(true, scopedCtx, async () => {",
+    );
     expect(entry).toContain(
       "requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);",
     );
