@@ -782,6 +782,30 @@ describe("session replay screenshot asset checks", () => {
     embed.remove();
   });
 
+  it("finishes reconstructed document parsing before waiting for fonts", async () => {
+    const fontsDescriptor = Object.getOwnPropertyDescriptor(document, "fonts");
+    let resolveFonts: () => void = () => {};
+    const ready = new Promise<void>((resolve) => {
+      resolveFonts = resolve;
+    });
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: { ready },
+    });
+    vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
+    const close = vi.spyOn(document, "close").mockImplementation(resolveFonts);
+    try {
+      await assertReplayFontsReady(document);
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      if (fontsDescriptor) {
+        Object.defineProperty(document, "fonts", fontsDescriptor);
+      } else {
+        Reflect.deleteProperty(document, "fonts");
+      }
+    }
+  });
+
   it("bounds replay font readiness", async () => {
     vi.useFakeTimers();
     const fontsDescriptor = Object.getOwnPropertyDescriptor(document, "fonts");

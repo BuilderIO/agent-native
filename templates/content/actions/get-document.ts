@@ -18,7 +18,7 @@ import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   getDatabaseByDocumentId,
-  getBuilderBodyHydrationMembershipByDocumentId,
+  getBuilderBodyHydrationMembershipFromDatabaseItems,
   getDocumentContextPath,
   isSoftDeletedDatabaseDocument,
   listDatabaseItemsByDocumentId,
@@ -140,7 +140,6 @@ export default defineAction({
       memberships,
       database,
       databaseItems,
-      bodyHydrationTarget,
       favoriteIds,
       externalLink,
       previewDraft,
@@ -194,7 +193,6 @@ export default defineAction({
         .orderBy(schema.contentDatabases.id),
       getDatabaseByDocumentId(doc.id),
       listDatabaseItemsByDocumentId(doc.id),
-      getBuilderBodyHydrationMembershipByDocumentId(doc.id),
       userEmail
         ? favoriteDocumentIds(db, userEmail, [doc.id])
         : new Set<string>(),
@@ -224,6 +222,8 @@ export default defineAction({
           )
         : undefined,
     ]);
+    const bodyHydrationTarget =
+      getBuilderBodyHydrationMembershipFromDatabaseItems(doc.id, databaseItems);
     if (softDeleted) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
         statusCode: 404,

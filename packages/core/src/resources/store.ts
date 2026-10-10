@@ -32,6 +32,8 @@ import {
   putSetting,
   type StoreWriteOptions,
 } from "../settings/store.js";
+import { isPersistableAttachmentUrl } from "../shared/attachments.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 
 export const SHARED_OWNER = "__shared__";
@@ -328,6 +330,7 @@ export interface ResourceConditionalWrite {
   expectedUpdatedAt: number;
   expectedContent: string;
   mimeType?: string;
+  metadata?: ResourceWriteOptions["metadata"];
 }
 
 export interface ResourceSnapshotWrite {
@@ -345,6 +348,23 @@ export interface ResourceSnapshotWrite {
 export interface ResourceSnapshotWriteResult {
   before: Resource | null;
   resource: Resource;
+}
+
+function assertResourcePayloadIsSqlSafe(
+  content: string,
+  mimeType?: string,
+  metadata?: ResourceWriteOptions["metadata"],
+): void {
+  assertNoInlineImageBytes({ content, metadata }, "resource");
+  if (
+    mimeType?.toLowerCase().startsWith("image/") &&
+    !isPersistableAttachmentUrl(content)
+  ) {
+    assertNoInlineImageBytes(
+      { type: "image", mimeType, data: content },
+      "resource content",
+    );
+  }
 }
 
 export interface ResourceListOptions {
@@ -663,6 +683,7 @@ async function migrateDefaultResourceContent({
   previousContent: string;
   content: string;
 }): Promise<void> {
+  assertResourcePayloadIsSqlSafe(content, "text/markdown");
   await client.execute({
     sql: `UPDATE resources SET content = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND content = ?`,
     args: [
@@ -1289,6 +1310,7 @@ async function _doEnsureTable(): Promise<void> {
 
   const learningsSeedContent =
     (await readProjectRootLearningsSeed()) ?? DEFAULT_LEARNINGS_SHARED_MD;
+  assertResourcePayloadIsSqlSafe(learningsSeedContent, "text/markdown");
   const learningsSize = Buffer.byteLength(learningsSeedContent, "utf8");
   await client.execute({
     sql: seedSql,
@@ -1346,6 +1368,7 @@ async function _doEnsureTable(): Promise<void> {
         null,
         2,
       );
+      assertResourcePayloadIsSqlSafe(agentJson, "application/json");
       const agentSize = Buffer.byteLength(agentJson, "utf8");
       await client.execute({
         sql: seedSql,
@@ -1649,6 +1672,7 @@ export async function resourcePut(
   mimeType?: string,
   options?: ResourceWriteOptions,
 ): Promise<Resource> {
+  assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(owner) &&
@@ -1804,6 +1828,7 @@ async function resourcePutIfAbsentInternal(
   emitChange: boolean,
   clientOverride?: DbExec,
 ): Promise<Resource | null> {
+  assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(owner) &&
@@ -1880,6 +1905,7 @@ async function resourcePutIfAbsentInternal(
 export async function resourcePutIfCurrent(
   input: ResourceConditionalWrite,
 ): Promise<Resource | null> {
+  assertResourcePayloadIsSqlSafe(input.content, input.mimeType);
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(input.owner) &&
@@ -1895,13 +1921,15 @@ export async function resourcePutIfCurrent(
   const now = Math.max(Date.now(), input.expectedUpdatedAt + 1);
   const size = Buffer.byteLength(input.content, "utf8");
   const mime = input.mimeType || "text/markdown";
+  const metadata = serializeMetadata(input.metadata);
   const result = await client.execute({
-    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
+    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?${metadata !== undefined ? ", metadata = ?" : ""} WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
     args: [
       input.content,
       mime,
       size,
       now,
+      ...(metadata !== undefined ? [metadata] : []),
       input.owner,
       input.path,
       input.expectedId,
@@ -1970,6 +1998,11 @@ async function resourcePutIfSnapshotInternal(
   emitChange: boolean,
   clientOverride?: DbExec,
 ): Promise<ResourceSnapshotWriteResult | null> {
+  assertResourcePayloadIsSqlSafe(
+    input.content,
+    input.mimeType,
+    input.options?.metadata,
+  );
   await ensureTable();
   let previous = input.previous;
   if (
@@ -2104,6 +2137,14 @@ export async function resourcePutSnapshotBatchIfCurrent(
     );
   }
 
+  for (const write of writes) {
+    assertResourcePayloadIsSqlSafe(
+      write.content,
+      write.mimeType,
+      write.options?.metadata,
+    );
+  }
+
   await ensureTable();
   const client = getDbExec();
   if (!client.transaction) {
@@ -2164,6 +2205,11 @@ export async function resourceRestoreSnapshotIfCurrent(
   snapshot: Resource,
   current: Resource | null,
 ): Promise<boolean> {
+  assertResourcePayloadIsSqlSafe(
+    snapshot.content,
+    snapshot.mimeType,
+    snapshot.metadata,
+  );
   await ensureTable();
   const snapshotLocal = localWorkspaceResourceSnapshot(snapshot);
   if (snapshotLocal) {

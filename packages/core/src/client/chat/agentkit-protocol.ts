@@ -38,7 +38,6 @@ import {
   createCapabilityUnavailableError,
   createCapabilityUnsupportedError,
   inferAgentActivityKind,
-  isInlineDataUrl,
   negotiateAgentKitProtocolVersion,
   resumeEntryFromApproval,
   resumeOptionId,
@@ -53,6 +52,7 @@ import {
   type AutoContinueRefusalCode,
 } from "../../agent/auto-continue.js";
 import type { AgentChatAttachment } from "../../agent/types.js";
+import { isPersistableAttachmentUrl } from "../../shared/attachments.js";
 import { parseBase64DataUrl } from "../../shared/data-url.js";
 import {
   emitChatFirstOpenApp,
@@ -4046,7 +4046,11 @@ export function createAgentKitProtocolAdapter(
         );
       }
       const attachments = (input.attachments ?? [])
-        .filter((part) => !isInlineDataUrl(part.url))
+        .filter(
+          (part) =>
+            !part.omitted &&
+            (part.fileId !== undefined || isPersistableAttachmentUrl(part.url)),
+        )
         .map(runtimeAttachmentFromFilePart);
       const turn = await session.continueTurn({
         turnId: state.turnId,
