@@ -2184,3 +2184,26 @@ test("does not run code checks for a mixed docs-only package change", () => {
     ["lint", "guards", "changeset"],
   );
 });
+
+test("runs the oracle ratchet only for changes that can alter test modes", () => {
+  for (const paths of [
+    ["templates/slides/oracle/ratchet.ts"],
+    ["templates/slides/app/components/editor/SlideEditor.geometry.test.tsx"],
+    ["templates/slides/vitest.config.ts"],
+    ["packages/core/src/vitest-config.ts"],
+  ]) {
+    assert.equal(
+      classifyChangedPaths(paths).checks.slides_oracle,
+      true,
+      paths.join(", "),
+    );
+  }
+  for (const paths of [
+    ["templates/slides/app/components/editor/slide-object-interactions.ts"],
+    ["templates/slides/actions/update-slide.ts"],
+  ]) {
+    const scope = classifyChangedPaths(paths);
+    assert.equal(scope.checks.slides_oracle, false, paths.join(", "));
+    assert.equal(scope.checks.guards, true, paths.join(", "));
+  }
+});

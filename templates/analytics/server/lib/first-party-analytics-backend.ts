@@ -1298,25 +1298,31 @@ function onboardingEventDatePredicates(eventDateRange?: {
 function addPartitionPrunedEventDeduplication(
   sql: string,
   table: BigQueryTableRef,
-  eventDateRange?: { startDate: string; endDate: string },
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+  } = {},
 ): string {
   const quote = String.fromCharCode(96);
-  const source =
-    "SELECT * FROM " +
-    quote +
-    firstPartyAnalyticsRawTable(table) +
-    quote +
-    " WHERE";
+  const rawSource = `${quote}${firstPartyAnalyticsRawTable(table)}${quote}`;
+  const sourcePattern = /\bSELECT\s+\*\s+FROM\s+(`[^`]+`)\s+WHERE\b/gi;
   let result = "";
   let cursor = 0;
   let searchStart = 0;
   const code = maskSqlLiterals(sql, "bigquery");
   while (cursor < sql.length) {
-    const sourceIndex = sql.indexOf(source, searchStart);
-    if (sourceIndex === -1) return result + sql.slice(cursor);
-    searchStart = sourceIndex + source.length;
-    if (!code.startsWith("SELECT * FROM ", sourceIndex)) continue;
-    const predicateStart = sourceIndex + source.length;
+    sourcePattern.lastIndex = searchStart;
+    const sourceMatch = sourcePattern.exec(sql);
+    if (!sourceMatch) return result + sql.slice(cursor);
+    const sourceIndex = sourceMatch.index;
+    searchStart = sourcePattern.lastIndex;
+    if (
+      sourceMatch[1] !== rawSource ||
+      !/^SELECT\s+\*\s+FROM\b/i.test(code.slice(sourceIndex))
+    ) {
+      continue;
+    }
+    const predicateStart = sourcePattern.lastIndex;
     let depth = 0;
     let predicateEnd = sql.length;
     for (let index = predicateStart; index < sql.length; index++) {
@@ -1341,7 +1347,7 @@ function addPartitionPrunedEventDeduplication(
     // ponytail: insertAll is at-least-once; staging + MERGE is the upgrade path
     // for physical exactly-once if the warehouse contract requires it.
     const predicates = [
-      ...onboardingEventDatePredicates(eventDateRange),
+      ...onboardingEventDatePredicates(options.eventDateRange),
       ...firstPartyEventPushdownPredicates(sql, sourceIndex),
     ].filter(
       (predicate, index, all) =>
@@ -1349,10 +1355,12 @@ function addPartitionPrunedEventDeduplication(
           (candidate) => candidate.toLowerCase() === predicate.toLowerCase(),
         ) === index,
     );
+    // Combined org and owner scans must keep their independent latest receipts.
+    const dedupPartition = options.scopedEventsSingleScan ? "id, org_id" : "id";
     result +=
       sql.slice(cursor, predicateEnd) +
       predicates.map((predicate) => ` AND (${predicate})`).join("") +
-      " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
+      ` QUALIFY ROW_NUMBER() OVER (PARTITION BY ${dedupPartition} ORDER BY received_at DESC) = 1` +
       (predicateEnd < sql.length ? " " : "");
     cursor = predicateEnd;
     searchStart = cursor;
@@ -1368,7 +1376,10 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   scopedSql: string,
   args: Array<string | null>,
   table: BigQueryTableRef,
-  options: { eventDateRange?: { startDate: string; endDate: string } } = {},
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+  } = {},
 ): string {
   // The Postgres scope builder uses a text fallback for nullable event
   // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
@@ -1391,8 +1402,20 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   return addPartitionPrunedEventDeduplication(
     coerceDateComparisonOperands(qualifyQuerySources(bound, table)),
     table,
-    options.eventDateRange,
+    options,
   );
+}
+
+export function renderFirstPartyAnalyticsBigQueryRequestSql(
+  scopedSql: string,
+  args: Array<string | null>,
+  table: BigQueryTableRef,
+  options: {
+    eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
+  } = {},
+): string {
+  return `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, options)}) AS first_party_analytics_query LIMIT 5000`;
 }
 
 export async function queryFirstPartyAnalyticsInBigQuery(
@@ -1401,6 +1424,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   table: BigQueryTableRef,
   options: {
     eventDateRange?: { startDate: string; endDate: string };
+    scopedEventsSingleScan?: boolean;
     maxBytesBilled?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
@@ -1428,7 +1452,10 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   let result: Awaited<ReturnType<typeof runQuery>>;
   try {
     result = await runQuery(
-      `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, { eventDateRange: options.eventDateRange })}) AS first_party_analytics_query LIMIT 5000`,
+      renderFirstPartyAnalyticsBigQueryRequestSql(scopedSql, args, table, {
+        eventDateRange: options.eventDateRange,
+        scopedEventsSingleScan: options.scopedEventsSingleScan,
+      }),
       {
         maxBytesBilled: options.maxBytesBilled,
         ...(signal ? { signal } : {}),

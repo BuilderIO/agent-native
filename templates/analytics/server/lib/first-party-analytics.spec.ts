@@ -1197,6 +1197,230 @@ describe("scopedAnalyticsSql", () => {
     ]);
   });
 
+  it("keeps org and legacy owner access in one opt-in raw event scan", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT id, org_id, event_name FROM analytics_events WHERE event_name = 'signup'",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+      { scopedEventsSingleScan: true },
+    );
+
+    expect(scoped.sql).toContain(
+      "FROM analytics_events WHERE (org_id = $1 OR (org_id IS NULL AND owner_email = $3)) AND (COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= $2)",
+    );
+    expect(scoped.sql).not.toContain(
+      "UNION ALL SELECT * FROM analytics_events",
+    );
+    expect(scoped.args).toEqual(["org_123", "2026-07-01", "alice@example.com"]);
+  });
+
+  it("returns the same scoped event rows for the legacy union and single scan", async () => {
+    const client = await PGlite.create("memory://");
+    try {
+      await client.query(
+        "CREATE TABLE analytics_events (id text, org_id text, owner_email text, event_date text, timestamp text, user_id text, event_name text, received_at text)",
+      );
+      await client.query(
+        "INSERT INTO analytics_events VALUES ($1, $2, $3, $4, $5, $6, $7, $8), ($9, $10, $11, $12, $13, $14, $15, $16), ($17, $18, $19, $20, $21, $22, $23, $24), ($25, $26, $27, $28, $29, $30, $31, $32), ($33, $34, $35, $36, $37, $38, $39, $40), ($41, $42, $43, $44, $45, $46, $47, $48)",
+        [
+          "same-id",
+          "org_123",
+          "alice@example.com",
+          "2026-06-30",
+          "2026-06-30T12:00:00Z",
+          "real@example.com",
+          "signup",
+          "2026-06-30T12:00:01Z",
+          "same-id",
+          null,
+          "alice@example.com",
+          "2026-06-30",
+          "2026-06-30T12:00:00Z",
+          "real@example.com",
+          "signup",
+          "2026-06-30T12:00:02Z",
+          "org-event",
+          "org_123",
+          "bob@example.com",
+          "2026-07-01",
+          "2026-07-01T12:00:00Z",
+          "real@example.com",
+          "onboarding_step_viewed",
+          "2026-07-01T12:00:01Z",
+          "owner-event",
+          null,
+          "alice@example.com",
+          "2026-07-01",
+          "2026-07-01T12:00:00Z",
+          "real@example.com",
+          "onboarding_step_viewed",
+          "2026-07-01T12:00:01Z",
+          "other-org-event",
+          "org_other",
+          "alice@example.com",
+          "2026-07-01",
+          "2026-07-01T12:00:00Z",
+          "real@example.com",
+          "signup",
+          "2026-07-01T12:00:01Z",
+          "other-owner-event",
+          null,
+          "bob@example.com",
+          "2026-07-01",
+          "2026-07-01T12:00:00Z",
+          "real@example.com",
+          "signup",
+          "2026-07-01T12:00:01Z",
+        ],
+      );
+      await client.query(
+        "INSERT INTO analytics_events VALUES ($1, $2, $3, $4, $5, $6, $7, $8), ($9, $10, $11, $12, $13, $14, $15, $16)",
+        [
+          "same-id",
+          "org_123",
+          "alice@example.com",
+          "2026-06-30",
+          "2026-06-30T11:59:00Z",
+          "real@example.com",
+          "stale-org-version",
+          "2026-06-30T12:00:00Z",
+          "same-id",
+          null,
+          "alice@example.com",
+          "2026-06-30",
+          "2026-06-30T11:59:00Z",
+          "real@example.com",
+          "stale-owner-version",
+          "2026-06-30T12:00:00Z",
+        ],
+      );
+
+      const query =
+        "SELECT id, org_id, event_name, received_at FROM analytics_events";
+      const legacy = scopedAnalyticsSql(
+        query,
+        { userEmail: "alice@example.com", orgId: "org_123" },
+        "2026-07-01",
+      );
+      const singleScan = scopedAnalyticsSql(
+        query,
+        { userEmail: "alice@example.com", orgId: "org_123" },
+        "2026-07-01",
+        { scopedEventsSingleScan: true },
+      );
+      const legacyRows = await client.query(legacy.sql, legacy.args);
+      const singleScanRows = await client.query(
+        singleScan.sql,
+        singleScan.args,
+      );
+      const sortRows = (rows: Array<Record<string, unknown>>) =>
+        [...rows].sort((left, right) =>
+          `${left.id}:${left.org_id ?? ""}:${left.received_at}`.localeCompare(
+            `${right.id}:${right.org_id ?? ""}:${right.received_at}`,
+          ),
+        );
+
+      expect(sortRows(singleScanRows.rows)).toEqual(sortRows(legacyRows.rows));
+      expect(sortRows(singleScanRows.rows)).toEqual([
+        {
+          id: "org-event",
+          org_id: "org_123",
+          event_name: "onboarding_step_viewed",
+          received_at: "2026-07-01T12:00:01Z",
+        },
+        {
+          id: "owner-event",
+          org_id: null,
+          event_name: "onboarding_step_viewed",
+          received_at: "2026-07-01T12:00:01Z",
+        },
+        {
+          id: "same-id",
+          org_id: null,
+          event_name: "stale-owner-version",
+          received_at: "2026-06-30T12:00:00Z",
+        },
+        {
+          id: "same-id",
+          org_id: null,
+          event_name: "signup",
+          received_at: "2026-06-30T12:00:02Z",
+        },
+        {
+          id: "same-id",
+          org_id: "org_123",
+          event_name: "stale-org-version",
+          received_at: "2026-06-30T12:00:00Z",
+        },
+        {
+          id: "same-id",
+          org_id: "org_123",
+          event_name: "signup",
+          received_at: "2026-06-30T12:00:01Z",
+        },
+      ]);
+
+      const legacyLatestRows = await client.query(
+        `SELECT id, org_id, event_name, received_at FROM (
+          SELECT id, org_id, event_name, received_at,
+            ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) AS receipt_rank
+          FROM analytics_events
+          WHERE org_id = $1 AND COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= $2
+        ) AS org_receipts WHERE receipt_rank = 1
+        UNION ALL
+        SELECT id, org_id, event_name, received_at FROM (
+          SELECT id, org_id, event_name, received_at,
+            ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) AS receipt_rank
+          FROM analytics_events
+          WHERE org_id IS NULL AND owner_email = $3
+            AND COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= $4
+        ) AS owner_receipts WHERE receipt_rank = 1`,
+        legacy.args,
+      );
+      const singleScanLatestRows = await client.query(
+        `SELECT id, org_id, event_name, received_at FROM (
+          SELECT id, org_id, event_name, received_at,
+            ROW_NUMBER() OVER (PARTITION BY id, org_id ORDER BY received_at DESC) AS receipt_rank
+          FROM analytics_events
+          WHERE (org_id = $1 OR (org_id IS NULL AND owner_email = $3))
+            AND COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= $2
+        ) AS scoped_receipts WHERE receipt_rank = 1`,
+        singleScan.args,
+      );
+      expect(sortRows(singleScanLatestRows.rows)).toEqual(
+        sortRows(legacyLatestRows.rows),
+      );
+      expect(sortRows(singleScanLatestRows.rows)).toEqual([
+        {
+          id: "org-event",
+          org_id: "org_123",
+          event_name: "onboarding_step_viewed",
+          received_at: "2026-07-01T12:00:01Z",
+        },
+        {
+          id: "owner-event",
+          org_id: null,
+          event_name: "onboarding_step_viewed",
+          received_at: "2026-07-01T12:00:01Z",
+        },
+        {
+          id: "same-id",
+          org_id: null,
+          event_name: "signup",
+          received_at: "2026-06-30T12:00:02Z",
+        },
+        {
+          id: "same-id",
+          org_id: "org_123",
+          event_name: "signup",
+          received_at: "2026-06-30T12:00:01Z",
+        },
+      ]);
+    } finally {
+      await client.close();
+    }
+  });
+
   it("pushes each immutable event source predicate before BigQuery deduplication", async () => {
     const { renderFirstPartyAnalyticsBigQuerySql } = await vi.importActual<
       typeof import("./first-party-analytics-backend.js")

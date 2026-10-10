@@ -92,7 +92,7 @@ export interface AgentChatContextItem {
    * When a composer staged the item. A replacement with the same key gets a
    * later time, so cleanup can tell them apart.
    */
-  stagedAt?: number;
+  stagingId?: string;
 }
 
 export interface AgentChatContextSetOptions extends AgentChatContextItem {
@@ -413,8 +413,8 @@ export function normalizeAgentChatContextItem(
     context,
     ...(contextNamespace ? { contextNamespace } : {}),
     ...(targetThreadId ? { targetThreadId } : {}),
-    ...(typeof candidate.stagedAt === "number"
-      ? { stagedAt: candidate.stagedAt }
+    ...(typeof candidate.stagingId === "string"
+      ? { stagingId: candidate.stagingId }
       : {}),
   };
 }
@@ -1476,14 +1476,15 @@ export function sendToAgentChatAndConfirm(
   return confirmAgentChatSubmit(opts, options, tabId, sendToAgentChat);
 }
 
-let lastStagedAt = 0;
-
-// Cleanup matches a staged item by key, context and this time, so two stagings of the
-// same item within one millisecond must still differ, or a replaced item's cleanup
-// removes its replacement.
-export function nextAgentChatStagedAt(): number {
-  lastStagedAt = Math.max(Date.now(), lastStagedAt + 1);
-  return lastStagedAt;
+// Cleanup matches a staged item by key and this identity. It is random rather than
+// a clock reading: tabs are separate realms, and two of them staging in the same
+// millisecond must still get different identities.
+export function nextAgentChatStagingId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
 }
 
 export function setAgentChatContextItem(
@@ -1491,8 +1492,8 @@ export function setAgentChatContextItem(
 ): void {
   const normalized = normalizeAgentChatContextItem(opts);
   if (!normalized || typeof window === "undefined") return;
-  // Every set gets a fresh staging time; a carried one would keep a replaced item's identity.
-  const item = { ...normalized, stagedAt: nextAgentChatStagedAt() };
+  // Every set gets a fresh staging identity; a carried one would keep a replaced item's identity.
+  const item = { ...normalized, stagingId: nextAgentChatStagingId() };
 
   publishAgentChatContextItems(
     withReplacedAgentChatContextItem(agentChatContextState.items, item),
@@ -1515,8 +1516,8 @@ export async function setAgentChatContextItemAndPersist(
   if (!normalized) {
     throw new TypeError("Agent chat context must include a valid item.");
   }
-  // Every set gets a fresh staging time; a carried one would keep a replaced item's identity.
-  const item = { ...normalized, stagedAt: nextAgentChatStagedAt() };
+  // Every set gets a fresh staging identity; a carried one would keep a replaced item's identity.
+  const item = { ...normalized, stagingId: nextAgentChatStagingId() };
   if (typeof window === "undefined") {
     throw new Error("Agent chat context can only be persisted in a browser.");
   }
@@ -1559,7 +1560,7 @@ export async function setAgentChatContextItemAndPersist(
 /** Remove a staged context item from persisted state before clearing its composer. */
 export async function removeAgentChatContextItemAndPersist(
   key: string,
-  options?: { stagedAt?: number },
+  options?: { stagingId?: string },
 ): Promise<void> {
   const normalizedKey = key.trim();
   if (!normalizedKey) {
@@ -1572,9 +1573,9 @@ export async function removeAgentChatContextItemAndPersist(
   await queueAgentChatContextPersistence(async () => {
     // Read here, not when called: a replacement staged while this removal waited keeps its place.
     if (
-      options?.stagedAt !== undefined &&
+      options?.stagingId !== undefined &&
       agentChatContextState.items.find((item) => item.key === normalizedKey)
-        ?.stagedAt !== options.stagedAt
+        ?.stagingId !== options.stagingId
     ) {
       return;
     }

@@ -340,6 +340,11 @@ export function useSwitchOrg() {
         body: JSON.stringify({ orgId }),
       }),
     onSuccess: async () => {
+      // The persisted-results scope follows the session's org; re-read it before
+      // refetching, or this org's results are saved under the old one. Loaded here,
+      // not at import: use-session pulls in frame.ts, which touches window on load.
+      const { notifySessionInvalidated } = await import("../use-session.js");
+      await notifySessionInvalidated();
       await qc.invalidateQueries();
     },
   });

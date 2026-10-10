@@ -1,5 +1,14 @@
 import { defineAction } from "@agent-native/core/action";
-import { and, asc, eq, getTableColumns, lt, notInArray, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  isNull,
+  lt,
+  notInArray,
+  or,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -25,9 +34,17 @@ export default defineAction({
       .describe(
         "Item ids to leave out, sent as repeated excludeIds[] query parameters.",
       ),
+    deviceId: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        "This desktop's device id, sent as the deviceId query parameter. Items another device captured are left out; items with no device are returned to every device.",
+      ),
   }),
   http: { method: "GET" },
-  run: async ({ excludeIds }) => {
+  run: async ({ excludeIds, deviceId }) => {
     const ownerEmail = getCurrentOwnerEmail();
     const items = await getDb()
       .select({ ...getTableColumns(schema.recordingContextItems) })
@@ -51,6 +68,12 @@ export default defineAction({
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           excludeIds?.length
             ? notInArray(schema.recordingContextItems.id, excludeIds)
+            : undefined,
+          deviceId
+            ? or(
+                isNull(schema.recordingContextItems.capturedDeviceId),
+                eq(schema.recordingContextItems.capturedDeviceId, deviceId),
+              )
             : undefined,
         ),
       )

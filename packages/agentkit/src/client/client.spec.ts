@@ -3298,6 +3298,153 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("leaves snapshot persistence to the host when the transport lacks support", async () => {
+    const client = new AgentKitClient({ transport: createTransport([]) });
+
+    await expect(
+      client.persistThreadSnapshotWithResult("thread-1"),
+    ).resolves.toBeUndefined();
+    await expect(
+      client.persistThreadSnapshot("thread-1"),
+    ).resolves.toBeUndefined();
+
+    await client.shutdown();
+  });
+
+  it("reports snapshot persistence failures through the legacy API", async () => {
+    const transport = createTransport([]);
+    transport.persistThreadSnapshot = async () => {
+      throw new Error("History storage is unavailable.");
+    };
+    const client = new AgentKitClient({ transport });
+
+    await expect(
+      client.persistThreadSnapshotWithResult("thread-1"),
+    ).resolves.toBe(false);
+    await expect(client.persistThreadSnapshot("thread-1")).rejects.toThrow(
+      "Thread snapshot persistence failed.",
+    );
+    expect(client.getSnapshot()).toMatchObject({
+      connection: "error",
+      error: {
+        code: "thread_snapshot_persist_failed",
+        message: "History storage is unavailable.",
+      },
+    });
+    await client.shutdown();
+  });
+
+  it.each([
+    ["request_aborted", { code: "request_aborted" }],
+    ["AbortError", { name: "AbortError" }],
+    ["thread_snapshot_queue_full", { code: "thread_snapshot_queue_full" }],
+    [
+      "thread_snapshot_queue_stalled",
+      { code: "thread_snapshot_queue_stalled" },
+    ],
+  ] as const)(
+    "keeps legacy snapshot persistence nonfatal for expected deferral (%s)",
+    async (_label, properties) => {
+      const transport = createTransport([]);
+      const error = Object.assign(
+        new Error("Snapshot persistence did not complete."),
+        properties,
+      );
+      transport.persistThreadSnapshot = async () => {
+        throw error;
+      };
+      const onError = vi.fn();
+      const client = new AgentKitClient({ transport, onError });
+      const initialConnection = client.getSnapshot().connection;
+
+      await expect(client.persistThreadSnapshot("thread-1")).resolves.toBe(
+        undefined,
+      );
+
+      expect(client.getSnapshot().connection).toBe(initialConnection);
+      expect(client.getSnapshot()).not.toHaveProperty("error");
+      expect(onError).not.toHaveBeenCalled();
+      await client.shutdown();
+    },
+  );
+
+  it.each(["caller abort", "checkpoint timeout"] as const)(
+    "does not fail the client for a snapshot %s",
+    async (cancellation) => {
+      let transportSignal: AbortSignal | undefined;
+      const persistThreadSnapshot = vi.fn(
+        (_input: unknown, context?: { signal?: AbortSignal }) =>
+          new Promise<void>((_resolve, reject) => {
+            transportSignal = context?.signal;
+            transportSignal?.addEventListener(
+              "abort",
+              () => reject(transportSignal?.reason),
+              { once: true },
+            );
+          }),
+      );
+      const transport = createTransport([]);
+      transport.persistThreadSnapshot = persistThreadSnapshot;
+      const onError = vi.fn();
+      const client = new AgentKitClient({ transport, onError });
+      const abortController = new AbortController();
+
+      const saving = client.persistThreadSnapshotWithResult(
+        "thread-1",
+        undefined,
+        {
+          signal: abortController.signal,
+        },
+      );
+      await vi.waitFor(() =>
+        expect(persistThreadSnapshot).toHaveBeenCalledOnce(),
+      );
+      if (cancellation === "checkpoint timeout") {
+        const timeout = new Error(
+          "Chat thread snapshot persistence timed out.",
+        );
+        timeout.name = "TimeoutError";
+        abortController.abort(timeout);
+      } else {
+        abortController.abort();
+      }
+
+      await expect(saving).resolves.toBe(false);
+      expect(persistThreadSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: "thread-1" }),
+        expect.objectContaining({ signal: expect.anything() }),
+      );
+      expect(transportSignal?.aborted).toBe(true);
+      expect(client.getSnapshot()).toMatchObject({ connection: "idle" });
+      expect(client.getSnapshot()).not.toHaveProperty("error");
+      expect(onError).not.toHaveBeenCalled();
+      await client.shutdown();
+    },
+  );
+
+  it.each(["thread_snapshot_queue_full", "thread_snapshot_queue_stalled"])(
+    "does not fail the client for a deferred snapshot queue (%s)",
+    async (name) => {
+      const transport = createTransport([]);
+      transport.persistThreadSnapshot = async () => {
+        const error = new Error("Snapshot persistence is deferred.");
+        Object.assign(error, { code: name });
+        throw error;
+      };
+      const onError = vi.fn();
+      const client = new AgentKitClient({ transport, onError });
+      const initialConnection = client.getSnapshot().connection;
+
+      await expect(
+        client.persistThreadSnapshotWithResult("thread-1"),
+      ).resolves.toBe(false);
+
+      expect(client.getSnapshot().connection).toBe(initialConnection);
+      expect(onError).not.toHaveBeenCalled();
+      await client.shutdown();
+    },
+  );
+
   it("reloads the durable annotation after a concurrent snapshot update", async () => {
     const original = {
       id: "annotation-1",

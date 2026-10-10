@@ -11,6 +11,7 @@ import {
 } from "./request-context.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
+const mockMarkerLanded = vi.hoisted(() => vi.fn(() => true));
 const mockResolveOrgIdForEmail = vi.hoisted(() => vi.fn());
 const mockResolveOrgByDomain = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
@@ -80,6 +81,10 @@ vi.mock("./action-change.js", () => ({
     fallback: boolean,
   ) => entry.readOnly ?? fallback,
   notifyActionChange: (...args: unknown[]) => mockNotifyActionChange(...args),
+  notifyActionChangeForResponse: async (...args: unknown[]) => {
+    mockNotifyActionChange(...args);
+    return mockMarkerLanded();
+  },
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -132,6 +137,8 @@ describe("mountActionRoutes", () => {
     delete process.env.AGENT_NATIVE_BUILD_ID;
     delete process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION;
     mockNotifyActionChange.mockReset();
+    mockMarkerLanded.mockReset();
+    mockMarkerLanded.mockReturnValue(true);
     mockResolveOrgIdForEmail.mockReset();
     mockResolveOrgByDomain.mockReset();
     mockResolveOrgByDomain.mockResolvedValue({
@@ -192,7 +199,7 @@ describe("mountActionRoutes", () => {
       _responseHeaders: {
         "cache-control": "no-store",
         "access-control-expose-headers":
-          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,x-agent-native-widget-session-expired",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility,Retry-After,X-Agent-Native-Browser-Persist,X-Agent-Native-Change-Marker,x-agent-native-widget-session-expired",
         "x-agent-native-client-mismatch": "1",
       },
     });
@@ -492,6 +499,48 @@ describe("mountActionRoutes", () => {
 
     expect(result).toEqual({ source: "package" });
     expect(packageRun).toHaveBeenCalledOnce();
+  });
+
+  it("marks GET results for browser persistence unless the action opts out", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    const definition = (extra: Record<string, unknown>) =>
+      ({
+        tool: { description: "Read", parameters: {} },
+        http: { method: "GET" },
+        readOnly: true,
+        requiresAuth: false,
+        run,
+        ...extra,
+      }) as any;
+    mountActionRoutes(nitroApp, {
+      "list-things": definition({}),
+      "reveal-secret": definition({ persistInBrowser: false }),
+    });
+    const responseFor = async (name: string) => {
+      const event: any = {
+        _method: "GET",
+        req: { url: `http://app.test/_agent-native/actions/${name}` },
+      };
+      await mounted
+        .find((entry) => entry.path.endsWith(`/${name}`))!
+        .handler(event);
+      return event._responseHeaders ?? {};
+    };
+
+    expect(await responseFor("list-things")).toMatchObject({
+      "x-agent-native-browser-persist": "allow",
+      "cache-control": "no-store",
+    });
+    expect(await responseFor("reveal-secret")).not.toHaveProperty(
+      "x-agent-native-browser-persist",
+    );
   });
 
   it("uses action error statusCode for HTTP responses", async () => {
@@ -4211,6 +4260,95 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("answers a write as a success and flags it when its change marker did not land", async () => {
+    mockMarkerLanded.mockReturnValue(false);
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "update-doc": {
+        http: { method: "GET" },
+        readOnly: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+    mountActionRoutes(nitroApp, actions);
+
+    const event: any = {
+      _method: "GET",
+      _headers: {},
+      req: { url: "http://app.test/_agent-native/actions/update-doc?id=doc-1" },
+    };
+    await expect(mounted[0].handler(event)).resolves.toEqual({ ok: true });
+    expect(event._responseHeaders).toMatchObject({
+      "x-agent-native-change-marker": "failed",
+    });
+  });
+
+  it("keeps a POST write's status and flags it when its change marker did not land", async () => {
+    mockMarkerLanded.mockReturnValue(false);
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "update-doc": {
+        readOnly: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+    mountActionRoutes(nitroApp, actions);
+
+    const event: any = {
+      _method: "POST",
+      _headers: {},
+      req: {
+        url: "http://app.test/_agent-native/actions/update-doc",
+        json: async () => ({ id: "doc-1" }),
+      },
+    };
+    await expect(mounted[0].handler(event)).resolves.toEqual({ ok: true });
+    expect(event._responseHeaders).toMatchObject({
+      "x-agent-native-change-marker": "failed",
+    });
+    expect(event).not.toHaveProperty("_status");
+  });
+
+  it("sets no change-marker header when the change marker landed", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "update-doc": {
+        http: { method: "GET" },
+        readOnly: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+    mountActionRoutes(nitroApp, actions);
+
+    const event: any = {
+      _method: "GET",
+      _headers: {},
+      req: { url: "http://app.test/_agent-native/actions/update-doc?id=doc-1" },
+    };
+    await expect(mounted[0].handler(event)).resolves.toEqual({ ok: true });
+    expect(event._responseHeaders).not.toHaveProperty(
+      "x-agent-native-change-marker",
+    );
+  });
+
   it("publishes change events only for calls that mutate and have not opted out", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -6703,5 +6841,109 @@ describe("mountWebMcpActionRoutes", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 401 });
     expect(mutationRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("get-actions-batch through mounted action routes", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("runs each item through its own route and keeps item failures isolated", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { default: batchAction } = await import("./get-actions-batch.js");
+    const routes = new Map<string, any>();
+    const listRun = vi.fn(async () => ({ designs: [{ id: "d1" }] }));
+    const saveRun = vi.fn(async () => ({ saved: true }));
+    const deckRun = vi.fn(async () => {
+      throw Object.assign(new Error("Not allowed for this deck"), {
+        statusCode: 403,
+        errorCode: "forbidden",
+      });
+    });
+    const nitroApp: any = {
+      use: (path: string, handler: any) => routes.set(path, handler),
+    };
+    nitroApp.fetch = async (request: Request): Promise<Response> => {
+      const handler = routes.get(new URL(request.url).pathname);
+      if (!handler) {
+        return new Response(JSON.stringify({ error: "Not found" }), {
+          status: 404,
+        });
+      }
+      const event: any = {
+        _method: request.method,
+        _headers: Object.fromEntries(request.headers),
+        headers: request.headers,
+        _query: {},
+        req: request,
+      };
+      let body: unknown;
+      try {
+        body = await handler(event);
+      } catch (error) {
+        event._status = (error as { statusCode?: number }).statusCode ?? 500;
+        body = { error: (error as Error).message };
+      }
+      return new Response(JSON.stringify(body ?? null), {
+        status: event._status ?? 200,
+        headers: {
+          "Content-Type": "application/json",
+          ...(event._responseHeaders ?? {}),
+        },
+      });
+    };
+
+    mountActionRoutes(nitroApp, {
+      "list-designs": {
+        http: { method: "GET" },
+        requiresAuth: false,
+        run: listRun,
+      },
+      "save-deck": {
+        http: { method: "POST" },
+        requiresAuth: false,
+        run: saveRun,
+      },
+      "get-deck": {
+        http: { method: "GET" },
+        requiresAuth: false,
+        run: deckRun,
+      },
+      "get-actions-batch": batchAction,
+    } as any);
+
+    const response = await nitroApp.fetch(
+      new Request("http://app.test/_agent-native/actions/get-actions-batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Agent-Native-Frontend": "1",
+        },
+        body: JSON.stringify({
+          requests: [
+            { action: "list-designs", query: "limit=5" },
+            { action: "save-deck", query: "" },
+            { action: "get-deck", query: "" },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const { results } = await response.json();
+    expect(results[0]).toMatchObject({
+      status: 200,
+      body: { designs: [{ id: "d1" }] },
+    });
+    expect(results[1]).toMatchObject({ status: 405 });
+    expect(results[2]).toEqual({
+      status: 403,
+      error: { error: "Not allowed for this deck", errorCode: "forbidden" },
+      headers: { "x-agent-native-browser-persist": "allow" },
+    });
+    expect(listRun).toHaveBeenCalledTimes(1);
+    expect(saveRun).not.toHaveBeenCalled();
+    expect(deckRun).toHaveBeenCalledTimes(1);
   });
 });

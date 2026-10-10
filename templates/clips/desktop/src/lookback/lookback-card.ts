@@ -6,7 +6,8 @@ export type LookbackCardLine =
   | { kind: "unreadable" }
   | { kind: "saving"; window: string }
   | { kind: "ready"; window: string }
-  | { kind: "failed" };
+  | { kind: "failed" }
+  | { kind: "removed" };
 
 // "unreadable" is kept apart from "hidden" so a failed read is never shown as
 // a recording that simply has no earlier screen time.
@@ -16,7 +17,7 @@ export function lookbackCardLine(view: {
 }): LookbackCardLine {
   if (view.status === "error") return { kind: "unreadable" };
   const item = view.item;
-  if (!item || item.status === "removed") return { kind: "hidden" };
+  if (!item) return { kind: "hidden" };
   const window = lookbackLabel(item.requestedSeconds);
   switch (item.status) {
     case "pending":
@@ -26,6 +27,10 @@ export function lookbackCardLine(view: {
       return { kind: "ready", window };
     case "failed":
       return { kind: "failed" };
+    // The list excludes removed items, so this is only the item this window
+    // just removed.
+    case "removed":
+      return { kind: "removed" };
   }
 }
 

@@ -530,13 +530,28 @@ describe("http response telemetry", () => {
       await expectHandedOffExport(handedOff);
     });
 
-    it("waits for the export inline when no waitUntil exists", async () => {
-      const { hook, settled } = await respond(eventFor("/some/page"));
+    it("exports inline when the export finishes within the deadline and no waitUntil exists", async () => {
+      let exported = false;
+      forceFlush.mockImplementationOnce(async () => {
+        exported = true;
+      });
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor("/some/page");
+      await requestHooks[0](event);
+      await responseHooks[0](new Response("ok"), event);
 
-      expect(settled()).toBe(false);
-      releaseFlush();
-      await hook;
-      expect(settled()).toBe(true);
+      expect(exported).toBe(true);
+    });
+
+    it("releases the response at the deadline when the export is still running and no waitUntil exists", async () => {
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor("/some/page");
+      await requestHooks[0](event);
+      const startedAt = Date.now();
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(Date.now() - startedAt).toBeLessThan(1_000);
+      expect(forceFlush).toHaveBeenCalledOnce();
     });
   });
 

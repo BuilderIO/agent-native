@@ -135,6 +135,7 @@ import {
   originForServer,
   originForUrl,
 } from "./lib/desktop-auth-token";
+import { clipsDeviceId } from "./lib/device-id";
 import {
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
@@ -330,17 +331,6 @@ interface RewindAgentHandoffRequest {
   agentUrl?: string;
   contextUrl?: string;
   expiresAt?: string;
-  error?: string;
-}
-
-interface RewindExtensionRequest {
-  requestId: string;
-  recordingId: string;
-  seconds: 30 | 300;
-  status: "pending" | "processing" | "ready" | "failed";
-  updatedAt: string;
-  preRollRecordingId?: string;
-  actualDurationMs?: number;
   error?: string;
 }
 
@@ -1167,7 +1157,6 @@ export function App({
     useState<RewindAgentHandoffRequest | null>(null);
   const agentHandoffProcessingRef = useRef<string | null>(null);
   const agentHandoffPreviewedRef = useRef<Set<string>>(new Set());
-  const rewindExtensionProcessingRef = useRef<Set<string>>(new Set());
   const [agentHandoffPreviewBusy, setAgentHandoffPreviewBusy] = useState(false);
   const [agentHandoffPreviewError, setAgentHandoffPreviewError] = useState<
     string | null
@@ -1813,87 +1802,6 @@ export function App({
     [callClipsAction, serverUrl, updateAgentHandoff],
   );
 
-  const processRewindExtension = useCallback(
-    async (request: RewindExtensionRequest) => {
-      if (rewindExtensionProcessingRef.current.has(request.requestId)) return;
-      rewindExtensionProcessingRef.current.add(request.requestId);
-      let preRollRecordingId: string | null = null;
-      try {
-        const origin = getRewindClipOrigin(request.recordingId);
-        if (!origin) {
-          throw new Error(
-            "Clips Alpha no longer has the local start time for this Clip.",
-          );
-        }
-        const endedAtMs = Date.parse(origin.startedAt);
-        if (!Number.isFinite(endedAtMs)) {
-          throw new Error("The original Clip start time is invalid.");
-        }
-        await callClipsAction("update-rewind-extension-request", {
-          recordingId: request.recordingId,
-          requestId: request.requestId,
-          status: "processing",
-        });
-        const startedAt = new Date(
-          endedAtMs - request.seconds * 1_000,
-        ).toISOString();
-        const recording = await createPrivateAgentRewindRecording(
-          serverUrl,
-          origin.includeMicrophone || origin.includeSystemAudio,
-          startedAt,
-          loadDesktopAuthToken(serverUrl),
-        );
-        preRollRecordingId = recording.id;
-        const upload = await invoke<NativeRewindUploadResult>(
-          "rewind_agent_handoff_upload",
-          {
-            requestId: `handoff-${request.requestId}`,
-            startedAt,
-            endedAt: origin.startedAt,
-            serverUrl,
-            recordingId: recording.id,
-            authToken: loadDesktopAuthToken(serverUrl),
-            cookie:
-              typeof document !== "undefined" ? document.cookie || "" : "",
-            uploadMode: recording.uploadMode,
-            includeMic: origin.includeMicrophone,
-            includeSystemAudio: origin.includeSystemAudio,
-          },
-        );
-        await callClipsAction("update-rewind-extension-request", {
-          recordingId: request.recordingId,
-          requestId: request.requestId,
-          status: "ready",
-          preRollRecordingId: recording.id,
-          actualDurationMs: Math.round(upload.durationMs),
-          ...(typeof upload.width === "number" && upload.width > 0
-            ? { preRollWidth: upload.width }
-            : {}),
-          ...(typeof upload.height === "number" && upload.height > 0
-            ? { preRollHeight: upload.height }
-            : {}),
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (preRollRecordingId) {
-          await callClipsAction("trash-recording", {
-            id: preRollRecordingId,
-            skipIfReady: true,
-          }).catch(() => {});
-        }
-        await callClipsAction("update-rewind-extension-request", {
-          recordingId: request.recordingId,
-          requestId: request.requestId,
-          status: "failed",
-          error: message,
-        }).catch(() => {});
-      } finally {
-        rewindExtensionProcessingRef.current.delete(request.requestId);
-      }
-    },
-    [callClipsAction, serverUrl],
-  );
-
   function chooseLookbackSeconds(seconds: number) {
     setLookbackSeconds(seconds);
     saveLookbackSeconds(seconds);
@@ -1930,6 +1838,7 @@ export function App({
       recordingId,
       seconds,
       endedAt: origin.startedAt,
+      deviceId: clipsDeviceId(),
     }).catch((error: unknown) => {
       console.error(
         "[clips-popover] earlier screen time request failed:",
@@ -2013,6 +1922,7 @@ export function App({
         const items = await listPendingRecordingContext(
           { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
           {
+            deviceId: clipsDeviceId(),
             // The server accepts at most 100 excludeIds; any beyond that stay
             // in the oldest-first batch.
             excludeIds: [...skippedLookbackIdsRef.current].slice(0, 100),
@@ -2061,63 +1971,6 @@ export function App({
     processLookbackItem,
     rewindOn,
     serverUrl,
-  ]);
-
-  // Legacy editor stitch flow: it still reads its own app-state requests.
-  // Earlier-screen-time exports use the pending-context worker above.
-  useEffect(() => {
-    if (
-      authStatus !== "authed" ||
-      featureConfig?.screenMemory?.enabled !== true
-    ) {
-      return;
-    }
-    let cancelled = false;
-    let inFlight = false;
-    const poll = async () => {
-      if (document.hidden || inFlight) return;
-      inFlight = true;
-      const controller = new AbortController();
-      const abortTimer = setTimeout(
-        () => controller.abort(),
-        Math.max(10_000, 3_000 * 4),
-      );
-      try {
-        const result = await callClipsAction<{
-          requests?: RewindExtensionRequest[];
-        }>(
-          "list-rewind-extension-requests",
-          {},
-          { method: "GET", signal: controller.signal },
-        )
-          // coercion-ok: nothing to process this sweep either way; the next
-          // tick re-reads the pending requests.
-          .catch(() => null);
-        if (cancelled) return;
-        for (const request of result?.requests ?? []) {
-          void processRewindExtension(request);
-        }
-      } finally {
-        clearTimeout(abortTimer);
-        inFlight = false;
-      }
-    };
-    void poll();
-    const timer = window.setInterval(() => void poll(), 3_000);
-    const onVisibilityChange = () => {
-      if (!document.hidden) void poll();
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [
-    authStatus,
-    callClipsAction,
-    featureConfig?.screenMemory?.enabled,
-    processRewindExtension,
   ]);
 
   useEffect(() => {
