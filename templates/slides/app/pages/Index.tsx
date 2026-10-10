@@ -694,39 +694,39 @@ export default function Index({ active = true }: { active?: boolean }) {
       refetchOnReconnect: false,
     },
   );
+  const homeSuggestionsUnavailable =
+    !homeSuggestionsQuery.isFetching &&
+    (agentEngine.state === "unavailable" ||
+      homeSuggestionsQuery.isError ||
+      homeSuggestionsQuery.data?.status === "unavailable" ||
+      (homeSuggestionsQuery.data?.status === "ready" &&
+        homeSuggestionsQuery.data.suggestions.length !== 3));
   useEffect(() => {
-    if (
-      homeSuggestionsSnapshot !== null ||
-      homeSuggestionsQuery.isFetching ||
-      homeSuggestionsQuery.isError
-    ) {
+    if (homeSuggestionsSnapshot !== null || homeSuggestionsQuery.isFetching) {
       return;
     }
     const result = homeSuggestionsQuery.data;
     if (result?.status === "ready" && result.suggestions.length === 3) {
       setHomeSuggestionsSnapshot(result.suggestions);
+    } else if (homeSuggestionsUnavailable) {
+      setHomeSuggestionsSnapshot(fallbackHomeSuggestions);
     }
   }, [
     homeSuggestionsQuery.data,
-    homeSuggestionsQuery.isError,
     homeSuggestionsQuery.isFetching,
+    homeSuggestionsUnavailable,
+    fallbackHomeSuggestions,
     homeSuggestionsSnapshot,
   ]);
-  const homeSuggestionsUnavailable =
-    agentEngine.state === "unavailable" ||
-    homeSuggestionsQuery.isError ||
-    homeSuggestionsQuery.data?.status === "unavailable" ||
-    (homeSuggestionsQuery.data?.status === "ready" &&
-      homeSuggestionsQuery.data.suggestions.length !== 3);
   const homeSuggestions =
     homeSuggestionsSnapshot ??
     (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);
   const homeSuggestionsLoading =
     isHome &&
     showNewDeckPrompt &&
-    !agentEngineMissing &&
-    !homeSuggestionsUnavailable &&
-    homeSuggestionsSnapshot === null;
+    homeSuggestionsSnapshot === null &&
+    (homeSuggestionsQuery.isFetching ||
+      (!agentEngineMissing && !homeSuggestionsUnavailable));
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);

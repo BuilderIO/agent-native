@@ -31,6 +31,7 @@ const systemFlag = vi.hoisted(() => ({
 const suggestionQuery = vi.hoisted(() => ({
   enabled: undefined as boolean | undefined,
   pending: false,
+  retrying: false,
 }));
 const inactiveHomeQueries = vi.hoisted(() => ({
   workspaceDefaultsEnabled: true,
@@ -244,8 +245,21 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   ) => {
     if (name === "generate-home-suggestions") {
       suggestionQuery.enabled = options?.enabled;
+      if (suggestionQuery.retrying && options?.enabled !== false) {
+        return {
+          data: { status: "unavailable", suggestions: [] },
+          isLoading: false,
+          isFetching: true,
+          isError: true,
+        };
+      }
       if (suggestionQuery.pending && options?.enabled !== false) {
-        return { data: undefined, isLoading: true, isError: false };
+        return {
+          data: undefined,
+          isLoading: true,
+          isFetching: true,
+          isError: false,
+        };
       }
       return {
         data:
@@ -253,6 +267,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
             ? undefined
             : { status: "ready", suggestions: homeSuggestions.value },
         isLoading: false,
+        isFetching: false,
         isError: false,
       };
     }
@@ -492,6 +507,7 @@ beforeEach(() => {
   systemFlag.status = "ready";
   suggestionQuery.enabled = undefined;
   suggestionQuery.pending = false;
+  suggestionQuery.retrying = false;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
   inactiveHomeQueries.templateLibraryEnabled = true;
   defaultDesignSystems.systems = [];
@@ -1741,7 +1757,7 @@ describe("Slides prompt-led home", () => {
     ).toBeNull();
   });
 
-  it("replaces display-only fallback suggestions after readiness recovers", async () => {
+  it("keeps fallback suggestions unchanged after readiness recovers", async () => {
     agentEngine.state = "unavailable";
     agentEngine.missing = false;
     const { rerenderHome } = renderHome();
@@ -1755,9 +1771,32 @@ describe("Slides prompt-led home", () => {
     agentEngine.state = "configured";
     rerenderHome();
 
-    expect(await screen.findByRole("button", { name: "Build a pitch" })).toBe(
-      screen.getByRole("button", { name: "Build a pitch" }),
-    );
+    expect(
+      screen.getByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Build a pitch" })).toBeNull();
+    expect(suggestionQuery.enabled).toBe(false);
+  });
+
+  it("shows the skeleton while retrying a cached unavailable result", async () => {
+    suggestionQuery.retrying = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const bar = screen.getByLabelText("home.suggestedPrompts");
+    expect(bar.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+    expect(
+      screen.queryByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeNull();
+
+    suggestionQuery.retrying = false;
+    rerenderHome();
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Create a product pitch deck" }),
     ).toBeNull();

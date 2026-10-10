@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   clearPendingGeneration: vi.fn(),
   fullAppBuilding: false,
   suggestionPending: false,
+  suggestionRetrying: false,
   suggestionLabel: "Generated dashboard",
   ownCount: 0,
   ownedCount: 0,
@@ -176,10 +177,28 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
     }
     if (name === "generate-home-suggestions") {
       if (options?.enabled === false) {
-        return { data: undefined, isLoading: false, isError: false };
+        return {
+          data: undefined,
+          isLoading: false,
+          isFetching: false,
+          isError: false,
+        };
+      }
+      if (mocks.suggestionRetrying) {
+        return {
+          data: { status: "unavailable", suggestions: [] },
+          isLoading: false,
+          isFetching: true,
+          isError: true,
+        };
       }
       if (mocks.suggestionPending) {
-        return { data: undefined, isLoading: true, isError: false };
+        return {
+          data: undefined,
+          isLoading: true,
+          isFetching: true,
+          isError: false,
+        };
       }
       return {
         data: {
@@ -202,6 +221,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
             },
           ],
           isLoading: false,
+          isFetching: false,
           isError: false,
         },
       };
@@ -424,6 +444,7 @@ beforeEach(async () => {
   mocks.promptProps = null;
   mocks.fullAppBuilding = false;
   mocks.suggestionPending = false;
+  mocks.suggestionRetrying = false;
   mocks.suggestionLabel = "Generated dashboard";
   mocks.systemsEnabled = true;
   mocks.systemsLoading = false;
@@ -754,7 +775,7 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Another dashboard");
   });
 
-  it("replaces display-only fallback suggestions after readiness recovers", async () => {
+  it("keeps fallback suggestions unchanged after readiness recovers", async () => {
     await act(async () => root.render(null));
     mocks.agentEngine = {
       state: "unavailable",
@@ -769,6 +790,27 @@ describe("Index skip to editor", () => {
     mocks.agentEngine = { state: "configured", missing: false, canChat: true };
     await act(async () => root.render(<Index />));
 
+    expect(container.textContent).toContain("chat.suggestionLandingPage");
+    expect(container.textContent).not.toContain("Generated dashboard");
+    expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
+  it("shows the skeleton while retrying a cached unavailable result", async () => {
+    await act(async () => root.render(null));
+    mocks.suggestionRetrying = true;
+    await act(async () => root.render(<Index />));
+
+    const bar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
+
+    mocks.suggestionRetrying = false;
+    await act(async () => root.render(<Index />));
     expect(container.textContent).toContain("Generated dashboard");
     expect(container.textContent).not.toContain("chat.suggestionLandingPage");
   });
