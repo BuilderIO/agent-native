@@ -5909,12 +5909,12 @@ async function runAuthoringFuzzQa(
           recordCleanupFailure(label, error, target);
         }
       };
+      while (pendingCleanupConsoleInspections.size) {
+        await Promise.all([...pendingCleanupConsoleInspections]);
+      }
       if (page) await closePage(page, "could not close authoring page");
       for (const cleanupPage of recoveryPages) {
         await closePage(cleanupPage, "could not close recovery page");
-      }
-      while (pendingCleanupConsoleInspections.size) {
-        await Promise.all([...pendingCleanupConsoleInspections]);
       }
       if (cleanupErrors.length) {
         const problem = `seed ${seed}: scratch deck cleanup failed (${cleanupErrors.join("; ")})`;
