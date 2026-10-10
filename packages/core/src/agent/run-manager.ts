@@ -1371,9 +1371,17 @@ export function startRun(
     });
   };
 
-  const persistRunEvent = (runEvent: RunEvent): Promise<void> => {
-    const eventData = JSON.stringify(runEvent.event);
-    const write = () => insertRunEvent(runId, runEvent.seq, eventData);
+  const persistRunEvent = (
+    runEvent: RunEvent,
+    eventData: string,
+  ): Promise<void> => {
+    const write = () =>
+      runEvent.event.type === "tool_start" ||
+      runEvent.event.type === "tool_done"
+        ? insertRunEvent(runId, runEvent.seq, eventData, {
+            toolInputSource: "execution",
+          })
+        : insertRunEvent(runId, runEvent.seq, eventData);
     return options?.persistEvent
       ? options.persistEvent(write, {
           terminal: isTerminalRunEvent(runEvent.event),
@@ -1388,6 +1396,7 @@ export function startRun(
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
   ): Promise<void> => {
+    const eventData = JSON.stringify(runEvent.event);
     run.events.push(runEvent);
 
     for (const subscriber of run.subscribers) {
@@ -1406,7 +1415,7 @@ export function startRun(
 
     const thisInsert = persistenceChain.then(async () => {
       try {
-        await persistRunEvent(runEvent);
+        await persistRunEvent(runEvent, eventData);
       } catch (error) {
         if (!eventPersistenceErrorCaptured) {
           eventPersistenceErrorCaptured = true;
@@ -1415,7 +1424,7 @@ export function startRun(
             eventType: runEvent.event.type,
           });
         }
-        await persistRunEvent(runEvent);
+        await persistRunEvent(runEvent, eventData);
       }
     });
     persistenceChain = thisInsert;
@@ -1635,7 +1644,7 @@ export function startRun(
             );
             if (!eventPersistenceError) {
               try {
-                await persistRunEvent(terminal);
+                await persistRunEvent(terminal, JSON.stringify(terminal.event));
                 terminalPersistenceError = null;
               } catch (retryError) {
                 terminalPersistenceError = retryError;

@@ -1,14 +1,20 @@
+import { createHash } from "node:crypto";
+
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
   isArtifactReceipt,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
+import { stripInlineBytes } from "../shared/inline-bytes.js";
 import type { AgentChatEvent, AgentToolInput } from "./types.js";
 
 export interface ToolCallJournalEntry {
   key: string;
   tool: string;
+  id?: string;
   input?: AgentToolInput;
+  inputFingerprint?: string;
+  inputStoredFingerprint?: string;
   order: number;
   result?: string;
   artifacts?: ArtifactReceipt[];
@@ -36,6 +42,36 @@ function inputSignature(input: unknown): string {
   }
 }
 
+export function toolCallInputFingerprint(input: unknown): string {
+  return createHash("sha256").update(inputSignature(input)).digest("hex");
+}
+
+export function isRedactedToolCallInput(input: unknown): boolean {
+  if (typeof input === "string")
+    return /\[inline [^\]]+ data omitted\]/.test(input);
+  if (!input || typeof input !== "object") return false;
+  if ("omitted" in input && input.omitted === "inline-bytes") return true;
+  return Object.values(input).some(isRedactedToolCallInput);
+}
+
+export function isConsistentToolCallInputFingerprint(
+  input: unknown,
+  fingerprint: string | undefined,
+  storedFingerprint?: string,
+): boolean {
+  if (storedFingerprint !== undefined)
+    return (
+      fingerprint !== undefined &&
+      input !== undefined &&
+      toolCallInputFingerprint(input) === storedFingerprint
+    );
+  return (
+    fingerprint === undefined ||
+    input === undefined ||
+    toolCallInputFingerprint(input) === fingerprint
+  );
+}
+
 function canonicalizeForSignature(
   input: unknown,
   seen = new WeakSet(),
@@ -60,7 +96,7 @@ function canonicalizeForSignature(
   }
 
   const object = input as Record<string, unknown>;
-  const output: Record<string, unknown> = {};
+  const output: Record<string, unknown> = Object.create(null);
   for (const key of Object.keys(object).sort()) {
     const value = object[key];
     output[key] =
@@ -94,7 +130,14 @@ export function classifyToolCallJournal(
       const entry: ToolCallJournalEntry = {
         key: `${tool}#${order}:${displayInputSignature(input)}`,
         tool,
+        ...(event.id !== undefined ? { id: event.id } : {}),
         ...(input ? { input } : {}),
+        ...(event.inputFingerprint
+          ? { inputFingerprint: event.inputFingerprint }
+          : {}),
+        ...(event.inputStoredFingerprint
+          ? { inputStoredFingerprint: event.inputStoredFingerprint }
+          : {}),
         order,
       };
       order += 1;
@@ -149,14 +192,59 @@ function takeMatchingOpenEntry(
   event: Extract<AgentChatEvent, { type: "tool_done" }>,
 ): ToolCallJournalEntry | undefined {
   if (!queue || queue.length === 0) return undefined;
-  if (event.input !== undefined) {
-    const doneSig = inputSignature(event.input);
-    const index = queue.findIndex(
-      (entry) => inputSignature(entry.input) === doneSig,
+  if (
+    !isConsistentToolCallInputFingerprint(
+      event.input,
+      event.inputFingerprint,
+      event.inputStoredFingerprint,
+    )
+  )
+    return undefined;
+  const hasIdentity =
+    event.id !== undefined ||
+    event.inputFingerprint !== undefined ||
+    event.input !== undefined;
+  if (!hasIdentity && queue.length !== 1) return undefined;
+
+  const doneFingerprint =
+    event.inputFingerprint ??
+    (event.input === undefined
+      ? undefined
+      : toolCallInputFingerprint(event.input));
+  const matches = queue.filter((entry) => {
+    if (
+      !isConsistentToolCallInputFingerprint(
+        entry.input,
+        entry.inputFingerprint,
+        entry.inputStoredFingerprint,
+      )
+    )
+      return false;
+    if (event.id !== undefined && entry.id !== event.id) return false;
+    if (
+      doneFingerprint !== undefined &&
+      (entry.inputFingerprint ?? toolCallInputFingerprint(entry.input)) !==
+        doneFingerprint
+    )
+      return false;
+    return (
+      event.input === undefined ||
+      inputSignature(
+        event.inputFingerprint === undefined &&
+          entry.inputFingerprint === undefined
+          ? entry.input
+          : stripInlineBytes(entry.input, "placeholder"),
+      ) ===
+        inputSignature(
+          event.inputFingerprint === undefined &&
+            entry.inputFingerprint === undefined
+            ? event.input
+            : stripInlineBytes(event.input, "placeholder"),
+        )
     );
-    if (index >= 0) return queue.splice(index, 1)[0];
-  }
-  return queue.shift();
+  });
+  if (matches.length !== 1) return undefined;
+  return queue.splice(queue.indexOf(matches[0]), 1)[0];
 }
 
 function isNonCompletedToolDone(
@@ -165,6 +253,8 @@ function isNonCompletedToolDone(
   if (event.replayed === true) return true;
   if (event.completedSideEffect === false) return true;
   if (event.isError === true) return true;
+  if (event.completedSideEffect === true || event.isError === false)
+    return false;
 
   const result = (event.result ?? "").trim();
   if (!result) return false;
@@ -193,9 +283,16 @@ export function findCompletedJournalEntry(
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
   const wantSig = inputSignature(input);
+  let wantFingerprint: string | undefined;
   for (const entry of journal.completed) {
     if (entry.tool !== toolName) continue;
-    if (inputSignature(entry.input) !== wantSig) continue;
+    if (
+      entry.inputFingerprint
+        ? entry.inputFingerprint !==
+          (wantFingerprint ??= toolCallInputFingerprint(input))
+        : inputSignature(entry.input) !== wantSig
+    )
+      continue;
     if (consumedKeys?.has(entry.key)) continue;
     consumedKeys?.add(entry.key);
     return entry;
