@@ -2211,6 +2211,32 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(rows()).toHaveLength(expected + 1);
       expect(chips()).toHaveLength(expected + 1);
 
+      const hostSuggestions = container.querySelector(
+        ".agentkit-host-suggestions",
+      );
+      if (suggestionPlacement === "hidden") {
+        expect(
+          container.querySelector("[data-agentkit-host-suggestions-slot]"),
+        ).toBeNull();
+      } else {
+        const slot = hostSuggestions?.parentElement;
+        expect(slot?.getAttribute("data-agentkit-host-suggestions-slot")).toBe(
+          "true",
+        );
+        expect(
+          slot?.parentElement?.classList.contains("agentkit-host-composer"),
+        ).toBe(true);
+        expect(
+          slot?.nextElementSibling?.querySelector(
+            '[data-agent-composer-slot="root"]',
+          ),
+        ).not.toBeNull();
+        expect(
+          hostSuggestions?.querySelector('[data-agent-suggestion-track="true"]')
+            ?.className,
+        ).toContain("flex-nowrap");
+      }
+
       chatMocks.omitSuggestionsSlot = false;
       await act(async () => root.render(<AgentKitAssistantChat {...props} />));
 
@@ -2244,6 +2270,20 @@ describe("AgentKitAssistantChat host behavior", () => {
       chatMocks.composerProps.onSubmissionPendingChange(false);
     });
     expect(chips().every((button) => !button.disabled)).toBe(true);
+  });
+
+  it("reserves the follow-up row while suggestions are unavailable", async () => {
+    seedFollowup();
+    chatMocks.thread = { ...chatMocks.thread, suggestions: [] };
+    await useRealComposer();
+    const props = baseProps({ showModelSelector: false });
+    await mount(props);
+
+    const slot = container.querySelector(
+      "[data-agentkit-host-suggestions-slot]",
+    );
+    expect(slot).not.toBeNull();
+    expect(slot?.querySelector(".agentkit-host-suggestions")).toBeNull();
   });
 
   it.each([undefined, "context-chips", "after-composer", "hidden"] as const)(
