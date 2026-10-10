@@ -445,6 +445,7 @@ export function useChatThreads(
   }
 
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
+  const [threadListFetchRevision, setThreadListFetchRevision] = useState(0);
   const [hasMoreThreads, setHasMoreThreads] = useState(false);
   const [isLoadingMoreThreads, setIsLoadingMoreThreads] = useState(false);
   const [threadsLoadError, setThreadsLoadError] = useState<string | null>(null);
@@ -454,6 +455,8 @@ export function useChatThreads(
   const [, setThreadPersistenceVersion] = useState(0);
   const nextThreadsOffsetRef = useRef(0);
   const latestFetchRequestRef = useRef(0);
+  const initialLoadRequestIdRef = useRef<number | null>(null);
+  const loadingRequestIdRef = useRef<number | null>(null);
   const threadsRef = useRef<ChatThreadSummary[]>(threads);
   threadsRef.current = threads;
 
@@ -922,6 +925,28 @@ export function useChatThreads(
           setThreadsLoadError("Could not load chat history.");
         }
         return undefined;
+      } finally {
+        if (requestId === latestFetchRequestRef.current) {
+          setThreadListFetchRevision((revision) => revision + 1);
+
+          const initialRequestId = initialLoadRequestIdRef.current;
+          if (initialRequestId !== null && requestId > initialRequestId) {
+            initialLoadRequestIdRef.current = null;
+            loadingRequestIdRef.current = null;
+            initialRouteConfirmationPendingRef.current = null;
+            setIsLoading(false);
+          } else {
+            const loadingRequestId = loadingRequestIdRef.current;
+            if (
+              initialRequestId === null &&
+              loadingRequestId !== null &&
+              requestId >= loadingRequestId
+            ) {
+              loadingRequestIdRef.current = null;
+              setIsLoading(false);
+            }
+          }
+        }
       }
     },
     [
@@ -957,7 +982,9 @@ export function useChatThreads(
       ),
     );
     setIsLoading(true);
-    void fetchThreads().finally(() => setIsLoading(false));
+    const request = fetchThreads();
+    loadingRequestIdRef.current = latestFetchRequestRef.current;
+    void request;
   }, [
     fetchThreads,
     historyScope,
@@ -982,14 +1009,15 @@ export function useChatThreads(
 
     void (async () => {
       const initialFetchRequestId = latestFetchRequestRef.current + 1;
+      initialLoadRequestIdRef.current = initialFetchRequestId;
+      loadingRequestIdRef.current = initialFetchRequestId;
       const loadedThreads = await fetchThreads();
+      if (latestFetchRequestRef.current !== initialFetchRequestId) return;
       const restoredId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {
+        initialLoadRequestIdRef.current = null;
+        loadingRequestIdRef.current = null;
         initialRouteConfirmationPendingRef.current = null;
-        if (latestFetchRequestRef.current !== initialFetchRequestId) {
-          setIsLoading(false);
-          return;
-        }
         if (
           restoredId &&
           autoCreate &&
@@ -1015,10 +1043,13 @@ export function useChatThreads(
         lookupRestored && (!restoredOnPage || routeControlsActiveThread)
           ? await fetchThreadById(apiUrl, restoredId!, historyScope)
           : restoredOnPage;
+      if (latestFetchRequestRef.current !== initialFetchRequestId) return;
       if (
         routeControlsActiveThread &&
         routeThreadLookupKeyRef.current !== routeThreadLookupKey
       ) {
+        initialLoadRequestIdRef.current = null;
+        loadingRequestIdRef.current = null;
         setIsLoading(false);
         return;
       }
@@ -1030,6 +1061,8 @@ export function useChatThreads(
         initialRouteConfirmationPendingRef.current = null;
       }
       if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
+        initialLoadRequestIdRef.current = null;
+        loadingRequestIdRef.current = null;
         initialRouteConfirmationPendingRef.current = null;
         setIsLoading(false);
         return;
@@ -1136,6 +1169,8 @@ export function useChatThreads(
         addOptimisticThread(id, scopeRef.current ?? null);
         setActiveThreadId(id);
       }
+      initialLoadRequestIdRef.current = null;
+      loadingRequestIdRef.current = null;
       setIsLoading(false);
     })();
   }, [
@@ -1174,10 +1209,12 @@ export function useChatThreads(
     let retryTimer: number | null = null;
     let retries = 0;
     const confirmRouteThread = async () => {
+      const requestId = latestFetchRequestRef.current;
       const thread = await fetchThreadById(apiUrl, routeThreadId, historyScope);
       if (
         cancelled ||
-        routeThreadLookupKeyRef.current !== routeThreadLookupKey
+        routeThreadLookupKeyRef.current !== routeThreadLookupKey ||
+        requestId !== latestFetchRequestRef.current
       ) {
         return;
       }
@@ -1241,6 +1278,7 @@ export function useChatThreads(
     historyScopeKey,
     isolateHistory,
     isLoading,
+    threadListFetchRevision,
     routeControlsActiveThread,
     routeThreadId,
     routeThreadLookupKey,
