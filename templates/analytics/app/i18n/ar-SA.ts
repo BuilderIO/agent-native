@@ -1080,6 +1080,11 @@ export default {
   sqlDashboard: {
     customRange: "نطاق مخصص",
     allValues: "الكل",
+    searchValues: "ابحث عن القيم",
+    noValuesFound: "لم يتم العثور على قيم",
+    selectAll: "تحديد الكل",
+    selectOnly: "فقط",
+    selectOnlyValue: "فقط {{value}}",
     untitledDashboard: "لوحة تحكم بلا عنوان",
     dashboardFallback: "لوحة المعلومات",
     viewOnly: "لديك حق الوصول للعرض فقط إلى لوحة المعلومات هذه.",

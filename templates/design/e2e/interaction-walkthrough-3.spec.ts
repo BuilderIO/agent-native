@@ -32,7 +32,7 @@ async function postAction(
 
 async function newDesign(page: Page): Promise<string> {
   const created = await postAction(page, "create-design", {
-    title: `E2E Tutorial 3 Navbar ${Date.now()}`,
+    title: `Navigation bar build ${Date.now()}`,
     projectType: "prototype",
   });
   const id = created?.id ?? created?.data?.id ?? created?.design?.id;
@@ -339,8 +339,7 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
         {
           timeout: 10_000,
           message:
-            "standard: the Frame tool with a top-level artboard creates a new frame; " +
-            "in Design, drawing a Screen on the empty board must create a new screen file.",
+            "drawing a Screen on the empty board must create a new screen file.",
         },
       )
       .toBe(before.length + 1);
@@ -357,8 +356,7 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
     const navHtml = await fileContentByName(page, designId, navFilename);
     expect(
       navHtml,
-      `new screen ${navFilename} body must default to a white background ` +
-        `like a freshly drawn standard frame`,
+      `new screen ${navFilename} body must default to a white background`,
     ).toMatch(
       /background(-color)?\s*:\s*(#fff\b|#ffffff|white|rgb\(255,\s*255,\s*255\)|var\([^)]*#fff)/i,
     );
@@ -410,9 +408,8 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
     );
     expect(
       renamedFile,
-      `standard: renaming a top-level frame updates its name everywhere, ` +
-        `immediately. Renaming the screen root layer to "Navigation" must ` +
-        `rename its underlying file (was "${navFilename}"); got files: ` +
+      `renaming the screen root layer to "Navigation" must update its filename immediately ` +
+        `(was "${navFilename}"); got files: ` +
         `${JSON.stringify(filesAfterRename)} (was: ${JSON.stringify(designFilesBefore)})`,
     ).toBeTruthy();
     if (renamedFile) navFilename = renamedFile;
@@ -474,9 +471,8 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
     const left = styleNum(styleOf(after, wordmarkId), "left");
     expect(
       left,
-      `standard: dragging toward and past the frame's left edge shows a red ` +
-        `smart guide and the element ends up flush against (or very near) ` +
-        `that edge. Design must move the wordmark noticeably left of its ` +
+      `dragging toward and past the frame's left edge should move the wordmark ` +
+        `noticeably left of its ` +
         `pre-drag position (${leftBefore}px); got left=${left}px after the ` +
         `drag. box=${JSON.stringify(box)} screenBox=${JSON.stringify(screenBox)}`,
     ).toBeLessThan(leftBefore - 100);
@@ -534,7 +530,7 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
         {
           timeout: 15_000,
           message:
-            `standard: Alt/Option-drag leaves the original in place and creates a ` +
+            `Alt/Option-drag should leave the original in place and create a ` +
             `copy under the pointer. Expected 2 "Link" texts after one alt-drag.`,
         },
       )
@@ -576,8 +572,7 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
         },
         {
           timeout: 15_000,
-          message:
-            "standard: Cmd+D must persist the fourth Link before order is checked",
+          message: "Cmd+D must persist the fourth Link before order is checked",
         },
       )
       .toBe(4);
@@ -596,9 +591,7 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
     ]);
   });
 
-  test("step 5 [in-screen, NON-standard equivalence]: Design has no auto-layout primitive; Cmd+G group is the closest equivalent for gathering the Link texts", async ({
-    page,
-  }) => {
+  test("step 5: Cmd+G groups the selected Link texts", async ({ page }) => {
     await openEditorAndExpandLayers(page, designId);
     const navFileId = await fileIdByName(page, designId, navFilename);
     const html = await fileContentByName(page, designId, navFilename);
@@ -628,10 +621,9 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
     );
     expect(
       groupExists,
-      `Cmd+G must wrap the 3 selected Link texts in a group as the closest ` +
-        `stand-in for standard's auto-layout (Shift+A). ${JSON.stringify(
-          await dump(page),
-        ).slice(0, 400)}`,
+      `Cmd+G must wrap the 3 selected Link texts in a group. ${JSON.stringify(
+        await dump(page),
+      ).slice(0, 400)}`,
     ).toBe(true);
 
     const groupRow = layerRow(page, "Group");
@@ -676,8 +668,7 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
         {
           timeout: 10_000,
           message:
-            "standard: Cmd+D on a top-level frame duplicates the whole frame as a " +
-            "new sibling frame -- Design must create one new screen file",
+            "Cmd+D on a top-level frame should duplicate it as a new sibling screen file",
         },
       )
       .toBe(before.length + 1);
@@ -818,8 +809,8 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
         {
           timeout: 10_000,
           message:
-            `standard: dragging an element across a frame boundary reparents it into ` +
-            `the frame it's dropped on. The moved Link node must now appear in ${otherFilename}.`,
+            `dragging an element across a frame boundary should reparent it into ` +
+            `the frame it's dropped on. The moved Link node must appear in ${otherFilename}.`,
         },
       )
       .toBe(true);
@@ -828,9 +819,5 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
       `the moved node must be REMOVED from its original screen ${footerFilename}, ` +
         `not merely copied`,
     ).toBe(false);
-  });
-
-  test("step 12 [no equivalent]: converting a frame to a component has no Design equivalent", async () => {
-    expect(true).toBe(true);
   });
 });

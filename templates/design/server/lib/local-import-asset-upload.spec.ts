@@ -2,7 +2,18 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mockRegisterPrivateBlobProvider = vi.hoisted(() => vi.fn());
+const mockRegisterFileUploadProvider = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/private-blob", () => ({
+  registerPrivateBlobProvider: mockRegisterPrivateBlobProvider,
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  registerFileUploadProvider: mockRegisterFileUploadProvider,
+}));
 
 import {
   createLocalImportAssetPrivateBlobProvider,
@@ -12,11 +23,13 @@ import {
   localImportAssetAssetMimeType,
   localImportAssetAssetPath,
   localImportAssetAssetPaths,
+  registerLocalImportAssetUploadProvider,
 } from "./local-import-asset-upload.js";
 
 const roots: string[] = [];
 
 afterEach(async () => {
+  vi.clearAllMocks();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true })),
   );
@@ -89,7 +102,7 @@ describe("local import-asset upload provider", () => {
     const result = await provider.upload({
       data: bytes,
       mimeType: "image/svg+xml",
-      filename: "sonora-play-button.svg",
+      filename: "play-button-icon.svg",
       ownerEmail: "qa@example.test",
     });
     const assetId = result.id!;
@@ -182,14 +195,14 @@ describe("local import-asset upload provider", () => {
     ).toBe(false);
   });
 
-  it("reads private blobs saved by the previous local provider", async () => {
+  it("reads private blobs saved by the previous local provider without enabling new writes", async () => {
     const rootDir = await mkdtemp(
       path.join(os.tmpdir(), "design-import-assets-compatibility-"),
     );
     roots.push(rootDir);
     const provider = createPreviousLocalImportAssetPrivateBlobProvider({
       rootDir,
-      enabled: () => true,
+      enabled: () => false,
     });
     const handle = {
       id: "0f0f0f0f-1111-4222-8333-444444444444.blob",
@@ -203,6 +216,21 @@ describe("local import-asset upload provider", () => {
     await mkdir(privateDir, { recursive: true });
     await writeFile(path.join(privateDir, handle.id), data);
 
+    expect(provider.isConfigured()).toBe(false);
     expect((await provider.read(handle)).data).toEqual(data);
+  });
+
+  it("registers the previous provider as an inactive read fallback", () => {
+    registerLocalImportAssetUploadProvider();
+
+    const providers = mockRegisterPrivateBlobProvider.mock.calls.map(
+      ([provider]) => provider as { id: string; isConfigured: () => boolean },
+    );
+    const previousProvider = providers.find(
+      ({ id }) => id === "design-local-figma-qa-private",
+    );
+
+    expect(previousProvider).toBeDefined();
+    expect(previousProvider?.isConfigured()).toBe(false);
   });
 });
