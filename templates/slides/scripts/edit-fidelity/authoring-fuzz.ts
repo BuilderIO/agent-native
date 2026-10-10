@@ -301,6 +301,22 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
   );
 }
 
+export function isExpectedCleanupNavigationError(
+  message: string,
+  candidates: WatchedRequestNavigationCandidate[],
+  navigationPending: boolean,
+) {
+  return (
+    navigationPending &&
+    (isExpectedWatchedRequestCorsError(
+      message,
+      "cleanup/navigation",
+      candidates,
+    ) ||
+      isExpectedCleanupBrowserSessionPollConsoleError(message, candidates))
+  );
+}
+
 export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
   message: string,
   activePhase: string,

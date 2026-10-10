@@ -23,6 +23,7 @@ import {
   isExpectedSaveReloadWatchedRequestAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
+  isExpectedCleanupNavigationError,
   isExpectedWatchedRequestCorsError,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
@@ -1341,6 +1342,31 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
     isExpectedCleanupBrowserSessionPollConsoleError("another poll error", [
       candidate,
     ]),
+  ).toBe(false);
+});
+
+it("accepts cleanup request cancellations only while navigation is pending", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+  const message = `Fetch API cannot load ${candidate.url} due to access control checks.`;
+
+  expect(isExpectedCleanupNavigationError(message, [candidate], true)).toBe(
+    true,
+  );
+  expect(isExpectedCleanupNavigationError(message, [candidate], false)).toBe(
+    false,
+  );
+  expect(
+    isExpectedCleanupNavigationError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [candidate],
+      false,
+    ),
   ).toBe(false);
 });
 

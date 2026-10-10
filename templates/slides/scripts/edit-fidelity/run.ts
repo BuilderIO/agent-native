@@ -27,8 +27,7 @@ import {
   canonicalizeAuthoringFuzzPersistence,
   formatAuthoringFuzzCleanupIssue,
   formatAuthoringFuzzUnavailable,
-  isExpectedCleanupBrowserSessionPollConsoleError,
-  isExpectedWatchedRequestCorsError,
+  isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   lineNavigationKeys,
   retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
@@ -5597,6 +5596,7 @@ async function runAuthoringFuzzQa(
         startedAt: number;
         requestWasPendingAtNavigation: true;
       }> = [];
+      let cleanupNavigationPending = false;
       let recoveryPage: Page | null = null;
       let lastCleanupPage: Page | null = null;
       const recordCleanupFailure = (
@@ -5626,13 +5626,10 @@ async function runAuthoringFuzzQa(
             ageMs: now - startedAt,
           }),
         );
-        return (
-          isExpectedWatchedRequestCorsError(
-            message,
-            "cleanup/navigation",
-            candidates,
-          ) ||
-          isExpectedCleanupBrowserSessionPollConsoleError(message, candidates)
+        return isExpectedCleanupNavigationRequestError(
+          message,
+          candidates,
+          cleanupNavigationPending,
         );
       };
       const onConsole = (message: { type(): string; text(): string }) => {
@@ -5806,10 +5803,16 @@ async function runAuthoringFuzzQa(
                   requestWasPendingAtNavigation: true as const,
                 };
               });
-            await cleanupPage.goto(`${base}/home`, {
-              waitUntil: "domcontentloaded",
-              timeout: 120_000,
-            });
+            cleanupNavigationPending = true;
+            try {
+              await cleanupPage.goto(`${base}/home`, {
+                waitUntil: "domcontentloaded",
+                timeout: 120_000,
+              });
+            } finally {
+              cleanupNavigationPending = false;
+              cleanupNavigationCandidates = [];
+            }
           } catch (error) {
             recordCleanupFailure("could not leave scratch deck", error);
           }
