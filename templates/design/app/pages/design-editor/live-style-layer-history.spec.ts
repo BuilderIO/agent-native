@@ -18,11 +18,9 @@ import {
   replayPendingVisualStyleRuntimePatch,
   shouldRedoPendingLiveNonStyleBeforeStyle,
 } from "./pending-edits";
+import { readDesignEditorSource } from "./read-design-editor-source";
 
-const editorSource = readFileSync(
-  new URL("../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
+const editorSource = readDesignEditorSource();
 
 function layerStateEdit(
   state: "hidden" | "locked",

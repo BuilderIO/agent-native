@@ -13,7 +13,6 @@ import {
 } from "./document-editor-layout";
 import {
   adoptOwnConfirmedBases,
-  databaseConversionRequest,
   databaseMembershipDatabaseTitle,
   documentCanonicalMutationsEnabled,
   documentEditorBreadcrumbItems,
@@ -27,11 +26,13 @@ import {
   documentEditorReviewReadsSettled,
   documentEditorShowsInlineComments,
   documentEditorShowsUtilityPanelSheet,
+  utilityPanelRegionShouldReceiveFocus,
   dismissDocumentCommentFocus,
   documentEditorLoadState,
   documentTitleWidthChanged,
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
+  enqueueRecoveryDraftTitleSync,
   isDocumentLoadUnavailableError,
   isSuggestionConflictActionError,
   isSuggestionStaleActionError,
@@ -71,9 +72,11 @@ import {
   visualEditorInstanceKey,
 } from "./DocumentEditor";
 import {
+  breadcrumbFoldWidth,
   compactToolbarBreadcrumbItems,
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
+import { runPageSaveIfSessionActive } from "./pageSession";
 import {
   markdownSuggestionOperation,
   markdownSuggestionOperations,
@@ -304,9 +307,11 @@ describe("document editor layout", () => {
     expect(source).not.toContain('"mx-auto max-w-5xl"');
     expect(source).toContain('showDesktopInfoPanel ? "flex-1" : "w-full"');
     expect(source).toContain('className="absolute right-0 top-0 w-80"');
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
-    expect(source).toMatch(
-      /useElementMinWidth\(\s*documentLayoutRef,\s*DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH,\s*\)/,
+    expect(source).toContain(
+      'const hasUtilityRailSpace = commentSurfaces.list === "rail";',
+    );
+    expect(source).toContain(
+      'const hasInlineCommentSpace = commentSurfaces.margin === "lane";',
     );
     expect(source).toContain('reserveInlineReviewSpace && "pr-80"');
     expect(source).toContain(
@@ -664,7 +669,10 @@ describe("document editor layout", () => {
       "utf8",
     );
     expect(source).toMatch(
-      /contentRevision=\{\s*isLocalFileDocument \|\|\s*!suggestionEditorIsolation\.reconcileCanonical\s*\?\s*null\s*:/,
+      /contentRevision=\{\s*isLocalFileDocument \|\|\s*showLocalCreationDraft \|\|\s*!suggestionEditorIsolation\.reconcileCanonical\s*\?\s*null\s*:/,
+    );
+    expect(source).toMatch(
+      /isSuggesting\s*\?\s*suggestionDraft\s*:\s*showLocalCreationDraft\s*\?\s*localContent\s*:\s*document\.content/,
     );
     expect(source).toMatch(
       /onBaseAwareReconcile=\{\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*handleBaseAwareReconcile\s*:\s*undefined\s*\}/,
@@ -1296,6 +1304,34 @@ describe("document editor layout", () => {
     ).toBe(false);
   });
 
+  it("moves comments above a forced agent overlay", () => {
+    expect(
+      documentEditorShowsUtilityPanelSheet({
+        utilityPanel: "comments",
+        commentsHistoryDrawerOpen: true,
+        hasUtilityRailSpace: true,
+        hasInlineCommentSpace: false,
+        selectedSuggestionId: null,
+        agentPanelOverlay: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("enters a utility region when the menu opener unmounts", () => {
+    expect(
+      utilityPanelRegionShouldReceiveFocus({
+        openerConnected: false,
+        focusOnBody: false,
+      }),
+    ).toBe(true);
+    expect(
+      utilityPanelRegionShouldReceiveFocus({
+        openerConnected: true,
+        focusOnBody: false,
+      }),
+    ).toBe(false);
+  });
+
   it.each([
     [940, true, null, true],
     [940, true, "saved-suggestion", true],
@@ -1538,7 +1574,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const handler = source.slice(
-      source.indexOf("const handleContentChange"),
+      source.indexOf("const queueEditorContentSave"),
       source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("localContentRef.current = newContent");
@@ -1553,7 +1589,7 @@ describe("document editor layout", () => {
       "utf8",
     );
     const handler = source.slice(
-      source.indexOf("const handleContentChange"),
+      source.indexOf("const queueEditorContentSave"),
       source.indexOf("const handleImmediateContentChange"),
     );
     expect(handler).toContain("if (updateReconcileDraft(newContent)) {");
@@ -1607,6 +1643,165 @@ describe("document editor layout", () => {
         error: null,
       }),
     ).toEqual({ view: "skeleton", admittedDocumentId: null });
+  });
+
+  it("shows a successful create response while its first read is pending", () => {
+    expect(
+      documentEditorLoadState({
+        documentId: "new-document",
+        admittedDocumentId: null,
+        hasDocument: true,
+        isDocumentCreationConfirmed: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: false,
+        isFetching: true,
+        isError: false,
+        hasLoadFailure: false,
+        isManualRetrying: false,
+        error: null,
+      }),
+    ).toEqual({ view: "editor", admittedDocumentId: "new-document" });
+  });
+
+  it("surfaces a first-read failure after admitting a confirmed create response", () => {
+    const admitted = documentEditorLoadState({
+      documentId: "new-document",
+      admittedDocumentId: null,
+      hasDocument: true,
+      isDocumentCreationConfirmed: true,
+      isDocumentCreationPending: false,
+      isFetchedAfterMount: false,
+      isFetching: true,
+      isError: false,
+      hasLoadFailure: false,
+      isManualRetrying: false,
+      error: null,
+    });
+    const initialLoadFailure = updateDocumentLoadFailureState({
+      previous: null,
+      documentId: "new-document",
+      admitted: false,
+      isDocumentCreationConfirmed: true,
+      dataUpdatedAt: 1,
+      errorUpdateCount: 0,
+      errorUpdatedAt: 0,
+      isError: false,
+      authoritativeSuccess: {
+        queryIdentity: "new-document",
+        generation: 0,
+        errorUpdateCount: 0,
+      },
+    });
+    const loadFailure = updateDocumentLoadFailureState({
+      previous: initialLoadFailure,
+      documentId: "new-document",
+      admitted: admitted.admittedDocumentId === "new-document",
+      isDocumentCreationConfirmed: true,
+      dataUpdatedAt: 1,
+      errorUpdateCount: 1,
+      errorUpdatedAt: 2,
+      isError: true,
+      authoritativeSuccess: {
+        queryIdentity: "new-document",
+        generation: 0,
+        errorUpdateCount: 0,
+      },
+    });
+
+    expect(loadFailure.failed).toBe(true);
+    expect(
+      documentEditorLoadState({
+        documentId: "new-document",
+        admittedDocumentId: admitted.admittedDocumentId,
+        hasDocument: true,
+        isDocumentCreationConfirmed: true,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        hasLoadFailure: loadFailure.failed,
+        isManualRetrying: false,
+        error: new Error("read failed"),
+      }).view,
+    ).toBe("error");
+  });
+
+  it("keeps a created page open when a background refetch fails after success", () => {
+    const initial = updateDocumentLoadFailureState({
+      previous: null,
+      documentId: "new-document",
+      admitted: false,
+      isDocumentCreationConfirmed: true,
+      dataUpdatedAt: 1,
+      errorUpdateCount: 0,
+      errorUpdatedAt: 0,
+      isError: false,
+      authoritativeSuccess: {
+        queryIdentity: "new-document",
+        generation: 0,
+        errorUpdateCount: 0,
+      },
+    });
+    const admitted = documentEditorLoadState({
+      documentId: "new-document",
+      admittedDocumentId: null,
+      hasDocument: true,
+      isDocumentCreationConfirmed: true,
+      isDocumentCreationPending: false,
+      isFetchedAfterMount: false,
+      isFetching: true,
+      isError: false,
+      hasLoadFailure: initial.failed,
+      isManualRetrying: false,
+      error: null,
+    });
+    const afterFirstRead = updateDocumentLoadFailureState({
+      previous: initial,
+      documentId: "new-document",
+      admitted: admitted.admittedDocumentId === "new-document",
+      isDocumentCreationConfirmed: false,
+      dataUpdatedAt: 2,
+      errorUpdateCount: 0,
+      errorUpdatedAt: 0,
+      isError: false,
+      authoritativeSuccess: {
+        queryIdentity: "new-document",
+        generation: 1,
+        errorUpdateCount: 0,
+      },
+    });
+    const backgroundFailure = updateDocumentLoadFailureState({
+      previous: afterFirstRead,
+      documentId: "new-document",
+      admitted: true,
+      isDocumentCreationConfirmed: false,
+      dataUpdatedAt: 2,
+      errorUpdateCount: 1,
+      errorUpdatedAt: 3,
+      isError: true,
+      authoritativeSuccess: {
+        queryIdentity: "new-document",
+        generation: 1,
+        errorUpdateCount: 0,
+      },
+    });
+
+    expect(backgroundFailure.failed).toBe(false);
+    expect(
+      documentEditorLoadState({
+        documentId: "new-document",
+        admittedDocumentId: admitted.admittedDocumentId,
+        hasDocument: true,
+        isDocumentCreationConfirmed: false,
+        isDocumentCreationPending: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        hasLoadFailure: backgroundFailure.failed,
+        isManualRetrying: false,
+        error: new Error("background refetch failed"),
+      }),
+    ).toEqual({ view: "editor", admittedDocumentId: "new-document" });
   });
 
   it("latches a first-fetch failure across an immediate replacement fetch", async () => {
@@ -1920,8 +2115,9 @@ describe("document editor layout", () => {
     expect(
       documentEditorLoadState({
         documentId: "document-a",
-        admittedDocumentId: null,
+        admittedDocumentId: "document-a",
         hasDocument: true,
+        isDocumentCreationConfirmed: true,
         isDocumentCreationPending: false,
         isFetchedAfterMount: true,
         isFetching: false,
@@ -2108,6 +2304,33 @@ describe("document editor layout", () => {
     ]);
   });
 
+  it("abandons a retry that reaches the save queue after its editor unmounts", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const queueRef = { current: Promise.resolve() };
+    let active = true;
+    const persistRetry = vi.fn().mockResolvedValue({ contentPersisted: true });
+    const first = enqueueDocumentSave(queueRef, async () => {
+      await firstGate;
+      return "first";
+    });
+    const retry = enqueueDocumentSave(queueRef, () =>
+      runPageSaveIfSessionActive(() => active, persistRetry),
+    );
+
+    active = false;
+    releaseFirst();
+
+    await expect(first).resolves.toBe("first");
+    await expect(retry).resolves.toEqual({
+      contentPersisted: false,
+      outcome: "abandoned",
+    });
+    expect(persistRetry).not.toHaveBeenCalled();
+  });
+
   it("continues the save queue after an earlier request fails", async () => {
     const queueRef = { current: Promise.resolve() };
     const first = enqueueDocumentSave(queueRef, async () => {
@@ -2117,6 +2340,50 @@ describe("document editor layout", () => {
 
     await expect(first).rejects.toThrow("network interrupted");
     await expect(second).resolves.toBe("latest");
+  });
+
+  it("does not re-retain stale content from a queued peer-title sync", async () => {
+    const queueRef = { current: Promise.resolve() };
+    let currentDraft = {
+      title: "Original title",
+      content: "A",
+      supersedable: true,
+    };
+    const retained: (typeof currentDraft)[] = [];
+    const persist = async (draft: typeof currentDraft) => {
+      currentDraft = draft;
+      retained.push({ ...draft });
+    };
+
+    await enqueueDocumentSave(queueRef, async () => persist(currentDraft));
+
+    const peerTitle = "Peer title";
+    const newerDraft = {
+      title: peerTitle,
+      content: "A+B",
+      supersedable: false,
+    };
+    const newerRetention = enqueueDocumentSave(queueRef, async () =>
+      persist(newerDraft),
+    );
+    const titleSync = enqueueRecoveryDraftTitleSync(
+      queueRef,
+      peerTitle,
+      () => currentDraft,
+      async (draft) => persist({ ...draft, title: peerTitle }),
+    );
+
+    await Promise.all([newerRetention, titleSync]);
+
+    expect(retained).toEqual([
+      {
+        title: "Original title",
+        content: "A",
+        supersedable: true,
+      },
+      newerDraft,
+    ]);
+    expect(currentDraft).toEqual(newerDraft);
   });
 
   it("keeps the first title edit writable after canonical creation advances the optimistic timestamp", () => {
@@ -2440,35 +2707,15 @@ describe("document editor layout", () => {
     expect(documentEditorTitleRegionClassName(false)).toContain("pb-8");
   });
 
-  it("keeps the editor open and offers collection conversion while the body is empty", () => {
+  it("does not append a collection conversion button to an empty document", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       { encoding: "utf8" },
     ).replace(/\r\n/g, "\n");
 
-    expect(databaseConversionRequest("new-page", "Typed first")).toEqual({
-      documentId: "new-page",
-      title: "Typed first",
-    });
-    expect(source).toContain("const showCreateCollectionStarter =");
-    expect(source).toContain("createCollectionStarterIsVisible({");
-    expect(source).toContain("content: localContent");
-    expect(source).toContain("const handleCreateCollection = useCallback");
-    expect(source).toContain("localTitle: localTitleRef.current");
-    expect(source).toContain("localDraft: localContentRef.current");
-    expect(source).toContain("isDatabaseChoicePending(");
-    expect(source).toContain("document,\n    createDatabase.isPending");
-    expect(source).toContain("canEdit: editorCanEdit,");
-    expect(source).toContain(
-      "disabled={!editorCanEdit || databaseChoicePending}",
-    );
-    expect(source).not.toContain(
-      "localTitleRef.current,\n          document.description,",
-    );
-    expect(source).toContain('{t("editor.createCollection")}');
-    expect(source.indexOf("const primaryEditor =")).toBeLessThan(
-      source.indexOf("{showCreateCollectionStarter ? ("),
-    );
+    expect(source).not.toContain('{t("editor.createCollection")}');
+    expect(source).not.toContain("primaryEditorWithStarter");
+    expect(source).toContain("return primaryEditor;");
   });
 
   it("gives database pages a wider database surface", () => {
@@ -2635,7 +2882,10 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain(
-      "relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4",
+      "relative z-10 flex h-12 shrink-0 items-center bg-background @container/toolbar",
+    );
+    expect(source).toContain(
+      'inWidget || shareInMenu ? "gap-1 px-2" : "gap-3 px-4"',
     );
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
@@ -2645,7 +2895,9 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.shareAgents");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
-    expect(source).toContain("showCommentsControl ?");
+    expect(source).toContain(
+      "showCommentsControl && !inWidget && !commentsInMenu ?",
+    );
     expect(editorSource).toContain(
       "commentsHistoryOpen={showCommentsHistoryDrawer}",
     );
@@ -2710,17 +2962,31 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain("export function PageEditorSurface");
-    expect(source).toContain("document.canEdit === true");
+    expect(source).toContain(
+      'import { directoryWidgetEditability } from "./directory-widget-editability";',
+    );
+    expect(source).toContain(
+      "const widgetEditability = directoryWidgetEditability(document);",
+    );
+    expect(source).toContain(
+      "const canEdit = widgetEditability.canEditDocument;",
+    );
+    expect(source).toContain("<PageDraftRecovery");
     expect(source).toContain("flushAllBlockFieldSaveControllersForDocument");
     expect(source).toContain("flushDocumentPropertyWrites(documentId)");
+    const navigationFlushStart = source.indexOf("const flushLatestPageEdits =");
     expect(source).toContain(
       "await editorPersistenceControllerRef.current?.flushLatest()",
     );
     expect(
-      source.indexOf("while (pendingPersistenceRef.current.size > 0)"),
+      source.indexOf(
+        "while (pendingPersistenceRef.current.size > 0)",
+        navigationFlushStart,
+      ),
     ).toBeLessThan(
       source.indexOf(
         "await editorPersistenceControllerRef.current?.flushLatest()",
+        navigationFlushStart,
       ),
     );
     expect(source).toContain(
@@ -2757,10 +3023,67 @@ describe("document editor layout", () => {
     ).replace(/\r\n/g, "\n");
 
     expect(documentEditorSource).toContain(
-      "const collabEnabled = !isLocalFileDocument;",
+      "const mcpDirectoryWidgetReadOnly =\n    document.mcpDirectoryWidgetReadOnly === true;",
     );
     expect(documentEditorSource).toContain(
-      "const collabDocumentId =\n    collabEnabled && !isDocumentCreationPending(document)",
+      "const collabEnabled = shouldUseLiveDocumentCollaboration({",
+    );
+    expect(documentEditorSource).toContain("mcpDirectoryWidgetReadOnly,");
+    expect(documentEditorSource).toContain(
+      "const holdCollaborationForCreationSave = isDocumentCreationConfirmed(\n    queryClient,\n    document,\n  );",
+    );
+    expect(documentEditorSource).toContain(
+      "const settled = creationSaveBarrierIsSettled({",
+    );
+    const creationReleaseStart = documentEditorSource.indexOf(
+      "const tryReleaseCreationCollaboration =",
+    );
+    expect(
+      documentEditorSource.indexOf(
+        "editorPersistenceControllerRef.current?.flushLatest()",
+        creationReleaseStart,
+      ),
+    ).toBeLessThan(
+      documentEditorSource.indexOf(
+        "creationSaveBarrierIsSettled({",
+        creationReleaseStart,
+      ),
+    );
+    expect(documentEditorSource).toContain(
+      "hasCollaborationSeedBody: !isEffectivelyEmptyDocumentContent(\n            currentDocument.content,\n          ),",
+    );
+    expect(documentEditorSource).toMatch(
+      /const selection =\s+editorSelectionControllerRef.current\?\.captureSelection\(\);/,
+    );
+    expect(documentEditorSource).toContain(
+      "initialCreationSaveStartedRef.current = true;",
+    );
+    expect(documentEditorSource).toContain(
+      "const savedContent = lastSavedContentRef.current;",
+    );
+    expect(documentEditorSource).toContain(
+      "patchDocumentCaches(queryClient, documentId, {\n          content: savedContent.content,",
+    );
+    expect(documentEditorSource).toContain(
+      "clearDocumentCreationConfirmed(queryClient, currentDocument);",
+    );
+    expect(documentEditorSource).not.toContain(
+      "const canEditWithoutCollaboration =\n    (creationAwaitingFirstRead ||\n      holdCollaborationForCreationSave ||\n      (collabEnabled && !hasCollaborationSeedBody)) &&\n    !collabSynced;",
+    );
+    expect(documentEditorSource).toContain(
+      "const canEditWithoutCollaboration =\n    (creationAwaitingFirstRead || holdCollaborationForCreationSave) &&\n    !collabSynced;",
+    );
+    expect(documentEditorSource).not.toContain(
+      "const collabDocumentId =\n    collabEnabled &&\n    hasCollaborationSeedBody &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)",
+    );
+    expect(documentEditorSource).toContain(
+      "const collabDocumentId =\n    collabEnabled &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)",
+    );
+    expect(documentEditorSource).toContain(
+      "const creationSelectionForDocument =\n    creationCollaborationSelection?.documentId === documentId\n      ? creationCollaborationSelection.selection\n      : null;",
+    );
+    expect(documentEditorSource).toContain(
+      "isSuggesting\n    ? suggestionInitialSelection\n    : (creationSelectionForDocument ?? suggestionInitialSelection)",
     );
     expect(documentEditorSource).toContain("docId: collabDocumentId,");
     expect(documentEditorSource).toContain("const collabEditorEnabled =");
@@ -2790,14 +3113,14 @@ describe("document editor layout", () => {
     );
 
     expect(documentEditorSource).toContain(
-      "!isLocalFileDocument ? documentId : null",
+      "collabEnabled &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)\n      ? documentId\n      : null",
     );
 
     expect(documentEditorSource).toContain(
-      "canEdit &&\n                    !collabSynced",
+      "canEdit &&\n                    !canEditWithoutCollaboration &&\n                    !collabSynced",
     );
     expect(documentEditorSource).toContain(
-      "(isLocalFileDocument || collabSynced)",
+      "(isLocalFileDocument ||\n      mcpDirectoryWidgetReadOnly ||\n      collabSynced ||\n      canEditWithoutCollaboration)",
     );
     expect(documentEditorSource).toContain(
       "!canEdit ||\n      !hydrationContext?.sourceId",
@@ -2871,7 +3194,11 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain(
-      'className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0',
+      '"flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0',
+    );
+    expect(source).toContain("overlayClassName={");
+    expect(source).toContain(
+      'shellLayout?.agentPanel === "overlay" && "z-[80]"',
     );
     expect(source).toContain(
       'className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"',
@@ -2887,6 +3214,9 @@ describe("document editor layout", () => {
     expect(source).not.toContain("{showUtilityPanelSheet ? (");
     expect(source).toContain("utilityPanelSheetContainer,");
     expect(source).toContain("showDesktopCommentsHistory");
+    expect(source).toContain("const transferredToRail =");
+    expect(source).toContain("if (utilityPanel && !transferredToRail) return;");
+    expect(source).toContain("showDesktopInfoPanel,");
     expect(source).toContain("data-comments-history-rail");
     expect(source).toContain("commentsHistoryRailMounted");
     expect(source).toContain('event.propertyName === "width"');
@@ -3009,7 +3339,7 @@ describe("document editor layout", () => {
     const bounds = [
       source.indexOf("const sendKeepaliveSave"),
       source.indexOf("const onVisibilityChange"),
-      source.indexOf("return await updateDocument.mutateAsync({"),
+      source.indexOf("return await updateDocument.mutateAsync("),
       source.indexOf("editorSnapshotTitle: options.editorSnapshotTitle"),
     ];
     expect(bounds).not.toContain(-1);
@@ -3021,8 +3351,8 @@ describe("document editor layout", () => {
     expect(keepalive).toContain(
       "loadedUpdatedAtForSave(\n          pending.contentBase,\n          documentUpdatedAtRef.current,\n        )",
     );
-    expect(flush).toContain(
-      "loadedUpdatedAtForSave(\n            options.contentBase,\n            documentUpdatedAtRef.current,\n          )",
+    expect(flush).toMatch(
+      /loadedUpdatedAtForSave\(\s*options\.contentBase,\s*documentUpdatedAtRef\.current,\s*\)/,
     );
     expect(
       loadedUpdatedAtForSave(
@@ -3512,6 +3842,76 @@ describe("document editor layout", () => {
         { id: "draft", title: "Draft" },
       ]).map((item) => item.title),
     ).toEqual(["Personal", "…", "Page 2", "Draft"]);
+  });
+
+  it("folds breadcrumb ancestors by width before the page title loses its readable width", () => {
+    const deep = [
+      { id: "files", title: "Personal" },
+      { id: "one", title: "Page 1" },
+      { id: "two", title: "Page 2" },
+      { id: "draft", title: "Draft" },
+    ];
+    const shallow = [
+      { id: "files", title: "Personal" },
+      { id: "draft", title: "Draft" },
+    ];
+    const titles = (items: typeof deep, width: number) =>
+      compactToolbarBreadcrumbItems(items, width).map((item) => item.title);
+
+    expect(titles(deep, 380)).toEqual(["Personal", "…", "Page 2", "Draft"]);
+    expect(titles(deep, 300)).toEqual(["…", "Page 2", "Draft"]);
+    expect(
+      compactToolbarBreadcrumbItems(deep, 300)[0].menuItems?.map(
+        (item) => item.title,
+      ),
+    ).toEqual(["Personal", "Page 1"]);
+    expect(titles(deep, 200)).toEqual(["…", "Draft"]);
+    expect(titles(shallow, 216)).toEqual(["Personal", "Draft"]);
+    expect(titles(shallow, 200)).toEqual(["…", "Draft"]);
+  });
+
+  it("keeps every ancestor in the breadcrumb menu at the narrowest width", () => {
+    const deep = [
+      { id: "files", title: "Personal" },
+      { id: "one", title: "Page 1" },
+      { id: "two", title: "Page 2" },
+      { id: "draft", title: "Draft" },
+    ];
+    const menu = (items: typeof deep, width: number) =>
+      compactToolbarBreadcrumbItems(items, width).map((item) => ({
+        title: item.title,
+        menu: item.menuItems?.map((menuItem) => menuItem.id),
+      }));
+
+    for (const width of [0, 60, 120]) {
+      expect(menu(deep, width)).toEqual([
+        { title: "…", menu: ["files", "one", "two"] },
+        { title: "Draft", menu: undefined },
+      ]);
+      expect(menu([deep[0], deep[3]], width)).toEqual([
+        { title: "…", menu: ["files"] },
+        { title: "Draft", menu: undefined },
+      ]);
+      expect(menu([deep[3]], width)).toEqual([
+        { title: "Draft", menu: undefined },
+      ]);
+    }
+  });
+
+  it("folds the same at a breadcrumb's fold width as at its measured width", () => {
+    const deep = [
+      { id: "files", title: "Personal" },
+      { id: "one", title: "Page 1" },
+      { id: "two", title: "Page 2" },
+      { id: "draft", title: "Draft" },
+    ];
+    for (let width = 0; width <= 600; width += 1) {
+      for (const items of [deep, deep.slice(1), deep.slice(2)]) {
+        expect(
+          compactToolbarBreadcrumbItems(items, breadcrumbFoldWidth(width)),
+        ).toEqual(compactToolbarBreadcrumbItems(items, width));
+      }
+    }
   });
 
   it("focuses the first real breadcrumb destination on keyboard open", () => {

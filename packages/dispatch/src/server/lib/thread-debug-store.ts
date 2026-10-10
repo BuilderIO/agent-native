@@ -4,6 +4,7 @@ import {
   type AgentFailureRegime,
 } from "@agent-native/core/agent/engine";
 import { createDbExec, getDbExec, type DbExec } from "@agent-native/core/db";
+import { getAppConfig } from "@agent-native/core/server";
 import { ForbiddenError } from "@agent-native/core/sharing";
 
 import { isDispatchEnvironmentAdmin } from "./admin-config.js";
@@ -40,6 +41,7 @@ export interface DebugAccess {
   orgId: string | null;
   role: string | null;
   envAdmin: boolean;
+  superOrg: boolean;
   canInspectAll: boolean;
   memberEmails: string[];
 }
@@ -449,7 +451,12 @@ async function resolveDebugAccess(): Promise<DebugAccess> {
   const orgId = currentOrgId();
   const role = await viewerOrgRole(orgId, viewerEmail);
   const envAdmin = isDispatchEnvironmentAdmin(viewerEmail);
-  const canInspectAll = envAdmin || role === "owner" || role === "admin";
+  const orgAdmin = role === "owner" || role === "admin";
+  const canInspectAll = envAdmin || orgAdmin;
+  // Remote sources keep their own org rosters, so Dispatch membership cannot
+  // scope them; the observability super org is the one cross-org review grant.
+  const superOrgId = getAppConfig().observability.superOrgId;
+  const superOrg = Boolean(orgId && orgAdmin && superOrgId === orgId);
   const memberEmails = canInspectAll
     ? await currentOrgMembers(orgId)
     : [viewerEmail];
@@ -458,6 +465,7 @@ async function resolveDebugAccess(): Promise<DebugAccess> {
     orgId,
     role,
     envAdmin,
+    superOrg,
     canInspectAll,
     memberEmails: memberEmails.length > 0 ? memberEmails : [viewerEmail],
   };
@@ -492,6 +500,7 @@ function ownerScope(
   if (requested && requested !== "*") {
     if (
       access.orgId &&
+      !access.superOrg &&
       !access.memberEmails.some(
         (email) => email.toLowerCase() === requested.toLowerCase(),
       )
@@ -508,6 +517,9 @@ function ownerScope(
     };
   }
 
+  if (access.superOrg) {
+    return { sql: "1 = 1", args: [], label: "all organizations" };
+  }
   if (access.envAdmin && !access.orgId) {
     return { sql: "1 = 1", args: [], label: "all users" };
   }
@@ -598,6 +610,7 @@ export async function listThreadDebugSources(): Promise<{
       orgId: access.orgId,
       role: access.role,
       envAdmin: access.envAdmin,
+      superOrg: access.superOrg,
       canInspectAll: access.canInspectAll,
       memberCount: access.memberEmails.length,
     },
@@ -891,11 +904,11 @@ export async function searchAgentThreads(input: {
         ? " OR id IN (" + runThreadIds.map(() => "?").join(", ") + ")"
         : "";
     where.push(
-      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(owner_email) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\'" +
+      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(owner_email) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\' OR LOWER(source_url) LIKE ? ESCAPE '\\' OR id = ? OR scope_id = ?" +
         runIdClause +
         ")",
     );
-    args.push(pattern, pattern, pattern, pattern);
+    args.push(pattern, pattern, pattern, pattern, pattern, q, q);
     args.push(...runThreadIds);
   }
   args.push(limit);

@@ -8,6 +8,7 @@ export default {
     overview: "개요",
     dashboard: "대시보드",
     dataSources: "데이터 소스",
+    sourceStatus: "소스 상태",
     dataDictionary: "데이터 사전",
     sessions: "세션",
     monitoring: "Monitoring",
@@ -87,7 +88,7 @@ export default {
     visibilityPrivateOnly: "내 항목",
     visibilitySharedOnly: "공유됨",
     visibilityAllDescription: "모든 항목 표시",
-    visibilityPrivateOnlyDescription: "나에게만 표시되는 항목만 표시",
+    visibilityPrivateOnlyDescription: "내가 만든 항목 표시",
     visibilitySharedOnlyDescription: "조직 공유 및 공개 항목 표시",
     hiddenAnalyses: "숨긴 분석",
     shareWithOrg: "조직과 공유",
@@ -513,6 +514,34 @@ export default {
       resourcesSubmitted: "{{count}}개 리소스가 제출되었습니다.",
     },
   },
+  dataStatus: {
+    sources: "소스",
+    index: "인덱스",
+    connected: "연결됨",
+    notConnected: "연결 안 됨",
+    needsReauth: "재인증 필요",
+    error: "오류",
+    loadingSources: "소스 상태를 불러오는 중",
+    indexNotImported: "생성된 인덱스를 가져오지 않았습니다.",
+    indexUnreadable:
+      "저장된 인덱스를 읽을 수 없습니다. 올바른 인덱스를 업로드하세요.",
+    indexReadFailed: "인덱스 상태를 불러올 수 없습니다.",
+    lastBuilt: "마지막 빌드",
+    freshness: "최신 상태",
+    fresh: "최신 · {{age}}",
+    stale: "오래됨 · {{age}}",
+    generatedUnapproved: "생성됨 · 승인되지 않음",
+    entriesBySource: "소스별 항목 {{count}}개",
+    noSourceEntries: "소스별 개수를 사용할 수 없습니다.",
+    countUnavailable: "사용 불가",
+    adminUpload: "관리자 업로드",
+    exportDictionary: "사전 내보내기",
+    exportingDictionary: "사전 내보내는 중…",
+    exportFailed: "사전 내보내기에 실패했습니다. 다시 시도하세요.",
+    exportEmpty: "내보낼 사전 항목이 없습니다.",
+    exportLimitReached:
+      "사전이 내보내기 제한을 초과했습니다. 관리자에게 문의하세요.",
+  },
   dataDictionary: {
     intro:
       "프롬프트에서 대시보드를 구축할 때 분석 에이전트가 사용하는 지표, 테이블 및 비즈니스 정의의 카탈로그입니다. 항목을 정확하게 유지하면 상담원이 데이터에 대한 추측을 중단합니다.",
@@ -571,6 +600,27 @@ export default {
     exampleUseCasePlaceholder: "이 측정항목은 언제 도달해야 합니까?",
     saving: "절약...",
     saveEntry: "항목 저장",
+    importIndex: "소스 인덱스 가져오기",
+    indexNotImported: "생성된 소스 인덱스를 아직 가져오지 않았습니다.",
+    indexUnreadable:
+      "저장된 소스 인덱스를 읽을 수 없습니다. 유효한 파일을 다시 가져오세요.",
+    indexReadFailed:
+      "저장된 소스 인덱스를 확인하지 못했습니다. 다시 시도하세요.",
+    indexReady: "{{count}}개의 소스 정의가 {{date}}에 생성되었습니다.",
+    indexStale:
+      "스냅샷이 {{days}}일 지났습니다. 최신 소스 리비전이 있는지 확인하려면 새로고침하세요.",
+    indexFileInvalid: "750KB 이하의 유효한 소스 인덱스 JSON 파일을 선택하세요.",
+    replaceIndexTitle: "소스 인덱스를 바꾸시겠습니까?",
+    replaceIndexDescription:
+      "조직의 현재 소스 인덱스를 바꿉니다. 가져온 정의는 승인되지 않은 제안이며 실시간 쿼리 결과가 아닙니다.",
+    indexPreview: "{{sources}}의 정의 {{count}}개, 생성일 {{date}}.",
+    replaceIndex: "인덱스 바꾸기",
+    importingIndex: "가져오는 중…",
+    indexImportFailed:
+      "소스 인덱스를 가져오지 못했습니다. 파일을 확인한 후 다시 시도하세요.",
+    dictionaryPage: "{{total}}개 중 {{count}}개 · {{page}}페이지",
+    previousPage: "이전",
+    nextPage: "다음",
   },
   dataSources: {
     uploadFile: "파일 업로드",
@@ -607,6 +657,10 @@ export default {
       "이 앱에 저장된 자격 증명을 사용합니다. 앱 전체에서 재사용하려면 Dispatch에서 이 공급자를 연결하고 부여하세요.",
     sharedFallback:
       "Dispatch에서 이 공급자를 연결하거나 부여하여 앱 전체에서 재사용하거나 아래에 로컬 자격 증명을 저장하세요.",
+    sharedNeedsReauth:
+      "이 공유 연결은 다시 인증해야 합니다. Dispatch에서 다시 연결하세요.",
+    sharedError:
+      "이 공유 연결에서 오류가 보고되었습니다. Dispatch를 열어 확인하고 복구하세요.",
     workspaceReadyDescription:
       "이 소스는 공유 작업공간 연결을 통해 준비되었습니다. Dispatch에서 공유 액세스를 관리하거나 이 앱에만 로컬 자격 증명을 추가하세요.",
     testing: "테스트 중...",
@@ -678,6 +732,18 @@ export default {
     copied: "복사됨",
     copy: "복사",
     keyActions: "{{name}} 주요 동작",
+    manageReplayOrigins: "재생 오리진 관리",
+    replayOriginsDescription:
+      "정확한 HTTPS 오리진을 한 줄에 하나씩 추가하세요. 기존 오리진은 유지됩니다.",
+    currentReplayOrigins: "현재 허용된 오리진",
+    anyReplayOriginAllowed:
+      "현재 모든 오리진이 허용됩니다. 오리진을 추가하면 리플레이가 목록으로 제한되므로 이 키를 사용하는 모든 앱을 포함하세요.",
+    originsToAdd: "추가할 오리진",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "오리진 추가",
+    addingReplayOrigins: "오리진 추가 중…",
+    replayOriginsUpdateFailed: "허용 오리진을 업데이트하지 못했습니다.",
+    cancel: "취소",
     lastUsed: "마지막으로 사용된 {{date}}",
     neverUsed: "한번도 사용하지 않은",
     revoking: "취소 중...",
@@ -956,6 +1022,7 @@ export default {
     dashboard: "대시보드 - Analytics",
     dataDictionary: "데이터 사전 - Analytics",
     dataSources: "데이터 소스 - Analytics",
+    sourceStatus: "소스 상태 - Analytics",
     sessions: "세션 - Analytics",
     eventCatalog: "이벤트 카탈로그 - Analytics",
     routePerformance: "경로별 성능 - Analytics",
@@ -1066,6 +1133,12 @@ export default {
   },
   sqlDashboard: {
     customRange: "사용자 지정 기간",
+    allValues: "전체",
+    searchValues: "값 검색",
+    noValuesFound: "값을 찾을 수 없습니다",
+    selectAll: "모두 선택",
+    selectOnly: "만",
+    selectOnlyValue: "{{value}}만",
     untitledDashboard: "제목 없는 대시보드",
     dashboardFallback: "대시보드",
     viewOnly: "이 대시보드에 대한 보기 전용 액세스 권한이 있습니다.",
@@ -1473,6 +1546,8 @@ export default {
     replayPlayer: "리플레이 플레이어",
     replayLoading: "리플레이 로드 중...",
     replayLoadingProgress: "{{loaded}} / {{total}} 개의 리플레이 청크가 로드됨",
+    replayTargetFallback:
+      "요청한 녹화 위치({{requested}})를 재생할 수 없어 {{available}}의 가장 가까운 리플레이 프레임을 표시합니다.",
     replayUnavailable: "이 세션에는 리플레이 청크가 없습니다",
     replayUnavailableDescription:
       "세션에는 분석 이벤트가 있지만 rrweb 청크 이벤트를 찾지 못했습니다.",
@@ -1482,6 +1557,20 @@ export default {
       "이 리플레이를 재구성하는 데 사용되는 범위 제한 청크입니다. 제공자 URL은 비공개로 유지됩니다.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "스크린샷 저장",
+    savingScreenshot: "스크린샷 저장 중…",
+    screenshotDownloaded: "스크린샷을 다운로드했습니다",
+    screenshotSaveFailed: "스크린샷을 저장하지 못했습니다",
+    copyScreenshot: "Design에 복사",
+    copyingScreenshot: "스크린샷 복사 중…",
+    screenshotCopiedForDesign:
+      "스크린샷을 복사했습니다. Design에 붙여넣으세요.",
+    screenshotCopyFailed:
+      "스크린샷을 복사하지 못했습니다. 다운로드한 PNG를 Design에 업로드하세요.",
+    screenshotCopyUnsupportedAssets:
+      "스크린샷을 복사하지 못했습니다. 이 시점에는 안전하게 캡처할 수 없는 미디어나 이미지가 있습니다. 리플레이의 다른 시점을 시도하세요.",
+    screenshotUnsupportedAssets:
+      "일부 포함된 미디어 또는 이미지를 안전하게 캡처할 수 없어 스크린샷을 저장하지 않았습니다.",
     timeline: "이벤트 타임라인",
     replayTimeline: "리플레이 타임라인",
     timelineDescription: "유용한 이벤트 {{count}} / {{total}}개를 표시합니다.",
@@ -1515,8 +1604,12 @@ export default {
     time: "시간",
     storageSetupTitle: "재생 저장소 연결",
     storageSetupDescription:
-      "세션 재생 녹화를 저장하려면 먼저 저장소가 필요합니다. 무료 등급 저장소를 사용하려면 Builder.io를 사용하거나, 직접 S3 호환 버킷을 구성하세요.",
+      "세션 재생에는 승인된 파일 업로드 제공업체가 필요합니다. 업로드 권한을 허용하면 Builder.io에 저장할 수 있고, 직접 S3 호환 버킷을 구성할 수도 있습니다.",
     storageConnected: "저장소 연결됨",
+    storageStatusUnavailable:
+      "재생 저장소 상태를 확인할 수 없습니다. 업로드가 준비되었는지 다시 확인하세요.",
+    builderAiConnectedStorageNeedsGrant:
+      "Builder.io가 AI 및 크레딧용으로 연결되어 있지만 재생 업로드에는 별도의 저장소 권한이 필요합니다.",
     connectBuilder: "Builder.io 사용",
     configureS3: "S3 저장소 구성",
     devtools: "개발자 도구",
@@ -1547,6 +1640,59 @@ export default {
     devtoolsNoNetwork: "이 세션에서는 네트워크 활동이 캡처되지 않았습니다.",
     devtoolsNoConsoleMatches: "현재 필터와 일치하는 콘솔 메시지가 없습니다.",
     devtoolsNoNetworkMatches: "현재 필터와 일치하는 요청이 없습니다.",
+    storyboardSelectionCoverage:
+      "세션 리플레이 {{total}}개 중 {{selected}}개 선택됨 ({{percent}}).",
+    storyboardSelectHint: "최대 3개의 세션을 선택해 스토리보드를 만드세요.",
+    clearStoryboardSelection: "선택 지우기",
+    createStoryboard: "스토리보드 만들기",
+    selectReplayForStoryboard: "스토리보드용 리플레이 {{id}} 선택",
+    storyboardDesignId: "Design ID(선택 사항)",
+    storyboardTitle: "스토리보드 제목",
+    storyboardDefaultTitle: "세션 리플레이 스토리보드",
+    storyboardTimestamps: "타임스탬프(최대 3개, 쉼표로 구분)",
+    storyboardReplayPreview: "리플레이 미리보기",
+    storyboardStartingCapture:
+      "브라우저 캡처 선택기에서 이 Analytics 탭을 선택하세요.",
+    storyboardLoadingReplay: "리플레이 {{replayId}} 로드 중…",
+    storyboardCapturingFrame:
+      "{{current}} / {{total}} 캡처 중 · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "스크린샷을 Design으로 보내는 중…",
+    storyboardComplete: "스크린샷 {{screenshots}}개를 Design에 추가했습니다.",
+    storyboardTimestampError:
+      "mm:ss, hh:mm:ss 또는 mm:ss.mmm 형식을 사용하세요.",
+    storyboardTimestampRequired:
+      "선택한 각 리플레이에 타임스탬프를 하나 이상 입력하세요.",
+    storyboardTimestampLimit:
+      "리플레이마다 타임스탬프를 최대 3개까지 선택하세요.",
+    storyboardDuplicateTimestamp: "중복된 타임스탬프를 삭제하세요.",
+    storyboardScreenshotLimit: "스크린샷을 최대 9개까지 선택하세요.",
+    storyboardReplayLimit: "세션 리플레이를 최대 3개까지 선택하세요.",
+    storyboardCaptureFailed: "스크린샷 캡처에 실패했습니다.",
+    storyboardCanceled: "캡처가 취소되었습니다.",
+    storyboardReplayIncomplete:
+      "리플레이 {{replayId}}에 사용할 수 없는 이벤트가 있어 내보내기를 중지했습니다.",
+    storyboardViewportUnavailable: "기록된 뷰포트 크기를 사용할 수 없습니다.",
+    storyboardTimestampOutOfRange:
+      "타임스탬프가 리플레이 {{replayId}} 범위를 벗어났습니다.",
+    storyboardScreenshotTooLarge: "스크린샷이 5MB 제한을 초과합니다.",
+    storyboardBatchTooLarge: "스크린샷 묶음이 20MB 제한을 초과합니다.",
+    storyboardRouteUnavailable:
+      "{{timestamp}} 시점의 리플레이 {{replayId}} 경로를 사용할 수 없습니다.",
+    storyboardNoDesignResponse:
+      "Design에서 스토리보드 결과를 반환하지 않았습니다.",
+    storyboardTemporaryCleanupPending:
+      "스토리보드는 저장했지만 임시 스크린샷 파일을 삭제하지 못했습니다.",
+    storyboardTemporaryCleanupFailed:
+      "임시 스크린샷 정리가 아직 대기 중입니다.",
+    storyboardUnexpectedResponse:
+      "스크린샷 내보내기에서 읽을 수 없는 응답을 받았습니다. 다시 시도해 주세요.",
+    storyboardSaveOutcomeUnknown:
+      "Design에 스토리보드가 저장되었을 수 있습니다. 다시 시도하기 전에 Design을 확인하세요.",
+    openStoryboard: "Design에서 스토리보드 열기",
+    cancelStoryboardCapture: "캡처 취소",
+    captureToDesign: "캡처하여 Design에 추가",
+    storyboardSelectAnalyticsTab:
+      "브라우저 캡처 선택기에서 이 Analytics 탭을 선택하세요.",
   },
   catalog: {
     description: "작업 공간에 설치할 준비가 된 소스 제어 대시보드입니다.",
@@ -1658,5 +1804,58 @@ export default {
     name: "이름",
     appId: "앱 ID",
     flagKey: "기능 플래그",
+  },
+  githubFolderSync: {
+    menuItem: "GitHub와 동기화",
+    folderActions: "폴더 작업",
+    title: "{{name}} GitHub 동기화",
+    loadFailed: "GitHub 동기화 상태를 불러올 수 없습니다.",
+    actionFailed: "GitHub 동기화를 업데이트할 수 없습니다.",
+    owner: "소유자",
+    repo: "리포지토리",
+    branch: "브랜치",
+    path: "리포지토리 내 폴더 경로",
+    ownerRequired: "GitHub 소유자를 입력하세요.",
+    repoRequired: "리포지토리 이름을 입력하세요.",
+    branchRequired: "브랜치 이름을 입력하세요.",
+    connect: "폴더 연결",
+    linkedTo: "연결된 위치",
+    rootPath: "리포지토리 루트",
+    exportPullRequest: "내보내기 풀 리퀘스트",
+    pullRequest: "풀 리퀘스트 #{{number}}",
+    prOpen: "열림",
+    prMerged: "병합됨",
+    prClosed: "닫힘",
+    dashboard: "대시보드",
+    status: "상태",
+    statuses: {
+      inSync: "동기화됨",
+      githubChanged: "GitHub에서 변경됨",
+      appChanged: "앱에서 변경됨",
+      bothChanged: "양쪽에서 변경됨",
+      conflict: "충돌",
+      notExported: "GitHub에 없음",
+      newInGithub: "GitHub에서 새로 추가됨",
+      removedInGithub: "GitHub에서 삭제됨",
+      exportPending: "내보내기 대기 중",
+      noAccess: "액세스 없음",
+    },
+    conflictPanel: "패널: {{id}}",
+    conflictOrder: "패널 순서",
+    conflictMeta: "대시보드 설정",
+    checkGitHub: "GitHub 확인",
+    pullFromGitHub: "GitHub에서 가져오기",
+    exportToGitHub: "GitHub로 내보내기",
+    disconnect: "연결 해제",
+    disconnectTitle: "이 폴더의 GitHub 연결을 해제할까요?",
+    disconnectDescription:
+      "대시보드는 이 앱에 그대로 남습니다. GitHub의 파일은 변경되지 않습니다.",
+    pulled: "GitHub에서 가져왔습니다.",
+    exported: "GitHub로 내보냈습니다.",
+    nothingToExport: "내보낼 항목이 없습니다.",
+    finalizedMerged: "열려 있던 내보내기 풀 리퀘스트가 병합되었습니다.",
+    finalizedClosed: "열려 있던 내보내기 풀 리퀘스트가 닫혔습니다.",
+    skippedHeading: "건너뛴 대시보드",
+    skippedItem: "{{title}}: {{reason}}",
   },
 };

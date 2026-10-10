@@ -1,6 +1,5 @@
 import {
-  fetchAgentEngineConfiguredState,
-  type AgentEngineConfiguredState,
+  requireAgentEngineConfiguredForDispatch,
   useAgentEngineConfigured,
 } from "@agent-native/core/client/agent-chat";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
@@ -31,9 +30,7 @@ import {
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import {
   PromptComposer,
-  sameComposerDraft,
   snapshotComposerContextItems,
-  type ComposerDraftSnapshot,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
@@ -143,6 +140,40 @@ interface DesignListResult {
 }
 
 const DESIGN_PAGE_SIZE = 50;
+const HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY = "design-home-has-recents";
+
+function readHomeLibraryHasRecents():
+  | { status: "available"; value: boolean | null }
+  | { status: "unavailable" } {
+  if (typeof window === "undefined") return { status: "unavailable" };
+
+  try {
+    const value = window.localStorage.getItem(
+      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
+    );
+    return {
+      status: "available",
+      value: value === "true" ? true : value === "false" ? false : null,
+    };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
+function writeHomeLibraryHasRecents(
+  value: boolean,
+): { status: "available" } | { status: "unavailable" } {
+  if (typeof window === "undefined") return { status: "unavailable" };
+  try {
+    window.localStorage.setItem(
+      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
+      String(value),
+    );
+    return { status: "available" };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
 
 interface HomeSuggestion {
   id?: string;
@@ -154,7 +185,10 @@ type HomeSuggestionsResult =
   | { status: "ready"; suggestions: HomeSuggestion[] }
   | {
       status: "unavailable";
-      reason: "missing_credentials";
+      reason:
+        | "missing_credentials"
+        | "timeout"
+        | "agent_engine_settings_unavailable";
       suggestions: [];
     };
 
@@ -173,8 +207,13 @@ export default function Index() {
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [homeSection, setHomeSection] =
-    useState<DesignHomeLibraryTab>("templates");
+  const [storedHasAccessibleDesigns] = useState(readHomeLibraryHasRecents);
+  const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
+    storedHasAccessibleDesigns.status === "available" &&
+      storedHasAccessibleDesigns.value === true
+      ? "recent"
+      : "templates",
+  );
   const homeLibraryTabWasSelectedRef = useRef(false);
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
@@ -234,6 +273,11 @@ export default function Index() {
     compact: "true",
     includePreview: "false",
   });
+  const accessibleDesignCount = accessibleDesignsSummary.data?.totalCount;
+  const hasAccessibleDesigns =
+    accessibleDesignsSummary.isSuccess &&
+    accessibleDesignCount !== undefined &&
+    accessibleDesignCount > 0;
   const ownedDesignsSummary = useActionQuery<
     Pick<DesignListResult, "totalCount">
   >("list-designs", {
@@ -244,21 +288,21 @@ export default function Index() {
     includePreview: "false",
   });
   const hasSearchResultsSection = normalizedSearch.length > 0;
-  const recentVisible =
-    accessibleDesignsSummary.isSuccess &&
-    (accessibleDesignsSummary.data?.totalCount ?? 0) > 0;
   const revealRecentSearch = useCallback(() => {
-    if (!recentVisible) return false;
     homeLibraryTabWasSelectedRef.current = true;
     setHomeSection("recent");
     return true;
-  }, [recentVisible]);
+  }, []);
   useHomeSearchShortcut(true, revealRecentSearch);
   useEffect(() => {
-    if (!accessibleDesignsSummary.isSuccess) return;
+    if (
+      !accessibleDesignsSummary.isSuccess ||
+      accessibleDesignCount === undefined
+    ) {
+      return;
+    }
 
-    const hasAccessibleDesigns =
-      (accessibleDesignsSummary.data?.totalCount ?? 0) > 0;
+    writeHomeLibraryHasRecents(hasAccessibleDesigns);
     if (!hasAccessibleDesigns) {
       setHomeSection("templates");
       homeLibraryTabWasSelectedRef.current = false;
@@ -269,8 +313,9 @@ export default function Index() {
     setHomeSection("recent");
     homeLibraryTabWasSelectedRef.current = true;
   }, [
-    accessibleDesignsSummary.data?.totalCount,
+    accessibleDesignCount,
     accessibleDesignsSummary.isSuccess,
+    hasAccessibleDesigns,
   ]);
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
@@ -302,65 +347,13 @@ export default function Index() {
     refetch: refetchDesignSystems,
   } = useDesignSystems(systemsEnabled);
   const agentEngine = useAgentEngineConfigured();
-  const [preflightAgentEngineState, setPreflightAgentEngineState] =
-    useState<AgentEngineConfiguredState | null>(null);
-  const preflightRequestIdRef = useRef(0);
-  const effectiveAgentEngineState =
-    preflightAgentEngineState ?? agentEngine.state;
-  const agentEngineConfigured =
-    effectiveAgentEngineState === "configured" && !agentEngine.missing;
-  const agentEngineMissing =
-    effectiveAgentEngineState === "missing" || agentEngine.missing;
-  const canChatRef = useRef(agentEngineConfigured);
-  canChatRef.current = agentEngineConfigured;
-  useEffect(() => {
-    if (agentEngine.state === "configured" || agentEngine.state === "missing") {
-      preflightRequestIdRef.current += 1;
-      setPreflightAgentEngineState(null);
-    }
-  }, [agentEngine.state]);
-  // The draft a send held back for missing AI setup is sent once, as soon as
-  // setup is ready, however it was connected (card, sign-in popup, or
-  // activation) and only while it is still the draft that was submitted.
-  const heldDraftAfterSetupRef = useRef<ComposerDraftSnapshot | null>(null);
-  const ensureAgentEngineConfigured = useCallback(
-    async (draft?: ComposerDraftSnapshot) => {
-      const requestId = ++preflightRequestIdRef.current;
-      let nextState: AgentEngineConfiguredState;
-      try {
-        nextState = await fetchAgentEngineConfiguredState(true, {
-          fresh: true,
-        });
-      } catch {
-        nextState = agentEngine.state === "missing" ? "missing" : "unavailable";
-      }
-      if (requestId !== preflightRequestIdRef.current) {
-        return canChatRef.current;
-      }
-      setPreflightAgentEngineState(nextState);
-      canChatRef.current = nextState === "configured";
-      if (nextState === "missing" && draft)
-        heldDraftAfterSetupRef.current = draft;
-      return canChatRef.current;
-    },
-    [agentEngine.state, agentEngineConfigured],
-  );
-  useEffect(() => {
-    const held = heldDraftAfterSetupRef.current;
-    if (!agentEngineConfigured || !held) return;
-    heldDraftAfterSetupRef.current = null;
-    const composer = composerRef.current;
-    const live = composer?.getDraftSnapshot?.();
-    // A draft edited while connecting was never submitted; leave it to send.
-    if (live && sameComposerDraft(held, live)) void composer?.submit?.();
-  }, [agentEngineConfigured]);
+  const agentEngineConfigured = agentEngine.canChat;
+  const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
   const bounceSetupCard = () => {
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
-    preflightRequestIdRef.current += 1;
-    setPreflightAgentEngineState(null);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
@@ -739,7 +732,6 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
-      if (!canChatRef.current) return;
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const templateCopyDesignSystemId =
@@ -968,6 +960,14 @@ export default function Index() {
 
   const handleSkipToEditor = useCallback(async () => {
     if (selectedTemplate && newDesignMode === "design") {
+      try {
+        await requireAgentEngineConfiguredForDispatch();
+      } catch {
+        if (agentEngine.missing) {
+          setSetupCardBouncePulse((pulse) => pulse + 1);
+        }
+        return false;
+      }
       await handleSubmitPrompt("", [], {
         contextItems: await homeContext.prepareSubmission(
           snapshotComposerContextItems(homeContext.contextItems),
@@ -979,6 +979,7 @@ export default function Index() {
     return false;
   }, [
     handleSubmitPrompt,
+    agentEngine.missing,
     homeContext.contextItems,
     newDesignMode,
     selectedTemplate,
@@ -1173,19 +1174,6 @@ export default function Index() {
               bouncePulse={setupCardBouncePulse}
               onConnected={retryAgentEngineStatus}
             />
-          ) : effectiveAgentEngineState === "unavailable" ? (
-            <div className="mb-2 flex items-center justify-center gap-3 text-sm text-muted-foreground">
-              <span role="status">
-                {t("agentChat.setup.providerStatusUnavailable")}
-              </span>
-              <button
-                type="button"
-                className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={retryAgentEngineStatus}
-              >
-                {t("agentChat.common.retry")}
-              </button>
-            </div>
           ) : null
         }
         composer={
@@ -1205,9 +1193,10 @@ export default function Index() {
               onOpenChange={() => {}}
               composerComponent={PromptComposer}
               composerRef={composerRef}
-              onBeforeSubmit={ensureAgentEngineConfigured}
               showModelSelector={agentEngineConfigured}
               modelStatusChecksEnabled={agentEngineConfigured}
+              requireAgentEngine
+              showMissingApiKeySetup={false}
               title={t("home.newDesignLower")}
               draftScope="design:new:0"
               placeholder={
@@ -1310,9 +1299,8 @@ export default function Index() {
         ) : null}
         <ClientOnly>
           <DesignHomeLibrary
-            recentVisible={recentVisible}
             value={
-              recentVisible && !homeLibraryTabWasSelectedRef.current
+              hasAccessibleDesigns && !homeLibraryTabWasSelectedRef.current
                 ? "recent"
                 : homeSection
             }
@@ -1415,13 +1403,13 @@ export default function Index() {
                 ) : (
                   <>
                     {isSelectingDesigns ? (
-                      <div className="-mt-4 mb-3 flex flex-wrap items-center justify-between gap-3 px-1 py-1 sm:-mt-6">
+                      <div className="mb-3 flex w-full flex-wrap items-center justify-between gap-3 px-1 py-1">
                         <div className="text-sm text-muted-foreground">
                           <span className="font-medium text-foreground">
                             {t("home.selected", { count: selectedDesignCount })}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
@@ -1507,6 +1495,7 @@ export default function Index() {
                         <div className="design-library-card-preview">
                           <DesignThumbnail
                             html={design.previewHtml ?? null}
+                            designId={design.id}
                             className="h-full w-full"
                           />
                         </div>

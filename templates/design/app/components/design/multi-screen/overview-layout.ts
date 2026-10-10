@@ -31,6 +31,121 @@ export function shouldDeferLineupRecenterToCameraCommand(args: {
   );
 }
 
+/**
+ * Screen a focused first layout lands on: the route target, else the selected
+ * one, else the active one, else the first.
+ */
+export function resolveFocusedLineupScreenId(args: {
+  screenIds: readonly string[];
+  selectedScreenIds: readonly string[];
+  requestedScreenId?: string | null;
+  activeScreenId?: string | null;
+}): string | null {
+  const known = new Set(args.screenIds);
+  const preferred = [
+    args.requestedScreenId,
+    ...args.selectedScreenIds,
+    args.activeScreenId,
+  ].find((id): id is string => Boolean(id) && known.has(id as string));
+  return preferred ?? args.screenIds[0] ?? null;
+}
+
+/**
+ * Scale that fits a frame edge to edge across the pane width, never past
+ * `maxScale` (100% display zoom) so a narrow screen is not blown up to fill
+ * the pane. The frame itself sits flush against the top of the pane.
+ */
+export function getFocusedLineupScale(args: {
+  frameWidth: number;
+  availableWidth: number;
+  minScale: number;
+  maxScale: number;
+}): number {
+  const fit = args.availableWidth / Math.max(1, args.frameWidth);
+  return Math.max(args.minScale, Math.min(args.maxScale, fit));
+}
+
+/**
+ * Margin a widget leaves around the artboard it fits: roomy in a wide pane,
+ * thin in a narrow one, where a fixed margin would leave only a sliver.
+ */
+export function getWidgetFitPaddingPx(width: number, height: number): number {
+  return Math.round(Math.min(96, Math.max(16, Math.min(width, height) * 0.05)));
+}
+
+export function getFocusedLineupFitScale(args: {
+  frameWidth: number;
+  frameHeight: number;
+  availableWidth: number;
+  availableHeight: number;
+  minScale: number;
+  maxScale: number;
+}): number {
+  const fit = Math.min(
+    args.availableWidth / Math.max(1, args.frameWidth),
+    args.availableHeight / Math.max(1, args.frameHeight),
+  );
+  return Math.max(args.minScale, Math.min(args.maxScale, fit));
+}
+
+/**
+ * Camera that frames `bounds` (canvas px) whole and centered in the pane
+ * between the chrome insets, with the widget margin around it. `x`/`y` are the
+ * world pan and `zoom` is a percent. A pure function of the pane and the
+ * bounds, so every pane or content change maps to exactly one camera.
+ */
+export function getWidgetFitCamera(args: {
+  bounds: { left: number; top: number; width: number; height: number };
+  pane: { width: number; height: number };
+  insetLeft: number;
+  insetRight: number;
+  minScale: number;
+  maxScale: number;
+}): { x: number; y: number; zoom: number } {
+  const { bounds, pane } = args;
+  const availableWidth = Math.max(
+    0,
+    pane.width - args.insetLeft - args.insetRight,
+  );
+  const padding = getWidgetFitPaddingPx(availableWidth, pane.height);
+  const scale = getFocusedLineupFitScale({
+    frameWidth: bounds.width,
+    frameHeight: bounds.height,
+    availableWidth: Math.max(0, availableWidth - padding * 2),
+    availableHeight: Math.max(0, pane.height - padding * 2),
+    minScale: args.minScale,
+    maxScale: args.maxScale,
+  });
+  return {
+    x:
+      args.insetLeft +
+      (availableWidth - bounds.width * scale) / 2 -
+      (SURFACE_PADDING + bounds.left) * scale,
+    y:
+      (pane.height - bounds.height * scale) / 2 -
+      (SURFACE_PADDING + bounds.top) * scale,
+    zoom: scale * 100,
+  };
+}
+
+/**
+ * Height a focused frame renders at so the pane below it is never empty: at
+ * least the pane's viewport height at the focused scale, so the screen's own
+ * layout reflows into the taller viewport the way a resized device frame does.
+ * A screen already taller than that keeps its height and scrolls.
+ */
+export function getFocusedLineupFillHeight(args: {
+  frameWidth: number;
+  frameHeight: number;
+  availableWidth: number;
+  viewportHeight: number;
+  minScale: number;
+  maxScale: number;
+}): number {
+  const scale = getFocusedLineupScale(args);
+  return Math.max(args.frameHeight, Math.ceil(args.viewportHeight / scale));
+}
+
 export function shouldSuppressLineupRecenter(args: {
   armed: LineupRecenterDuplicateArm | null;
   nowMs: number;

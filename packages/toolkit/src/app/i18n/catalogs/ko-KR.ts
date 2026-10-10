@@ -83,6 +83,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContain": "답변에 포함할 내용…",
   "observability.promoteMustContainOptional": "답변에서 확인할 선택적 텍스트…",
   "observability.promoteMustContainLabel": "승격된 평가 답변에서 확인할 텍스트",
+  "observability.promoteReviewedPromptLabel":
+    "수동으로 검토한 프롬프트(프로덕션에서 자동 복사되지 않음)",
   "observability.promoteNeedsContains":
     "이 실행에는 성공한 도구 호출이 없습니다. 승격하기 전에 답변에 포함할 텍스트를 입력하세요.",
   "observability.viewDetails": "세부 정보 보기",
@@ -123,8 +125,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "역할을 입력해 주세요",
   "onboarding.skipForNow": "지금 건너뛰기",
   "onboarding.saveRoleError": "역할을 저장하지 못했습니다.",
-  "onboarding.builderCreateAccount": "Builder.io 계정 만들기",
-  "onboarding.builderSignInWithAccount": "Builder.io 계정으로 로그인",
+  "onboarding.builderCreateAccount": "Builder.io 사용",
+  "onboarding.builderSignInWithAccount": "Builder.io 사용",
   "onboarding.builderActivateDescription":
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
@@ -133,6 +135,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderMonthlyCredits": "매월 60 Agent Credits",
   "onboarding.builderIncludedFree": "무료 포함",
   "onboarding.builderMoreServices": "+ 서비스 {{count}}개 더",
+  "onboarding.builderLlmCredits": "LLM 크레딧",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM 크레딧 + 서비스 {{count}}개 더",
+  "onboarding.builderAccountCreated":
+    "Builder.io 계정이 생성되어 연결되었습니다.",
   "onboarding.builderIncludedServices": "포함된 서비스",
   "onboarding.builderActivateTitle": "무료 크레딧 활성화",
   "onboarding.builderAccountExistsTitle": "이미 Builder.io 계정이 있습니다",
@@ -147,11 +154,11 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderTerms": "서비스 약관",
   "onboarding.builderPrivacy": "개인정보 처리방침",
   "onboarding.builderConsentAnd": "및",
-  "onboarding.builderExistingAccount": "Builder.io 계정이 있습니다",
+  "onboarding.builderExistingAccount": "Builder.io 사용",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
   "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
   "onboarding.builderProvisioningDescription":
-    "Builder.io 계정을 생성하거나 재사용하는 중입니다. 보통 몇 초 정도 걸립니다.",
+    "Builder.io 계정을 만들고 무료 크레딧을 활성화하고 있습니다.",
   "onboarding.builderConnectionDescription":
     "새 창에서 한 번의 클릭으로 연결을 완료하세요.",
   "onboarding.builderReadyWithCodeChanges":
@@ -196,7 +203,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder 스토리지 또는 S3 호환 버킷",
   "onboarding.capability.clipsObjectStorage.why":
-    "녹화한 동영상은 재생하거나 공유하기 전에 영구 오브젝트 스토리지가 필요합니다.",
+    "저장소 없이도 Clips를 녹화하고 미리 보고 다운로드할 수 있습니다. 영구 오브젝트 스토리지를 연결하면 여러 기기에서 녹화를 확인하고 공유할 수 있습니다.",
   "onboarding.capability.clipsTranscription.keySummary":
     "음성 텍스트 변환 제공업체 키",
   "onboarding.capability.about": "{{label}} 정보",
@@ -399,6 +406,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.connectAbove": "계속하려면 위에서 AI를 연결하세요...",
   "composer.connectBuilder": "Builder.io 사용",
   "composer.connectKeys": "키 연결",
+  "composer.connectAgent": "에이전트 연결",
   "composer.connectingBuilder": "Builder.io 설정 중…",
   "composer.costHigher": "높은 비용",
   "composer.costLower": "낮은 비용",
@@ -492,7 +500,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "스킬 파일 업로드",
   "composer.upload": "업로드",
   "composer.uploadFailed": "선택한 파일을 업로드할 수 없습니다.",
+  "composer.fileTooLarge": "이 파일은 {{size}}MB 업로드 제한보다 큽니다.",
+  "composer.sessionExpired":
+    "세션이 만료되었습니다. 다시 로그인한 후 메시지를 보내세요.",
   "composer.unsupportedFileType": "지원되지 않는 파일 형식입니다.",
+  "composer.uploadUnavailable":
+    "지금은 파일을 업로드할 수 없습니다. 잠시 후 다시 시도하세요.",
+  "composer.uploadOffline":
+    "업로드가 서버에 연결되지 못했습니다. 연결 상태를 확인한 후 다시 시도하세요.",
+  "composer.submissionNotReady":
+    "채팅을 아직 보낼 준비가 되지 않았습니다. 잠시 기다린 후 다시 보내세요.",
+  "composer.submissionScopeChanged":
+    "메시지가 전송되기 전에 이 채팅이 변경되었습니다. 다시 보내세요.",
+  "composer.attachmentNotSaved": "이 채팅에 저장되지 않음",
   "composer.useAttachedContext": "첨부된 컨텍스트를 사용하세요.",
   "mentions.commands": "명령",
   "mentions.learnMore": "자세히 알아보기",
@@ -636,6 +656,8 @@ const messages: ToolkitAgentChatTranslation = {
     "로그아웃되어 이 채팅에서 에이전트를 추적할 수 없습니다. 다시 로그인한 후 새로고침하세요.",
   "errorMessages.malformedRequestAttachment":
     "모델이 첨부 파일을 거부하여 이 메시지는 전송되지 않았습니다. 첨부를 제거하고 다시 시도하세요. PDF, 일반 텍스트 파일, JPEG·PNG·GIF·WebP 이미지는 직접 읽을 수 있지만 다른 형식은 업로드한 뒤 링크해야 합니다.",
+  "errorMessages.invalidAttachment":
+    "모델 제공업체가 첨부 파일의 형식 또는 크기 때문에 거부했습니다. 이미지는 더 작은 PNG, JPEG, GIF 또는 WebP로 내보내세요. 문서는 지원되는 파일 형식을 사용하거나 관련 텍스트를 붙여 넣은 다음 다시 첨부하세요.",
   "errorMessages.noProviderConnected":
     "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 열고 Builder.io(무료 플랜 제공)를 사용하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
@@ -661,6 +683,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "싫어요",
   "feedback.thumbsUp": "좋아요",
   "feedback.tooSlow": "너무 느림",
+  "feedback.reasonMisread": "요청을 잘못 이해함",
+  "feedback.reasonNotDone": "완료했다고 했지만 완료되지 않음",
+  "feedback.reasonWrongNumbers": "숫자가 틀림",
+  "feedback.copyDetails": "세부정보 복사",
   "feedback.whatWentWrong": "무엇이 잘못되었나요?",
   "feedback.wrongTool": "잘못된 도구",
   "header.switchToCli": "CLI로 전환",
@@ -1004,6 +1030,19 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "메시지 작업",
   "message.copyMessage": "메시지 복사",
   "message.copyRequestId": "요청 ID 복사",
+  "message.usage": "사용량",
+  "message.usageLoading": "사용량 불러오는 중…",
+  "message.usageUnavailable": "사용량을 사용할 수 없음",
+  "message.usageNotRecorded": "사용량이 기록되지 않음",
+  "message.usageIncomplete":
+    "일부 사용량을 분류할 수 없어 합계가 숨겨졌습니다.",
+  "message.usageReportedCost": "비용 {{amount}}",
+  "message.usageEstimatedCost": "예상 비용 {{amount}}",
+  "message.usageBuilderCredits": "사용한 Builder 크레딧 {{amount}}",
+  "message.usageEstimatedBuilderCredits": "예상 Builder 크레딧 {{amount}}",
+  "message.usageMixedCost": "보고된 비용과 예상 비용 {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "보고된 Builder 크레딧과 예상 Builder 크레딧 {{amount}}",
   "message.requestIdUnavailable": "요청 ID를 사용할 수 없음",
   "message.unavailable":
     "이 대화에서 해당 메시지를 더 이상 사용할 수 없습니다.",
@@ -1109,8 +1148,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io 설정 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
+  "recovery.continueUnavailable":
+    "이 실행은 더 이상 계속할 수 없습니다. 계속하려면 메시지를 보내세요.",
   "recovery.retryAttachmentUnavailable":
     "이 요청에는 다시 시도할 수 없는 파일이 포함되어 있습니다. 메시지 입력란에 파일을 다시 첨부한 다음 다시 시도하세요.",
+  "recovery.retryWithoutAttachment": "첨부 파일 없이 다시 시도",
   "recovery.deferredSubmissionFailed":
     "이 메시지를 보내지 못했습니다. 연결 또는 채팅 설정을 확인한 다음 다시 시도하세요.",
   "recovery.credentialRejected":
@@ -1134,6 +1176,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "{{seconds}}초 동안 진행이 없습니다. 에이전트가 서버 시간 제한에 걸렸거나 연결이 끊겼을 수 있습니다.",
   "recovery.stuckRetrying": "자동으로 다시 시도하는 중입니다.",
+  "recovery.statusUnreadable":
+    "서버에 연결할 수 없어 이 채팅의 상태를 확인하지 못했습니다. 이미 완료되었을 수 있습니다. 계속 시도합니다.",
+  "recovery.statusMismatch":
+    "서버에 따르면 이 채팅은 더 이상 실행 중이 아닙니다. 새로고침하여 결과를 확인하세요.",
+  "recovery.reload": "새로고침",
   "recovery.statusCheckFailed":
     "에이전트가 아직 작업 중인지 확인하기 위해 서버에 연결할 수 없습니다. 메시지를 다시 보내 재시도하세요.",
   "recovery.streamEnded":
@@ -1605,6 +1652,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "앱",
   "settings.usage.allApps": "모든 앱",
   "settings.usage.unattributedApp": "미지정",
+  "settings.usage.unclassifiedUsage": "분류되지 않은 사용량",
   "settings.usage.peopleFilterLabel": "사용자",
   "settings.usage.everyone": "모든 사람",
   "settings.usage.justYou": "나만",
@@ -1728,6 +1776,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "조직 소유자와 관리자만 파일 스토리지를 변경할 수 있습니다.",
   "settings.audit.action": "작업",
+  "settings.audit.agentVia": "{{protocol}}를 통한 에이전트",
   "settings.audit.allApps": "모든 앱",
   "settings.audit.app": "앱",
   "settings.audit.changedBy": "변경한 사람",
@@ -2011,7 +2060,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectFailed":
     "Builder.io 연결을 해제하지 못했습니다.",
   "settingsShell.builder.disconnectTitle": "Builder.io 연결을 해제할까요?",
-  "settingsShell.builder.grantsFailed": "Builder.io 연결을 읽지 못했습니다.",
+  "settingsShell.builder.grantsFailed":
+    "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
   "settingsShell.builder.setupStartFailed":
     "Builder.io 설정을 시작할 수 없습니다. 이 페이지를 새로고침한 후 다시 시도하세요.",
   "settingsShell.builder.setupHostFailed":
@@ -2439,7 +2489,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "모델 액세스, 브라우저 자동화, 파일 스토리지, 워크스페이스 ID. 무료 요금제가 있습니다.",
   "settingsShell.integrations.builderStatusFailed":
-    "Builder.io 연결을 확인하지 못했습니다.",
+    "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
   "settingsShell.integrations.category.analytics": "분석",
   "settingsShell.integrations.category.design": "디자인",
   "settingsShell.integrations.category.engineering": "엔지니어링",
@@ -2593,6 +2643,11 @@ const messages: ToolkitAgentChatTranslation = {
     "배포 대체 설정을 사용할 수 있습니다. 이를 재정의하려면 내 Builder.io 계정을 사용하세요.",
   "settingsInfra.builderStorageHint":
     "객체 스토리지는 업로드 파일을 보존하고 스레드 전체에서 URL을 재사용할 수 있게 합니다. 아래에서 Builder.io 또는 S3 호환 버킷을 사용하세요.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io가 연결되어 있지만 아직 업로드 파일을 저장할 수 없습니다. 업로드 권한을 부여하려면 다시 연결하거나 아래에서 버킷을 설정하세요.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Builder.io 업로드 권한을 확인할 수 없습니다. 다시 시도하거나 아래에서 버킷을 설정하세요.",
+  "settingsInfra.reconnectBuilderUploads": "업로드 권한 부여",
   "settingsInfra.builderUnknown": "Builder.io 연결을 확인할 수 없습니다.",
   "settingsInfra.manage": "관리",
   "settingsInfra.connect": "연결",

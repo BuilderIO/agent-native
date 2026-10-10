@@ -68,6 +68,8 @@ import {
   Surface,
   TextField,
   agentSuggestionPrompt,
+  createChatAttachmentAdapter,
+  formatAttachmentError,
   type PromptComposerFile,
   type PromptComposerProps,
   type TiptapComposerHandle,
@@ -129,11 +131,17 @@ import {
   type AgentKitRegistry,
   type AgentKitRenderProps,
   type AgentKitRenderSurface,
+  type AgentKitRunUsage,
   type AgentKitSlots,
   type AgentKitSuggestionsRenderProps,
   type AgentRunFailureRenderProps,
 } from "./context.js";
 import { AgentStreamingText } from "./streaming-text.js";
+
+// AgentKit React installs without @agent-native/core, so it repeats core's
+// replay markers. Its specs assert core's attribute names.
+const SESSION_REPLAY_MASK_PROPS = { "data-an-mask": "" } as const;
+const SESSION_REPLAY_BLOCK_PROPS = { "data-an-block": "" } as const;
 
 export interface AgentKitErrorBoundaryProps {
   children: ReactNode;
@@ -917,7 +925,12 @@ export function AgentInteractionItem({
       {object ? (
         <ObjectRenderer value={object} threadId={threadId} />
       ) : detail ? (
-        <span className="agentkit-agent-interaction-detail" title={detail}>
+        <span
+          {...(interaction.kind === "failed"
+            ? SESSION_REPLAY_MASK_PROPS
+            : { title: detail })}
+          className="agentkit-agent-interaction-detail"
+        >
           {detail}
         </span>
       ) : null}
@@ -984,7 +997,13 @@ export function AgentActivityItem({
         </span>
         {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
         {detail ? (
-          <span className="agentkit-activity-detail" title={detail}>
+          // Replays mask text but record attributes, so failure text gets no title.
+          <span
+            {...(activity.status === "failed"
+              ? SESSION_REPLAY_MASK_PROPS
+              : { title: detail })}
+            className="agentkit-activity-detail"
+          >
             {detail}
           </span>
         ) : null}
@@ -1005,7 +1024,11 @@ export function AgentActivityItem({
         ) : null}
       </div>
       {open ? (
-        <div className="agentkit-activity-summary">
+        // Summary parts can render links, and replays keep their attributes.
+        <div
+          {...(activity.status === "failed" ? SESSION_REPLAY_BLOCK_PROPS : {})}
+          className="agentkit-activity-summary"
+        >
           {activity.summary?.map((part, index) => {
             const safePart =
               part.type === "text"
@@ -2328,7 +2351,11 @@ export function AgentApprovalPrompt({
         )}
       </div>
       {resolution.error ? (
-        <p className="agentkit-command-error" role="alert">
+        <p
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {resolution.error.message}
         </p>
       ) : null}
@@ -2449,7 +2476,7 @@ export function AgentConnectionRequestCard({
       {resolution.error ? (
         <div className="agentkit-command-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{resolution.error.message}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{resolution.error.message}</span>
         </div>
       ) : null}
     </Surface>
@@ -2498,7 +2525,11 @@ function AgentWidgetActionButton({
         {action.label}
       </ActionButton>
       {invocation.error ? (
-        <span className="agentkit-command-error" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {invocation.error.message}
         </span>
       ) : null}
@@ -2570,51 +2601,29 @@ function AgentMentionIcon({ icon }: { icon: string }) {
   }
 }
 
+// Only the composer's serialized `@[label|icon]` form is a mention. A bare
+// "@word" is whatever the user typed — an address, a handle, "@3pm" — and
+// rendering it as a chip claims a reference the message never carried.
 function renderUserMessageText(text: string): ReactNode[] {
   const richMatches = Array.from(text.matchAll(/@\[([^\]|]+)\|([^\]]+)\]/g));
-  if (richMatches.length) {
-    const parts: ReactNode[] = [];
-    let lastIndex = 0;
-    richMatches.forEach((match, index) => {
-      const start = match.index ?? 0;
-      if (start > lastIndex) parts.push(text.slice(lastIndex, start));
-      const label = match[1] ?? "";
-      parts.push(
-        <span
-          key={`rich-mention:${start}:${index}`}
-          className="agentkit-mention"
-          data-mention-label={label}
-        >
-          <AgentMentionIcon icon={match[2] ?? ""} />
-          <span className="agentkit-mention-label">{label}</span>
-        </span>,
-      );
-      lastIndex = start + match[0].length;
-    });
-    if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-    return parts;
-  }
-
-  const plainMatches = Array.from(text.matchAll(/(^|\s)@(\w+)/g));
-  if (!plainMatches.length) return [text];
+  if (!richMatches.length) return [text];
   const parts: ReactNode[] = [];
   let lastIndex = 0;
-  plainMatches.forEach((match, index) => {
-    const matchIndex = match.index ?? 0;
-    const start = matchIndex + (match[1]?.length ?? 0);
-    const end = matchIndex + match[0].length;
+  richMatches.forEach((match, index) => {
+    const start = match.index ?? 0;
     if (start > lastIndex) parts.push(text.slice(lastIndex, start));
-    const label = match[2] ?? "";
+    const label = match[1] ?? "";
     parts.push(
       <span
-        key={`plain-mention:${start}:${index}`}
-        className="agentkit-mention agentkit-mention--plain"
+        key={`rich-mention:${start}:${index}`}
+        className="agentkit-mention"
         data-mention-label={label}
       >
-        @{label}
+        <AgentMentionIcon icon={match[2] ?? ""} />
+        <span className="agentkit-mention-label">{label}</span>
       </span>,
     );
-    lastIndex = end;
+    lastIndex = start + match[0].length;
   });
   if (lastIndex < text.length) parts.push(text.slice(lastIndex));
   return parts;
@@ -2846,7 +2855,10 @@ export function AgentMessagePartView({
           <span>{part.name}</span>
         </a>
       ) : (
-        <span className="agentkit-file">
+        <span
+          className="agentkit-file"
+          title={part.omitted ? labels.attachmentNotSaved : undefined}
+        >
           <IconFile aria-hidden="true" className="agentkit-icon" />
           <span>{part.name}</span>
         </span>
@@ -3022,6 +3034,10 @@ async function forkAndResubmitMessage({
   if (previousMessage === null) {
     throw new Error(messageUnavailable);
   }
+  const engine = metadata?.engine ?? options?.metadata?.engine;
+  await controller.assertAiSetupReady({
+    engine: typeof engine === "string" ? engine : undefined,
+  });
   const forkedThread = await controller.forkThread(
     threadId,
     previousMessage?.id,
@@ -3046,7 +3062,9 @@ export function AgentMessageActions({
     slots,
     onThreadForked,
     onCopyMessage,
+    buildFeedbackReport,
     branchNavigation,
+    loadRunUsage,
   } = useAgentKit();
   const thread = useAgentThread(threadId);
   const feedbackCapability = useAgentCapability("feedback");
@@ -3069,7 +3087,23 @@ export function AgentMessageActions({
   const [feedbackReasonSubmitted, setFeedbackReasonSubmitted] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [requestIdCopied, setRequestIdCopied] = useState(false);
+  const [feedbackDetailsCopied, setFeedbackDetailsCopied] = useState(false);
+  const feedbackDetailsCopiedTimer = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [usageDetails, setUsageDetails] = useState<
+    | { runId: string; status: "loading" }
+    | { runId: string; status: "error" }
+    | { runId: string; status: "loaded"; data: AgentKitRunUsage | null }
+    | null
+  >(null);
+  const usageCacheRef = useRef<{
+    runId: string;
+    fetchedAt: number;
+    runFinished: boolean;
+    data: AgentKitRunUsage;
+  } | null>(null);
   const requestIdCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -3077,13 +3111,68 @@ export function AgentMessageActions({
     () => resolveAgentMessageRequestId(message, thread.events),
     [message, thread.events],
   );
-  const hasMessageMenuActions = Boolean(
-    requestId || (forkingCapability.visible && onThreadForked),
-  );
   const runId = useMemo(
     () => resolveAgentMessageRunId(message, thread.events),
     [message, thread.events],
   );
+  const hasRunUsage =
+    message.role === "assistant" && Boolean(runId) && Boolean(loadRunUsage);
+  const runFinished = useMemo(
+    () =>
+      Boolean(
+        runId &&
+        thread.events.some(
+          (event) =>
+            event.runId === runId &&
+            (event.type === "run.completed" ||
+              event.type === "run.failed" ||
+              event.type === "run.cancelled" ||
+              (event.type === "run.status" &&
+                (event.status === "completed" ||
+                  event.status === "failed" ||
+                  event.status === "cancelled"))),
+        ),
+      ),
+    [runId, thread.events],
+  );
+  const hasMessageMenuActions = Boolean(
+    requestId || hasRunUsage || (forkingCapability.visible && onThreadForked),
+  );
+  useEffect(() => {
+    if (!actionsMenuOpen || !hasRunUsage || !runId || !loadRunUsage) return;
+    const cached = usageCacheRef.current;
+    if (
+      cached?.runId === runId &&
+      cached.runFinished === runFinished &&
+      Date.now() - cached.fetchedAt < 5 * 60_000
+    ) {
+      setUsageDetails({ runId, status: "loaded", data: cached.data });
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    setUsageDetails({ runId, status: "loading" });
+    void loadRunUsage({ runId, signal: controller.signal })
+      .then((data) => {
+        if (!active) return;
+        if (data)
+          usageCacheRef.current = {
+            runId,
+            fetchedAt: Date.now(),
+            runFinished,
+            data,
+          };
+        setUsageDetails({ runId, status: "loaded", data });
+      })
+      .catch(() => {
+        if (!active || controller.signal.aborted) return;
+        setUsageDetails({ runId, status: "error" });
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [actionsMenuOpen, hasRunUsage, loadRunUsage, runFinished, runId]);
   const messageSeq = thread.messages.findIndex(
     (item) => item.id === message.id,
   );
@@ -3092,6 +3181,8 @@ export function AgentMessageActions({
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       if (requestIdCopiedTimer.current)
         clearTimeout(requestIdCopiedTimer.current);
+      if (feedbackDetailsCopiedTimer.current)
+        clearTimeout(feedbackDetailsCopiedTimer.current);
     },
     [message.id],
   );
@@ -3145,6 +3236,25 @@ export function AgentMessageActions({
     },
     `${threadId}:${message.id}:request-id:${requestId ?? "unavailable"}`,
   );
+  const copyFeedbackDetailsAction = useAgentKitMutation(async () => {
+    if (!buildFeedbackReport) throw new Error(labels.copyUnavailable);
+    const report = buildFeedbackReport({
+      threadId,
+      ...(runId ? { runId } : {}),
+      messageId: message.id,
+      note: feedbackReason,
+    });
+    if (!(await writeClipboardText(report))) {
+      throw new Error(labels.copyUnavailable);
+    }
+    setFeedbackDetailsCopied(true);
+    if (feedbackDetailsCopiedTimer.current)
+      clearTimeout(feedbackDetailsCopiedTimer.current);
+    feedbackDetailsCopiedTimer.current = setTimeout(
+      () => setFeedbackDetailsCopied(false),
+      1_400,
+    );
+  }, `${threadId}:${message.id}:feedback-details`);
   const forkAction = useAgentKitMutation(async () => {
     const thread = await control.fork(message.id);
     onThreadForked?.(thread);
@@ -3159,7 +3269,7 @@ export function AgentMessageActions({
       text: messageText(previousUserMessage),
       attachments: previousUserMessage.parts.filter(
         (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file",
+          part.type === "file" && !part.omitted,
       ),
       options: messageRunOptions(previousUserMessage),
       metadata: previousUserMessage.metadata,
@@ -3177,6 +3287,12 @@ export function AgentMessageActions({
       setFeedback(previous);
     }
   };
+  const addFeedbackReason = (reason: string) =>
+    setFeedbackReason((current) => {
+      if (current.includes(reason)) return current;
+      const trimmed = current.trim();
+      return (trimmed ? `${trimmed}. ${reason}` : reason).slice(0, 2_000);
+    });
   const submitFeedbackReason = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const reason = feedbackReason.trim();
@@ -3195,8 +3311,144 @@ export function AgentMessageActions({
     feedbackAction.error ??
     branchNavigationAction.error ??
     requestIdAction.error ??
+    copyFeedbackDetailsAction.error ??
     forkAction.error ??
     regenerateAction.error;
+  const usageMenuItems = hasRunUsage
+    ? (() => {
+        const result = usageDetails?.runId === runId ? usageDetails : null;
+        if (!result || result.status === "loading") {
+          return [
+            {
+              id: "usage-loading",
+              label: labels.usageLoading,
+              disabled: true,
+            },
+          ];
+        }
+        if (result.status === "error") {
+          return [
+            {
+              id: "usage-unavailable",
+              label: labels.usageUnavailable,
+              disabled: true,
+            },
+          ];
+        }
+        const usage = result.data;
+        if (!usage) {
+          return [
+            {
+              id: "usage-not-recorded",
+              label: labels.usageNotRecorded,
+              disabled: true,
+            },
+          ];
+        }
+        const rows = [];
+        if (usage.durationMs !== null) {
+          rows.push({
+            id: "usage-duration",
+            label: labels.workedFor.replace(
+              "{{duration}}",
+              formatAgentKitDuration(usage.durationMs, {
+                hour: labels.durationHourShort,
+                minute: labels.durationMinuteShort,
+                second: labels.durationSecondShort,
+              }),
+            ),
+            disabled: true,
+          });
+        }
+        if (usage.billing.incomplete) {
+          rows.push({
+            id: "usage-incomplete",
+            label: labels.usageIncomplete,
+            disabled: true,
+          });
+        }
+        if (usage.billing.providerCostUsd !== null) {
+          const usd = usage.billing.providerCostUsd;
+          const amount =
+            usd > 0 && usd < 0.0001
+              ? "<$0.0001"
+              : usd.toLocaleString(undefined, {
+                  style: "currency",
+                  currency: "USD",
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 4,
+                });
+          rows.push({
+            id: "usage-provider-cost",
+            label: (usage.billing.providerCostSource === "reported"
+              ? labels.usageReportedCost
+              : usage.billing.providerCostSource === "estimated"
+                ? labels.usageEstimatedCost
+                : labels.usageMixedCost
+            ).replace("{{amount}}", amount),
+            disabled: true,
+          });
+        }
+        if (usage.billing.builderCredits !== null) {
+          const amount = usage.billing.builderCredits.toLocaleString(
+            undefined,
+            { minimumFractionDigits: 1, maximumFractionDigits: 1 },
+          );
+          rows.push({
+            id: "usage-builder-credits",
+            label: (usage.billing.builderCreditsSource === "reported"
+              ? labels.usageBuilderCredits
+              : usage.billing.builderCreditsSource === "estimated"
+                ? labels.usageEstimatedBuilderCredits
+                : labels.usageMixedBuilderCredits
+            ).replace("{{amount}}", amount),
+            disabled: true,
+          });
+        }
+        if (rows.length === 0) {
+          rows.push({
+            id: "usage-unavailable",
+            label: labels.usageUnavailable,
+            disabled: true,
+          });
+        }
+        return rows;
+      })()
+    : [];
+  const actionMenuItems = [
+    ...(requestId
+      ? [
+          {
+            id: "copy-request-id",
+            label: requestIdCopied ? labels.copied : labels.copyRequestId,
+            icon: requestIdCopied ? (
+              <IconCircleCheck size={14} aria-hidden="true" />
+            ) : (
+              <IconId size={14} aria-hidden="true" />
+            ),
+            disabled: requestIdAction.pending,
+          },
+        ]
+      : []),
+    ...(forkingCapability.visible && onThreadForked
+      ? [
+          {
+            id: "fork-chat",
+            label: <span title={forkingCapability.reason}>{labels.fork}</span>,
+            icon: <IconGitBranch size={14} aria-hidden="true" />,
+            disabled: !forkingCapability.enabled || forkAction.pending,
+          },
+        ]
+      : []),
+  ];
+  const messageMenuSections = [
+    ...(actionMenuItems.length > 0
+      ? [{ id: "actions", items: actionMenuItems }]
+      : []),
+    ...(usageMenuItems.length > 0
+      ? [{ id: "usage", label: labels.usage, items: usageMenuItems }]
+      : []),
+  ];
   return (
     <div
       className="agentkit-message-actions"
@@ -3273,6 +3525,25 @@ export function AgentMessageActions({
                       disabled={feedbackAction.pending}
                       className="agentkit-feedback-textarea"
                     />
+                    <div className="agentkit-feedback-reasons">
+                      {[
+                        labels.feedbackReasonMisread,
+                        labels.feedbackReasonNotDone,
+                        labels.feedbackReasonWrongNumbers,
+                        labels.feedbackReasonTooSlow,
+                      ].map((reason) => (
+                        <ActionButton
+                          key={reason}
+                          type="button"
+                          size="compact"
+                          emphasis="outline"
+                          disabled={feedbackAction.pending}
+                          onPress={() => addFeedbackReason(reason)}
+                        >
+                          {reason}
+                        </ActionButton>
+                      ))}
+                    </div>
                     <div className="agentkit-feedback-footer">
                       <span>
                         {labels.feedbackKeyboardHint.replace(
@@ -3283,17 +3554,43 @@ export function AgentMessageActions({
                             : "Ctrl",
                         )}
                       </span>
-                      <ActionButton
-                        type="submit"
-                        intent="primary"
-                        size="compact"
-                        pending={feedbackAction.pending}
-                        disabled={
-                          feedbackAction.pending || !feedbackReason.trim()
-                        }
-                      >
-                        {labels.feedbackSubmit}
-                      </ActionButton>
+                      <div className="agentkit-feedback-actions">
+                        {buildFeedbackReport ? (
+                          <ActionButton
+                            type="button"
+                            size="compact"
+                            emphasis="ghost"
+                            leadingIcon={
+                              feedbackDetailsCopied ? (
+                                <IconCircleCheck size={14} aria-hidden="true" />
+                              ) : (
+                                <IconCopy size={14} aria-hidden="true" />
+                              )
+                            }
+                            pending={copyFeedbackDetailsAction.pending}
+                            onPress={() =>
+                              void copyFeedbackDetailsAction
+                                .execute()
+                                .catch(() => undefined)
+                            }
+                          >
+                            {feedbackDetailsCopied
+                              ? labels.copied
+                              : labels.feedbackCopyDetails}
+                          </ActionButton>
+                        ) : null}
+                        <ActionButton
+                          type="submit"
+                          intent="primary"
+                          size="compact"
+                          pending={feedbackAction.pending}
+                          disabled={
+                            feedbackAction.pending || !feedbackReason.trim()
+                          }
+                        >
+                          {labels.feedbackSubmit}
+                        </ActionButton>
+                      </div>
                     </div>
                   </form>
                 </Popover>
@@ -3394,7 +3691,7 @@ export function AgentMessageActions({
                 }}
                 placement="bottom"
                 align="end"
-                className="agentkit-message-menu w-48"
+                className="agentkit-message-menu w-56"
                 trigger={
                   <IconButton
                     label={labels.messageActions}
@@ -3404,39 +3701,7 @@ export function AgentMessageActions({
                     title={labels.messageActions}
                   />
                 }
-                items={[
-                  ...(requestId
-                    ? [
-                        {
-                          id: "copy-request-id",
-                          label: requestIdCopied
-                            ? labels.copied
-                            : labels.copyRequestId,
-                          icon: requestIdCopied ? (
-                            <IconCircleCheck size={14} aria-hidden="true" />
-                          ) : (
-                            <IconId size={14} aria-hidden="true" />
-                          ),
-                          disabled: requestIdAction.pending,
-                        },
-                      ]
-                    : []),
-                  ...(forkingCapability.visible && onThreadForked
-                    ? [
-                        {
-                          id: "fork-chat",
-                          label: (
-                            <span title={forkingCapability.reason}>
-                              {labels.fork}
-                            </span>
-                          ),
-                          icon: <IconGitBranch size={14} aria-hidden="true" />,
-                          disabled:
-                            !forkingCapability.enabled || forkAction.pending,
-                        },
-                      ]
-                    : []),
-                ]}
+                sections={messageMenuSections}
                 onAction={(id) => {
                   if (id === "copy-request-id") {
                     void requestIdAction.execute().catch(() => undefined);
@@ -3494,7 +3759,11 @@ export function AgentMessageActions({
         </>
       )}
       {actionError ? (
-        <span className="agentkit-command-error" role="alert">
+        <span
+          {...SESSION_REPLAY_MASK_PROPS}
+          className="agentkit-command-error"
+          role="alert"
+        >
           {actionError.message}
         </span>
       ) : null}
@@ -3617,6 +3886,28 @@ export function AgentRunFailure({
   threadId,
 }: AgentRunFailureRenderProps) {
   const { labels } = useAgentKit();
+  const control = useAgentKitControl(threadId);
+  const thread = useAgentThread(threadId);
+  const [continuing, setContinuing] = useState(false);
+  const [continueFailed, setContinueFailed] = useState(false);
+  // Continuing resumes the stopped run's own turn, so only that turn's newest
+  // run can be continued; once anything ran after it, the card is history.
+  const startedAt = thread.runs[runId]?.startedAt;
+  const superseded = Object.values(thread.runs).some(
+    (run) =>
+      run.id !== runId &&
+      Boolean(run.startedAt && startedAt && run.startedAt > startedAt),
+  );
+  const canContinue =
+    error.retryable === true && control.canContinueRun && !superseded;
+  const continueRun = () => {
+    setContinuing(true);
+    setContinueFailed(false);
+    control.continueRun(runId).catch(() => {
+      setContinuing(false);
+      setContinueFailed(true);
+    });
+  };
   return (
     <div
       className="agentkit-run-failure"
@@ -3628,7 +3919,24 @@ export function AgentRunFailure({
       <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
       <div className="agentkit-run-failure-copy">
         <strong>{labels.runFailed}</strong>
-        <span>{error.message}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS}>{error.message}</span>
+        {canContinue ? (
+          <div className="agentkit-error-actions">
+            <ActionButton
+              emphasis="outline"
+              size="compact"
+              pending={continuing}
+              onPress={continueRun}
+            >
+              {labels.continueRun}
+            </ActionButton>
+          </div>
+        ) : null}
+        {continueFailed ? (
+          <span className="agentkit-command-error">
+            {labels.continueRunUnavailable}
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -3650,7 +3958,7 @@ export function AgentConnectionErrorView({
       role="alert"
     >
       <strong>{labels.error}</strong>
-      <span>{error.message}</span>
+      <span {...SESSION_REPLAY_MASK_PROPS}>{error.message}</span>
       {error.retryable ? (
         <div className="agentkit-error-actions">
           <ActionButton
@@ -3664,7 +3972,9 @@ export function AgentConnectionErrorView({
         </div>
       ) : null}
       {recoveryError ? (
-        <span className="agentkit-command-error">{recoveryError.message}</span>
+        <span {...SESSION_REPLAY_MASK_PROPS} className="agentkit-command-error">
+          {recoveryError.message}
+        </span>
       ) : null}
     </div>
   );
@@ -3704,7 +4014,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onAgentChange"
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
-    | "requireAgentEngine"
+    | "showMissingApiKeySetup"
     | "attachmentsEnabled"
     | "onAttachmentRequest"
     | "contextButtonTooltipDisabled"
@@ -3718,7 +4028,6 @@ export interface AgentKitComposerProps extends Omit<
     | "inlineTextAttachments"
     | "extraActionButton"
     | "onSubmit"
-    | "onBeforeSubmit"
     | "onSubmissionPendingChange"
     | "onAttachmentError"
     | "interceptBuildRequestsForBuilder"
@@ -3730,6 +4039,8 @@ export interface AgentKitComposerProps extends Omit<
 > {
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
+  /** Opt in to Agent-Native provider UI when this host owns that setup flow. */
+  requireAgentEngine?: boolean;
   beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>;
   composerRef?: { current: TiptapComposerHandle | null };
   threadId?: string;
@@ -3793,7 +4104,8 @@ export function AgentKitComposer({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
-  requireAgentEngine,
+  requireAgentEngine = false,
+  showMissingApiKeySetup,
   attachmentsEnabled,
   onAttachmentRequest,
   contextButtonTooltipDisabled,
@@ -3803,7 +4115,6 @@ export function AgentKitComposer({
   onRemoveContextItem,
   extraActionButton,
   onSubmit: onSubmitOverride,
-  onBeforeSubmit,
   onSubmissionPendingChange,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
@@ -3893,6 +4204,10 @@ export function AgentKitComposer({
   }, []);
   const [uncontrolledMode, setUncontrolledMode] = useState(defaultMode);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const composerAttachmentAdapter = useMemo(
+    () => attachmentAdapter ?? createChatAttachmentAdapter(),
+    [attachmentAdapter],
+  );
   const executionMode = mode ?? uncontrolledMode;
   const active = hasActiveRuns(thread);
   const composerInitialText = editingMessage
@@ -3923,12 +4238,13 @@ export function AgentKitComposer({
         await composer.addAttachment(file);
         setAttachmentError(null);
       } catch (error) {
-        const message = error instanceof Error ? error.message : labels.error;
-        reportAttachmentError(message);
+        reportAttachmentError(
+          `${file.name}: ${formatAttachmentError(error, labels.dropFileFailed)}`,
+        );
         throw error;
       }
     },
-    [labels.error, reportAttachmentError],
+    [labels.dropFileFailed, labels.error, reportAttachmentError],
   );
   useEffect(() => {
     const receiveAttachments = (event: Event) => {
@@ -3992,6 +4308,11 @@ export function AgentKitComposer({
       options.onLocalSubmit?.();
     };
     if (!editingMessage && onSubmitOverride) {
+      const readinessEngine = options.engine ?? selectedEngine;
+      await controller.assertAiSetupReady({
+        engine:
+          typeof readinessEngine === "string" ? readinessEngine : undefined,
+      });
       const submitOptions = {
         ...(suggestion ? { ...options, suggestion } : options),
         onLocalSubmit,
@@ -4050,6 +4371,10 @@ export function AgentKitComposer({
       if (previousMessage === null) {
         throw new Error(labels.messageUnavailable);
       }
+      const selectedEngine = metadata.engine ?? runOptions.metadata?.engine;
+      await controller.assertAiSetupReady({
+        engine: typeof selectedEngine === "string" ? selectedEngine : undefined,
+      });
       const forkedThread = await controller.forkThread(
         threadId,
         previousMessage?.id,
@@ -4061,7 +4386,7 @@ export function AgentKitComposer({
         : [];
       const previousAttachments = editingMessage.parts.filter(
         (part): part is Extract<AgentMessagePart, { type: "file" }> =>
-          part.type === "file",
+          part.type === "file" && !part.omitted,
       );
       const draft = createAgentKitComposerSubmission({
         threadId: forkedThread.id,
@@ -4146,14 +4471,13 @@ export function AgentKitComposer({
       queuedWhileRunActive: activeAtSubmit,
     });
   };
-  const prepareHostSubmit = async () => {
+  const prepareHostSubmit = () => {
     if (disabled) {
       onDisabledClick?.();
       return false;
     }
     if (submissionDisabled) return false;
-    if (editingMessage) return true;
-    return !onBeforeSubmit || (await onBeforeSubmit());
+    return true;
   };
   const steerQueued: AgentKitQueueRenderProps["onSteer"] =
     !disabled && !submissionDisabled
@@ -4322,7 +4646,7 @@ export function AgentKitComposer({
         onInspectContextItem={onInspectContextItem}
         onRetryContextItem={onRetryContextItem}
         contextMenuItems={contextMenuItems}
-        attachmentAdapter={attachmentAdapter}
+        attachmentAdapter={composerAttachmentAdapter}
         inlineTextAttachments={inlineTextAttachments}
         rootClassName="agentkit-composer"
         className={
@@ -4361,6 +4685,7 @@ export function AgentKitComposer({
         onModelSelectorOpenChange={onModelSelectorOpenChange}
         modelStatusChecksEnabled={modelStatusChecksEnabled}
         requireAgentEngine={requireAgentEngine}
+        showMissingApiKeySetup={showMissingApiKeySetup}
         layoutVariant={layoutVariant}
         toolbarSlot={composerToolbarSlot}
         initialText={composerInitialText}
@@ -4368,7 +4693,6 @@ export function AgentKitComposer({
         onTextChange={onTextChange}
         extraActionButton={extraActionButton}
         sendButtonDisabled={submissionPending}
-        onBeforeSubmit={onBeforeSubmit}
         onSubmissionPendingChange={handleSubmissionPendingChange}
         getSubmitFailureDraftScope={getSubmitFailureDraftScope}
         clearOnSubmitImmediately
@@ -4417,13 +4741,13 @@ export function AgentKitComposer({
       {command.error ? (
         <div className="agentkit-composer-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{command.error.message}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{command.error.message}</span>
         </div>
       ) : null}
       {attachmentError ? (
         <div className="agentkit-composer-error" role="alert">
           <IconAlertCircle aria-hidden="true" className="agentkit-icon" />
-          <span>{attachmentError}</span>
+          <span {...SESSION_REPLAY_MASK_PROPS}>{attachmentError}</span>
         </div>
       ) : null}
     </div>
@@ -4961,12 +5285,86 @@ export function AgentKitChat({
       />
     </AgentKitSurfaceBoundary>
   );
+  const renderRunTail = (runId: RunId) => {
+    const items: ReactNode[] = [];
+    if (pendingRuns.has(runId)) {
+      const boundary = lastAssistantMessagesByRun.get(runId);
+      items.push(
+        renderRunWork({
+          runId,
+          anchor: boundary?.id ?? "start",
+          afterSequence: boundary?.sequence,
+        }),
+      );
+    }
+    if (failedRuns.has(runId)) {
+      items.push(
+        <AgentKitSurfaceBoundary
+          key={`run-failure:${runId}`}
+          surface="activity"
+          resetKey={`${runId}:${thread.events.length}`}
+        >
+          {renderRunFailure(runId)}
+        </AgentKitSurfaceBoundary>,
+      );
+    }
+    return items;
+  };
+  // A run's work after its last reply, and its failure, belong to its turn: a
+  // finished run's tail goes before the first message written after it ended.
+  const runEndedAt = new Map<RunId, number>();
+  for (const event of thread.events) {
+    const occurredAt = Date.parse(event.occurredAt);
+    if (!Number.isFinite(occurredAt)) continue;
+    runEndedAt.set(
+      event.runId,
+      Math.max(runEndedAt.get(event.runId) ?? occurredAt, occurredAt),
+    );
+  }
+  const tailRunIds = Array.from(
+    new Set([
+      ...pendingRunIds,
+      ...Array.from(failedRuns.keys()).filter(
+        (runId) => !lastAssistantMessagesByRun.has(runId),
+      ),
+    ]),
+  );
+  const tailsBeforeMessage = new Map<number, RunId[]>();
+  const tailsAtEnd: RunId[] = [];
+  for (const runId of tailRunIds) {
+    const status = thread.runs[runId]?.status;
+    const endedAt = runEndedAt.get(runId);
+    const lastOwnMessage = thread.messages.findLastIndex(
+      (message) => messageRunIds.get(message.id) === runId,
+    );
+    const before =
+      endedAt !== undefined &&
+      (status === "completed" || status === "failed" || status === "cancelled")
+        ? thread.messages.findIndex(
+            (message, index) =>
+              index > lastOwnMessage &&
+              messageRunIds.get(message.id) !== runId &&
+              Date.parse(message.createdAt ?? "") > endedAt,
+          )
+        : -1;
+    if (before === -1) {
+      tailsAtEnd.push(runId);
+    } else {
+      tailsBeforeMessage.set(before, [
+        ...(tailsBeforeMessage.get(before) ?? []),
+        runId,
+      ]);
+    }
+  }
   const transcriptItems: ReactNode[] = [];
   const previousAssistantByRun = new Map<
     RunId,
     { id: string; sequence: number }
   >();
-  for (const message of thread.messages) {
+  for (const [messageIndex, message] of thread.messages.entries()) {
+    for (const runId of tailsBeforeMessage.get(messageIndex) ?? []) {
+      transcriptItems.push(...renderRunTail(runId));
+    }
     const runId = messageRunIds.get(message.id);
     const sequence = messageBoundarySequences.get(message.id);
     const isAssistantBoundary =
@@ -5065,40 +5463,8 @@ export function AgentKitChat({
       );
     }
   }
-  for (const runId of pendingRunIds) {
-    const boundary = lastAssistantMessagesByRun.get(runId);
-    transcriptItems.push(
-      renderRunWork({
-        runId,
-        anchor: boundary?.id ?? "start",
-        afterSequence: boundary?.sequence,
-      }),
-    );
-    if (failedRuns.has(runId)) {
-      transcriptItems.push(
-        <AgentKitSurfaceBoundary
-          key={`run-failure:${runId}`}
-          surface="activity"
-          resetKey={`${runId}:${thread.events.length}`}
-        >
-          {renderRunFailure(runId)}
-        </AgentKitSurfaceBoundary>,
-      );
-    }
-  }
-  for (const [runId] of failedRuns) {
-    if (lastAssistantMessagesByRun.has(runId) || pendingRuns.has(runId)) {
-      continue;
-    }
-    transcriptItems.push(
-      <AgentKitSurfaceBoundary
-        key={`run-failure:${runId}`}
-        surface="activity"
-        resetKey={`${runId}:${thread.events.length}`}
-      >
-        {renderRunFailure(runId)}
-      </AgentKitSurfaceBoundary>,
-    );
+  for (const runId of tailsAtEnd) {
+    transcriptItems.push(...renderRunTail(runId));
   }
   return (
     <AgentMessageEditContext.Provider value={messageEditContext}>

@@ -36,6 +36,7 @@ vi.mock("@/lib/agent-chat", () => agentChatMocks);
 import {
   buildGenerationBriefContext,
   useQuestionFlow,
+  type QuestionFlowGenerationBrief,
 } from "./use-question-flow";
 
 let latestHook: ReturnType<typeof useQuestionFlow> | null = null;
@@ -47,6 +48,7 @@ interface ProbeProps {
   model?: string;
   engine?: string;
   selectionRef?: { current: { model?: string; engine?: string } | null };
+  getGenerationBrief?: () => QuestionFlowGenerationBrief | null;
 }
 
 function Probe(props: ProbeProps) {
@@ -59,6 +61,7 @@ function Probe(props: ProbeProps) {
         ? { model: props.model, engine: props.engine }
         : null;
     },
+    getGenerationBrief: props.getGenerationBrief,
   });
   return null;
 }
@@ -172,6 +175,23 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     await cleanup();
   });
 
+  it("clears the questionnaire without sending when the generation brief is unavailable", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: "existing-tab",
+      getGenerationBrief: () => null,
+    });
+
+    act(() => {
+      latestHook!.handleSubmit({ q1: "answer" });
+    });
+
+    expect(clearMock).toHaveBeenCalledTimes(1);
+    expect(agentChatMocks.sendToDesignAgentChat).not.toHaveBeenCalled();
+
+    await cleanup();
+  });
+
   it("carries the starting model selection into the continuation", async () => {
     const { cleanup } = await renderProbe({
       designId: "design-1",
@@ -190,6 +210,35 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     };
     expect(call.model).toBe("gpt-5-6-luna");
     expect(call.engine).toBe("builder");
+
+    await cleanup();
+  });
+
+  it("carries fixed-canvas intent into the answers continuation", async () => {
+    const { cleanup } = await renderProbe({
+      designId: "design-1",
+      continuationTabId: null,
+      getGenerationBrief: () => ({ prompt: "Create a LinkedIn ad" }),
+    });
+
+    await act(async () => {
+      await latestHook!.handleSubmit({ q1: "Use the existing brand" });
+    });
+
+    const call = agentChatMocks.sendToDesignAgentChat.mock.calls[0]![0] as {
+      context?: string;
+    };
+    expect(call.context).toContain(
+      "Fixed canvas: LinkedIn Single Image Ad, 1200×627px",
+    );
+    expect(call.context).toContain("pass `devices: []` to `generate-design`");
+    expect(call.context).toContain(
+      "run `take-design-screenshot` once with widths: [1200] and heights: [627]",
+    );
+    expect(call.context).not.toContain(
+      "take-design-screenshot` at desktop and mobile viewports",
+    );
+    expect(call.context).not.toContain("After responsive app generation");
 
     await cleanup();
   });
@@ -276,7 +325,7 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     });
 
     expect(agentkitChatMocks.useGuidedQuestionFlow).toHaveBeenCalledWith(
-      expect.objectContaining({ providerStatusChecksEnabled: false }),
+      expect.objectContaining({ engine: "claude-cli" }),
     );
     await cleanup();
   });

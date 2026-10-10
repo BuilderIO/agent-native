@@ -341,6 +341,29 @@ describe("view-screen Sessions context", () => {
     );
   });
 
+  it("preserves the anonymous visitor filter in the bounded session view", async () => {
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        searchParams: { visitorType: "anonymous" },
+      },
+    );
+
+    const out = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ visitorType: "anonymous" }),
+    );
+    expect(out.sessionReplayPage).toMatchObject({
+      filters: { visitorType: "anonymous" },
+      fullPageAction: {
+        args: { visitorType: "anonymous" },
+      },
+    });
+  });
+
   it("keeps the UI page offset, filters, and full-page retrieval scope", async () => {
     setScreen(
       { view: "sessions" },
@@ -927,5 +950,96 @@ describe("view-screen route performance", () => {
 
     expect(out.page).toBe("route-performance");
     expect(out.routePerformance).toEqual({ labEnabled: false });
+  });
+});
+
+describe("view-screen dashboard summary", () => {
+  const sql = "SELECT week, value FROM warehouse.weekly_totals";
+
+  function savedDashboard(panels: Array<Record<string, unknown>>) {
+    return {
+      id: "dash-1",
+      kind: "sql",
+      title: "Weekly",
+      config: { name: "Weekly", panels },
+      ownerEmail: "owner@example.test",
+      orgId: "org-1",
+      visibility: "private",
+      role: "owner",
+      canEdit: true,
+      canManage: true,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "owner@example.test",
+      updatedAt: "2026-06-25T00:00:00.000Z",
+      updatedBy: "owner@example.test",
+    };
+  }
+
+  function showDashboard(panels: Array<Record<string, unknown>>) {
+    getDashboard.mockReset();
+    getDashboard.mockResolvedValue(savedDashboard(panels) as never);
+    selectedObjectState.current = null;
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/dashboards/dash-1" },
+    );
+  }
+
+  beforeEach(() => {
+    userEmail = "user@example.test";
+  });
+
+  it("summarizes panels by bound columns instead of embedding their SQL", async () => {
+    showDashboard([
+      {
+        id: "trend",
+        title: "Trend",
+        source: "bigquery",
+        chartType: "line",
+        width: 2,
+        sql,
+        config: { xKey: "week", yKeys: ["value"], color: "#ff0000" },
+      },
+    ]);
+
+    const out = await runScreen();
+
+    expect(out.dashboard.panels[0]).toMatchObject({
+      id: "trend",
+      chartType: "line",
+      bindings: { xKey: "week", yKeys: ["value"] },
+    });
+    expect(JSON.stringify(out)).not.toContain(sql);
+    expect(out.dashboard).not.toHaveProperty("ownerEmail");
+    expect(out.dashboard.revision).toBe("2026-06-25T00:00:00.000Z");
+    expect(out.dashboard.canEdit).toBe(true);
+  });
+
+  it("stays valid JSON under the auto-block cap for a large dashboard", async () => {
+    showDashboard(
+      Array.from({ length: 90 }, (_, index) => ({
+        id: `panel-${index}`,
+        title: `Panel number ${index}`,
+        source: "bigquery",
+        chartType: "line",
+        width: 1,
+        sql: `${sql} WHERE n = ${index}`.padEnd(3_000, " "),
+        config: { xKey: "week", yKeys: ["value", "value_4wk_avg"] },
+      })),
+    );
+
+    const text = await viewScreenAction.run({} as never);
+    const out = JSON.parse(text);
+
+    expect(text.length).toBeLessThan(10_000);
+    expect(out.dashboard.trimmed).toBe(true);
+    expect(out.dashboard.hint).toContain("get-sql-dashboard");
+    expect(out.dashboard.panels.length).toBeGreaterThan(0);
+    expect(out.dashboard.panels.length + out.dashboard.omittedPanelCount).toBe(
+      90,
+    );
   });
 });

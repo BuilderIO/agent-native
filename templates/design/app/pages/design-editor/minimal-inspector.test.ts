@@ -1,13 +1,58 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import {
   DOCKED_RIGHT_INSPECTOR_CLASSNAME,
   FLOATING_RIGHT_INSPECTOR_CLASSNAME,
   hasMinimalInspectorSelection,
+  rightInspectorCanvasInset,
   rightInspectorPanelClassName,
+  shouldAutoOpenMobileInspector,
+  shouldShowWidgetZoomFallback,
 } from "./minimal-inspector";
+import { readDesignEditorSource } from "./read-design-editor-source";
+
+describe("rightInspectorCanvasInset", () => {
+  it("reserves the panel width for a visible inspector", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: true,
+        width: 240,
+        widgetEmbed: false,
+      }),
+    ).toBe(240);
+  });
+
+  it("reserves nothing when the inspector is hidden", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: false,
+        width: 240,
+        widgetEmbed: false,
+      }),
+    ).toBe(0);
+  });
+
+  it("reserves nothing in a widget, so a wide pane keeps its full width when something is selected", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: true,
+        width: 240,
+        widgetEmbed: true,
+      }),
+    ).toBe(0);
+  });
+
+  it("reserves nothing when minimal UI floats the inspector over the canvas", () => {
+    expect(
+      rightInspectorCanvasInset({
+        visible: true,
+        width: 240,
+        widgetEmbed: false,
+        minimalUi: true,
+      }),
+    ).toBe(0);
+  });
+});
 
 describe("hasMinimalInspectorSelection", () => {
   it("is false when nothing is selected", () => {
@@ -51,6 +96,79 @@ describe("hasMinimalInspectorSelection", () => {
   });
 });
 
+describe("shouldAutoOpenMobileInspector", () => {
+  it("opens the overlay when a selected element needs its style panel", () => {
+    expect(
+      shouldAutoOpenMobileInspector({
+        minimalUi: true,
+        isMobileViewport: true,
+        hasSelection: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not open before selection or outside minimal mobile mode", () => {
+    expect(
+      shouldAutoOpenMobileInspector({
+        minimalUi: true,
+        isMobileViewport: true,
+        hasSelection: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoOpenMobileInspector({
+        minimalUi: true,
+        isMobileViewport: false,
+        hasSelection: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldShowWidgetZoomFallback", () => {
+  const widgetDefaults = {
+    widgetEmbed: true,
+    minimalUi: true,
+    topBarVisible: true,
+    topBarZoomVisible: true,
+    rightSidebarVisible: false,
+    uiHidden: false,
+  };
+
+  it("keeps zoom available while widget top-bar controls are temporarily hidden", () => {
+    expect(
+      shouldShowWidgetZoomFallback({
+        ...widgetDefaults,
+        topBarZoomVisible: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not duplicate zoom when the top-bar control is visible", () => {
+    expect(shouldShowWidgetZoomFallback(widgetDefaults)).toBe(false);
+  });
+
+  it("does not show a second control over an open inspector", () => {
+    expect(
+      shouldShowWidgetZoomFallback({
+        ...widgetDefaults,
+        topBarZoomVisible: false,
+        rightSidebarVisible: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not add a widget fallback to the regular editor", () => {
+    expect(
+      shouldShowWidgetZoomFallback({
+        ...widgetDefaults,
+        widgetEmbed: false,
+        topBarZoomVisible: false,
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("rightInspectorPanelClassName", () => {
   it("uses the docked rail outside minimal mode", () => {
     expect(rightInspectorPanelClassName(false)).toBe(
@@ -74,10 +192,7 @@ describe("rightInspectorPanelClassName", () => {
 });
 
 describe("DesignEditor minimal inspector wiring", () => {
-  const editorSource = readFileSync(
-    new URL("../DesignEditor.tsx", import.meta.url),
-    "utf8",
-  );
+  const editorSource = readDesignEditorSource();
 
   it("hides the manual right-sidebar toggle in minimal mode", () => {
     expect(editorSource).not.toContain('data-design-minimal-toggle="right"');
@@ -97,5 +212,12 @@ describe("DesignEditor minimal inspector wiring", () => {
   it("renders the floating inspector card class in minimal mode", () => {
     expect(editorSource).toContain("rightInspectorPanelClassName");
     expect(editorSource).toContain("rightInspectorPanelClassName(minimalUi)");
+  });
+
+  it("renders the widget title in one place when minimal UI is disabled", () => {
+    expect(editorSource).toContain(
+      "widgetEmbed && minimalUi ? projectTitleControl : undefined",
+    );
+    expect(editorSource).toContain("projectTitleControl,");
   });
 });

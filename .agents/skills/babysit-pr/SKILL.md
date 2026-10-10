@@ -12,8 +12,10 @@ metadata:
 Monitor PR #$ARGUMENTS in the current repo and fix CI failures and human or bot
 review feedback. A standalone `/babysit-pr` may stop after 30 minutes of green
 CI and no new feedback. When invoked by `/ship`, honor its inherited
-`ship_mode` in this foreground task. `/ship` and standalone `/babysit-pr` stay
-foreground-only; do not create or resume a durable watcher or use PR leases.
+`ship_mode` and reuse `/ship`'s same-thread heartbeat in Codex; do not create a
+second automation. Standalone `/babysit-pr` stays foreground-only and does not
+create or resume an automation unless the user explicitly asks for recurring
+follow-up. Do not use PR leases.
 
 A request to monitor or fix a PR does not authorize pushing to a PR authored by
 someone else. Push to that PR only when the user explicitly authorizes a push to
@@ -27,6 +29,19 @@ Before each push, resolve the active GitHub login with `gh api user --jq .login`
 include `author` in the live PR query, and compare `author.login` with that
 login. If they differ, require the current-request authorization for that exact
 PR.
+
+Determine comment authorization from the live PR author before drafting or
+posting any PR communication. On a PR authored by the active user, concise
+replies in existing review threads and a concise top-level recap when feedback
+appears only in a review body are routine dispositions and need no extra
+authorization. This covers only comments needed to fix, decline, or otherwise
+disposition review feedback; do not add proactive or unrelated comments, tags,
+assignments, or mentions without an explicit request. On another person's PR,
+do not post any comment, including an inline reply or review-body recap, unless
+the current request explicitly authorizes commenting on that exact PR. Review,
+monitor, fix, push, or merge authorization alone does not authorize comments.
+Without that authorization, draft the response, leave the feedback unresolved,
+and do not claim the PR is ready or merge it.
 
 A worktree is a valid PR checkout. When monitoring from one, keep Git and
 GitHub commands in that worktree's cwd and current branch; do not copy changes
@@ -98,14 +113,19 @@ gh api user --jq .login
 gh pr view <number> --json state,mergedAt,closedAt,author,headRepository,headRepositoryOwner,headRefName,headRefOid,baseRefName,mergeCommit
 ```
 
-If the query fails or is ambiguous, stay foreground-only until its state is
-known. A closed, unmerged PR ends babysitting and is reported as unsuccessful.
+If the query fails or is ambiguous, do not act on cached evidence. Retry only
+after live state is available. Keep retrying the live query in the foreground
+at a short, interruptible cadence; under `/ship`, the verified same-thread
+heartbeat is an additional reentry path, not a replacement for that retry.
+A closed, unmerged PR ends babysitting and is reported as unsuccessful.
 If a PR is already merged under inherited `ship_mode=merge-authorized`,
 continue the post-merge path here. Standalone and ready-only invocations report
 an unexpected merge without rotating.
 
-1. Run one foreground tick immediately and continue until this mode's endpoint.
-   Do not create or mutate automations for this workflow.
+1. Run one foreground tick immediately. Under `/ship`, preserve its goal and
+   task-scoped heartbeat through this mode's endpoint. Standalone babysitting
+   continues in the foreground without automation unless recurring follow-up
+   was explicitly requested. Never create a duplicate heartbeat.
 2. Before each PR write, reread the live state. Push normally (never force).
    Query and record `headRepository.nameWithOwner`, `headRefName`, and
    `headRefOid`. Resolve the writable push remote by matching its URL to that
@@ -295,7 +315,7 @@ record it as unavailable in the recap rather than treating it as no findings.
        | select(.id as $id | ($replied | index($id)) | not)     # …with no reply yet
        | {id, user: .user.login, path, line: (.line // .original_line), snippet: (.body[0:200])}'
    ```
-   (Bind the id with `.id as $id` first — `index(.id)` would evaluate `.id` against the `$replied` array, not the comment, and error out.) If that command prints anything, there is unaddressed feedback — fix or reply to each (see "Responding to feedback") before you consider the PR clean. Also re-read the latest review **summary** bodies each tick (bots restate their findings here):
+   (Bind the id with `.id as $id` first — `index(.id)` would evaluate `.id` against the `$replied` array, not the comment, and error out.) If that command prints anything, there is unaddressed feedback. Fix it or disposition it under the comment-authorization rule; if a reply is not authorized, draft it and leave the item unresolved, so the PR cannot be called clean or merged. Also re-read the latest review **summary** bodies each tick (bots restate their findings here):
    ```bash
    gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews --jq '.[] | select(.body != null and .body != "") | {user: .user.login, state, submitted_at, body: .body[0:1000]}'
    ```
@@ -311,7 +331,11 @@ record it as unavailable in the recap rather than treating it as no findings.
    - Fix the issues
    - Run `pnpm run prep` to verify locally
    - Publish the complete fix snapshot to the verified PR head using the target path above
-   - Reply inline to each addressed inline comment, or post a PR comment summarizing addressed items when the feedback was in a review body
+   - Respond according to the ownership gate above: on the active user's own
+     PR, reply inline to addressed comments or post a concise top-level recap
+     when feedback appeared only in a review body. On another person's PR,
+     either comment requires explicit authorization for that exact PR; without
+     it, draft the response and leave the feedback unresolved.
    - Reset the applicable clock described above
 
 4. **If GitHub Actions CI is failing** (lint, test, typecheck, build):
@@ -344,9 +368,12 @@ record it as unavailable in the recap rather than treating it as no findings.
 
 ## Responding to feedback
 
-Every human or bot review comment must get a reply when it is fixed or skipped;
-a feedback item already closed by a disposition-specific terminal outcome does
-not need a manufactured reply.
+On the active user's own PR, reply to every human or bot review comment that you
+fix or skip; a feedback item already closed by a disposition-specific terminal
+outcome does not need a manufactured reply. Use a concise top-level recap when
+the feedback appeared only in a review body. No extra authorization is needed
+for these own-PR dispositions. On another person's PR, post any inline reply or
+review-body recap only under the exact-PR authorization rule above.
 
 ## Feedback precedence
 
@@ -365,21 +392,47 @@ premise, the requested change is unsafe or impossible, or it conflicts with the
 current user's explicit instruction or a higher-priority repository invariant.
 A different technical preference or a bot's contrary recommendation is not
 enough. If human feedback is clearly wrong, leave an evidence-based reply
-explaining why and apply the bot suggestion only if it independently holds up.
+explaining why only when the comment gate permits it; otherwise draft the reply
+and leave that feedback unresolved. Apply the bot suggestion only if it
+independently holds up.
 
 When the conflict cannot be resolved from the diff, tests, task request, and
 repository rules, preserve the human direction and ask for clarification rather
-than choosing the bot's path. Record or reply to both sides as required below.
+than choosing the bot's path. Record both dispositions, and post replies only as
+the comment gate below permits.
 
-- If you fix it: commit, push, AND reply inline confirming the fix. Fixing code marks the comment as "outdated" in GitHub's UI, but the user needs to see the reply to know you addressed it — don't rely on the outdated status alone.
-- If you skip it: reply to the comment via `gh api repos/{owner}/{repo}/pulls/$ARGUMENTS/comments/{id}/replies -f body="..."` explaining why (pre-existing, false positive, not practical, etc.)
-- If the issue is real but you didn't introduce it: fix it anyway and reply. Real bugs should be fixed regardless of who wrote the code.
-- If feedback appears in a review summary/body rather than an inline thread: fix the items you agree with, then post a top-level PR comment referencing the review and listing what was fixed; explicitly mention any items you skipped or disagreed with and why.
-- **Never silently ignore a human or bot comment** — every single one must have a reply so the user can verify everything was addressed.
+These dispositions follow the comment-authorization rule above and the separate
+push-authorization rule below. On the active user's own PR, routine replies to
+review feedback and a top-level recap for feedback found only in a review body
+need no extra authorization. On another person's PR, post those replies or
+recaps only when the current request explicitly authorizes comments on that
+exact PR. Without comment authorization, draft the response and leave the item
+unresolved. Comment authorization does not authorize a push, and push
+authorization does not authorize a comment.
+
+- If you fix it: commit and push only when the separate push-authorization rule
+  permits the write. Reply inline confirming the fix only when the comment gate
+  permits it. Fixing code marks the comment as "outdated" in GitHub's UI, but
+  don't rely on that status in place of an authorized reply.
+- If you skip it: explain why (pre-existing, false positive, not practical,
+  etc.) in a reply only when the comment gate permits it; otherwise draft the
+  response and leave the item unresolved.
+- If the issue is real but you didn't introduce it: fix it anyway when the push
+  gate permits the write, and reply only when the comment gate permits it. Real
+  bugs should be fixed regardless of who wrote the code.
+- If feedback appears in a review summary/body rather than an inline thread:
+  fix the items you agree with when the push gate permits it, then post a
+  top-level PR recap only when the comment gate permits it. Include what was
+  fixed and anything skipped or disagreed with; otherwise draft the recap and
+  leave the feedback unresolved.
+- **Never silently ignore human or bot feedback.** Record its disposition. A
+  public reply is required only when the comment gate above permits it.
 
 ## Evaluating feedback — be skeptical
 
-Skip (with a reply explaining why) issues that are:
+Skip issues with a recorded reason; post the explanation only when the comment
+gate above permits a reply. Otherwise draft it and leave the feedback
+unresolved. Examples include:
 - Pre-existing (not introduced by this PR)
 - False positives / don't hold up to scrutiny
 - Nitpicks a senior engineer wouldn't flag
@@ -415,7 +468,7 @@ for 10 consecutive minutes** before merging:
 2. **No unpushed commits** — the publishable-path `git log` check from Step 0
    must be empty
 3. **All GitHub Actions CI green** — Build, Lint, Test, Typecheck, Scaffold E2E, Guard
-4. **All review comments addressed** — every human/bot inline comment and review-body item has a verified fix and reply, or a disposition-specific terminal outcome; active/evidence-limited items remain blockers
+4. **All review comments addressed** — every human/bot inline comment and review-body item has a verified fix, a reply permitted by the comment-authorization rule, or a disposition-specific terminal outcome. A needed reply that is not authorized remains unresolved and blocks merging; active/evidence-limited items remain blockers.
 5. **No merge conflicts** — `gh pr view --json mergeable --jq '.mergeable'` must be `MERGEABLE`
 
 The 10-minute soak timer **resets to zero** whenever the branch is pushed, CI
@@ -423,9 +476,10 @@ fails, a new review comment arrives, or merge conflicts appear.
 
 At the end of the 10-minute soak, immediately before merging, revalidate the
 entire gate for the still-open PR: current `headRefOid`, `MERGEABLE` state,
-required checks green, all review items addressed, no new actionable feedback,
-clean worktree, and no unpushed commits. If any condition changed or cannot be
-verified, reset the soak and continue monitoring. Capture the head oid from
+required checks green, all review items addressed under the comment-authorization
+rule, no new actionable feedback, clean worktree, and no unpushed commits. If
+any condition changed or cannot be verified, reset the soak and continue
+monitoring. Capture the head oid from
 that final check. Before merging under `/ship`, persist it as
 `ship_merge_head_oid=<verified-head-oid>` in the task transcript or active goal.
 Keep this exact value through post-merge verification;
@@ -480,7 +534,10 @@ missing, preserve the source branch. Continue through:
    babysitting or `ship_mode=ready-only`, retain the source branch unless the
    user requested that exact rotation in this task.
 
-The foreground task owns this continuation; no watcher or lease is required.
+The `/ship` goal and its same-thread heartbeat own this continuation. Keep the
+heartbeat active until `origin/main` ancestry and branch disposition are
+verified, then pause it and verify the saved automation state before completing
+the goal.
 
 PR merge by itself is not parent handoff or goal completion. If the exact head
 OID is unavailable, preserve the source branch and report that safe disposition
@@ -496,8 +553,10 @@ gh api --paginate "repos/{owner}/{repo}/pulls/$ARGUMENTS/reviews" \
 ```
 
 Confirm every actionable item in the newest review summaries has a verified
-fix and a reply, or a valid terminal disposition, including items without an
-inline thread. New review feedback resets the merge soak. Do not stop in
+fix, a reply permitted by the comment-authorization rule, or a valid terminal
+disposition, including items without an inline thread. If a needed reply is not
+authorized, leave the feedback unresolved and do not merge. New review feedback
+resets the merge soak. Do not stop in
 `ready-only` mode or merge in `merge-authorized` mode until both the inline
 thread audit and review-body audit are clear. "I replied earlier" is not
 sufficient; bots may have posted new rounds since. If either final audit finds

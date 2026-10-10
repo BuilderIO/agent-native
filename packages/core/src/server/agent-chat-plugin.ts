@@ -3,7 +3,7 @@ import nodePath from "node:path";
 
 import {
   AgentProtocolValidationError,
-  parseAgentRunOptions,
+  parseQueueMessageInput,
 } from "@agent-native/agentkit/protocol";
 import {
   createError,
@@ -14,6 +14,7 @@ import {
   getQuery,
   getHeader,
   getRequestIP,
+  readBody as readH3Body,
   type H3Event,
 } from "h3";
 
@@ -84,7 +85,6 @@ import { hostedHarnessSystemPrompt } from "../agent/harness/hosted.js";
 import {
   createProductionAgentHandler,
   endsAtContinuationBoundary,
-  normalizeChatScope,
   actionsToEngineTools,
   executeAgentToolCall,
   filterActionsByAllowedNames,
@@ -120,13 +120,11 @@ import {
   buildAssistantMessage,
   buildUserMessage,
   applySubmittedUserMessage,
+  foldAgentChatRunCompletion,
   extractThreadMeta,
-  foldAssistantTurn,
-  foldThreadRunSuggestions,
   foldUnstartedTurnFailure,
   mergeThreadDataForClientSave,
-  normalizeThreadRepository,
-  type ThreadSuggestionRun,
+  type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
 import { attachToolSearch } from "../agent/tool-search.js";
@@ -182,10 +180,7 @@ import {
   verifyInternalToken,
   extractBearerToken,
 } from "../integrations/internal-token.js";
-import {
-  RECURRING_JOBS_SWEEP_PATH,
-  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
-} from "../jobs/scheduler-dispatch.js";
+import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
 import type { RecurringJobContext, SchedulerDeps } from "../jobs/scheduler.js";
 import { RECURRING_SWEEP_BUDGET_MS } from "../jobs/sweep-hooks.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../labs/core-labs.js";
@@ -202,7 +197,10 @@ import {
   normalizeMcpPrincipal,
   principalFromRequestContext,
 } from "../mcp-client/principal.js";
-import { declaredMcpToolNames } from "../mcp/build-server.js";
+import {
+  declaredMcpToolNames,
+  getMcpDirectoryWidgetResourceUri,
+} from "../mcp/build-server.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -215,12 +213,10 @@ import {
   WORKSPACE_OWNER,
 } from "../resources/store.js";
 import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
+import { normalizeShellArgs, serializeCliArgs } from "../scripts/parse-args.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
-import {
-  retryContextFromRequest,
-  type RefusedTurnRetryContext,
-} from "../shared/agent-chat-run-not-started.js";
+import { type RefusedTurnRetryContext } from "../shared/agent-chat-run-not-started.js";
 import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   normalizeAnalyticsClientPlatform,
@@ -229,11 +225,7 @@ import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-sess
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
 import { track, type TrackingMeta } from "../tracking/registry.js";
-import {
-  AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
-  isAgentChatAiSetupRequiredError,
-  requireAgentChatAiSetup,
-} from "./agent-chat-ai-setup.js";
+import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,
@@ -260,6 +252,7 @@ import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   getCurrentDelegationDepth,
   processAgentTeamRun,
+  reconcileStaleAgentTeamRuns,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
 import {
@@ -507,6 +500,7 @@ import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
 } from "./agent-chat/skill-frontmatter.js";
+import { authorizeSweepTrigger } from "./agent-chat/sweep-trigger-auth.js";
 import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 
 export { loadResourcesForPrompt };
@@ -641,25 +635,7 @@ export async function runPreAgentTurnAutosave(
   }
 }
 
-export function foldAgentChatRunCompletion(
-  repo: unknown,
-  assistantMsg: Parameters<typeof foldAssistantTurn>[1] | null,
-  run: ThreadSuggestionRun &
-    Pick<
-      ActiveRun,
-      "runId" | "turnId" | "parentId" | "agentKitApprovalContinuation"
-    >,
-) {
-  const folded = assistantMsg
-    ? foldAssistantTurn(repo, assistantMsg, {
-        runId: run.runId,
-        turnId: run.turnId,
-        parentId: run.parentId,
-        agentKitOwnsContinuation: run.agentKitApprovalContinuation === true,
-      })
-    : repo;
-  return foldThreadRunSuggestions(normalizeThreadRepository(folded), run);
-}
+export { foldAgentChatRunCompletion };
 
 /**
  * The model this mount runs with, when the caller does not pass one per request.
@@ -704,6 +680,8 @@ export function parseQueuedMessageForThread(
     (queued.threadId !== undefined && queued.threadId !== threadId) ||
     (queued.createdAt !== undefined && typeof queued.createdAt !== "string") ||
     (queued.attachments !== undefined && !Array.isArray(queued.attachments)) ||
+    (queued.requestAttachments !== undefined &&
+      !Array.isArray(queued.requestAttachments)) ||
     (queued.metadata !== undefined &&
       (!queued.metadata ||
         typeof queued.metadata !== "object" ||
@@ -711,13 +689,13 @@ export function parseQueuedMessageForThread(
   ) {
     return null;
   }
-  if (queued.options !== undefined) {
-    try {
-      parseAgentRunOptions(queued.options, "queuedMessage.options");
-    } catch (error) {
-      if (error instanceof AgentProtocolValidationError) return null;
-      throw error;
-    }
+  try {
+    parseQueueMessageInput({ ...queued, threadId }, "queuedMessage", {
+      allowLegacyQueueCount: true,
+    });
+  } catch (error) {
+    if (error instanceof AgentProtocolValidationError) return null;
+    throw error;
   }
   const { promotionClaim: _claim, ...message } = queued;
   return { ...message, threadId } as QueuedMessage;
@@ -804,11 +782,20 @@ async function resolveResourceOrgId(
   return resolved === undefined ? getRequestOrgId() : resolved;
 }
 
+// Lean runs never receive the compact framework prompt, so the batching rule
+// it carries has to ride the run policy instead.
+const LEAN_PARALLEL_READS_NOTE =
+  "\n\nWhen several independent reads are needed, emit them in the same step.";
+
 export function buildLeanRunPolicyPrompt(
   codeEditingSurfaceRestriction: string,
   prodCodeExecPromptNote: string,
 ): string {
-  return codeEditingSurfaceRestriction + prodCodeExecPromptNote;
+  return (
+    LEAN_PARALLEL_READS_NOTE +
+    codeEditingSurfaceRestriction +
+    prodCodeExecPromptNote
+  );
 }
 
 export function filterPromptActionsToSurface(
@@ -1229,6 +1216,9 @@ export function createAgentChatPlugin(
       // `externalAgents` into `mcp`. A2A reads the same object, so the
       // connector policy cannot diverge between the two external surfaces.
       const mcpOptions = resolveAgentChatMcpOptions(options);
+      const mcpServerName = options?.appId
+        ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
+        : "Agent";
       const mcpActionEntryOptions: McpActionEntryOptions =
         options?.resolveMcpActionEntry
           ? { resolveActionEntry: options.resolveMcpActionEntry }
@@ -1382,6 +1372,16 @@ export function createAgentChatPlugin(
       const docsScripts = frameworkTools.isEnabled("docs")
         ? await createDocsScriptEntries()
         : {};
+      // The compact prompt sends the model to `docs-search` for skill text, so
+      // it is the one docs tool the lean registry keeps (`framework-search`
+      // stays out of the first request). Every registry carries it through
+      // `docsScripts` or `skillReadScripts`, which is why one resolved name
+      // serves every prompt site.
+      const docsSearchEntry = docsScripts["docs-search"];
+      const skillReadScripts: Record<string, ActionEntry> = docsSearchEntry
+        ? { "docs-search": docsSearchEntry }
+        : {};
+      const skillReadTool = docsSearchEntry ? "docs-search" : null;
       const databaseToolsMode = normalizeDatabaseToolsMode(
         frameworkTools.database,
       );
@@ -1577,53 +1577,20 @@ export function createAgentChatPlugin(
 
                   const tokens: string[] = [];
                   if (typeof input?.args === "string" && input.args.trim()) {
-                    let current = "";
-                    let inSingle = false;
-                    let inDouble = false;
-                    let escape = false;
-                    for (let i = 0; i < input.args.length; i++) {
-                      const char = input.args[i];
-                      if (escape) {
-                        current += char;
-                        escape = false;
-                        continue;
-                      }
-                      if (char === "\\") {
-                        if (inSingle) {
-                          current += char;
-                        } else {
-                          escape = true;
-                        }
-                        continue;
-                      }
-                      if (char === "'" && !inDouble) {
-                        inSingle = !inSingle;
-                        continue;
-                      }
-                      if (char === '"' && !inSingle) {
-                        inDouble = !inDouble;
-                        continue;
-                      }
-                      if (/\s/.test(char) && !inSingle && !inDouble) {
-                        if (current.length > 0) {
-                          tokens.push(current);
-                          current = "";
-                        }
-                        continue;
-                      }
-                      current += char;
-                    }
-                    if (current.length > 0) {
-                      tokens.push(current);
-                    }
+                    tokens.push(
+                      ...normalizeShellArgs(input.args, {
+                        backslashEscapes: true,
+                        splitAllWhitespace: true,
+                      }),
+                    );
                   } else if (input && typeof input === "object") {
+                    const actionArgs: Record<string, unknown> = {};
                     for (const [k, v] of Object.entries(input)) {
                       if (k === "args" || v === undefined || v === null)
                         continue;
-                      const strVal =
-                        typeof v === "object" ? JSON.stringify(v) : String(v);
-                      tokens.push(`--${k}`, strVal);
+                      actionArgs[k] = v;
                     }
+                    tokens.push(...serializeCliArgs(actionArgs));
                   }
 
                   const BLOCKED_OPERATORS = new Set([
@@ -2515,7 +2482,7 @@ export function createAgentChatPlugin(
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           const schemaBlock = lazyContext
             ? ""
@@ -3144,11 +3111,13 @@ export function createAgentChatPlugin(
 
       if (mcpOptions.enabled) {
         // Mount MCP remote server — same action registry as A2A + agent chat
-        const { mountMCP } = await import("../mcp/server.js");
+        const {
+          mountMCP,
+          selectMcpDirectoryWidgetReadActions,
+          selectMcpDirectoryWidgetWriteActions,
+        } = await import("../mcp/server.js");
         mountMCP(nitroApp, {
-          name: options?.appId
-            ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
-            : "Agent",
+          name: mcpServerName,
           title: mcpOptions.title,
           appId: options?.appId,
           description:
@@ -3161,6 +3130,14 @@ export function createAgentChatPlugin(
           icons: mcpOptions.icons,
           actions: externalActions,
           productionActions: externalFullActions,
+          widgetReadActions: selectMcpDirectoryWidgetReadActions(
+            mcpOptions.directoryProfile,
+            templateScriptsAll,
+          ),
+          widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+            mcpOptions.directoryProfile,
+            templateScriptsAll,
+          ),
           ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
           ...(mcpOptions.builtinCrossAppTools !== undefined
             ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }
@@ -3276,7 +3253,7 @@ export function createAgentChatPlugin(
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock = lazyContext
               ? ""
@@ -3434,6 +3411,90 @@ export function createAgentChatPlugin(
       }
       const { mountActionRoutes, mountWebMcpActionRoutes } =
         await import("./action-routes.js");
+      const directoryProfile = mcpOptions.enabled
+        ? mcpOptions.directoryProfile
+        : undefined;
+      const mcpDirectoryWidgetReadOptions = directoryProfile
+        ? {
+            mcpDirectoryWidgetReadActionArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetReadActionArguments ?? {})
+                .filter(
+                  ([name]) =>
+                    (directoryProfile.connectorCatalog.includes(name) ||
+                      directoryProfile.widgetReadPublicActions?.includes(
+                        name,
+                      ) ||
+                      directoryProfile.widgetReadAuthenticatedActions?.includes(
+                        name,
+                      ) ||
+                      directoryProfile.widgetReadPrivateActions?.includes(
+                        name,
+                      )) &&
+                    httpActions[name] &&
+                    (httpActions[name]?.readOnly === true ||
+                      directoryProfile.widgetReadOnlyActions?.includes(name)),
+                )
+                .map(([name, args]) => [name, Object.keys(args)]),
+            ),
+            mcpDirectoryWidgetReadActionSchemaArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetReadActionArguments ?? {})
+                .map(([name, args]) => [
+                  name,
+                  Object.entries(args)
+                    .filter(
+                      ([, argument]) =>
+                        typeof argument !== "string" &&
+                        argument.type === "actionSchema",
+                    )
+                    .map(([argumentName]) => argumentName),
+                ])
+                .filter(([, argumentNames]) => argumentNames.length > 0),
+            ),
+            mcpDirectoryWidgetReadOnlyActions:
+              directoryProfile.widgetReadOnlyActions,
+            mcpDirectoryWidgetReadPublicActions:
+              directoryProfile.widgetReadPublicActions,
+            mcpDirectoryWidgetAppId: options?.appId ?? mcpServerName,
+            mcpDirectoryWidgetResourceUri: getMcpDirectoryWidgetResourceUri(
+              options?.appId ?? mcpServerName,
+            ),
+          }
+        : {};
+      const mcpDirectoryWidgetWriteOptions = directoryProfile
+        ? {
+            mcpDirectoryWidgetWriteActionArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetWriteActionArguments ?? {})
+                .filter(
+                  ([name]) =>
+                    httpActions[name] &&
+                    httpActions[name]?.http !== false &&
+                    httpActions[name]?.http?.method !== "GET" &&
+                    httpActions[name]?.requiresAuth !== false &&
+                    httpActions[name]?.readOnly !== true,
+                )
+                .map(([name, args]) => [name, Object.keys(args)]),
+            ),
+            mcpDirectoryWidgetWriteActionSchemaArguments: Object.fromEntries(
+              Object.entries(directoryProfile.widgetWriteActionArguments ?? {})
+                .map(([name, args]) => [
+                  name,
+                  Object.entries(args)
+                    .filter(
+                      ([, argument]) =>
+                        typeof argument !== "string" &&
+                        (argument.type === "actionSchema" ||
+                          argument.type === "actionSchemaResourceBound"),
+                    )
+                    .map(([argumentName]) => argumentName),
+                ])
+                .filter(([, argumentNames]) => argumentNames.length > 0),
+            ),
+            mcpDirectoryWidgetAppId: options?.appId ?? mcpServerName,
+            mcpDirectoryWidgetResourceUri: getMcpDirectoryWidgetResourceUri(
+              options?.appId ?? mcpServerName,
+            ),
+          }
+        : {};
       if (Object.keys(httpActions).length > 0) {
         if (options?.actionRoutePublicPaths?.length) {
           registerAuthPublicPaths(
@@ -3443,6 +3504,7 @@ export function createAgentChatPlugin(
         }
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
+          getOwnerContextFromEvent: resolveOwnerContext,
           getAuthUserIdFromEvent: async (event) =>
             (await resolveOwnerContext(event)).authUserId,
           getUserNameFromEvent,
@@ -3450,6 +3512,8 @@ export function createAgentChatPlugin(
           clientCompatibilityVersion: options?.clientCompatibilityVersion,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
+          ...mcpDirectoryWidgetReadOptions,
+          ...mcpDirectoryWidgetWriteOptions,
         });
       }
       // Dev-only loopback endpoint `pnpm action` forwards to so it doesn't
@@ -3472,6 +3536,7 @@ export function createAgentChatPlugin(
         appId: options?.appId,
         resolveOrgId: options?.resolveOrgId,
         actionRouteAuth: options?.actionRouteAuth,
+        ...mcpDirectoryWidgetReadOptions,
         manifest: {
           name: options?.appId
             ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
@@ -4067,6 +4132,7 @@ export function createAgentChatPlugin(
       const leanActionEntries: Record<string, ActionEntry> = {
         ...templateScripts,
         ...resourceScripts,
+        ...skillReadScripts,
         ...workspaceFileActions,
         ...refreshScreenTool,
         ...urlTools,
@@ -4442,6 +4508,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           : "";
 
       const prodHandler = createProductionAgentHandler({
+        assertAiSetupReady: requireAgentChatAiSetup,
         actions: leanPrompt ? leanActions : prodActions,
         systemPrompt: async (event: any) => {
           const { owner, extra } = await prepareRun(event);
@@ -4483,7 +4550,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               true,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             await emitContextXraySystemSections(event, {
               frameworkPrompt: requestLeanPrompt.slice(
@@ -4517,7 +4584,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           // In lazy context mode, skip embedding the full schema. When database
           // tools are enabled the agent can call `db-schema` on demand.
@@ -4692,6 +4759,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const anonymousHandler =
         options?.anonymousOwner && options.anonymousReadOnly !== false
           ? createProductionAgentHandler({
+              assertAiSetupReady: requireAgentChatAiSetup,
               actions: anonymousReadOnlyActions,
               systemPrompt: async (event: any) => {
                 const { extra } = await prepareRun(event);
@@ -4873,6 +4941,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // call back into the fully-assembled devActions registry.
         devRunCodeToolActions = devActions;
         devHandler = createProductionAgentHandler({
+          assertAiSetupReady: requireAgentChatAiSetup,
           actions: devActions,
           resolveAdditionalActions: ({ ownerEmail, orgId }) =>
             getMcpActionEntriesForPrincipal(ownerEmail, orgId),
@@ -4896,7 +4965,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 true,
                 options?.appId,
                 undefined,
-                { disabledFrameworkGroups },
+                { disabledFrameworkGroups, skillReadTool },
               );
               await emitContextXraySystemSections(event, {
                 frameworkPrompt: requestLeanPrompt.slice(
@@ -4927,7 +4996,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock =
               lazyContext || !databaseToolsEnabled
@@ -5351,6 +5420,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 label: entry.label,
                 description: entry.description,
                 defaultModel: entry.defaultModel,
+                runtimeSupportedModels: entry.supportedModels,
                 ...(await modelsFor(entry)),
                 requiredEnvVars: entry.requiredEnvVars,
                 installPackage: entry.installPackage,
@@ -6191,7 +6261,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             sources.push(
               (async () => {
                 try {
-                  const agents = await discoverAgents(options?.appId);
+                  const agents = await discoverAgents(options?.appId, {
+                    includePersonalAgents: true,
+                  });
                   flush(
                     agents.map((agent) => ({
                       id: `agent:${agent.id}`,
@@ -6892,8 +6964,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const threadRouteHandler = withTransientDatabaseFallback(
         `${routePath}/threads`,
         async (event) => {
-          const owner = await getOwnerFromEvent(event);
-          const orgId = await getOrgIdFromEvent(event);
+          const ownerContext = await resolveOwnerContext(event);
+          const owner = ownerContext.owner;
+          const orgId = await resolveAgentRunOrgId({
+            event,
+            ownerContext,
+            resolveOrgId: options?.resolveOrgId,
+          });
           const method = getMethod(event);
 
           const { threadId, tail: threadTail } = parseThreadRoute(event);
@@ -6941,7 +7018,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // run could clobber the assistant message the server just
               // appended (and vice versa).
               return await withThreadDataLock(threadId, async () => {
-                const body = await readBody(event);
+                const rawBody = await readH3Body(event);
+                if (
+                  !rawBody ||
+                  typeof rawBody !== "object" ||
+                  Array.isArray(rawBody)
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid request body" };
+                }
+                const body = rawBody as Record<string, unknown>;
                 const bodyIncludesScope = Boolean(
                   body &&
                   typeof body === "object" &&
@@ -6979,14 +7065,48 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
                 }
-                let newThreadData = body.threadData || thread.threadData;
-                let newMessageCount = body.messageCount ?? thread.messageCount;
+                const hasThreadDataField = Boolean(
+                  body &&
+                  typeof body === "object" &&
+                  Object.prototype.hasOwnProperty.call(body, "threadData"),
+                );
+                const incomingThreadData = body.threadData;
+                if (
+                  hasThreadDataField &&
+                  typeof incomingThreadData !== "string"
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid threadData JSON" };
+                }
+                // Empty threadData is the existing metadata-only save sentinel.
+                const hasThreadData =
+                  typeof incomingThreadData === "string" &&
+                  incomingThreadData.length > 0;
+                let newThreadData = hasThreadData
+                  ? incomingThreadData
+                  : thread.threadData;
+                const requestedMessageCount = body.messageCount;
+                if (
+                  Object.prototype.hasOwnProperty.call(body, "messageCount") &&
+                  (typeof requestedMessageCount !== "number" ||
+                    !Number.isSafeInteger(requestedMessageCount) ||
+                    requestedMessageCount < 0)
+                ) {
+                  setResponseStatus(event, 400);
+                  return { error: "Invalid request body" };
+                }
+                let newMessageCount =
+                  typeof requestedMessageCount === "number"
+                    ? requestedMessageCount
+                    : thread.messageCount;
                 let nextTitle =
                   typeof body.title === "string" ? body.title : thread.title;
                 const nextPreview =
                   typeof body.preview === "string"
                     ? body.preview
                     : thread.preview;
+                const annotationConflicts: ThreadAnnotationSnapshotConflict[] =
+                  [];
                 const preserveTitleOverride = (repo: unknown) => {
                   if (
                     repo &&
@@ -6999,14 +7119,52 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     if (meta.title) nextTitle = meta.title;
                   }
                 };
-                // Merge the incoming full-thread blob over the current SQL
-                // copy. Periodic saves can be stale relative to server-side
-                // run completion, and threadRuntime.export() does not carry
-                // queuedMessages.
-                if (body.threadData) {
+                let isSnapshotDelta = false;
+                let existing: unknown;
+                try {
+                  existing = JSON.parse(thread.threadData);
+                } catch {
+                  setResponseStatus(event, 500);
+                  return { error: "Stored thread data is invalid JSON" };
+                }
+                if (
+                  !existing ||
+                  typeof existing !== "object" ||
+                  Array.isArray(existing)
+                ) {
+                  setResponseStatus(event, 500);
+                  return { error: "Stored thread data is invalid JSON" };
+                }
+                // Merge the incoming snapshot delta over the current SQL copy.
+                // Let updateThreadData apply delta markers to each latest
+                // revision if its compare-and-swap needs to retry.
+                if (hasThreadData) {
+                  let incoming: unknown;
                   try {
-                    const existing = JSON.parse(thread.threadData);
-                    const incoming = JSON.parse(newThreadData);
+                    incoming = JSON.parse(incomingThreadData as string);
+                  } catch {
+                    setResponseStatus(event, 400);
+                    return { error: "Invalid threadData JSON" };
+                  }
+                  if (
+                    !incoming ||
+                    typeof incoming !== "object" ||
+                    Array.isArray(incoming)
+                  ) {
+                    setResponseStatus(event, 400);
+                    return { error: "Invalid threadData JSON" };
+                  }
+                  const incomingAgentKit = (incoming as Record<string, unknown>)
+                    .agentKit;
+                  isSnapshotDelta =
+                    incomingAgentKit !== null &&
+                    typeof incomingAgentKit === "object" &&
+                    !Array.isArray(incomingAgentKit) &&
+                    (incomingAgentKit as Record<string, unknown>)
+                      ._snapshotDelta === true;
+                  if (isSnapshotDelta) {
+                    preserveTitleOverride(existing);
+                  } else {
                     const merged = mergeThreadDataForClientSave(
                       existing,
                       incoming,
@@ -7016,23 +7174,26 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                       newMessageCount = merged.messages.length;
                     }
                     preserveTitleOverride(merged);
-                  } catch {
-                    // Invalid JSON in either side — fall back to raw body blob.
                   }
                 } else {
-                  try {
-                    preserveTitleOverride(JSON.parse(newThreadData));
-                  } catch {
-                    // Invalid JSON — keep the title supplied by the client.
-                  }
+                  preserveTitleOverride(existing);
                 }
-                await updateThreadData(
+                const updated = await updateThreadData(
                   threadId,
                   newThreadData,
                   nextTitle,
                   nextPreview,
                   newMessageCount,
+                  {
+                    preserveCurrentTitleAndPreview: isSnapshotDelta,
+                    onAnnotationConflict: (conflict) =>
+                      annotationConflicts.push(conflict),
+                  },
                 );
+                if (!updated) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for detach and for claiming a legacy unscoped thread.
                 // A scoped thread cannot be retagged across resources here.
@@ -7049,7 +7210,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "editor",
                   { orgId },
                 );
-                return { ok: true, scope: saved?.scope ?? null };
+                return {
+                  ok: true,
+                  scope: saved?.scope ?? null,
+                  ...(annotationConflicts.length > 0
+                    ? { annotationConflicts }
+                    : {}),
+                };
               });
             }
 
@@ -7111,7 +7278,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 400);
                 return { error: "Invalid queue mutation" };
               }
-              if (mutation.type === "append" || mutation.type === "moveToTop") {
+              if (
+                !ownerContext.anonymous &&
+                (mutation.type === "append" ||
+                  mutation.type === "moveToTop" ||
+                  mutation.type === "claim")
+              ) {
                 await runWithRequestContext({ userEmail: owner, orgId }, () =>
                   requireAgentChatAiSetup(),
                 );
@@ -7444,6 +7616,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 title: body?.title ?? "",
                 scope: bodyIncludesScope ? bodyScope : requestedScope,
                 source: options?.appId ? { appId: options.appId } : null,
+                orgId: await getOrgIdFromEvent(event),
               });
               return thread;
             } catch (err) {
@@ -7475,75 +7648,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // `_process-run` processor route (which re-enters the same handler set as
       // the background worker), so both go through identical context + handler
       // selection.
-      // The setup gate refuses before any handler reads the body, so the
-      // refused prompt is read here to answer it in the thread.
-      const recordSetupRequiredTurn = async (
-        event: any,
-        error: { statusMessage?: string; message?: string },
-      ) => {
-        let body: Record<string, unknown>;
-        try {
-          // coercion-ok: an empty body has no thread or turn, so nothing is recorded
-          body = (await readBody(event)) ?? {};
-        } catch (readError) {
-          console.error(
-            "[agent-chat] could not read a turn refused by the AI setup gate:",
-            readError,
-          );
-          return;
-        }
-        const threadId =
-          typeof body.threadId === "string" ? body.threadId.trim() : "";
-        const turnId =
-          typeof body.turnId === "string" ? body.turnId.trim() : "";
-        const message =
-          typeof body.displayMessage === "string" && body.displayMessage.trim()
-            ? body.displayMessage
-            : typeof body.message === "string"
-              ? body.message
-              : "";
-        if (
-          !threadId ||
-          !turnId ||
-          !message.trim() ||
-          body.internalContinuation === true
-        ) {
-          return;
-        }
-        const runCtx = ensureRequestRunContext();
-        if (runCtx) runCtx.chatScope = normalizeChatScope(body.scope) ?? null;
-        await recordUnstartedTurn({
-          runId: turnId,
-          turnId,
-          threadId,
-          message,
-          ...(Array.isArray(body.attachments)
-            ? { attachments: body.attachments as AgentChatAttachment[] }
-            : {}),
-          ...(typeof body.queuedMessageId === "string" &&
-          body.queuedMessageId.trim()
-            ? { queuedMessageId: body.queuedMessageId.trim() }
-            : {}),
-          ...(typeof body.agentKitMessageId === "string" &&
-          body.agentKitMessageId.trim() &&
-          body.agentKitMessageId.trim().length <= 200
-            ? { agentKitMessageId: body.agentKitMessageId.trim() }
-            : {}),
-          retryContext: retryContextFromRequest(body, (dropped) =>
-            console.warn(
-              `[agent-chat] dropped ${dropped} invalid reference(s) from a refused turn's retry context`,
-            ),
-          ),
-          failure: {
-            code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
-            message:
-              error.statusMessage ??
-              error.message ??
-              "Use Builder.io or a provider API key before chatting.",
-          },
-        });
-      };
-
       const invokeAgentChatHandler = async (event: any) => {
         // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
@@ -7559,18 +7663,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             isBackgroundWorker,
           },
           async () => {
-            // Public anonymous readers use the host-owned read-only lane, and
-            // durable workers resume a request that already passed this gate.
-            if (!ownerContext.anonymous && !isBackgroundWorker) {
-              try {
-                await requireAgentChatAiSetup();
-              } catch (error) {
-                if (isAgentChatAiSetupRequiredError(error)) {
-                  await recordSetupRequiredTurn(event, error);
-                }
-                throw error;
-              }
-            }
             // App-rendered chat can't host direct code edits — HMR/full
             // reloads would kill the same chat surface mid-run. Force the
             // prod handler (no shell / no fs); the prompt block injected by
@@ -8007,7 +8099,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext,
               options?.appId,
               undefined,
-              { disabledFrameworkGroups },
+              { disabledFrameworkGroups, skillReadTool },
             );
             const schemaBlock = lazyContext
               ? ""
@@ -8042,23 +8134,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           return processPendingAutomationFailureAlerts();
         };
 
-        // Platform schedulers use the existing durable background function as
-        // the long-lived worker. Keeping the sweep behind a signed, fixed
-        // route prevents a public request from choosing an owner or job.
+        // Every platform trigger lands here: Netlify's scheduled function (via
+        // the durable background function), Vercel Cron, and the Cloudflare
+        // worker's Cron Trigger. Keeping the sweep behind an authenticated,
+        // fixed route prevents a public request from choosing an owner or job.
         getH3App(nitroApp).use(
           RECURRING_JOBS_SWEEP_PATH,
           defineEventHandler(async (event) => {
-            if (getMethod(event) !== "POST") {
-              setResponseStatus(event, 405);
-              return { error: "Method not allowed" };
-            }
-            const token = extractBearerToken(getHeader(event, "authorization"));
-            if (
-              !token ||
-              !verifyInternalToken(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT, token)
-            ) {
-              setResponseStatus(event, 401);
-              return { error: "Invalid or expired internal token" };
+            const { readDeployCredentialEnv } =
+              await import("./credential-provider.js");
+            const authorization = authorizeSweepTrigger({
+              method: getMethod(event),
+              authorization: getHeader(event, "authorization"),
+              cronSecret: readDeployCredentialEnv("CRON_SECRET"),
+            });
+            if (!authorization.ok) {
+              setResponseStatus(event, authorization.status);
+              return { error: authorization.error };
             }
             if (
               isNetlifyRecurringJobsRuntime() &&
@@ -8101,6 +8193,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            const staleAgentTeamRuns = await reconcileStaleAgentTeamRuns(
+              event,
+            ).catch((error: unknown) => {
+              console.error(
+                "[agent-chat] durable Agent Teams reconciliation failed:",
+                error,
+              );
+              return null;
+            });
             const { runRecurringSweepHandlers } =
               await import("../jobs/sweep-hooks.js");
             const sweepContext = {
@@ -8145,6 +8246,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: false,
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -8156,15 +8258,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (!triggerAvailability.available) {
               if (
                 appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null
+                automationFailureAlerts === null ||
+                staleAgentTeamRuns === null ||
+                staleAgentTeamRuns.failed > 0
               ) {
                 setResponseStatus(event, 500);
               }
               return {
                 ok:
                   appSweepHandlers.failed.length === 0 &&
-                  automationFailureAlerts !== null,
+                  automationFailureAlerts !== null &&
+                  staleAgentTeamRuns !== null &&
+                  staleAgentTeamRuns.failed === 0,
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -8177,12 +8284,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await processRecurringJobs(schedulerDeps);
               if (
                 appSweepHandlers.failed.length > 0 ||
-                automationFailureAlerts === null
+                automationFailureAlerts === null ||
+                staleAgentTeamRuns === null ||
+                staleAgentTeamRuns.failed > 0
               ) {
                 setResponseStatus(event, 500);
                 return {
                   ok: false,
                   staleRunsReaped,
+                  staleAgentTeamRuns,
                   chatHealth,
                   automationFailureAlerts,
                   unclaimedBackgroundRuns,
@@ -8192,6 +8302,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 ok: true,
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -8203,6 +8314,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               return {
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
+                staleAgentTeamRuns,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -8500,7 +8612,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             lazyContext,
             options?.appId,
             undefined,
-            { disabledFrameworkGroups },
+            { disabledFrameworkGroups, skillReadTool },
           );
           const schemaBlock = lazyContext
             ? ""
@@ -8547,6 +8659,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         "/mcp",
         "/.well-known/agent-card.json",
         "/_agent-native/a2a",
+        // A platform scheduler usually lands on a cold instance. Without the
+        // gate the first sweep 404s, or runs before the trigger dispatcher
+        // registers its sweep handler and silently skips queued events.
+        RECURRING_JOBS_SWEEP_PATH,
       ],
     });
     nitroApp.hooks?.hook?.("close", async () => {

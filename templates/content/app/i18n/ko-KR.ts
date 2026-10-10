@@ -443,7 +443,6 @@ const editor = {
   pageBodySyncing: "이 페이지의 콘텐츠가 아직 동기화 중입니다",
   pageBodySyncingDescription:
     "기존 콘텐츠를 덮어쓰지 않도록 페이지 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
-  createCollection: "컬렉션 만들기",
   creatingDatabase: "인라인 컬렉션 생성 중...",
   databaseCreated: "컬렉션이 생성되었습니다.",
   emptyBlockPlaceholder: "‘/’를 눌러 명령 사용",
@@ -797,10 +796,12 @@ const editor = {
     linkToNotionPage: "Notion 페이지 링크",
     localFile: "로컬 파일",
     morePageActions: "추가 페이지 작업",
+    formatting: "서식",
     noPagesFound: "페이지를 찾을 수 없습니다",
     notifications: "알림",
     notionSync: "노션싱크",
     openInNotion: "노션에서 열기",
+    openInAgentNative: "Agent-Native에서 열기",
     orgCanFindAndView: "조직의 모든 사용자가 찾고 볼 수 있습니다.",
     orgLinkCanView: "링크가 있는 조직의 모든 사용자가 볼 수 있습니다.",
     pin: "고정",
@@ -1053,6 +1054,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "{{stage}}을(를) 기다리는 중입니다. 요청: {{action}}.",
+    widgetDocumentLoadStage: "저장된 페이지 본문",
+    widgetDraftCheckStage: "페이지 초안 복구",
+    widgetEditorInitStage: "서식 있는 텍스트 편집기 초기화",
     iconPickerIcons: "아이콘",
     iconPickerEmoji: "이모지",
     iconPickerRecent: "최근 항목",
@@ -1427,6 +1432,9 @@ const overrides = {
     aiUndo: "실행 취소",
     aiDone: "완료",
     aiMoreChanges: "외 {{count}}개",
+    suggestionReplaced: "대체됨",
+    suggestionWithdrawn: "철회됨",
+    suggestedChange: "제안된 변경",
     aiUndoUnavailable: "삭제된 텍스트는 자동으로 복원할 수 없습니다",
     aiUndoFailed: "변경을 취소하지 못했습니다",
     aiResolvedByAi: "AI가 해결함",
@@ -1468,6 +1476,11 @@ const overrides = {
     resize: "사이드바 너비 조절",
     expand: "사이드바 펼치기",
     failedCreatePage: "페이지를 만들지 못했습니다",
+    failedCreatePageDraftDescription:
+      "초안이 이 브라우저에 저장되어 있습니다. 페이지 생성을 다시 시도하거나 초안을 삭제할 수 있습니다.",
+    discardFailedCreatePageQuestion: "대기 중인 생성을 취소할까요?",
+    discardFailedCreatePageDescription:
+      "대기 중인 생성과 저장되지 않은 초안을 지웁니다. 페이지가 이미 저장되었다면 워크스페이스에 계속 남아 있습니다.",
     failedDeletePage: "페이지를 삭제하지 못했습니다",
     failedPermanentDeletePage: "페이지를 영구적으로 삭제하지 못했습니다",
     failedRestorePage: "페이지를 복원하지 못했습니다",

@@ -14,6 +14,60 @@ export function hasMinimalInspectorSelection({
   );
 }
 
+export function shouldAutoOpenMobileInspector({
+  minimalUi,
+  isMobileViewport,
+  hasSelection,
+}: {
+  minimalUi: boolean;
+  isMobileViewport: boolean;
+  hasSelection: boolean;
+}): boolean {
+  return minimalUi && isMobileViewport && hasSelection;
+}
+
+/**
+ * Canvas width the right inspector reserves. A widget's inspector floats over
+ * the canvas: reserving its width would refit the screen narrower the moment
+ * something is selected.
+ */
+export function rightInspectorCanvasInset({
+  visible,
+  width,
+  widgetEmbed,
+  minimalUi,
+}: {
+  visible: boolean;
+  width: number;
+  widgetEmbed: boolean;
+  minimalUi?: boolean;
+}): number {
+  return visible && !widgetEmbed && !minimalUi ? width : 0;
+}
+
+export function shouldShowWidgetZoomFallback({
+  widgetEmbed,
+  minimalUi,
+  topBarVisible,
+  topBarZoomVisible,
+  rightSidebarVisible,
+  uiHidden,
+}: {
+  widgetEmbed: boolean;
+  minimalUi: boolean;
+  topBarVisible: boolean;
+  topBarZoomVisible: boolean;
+  rightSidebarVisible: boolean;
+  uiHidden: boolean;
+}): boolean {
+  return (
+    widgetEmbed &&
+    minimalUi &&
+    (!topBarVisible || !topBarZoomVisible) &&
+    (!rightSidebarVisible || uiHidden)
+  );
+}
+
 export const DOCKED_RIGHT_INSPECTOR_CLASSNAME =
   "absolute inset-y-0 right-0 z-[70] hidden h-full min-h-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex";
 

@@ -17,7 +17,7 @@ const DASHBOARD_CONTEXT =
   "TEMPLATE FIRST — If the user names an existing dashboard as a template to clone/base this on, resolve its id first (use `list-sql-dashboards` if you only have a title), then call `get-sql-dashboard` with `includeConfig: true` immediately and inspect `panels[].chartType`. " +
   'If an explicitly named template already contains a `chartType: "extension"` Custom Block, call `get-extension` for that panel\'s `config.extensionId`, clone/adapt it with `create-extension` (apply the requested customer/org filters), then save a new dashboard via `update-dashboard` that embeds the cloned block. Preserve or add `config.customBlock` provenance with `authoredBy: "agent"`, `intent: "one-off"`, `scope: "dashboard"`, and a categorical `nativeGapReason`; never put prompt/customer text in that metadata. Do not rebuild an existing Custom Block as guessed SQL/BigQuery panels. ' +
   "LARGE EXTENSION CLONE — Extension bodies can be very large (tens of thousands of characters). Call `get-extension` with `forceContent: true` exactly ONCE and reuse that body; a second same-run read intentionally omits `content` (you'll see `contentOmitted`), so don't treat that as the content being gone. Call `create-extension` / `update-extension` as NATIVE tools — they are mutating actions and cannot be invoked from `run-code`/`appAction`. For customer-specific clones, change only the small static config block (e.g. `ACCOUNT_USAGE_STATIC`) and prefer a focused `update-extension` edit over regenerating the whole HTML. Never shovel the full body through `run-code` or chat; if you stage it in a workspace scratch file, read it back with `workspaceRead` (which returns the whole file). " +
-  "REAL_DATA_REQUIRED: before presenting numbers or authoring new SQL that invents tables/columns/filters, run at least one real data-source query action; `data-source-status`, `list-data-dictionary`, `get-sql-dashboard`, `get-extension`, `update-dashboard`, `mutate-dashboard`, and dry-run validation do not count as data queries. It is OK to inspect a template, clone an extension shell, ask one clarifying question (org id / account filter), or report an exact unavailable/error result without running a data query, as long as you do not invent metrics. " +
+  "REAL_DATA_REQUIRED: discover definitions and dashboard examples with `find-data`, then before presenting numbers or authoring new SQL that invents tables/columns/filters, run at least one real data-source query action; `data-source-status`, `find-data`, `list-data-dictionary`, `get-sql-dashboard`, `get-extension`, `update-dashboard`, `mutate-dashboard`, and dry-run validation do not count as data queries. It is OK to inspect a template, clone an extension shell, ask one clarifying question (org id / account filter), or report an exact unavailable/error result without running a data query, as long as you do not invent metrics. " +
   "The `demo` source is reserved for the built-in Node Exporter demo and does not satisfy REAL_DATA_REQUIRED unless the user explicitly asks to work on that demo dashboard. " +
   "If no source can answer, report the exact unavailable/error result instead of saving a dashboard with guessed schema or metrics. " +
   "NATIVE PANELS — Create a SQL-driven dashboard by calling the `update-dashboard` action with `dashboardId` and `config`; use a Data Program first when reusable fetching or transformation is the missing layer. " +
@@ -25,13 +25,13 @@ const DASHBOARD_CONTEXT =
   "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party' | 'demo' | 'prometheus'), " +
   "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie' | 'funnel' | 'heatmap' | 'callout' | 'section'), width (1 or 2). " +
   "Optional tab labels can use 'Group / Tab' for primary and secondary dashboard tabs. " +
-  "Optional config: { xKey, yKey, yKeys, color, colors, yFormatter ('number'|'currency'|'percent'), description, valueLabels }. For funnel panels, xKey is the stage label, yKey is the non-negative value, and SQL ORDER BY defines stage order. " +
+  "Optional config: { xKey, yKey, yKeys, colors (series colors), color (heatmap only: the row-dimension column name, never a color), yFormatter ('number'|'currency'|'percent'), description, valueLabels }. For funnel panels, xKey is the stage label, yKey is the non-negative value, and SQL ORDER BY defines stage order. " +
   "For first-party analytics, source is 'first-party' and sql may read analytics_events only; do not use db-query for datasource panels. " +
   "For the built-in demo dashboard, source is 'demo' and sql uses the same Prometheus JSON descriptor shape as source 'prometheus': { promql, mode, range, step }. " +
   "Call `data-source-status` if you need to see which data sources are connected. " +
   "Refer to AGENTS.md, .agents/skills, the data dictionary, and connected data-source instructions for SQL patterns and table names. " +
   "Do not create code files for an ordinary native dashboard. Use `connect-builder` only for an explicitly reusable/native code request. " +
-  "After saving, call the `navigate` action with view='adhoc' and dashboardId so the new dashboard opens immediately.";
+  "After saving, read the result's `verified` flag (on `verified: false` or an error, call `inspect-dashboard-panel` before saying the panels render), then call the `navigate` action with view='adhoc' and dashboardId so the new dashboard opens immediately.";
 
 export function NewDashboardDialog({
   triggerClassName,
@@ -78,6 +78,7 @@ export function NewDashboardDialog({
         </p>
         <PromptComposer
           autoFocus
+          requireAgentEngine
           disabled={isGenerating}
           layoutVariant="compact"
           placeholder={t("dialogs.newDashboardPlaceholder")}

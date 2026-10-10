@@ -1,4 +1,4 @@
-import { isAgentActionStopError } from "@agent-native/core";
+import { isActionContractError } from "@agent-native/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hashSlideContent } from "../shared/slide-fit";
@@ -189,6 +189,7 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => undefined,
   getRequestRunContext: () => undefined,
+  getRequestUserEmail: () => undefined,
 }));
 
 import { trackGenerationCompletedForRun } from "../server/lib/generation-completion";
@@ -287,7 +288,11 @@ describe("add-slide", () => {
       deckData = {
         title: "Untitled",
         slides: [],
-        generationContext: { targetSlideCount: 5, generationAttemptId: "a-1" },
+        generationContext: {
+          targetSlideCount: 5,
+          generationAttemptId: "a-1",
+          generationStartedAt: 100,
+        },
       };
       await action.run(
         { deckId: "deck-1", slideId: "s-1", content: "<div>One</div>" },
@@ -332,6 +337,60 @@ describe("add-slide", () => {
         slide_count: 5,
         outcome: "completed",
         run_id: "run-chunk-2",
+        started_at_ms: 100,
+        ended_at_ms: expect.any(Number),
+        duration_ms: expect.any(Number),
+      });
+    });
+
+    it("marks a skewed run completion instead of clamping duration", async () => {
+      await writeFirstSlide("turn-skew", "run-skew");
+      vi.spyOn(Date, "now").mockReturnValue(50);
+
+      try {
+        await trackGenerationCompletedForRun(
+          { runId: "run-skew", turnId: "turn-skew", status: "completed" },
+          finished,
+          async () => 2,
+        );
+      } finally {
+        vi.restoreAllMocks();
+      }
+
+      expect(reported()[0]?.[1]).toMatchObject({
+        started_at_ms: 100,
+        ended_at_ms: 50,
+        duration_error: "clock_skew",
+      });
+      expect(reported()[0]?.[1]).not.toHaveProperty("duration_ms");
+    });
+
+    it("ends generation timing before reading the slide count", async () => {
+      await writeFirstSlide("turn-read-latency", "run-read-latency");
+      let now = 500;
+      vi.spyOn(Date, "now").mockImplementation(() => now);
+
+      try {
+        await trackGenerationCompletedForRun(
+          {
+            runId: "run-read-latency",
+            turnId: "turn-read-latency",
+            status: "completed",
+          },
+          finished,
+          async () => {
+            now = 900;
+            return 5;
+          },
+        );
+      } finally {
+        vi.restoreAllMocks();
+      }
+
+      expect(reported()[0]?.[1]).toMatchObject({
+        started_at_ms: 100,
+        ended_at_ms: 500,
+        duration_ms: 400,
       });
     });
 
@@ -449,6 +508,7 @@ describe("add-slide", () => {
   it("closes an incremental generation on its final slide", async () => {
     deckData.generationContext = {
       generationAttemptId: "attempt-1",
+      generationStartedAt: 100,
       generationMode: "action",
     };
 
@@ -469,7 +529,40 @@ describe("add-slide", () => {
       slide_count: 3,
       generation_mode: "incremental",
       source: "add_slide_action",
+      started_at_ms: 100,
+      ended_at_ms: expect.any(Number),
+      duration_ms: expect.any(Number),
     });
+  });
+
+  it("marks a skewed incremental completion instead of clamping duration", async () => {
+    deckData.generationContext = {
+      generationAttemptId: "attempt-1",
+      generationStartedAt: 100,
+      generationMode: "action",
+    };
+    vi.spyOn(Date, "now").mockReturnValue(50);
+
+    try {
+      await action.run({
+        deckId: "deck-1",
+        slideId: "slide-final",
+        content: "<div>Final</div>",
+        generationComplete: true,
+      });
+    } finally {
+      vi.restoreAllMocks();
+    }
+
+    const completed = mockTrack.mock.calls.find(
+      ([name]) => name === "generation_completed",
+    );
+    expect(completed?.[1]).toMatchObject({
+      started_at_ms: 100,
+      ended_at_ms: 50,
+      duration_error: "clock_skew",
+    });
+    expect(completed?.[1]).not.toHaveProperty("duration_ms");
   });
 
   it("requires an explicit completion flag for each action-owned incremental write", async () => {
@@ -610,7 +703,7 @@ describe("add-slide", () => {
   });
 
   it.each(["tool", "webmcp"] as const)(
-    "rejects agent additions after the requested slide count for %s callers",
+    "returns a recoverable error when %s callers add after the requested slide count",
     async (caller) => {
       deckData.generationContext = { targetSlideCount: 2 };
 
@@ -625,15 +718,19 @@ describe("add-slide", () => {
         )
         .catch((caught: unknown) => caught);
 
-      expect(isAgentActionStopError(error)).toBe(true);
+      expect(isActionContractError(error)).toBe(true);
       expect(error).toMatchObject({
-        name: "AgentActionStopError",
+        name: "ActionContractError",
         errorCode: "target_slide_count_reached",
+        statusCode: 409,
         details: {
           deckId: "deck-1",
           currentSlideCount: 2,
           targetSlideCount: 2,
         },
+      });
+      expect(error).toMatchObject({
+        message: expect.stringContaining("No slide was added"),
       });
       expect(updateFn).not.toHaveBeenCalled();
     },
@@ -802,6 +899,38 @@ describe("add-slide", () => {
       content: "<div>New</div>",
       notes: "Explain the customer outcome before advancing.",
     });
+  });
+
+  it("returns hygieneWarnings for a slide the sanitizer would strip, and still writes it", async () => {
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-svg",
+      content:
+        '<div class="fmd-slide"><svg viewBox="0 0 4 4"></svg><footer>04 / 12</footer></div>',
+    })) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+
+    expect(JSON.parse(updatedFields!.data as string).slides[2].id).toBe(
+      "slide-svg",
+    );
+    expect(result.hygieneWarnings?.warnings).toEqual([
+      expect.objectContaining({
+        code: "inline-svg",
+        severity: "error",
+        count: 1,
+        slideIds: ["slide-svg"],
+      }),
+      expect.objectContaining({ code: "typed-page-number", count: 1 }),
+    ]);
+  });
+
+  it("leaves the result unchanged for a clean slide", async () => {
+    const result = await action.run({
+      deckId: "deck-1",
+      slideId: "slide-clean",
+      content: "<div>New</div>",
+    });
+
+    expect(result).not.toHaveProperty("hygieneWarnings");
   });
 
   it("clears source provenance when adding to an imported deck", async () => {

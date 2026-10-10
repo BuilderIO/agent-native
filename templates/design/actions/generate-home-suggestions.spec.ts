@@ -157,6 +157,84 @@ describe("generate-home-suggestions", () => {
     );
   });
 
+  it("uses generic suggestions and tracks the optional model timeout", async () => {
+    mocks.completeText.mockRejectedValue(
+      Object.assign(new Error("timed out"), {
+        errorCode: "complete_text_timeout",
+      }),
+    );
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "timeout",
+      suggestions: [],
+    });
+    expect(mocks.track).toHaveBeenCalledWith(
+      "home_suggestions_unavailable",
+      expect.objectContaining({
+        app_name: "design",
+        failure_code: "timeout",
+      }),
+      expect.objectContaining({ userEmail: "user@example.test" }),
+    );
+  });
+
+  it("recognizes hosted gateway timeouts by error code", async () => {
+    mocks.completeText.mockRejectedValue(
+      Object.assign(
+        new Error(
+          "Builder gateway timed out after 10s before the hosting function limit.",
+        ),
+        { errorCode: "builder_gateway_timeout" },
+      ),
+    );
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "timeout",
+      suggestions: [],
+    });
+    expect(mocks.track).toHaveBeenCalledWith(
+      "home_suggestions_unavailable",
+      expect.objectContaining({
+        app_name: "design",
+        failure_code: "timeout",
+      }),
+      expect.objectContaining({ userEmail: "user@example.test" }),
+    );
+  });
+
+  it("returns unavailable suggestions when the active engine setting cannot be read", async () => {
+    mocks.completeText.mockRejectedValue(
+      Object.assign(
+        new Error("Unable to read the active agent engine setting."),
+        {
+          errorCode: "agent_engine_settings_unavailable",
+        },
+      ),
+    );
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "agent_engine_settings_unavailable",
+      suggestions: [],
+    });
+    expect(mocks.track).toHaveBeenCalledWith(
+      "home_suggestions_unavailable",
+      expect.objectContaining({
+        app_name: "design",
+        failure_code: "agent_engine_settings_unavailable",
+      }),
+      expect.objectContaining({ userEmail: "user@example.test" }),
+    );
+  });
+
   it("maps malformed model output to an upstream failure", async () => {
     mocks.completeText.mockResolvedValue({ text: "not json" });
 

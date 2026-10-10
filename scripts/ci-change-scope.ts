@@ -66,24 +66,35 @@ const FULL_CHECK_FILES = new Set([
   "vitest.shared.ts",
 ]);
 
+const TEMPLATE_RUNTIME_ENTRYPOINTS = new Set([
+  "agent-native.config.ts",
+  "agent-native.json",
+  "react-router.config.ts",
+  "ssr-entry.ts",
+  "vite.config.ts",
+]);
+
+const TEST_ONLY_PUBLIC_ASSETS = new Set([
+  "templates/slides/public/visual-edit-structure-proof.html",
+]);
+
 const DESIGN_CANVAS_E2E_FILES = new Set([
   "templates/design/e2e/base-url.ts",
-  "templates/design/e2e/chrome-geometry.reference.ts",
   "templates/design/e2e/corner-radius-handle-drag.spec.ts",
-  "templates/design/e2e/cross-screen-auto-layout-parity.spec.ts",
-  "templates/design/e2e/drag-and-drop.auto-layout-parity.spec.ts",
+  "templates/design/e2e/cross-screen-auto-layout.spec.ts",
+  "templates/design/e2e/drag-and-drop.auto-layout.spec.ts",
   "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
   "templates/design/e2e/drag-and-drop.shared.ts",
   "templates/design/e2e/drag-out-of-screen-to-board.spec.ts",
   "templates/design/e2e/global-setup.ts",
   "templates/design/e2e/global-teardown.ts",
   "templates/design/e2e/helpers.ts",
-  "templates/design/e2e/parity-drag-reparent.spec.ts",
-  "templates/design/e2e/parity-report-interactions.spec.ts",
-  "templates/design/e2e/parity-oversized-nested.spec.ts",
-  "templates/design/e2e/parity-alt-drag-duplicate.spec.ts",
-  "templates/design/e2e/z-order-parity.spec.ts",
-  "templates/design/e2e/parity-vector-endpoints.spec.ts",
+  "templates/design/e2e/interaction-drag-reparent.spec.ts",
+  "templates/design/e2e/interaction-report-interactions.spec.ts",
+  "templates/design/e2e/interaction-oversized-nested.spec.ts",
+  "templates/design/e2e/interaction-alt-drag-duplicate.spec.ts",
+  "templates/design/e2e/z-order-behavior.spec.ts",
+  "templates/design/e2e/interaction-vector-endpoints.spec.ts",
   "templates/design/e2e/responsive-overview-regressions.spec.ts",
   "templates/design/playwright.config.ts",
 ]);
@@ -94,6 +105,23 @@ const DESIGN_CANVAS_CONFIG_FILES = new Set([
   "templates/design/package.json",
   "templates/design/react-router.config.ts",
   "templates/design/vite.config.ts",
+]);
+
+const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
+  "packages/core/src/app-config/analytics.ts",
+  "packages/core/src/client/analytics.ts",
+  "packages/core/src/client/session-replay.ts",
+  "packages/core/src/shared/environment-lanes.ts",
+  "packages/core/src/server/analytics.ts",
+  "packages/toolkit/src/app/auth/AuthPage.tsx",
+  "packages/toolkit/src/app/auth/entry.tsx",
+  "templates/analytics/server/handlers/session-replay.ts",
+  "templates/analytics/server/lib/session-replay.ts",
+  "templates/clips/server/plugins/config.ts",
+  "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+  "templates/design/playwright.config.ts",
+  "templates/design/server/plugins/config.ts",
+  "templates/slides/server/plugins/config.ts",
 ]);
 
 // The two-tab convergence lane also covers its own harness and the build it
@@ -124,6 +152,7 @@ const CHECK_NAMES = [
   "build",
   "trusted_acceptance",
   "scaffold",
+  "builder_code_starter_scaffold",
   "ssr_boot",
   "guards",
   "qa_static",
@@ -131,6 +160,7 @@ const CHECK_NAMES = [
   "neon_query_budget",
   "neon_connection_budget",
   "design_canvas_interaction_e2e",
+  "pre_auth_session_replay_e2e",
   "slides_chat_e2e",
   "slides_authoring_e2e",
   "changeset",
@@ -186,6 +216,8 @@ export type CheckSelection = Record<CheckName, boolean>;
 
 export type ChangeScope = {
   changedPaths: string[];
+  designCanvasE2eSpecs: string[];
+  designCanvasE2eSpecCount: number;
   docsOnly: boolean;
   full: boolean;
   nonDocsPaths: string[];
@@ -202,6 +234,40 @@ export type QueryBudgetShard = { shard: string; apps: string[] };
 
 export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
+}
+
+export function runtimeSourceChangesInTestTitledPr(
+  title: string,
+  paths: readonly string[],
+): string[] {
+  if (!/^test(?:\([^)]+\))?!?:/iu.test(title.trim())) return [];
+
+  return paths
+    .map(normalizeChangedPath)
+    .filter(
+      (path) =>
+        /^templates\/[^/]+\/(?:actions|app|server|shared|\.generated\/bridge)\//u.test(
+          path,
+        ) ||
+        /^templates\/[^/]+\/public\//u.test(path) ||
+        (path.split("/").length === 3 &&
+          /^templates\/[^/]+\//u.test(path) &&
+          TEMPLATE_RUNTIME_ENTRYPOINTS.has(
+            path.slice(path.lastIndexOf("/") + 1),
+          )) ||
+        /^packages\/[^/]+\/src\//u.test(path),
+    )
+    .filter(
+      (path) =>
+        !/(?:^|\/)(?:__tests__|tests?|fixtures?|__fixtures__|__snapshots__|__mocks__)(?:\/|$)/u.test(
+          path,
+        ) &&
+        !/\.(?:spec|test)(?:\.[^.]+)*$/u.test(path) &&
+        !TEST_ONLY_PUBLIC_ASSETS.has(path) &&
+        /\.(?:[cm]?[jt]sx?|css|html|json|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf)$/iu.test(
+          path,
+        ),
+    );
 }
 
 export function isDocsPath(path: string): boolean {
@@ -411,10 +477,19 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
   return paths.some((path) => path.startsWith(prefix));
 }
 
+function isDesignCanvasE2eSpecPath(path: string): boolean {
+  return (
+    path.startsWith("templates/design/e2e/") &&
+    path !== "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts" &&
+    /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
+  );
+}
+
 function isDesignDndRuntimePath(path: string): boolean {
   if (
     DESIGN_CANVAS_E2E_FILES.has(path) ||
-    DESIGN_CANVAS_CONFIG_FILES.has(path)
+    DESIGN_CANVAS_CONFIG_FILES.has(path) ||
+    isDesignCanvasE2eSpecPath(path)
   ) {
     return true;
   }
@@ -590,6 +665,9 @@ function buildChecks(
     coreChanged ||
     toolkitChanged ||
     hasPath(changedPaths, "packages/creative-context/");
+  const preAuthSessionReplayE2eChanged = changedPaths.some((path) =>
+    PRE_AUTH_SESSION_REPLAY_E2E_FILES.has(path),
+  );
   const contentConvergenceChanged =
     changedPaths.some(isContentConvergenceRuntimePath) || coreChanged;
 
@@ -612,6 +690,8 @@ function buildChecks(
       chatChanged ||
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
+    // The bundled Builder Code starter is a layer in core over templates/chat.
+    builder_code_starter_scaffold: coreChanged || chatChanged,
     ssr_boot:
       ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||
@@ -635,6 +715,7 @@ function buildChecks(
     // move it.
     neon_connection_budget: coreChanged,
     design_canvas_interaction_e2e: designCanvasInteractionE2eChanged,
+    pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
     slides_authoring_e2e: slidesE2eChanged,
     changeset: changedPaths.some(isChangesetPath),
@@ -663,9 +744,14 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
       ) as CheckSelection)
     : buildChecks(changedPaths, full);
   const queryBudgetApps = queryBudgetAppsFor(changedPaths, full, checks);
+  const changedDesignSpecs = changedPaths
+    .filter(isDesignCanvasE2eSpecPath)
+    .sort();
 
   return {
     changedPaths,
+    designCanvasE2eSpecs: changedDesignSpecs,
+    designCanvasE2eSpecCount: changedDesignSpecs.length,
     docsOnly,
     full,
     nonDocsPaths,
@@ -695,6 +781,7 @@ function writeOutputs(scope: ChangeScope): void {
       `docs_only=${scope.docsOnly ? "true" : "false"}`,
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
+      `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
       `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,
@@ -722,6 +809,7 @@ function writeOutputs(scope: ChangeScope): void {
         `- Build selectors: **${scope.workspaceFilters.join(", ") || "none"}**`,
         `- Test/typecheck selectors: **${scope.testWorkspaceFilters.join(", ") || "none"}**`,
         `- Selected checks: **${selectedChecks.join(", ") || "docs"}**`,
+        `- Design E2E changed spec files: **${scope.designCanvasE2eSpecCount}**`,
         ...(preview.length > 0
           ? [
               "",
@@ -745,7 +833,21 @@ function main(): void {
     throw new Error("CI_BASE_SHA and CI_HEAD_SHA are required");
   }
 
-  const scope = classifyChangedPaths(readChangedPaths(baseSha, headSha));
+  const changedPaths = readChangedPaths(baseSha, headSha);
+  const runtimeSourceChanges = runtimeSourceChangesInTestTitledPr(
+    process.env.CI_PR_TITLE ?? "",
+    changedPaths,
+  );
+  if (runtimeSourceChanges.length > 0) {
+    throw new Error(
+      [
+        'A "test:" PR title cannot include runtime source changes. Use a "fix:" or "feat:" title:',
+        ...runtimeSourceChanges.map((path) => `- ${path}`),
+      ].join("\n"),
+    );
+  }
+
+  const scope = classifyChangedPaths(changedPaths);
   console.log(JSON.stringify(scope, null, 2));
   writeOutputs(scope);
 }

@@ -88,6 +88,141 @@ export function definiteAuthoredOffset(
   return raw;
 }
 
+export function measuredPositionOffset(
+  element: Pick<
+    ElementInfo,
+    | "boundingRect"
+    | "parentBoundingRect"
+    | "parentAutoLayout"
+    | "positionReferenceRect"
+    | "positionContainingBlockOrigin"
+  >,
+  axis: "x" | "y",
+): number {
+  const referenceBounds =
+    element.positionReferenceRect ??
+    element.parentBoundingRect ??
+    element.parentAutoLayout?.boundingRect;
+  const childOffset = element.boundingRect[axis];
+  return referenceBounds ? childOffset - referenceBounds[axis] : childOffset;
+}
+
+function numericPositionOffset(raw: string | undefined): number | undefined {
+  if (
+    !raw ||
+    raw === "auto" ||
+    isMixedValue(raw) ||
+    !/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:px)?$/u.test(raw.trim())
+  ) {
+    return undefined;
+  }
+  const value = Number.parseFloat(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+export function authoredPositionPatch(
+  element: Pick<
+    ElementInfo,
+    | "boundingRect"
+    | "computedStyles"
+    | "inlineStyles"
+    | "parentBoundingRect"
+    | "parentAutoLayout"
+    | "positionReferenceRect"
+    | "positionContainingBlockOrigin"
+    | "positionContainingBlockTransform"
+  >,
+  axis: "x" | "y",
+  referenceOffset: number,
+): Partial<Record<"left" | "top", string>> {
+  const parentBounds =
+    element.parentBoundingRect ?? element.parentAutoLayout?.boundingRect;
+  const referenceBounds = element.positionReferenceRect ?? parentBounds;
+  const matrix =
+    element.positionContainingBlockTransform ??
+    ({ a: 1, b: 0, c: 0, d: 1 } as const);
+  const determinant = matrix.a * matrix.d - matrix.b * matrix.c;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-8) {
+    return {};
+  }
+
+  const deltaX =
+    axis === "x" ? referenceOffset - measuredPositionOffset(element, "x") : 0;
+  const deltaY =
+    axis === "y" ? referenceOffset - measuredPositionOffset(element, "y") : 0;
+  const leftDelta = (matrix.d * deltaX - matrix.c * deltaY) / determinant;
+  const topDelta = (-matrix.b * deltaX + matrix.a * deltaY) / determinant;
+  const containingBlockOffset = (coordinate: "x" | "y") =>
+    element.positionContainingBlockOrigin && referenceBounds
+      ? element.positionContainingBlockOrigin[coordinate] -
+        referenceBounds[coordinate]
+      : parentBounds && referenceBounds
+        ? parentBounds[coordinate] - referenceBounds[coordinate]
+        : 0;
+  const authoredOffset = (coordinate: "x" | "y") => {
+    const property = coordinate === "x" ? "left" : "top";
+    return (
+      numericPositionOffset(element.computedStyles[property]) ??
+      numericPositionOffset(element.inlineStyles?.[property])
+    );
+  };
+  const currentOffset = (coordinate: "x" | "y") =>
+    authoredOffset(coordinate) ??
+    measuredPositionOffset(element, coordinate) -
+      containingBlockOffset(coordinate);
+  const patch: Partial<Record<"left" | "top", string>> = {};
+  const writeLeft =
+    axis === "x" || Math.abs(leftDelta) > 1e-8 || Math.abs(matrix.c) > 1e-8;
+  const writeTop =
+    axis === "y" || Math.abs(topDelta) > 1e-8 || Math.abs(matrix.b) > 1e-8;
+  if (writeLeft || authoredOffset("x") === undefined) {
+    patch.left = `${Number((currentOffset("x") + leftDelta).toFixed(2))}px`;
+  }
+  if (writeTop || authoredOffset("y") === undefined) {
+    patch.top = `${Number((currentOffset("y") + topDelta).toFixed(2))}px`;
+  }
+  return patch;
+}
+
+export function measuredPositionValue(
+  element: ElementInfo,
+  axis: "x" | "y",
+  livePosition?: { left: string; top: string },
+): string {
+  let referenceOffset = measuredPositionOffset(element, axis);
+  const liveLeft = livePosition
+    ? numericPositionOffset(livePosition.left)
+    : undefined;
+  const liveTop = livePosition
+    ? numericPositionOffset(livePosition.top)
+    : undefined;
+  const authoredLeft =
+    numericPositionOffset(element.computedStyles.left) ??
+    numericPositionOffset(element.inlineStyles?.left);
+  const authoredTop =
+    numericPositionOffset(element.computedStyles.top) ??
+    numericPositionOffset(element.inlineStyles?.top);
+
+  if (
+    liveLeft !== undefined &&
+    liveTop !== undefined &&
+    authoredLeft !== undefined &&
+    authoredTop !== undefined
+  ) {
+    const transform =
+      element.positionContainingBlockTransform ??
+      ({ a: 1, b: 0, c: 0, d: 1 } as const);
+    const deltaLeft = liveLeft - authoredLeft;
+    const deltaTop = liveTop - authoredTop;
+    referenceOffset +=
+      axis === "x"
+        ? transform.a * deltaLeft + transform.c * deltaTop
+        : transform.b * deltaLeft + transform.d * deltaTop;
+  }
+
+  return `${Number(referenceOffset.toFixed(2))}px`;
+}
+
 function percentageLength(raw: string | undefined): boolean {
   return !!raw && /^-?(?:\d+\.?\d*|\.\d+)%$/.test(raw.trim());
 }
@@ -319,11 +454,9 @@ export function PositionLayoutProperties({
       value === "top" ? "top" : value === "bottom" ? "bottom" : "center-v",
     );
   };
+  const liveDragPosition = useLiveDragPosition(element.selector);
   const authoredLeft = authoredStyleValue(element, "left");
   const authoredTop = authoredStyleValue(element, "top");
-  const liveDragPosition = useLiveDragPosition(element.selector);
-  const displayedLeft = liveDragPosition?.left ?? authoredLeft;
-  const displayedTop = liveDragPosition?.top ?? authoredTop;
   const authoredTransform = authoredStyleValue(element, "transform");
   const rotationTransform = isMixedValue(styles.transform)
     ? undefined
@@ -461,11 +594,14 @@ export function PositionLayoutProperties({
               tooltipLabel="X-position"
               precision={2}
               value={
-                isMixedValue(displayedLeft)
+                isMixedValue(authoredLeft) || isMixedValue(styles.left)
                   ? MIXED_VALUE
-                  : (definiteAuthoredOffset(displayedLeft) ?? "")
+                  : measuredPositionValue(
+                      element,
+                      "x",
+                      liveDragPosition ?? undefined,
+                    )
               }
-              placeholder={element.boundingRect.x}
               inputClassName="h-6"
               onChange={(v, meta) => {
                 commitStylePatch(
@@ -473,7 +609,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    left: `${v}px`,
+                    ...authoredPositionPatch(element, "x", v),
                   },
                   onStyleChange,
                   onStylesChange,
@@ -505,11 +641,14 @@ export function PositionLayoutProperties({
               tooltipLabel="Y-position"
               precision={2}
               value={
-                isMixedValue(displayedTop)
+                isMixedValue(authoredTop) || isMixedValue(styles.top)
                   ? MIXED_VALUE
-                  : (definiteAuthoredOffset(displayedTop) ?? "")
+                  : measuredPositionValue(
+                      element,
+                      "y",
+                      liveDragPosition ?? undefined,
+                    )
               }
-              placeholder={element.boundingRect.y}
               inputClassName="h-6"
               onChange={(v, meta) => {
                 commitStylePatch(
@@ -517,7 +656,7 @@ export function PositionLayoutProperties({
                     ...(!constrainedPosition
                       ? { position: "absolute" }
                       : undefined),
-                    top: `${v}px`,
+                    ...authoredPositionPatch(element, "y", v),
                   },
                   onStyleChange,
                   onStylesChange,
@@ -543,9 +682,8 @@ export function PositionLayoutProperties({
             span={INSPECTOR_GRID_ACTION_SPAN}
             className="flex items-center justify-center"
           >
-            {/* Figma: constraints cannot apply to a child of an auto layout
-              frame — the parent's layout owns the position. An absolutely
-              positioned descendant is out of that flow and still anchors. */}
+            {/* Auto-layout containers position in-flow children. An absolutely
+              positioned descendant leaves that flow and can still use anchors. */}
             {constraintsSuppressed ? null : (
               <Tooltip>
                 <TooltipTrigger asChild>

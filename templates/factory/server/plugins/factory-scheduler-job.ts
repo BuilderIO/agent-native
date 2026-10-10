@@ -1,3 +1,5 @@
+import type { BUILDER_MODEL_CONFIG } from "@agent-native/core/agent/model-config";
+import { isProductionServerlessFunctionRuntime } from "@agent-native/core/db";
 import { subscribe } from "@agent-native/core/event-bus";
 import { notify } from "@agent-native/core/notifications";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
@@ -12,6 +14,7 @@ import {
 } from "@agent-native/core/resources";
 import {
   defineNitroPlugin,
+  registerRecurringSweepHandler,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { deleteAutomationRuns } from "@agent-native/core/triggers";
@@ -245,7 +248,11 @@ type AutomationSeed = {
   body: string;
 };
 
-const FACTORY_DEFAULT_MODEL = "gpt-5.6-luna";
+// Seeded without an engine, so the run engine normalizes it; typed against the
+// Builder catalog so a retired id fails typecheck instead of silently falling
+// back to the engine default.
+const FACTORY_DEFAULT_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
+  "gpt-6-luna";
 const FACTORY_DEFAULT_REASONING_EFFORT = "high";
 const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
@@ -1091,10 +1098,28 @@ async function ensureSchedulerJobs(): Promise<void> {
   await disableLegacyObserver();
 }
 
+let automationRepair: Promise<void> | undefined;
+
+export function repairOrganizationAutomationsOnce(): Promise<void> {
+  automationRepair ??= ensureSchedulerJobs().catch((error: unknown) => {
+    automationRepair = undefined;
+    throw error;
+  });
+  return automationRepair;
+}
+
+// Nitro does not await plugins, so on a serverless request function this
+// repair outlives the response: the instance freezes mid-query and the thawed
+// timers report a 15s DB timeout against a healthy database, once per cold
+// start. Serverless runs it from the awaited durable sweep instead.
 export default defineNitroPlugin(async () => {
   subscribeToAutomationFailures();
+  registerRecurringSweepHandler("factory-automation-repair", () =>
+    repairOrganizationAutomationsOnce(),
+  );
+  if (isProductionServerlessFunctionRuntime()) return;
   try {
-    await ensureSchedulerJobs();
+    await repairOrganizationAutomationsOnce();
   } catch (error) {
     console.error(
       "[factory-scheduler-job] failed to repair organization automations:",

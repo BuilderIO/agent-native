@@ -15,7 +15,6 @@ import {
   IconLoader2,
   IconMicrophone,
   IconPhoneOff,
-  IconPlugConnected,
   IconSettings,
   IconVolume,
 } from "@tabler/icons-react";
@@ -292,9 +291,7 @@ export function RealtimeVoiceModeEntry({
                     >
                       {connectingBuilder ? (
                         <IconLoader2 className="animate-spin" />
-                      ) : (
-                        <IconPlugConnected aria-hidden="true" />
-                      )}
+                      ) : null}
                       {copy.connectBuilder}
                     </Button>
                   </BuilderConnectPopover>

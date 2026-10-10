@@ -151,6 +151,10 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
 }));
 
 import { DESIGN_HTML_INTEGRITY_ERROR_CODE } from "../shared/html-integrity.js";
+import {
+  MAX_SANE_FRAME_ASPECT_RATIO,
+  MAX_SANE_FRAME_DIMENSION_PX,
+} from "../shared/responsive-frame-layout.js";
 import action from "./present-design-variants.js";
 
 function guidedQuestionsPayload<T>(): T {
@@ -162,6 +166,30 @@ function guidedQuestionsPayload<T>(): T {
 }
 
 describe("present-design-variants", () => {
+  it("rejects multiple exact canvas sizes before writing variants", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: "Create a 300x250 ad and a 728x90 leaderboard",
+        variants: [
+          {
+            id: "ad",
+            label: "Ad",
+            content: "<!doctype html><html><body>Ad</body></html>",
+          },
+          {
+            id: "leaderboard",
+            label: "Leaderboard",
+            content: "<!doctype html><html><body>Leaderboard</body></html>",
+          },
+        ],
+      }),
+    ).rejects.toThrow("Use one exact canvas size per Design action call");
+
+    expect(mocks.db.insert).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.designData = {};
@@ -196,6 +224,38 @@ describe("present-design-variants", () => {
       .mockReturnValueOnce("file-a")
       .mockReturnValueOnce("file-b")
       .mockReturnValueOnce("file-c");
+  });
+
+  it("rejects different exact canvas sizes before writing variants", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: "Create a 300x250 ad and a 728x90 leaderboard",
+        variants: [
+          { id: "one", label: "One" },
+          { id: "two", label: "Two" },
+        ],
+      }),
+    ).rejects.toThrow("Use one exact canvas size per Design action call");
+
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported exact dimensions before writing variants", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: `Create a poster at exactly 100000x${Math.ceil(100000 / (MAX_SANE_FRAME_ASPECT_RATIO + 1))} pixels`,
+        variants: [
+          { id: "one", label: "One" },
+          { id: "two", label: "Two" },
+        ],
+      }),
+    ).rejects.toThrow(`limit of ${MAX_SANE_FRAME_ASPECT_RATIO}:1`);
+
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
   });
 
   it("keeps fallback direction screens fluid on narrow viewports", async () => {
@@ -411,6 +471,265 @@ describe("present-design-variants", () => {
       "Do not call generate-design after a variant pick",
     );
     expect(result.nextRequiredAction).toContain("bounded pass");
+  });
+
+  it("preserves exact prompt dimensions and suppresses generated breakpoints", async () => {
+    mocks.designData = {
+      breakpointSet: {
+        id: "existing",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Create a poster with exact dimensions 2400x3200 pixels",
+      variants: [
+        {
+          id: "a",
+          label: "Warm",
+          width: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          height: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          content: "<!doctype html><html><body>Warm</body></html>",
+        },
+        {
+          id: "b",
+          label: "Cool",
+          content: "<!doctype html><html><body>Cool</body></html>",
+        },
+      ],
+    });
+
+    expect(result.screens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "file-a", width: 2400, height: 3200 }),
+        expect.objectContaining({ id: "file-b", width: 2400, height: 3200 }),
+      ]),
+    );
+    expect(mocks.designData.canvasFrames).toMatchObject({
+      "file-a": { width: 2400, height: 3200 },
+      "file-b": { width: 2400, height: 3200 },
+    });
+    const metadata = mocks.designData.screenMetadata as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(metadata["file-a"]).toMatchObject({
+      width: 2400,
+      height: 3200,
+      breakpointWidths: [],
+      heightPinned: true,
+      heightMode: "fixed",
+    });
+    expect(mocks.designData.breakpointSet).toMatchObject({ id: "existing" });
+  });
+
+  it("bounds variant-supplied dimensions to supported frame geometry", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      variants: [
+        {
+          id: "a",
+          label: "Wide",
+          width: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          height: 1,
+          content: "<!doctype html><html><body>Wide</body></html>",
+        },
+        {
+          id: "b",
+          label: "Tall",
+          width: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          height: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          content: "<!doctype html><html><body>Tall</body></html>",
+        },
+      ],
+    });
+
+    expect(result.screens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          width: MAX_SANE_FRAME_DIMENSION_PX,
+          height: MAX_SANE_FRAME_DIMENSION_PX / MAX_SANE_FRAME_ASPECT_RATIO,
+        }),
+      ]),
+    );
+    expect(mocks.designData.canvasFrames).toMatchObject({
+      "file-a": {
+        width: MAX_SANE_FRAME_DIMENSION_PX,
+        height: MAX_SANE_FRAME_DIMENSION_PX / MAX_SANE_FRAME_ASPECT_RATIO,
+      },
+      "file-b": {
+        width: MAX_SANE_FRAME_DIMENSION_PX,
+        height: MAX_SANE_FRAME_DIMENSION_PX,
+      },
+    });
+  });
+
+  it("requires complete variant content for an exact-size prompt", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: "Create an email header at 1200x400",
+        variants: [
+          { id: "a", label: "Warm" },
+          { id: "b", label: "Cool" },
+        ],
+      }),
+    ).rejects.toThrow("requires complete self-contained HTML");
+  });
+
+  it("requires variant HTML when the turn has a model-visible image attachment", async () => {
+    await expect(
+      action.run(
+        {
+          designId: "design_123",
+          prompt: "Pick a direction",
+          variants: [
+            { id: "a", label: "Warm" },
+            { id: "b", label: "Cool" },
+          ],
+        },
+        {
+          caller: "tool",
+          attachments: [
+            {
+              type: "image",
+              name: "inspiration.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+      ),
+    ).rejects.toThrow(
+      "Every variant must include complete HTML when an image attachment is present",
+    );
+
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("keeps the brief's exact artwork size when the caption is generic", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Pick a direction",
+      brief: "Create a LinkedIn ad for our launch",
+      responsive: true,
+      variants: [
+        {
+          id: "a",
+          label: "Editorial",
+          width: 1440,
+          height: 900,
+          content: "<!doctype html><html><body>Editorial ad</body></html>",
+        },
+        {
+          id: "b",
+          label: "Bold",
+          width: 1440,
+          height: 900,
+          content: "<!doctype html><html><body>Bold ad</body></html>",
+        },
+      ],
+    });
+
+    expect(
+      result.screens.map(({ width, height }) => ({ width, height })),
+    ).toEqual([
+      { width: 1200, height: 627 },
+      { width: 1200, height: 627 },
+    ]);
+    expect(mocks.designData.breakpointSet).toBeUndefined();
+    expect(mocks.designData.screenMetadata).toMatchObject({
+      "file-a": { width: 1200, height: 627, breakpointWidths: [] },
+      "file-b": { width: 1200, height: 627, breakpointWidths: [] },
+    });
+    expect(mocks.designData.designVariantSets).toMatchObject({
+      "variant-set-1": {
+        prompt: "Pick a direction",
+        brief: "Create a LinkedIn ad for our launch",
+      },
+    });
+  });
+
+  it("pins variant artwork height when the fixed brief has no size", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Pick a direction",
+      brief: "Create an ad for our launch",
+      responsive: true,
+      variants: [
+        {
+          id: "a",
+          label: "Editorial",
+          width: 728,
+          height: 90,
+          content: "<!doctype html><html><body>Editorial</body></html>",
+        },
+        {
+          id: "b",
+          label: "Bold",
+          width: 728,
+          height: 90,
+          content: "<!doctype html><html><body>Bold</body></html>",
+        },
+      ],
+    });
+
+    expect(
+      result.screens.map(({ width, height }) => ({ width, height })),
+    ).toEqual([
+      { width: 728, height: 90 },
+      { width: 728, height: 90 },
+    ]);
+    expect(mocks.designData.screenMetadata).toMatchObject({
+      "file-a": {
+        width: 728,
+        height: 90,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+      "file-b": {
+        width: 728,
+        height: 90,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+  });
+
+  it("does not infer fixed canvas intent from variant labels or feature bullets", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Pick a direction",
+      brief: "Create a poster for the conference",
+      responsive: true,
+      variants: [
+        {
+          id: "a",
+          label: "Mobile app avatar header",
+          features: ["Mobile dashboard", "responsive navigation"],
+          content: "<!doctype html><html><body>Option A</body></html>",
+        },
+        {
+          id: "b",
+          label: "Desktop overview",
+          content: "<!doctype html><html><body>Option B</body></html>",
+        },
+      ],
+    });
+
+    expect(
+      result.screens.map(({ width, height }) => ({ width, height })),
+    ).toEqual([
+      { width: 1440, height: 900 },
+      { width: 1440, height: 900 },
+    ]);
+    expect(mocks.designData.breakpointSet).toBeUndefined();
+    expect(mocks.designData.screenMetadata).toMatchObject({
+      "file-a": { width: 1440, height: 900, breakpointWidths: [] },
+      "file-b": { width: 1440, height: 900, breakpointWidths: [] },
+    });
   });
 
   it("does not reserve responsive space for JSX support files", async () => {

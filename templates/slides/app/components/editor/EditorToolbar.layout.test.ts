@@ -16,10 +16,34 @@ const globalCssSource = readFileSync(
 describe("EditorToolbar layout contract", () => {
   it("keeps the title input measuring its own width without flex-shrinking", () => {
     expect(editorToolbarSource).toContain(
-      'className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"',
+      '"min-w-0 max-w-[500px] bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"',
+    );
+    expect(editorToolbarSource).toContain(
+      'widgetEmbed ? "shrink truncate" : "shrink-0"',
     );
     expect(editorToolbarSource).toContain(
       "style={{ width: `${titleInputWidth}px` }}",
+    );
+  });
+
+  it("drops the deck-list link and the agent panel controls inside an MCP App widget", () => {
+    expect(editorToolbarSource).toContain(
+      "const widgetEmbed = useIsMcpAppWidgetEmbed();",
+    );
+    expect(editorToolbarSource).toMatch(
+      /\{!widgetEmbed && \(\s*<Tooltip>\s*<TooltipTrigger asChild>\s*<Link\s+to="\/home"/,
+    );
+    expect(editorToolbarSource).toMatch(
+      /\{!widgetEmbed && \(\s*<div className="flex items-center gap-1">\s*<RunsTray pollMs=\{0\} \/>\s*<AgentToggleButton \/>/,
+    );
+  });
+
+  it("hides the save status pill only inside a read-only directory widget", () => {
+    expect(editorToolbarSource).toContain(
+      "const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();",
+    );
+    expect(editorToolbarSource).toMatch(
+      /\{!readOnlyWidget && \(canEdit \|\| saveFailed\) && \(\s*<SaveStatusIndicator/,
     );
   });
 
@@ -71,6 +95,25 @@ describe("EditorToolbar layout contract", () => {
     expect(editorToolbarSource).not.toContain(
       '<DropdownMenuLabel>\n                  {t("editorToolbar.comments")}\n                </DropdownMenuLabel>',
     );
+  });
+
+  it("keeps the widget toolbars touch sized in a narrow pane and on touch screens", () => {
+    const touchRule =
+      /:is\(\.deck-editor-toolbar, \.slide-context-toolbar\)\s*:is\(button, input, \[role="combobox"\]\) \{\s*min-width: 2\.5rem;\s*min-height: 2\.5rem;\s*\}/g;
+    expect(globalCssSource).toMatch(
+      /@container deck-editor \(max-width: 46rem\) \{\s*\.deck-editor-shell\[data-slides-widget="true"\]/,
+    );
+    expect(globalCssSource).toMatch(
+      /@media \(pointer: coarse\) \{\s*\.deck-editor-shell\[data-slides-widget="true"\]/,
+    );
+    expect(globalCssSource.match(touchRule)).toHaveLength(2);
+  });
+
+  it("opens the deck in the app through the host bridge", () => {
+    expect(editorToolbarSource).toContain("openMcpAppHostLink(editorUrl)");
+    expect(
+      editorToolbarSource.match(/editorToolbar\.openInAgentNative/g),
+    ).toHaveLength(2);
   });
 
   it("lets the wide contextual toolbar scroll instead of clipping rare overflow", () => {

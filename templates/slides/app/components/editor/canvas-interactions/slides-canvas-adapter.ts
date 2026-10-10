@@ -1,39 +1,17 @@
 import {
   createCanvasGestureController,
   createCanvasInteractionCore,
+  type CanvasGesture,
   type CanvasGestureAdapter,
   type CanvasInteractionAdapter,
+  type CanvasPoint,
 } from "@agent-native/toolkit/canvas-interactions";
 
 import { MIN_SLIDE_OBJECT_SIZE } from "../slide-object-interactions";
+import type { SlidePointerTarget } from "../slide-pointer-target";
 
-export const SLIDES_CANVAS_EDGE_MOVE_BAND = 8;
-
-export function isWithinSlidesCanvasEdgeMoveBand(
-  rect: Pick<DOMRect, "left" | "right" | "top" | "bottom" | "width" | "height">,
-  clientX: number,
-  clientY: number,
-): boolean {
-  const edgeBand = Math.min(
-    SLIDES_CANVAS_EDGE_MOVE_BAND,
-    rect.width / 4,
-    rect.height / 4,
-  );
-  const outerBand = edgeBand / 2;
-  const withinExpandedBounds =
-    clientX >= rect.left - outerBand &&
-    clientX <= rect.right + outerBand &&
-    clientY >= rect.top - outerBand &&
-    clientY <= rect.bottom + outerBand;
-  if (!withinExpandedBounds) return false;
-
-  return (
-    Math.abs(clientX - rect.left) <= edgeBand ||
-    Math.abs(clientX - rect.right) <= edgeBand ||
-    Math.abs(clientY - rect.top) <= edgeBand ||
-    Math.abs(clientY - rect.bottom) <= edgeBand
-  );
-}
+/** Screen px of pointer travel before a press becomes a drag. */
+export const SLIDES_CANVAS_DRAG_THRESHOLD = 4;
 
 export type SlidesCanvasHtmlMutationAdapter = CanvasInteractionAdapter<string>;
 export type SlidesCanvasGestureAdapter = CanvasGestureAdapter<string>;
@@ -44,7 +22,7 @@ const slidesCanvasInteractionConfig = {
     escapeBehavior: "select-object" as const,
   },
   drag: {
-    threshold: 2,
+    threshold: SLIDES_CANVAS_DRAG_THRESHOLD,
     duplicateModifier: "alt" as const,
   },
   nudge: {
@@ -94,12 +72,30 @@ export function resolveSlidesCanvasRotation(
   return input.key === "ArrowLeft" ? -amount : amount;
 }
 
-export function createSlidesCanvasGestureController(
-  adapter: SlidesCanvasGestureAdapter,
-) {
+/**
+ * `toLocalDelta` maps the controller's `canvasDelta` into the containing
+ * block's own axes. A rotated block needs it because the controller only
+ * scales by width and height; the editor then begins gestures with a unit
+ * viewport so `canvasDelta` arrives as the raw screen delta.
+ */
+export function createSlidesCanvasGestureController({
+  toLocalDelta,
+  ...adapter
+}: SlidesCanvasGestureAdapter & {
+  toLocalDelta?: (delta: CanvasPoint) => CanvasPoint;
+}) {
+  const local = (gesture: CanvasGesture<string>): CanvasGesture<string> =>
+    toLocalDelta
+      ? { ...gesture, canvasDelta: toLocalDelta(gesture.canvasDelta) }
+      : gesture;
   return createCanvasGestureController({
     ...slidesCanvasInteractionConfig,
-    adapter,
+    adapter: {
+      preview:
+        adapter.preview && ((gesture) => adapter.preview!(local(gesture))),
+      commit: (gesture) => adapter.commit(local(gesture)),
+      cancel: adapter.cancel && ((gesture) => adapter.cancel!(local(gesture))),
+    },
   });
 }
 
@@ -108,51 +104,16 @@ export const slidesCanvasInteractionCore = createSlidesCanvasInteractionCore();
 export type SlidesCanvasPointerIntent =
   | "edit-text"
   | "move-object-body"
-  | "move-object-perimeter"
   | "none";
 
-export function resolveSlidesCanvasDragTarget(
-  selectedObject: HTMLElement | null,
-  pointerObject: HTMLElement | null,
-): HTMLElement | null {
-  if (
-    selectedObject &&
-    pointerObject &&
-    (selectedObject.contains(pointerObject) ||
-      pointerObject.contains(selectedObject))
-  ) {
-    return selectedObject;
-  }
-  return pointerObject ?? selectedObject;
-}
-
-export function resolveSlidesCanvasPointerIntent({
-  hasSelectedObject,
-  targetWithinSelectedObject,
-  targetContainsSelectedObject,
-  pointerWithinMoveBand,
-  targetIsEditableText,
-  duplicateModifierActive = false,
-}: {
-  hasSelectedObject: boolean;
-  targetWithinSelectedObject: boolean;
-  targetContainsSelectedObject: boolean;
-  pointerWithinMoveBand: boolean;
-  targetIsEditableText: boolean;
-  duplicateModifierActive?: boolean;
-}): SlidesCanvasPointerIntent {
-  if (targetIsEditableText && !duplicateModifierActive) return "edit-text";
-  if (
-    hasSelectedObject &&
-    pointerWithinMoveBand &&
-    (targetWithinSelectedObject ||
-      targetContainsSelectedObject ||
-      !targetIsEditableText)
-  ) {
-    return "move-object-perimeter";
-  }
-  if (hasSelectedObject && targetWithinSelectedObject) {
-    return "move-object-body";
-  }
-  return "none";
+/**
+ * What a press on the resolved pointer target starts: text bounds edit the
+ * text, every other pixel of an object moves it, selected or not.
+ */
+export function resolveSlidesCanvasTargetIntent(
+  target: SlidePointerTarget,
+): SlidesCanvasPointerIntent {
+  if (target.kind === "whitespace") return "none";
+  if (target.grab === "edit") return "edit-text";
+  return target.grab === "move" ? "move-object-body" : "none";
 }

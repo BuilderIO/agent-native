@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 
 import { getOnboardingHtml as getCoreOnboardingHtml } from "@agent-native/core/server/onboarding-html";
+import { encodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import {
   AuthPage,
+  hasInvalidVerificationLinkInSearch,
   isAuthenticatedAuthSession,
   isConfirmedAnonymousAuthSession,
   isVerificationLinkInvalid,
@@ -62,6 +64,20 @@ describe("AuthPage", () => {
       propsFromHtml(getOnboardingHtml({ requestPath: "/?error=INVALID_TOKEN" }))
         .initialView,
     ).toBe("login");
+  });
+
+  it("recognizes invalid verification links inside the sign-in continuation", () => {
+    const continuation = encodeContinuation("/home?error=INVALID_TOKEN");
+
+    expect(hasInvalidVerificationLinkInSearch(`?c=${continuation}`)).toBe(true);
+    expect(shouldStartWithLocalDev("/sign-in", `?c=${continuation}`)).toBe(
+      false,
+    );
+    expect(
+      hasInvalidVerificationLinkInSearch(
+        `?c=${encodeContinuation("/home?error=INVALID_CALLBACK_URL")}`,
+      ),
+    ).toBe(false);
   });
 
   it("hides account-only guidance when local development sign-in is available", () => {
@@ -275,11 +291,12 @@ describe("AuthPage", () => {
     );
     expect(html).toContain(">Learn more</a>");
     expect(html).toContain('class="oss-badge"');
-    expect(html).toContain('data-agent-native-wave="true"');
+    expect(html).not.toContain('data-agent-native-wave="true"');
+    expect(html).not.toContain('class="auth-wave-background"');
     expect(html).not.toContain("data-agent-native-marketing-background");
   });
 
-  it("renders one full-page WebGL wave on login and signup", () => {
+  it("keeps the auth background empty in server HTML for login and signup", () => {
     const props = propsFromHtml(
       getOnboardingHtml({ requestHost: "slides.agent-native.com" }),
     );
@@ -288,8 +305,9 @@ describe("AuthPage", () => {
       const html = renderToString(
         <AuthPage {...props} initialView={initialView} />,
       );
-      expect(html.match(/data-agent-native-wave="true"/g)).toHaveLength(1);
-      expect(html).toContain('class="auth-wave-background"');
+      expect(html).not.toContain('data-agent-native-wave="true"');
+      expect(html).not.toContain('class="auth-wave-background"');
+      expect(html).not.toContain('data-agent-native-auth-fallback="true"');
       expect(html).not.toContain("auth-marketing-signup-wave");
     }
   });

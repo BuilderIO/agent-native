@@ -130,6 +130,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "仍在等待{{stage}}。請求：{{action}}。",
+    widgetDocumentLoadStage: "已儲存的頁面內文",
+    widgetDraftCheckStage: "頁面草稿復原",
+    widgetEditorInitStage: "富文字編輯器初始化",
     iconPickerIcons: "圖示",
     iconPickerEmoji: "表情符號",
     iconPickerRecent: "最近使用",
@@ -436,7 +440,6 @@ const overrides = {
     reorderField: "重新排序 {{name}}",
     title: "標題",
     toggleField: "切換 {{name}}",
-    createCollection: "建立集合",
     creatingDatabase: "正在建立內嵌集合...",
     databaseCreated: "集合已建立",
     emptyBlockPlaceholder: "按「/」使用指令",
@@ -954,12 +957,14 @@ const overrides = {
       localAndNotionChanged:
         "本機檔案和 Notion 自上次同步後都已更改。請選取保留哪個版本。",
       morePageActions: "更多頁面操作",
+      formatting: "格式",
       noPagesFound: "沒有找到頁面",
       notifications: "通知",
       notionSync: "概念同步",
       notionPageUrlOrId: "Notion 頁面 URL 或頁面 ID",
       open: "開啟",
       openInNotion: "在概念中開啟",
+      openInAgentNative: "在 Agent-Native 中開啟",
       orgCanFindAndView: "您組織中的任何人都可以尋找和檢視",
       orgLinkCanView: "您組織中知道該連結的任何人都可以檢視",
       pageBreadcrumb: "頁面面包屑",
@@ -1054,6 +1059,9 @@ const overrides = {
     aiUndo: "復原",
     aiDone: "完成",
     aiMoreChanges: "另外 {{count}} 處",
+    suggestionReplaced: "已取代",
+    suggestionWithdrawn: "已撤回",
+    suggestedChange: "建議的變更",
     aiUndoUnavailable: "已刪除的文字無法自動復原",
     aiUndoFailed: "無法復原變更",
     aiResolvedByAi: "已由 AI 解決",
@@ -1765,6 +1773,11 @@ const overrides = {
     removeLocalFilesFromSidebar: "從側邊欄移除",
     removeLocalFilesQuestion: "要從側邊欄移除本機檔案嗎？",
     failedCreatePage: "建立頁面失敗",
+    failedCreatePageDraftDescription:
+      "草稿已儲存在此瀏覽器中。你可以重試建立頁面，或捨棄草稿。",
+    discardFailedCreatePageQuestion: "捨棄待處理的建立？",
+    discardFailedCreatePageDescription:
+      "這會清除待處理的建立與未儲存的草稿。如果頁面已儲存，仍會保留在你的工作區。",
     failedDeletePage: "刪除頁面失敗",
     failedPermanentDeleteDatabase: "永久刪除集合失敗",
     failedPermanentDeletePage: "永久刪除頁面失敗",

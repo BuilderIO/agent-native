@@ -19,6 +19,7 @@ import {
   IconHeartbeat,
   IconLock,
   IconLink,
+  IconPlugConnected,
   IconMessageCircle,
   IconUsersGroup,
   IconEye,
@@ -71,6 +72,9 @@ type SidebarDashboard = {
   resourceId?: string;
   visibility?: Visibility;
   ownerEmail?: string | null;
+  demo?: boolean;
+  /** Owner label, set only when another dashboard shares this title. */
+  ownerHint?: string;
   parentId?: string;
 };
 
@@ -486,6 +490,7 @@ function SortableRow({
   id,
   favoriteKey,
   name,
+  hint,
   href,
   isActive,
   favoriteIds,
@@ -504,6 +509,7 @@ function SortableRow({
   id: string;
   favoriteKey: string;
   name: string;
+  hint?: string;
   href: string;
   isActive: boolean;
   favoriteIds: Set<string>;
@@ -725,10 +731,17 @@ function SortableRow({
                 onTouchStart={onPrefetch}
                 className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-xs transition-[padding] md:pe-2 md:group-hover/item:pe-12 md:group-focus-within/item:pe-12"
               >
-                <span className="block truncate">{name}</span>
+                <span className="block truncate">
+                  {name}
+                  {hint ? (
+                    <span className="text-muted-foreground"> · {hint}</span>
+                  ) : null}
+                </span>
               </Link>
             </TooltipTrigger>
-            <TooltipContent side="right">{name}</TooltipContent>
+            <TooltipContent side="right">
+              {hint ? `${name} · ${hint}` : name}
+            </TooltipContent>
           </Tooltip>
         )}
         <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover/item:opacity-100 md:group-focus-within/item:opacity-100">
@@ -981,6 +994,7 @@ function SortableDashboardItem({
       id={d.id}
       favoriteKey={favoriteKey}
       name={d.name}
+      hint={d.ownerHint}
       href={href}
       isActive={isActive}
       favoriteIds={favoriteIds}
@@ -1182,6 +1196,7 @@ type SqlDashboardListItem = {
   name: string;
   visibility?: Visibility;
   ownerEmail?: string | null;
+  demo?: boolean;
   parentId?: string;
 };
 
@@ -1211,6 +1226,7 @@ async function fetchSqlDashboards(
             ? d.name
             : t("sidebar.untitledDashboard"),
         visibility: d.visibility as Visibility,
+        ...(d.demo === true ? { demo: true } : {}),
         ...(ownerEmail ? { ownerEmail } : {}),
         parentId:
           typeof d.parentId === "string" && d.parentId.trim().length > 0
@@ -1225,6 +1241,7 @@ async function fetchSidebarAnalyses(t: (key: string) => string): Promise<
     id: string;
     name: string;
     visibility: Visibility;
+    ownerEmail?: string;
     hiddenAt: string | null;
   }[]
 > {
@@ -1241,6 +1258,9 @@ async function fetchSidebarAnalyses(t: (key: string) => string): Promise<
         a.visibility === "org" || a.visibility === "public"
           ? a.visibility
           : ("private" as Visibility),
+      ...(typeof a.ownerEmail === "string" && a.ownerEmail
+        ? { ownerEmail: a.ownerEmail }
+        : {}),
       hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
     }));
 }
@@ -1801,6 +1821,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       source: "sql",
       visibility: d.visibility,
       ownerEmail: d.ownerEmail,
+      demo: d.demo,
       parentId: d.parentId,
     }));
     const analysisItems: SidebarDashboard[] = analysesList.map((a) => ({
@@ -1809,6 +1830,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       name: a.name,
       source: "analysis",
       visibility: a.visibility,
+      ...(a.ownerEmail ? { ownerEmail: a.ownerEmail } : {}),
     }));
     const all = [...staticItems, ...sqlItems, ...analysisItems];
     if (dashboardSortMode === "alphabetical") {
@@ -1851,13 +1873,22 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     popularity,
   ]);
 
-  const filteredDashboards = useMemo(
-    () =>
-      visibleDashboards.filter((dashboard) =>
+  const filteredDashboards = useMemo(() => {
+    const titleCounts = new Map<string, number>();
+    for (const d of visibleDashboards) {
+      const key = d.name.trim().toLowerCase();
+      titleCounts.set(key, (titleCounts.get(key) ?? 0) + 1);
+    }
+    return visibleDashboards
+      .filter((dashboard) =>
         matchesVisibilityFilter(dashboard, dashFilter, auth?.email),
-      ),
-    [auth?.email, visibleDashboards, dashFilter],
-  );
+      )
+      .map((d) =>
+        d.ownerEmail && (titleCounts.get(d.name.trim().toLowerCase()) ?? 0) > 1
+          ? { ...d, ownerHint: d.ownerEmail.split("@")[0] }
+          : d,
+      );
+  }, [auth?.email, visibleDashboards, dashFilter]);
 
   const dashboardChildren = useMemo<Map<string, SidebarDashboard[]>>(() => {
     const byId = new Map(filteredDashboards.map((d) => [d.id, d]));
@@ -2199,6 +2230,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       active: location.pathname === "/data-sources",
     },
     {
+      icon: IconPlugConnected,
+      label: t("navigation.sourceStatus"),
+      href: "/source-status",
+      active: location.pathname === "/source-status",
+    },
+    {
       icon: IconBook2,
       label: t("navigation.dataDictionary"),
       href: "/data-dictionary",
@@ -2416,11 +2453,27 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 </span>
               </Link>
 
+              {/* Source status link */}
+              <Link
+                to="/source-status"
+                className={cn(
+                  "order-8 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
+                  location.pathname === "/source-status"
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
+                )}
+              >
+                <IconPlugConnected className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.sourceStatus")}
+                </span>
+              </Link>
+
               {/* Data Dictionary link */}
               <Link
                 to="/data-dictionary"
                 className={cn(
-                  "order-8 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
+                  "order-9 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/data-dictionary")
                     ? "bg-primary/10 font-medium text-primary"
                     : "text-primary hover:bg-accent/60",

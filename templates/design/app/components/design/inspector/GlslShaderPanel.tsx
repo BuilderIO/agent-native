@@ -65,11 +65,11 @@ import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
 //
 // This picker's persist flow (read-source-file GET -> pure transform ->
 // apply-source-edit POST) is a SEPARATE round trip from the base Fill
-// section's style commits (DesignEditor.tsx's commitVisualStyles ->
+// section's style commits (commands/commit-visual-styles.ts ->
 // update-file), and both ultimately feed the SAME per-file Yjs collab
 // document — one via a diff-based server-side `applyText`, the other via the
 // host's own synchronous, untracked full-document `ydoc.transact` rewrite
-// (see DesignEditor.tsx's applyLocalContentUpdate/commitVisualStyles
+// (see commands/apply-local-content-update.ts / commit-visual-styles.ts
 // "Untracked full rewrite" comments). If a base style edit (e.g. Fill's Add
 // layer / Remove layer) fires WHILE a shader apply/remove/knob-commit for the
 // SAME file is still in flight, the two writes are computed from a common
@@ -82,8 +82,8 @@ import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
 //
 // `withShaderWriteLock`/`isShaderWriteInFlight` below is a small, file-scoped
 // exclusion registry (no new action, no new GlslShaderPanelContext field —
-// EditPanel.tsx's context plumbing is unchanged) that DesignEditor.tsx's
-// commitVisualStyles imports directly to defer its own competing write until
+// EditPanel.tsx's context plumbing is unchanged) that
+// commands/commit-visual-styles.ts imports directly to defer its own competing write until
 // this picker's in-flight persist for the same file has fully settled
 // (including the onApplied host-sync), closing the race at its source
 // instead of papering over the corrupted result afterward.
@@ -92,7 +92,7 @@ import { ScrubInput, type ScrubInputChangeMeta } from "./ScrubInput";
  * Per-file registry of in-flight shader persist operations (read-source-file
  * GET through apply-source-edit POST through the onApplied host-sync
  * callback). Module-scoped rather than threaded through
- * GlslShaderPanelContext so DesignEditor.tsx can await it without EditPanel.tsx
+ * GlslShaderPanelContext so the editor can await it without EditPanel.tsx
  * needing to forward a new prop.
  */
 const shaderWriteLocks = new Map<string, Promise<void>>();

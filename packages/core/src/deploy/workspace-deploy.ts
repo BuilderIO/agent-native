@@ -1,14 +1,17 @@
-import { execFileSync } from "child_process";
+import { execFileSync, spawn } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 
 import {
   AGENT_BACKGROUND_PROCESSOR_A2A,
+  AGENT_BACKGROUND_PROCESSOR_AGENT_TEAM,
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
+  AGENT_TEAM_PROCESS_RUN_PATH,
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -54,6 +57,7 @@ import {
 import {
   assertEmittedBackgroundFunctionOnDisk,
   isRecurringJobsDeployEnabled,
+  readVercelSweepCron,
 } from "./build.js";
 import {
   cloneServerBundleForFunction,
@@ -140,19 +144,98 @@ function builtinAgentsEnvSnippet(): string {
 function workspaceDirectoryEnvSnippet(
   workspaceApps: WorkspaceAppManifestEntry[],
 ): string {
-  const orgDirectoryUrl = getAppConfig().workspace.orgDirectoryUrl?.trim();
-  if (!orgDirectoryUrl && !workspaceApps.some((app) => app.isDispatch)) {
+  const configuredOrgDirectoryUrl =
+    getAppConfig().workspace.orgDirectoryUrl?.trim();
+  const dispatchApp = workspaceApps.find((app) => app.isDispatch);
+  if (!configuredOrgDirectoryUrl && !dispatchApp) {
     return builtinAgentsEnvSnippet();
   }
+  const runtimeDirectoryResolver = dispatchApp
+    ? `
+  function logInvalidDirectoryBase() {
+    const logKey = Symbol.for("agent-native.workspace.invalid-directory-base");
+    if (globalThis[logKey]) return;
+    globalThis[logKey] = true;
+    console.error("[workspace] Invalid organization directory base URL");
+  }
+
+  function resolveRuntimeDirectoryUrl() {
+    const isVercelProduction =
+      processRef.env.VERCEL_ENV?.trim().toLowerCase() === "production";
+    const vercelCandidates = processRef.env.VERCEL
+      ? (isVercelProduction
+          ? [
+              processRef.env.VERCEL_PROJECT_PRODUCTION_URL,
+              processRef.env.VERCEL_URL,
+              processRef.env.VERCEL_BRANCH_URL,
+            ]
+          : [processRef.env.VERCEL_URL, processRef.env.VERCEL_BRANCH_URL]
+        )
+          .filter(Boolean)
+          .map((candidate) =>
+            /^https?:\\/\\//i.test(candidate)
+              ? candidate
+              : "https://" + candidate,
+          )
+      : [];
+    const candidates = [
+      processRef.env.APP_URL,
+      processRef.env.URL,
+      processRef.env.DEPLOY_URL,
+      processRef.env.BETTER_AUTH_URL,
+      ...vercelCandidates,
+      processRef.env.WORKSPACE_GATEWAY_URL,
+      processRef.env.VITE_WORKSPACE_GATEWAY_URL,
+    ].filter(Boolean);
+    let loopbackUrl;
+    for (const candidate of candidates) {
+      let baseUrl;
+      try {
+        baseUrl = new URL(candidate);
+      } catch {
+        logInvalidDirectoryBase();
+        continue;
+      }
+      if (baseUrl.protocol !== "http:" && baseUrl.protocol !== "https:") {
+        logInvalidDirectoryBase();
+        continue;
+      }
+      const directoryUrl = new URL(${JSON.stringify(dispatchApp.path)}, baseUrl)
+      .toString()
+      .replace(/\\/$/, "");
+      const hostname = baseUrl.hostname.toLowerCase().replace(/\\.$/, "");
+      const mappedIpv4 = hostname.match(
+        /^\\[::ffff:([0-9a-f]{1,4}):[0-9a-f]{1,4}\\]$/,
+      );
+      const isMappedIpv4Loopback =
+        mappedIpv4 !== null &&
+        (Number.parseInt(mappedIpv4[1], 16) >> 8) === 0x7f;
+      if (
+        hostname === "localhost" ||
+        hostname.endsWith(".localhost") ||
+        /^127(?:\\.\\d{1,3}){3}$/.test(hostname) ||
+        /^0(?:\\.\\d{1,3}){3}$/.test(hostname) ||
+        hostname === "[::1]" ||
+        hostname === "::1" ||
+        hostname === "[::]" ||
+        hostname === "::" ||
+        isMappedIpv4Loopback
+      ) {
+        loopbackUrl ??= directoryUrl;
+        continue;
+      }
+      return directoryUrl;
+    }
+    return loopbackUrl ?? null;
+  }
+`
+    : "";
   return `${builtinAgentsEnvSnippet()}
+${runtimeDirectoryResolver}
   const directoryOrigin =
     processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
-    ${JSON.stringify(orgDirectoryUrl ?? null)} ||
-    processRef.env.WORKSPACE_GATEWAY_URL ||
-    processRef.env.APP_URL ||
-    processRef.env.URL ||
-    processRef.env.DEPLOY_URL ||
-    processRef.env.BETTER_AUTH_URL;
+    ${JSON.stringify(configuredOrgDirectoryUrl ?? null)} ||
+    ${dispatchApp ? "resolveRuntimeDirectoryUrl()" : "null"};
   if (directoryOrigin) {
     processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL = directoryOrigin;
   }
@@ -253,17 +336,23 @@ export async function runWorkspaceDeploy(
     `[workspace-deploy] Building ${apps.length} app(s) for preset=${preset}`,
   );
 
-  const execFile = opts.execFile ?? execFileSync;
-  for (const app of apps) {
+  const concurrency = workspaceBuildConcurrency();
+  const runBuild: BuildRunner = opts.execFile ?? spawnBuild;
+  await runWithConcurrency(apps, concurrency, (app) =>
     buildOneApp(
       workspaceRoot,
       appsDir,
       app,
       preset,
-      execFile,
+      runBuild,
       workspaceApps,
       workspaceAuthMode,
-    );
+      concurrency > 1 ? "pipe" : "inherit",
+    ),
+  );
+  // Copy in app order after all builds so shared outputs stay deterministic.
+  const sweepCrons: Array<{ path: string; schedule: string }> = [];
+  for (const app of apps) {
     moveAppBuildIntoWorkspaceOutput(
       workspaceRoot,
       appsDir,
@@ -274,6 +363,14 @@ export async function runWorkspaceDeploy(
       workspaceApps,
       workspaceAuthMode,
     );
+    if (preset === "vercel") {
+      sweepCrons.push(
+        readVercelSweepCron(
+          path.join(appsDir, app, VERCEL_OUTPUT_DIR),
+          `/${app}`,
+        ),
+      );
+    }
   }
   writeWorkspaceAppManifests(workspaceRoot, apps, workspaceApps, preset);
   if (workspaceRootPage === "directory") {
@@ -292,6 +389,7 @@ export async function runWorkspaceDeploy(
       apps,
       workspaceApps,
       workspaceRootPage,
+      sweepCrons,
     );
   }
 
@@ -317,28 +415,24 @@ export async function runWorkspaceDeploy(
   );
 }
 
-function buildOneApp(
+async function buildOneApp(
   workspaceRoot: string,
   appsDir: string,
   app: string,
   preset: WorkspaceDeployPreset,
-  execFile: typeof execFileSync,
+  runBuild: BuildRunner,
   workspaceApps: WorkspaceAppManifestEntry[],
   workspaceAuthMode: "shared" | "isolated",
-): void {
+  stdio: "inherit" | "pipe",
+): Promise<void> {
   const appDir = path.join(appsDir, app);
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
   const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
     workspaceApps,
     app,
   );
-  const workspaceGatewayUrl =
-    process.env.VITE_WORKSPACE_GATEWAY_URL || workspaceBaseUrl();
-  const orgDirectoryUrl =
-    getAppConfig().workspace.orgDirectoryUrl?.trim() ||
-    (workspaceApps.some((entry) => entry.isDispatch)
-      ? workspaceGatewayUrl
-      : null);
+  const workspaceGatewayUrl = workspaceBaseUrl();
+  const orgDirectoryUrl = getAppConfig().workspace.orgDirectoryUrl?.trim();
   const workspaceOAuthUrl = workspaceOAuthOrigin(workspaceGatewayUrl);
   const frameworkRoutePrefix = workspaceFrameworkRoutePrefixEnv();
   const env: NodeJS.ProcessEnv = {
@@ -410,10 +504,93 @@ function buildOneApp(
 
   cleanAppBuildOutputs(appDir);
 
-  execFile("pnpm", ["--filter", app, "build"], {
+  const startedAt = Date.now();
+  await runBuild("pnpm", ["--filter", app, "build"], {
     cwd: workspaceRoot,
     env,
-    stdio: "inherit",
+    stdio,
+  });
+  console.log(
+    `[workspace-deploy] Built ${app} in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`,
+  );
+}
+
+type BuildRunner = (
+  cmd: string,
+  args: string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" | "pipe" },
+) => unknown;
+
+function workspaceBuildConcurrency(): number {
+  const raw = process.env.AGENT_NATIVE_DEPLOY_CONCURRENCY?.trim();
+  if (raw) {
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      throw new Error(
+        `AGENT_NATIVE_DEPLOY_CONCURRENCY must be a positive integer, got "${raw}"`,
+      );
+    }
+    return parsed;
+  }
+  // Each app build can use 1-2 GB, so stay well under typical CI memory limits.
+  return Math.min(3, os.availableParallelism());
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const errors: unknown[] = [];
+  const worker = async () => {
+    while (errors.length === 0 && next < items.length) {
+      try {
+        await fn(items[next++]);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+  };
+  // Let in-flight builds finish so none are orphaned when the CLI exits and
+  // every failure gets reported, not just the first.
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) {
+    throw new Error(
+      errors
+        .map((error) =>
+          error instanceof Error ? error.message : String(error),
+        )
+        .join("\n"),
+    );
+  }
+}
+
+function spawnBuild(
+  cmd: string,
+  args: string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit" | "pipe" },
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, options);
+    // Buffered so parallel builds print as whole blocks instead of interleaving.
+    const chunks: Buffer[] = [];
+    child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.stderr?.on("data", (chunk: Buffer) => chunks.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      if (chunks.length) process.stdout.write(Buffer.concat(chunks));
+      if (code === 0) resolve();
+      else
+        reject(
+          new Error(
+            `Command failed: ${cmd} ${args.join(" ")} (${signal ?? `exit code ${code}`})`,
+          ),
+        );
+    });
   });
 }
 
@@ -625,6 +802,7 @@ function writeVercelBuildConfig(
   apps: string[],
   workspaceApps: WorkspaceAppManifestEntry[],
   rootPage: AgentNativeWorkspaceRootPage,
+  sweepCrons: Array<{ path: string; schedule: string }>,
 ): void {
   const routes: Array<Record<string, any>> = [
     ...vercelImmutableAssetHeaderRoutes(outputDir, apps),
@@ -698,6 +876,7 @@ function writeVercelBuildConfig(
   const config = {
     version: 3,
     routes,
+    crons: sweepCrons,
   };
   fs.writeFileSync(
     path.join(outputDir, "config.json"),
@@ -941,6 +1120,7 @@ function emitNetlifyBackgroundFunction(
     app,
   );
   const processRunPath = `${basePath}${AGENT_CHAT_PROCESS_RUN_PATH}`;
+  const agentTeamProcessRunPath = `${basePath}${AGENT_TEAM_PROCESS_RUN_PATH}`;
   const a2aProcessTaskPath = `${basePath}/_agent-native/a2a/_process-task`;
   const integrationProcessTaskPath = `${basePath}/_agent-native/integrations/process-task`;
   const recurringJobsSweepPath = `${basePath}${RECURRING_JOBS_SWEEP_PATH}`;
@@ -954,11 +1134,13 @@ globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 const basePath = ${JSON.stringify(basePath)};
 // The base-path-prefixed framework route the Nitro router dispatches to.
 const PROCESS_RUN_PATH = ${JSON.stringify(processRunPath)};
+const AGENT_TEAM_PROCESS_RUN_PATH = ${JSON.stringify(agentTeamProcessRunPath)};
 const A2A_PROCESS_TASK_PATH = ${JSON.stringify(a2aProcessTaskPath)};
 const INTEGRATION_PROCESS_TASK_PATH = ${JSON.stringify(integrationProcessTaskPath)};
 const RECURRING_JOBS_SWEEP_PATH = ${JSON.stringify(recurringJobsSweepPath)};
 const BACKGROUND_PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
 const BACKGROUND_PROCESSOR_A2A = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A)};
+const BACKGROUND_PROCESSOR_AGENT_TEAM = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_AGENT_TEAM)};
 const BACKGROUND_PROCESSOR_INTEGRATION = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_INTEGRATION)};
 const BACKGROUND_PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
 const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
@@ -969,6 +1151,11 @@ function processorPathFromBody(body) {
     const parsed = JSON.parse(body);
     if (parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A) {
       return A2A_PROCESS_TASK_PATH;
+    }
+    if (
+      parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_AGENT_TEAM
+    ) {
+      return AGENT_TEAM_PROCESS_RUN_PATH;
     }
     if (
       parsed?.[BACKGROUND_PROCESSOR_FIELD] ===

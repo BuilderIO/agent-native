@@ -1,11 +1,13 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
+  isReconcileLeadClient,
   useCollaborativeDoc,
   emailToColor,
   emailToName,
   type CollabUser,
 } from "@agent-native/core/client/collab";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   actionErrorMessage,
   callAction,
@@ -15,6 +17,7 @@ import {
   useDbSync,
   useSession,
 } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useCreateResourceSuggestionProposal,
@@ -35,6 +38,7 @@ import type {
   Document,
   DocumentSyncStatus,
 } from "@shared/api";
+import { LIVE_BODY_SHADOW_FLAG } from "@shared/feature-flags";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
 import {
@@ -72,13 +76,23 @@ import type {
 } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
+import type { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
 
 import {
   contentBlockRegistry,
   createContentBlockRenderContext,
 } from "@/blocks/contentBlockRegistry";
+import {
+  type ContentCommentSurfaces,
+  resolveCommentSurfaces,
+  sameContentCommentSurfaces,
+} from "@/components/layout/content-layout";
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
+import {
+  useContentLayout,
+  useContentUtilityRail,
+} from "@/components/layout/use-content-layout";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   createContentSpaceSelectionQueue,
@@ -95,7 +109,6 @@ import {
 import { flushDocumentPropertyWrites } from "@/hooks/document-property-persistence";
 import { useComments, type CommentThread } from "@/hooks/use-comments";
 import {
-  useCreateContentDatabase,
   useDeleteContentDatabase,
   useProcessBuilderBodyHydration,
 } from "@/hooks/use-content-database";
@@ -112,8 +125,7 @@ import {
   patchDocumentCaches,
   documentQueryFilter,
   documentQueryKey,
-  startPageOpenReviewReads,
-  startPreviewDocumentDraftRead,
+  startPageOpenCompanionReads,
   useContentNavigationContext,
   useDeleteDocument,
   useDocuments,
@@ -123,6 +135,7 @@ import {
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import type { DocumentUpdateResult } from "@/hooks/use-documents";
+import { useElementWidthValue } from "@/hooks/use-element-width-value";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   documentSyncStatusQueryKey,
@@ -134,6 +147,7 @@ import {
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
+import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
@@ -146,7 +160,9 @@ import {
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
 import {
-  isDatabaseChoicePending,
+  clearDocumentCreationConfirmed,
+  getDocumentCreationBaseline,
+  isDocumentCreationConfirmed,
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
 import {
@@ -166,13 +182,12 @@ import {
   flushBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
 import {
-  createCollectionStarterIsVisible,
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import { flushBeforeSave } from "./collab-flush-before-save";
-import { useCommentAiRequests } from "./comment-ai";
+import { isCommentAiWorkingOn, useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   CommentDraftProvider,
@@ -185,10 +200,14 @@ import {
   useCommentReplyDrafts,
   usePendingCommentDraft,
 } from "./CommentsSidebar";
+import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
+import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
+import { directoryWidgetEditability } from "./directory-widget-editability";
+import { shouldUseLiveDocumentCollaboration } from "./document-collaboration";
 import {
+  DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
   DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME,
-  DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH,
   DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
   DOCUMENT_EDITOR_TITLE_CLASS_NAME,
   documentEditorBodyClassName,
@@ -217,6 +236,7 @@ import {
   type ToolbarBreadcrumbItem,
   type ToolbarBreadcrumbOpen,
 } from "./DocumentToolbar";
+import { isEditorContentClean } from "./editor-clean";
 import type { EditorDraftSaveResult } from "./editor-draft-save";
 import { EmojiPicker } from "./EmojiPicker";
 import { LinkedLocalDocumentAgentBridge } from "./LinkedLocalDocumentAgentBridge";
@@ -231,15 +251,20 @@ import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   clearPageDraftJournal,
   clearPageDraftJournalGeneration,
+  listPageDraftJournal,
+  syncPageDraftJournalBeforePersistingRecoveryDraft,
   writePageDraftJournal,
 } from "./page-draft-journal";
 import { PageDraftRecovery } from "./PageDraftRecovery";
 import {
+  AbandonedPageSaveError,
   mayClearRecoveryDraft,
   ownRecoveryDraftSupersededBySave,
+  runPageSaveIfSessionActive,
   savePageWithRecovery,
   type PageSaveResult as DocumentSaveResult,
 } from "./pageSession";
+import { trackPendingDocumentPersistence } from "./pending-document-persistence";
 import {
   createSuggestionAutosave,
   markSuggestionAutosaveSaved,
@@ -280,6 +305,10 @@ import {
   type SuggestionPresentationTransitions,
 } from "./suggestions/presentation-rebase";
 import {
+  reviewedInThread,
+  suggestionSourceThreadId,
+} from "./thread-suggestions";
+import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
 } from "./title-text";
@@ -291,6 +320,7 @@ import {
 } from "./useDocumentReconcileRecovery";
 import { canProjectAcceptedSuggestion, VisualEditor } from "./VisualEditor";
 import type {
+  VisualEditorInitialSelection,
   VisualEditorSuggestion,
   VisualEditorHistoryController,
   VisualEditorHistoryState,
@@ -298,6 +328,7 @@ import type {
   VisualEditorSelectionController,
   VisualEditorSelectionSnapshot,
 } from "./VisualEditor";
+import { WidgetVisualEditorBoundary } from "./WidgetLoadDiagnostic";
 
 const NO_COMMENT_THREADS: CommentThread[] = [];
 
@@ -1044,6 +1075,9 @@ export type OwnContentSaveLineage = Map<
 
 const OWN_CONTENT_SAVE_LINEAGE_LIMIT = 32;
 
+// How long collaborators typing stays quiet before one editor saves it.
+const REMOTE_SAVE_SETTLE_MS = 1500;
+
 export function recordOwnContentSave(
   lineage: OwnContentSaveLineage,
   revision: string,
@@ -1282,6 +1316,8 @@ export function PageEditorSurface({
   focusTitle = false,
   onTitleFocused,
 }: PageEditorSurfaceProps) {
+  const t = useT();
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const {
     query: documentQuery,
     fetchedForThisOpen,
@@ -1306,10 +1342,12 @@ export function PageEditorSurface({
     const cached = queryClient.getQueryData<Document>(
       documentQueryKey(documentId, { databaseId, databaseDocumentId }),
     );
-    startPreviewDocumentDraftRead(queryClient, documentId, cached);
-    if (cached?.source?.mode !== "local-files") {
-      startPageOpenReviewReads(queryClient, documentId);
-    }
+    startPageOpenCompanionReads(
+      queryClient,
+      documentId,
+      cached,
+      readsStartedEarly,
+    );
   }, [
     databaseDocumentId,
     databaseId,
@@ -1332,6 +1370,43 @@ export function PageEditorSurface({
   const loadFailureRef = useRef<DocumentLoadFailureState | null>(null);
   const document =
     queriedDocument?.id === documentId ? queriedDocument : undefined;
+  const creationPending = document
+    ? isDocumentCreationPending(queryClient, document)
+    : false;
+  const creationConfirmed = document
+    ? isDocumentCreationConfirmed(queryClient, document)
+    : false;
+  const creationStartedRef = useRef(false);
+  if (creationPending || creationConfirmed) creationStartedRef.current = true;
+  useEffect(() => {
+    if (!creationConfirmed) return;
+    return () => {
+      clearDocumentCreationConfirmed(queryClient, { id: documentId });
+    };
+  }, [creationConfirmed, documentId, queryClient]);
+  const authoritativeReadRef = useRef<{
+    queryIdentity: string;
+    succeeded: boolean;
+  }>({ queryIdentity: authoritativeSuccess.queryIdentity, succeeded: false });
+  if (
+    authoritativeReadRef.current.queryIdentity !==
+    authoritativeSuccess.queryIdentity
+  ) {
+    authoritativeReadRef.current = {
+      queryIdentity: authoritativeSuccess.queryIdentity,
+      succeeded: false,
+    };
+  }
+  if (
+    document &&
+    (authoritativeSuccess.generation > 0 ||
+      (readsStartedEarly && !isFetching && !isError))
+  ) {
+    authoritativeReadRef.current.succeeded = true;
+  }
+  const creationAwaitingFirstRead =
+    creationPending ||
+    (creationConfirmed && !authoritativeReadRef.current.succeeded);
   const optimisticTitle = useOptimisticDocumentTitle(documentId, {
     seededTitle:
       queriedDocument?.id === documentId ? queriedDocument.title : null,
@@ -1340,6 +1415,7 @@ export function PageEditorSurface({
     previous: loadFailureRef.current,
     documentId,
     admitted: admittedDocumentIdRef.current === documentId,
+    isDocumentCreationConfirmed: creationAwaitingFirstRead,
     dataUpdatedAt,
     errorUpdateCount,
     errorUpdatedAt,
@@ -1351,9 +1427,8 @@ export function PageEditorSurface({
     documentId,
     admittedDocumentId: admittedDocumentIdRef.current,
     hasDocument: Boolean(document),
-    isDocumentCreationPending: document
-      ? isDocumentCreationPending(document)
-      : false,
+    isDocumentCreationConfirmed: creationAwaitingFirstRead,
+    isDocumentCreationPending: creationPending,
     isFetchedAfterMount: fetchedForThisOpen,
     isFetching,
     isError,
@@ -1371,6 +1446,7 @@ export function PageEditorSurface({
       host === "page" &&
       !viewId &&
       !!document &&
+      document.mcpDirectoryWidgetReadOnly !== true &&
       !document.database &&
       !isError &&
       fetchedForThisOpen &&
@@ -1445,6 +1521,14 @@ export function PageEditorSurface({
             ? readDocumentShapeHint(document)
             : readPageShapeHint(documentId)
         }
+        stalledLoad={
+          widgetBridgeActive
+            ? {
+                stage: t("editor.widgetDocumentLoadStage"),
+                action: "get-document",
+              }
+            : undefined
+        }
       />
     );
   }
@@ -1463,6 +1547,8 @@ export function PageEditorSurface({
           foreground && host === "page" && !isError && fetchedForThisOpen
         }
         documentFresh={!isError && fetchedForThisOpen}
+        creationStarted={creationStartedRef.current}
+        creationAwaitingFirstRead={creationAwaitingFirstRead}
         databaseId={databaseId}
         databaseDocumentId={databaseDocumentId}
         viewId={viewId}
@@ -1474,8 +1560,7 @@ export function PageEditorSurface({
       />
     </DocumentCommentDraftProvider>
   );
-  return document.canEdit === true &&
-    document.source?.mode !== "local-files" ? (
+  return (
     <PageDraftRecovery
       key={pageEditorSessionKey({
         documentId,
@@ -1486,8 +1571,6 @@ export function PageEditorSurface({
     >
       {editor}
     </PageDraftRecovery>
-  ) : (
-    editor
   );
 }
 
@@ -1514,6 +1597,7 @@ export function documentEditorLoadState({
   documentId,
   admittedDocumentId,
   hasDocument,
+  isDocumentCreationConfirmed = false,
   isDocumentCreationPending,
   isFetchedAfterMount,
   isFetching,
@@ -1526,6 +1610,7 @@ export function documentEditorLoadState({
   documentId: string;
   admittedDocumentId: string | null;
   hasDocument: boolean;
+  isDocumentCreationConfirmed?: boolean;
   isDocumentCreationPending: boolean;
   isFetchedAfterMount: boolean;
   isFetching: boolean;
@@ -1554,7 +1639,22 @@ export function documentEditorLoadState({
       admittedDocumentId: null,
     };
   }
-  if (hasDocument && activeAdmittedDocumentId === documentId) {
+  if (
+    hasDocument &&
+    isDocumentCreationConfirmed &&
+    !isError &&
+    !hasLoadFailure
+  ) {
+    return {
+      view: "editor" as const,
+      admittedDocumentId: documentId,
+    };
+  }
+  if (
+    hasDocument &&
+    activeAdmittedDocumentId === documentId &&
+    !hasLoadFailure
+  ) {
     return {
       view: "editor" as const,
       admittedDocumentId: documentId,
@@ -1651,6 +1751,7 @@ export function updateDocumentLoadFailureState({
   previous,
   documentId,
   admitted,
+  isDocumentCreationConfirmed = false,
   dataUpdatedAt,
   errorUpdateCount,
   errorUpdatedAt,
@@ -1660,12 +1761,15 @@ export function updateDocumentLoadFailureState({
   previous: DocumentLoadFailureState | null;
   documentId: string;
   admitted: boolean;
+  isDocumentCreationConfirmed?: boolean;
   dataUpdatedAt: number;
   errorUpdateCount: number;
   errorUpdatedAt: number;
   isError: boolean;
   authoritativeSuccess: AuthoritativeQuerySuccess;
 }): DocumentLoadFailureState {
+  const hasAuthoritativelyAdmittedDocument =
+    admitted && !isDocumentCreationConfirmed;
   if (
     previous?.documentId !== documentId ||
     previous.queryIdentity !== authoritativeSuccess.queryIdentity
@@ -1692,7 +1796,7 @@ export function updateDocumentLoadFailureState({
       failed: false,
     };
   }
-  if (admitted || previous.failed) return previous;
+  if (hasAuthoritativelyAdmittedDocument || previous.failed) return previous;
   return errorUpdateCount > previous.baselineErrorUpdateCount
     ? {
         ...previous,
@@ -1793,6 +1897,8 @@ interface DocumentEditorBodyProps {
   onTitleFocused?: () => void;
   foreground?: boolean;
   documentFresh?: boolean;
+  creationStarted?: boolean;
+  creationAwaitingFirstRead?: boolean;
 }
 
 type PendingDocumentSave = {
@@ -1819,9 +1925,11 @@ type PendingDocumentSave = {
 };
 
 type DocumentSaveOptions = {
+  telemetryOrigin?: "recovery";
   historySessionId?: string;
   editorSessionId?: string;
   allowQueuedSave?: boolean;
+  requireActiveEditorSession?: boolean;
   expectedLocalSourceRevision?: string | null;
   contentBase?: DocumentContentBase;
   titleBase?: string;
@@ -1860,6 +1968,24 @@ export function enqueueDocumentSave<T>(
     () => undefined,
   );
   return queued;
+}
+
+export function enqueueRecoveryDraftTitleSync<
+  T extends {
+    title: string;
+    supersedable?: boolean;
+  },
+>(
+  queueRef: MutableRefObject<Promise<void>>,
+  title: string,
+  getCurrentDraft: () => T | null,
+  sync: (draft: T) => Promise<void>,
+): Promise<void> {
+  return enqueueDocumentSave(queueRef, async () => {
+    const draft = getCurrentDraft();
+    if (!draft?.supersedable || draft.title === title) return;
+    await sync(draft);
+  });
 }
 
 export function shouldSubmitDocumentContent(input: {
@@ -1903,33 +2029,16 @@ export async function retainThenAdoptDisplacedWinner(input: {
   return true;
 }
 
-function useElementMinWidth(
-  ref: MutableRefObject<HTMLElement | null>,
-  minWidth: number,
+function commentSurfacesForEditorWidth(
+  width: number,
+  current: ContentCommentSurfaces,
 ) {
-  const [matches, setMatches] = useState(false);
-
-  // Measured before the first paint: a page that opens beside the review
-  // margin must not first paint without it.
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const update = () =>
-      setMatches(element.getBoundingClientRect().width >= minWidth);
-    update();
-    window.addEventListener("resize", update);
-    window.visualViewport?.addEventListener("resize", update);
-    const observer =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    observer?.observe(element);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", update);
-      window.visualViewport?.removeEventListener("resize", update);
-    };
-  }, [minWidth, ref]);
-
-  return matches;
+  const next = resolveCommentSurfaces({
+    pageWidth: width,
+    viewportWidth: window.innerWidth,
+    previous: current,
+  });
+  return sameContentCommentSurfaces(next, current) ? current : next;
 }
 
 export function positionAnchoredCommentCard({
@@ -2093,15 +2202,27 @@ export function documentEditorShowsUtilityPanelSheet(
   args: DocumentCommentSurfaceLayout & {
     utilityPanel: DocumentUtilityPanel;
     selectedSuggestionId: string | null;
+    agentPanelOverlay?: boolean;
   },
 ) {
   if (args.utilityPanel === "comments") {
     return (
-      !documentEditorHasDesktopCommentSurface(args) &&
-      (args.commentsHistoryDrawerOpen || !!args.selectedSuggestionId)
+      args.agentPanelOverlay ||
+      (!documentEditorHasDesktopCommentSurface(args) &&
+        (args.commentsHistoryDrawerOpen || !!args.selectedSuggestionId))
     );
   }
   return args.utilityPanel === "info" && !args.hasUtilityRailSpace;
+}
+
+export function utilityPanelRegionShouldReceiveFocus({
+  openerConnected,
+  focusOnBody,
+}: {
+  openerConnected: boolean;
+  focusOnBody: boolean;
+}) {
+  return !openerConnected || focusOnBody;
 }
 
 export {
@@ -2121,18 +2242,6 @@ export function documentTitleWidthChanged(
   nextWidth: number,
 ) {
   return Math.abs(nextWidth - previousWidth) >= 0.5;
-}
-
-export function databaseConversionRequest(
-  documentId: string,
-  currentTitle: string,
-  currentDescription?: string | null,
-) {
-  return {
-    documentId,
-    title: currentTitle,
-    description: currentDescription?.trim() || undefined,
-  };
 }
 
 export function documentEditorDefaultIconKind(
@@ -2329,6 +2438,8 @@ function PageEditorSessionBody({
   onTitleFocused,
   foreground = false,
   documentFresh = false,
+  creationStarted = false,
+  creationAwaitingFirstRead = false,
 }: DocumentEditorBodyProps) {
   const acknowledgedDocumentRef = useRef<Document | null>(null);
   const resolvedDocument = resolveAcknowledgedDocumentSnapshot({
@@ -2382,6 +2493,7 @@ function PageEditorSessionBody({
     t,
   ]);
   const updateDocument = useUpdateDocument();
+  const observeLiveBody = useFeatureFlag(LIVE_BODY_SHADOW_FLAG.key);
   const resolvePreviewDocumentDraft = useResolvePreviewDocumentDraft();
   const updatePreviewDocumentDraft = useUpdatePreviewDocumentDraft();
   const updatePreviewDocumentDraftRef = useRef(
@@ -2407,27 +2519,36 @@ function PageEditorSessionBody({
     },
     [documentId, t, updateDocument],
   );
-  const createDatabase = useCreateContentDatabase(documentId);
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
   const processBuilderBodies = useProcessBuilderBodyHydration(
     document.bodyHydration?.databaseDocumentId ?? documentId,
   );
-  const canEdit = document.canEdit === true;
-  const canEditRef = useRef(canEdit);
   const navigate = useNavigate();
   const location = useLocation();
-  const contentSpacesQuery = useContentSpaces();
-  const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
-  const localWorkspaceMode =
-    contentSpacesQuery.data?.sourceMode === "local-files";
+  const mcpDirectoryWidgetReadOnly =
+    document.mcpDirectoryWidgetReadOnly === true;
+  const widgetEditability = directoryWidgetEditability(document);
+  const widgetCanEditDatabaseRows = widgetEditability.canEditDatabaseRows;
+  const canEdit = widgetEditability.canEditDocument;
+  const canEditRef = useRef(canEdit);
+  const [widgetFormattingSlot, setWidgetFormattingSlot] =
+    useState<HTMLDivElement | null>(null);
+  const contentSpacesQuery = useContentSpaces({
+    enabled: !mcpDirectoryWidgetReadOnly,
+  });
+  const contentSpacesData = mcpDirectoryWidgetReadOnly
+    ? undefined
+    : contentSpacesQuery.data;
+  const contentSpaces = contentSpacesData?.spaces ?? [];
+  const localWorkspaceMode = contentSpacesData?.sourceMode === "local-files";
   const localDocumentsQuery = useDocuments({ enabled: localWorkspaceMode });
   const localDocuments = useMemo<Document[]>(
     () => (localWorkspaceMode ? (localDocumentsQuery.data ?? []) : []),
     [localDocumentsQuery.data, localWorkspaceMode],
   );
   const navigationContextQuery = useContentNavigationContext(
-    host === "page" ? documentId : null,
+    host === "page" && !mcpDirectoryWidgetReadOnly ? documentId : null,
   );
   const navigationPath = useMemo(
     () =>
@@ -2444,6 +2565,7 @@ function PageEditorSessionBody({
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
   const canComment =
+    !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&
     (document.canComment ??
       (document.accessRole === "owner" ||
@@ -2456,7 +2578,7 @@ function PageEditorSessionBody({
   const decideSuggestionProposal = useDecideResourceSuggestionProposal();
   const suggestionsQuery = useResourceSuggestions(
     { resourceType: "document", resourceId: documentId },
-    { enabled: !isLocalFileDocument },
+    { enabled: !isLocalFileDocument && !mcpDirectoryWidgetReadOnly },
   );
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [isStartingSuggestion, setIsStartingSuggestion] = useState(false);
@@ -2547,6 +2669,31 @@ function PageEditorSessionBody({
     | VisualEditorSelectionSnapshot
     | null
   >(null);
+  const [creationCollaborationSelection, setCreationCollaborationSelection] =
+    useState<{
+      documentId: string;
+      selection: VisualEditorSelectionSnapshot;
+    } | null>(null);
+  const handleInitialSelectionApplied = useCallback(
+    (selection: VisualEditorInitialSelection) => {
+      setCreationCollaborationSelection((current) =>
+        current?.selection === selection ? null : current,
+      );
+    },
+    [],
+  );
+  const creationSelectionForDocument =
+    creationCollaborationSelection?.documentId === documentId
+      ? creationCollaborationSelection.selection
+      : null;
+  const visualEditorInitialSelection = isSuggesting
+    ? suggestionInitialSelection
+    : (creationSelectionForDocument ?? suggestionInitialSelection);
+  const onVisualEditorInitialSelectionApplied =
+    !isSuggesting && creationSelectionForDocument
+      ? handleInitialSelectionApplied
+      : undefined;
+  const [, setCreationCollaborationReleaseVersion] = useState(0);
   const suggestionBaseRef = useRef<SuggestionDraftSession | null>(null);
   const createdSuggestionOperationsRef = useRef(
     new Map<string, SuggestionPersistenceEntry>(),
@@ -2628,6 +2775,7 @@ function PageEditorSessionBody({
   const canStartSuggestionRef = useRef(canSuggest);
   canStartSuggestionRef.current = canSuggest;
   const canDelete =
+    !mcpDirectoryWidgetReadOnly &&
     !isLocalFileDocument &&
     !document.database?.systemRole &&
     (document.canManage === true ||
@@ -2637,7 +2785,11 @@ function PageEditorSessionBody({
     documentId,
     document.source,
   );
-  useDocumentSyncStatus(canEdit && !isLocalFileDocument ? documentId : null);
+  useDocumentSyncStatus(
+    canEdit && !isLocalFileDocument && !mcpDirectoryWidgetReadOnly
+      ? documentId
+      : null,
+  );
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
@@ -2821,16 +2973,29 @@ function PageEditorSessionBody({
   const promotedBuilderBodyRef = useRef<string | null>(null);
   const builderBodyRetryWakeRef = useRef<number | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
+  const tryReleaseCreationCollaborationRef = useRef<() => void>(() => {});
+  const initialCreationSaveStartedRef = useRef(false);
   const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const activeContentSavesRef = useRef(0);
+  const liveMarkdownRef = useRef<string | null>(null);
+  const remoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const convergedSaveAttemptRef = useRef<string | null>(null);
+  const collabAwarenessRef = useRef<Awareness | null>(null);
+  const collabClientIdRef = useRef<number | null>(null);
+  const recoveryDraftRetentionQueueRef = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
   const recoveryDraftRef = useRef<{
     version: number;
     title: string;
     content: string;
+    deferredReason: "conflict" | null;
     editorSessionId: string | null;
     editGeneration: number | null;
+    contentBase: DocumentContentBase;
     supersedable?: boolean;
   } | null>(null);
+  const syncRecoveryDraftTitleRef = useRef<(title: string) => void>(() => {});
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
     { title: "", updatedAt: null },
   );
@@ -2859,6 +3024,7 @@ function PageEditorSessionBody({
   if (editorSessionIdRef.current === null) {
     editorSessionIdRef.current = `${TAB_ID}:${documentId}:${crypto.randomUUID()}`;
   }
+  const editorSessionActiveRef = useRef(true);
   useRegisterLiveEditorSession(editorSessionIdRef.current);
   localContentRef.current = localContent;
   const reconcileRecovery = useDocumentReconcileRecovery({
@@ -3049,7 +3215,7 @@ function PageEditorSessionBody({
     };
   }, []);
 
-  const journalWriteErrorShownRef = useRef(false);
+  const recoveryWriteErrorShownRef = useRef(false);
   const journalScope = useCallback(
     () =>
       session?.email
@@ -3086,6 +3252,7 @@ function PageEditorSessionBody({
       try {
         writePageDraftJournal({
           scope,
+          currentTitle: localTitleRef.current,
           snapshot: {
             title,
             content,
@@ -3115,11 +3282,11 @@ function PageEditorSessionBody({
               : {}),
           },
         });
-        journalWriteErrorShownRef.current = false;
+        recoveryWriteErrorShownRef.current = false;
       } catch {
-        if (!journalWriteErrorShownRef.current) {
+        if (!recoveryWriteErrorShownRef.current) {
           toast.error(t("editor.pageSaveBeforeNavigationFailed"));
-          journalWriteErrorShownRef.current = true;
+          recoveryWriteErrorShownRef.current = true;
         }
       }
     },
@@ -3145,9 +3312,9 @@ function PageEditorSessionBody({
           });
         }
       } catch {
-        if (!journalWriteErrorShownRef.current) {
+        if (!recoveryWriteErrorShownRef.current) {
           toast.error(t("editor.pageSaveBeforeNavigationFailed"));
-          journalWriteErrorShownRef.current = true;
+          recoveryWriteErrorShownRef.current = true;
         }
       }
     },
@@ -3163,9 +3330,23 @@ function PageEditorSessionBody({
       }
     : undefined;
 
-  const collabEnabled = !isLocalFileDocument;
+  const collabEnabled = shouldUseLiveDocumentCollaboration({
+    isLocalFileDocument,
+    mcpDirectoryWidgetReadOnly,
+  });
+  const holdCollaborationForCreationSave = isDocumentCreationConfirmed(
+    queryClient,
+    document,
+  );
+  const showLocalCreationDraft =
+    creationAwaitingFirstRead || holdCollaborationForCreationSave;
   const collabDocumentId =
-    collabEnabled && !isDocumentCreationPending(document) ? documentId : null;
+    collabEnabled &&
+    !creationAwaitingFirstRead &&
+    !holdCollaborationForCreationSave &&
+    !isDocumentCreationPending(queryClient, document)
+      ? documentId
+      : null;
   const {
     ydoc,
     awareness,
@@ -3182,6 +3363,8 @@ function PageEditorSessionBody({
     requestSource: TAB_ID,
     user: currentUser,
   });
+  collabAwarenessRef.current = awareness;
+  collabClientIdRef.current = ydoc?.clientID ?? null;
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
   const bodyHydrationError =
     document.bodyHydration?.hydration?.status === "error"
@@ -3189,13 +3372,19 @@ function PageEditorSessionBody({
       : null;
   const collabInitializationFailed =
     collabEnabled && collabInitialization.status === "error";
+  const canEditWithoutCollaboration =
+    (creationAwaitingFirstRead || holdCollaborationForCreationSave) &&
+    !collabSynced;
   const editorCanEdit =
     canEdit &&
     !bodyHydrationPending &&
     !localSourceMissing &&
     (!isLocalFileDocument || localSourceAccess === "available") &&
-    (isLocalFileDocument || collabSynced) &&
-    !collabInitializationFailed;
+    (isLocalFileDocument ||
+      mcpDirectoryWidgetReadOnly ||
+      collabSynced ||
+      canEditWithoutCollaboration) &&
+    (!collabInitializationFailed || canEditWithoutCollaboration);
   const collabEditorEnabled =
     collabEnabled &&
     canEdit &&
@@ -3277,11 +3466,13 @@ function PageEditorSessionBody({
       localTitle === lastSaved.title ||
       (titleExternalIsNewer && !titleFocusedRef.current);
     if (adopt) {
+      localTitleRef.current = serverTitle;
       setLocalTitle(serverTitle);
       lastSavedTitleRef.current = {
         title: serverTitle,
         updatedAt: document.updatedAt ?? lastSaved.updatedAt,
       };
+      syncRecoveryDraftTitleRef.current(serverTitle);
     }
   }, [document, isLinkedLocalSourceDocument, titleExternalIsNewer, localTitle]);
 
@@ -3307,6 +3498,10 @@ function PageEditorSessionBody({
       contentExternalIsNewer ||
       staleEmptyLocalOverFreshServer;
     if (adopt) {
+      authoredContentBaseRef.current.adopted(
+        { revision: document.revision, content: serverContent },
+        authoredContentBase(),
+      );
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
@@ -3320,6 +3515,7 @@ function PageEditorSessionBody({
       };
     }
   }, [
+    authoredContentBase,
     document,
     isLinkedLocalSourceDocument,
     contentExternalIsNewer,
@@ -3353,9 +3549,7 @@ function PageEditorSessionBody({
     }
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
 
-  const pendingPersistenceRef = useRef(
-    new Set<Promise<Document | DocumentUpdateResult>>(),
-  );
+  const pendingPersistenceRef = useRef(new Set<Promise<unknown>>());
   const persistenceErrorsRef = useRef(
     new Map<keyof DocumentUpdates, unknown>(),
   );
@@ -3367,6 +3561,14 @@ function PageEditorSessionBody({
       if (!options.allowQueuedSave && !canEditRef.current) {
         throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
       }
+      const requireActiveEditorSession = () => {
+        if (
+          options.requireActiveEditorSession &&
+          !editorSessionActiveRef.current
+        )
+          throw new AbandonedPageSaveError();
+      };
+      requireActiveEditorSession();
 
       const localSource = document.source;
       const isLinkedLocalSource = canWriteLinkedLocalSource(
@@ -3394,6 +3596,7 @@ function PageEditorSessionBody({
             document,
             localSource,
           );
+          requireActiveEditorSession();
           if (!baseline.ok) throw new Error(baseline.error);
           if (
             baseline.revision &&
@@ -3474,6 +3677,7 @@ function PageEditorSessionBody({
       }
 
       try {
+        if (!isLinkedLocalSource) requireActiveEditorSession();
         const baseUpdatedAt =
           updates.content !== undefined
             ? ((options.contentBase ?? lastSavedContentRef.current).updatedAt ??
@@ -3483,49 +3687,57 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? (options.contentBase ?? lastSavedContentRef.current).revision
             : undefined;
-        return await updateDocument.mutateAsync({
-          id: documentId,
-          loadedUpdatedAt: loadedUpdatedAtForSave(
-            options.contentBase,
-            documentUpdatedAtRef.current,
+        return await updateDocument.mutateAsync(
+          withContentSaveOrigin(
+            {
+              id: documentId,
+              loadedUpdatedAt: loadedUpdatedAtForSave(
+                options.contentBase,
+                documentUpdatedAtRef.current,
+              ),
+              loadedContentWasEmpty:
+                updates.content !== undefined
+                  ? isEffectivelyEmptyDocumentContent(
+                      (options.contentBase ?? lastSavedContentRef.current)
+                        .content,
+                    )
+                  : undefined,
+              ...updates,
+              historySessionId:
+                options.historySessionId ??
+                historySessionRef.current.activity(documentId),
+              editorSessionId: options.editorSessionId,
+              editorEditGeneration: options.editGeneration,
+              browserSaveAttemptId: options.saveAttemptId,
+              ...(updates.content !== undefined &&
+              options.authoredContentIntent?.baseRevision &&
+              authoredCandidateMatchesContent(
+                updates.content,
+                options.authoredContentIntent.candidateContent,
+              )
+                ? {
+                    authoredBaseRevision:
+                      options.authoredContentIntent.baseRevision,
+                    authoredBaseContent:
+                      options.authoredContentIntent.baseContent,
+                    authoredCandidateContent:
+                      options.authoredContentIntent.candidateContent,
+                  }
+                : {}),
+              editorSnapshotTitle: options.editorSnapshotTitle,
+              editorSnapshotContent: options.editorSnapshotContent,
+              ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+              ...(baseRevision !== undefined ? { baseRevision } : {}),
+              ...(updates.title !== undefined
+                ? {
+                    baseTitle:
+                      options.titleBase ?? lastSavedTitleRef.current.title,
+                  }
+                : {}),
+            },
+            options.telemetryOrigin,
           ),
-          loadedContentWasEmpty:
-            updates.content !== undefined
-              ? isEffectivelyEmptyDocumentContent(
-                  (options.contentBase ?? lastSavedContentRef.current).content,
-                )
-              : undefined,
-          ...updates,
-          historySessionId:
-            options.historySessionId ??
-            historySessionRef.current.activity(documentId),
-          editorSessionId: options.editorSessionId,
-          editorEditGeneration: options.editGeneration,
-          browserSaveAttemptId: options.saveAttemptId,
-          ...(updates.content !== undefined &&
-          options.authoredContentIntent &&
-          authoredCandidateMatchesContent(
-            updates.content,
-            options.authoredContentIntent?.candidateContent,
-          )
-            ? {
-                authoredBaseRevision:
-                  options.authoredContentIntent.baseRevision,
-                authoredBaseContent: options.authoredContentIntent.baseContent,
-                authoredCandidateContent:
-                  options.authoredContentIntent.candidateContent,
-              }
-            : {}),
-          editorSnapshotTitle: options.editorSnapshotTitle,
-          editorSnapshotContent: options.editorSnapshotContent,
-          ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
-          ...(baseRevision !== undefined ? { baseRevision } : {}),
-          ...(updates.title !== undefined
-            ? {
-                baseTitle: options.titleBase ?? lastSavedTitleRef.current.title,
-              }
-            : {}),
-        });
+        );
       } catch (error) {
         if (updates.title !== undefined) {
           patchDocumentCaches(queryClient, documentId, {
@@ -3552,8 +3764,9 @@ function PageEditorSessionBody({
     (updates: DocumentUpdates, options: DocumentSaveOptions = {}) => {
       const fields = Object.keys(updates) as (keyof DocumentUpdates)[];
       const request = persistDocumentUpdatesUntracked(updates, options);
-      pendingPersistenceRef.current.add(request);
-      void request.then(
+      trackPendingDocumentPersistence(
+        pendingPersistenceRef.current,
+        request,
         (result) => {
           if (isDocumentUpdateSuperseded(result)) {
             return;
@@ -3604,13 +3817,13 @@ function PageEditorSessionBody({
               persistenceErrorsRef.current.delete(field);
             }
           }
-          pendingPersistenceRef.current.delete(request);
         },
         (error) => {
-          for (const field of fields) {
-            persistenceErrorsRef.current.set(field, error);
+          if (!(error instanceof AbandonedPageSaveError)) {
+            for (const field of fields) {
+              persistenceErrorsRef.current.set(field, error);
+            }
           }
-          pendingPersistenceRef.current.delete(request);
         },
       );
       return request;
@@ -3770,6 +3983,8 @@ function PageEditorSessionBody({
         editorSnapshotTitle: title,
         editorSnapshotContent: content,
       };
+      if (options.requireActiveEditorSession && !editorSessionActiveRef.current)
+        return { contentPersisted: false, outcome: "abandoned" };
       const contentEditVersion =
         options.contentEditVersion ?? contentEditVersionRef.current;
       const editorEditGeneration =
@@ -3878,11 +4093,26 @@ function PageEditorSessionBody({
         activeContentSavesRef.current += 1;
         let result;
         try {
-          // A peer that reads this body before the Yjs update carrying the
-          // same text merges it in, then inserts it again when the update
-          // lands. Durability outranks that, so a stalled flush still saves.
-          if (!(await flushBeforeSave(flushCollabUpdates))) {
-            console.warn("Saving before this tab's live edits reached peers");
+          const collaborationFlushed =
+            canEditWithoutCollaboration ||
+            (await flushBeforeSave(flushCollabUpdates));
+          if (
+            options.requireActiveEditorSession &&
+            !editorSessionActiveRef.current
+          )
+            return { contentPersisted: false, outcome: "abandoned" };
+          if (!collaborationFlushed) {
+            return {
+              contentPersisted: false,
+              outcome: "pending_collaboration_flush",
+              recoveryDraft: {
+                title,
+                content,
+                baseContent: contentBase.content,
+                baseUpdatedAt: contentBase.updatedAt,
+                baseRevision: contentBase.revision,
+              },
+            };
           }
           result = await saveDocumentWithRebase({
             base: { ...contentBase },
@@ -3909,6 +4139,9 @@ function PageEditorSessionBody({
               winner.title === updates.title,
             confirmsWrite: (winner) =>
               updates.title === undefined || winner.title === updates.title,
+            canContinue: () =>
+              !options.requireActiveEditorSession ||
+              editorSessionActiveRef.current,
             persist: (nextContent, contentBase) => {
               const reusedAttemptId =
                 rebaseAttempt++ === 0 ? options.saveAttemptId : undefined;
@@ -3946,6 +4179,9 @@ function PageEditorSessionBody({
           });
         } finally {
           activeContentSavesRef.current -= 1;
+        }
+        if (result.status === "abandoned") {
+          return { contentPersisted: false, outcome: "abandoned" };
         }
         if (result.status === "preservation") {
           toast.error(t("editor.pageSaveBeforeNavigationFailed"));
@@ -4086,6 +4322,7 @@ function PageEditorSessionBody({
     [
       documentId,
       autoSync,
+      canEditWithoutCollaboration,
       clearConfirmedDraftJournal,
       flushCollabUpdates,
       isLinkedLocalSourceDocument,
@@ -4133,8 +4370,10 @@ function PageEditorSessionBody({
           version: result.draft.version,
           title,
           content,
+          deferredReason,
           editorSessionId: result.draft.editorSessionId,
           editGeneration: result.draft.editGeneration,
+          contentBase: { ...contentBase },
           supersedable,
         };
         return;
@@ -4149,8 +4388,10 @@ function PageEditorSessionBody({
           version: result.draft.version,
           title,
           content,
+          deferredReason,
           editorSessionId: result.draft.editorSessionId,
           editGeneration: result.draft.editGeneration,
+          contentBase: { ...contentBase },
           supersedable,
         };
         return;
@@ -4160,9 +4401,6 @@ function PageEditorSessionBody({
     },
     [documentId, t],
   );
-  const recoveryDraftRetentionQueueRef = useRef<Promise<void>>(
-    Promise.resolve(),
-  );
   const queueRecoveryDraftRetention = useCallback(
     (
       title: string,
@@ -4171,58 +4409,155 @@ function PageEditorSessionBody({
       editorSessionId: string,
       editGeneration: number,
       contentBase?: DocumentContentBase,
+      supersedable = false,
     ) => {
-      const retain = () =>
-        retainRecoveryDraft(
-          title,
+      const retain = () => {
+        const retainedTitle =
+          supersedable &&
+          localTitleRef.current === lastSavedTitleRef.current.title
+            ? localTitleRef.current
+            : title;
+        return retainRecoveryDraft(
+          retainedTitle,
           content,
           deferredReason,
           editorSessionId,
           editGeneration,
           contentBase,
+          supersedable,
         );
-      const queued = recoveryDraftRetentionQueueRef.current.then(
-        retain,
+      };
+      const queued = enqueueDocumentSave(
+        recoveryDraftRetentionQueueRef,
         retain,
       );
-      recoveryDraftRetentionQueueRef.current = queued.catch(() => undefined);
+      if (supersedable) {
+        void queued
+          .then(() => {
+            const current = recoveryDraftRef.current;
+            const adoptedTitle =
+              localTitleRef.current === lastSavedTitleRef.current.title
+                ? localTitleRef.current
+                : null;
+            if (
+              adoptedTitle &&
+              current?.supersedable &&
+              current.title !== adoptedTitle
+            ) {
+              syncRecoveryDraftTitleRef.current(adoptedTitle);
+            }
+          })
+          .catch(() => undefined);
+      }
       return queued;
     },
     [retainRecoveryDraft],
   );
+  const syncRecoveryDraftTitle = useCallback(
+    (title: string) => {
+      const sync = async () => {
+        const scope = journalScope();
+        // Read the latest draft only after earlier retained writes settle. A
+        // queued title-only update must never replay the content it captured
+        // before a newer, non-supersedable recovery draft was retained.
+        const latest = recoveryDraftRef.current;
+        if (!latest?.supersedable || latest.title === title) return;
+        const latestSessionId =
+          latest.editorSessionId ?? editorSessionIdRef.current!;
+        const latestEditGeneration =
+          latest.editGeneration ?? editorEditGenerationRef.current;
+        const persist = () =>
+          retainRecoveryDraft(
+            title,
+            latest.content,
+            latest.deferredReason,
+            latestSessionId,
+            latestEditGeneration,
+            latest.contentBase,
+            true,
+          );
+        if (scope) {
+          await syncPageDraftJournalBeforePersistingRecoveryDraft({
+            persist,
+            scope,
+            title,
+            editGeneration: latestEditGeneration,
+            content: latest.content,
+          });
+        } else {
+          await persist();
+        }
+        recoveryWriteErrorShownRef.current = false;
+        const retained = recoveryDraftRef.current;
+        if (
+          !retained ||
+          retained.editorSessionId !== latestSessionId ||
+          retained.editGeneration !== latestEditGeneration ||
+          retained.content !== latest.content ||
+          retained.title !== title
+        ) {
+          if (!recoveryWriteErrorShownRef.current) {
+            toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+            recoveryWriteErrorShownRef.current = true;
+          }
+          return;
+        }
+      };
+
+      const queued = enqueueRecoveryDraftTitleSync(
+        recoveryDraftRetentionQueueRef,
+        title,
+        () => recoveryDraftRef.current,
+        sync,
+      );
+      void queued.catch(() => {
+        if (!recoveryWriteErrorShownRef.current) {
+          toast.error(t("editor.pageSaveBeforeNavigationFailed"));
+          recoveryWriteErrorShownRef.current = true;
+        }
+      });
+    },
+    [journalScope, retainRecoveryDraft, t],
+  );
+  syncRecoveryDraftTitleRef.current = syncRecoveryDraftTitle;
   const clearRecoveryDraft = useCallback(
     async (
       persistedTitle: string,
       persistedContent: string,
       persistedBy?: { editorSessionId: string; editGeneration: number },
     ) => {
-      const current = recoveryDraftRef.current;
-      if (
-        !current ||
-        !(
-          mayClearRecoveryDraft(current, {
-            title: persistedTitle,
-            content: persistedContent,
-          }) ||
-          (persistedBy &&
-            ownRecoveryDraftSupersededBySave(current, persistedBy))
-        )
-      ) {
-        return;
-      }
-      const result = await updatePreviewDocumentDraftRef.current({
-        operation: "delete",
-        documentId,
-        expectedVersion: current.version,
-        expectedTitle: current.title,
-        expectedContent: current.content,
-        expectedEditorSessionId: current.editorSessionId ?? undefined,
-        expectedEditGeneration: current.editGeneration ?? undefined,
-      });
-      if (result.status !== "deleted" && result.draft !== null) {
-        throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
-      }
-      recoveryDraftRef.current = null;
+      const clear = async () => {
+        const current = recoveryDraftRef.current;
+        if (
+          !current ||
+          !(
+            mayClearRecoveryDraft(current, {
+              title: persistedTitle,
+              content: persistedContent,
+            }) ||
+            (persistedBy &&
+              ownRecoveryDraftSupersededBySave(current, persistedBy))
+          )
+        ) {
+          return;
+        }
+        const result = await updatePreviewDocumentDraftRef.current({
+          operation: "delete",
+          documentId,
+          expectedVersion: current.version,
+          expectedTitle: current.title,
+          expectedContent: current.content,
+          expectedEditorSessionId: current.editorSessionId ?? undefined,
+          expectedEditGeneration: current.editGeneration ?? undefined,
+        });
+        if (result.status !== "deleted" && result.draft !== null) {
+          throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
+        }
+        recoveryDraftRef.current = null;
+      };
+      const queued = recoveryDraftRetentionQueueRef.current.then(clear, clear);
+      recoveryDraftRetentionQueueRef.current = queued.catch(() => undefined);
+      return queued;
     },
     [documentId, t],
   );
@@ -4249,68 +4584,78 @@ function PageEditorSessionBody({
           ? authoredContentIntentRef.current
           : undefined);
       return enqueueDocumentSave(documentSaveQueueRef, () =>
-        savePageWithRecovery({
-          save: () =>
-            saveDocumentImmediately(title, content, {
-              ...options,
-              contentEditVersion,
-              historySessionId:
-                options.historySessionId ??
-                historySessionRef.current.activity(documentId),
-              editorSessionId,
-              editGeneration,
-              contentBase,
-              contentObservationEpoch,
-              saveAttemptId,
-              contentAuthoredAfterRevision,
-              authoredContentIntent: authoredCandidateMatchesContent(
-                content,
-                authoredContentIntent?.candidateContent,
-              )
-                ? authoredContentIntent
-                : undefined,
+        runPageSaveIfSessionActive(
+          () =>
+            !options.requireActiveEditorSession ||
+            editorSessionActiveRef.current,
+          () =>
+            savePageWithRecovery({
+              save: () =>
+                saveDocumentImmediately(title, content, {
+                  ...options,
+                  contentEditVersion,
+                  historySessionId:
+                    options.historySessionId ??
+                    historySessionRef.current.activity(documentId),
+                  editorSessionId,
+                  editGeneration,
+                  contentBase,
+                  contentObservationEpoch,
+                  saveAttemptId,
+                  contentAuthoredAfterRevision,
+                  authoredContentIntent: authoredCandidateMatchesContent(
+                    content,
+                    authoredContentIntent?.candidateContent,
+                  )
+                    ? authoredContentIntent
+                    : undefined,
+                }),
+              retain: (reason, result) => {
+                const snapshotChanged =
+                  contentEditVersionRef.current !== contentEditVersion ||
+                  contentObservationEpochRef.current !==
+                    contentObservationEpoch ||
+                  editorEditGenerationRef.current !== editGeneration;
+                const recovery = result?.recoveryDraft;
+                return queueRecoveryDraftRetention(
+                  snapshotChanged
+                    ? localTitleRef.current
+                    : (recovery?.title ?? title),
+                  snapshotChanged
+                    ? localContentRef.current
+                    : (recovery?.content ?? content),
+                  reason,
+                  editorSessionId,
+                  snapshotChanged
+                    ? editorEditGenerationRef.current
+                    : editGeneration,
+                  recovery &&
+                    !snapshotChanged &&
+                    recovery.baseContent !== undefined
+                    ? {
+                        content: recovery.baseContent,
+                        updatedAt: recovery.baseUpdatedAt ?? null,
+                        revision: recovery.baseRevision,
+                      }
+                    : contentBase,
+                  // The editor keeps this text and a later save of it lands.
+                  true,
+                );
+              },
+              clear: () =>
+                clearRecoveryDraft(
+                  lastSavedTitleRef.current.title,
+                  lastSavedContentRef.current.content,
+                  { editorSessionId, editGeneration },
+                ),
             }),
-          retain: (reason, result) => {
-            const snapshotChanged =
-              contentEditVersionRef.current !== contentEditVersion ||
-              contentObservationEpochRef.current !== contentObservationEpoch;
-            const recovery = result?.recoveryDraft;
-            return retainRecoveryDraft(
-              snapshotChanged
-                ? localTitleRef.current
-                : (recovery?.title ?? title),
-              snapshotChanged
-                ? localContentRef.current
-                : (recovery?.content ?? content),
-              reason,
-              editorSessionId,
-              snapshotChanged
-                ? editorEditGenerationRef.current
-                : editGeneration,
-              recovery && !snapshotChanged && recovery.baseContent !== undefined
-                ? {
-                    content: recovery.baseContent,
-                    updatedAt: recovery.baseUpdatedAt ?? null,
-                    revision: recovery.baseRevision,
-                  }
-                : contentBase,
-              // The editor keeps this text and a later save of it lands.
-              true,
-            );
-          },
-          clear: () =>
-            clearRecoveryDraft(
-              lastSavedTitleRef.current.title,
-              lastSavedContentRef.current.content,
-              { editorSessionId, editGeneration },
-            ),
-        }),
+        ),
       );
     },
     [
       clearRecoveryDraft,
       documentId,
-      retainRecoveryDraft,
+      queueRecoveryDraftRetention,
       saveDocumentImmediately,
     ],
   );
@@ -4321,8 +4666,92 @@ function PageEditorSessionBody({
     null,
   );
   const retryPendingSaveDelayRef = useRef(800);
+  const creationCollaborationReleaseRunningRef = useRef(false);
+  const tryReleaseCreationCollaboration = useCallback(async () => {
+    if (creationCollaborationReleaseRunningRef.current) return;
+    const createdDocument = currentDocumentRef.current;
+    if (
+      !isDocumentCreationConfirmed(queryClient, createdDocument) ||
+      isEffectivelyEmptyDocumentContent(createdDocument.content)
+    )
+      return;
+
+    creationCollaborationReleaseRunningRef.current = true;
+    try {
+      while (
+        editorSessionActiveRef.current &&
+        currentDocumentRef.current.id === documentId &&
+        isDocumentCreationConfirmed(queryClient, currentDocumentRef.current)
+      ) {
+        const latestBodyPersisted =
+          (await editorPersistenceControllerRef.current?.flushLatest()) ?? true;
+        if (!latestBodyPersisted) return;
+
+        const editGeneration = editorEditGenerationRef.current;
+        const saveQueue = documentSaveQueueRef.current;
+        await saveQueue;
+        while (pendingPersistenceRef.current.size > 0) {
+          await Promise.allSettled([...pendingPersistenceRef.current]);
+        }
+        await Promise.resolve();
+
+        if (
+          saveQueue !== documentSaveQueueRef.current ||
+          editGeneration !== editorEditGenerationRef.current
+        ) {
+          continue;
+        }
+
+        const currentDocument = currentDocumentRef.current;
+        if (
+          currentDocument.id !== documentId ||
+          !isDocumentCreationConfirmed(queryClient, currentDocument)
+        ) {
+          return;
+        }
+        const settled = creationSaveBarrierIsSettled({
+          saveQueueUnchanged: saveQueue === documentSaveQueueRef.current,
+          editGenerationUnchanged:
+            editGeneration === editorEditGenerationRef.current,
+          hasPendingSave: pendingDocumentSaveRef.current !== null,
+          hasDebounceTimer: saveTimeoutRef.current !== null,
+          hasRetry: retryPendingSaveTimerRef.current !== null,
+          hasCollaborationSeedBody: !isEffectivelyEmptyDocumentContent(
+            currentDocument.content,
+          ),
+          activeContentSaveCount: activeContentSavesRef.current,
+          pendingPersistenceCount: pendingPersistenceRef.current.size,
+          localTitle: localTitleRef.current,
+          savedTitle: lastSavedTitleRef.current.title,
+          documentTitle: currentDocument.title,
+          localContent: localContentRef.current,
+          savedContent: lastSavedContentRef.current.content,
+          documentContent: currentDocument.content,
+        });
+        if (!settled) return;
+
+        const selection =
+          editorSelectionControllerRef.current?.captureSelection();
+        if (selection) {
+          setCreationCollaborationSelection({ documentId, selection });
+        }
+        clearDocumentCreationConfirmed(queryClient, currentDocument);
+        setCreationCollaborationReleaseVersion((version) => version + 1);
+        return;
+      }
+    } finally {
+      creationCollaborationReleaseRunningRef.current = false;
+    }
+  }, [documentId, queryClient]);
+  tryReleaseCreationCollaborationRef.current = () => {
+    void tryReleaseCreationCollaboration();
+  };
+  useEffect(() => {
+    if (document) tryReleaseCreationCollaborationRef.current();
+  }, [document]);
   retryPendingSaveRef.current = (result, pending) => {
     const currentRetryState = () => ({
+      active: editorSessionActiveRef.current,
       canEdit: canEditRef.current,
       contentEditVersion: contentEditVersionRef.current,
       editGeneration: editorEditGenerationRef.current,
@@ -4359,12 +4788,14 @@ function PageEditorSessionBody({
         authoredContentIntent: pending.authoredContentIntent,
         editorSessionId: pending.editorSessionId,
         editGeneration: pending.editGeneration,
+        requireActiveEditorSession: true,
         historySessionId: pending.historySessionId,
         saveAttemptId: retryPending.saveAttemptId,
       })
         .then((next) => {
           if (next.contentPersisted) {
             retryPendingSaveDelayRef.current = 800;
+            tryReleaseCreationCollaborationRef.current();
           } else {
             retryPendingSaveRef.current(next, retryPending);
           }
@@ -4374,6 +4805,9 @@ function PageEditorSessionBody({
   };
   const flushPendingDocumentSave = useCallback(
     (pending: PendingDocumentSave) => {
+      if (isDocumentCreationPending(queryClient, currentDocumentRef.current)) {
+        return Promise.resolve();
+      }
       if (!pending.canEditWhenQueued) return Promise.resolve();
       return Promise.resolve(
         pending.save(pending.title, pending.content, {
@@ -4394,21 +4828,84 @@ function PageEditorSessionBody({
         .then((result) => {
           if (result.contentPersisted) {
             retryPendingSaveDelayRef.current = 800;
+            tryReleaseCreationCollaborationRef.current();
           } else {
             retryPendingSaveRef.current(result, pending);
           }
         })
         .catch(handleBackgroundSaveError);
     },
-    [handleBackgroundSaveError],
+    [handleBackgroundSaveError, queryClient],
   );
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    if (
+      !creationStarted ||
+      !document?.revision ||
+      !isDocumentCreationConfirmed(queryClient, document) ||
+      initialCreationSaveStartedRef.current
+    ) {
+      return;
+    }
+    initialCreationSaveStartedRef.current = true;
+    const pending = pendingDocumentSaveRef.current;
+    if (!pending) {
+      tryReleaseCreationCollaborationRef.current();
+      return;
+    }
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = null;
+    pendingDocumentSaveRef.current = null;
+
+    const preparedSave = prepareInitialCreationSave({
+      pending,
+      creationBaseline: getDocumentCreationBaseline(queryClient, document),
+      observedDocument: document,
+    });
+    const createdDocumentSave = {
+      ...pending,
+      ...preparedSave,
+    };
+    journalCurrentDraft(
+      createdDocumentSave.title,
+      createdDocumentSave.content,
+      createdDocumentSave.editGeneration,
+      {
+        saveAttemptId: createdDocumentSave.saveAttemptId,
+        contentBase: preparedSave.contentBase,
+        titleBase: preparedSave.titleBase,
+        authoredContentIntent: preparedSave.authoredContentIntent,
+      },
+    );
+    void flushPendingDocumentSave(createdDocumentSave).finally(() => {
+      const savedContent = lastSavedContentRef.current;
+      if (savedContent.content === createdDocumentSave.content) {
+        patchDocumentCaches(queryClient, documentId, {
+          content: savedContent.content,
+          ...(savedContent.updatedAt
+            ? { updatedAt: savedContent.updatedAt }
+            : {}),
+          ...(savedContent.revision ? { revision: savedContent.revision } : {}),
+        });
+      }
+      tryReleaseCreationCollaborationRef.current();
+    });
+  }, [
+    creationStarted,
+    document,
+    flushPendingDocumentSave,
+    journalCurrentDraft,
+    queryClient,
+  ]);
+  useEffect(() => {
+    editorSessionActiveRef.current = true;
+    return () => {
+      editorSessionActiveRef.current = false;
       if (retryPendingSaveTimerRef.current)
         clearTimeout(retryPendingSaveTimerRef.current);
-    },
-    [],
-  );
+      retryPendingSaveTimerRef.current = null;
+    };
+  }, []);
   const prepareHistoryRestore = useCallback(async (): Promise<string> => {
     if (
       suggestionBaseRef.current !== null ||
@@ -4545,6 +5042,12 @@ function PageEditorSessionBody({
         saveAttemptId: crypto.randomUUID(),
         expectedLocalSourceRevision,
         timeout: setTimeout(() => {
+          if (
+            isDocumentCreationPending(queryClient, currentDocumentRef.current)
+          ) {
+            saveTimeoutRef.current = null;
+            return;
+          }
           if (pendingDocumentSaveRef.current === pending) {
             pendingDocumentSaveRef.current = null;
           }
@@ -4564,6 +5067,7 @@ function PageEditorSessionBody({
       flushPendingDocumentSave,
       isLinkedLocalSourceDocument,
       journalCurrentDraft,
+      queryClient,
       queueDocumentSave,
     ],
   );
@@ -4596,6 +5100,9 @@ function PageEditorSessionBody({
     if (!canEdit) return;
 
     const sendKeepaliveSave = (pending: PendingDocumentSave) => {
+      if (isDocumentCreationPending(queryClient, currentDocumentRef.current)) {
+        return false;
+      }
       if (!pending.canEditWhenQueued) return false;
 
       if (isLocalFileDocument || isLinkedLocalSourceDocument) {
@@ -4700,6 +5207,9 @@ function PageEditorSessionBody({
     };
 
     const flushForTeardown = () => {
+      if (isDocumentCreationPending(queryClient, currentDocumentRef.current)) {
+        return;
+      }
       const pending = pendingDocumentSaveRef.current;
       if (!pending || !pending.canEditWhenQueued) return;
       clearTimeout(pending.timeout);
@@ -4710,6 +5220,9 @@ function PageEditorSessionBody({
 
     const onVisibilityChange = () => {
       if (window.document.visibilityState !== "hidden") return;
+      if (isDocumentCreationPending(queryClient, currentDocumentRef.current)) {
+        return;
+      }
       const pending = pendingDocumentSaveRef.current;
       if (!pending) return;
       clearTimeout(pending.timeout);
@@ -4737,6 +5250,7 @@ function PageEditorSessionBody({
     isLocalFileDocument,
     isLinkedLocalSourceDocument,
     flushPendingDocumentSave,
+    queryClient,
   ]);
 
   const flushRequestInFlightRef = useRef(new Set<string>());
@@ -5559,6 +6073,7 @@ function PageEditorSessionBody({
       );
       setEditingSuggestionId(existing?.session.existingSuggestion?.id ?? null);
       if (existing) setSelectedSuggestionId(null);
+      setCreationCollaborationSelection(null);
       setIsSuggesting(true);
       return true;
     },
@@ -5647,6 +6162,7 @@ function PageEditorSessionBody({
       setEditingSuggestionId(null);
       setSuggestionInitialSelection(null);
       setSuggestionAmendmentConflict(false);
+      setCreationCollaborationSelection(null);
       setIsSuggesting(true);
       setSuggestionPersistenceRevision((revision) => revision + 1);
     },
@@ -6287,6 +6803,7 @@ function PageEditorSessionBody({
     async (
       recovery: ReconcileRecoveryDraft,
       reconcileBase?: ReconcileSaveBase,
+      telemetryOrigin?: "recovery",
     ) => {
       if (!editorCanEdit) return false;
       contentEditVersionRef.current += 1;
@@ -6332,6 +6849,7 @@ function PageEditorSessionBody({
           contentBase,
           titleBase: reconcileBase?.title,
           saveAttemptId,
+          telemetryOrigin,
         },
       );
       return result.contentPersisted;
@@ -6343,7 +6861,8 @@ function PageEditorSessionBody({
       queueDocumentSave,
     ],
   );
-  reconcileSaveRef.current = handleContentSaveNow;
+  reconcileSaveRef.current = (draft, base) =>
+    handleContentSaveNow(draft, base, "recovery");
   reconcileRetainRef.current = ({ localTitle, localDraft }) =>
     queueRecoveryDraftRetention(
       localTitle,
@@ -6356,11 +6875,8 @@ function PageEditorSessionBody({
     );
   reportReconcileRef.current = reportReconcile;
 
-  const handleContentChange = useCallback(
+  const queueEditorContentSave = useCallback(
     (newContent: string) => {
-      if (!editorCanEdit) return;
-      authoredContentBaseRef.current.edited(newContent);
-      if (newContent === localContentRef.current) return;
       contentEditVersionRef.current += 1;
       editorEditGenerationRef.current += 1;
       const authoredBase = authoredContentBase();
@@ -6389,15 +6905,103 @@ function PageEditorSessionBody({
     [
       authoredContentBase,
       debouncedSave,
-      editorCanEdit,
       journalCurrentDraft,
       retainActiveRecoveryDraft,
       updateReconcileDraft,
     ],
   );
 
+  const handleContentChange = useCallback(
+    (newContent: string) => {
+      if (!editorCanEdit) return;
+      liveMarkdownRef.current = newContent;
+      authoredContentBaseRef.current.edited(newContent);
+      if (newContent === localContentRef.current) return;
+      queueEditorContentSave(newContent);
+    },
+    [editorCanEdit, queueEditorContentSave],
+  );
+
+  // Each collaborator saves the text it held when its own save fired, and the
+  // server keeps only one of two overlapping saves. Once the editors have
+  // converged, one of them saves what the document holds now so SQL, and
+  // whoever reads it, matches what every open editor shows.
+  const saveConvergedRemoteContent = () => {
+    remoteSaveTimerRef.current = null;
+    const live = liveMarkdownRef.current;
+    if (
+      live === null ||
+      !canEditRef.current ||
+      reconcileRecoveryStateRef.current ||
+      !isReconcileLeadClient(
+        collabAwarenessRef.current,
+        collabClientIdRef.current,
+      )
+    ) {
+      return;
+    }
+    if (saveTimeoutRef.current || activeContentSavesRef.current > 0) {
+      remoteSaveTimerRef.current = setTimeout(
+        saveConvergedRemoteContent,
+        REMOTE_SAVE_SETTLE_MS,
+      );
+      return;
+    }
+    if (
+      live === lastSavedContentRef.current.content ||
+      live === convergedSaveAttemptRef.current
+    ) {
+      return;
+    }
+    convergedSaveAttemptRef.current = live;
+    authoredContentBaseRef.current.edited(live);
+    queueEditorContentSave(live);
+  };
+  const saveConvergedRemoteContentRef = useRef(saveConvergedRemoteContent);
+  saveConvergedRemoteContentRef.current = saveConvergedRemoteContent;
+  useEffect(
+    () => () => {
+      if (remoteSaveTimerRef.current) clearTimeout(remoteSaveTimerRef.current);
+    },
+    [],
+  );
+
+  const isEditorClean = useCallback(
+    (liveMarkdown: string) => {
+      // No scope means the journal cannot be read, which is never clean.
+      const scope = journalScope();
+      let journalContents: string[] | null = null;
+      if (scope) {
+        try {
+          const { writerId: _writerId, ...documentScope } = scope;
+          journalContents = listPageDraftJournal(documentScope)
+            .filter((entry) => entry.recoveryStatus !== "retained_in_history")
+            .map((entry) => entry.snapshot.content);
+        } catch {
+          journalContents = null;
+        }
+      }
+      return isEditorContentClean({
+        liveMarkdown,
+        normalize: canonicalizeNfm,
+        saveQueued: saveTimeoutRef.current !== null,
+        saveInFlight: activeContentSavesRef.current > 0,
+        recoveryPending: reconcileRecoveryStateRef.current !== null,
+        journalContents,
+        suggesting: isSuggesting,
+      });
+    },
+    [isSuggesting, journalScope],
+  );
+
   const handleRemoteSnapshotChange = useCallback(
     (content: string) => {
+      liveMarkdownRef.current = content;
+      if (remoteSaveTimerRef.current) clearTimeout(remoteSaveTimerRef.current);
+      remoteSaveTimerRef.current = setTimeout(
+        () => saveConvergedRemoteContentRef.current(),
+        REMOTE_SAVE_SETTLE_MS,
+      );
       authoredContentBaseRef.current.observed(
         content,
         lastSavedContentRef.current,
@@ -6510,7 +7114,7 @@ function PageEditorSessionBody({
       const resolved = await resolveReconcileChoice(
         base,
         async (recovery, reviewedBase) => {
-          await retainRecoveryDraft(
+          await queueRecoveryDraftRetention(
             recovery.localTitle,
             recovery.localDraft,
             documentReconcileConflict?.reason === "conflict"
@@ -6567,7 +7171,7 @@ function PageEditorSessionBody({
       queryClient,
       resolveReconcileChoice,
       resolvePreviewDocumentDraft,
-      retainRecoveryDraft,
+      queueRecoveryDraftRetention,
       t,
     ],
   );
@@ -6623,9 +7227,12 @@ function PageEditorSessionBody({
   const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
     useState<HTMLElement | null>(null);
   const utilityPanelSheetCloseRef = useRef<HTMLButtonElement>(null);
+  const utilityPanelRegionRef = useRef<HTMLElement>(null);
   const utilityPanelSheetTriggerRef = useRef<HTMLElement | null>(null);
   const commentsHistoryTriggerRef = useRef<HTMLButtonElement>(null);
+  const utilityPanelFocusFallbackRef = useRef<HTMLButtonElement>(null);
   const utilityPanelFocusGenerationRef = useRef(0);
+  const utilityPanelRegionWasOpenRef = useRef(false);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const replyDrafts = useCommentReplyDrafts(documentId, session?.email);
   const [pendingCommentTargetValid, setPendingCommentTargetValid] =
@@ -6679,10 +7286,18 @@ function PageEditorSessionBody({
     isLoading: commentsLoading,
     isFetching: commentsFetching,
     isError: commentsError,
-  } = useComments(!isLocalFileDocument ? documentId : null);
+  } = useComments(
+    !isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? documentId : null,
+  );
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
+  // Accepting moves the source thread's quote, which a revision still in
+  // flight would read as changed feedback and abandon.
+  const commentAiWorkingOnSource = (suggestion: ResourceSuggestion) => {
+    const threadId = suggestionSourceThreadId(suggestion);
+    return threadId !== null && isCommentAiWorkingOn(commentAi, threadId);
+  };
   // While AI's result is on screen, a thread it just resolved highlights the
   // text it wrote, so the card sits beside the change it describes.
   const editorCommentThreads = useMemo(() => {
@@ -6707,13 +7322,26 @@ function PageEditorSessionBody({
   const [anchoredCommentPosition, setAnchoredCommentPosition] =
     useState<AnchoredCommentPosition | null>(null);
   const [commentLaneOffset, setCommentLaneOffset] = useState(0);
-  const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
-  const hasInlineCommentSpace = useElementMinWidth(
+  // On the app's page, comment surfaces come from the shell, which decides
+  // them from where the page ends up rather than from the editor row while
+  // the agent panel animates. Anywhere else, the row measures itself.
+  const shellLayout = useContentLayout();
+  const shellCommentSurfaces =
+    host === "page" ? shellLayout?.comments : undefined;
+  const measuredCommentSurfaces = useElementWidthValue(
     documentLayoutRef,
-    DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH,
+    commentSurfacesForEditorWidth,
+    resolveCommentSurfaces({ pageWidth: 0, viewportWidth: window.innerWidth }),
+    !shellCommentSurfaces,
   );
+  const commentSurfaces = shellCommentSurfaces ?? measuredCommentSurfaces;
+  const hasUtilityRailSpace = commentSurfaces.list === "rail";
+  const hasInlineCommentSpace = commentSurfaces.margin === "lane";
   const showCommentsHistoryDrawer =
     utilityPanel === "comments" && commentsBrowseOpen;
+  useContentUtilityRail(
+    host === "page" && (showCommentsHistoryDrawer || utilityPanel === "info"),
+  );
   const showDesktopCommentsHistory =
     showCommentsHistoryDrawer &&
     documentEditorHasDesktopCommentSurface({
@@ -6797,15 +7425,64 @@ function PageEditorSessionBody({
     utilityPanel === "comments" &&
     !hasInlineCommentSpace &&
     (!!pendingComment || !!selectedThreadId);
-  const showUtilityPanelSheet = documentEditorShowsUtilityPanelSheet({
+  // A panel without a docked rail opens over the page. Only a phone gets
+  // the modal Sheet: wider, the Sheet would cover a docked agent panel.
+  const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet({
     utilityPanel,
     commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
     hasUtilityRailSpace,
     hasInlineCommentSpace,
     selectedSuggestionId,
   });
+  const showUtilityPanelSheet =
+    showUtilityPanelOffColumn &&
+    (commentSurfaces.list === "sheet" ||
+      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"));
+  const showUtilityPanelRegion =
+    showUtilityPanelOffColumn && commentSurfaces.list === "region-list";
   const hasFocusedCommentReply =
     replyDrafts.focus.current?.documentId === documentId;
+
+  useEffect(() => {
+    if (showUtilityPanelRegion) {
+      if (
+        !utilityPanelRegionWasOpenRef.current &&
+        utilityPanelRegionShouldReceiveFocus({
+          openerConnected: !!utilityPanelSheetTriggerRef.current?.isConnected,
+          focusOnBody:
+            globalThis.document.activeElement === globalThis.document.body,
+        })
+      ) {
+        utilityPanelRegionRef.current?.focus();
+      }
+      utilityPanelRegionWasOpenRef.current = true;
+      return;
+    }
+    if (!utilityPanelRegionWasOpenRef.current) return;
+
+    const transferredToRail =
+      showDesktopCommentsHistory || showDesktopInfoPanel;
+    if (utilityPanel && !transferredToRail) return;
+    utilityPanelRegionWasOpenRef.current = false;
+
+    const focusGeneration = utilityPanelFocusGenerationRef.current;
+    const restoreTarget = utilityPanelSheetTriggerRef.current;
+    const fallbackTarget =
+      utilityPanel === "comments" &&
+      commentsHistoryTriggerRef.current?.isConnected
+        ? commentsHistoryTriggerRef.current
+        : utilityPanelFocusFallbackRef.current;
+    globalThis.setTimeout(() => {
+      if (utilityPanelFocusGenerationRef.current !== focusGeneration) return;
+      (restoreTarget?.isConnected ? restoreTarget : fallbackTarget)?.focus();
+      utilityPanelSheetTriggerRef.current = null;
+    }, 0);
+  }, [
+    showDesktopCommentsHistory,
+    showDesktopInfoPanel,
+    showUtilityPanelRegion,
+    utilityPanel,
+  ]);
 
   useEffect(() => {
     if (utilityPanel) setLastUtilityPanel(utilityPanel);
@@ -6900,6 +7577,28 @@ function PageEditorSessionBody({
     });
   }, []);
 
+  // An AI suggestion asked for from a comment is reviewed inside that thread.
+  const suggestionThreadOnPage = useCallback(
+    (suggestionId: string) => {
+      const suggestion = savedSuggestions.find(
+        (entry) => entry.id === suggestionId,
+      );
+      const thread =
+        suggestion &&
+        threads?.find((entry) => reviewedInThread(suggestion, entry));
+      return thread ? thread.threadId : null;
+    },
+    [savedSuggestions, threads],
+  );
+  const activateSuggestionOrThread = useCallback(
+    (suggestionId: string) => {
+      const threadId = suggestionThreadOnPage(suggestionId);
+      if (threadId) activateCommentThread(threadId);
+      else activateSuggestion(suggestionId);
+    },
+    [activateCommentThread, activateSuggestion, suggestionThreadOnPage],
+  );
+
   const handleComment = useCallback(
     async (
       quotedText: string,
@@ -6908,6 +7607,12 @@ function PageEditorSessionBody({
       range?: { from: number; to: number },
       suggestionId?: string,
     ) => {
+      const sourceThreadId =
+        suggestionId && suggestionThreadOnPage(suggestionId);
+      if (sourceThreadId) {
+        activateCommentThread(sourceThreadId);
+        return;
+      }
       if (suggestionId) {
         let suggestion =
           sidebarSuggestions.find((entry) => entry.id === suggestionId) ?? null;
@@ -6934,11 +7639,13 @@ function PageEditorSessionBody({
       setHoveredThreadId(null);
     },
     [
+      activateCommentThread,
       activateSuggestion,
       draftSuggestions,
       flushSuggestionDraft,
       replyDrafts.setOpenReply,
       sidebarSuggestions,
+      suggestionThreadOnPage,
     ],
   );
 
@@ -6948,6 +7655,11 @@ function PageEditorSessionBody({
         isSuggesting &&
         suggestionBaseRef.current?.existingSuggestion?.id === suggestionId
       ) {
+        return;
+      }
+      const sourceThreadId = suggestionThreadOnPage(suggestionId);
+      if (sourceThreadId) {
+        activateCommentThread(sourceThreadId);
         return;
       }
       const suggestion = savedSuggestions.find(
@@ -6976,12 +7688,14 @@ function PageEditorSessionBody({
       activateSuggestion(suggestionId);
     },
     [
+      activateCommentThread,
       activateSuggestion,
       isStartingSuggestion,
       isSuggesting,
       prepareSuggestionDraftDocument,
       savedSuggestions,
       startSuggestionDraft,
+      suggestionThreadOnPage,
     ],
   );
   const handledCommentDeepLinkRef = useRef<string | null>(null);
@@ -7025,7 +7739,12 @@ function PageEditorSessionBody({
       appliedSuggestionLinkRef.current = null;
       return;
     }
-    if (!suggestionsQuery.data || appliedSuggestionLinkRef.current === key)
+    // Comments that failed to load leave the suggestion's own card to open.
+    if (
+      !suggestionsQuery.data ||
+      commentsLoading ||
+      appliedSuggestionLinkRef.current === key
+    )
       return;
     appliedSuggestionLinkRef.current = key;
     const suggestion = savedSuggestions.find(
@@ -7033,6 +7752,11 @@ function PageEditorSessionBody({
     );
     if (!suggestion) {
       toast.error(t("comments.linkUnavailable"));
+      return;
+    }
+    const sourceThreadId = suggestionThreadOnPage(suggestion.id);
+    if (sourceThreadId) {
+      activateCommentThread(sourceThreadId);
       return;
     }
     clearCommentFocus();
@@ -7050,6 +7774,9 @@ function PageEditorSessionBody({
     savedSuggestions,
     clearCommentFocus,
     replyDrafts.setOpenReply,
+    activateCommentThread,
+    suggestionThreadOnPage,
+    commentsLoading,
     t,
   ]);
 
@@ -7380,14 +8107,14 @@ function PageEditorSessionBody({
           currentDocumentId: document.id,
           currentParentId: document.parentId,
           currentDatabaseSystemRole: document.database?.systemRole ?? null,
-          catalogDocumentId: contentSpacesQuery.data?.catalogDocumentId ?? null,
+          catalogDocumentId: contentSpacesData?.catalogDocumentId ?? null,
           workspacesTitle: t("sidebar.workspaces"),
         },
         navigationPath,
       ),
     [
       contentSpaces,
-      contentSpacesQuery.data?.catalogDocumentId,
+      contentSpacesData?.catalogDocumentId,
       document,
       localDocuments,
       localWorkspaceMode,
@@ -7468,7 +8195,7 @@ function PageEditorSessionBody({
       onSuggestionFocused={() => setFocusSuggestionId(null)}
       hoveredSuggestionId={hoveredSuggestionId ?? editingSuggestionId}
       anchoredSuggestionIds={anchoredSuggestionIds}
-      onActivateSuggestion={activateSuggestion}
+      onActivateSuggestion={activateSuggestionOrThread}
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
@@ -7503,7 +8230,8 @@ function PageEditorSessionBody({
           decideSuggestion.isPending ||
           decideSuggestionProposal.isPending ||
           isSubmittingSuggestions ||
-          members.length === 0
+          members.length === 0 ||
+          members.some(commentAiWorkingOnSource)
         )
           return;
         proposalDecisionInFlightRef.current = true;
@@ -7651,7 +8379,8 @@ function PageEditorSessionBody({
           pendingProposalDecision ||
           decideSuggestion.isPending ||
           decideSuggestionProposal.isPending ||
-          isSubmittingSuggestions
+          isSubmittingSuggestions ||
+          commentAiWorkingOnSource(suggestion)
         )
           return;
         suggestionDecisionInFlightRef.current = true;
@@ -7765,6 +8494,15 @@ function PageEditorSessionBody({
           return [...byId.values()];
         });
         void suggestionsQuery.refetch();
+        // Accepting moves the asking thread's quote onto the new text.
+        if (
+          result.suggestion.status === "accepted" &&
+          suggestionSourceThreadId(result.suggestion)
+        ) {
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "list-comments", { documentId }],
+          });
+        }
         await refreshSuggestionDecisionDocument(
           continueSuggesting,
           result.suggestion.status === "accepted"
@@ -7792,41 +8530,6 @@ function PageEditorSessionBody({
       rememberPageIconRow(documentId, iconRow);
     }
   }, [documentId, host, iconRow, isDatabasePage]);
-  const databaseChoicePending = isDatabaseChoicePending(
-    document,
-    createDatabase.isPending,
-  );
-  const showCreateCollectionStarter = createCollectionStarterIsVisible({
-    canEdit: editorCanEdit,
-    bodyHydrationPending,
-    isLocalFileDocument,
-    isDatabasePage,
-    isCollectionItem: Boolean(
-      document.databaseMembership &&
-      !contentSpaces.some(
-        (space) =>
-          space.filesDatabaseId === document.databaseMembership?.databaseId,
-      ),
-    ),
-    content: localContent,
-  });
-  const handleCreateCollection = useCallback(async () => {
-    try {
-      const saved = await handleContentSaveNow({
-        localTitle: localTitleRef.current,
-        localDraft: localContentRef.current,
-      });
-      if (!saved) throw new Error(t("empty.genericError"));
-      await createDatabase.mutateAsync(
-        databaseConversionRequest(documentId, localTitleRef.current),
-      );
-    } catch (error) {
-      toast.error(t("sidebar.failedCreateDatabase"), {
-        description:
-          error instanceof Error ? error.message : t("empty.genericError"),
-      });
-    }
-  }, [createDatabase, documentId, handleContentSaveNow, t]);
   const defaultIcon =
     defaultIconKind === "database" ? (
       <IconDatabase className="size-12" aria-hidden="true" />
@@ -7849,10 +8552,7 @@ function PageEditorSessionBody({
         data-page-editor-owner={pageEditorOwner}
       >
         <div className="sticky top-0 z-10 flex h-12 items-center border-b border-border bg-background px-4">
-          <h2
-            className="sr-only"
-            aria-hidden={!hasUtilityRailSpace || undefined}
-          >
+          <h2 className="sr-only" aria-hidden={inSheet || undefined}>
             {utilityPanelTitle}
           </h2>
           <div
@@ -7901,20 +8601,18 @@ function PageEditorSessionBody({
               )}
             </button>
           ) : null}
-          {hasUtilityRailSpace || inSheet ? (
-            <button
-              ref={inSheet ? utilityPanelSheetCloseRef : undefined}
-              type="button"
-              className={cn(
-                "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                panel !== "comments" && "ms-auto",
-              )}
-              aria-label={t("editor.toolbar.closeUtilityPanel")}
-              onClick={() => handleUtilityPanelChange(null)}
-            >
-              <IconX size={16} />
-            </button>
-          ) : null}
+          <button
+            ref={inSheet ? utilityPanelSheetCloseRef : undefined}
+            type="button"
+            className={cn(
+              "flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              panel !== "comments" && "ms-auto",
+            )}
+            aria-label={t("editor.toolbar.closeUtilityPanel")}
+            onClick={() => handleUtilityPanelChange(null)}
+          >
+            <IconX size={16} />
+          </button>
         </div>
         {panel === "info" ? (
           <DocumentInfoPanel
@@ -8031,6 +8729,8 @@ function PageEditorSessionBody({
             agentActive={agentActive}
             currentUserEmail={session?.email}
             canEdit={editorCanEdit}
+            canShare={!mcpDirectoryWidgetReadOnly || canEdit}
+            readOnly={mcpDirectoryWidgetReadOnly}
             hideFromSearch={document.hideFromSearch}
             source={document.source}
             canDelete={canDelete}
@@ -8045,6 +8745,7 @@ function PageEditorSessionBody({
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
             commentsTriggerRef={commentsHistoryTriggerRef}
+            utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}
             onOpenBreadcrumbItem={
               host === "page" ? handleOpenToolbarBreadcrumb : undefined
             }
@@ -8070,8 +8771,15 @@ function PageEditorSessionBody({
               void handleSuggestionModeChange(next);
             }}
           />
+          {mcpDirectoryWidgetReadOnly && widgetEditability.canEditDocument ? (
+            <div
+              ref={setWidgetFormattingSlot}
+              className="shrink-0 empty:hidden"
+              data-content-widget-formatting-slot=""
+            />
+          ) : null}
 
-          {!isLocalFileDocument ? (
+          {!isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? (
             <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
           ) : null}
 
@@ -8217,6 +8925,8 @@ function PageEditorSessionBody({
                   "min-w-0",
                   showDesktopInfoPanel ? "flex-1" : "w-full",
                   reserveInlineReviewSpace && "pr-80",
+                  !isDatabasePage &&
+                    DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
                 )}
               >
                 <div
@@ -8359,6 +9069,7 @@ function PageEditorSessionBody({
                       document={document}
                       foreground={foreground}
                       canEdit={canEdit}
+                      canEditRowsOnly={widgetCanEditDatabaseRows}
                       viewId={viewId}
                       onExportContextChange={handleDatabaseExportContextChange}
                     />
@@ -8506,56 +9217,7 @@ function PageEditorSessionBody({
                               {t("editor.suggestionFormattingUnsupported")}
                             </div>
                           ) : null}
-                          <VisualEditor
-                            onEscape={handleEditorEscape}
-                            acceptedDecisionReadback={
-                              !isSuggesting &&
-                              pendingSuggestionDecision?.decision ===
-                                "accepted" &&
-                              pendingSuggestionDecision.readbackContent !== null
-                                ? {
-                                    id: pendingSuggestionDecision.suggestion.id,
-                                    content:
-                                      pendingSuggestionDecision.readbackContent,
-                                  }
-                                : null
-                            }
-                            onAcceptedDecisionRendered={
-                              handleAcceptedDecisionRendered
-                            }
-                            onAcceptedDecisionReadbackOutdated={
-                              handleAcceptedDecisionReadbackOutdated
-                            }
-                            contentResetKey={
-                              pendingSuggestionDecision
-                                ? `${pendingSuggestionDecision.suggestion.id}:${pendingSuggestionDecision.decision}:${pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"}`
-                                : pendingProposalDecision
-                                  ? `proposal:${pendingProposalDecision.generation}:${pendingProposalDecision.readbackContent === null ? "pending" : "readback"}`
-                                  : null
-                            }
-                            proposalDecisionReadback={
-                              (!isSuggesting ||
-                                !pendingProposalDecision?.accepted) &&
-                              pendingProposalDecision?.readbackContent !==
-                                null &&
-                              pendingProposalDecision?.readbackContent !==
-                                undefined
-                                ? {
-                                    generation:
-                                      pendingProposalDecision.generation,
-                                    content:
-                                      pendingProposalDecision.readbackContent,
-                                    beforeContent:
-                                      pendingProposalDecision.beforeContent,
-                                  }
-                                : null
-                            }
-                            onProposalDecisionRendered={
-                              handleProposalDecisionRendered
-                            }
-                            onProposalDecisionReadbackOutdated={
-                              handleProposalDecisionReadbackOutdated
-                            }
+                          <WidgetVisualEditorBoundary
                             key={`${visualEditorInstanceKey({
                               documentId,
                               documentUpdatedAt:
@@ -8566,144 +9228,206 @@ function PageEditorSessionBody({
                               hasYDoc: Boolean(ydoc),
                               localFileSyncRevision,
                             })}:${isSuggesting ? "suggesting" : "canonical"}`}
-                            documentId={documentId}
-                            contentSpaceId={document.spaceId ?? undefined}
-                            content={
-                              isLocalFileDocument
-                                ? localContent
-                                : (pendingSuggestionDecisionContent ??
-                                  (isSuggesting
-                                    ? suggestionDraft
-                                    : document.content))
-                            }
-                            contentUpdatedAt={
-                              isLocalFileDocument
-                                ? (localContentUpdatedAt ?? document.updatedAt)
-                                : suggestionEditorIsolation.contentUpdatedAt
-                            }
-                            contentRevision={
-                              isLocalFileDocument ||
-                              !suggestionEditorIsolation.reconcileCanonical
-                                ? null
-                                : (document.revision ?? null)
-                            }
-                            acknowledgedLocalSnapshot={
-                              acknowledgedLocalSnapshot
-                            }
-                            onBaseAwareReconcile={
-                              suggestionEditorIsolation.reconcileCanonical
-                                ? handleBaseAwareReconcile
-                                : undefined
-                            }
-                            onRemoteSnapshotChange={
-                              suggestionEditorIsolation.reconcileCanonical
-                                ? handleRemoteSnapshotChange
-                                : undefined
-                            }
-                            collabContentRevision={
-                              isLocalFileDocument || isSuggesting
-                                ? null
-                                : document.collabContentRevision
-                            }
-                            requestCollabSync={requestCollabSync}
-                            onChange={
-                              isSuggesting
-                                ? handleSuggestionDraftChange
-                                : handleContentChange
-                            }
-                            onSaveContent={
-                              suggestionEditorIsolation.persistCanonical
-                                ? handleImmediateContentChange
-                                : undefined
-                            }
-                            ydoc={
-                              suggestionEditorIsolation.bindCanonicalYDoc
-                                ? ydoc
-                                : null
-                            }
-                            collabSynced={
-                              collabEditorEnabled ? collabSynced : true
-                            }
-                            awareness={collabEditorEnabled ? awareness : null}
-                            user={currentUser}
-                            editable={
-                              suggestionEditorIsolation.editable &&
-                              !isStartingSuggestion &&
-                              !isSubmittingSuggestions &&
-                              !pendingSuggestionDecision &&
-                              !pendingProposalDecision
-                            }
-                            suggesting={isSuggesting}
-                            localFileMode={isLocalFileDocument}
-                            localFilePath={
-                              isLocalFileDocument ? document.source?.path : null
-                            }
-                            onComment={canComment ? handleComment : undefined}
-                            commentThreads={editorCommentThreads}
-                            activeThreadId={selectedThreadId}
-                            hoveredThreadId={hoveredThreadId}
-                            pendingHighlight={pendingComment?.range ?? null}
-                            onActivateThread={
-                              !isLocalFileDocument
-                                ? activateCommentThread
-                                : undefined
-                            }
-                            suggestions={visualSuggestions}
-                            activeSuggestionId={
-                              hoveredSuggestionId ??
-                              editingSuggestionId ??
-                              selectedSuggestionId
-                            }
-                            onActivateSuggestion={activateInlineSuggestion}
-                            onHoverSuggestion={setHoveredSuggestionId}
-                            onSuggestionReplacementIntent={
-                              isSuggesting
-                                ? handleSuggestionReplacementIntent
-                                : undefined
-                            }
-                            initialSelection={suggestionInitialSelection}
-                            onSuggestionAnchorsChange={
-                              handleSuggestionAnchorsChange
-                            }
-                            showCommentIndicators={showCommentIndicators}
-                            onJoinTitle={joinFirstBodyBlockToTitle}
-                            onOpenNotionPageLink={handleOpenNotionPageLink}
-                            notionPageId={document.notionPageId}
-                            onHistoryControllerChange={
-                              handleHistoryControllerChange
-                            }
-                            onHistoryStateChange={handleHistoryStateChange}
-                            onSelectionControllerChange={
-                              handleSelectionControllerChange
-                            }
-                            onPersistenceControllerChange={
-                              handlePersistenceControllerChange
-                            }
-                          />
+                            active={mcpDirectoryWidgetReadOnly}
+                            stage={t("editor.widgetEditorInitStage")}
+                            action="VisualEditor"
+                          >
+                            <VisualEditor
+                              visitKey={location.key}
+                              editorMountMode={
+                                isSuggesting
+                                  ? "suggesting"
+                                  : canEdit
+                                    ? "editing"
+                                    : "readonly"
+                              }
+                              onEscape={handleEditorEscape}
+                              acceptedDecisionReadback={
+                                !isSuggesting &&
+                                pendingSuggestionDecision?.decision ===
+                                  "accepted" &&
+                                pendingSuggestionDecision.readbackContent !==
+                                  null
+                                  ? {
+                                      id: pendingSuggestionDecision.suggestion
+                                        .id,
+                                      content:
+                                        pendingSuggestionDecision.readbackContent,
+                                    }
+                                  : null
+                              }
+                              onAcceptedDecisionRendered={
+                                handleAcceptedDecisionRendered
+                              }
+                              onAcceptedDecisionReadbackOutdated={
+                                handleAcceptedDecisionReadbackOutdated
+                              }
+                              contentResetKey={
+                                pendingSuggestionDecision
+                                  ? `${pendingSuggestionDecision.suggestion.id}:${pendingSuggestionDecision.decision}:${pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"}`
+                                  : pendingProposalDecision
+                                    ? `proposal:${pendingProposalDecision.generation}:${pendingProposalDecision.readbackContent === null ? "pending" : "readback"}`
+                                    : null
+                              }
+                              proposalDecisionReadback={
+                                (!isSuggesting ||
+                                  !pendingProposalDecision?.accepted) &&
+                                pendingProposalDecision?.readbackContent !==
+                                  null &&
+                                pendingProposalDecision?.readbackContent !==
+                                  undefined
+                                  ? {
+                                      generation:
+                                        pendingProposalDecision.generation,
+                                      content:
+                                        pendingProposalDecision.readbackContent,
+                                      beforeContent:
+                                        pendingProposalDecision.beforeContent,
+                                    }
+                                  : null
+                              }
+                              onProposalDecisionRendered={
+                                handleProposalDecisionRendered
+                              }
+                              onProposalDecisionReadbackOutdated={
+                                handleProposalDecisionReadbackOutdated
+                              }
+                              documentId={documentId}
+                              contentSpaceId={document.spaceId ?? undefined}
+                              widgetLoadDiagnosticsActive={
+                                mcpDirectoryWidgetReadOnly
+                              }
+                              content={
+                                isLocalFileDocument
+                                  ? localContent
+                                  : (pendingSuggestionDecisionContent ??
+                                    (isSuggesting
+                                      ? suggestionDraft
+                                      : showLocalCreationDraft
+                                        ? localContent
+                                        : document.content))
+                              }
+                              contentUpdatedAt={
+                                isLocalFileDocument || showLocalCreationDraft
+                                  ? (localContentUpdatedAt ??
+                                    document.updatedAt)
+                                  : suggestionEditorIsolation.contentUpdatedAt
+                              }
+                              contentRevision={
+                                isLocalFileDocument ||
+                                showLocalCreationDraft ||
+                                !suggestionEditorIsolation.reconcileCanonical
+                                  ? null
+                                  : (document.revision ?? null)
+                              }
+                              acknowledgedLocalSnapshot={
+                                acknowledgedLocalSnapshot
+                              }
+                              onBaseAwareReconcile={
+                                suggestionEditorIsolation.reconcileCanonical
+                                  ? handleBaseAwareReconcile
+                                  : undefined
+                              }
+                              onRemoteSnapshotChange={
+                                suggestionEditorIsolation.reconcileCanonical
+                                  ? handleRemoteSnapshotChange
+                                  : undefined
+                              }
+                              isEditorClean={isEditorClean}
+                              collabContentRevision={
+                                isLocalFileDocument || isSuggesting
+                                  ? null
+                                  : document.collabContentRevision
+                              }
+                              requestCollabSync={requestCollabSync}
+                              onChange={
+                                isSuggesting
+                                  ? handleSuggestionDraftChange
+                                  : handleContentChange
+                              }
+                              onSaveContent={
+                                suggestionEditorIsolation.persistCanonical
+                                  ? handleImmediateContentChange
+                                  : undefined
+                              }
+                              ydoc={
+                                suggestionEditorIsolation.bindCanonicalYDoc
+                                  ? ydoc
+                                  : null
+                              }
+                              observeLiveBody={observeLiveBody}
+                              collabSynced={
+                                collabEditorEnabled ? collabSynced : true
+                              }
+                              awareness={collabEditorEnabled ? awareness : null}
+                              user={currentUser}
+                              editable={
+                                suggestionEditorIsolation.editable &&
+                                !isStartingSuggestion &&
+                                !isSubmittingSuggestions &&
+                                !pendingSuggestionDecision &&
+                                !pendingProposalDecision
+                              }
+                              directoryWidgetEditing={
+                                mcpDirectoryWidgetReadOnly &&
+                                widgetEditability.canEditDocument
+                              }
+                              widgetFormattingSlot={widgetFormattingSlot}
+                              suggesting={isSuggesting}
+                              localFileMode={isLocalFileDocument}
+                              localFilePath={
+                                isLocalFileDocument
+                                  ? document.source?.path
+                                  : null
+                              }
+                              onComment={canComment ? handleComment : undefined}
+                              commentThreads={editorCommentThreads}
+                              activeThreadId={selectedThreadId}
+                              hoveredThreadId={hoveredThreadId}
+                              pendingHighlight={pendingComment?.range ?? null}
+                              onActivateThread={
+                                !isLocalFileDocument
+                                  ? activateCommentThread
+                                  : undefined
+                              }
+                              suggestions={visualSuggestions}
+                              activeSuggestionId={
+                                hoveredSuggestionId ??
+                                editingSuggestionId ??
+                                selectedSuggestionId
+                              }
+                              onActivateSuggestion={activateInlineSuggestion}
+                              onHoverSuggestion={setHoveredSuggestionId}
+                              onSuggestionReplacementIntent={
+                                isSuggesting
+                                  ? handleSuggestionReplacementIntent
+                                  : undefined
+                              }
+                              initialSelection={visualEditorInitialSelection}
+                              onInitialSelectionApplied={
+                                onVisualEditorInitialSelectionApplied
+                              }
+                              onSuggestionAnchorsChange={
+                                handleSuggestionAnchorsChange
+                              }
+                              showCommentIndicators={showCommentIndicators}
+                              onJoinTitle={joinFirstBodyBlockToTitle}
+                              onOpenNotionPageLink={handleOpenNotionPageLink}
+                              notionPageId={document.notionPageId}
+                              onHistoryControllerChange={
+                                handleHistoryControllerChange
+                              }
+                              onHistoryStateChange={handleHistoryStateChange}
+                              onSelectionControllerChange={
+                                handleSelectionControllerChange
+                              }
+                              onPersistenceControllerChange={
+                                handlePersistenceControllerChange
+                              }
+                            />
+                          </WidgetVisualEditorBoundary>
                         </>
                       );
-                      const primaryEditorWithStarter = (
-                        <>
-                          {primaryEditor}
-                          {showCreateCollectionStarter ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              className="mt-2 gap-2 text-muted-foreground"
-                              disabled={!editorCanEdit || databaseChoicePending}
-                              onClick={() => void handleCreateCollection()}
-                            >
-                              {databaseChoicePending ? (
-                                <IconLoader2 className="animate-spin" />
-                              ) : (
-                                <IconDatabase />
-                              )}
-                              {t("editor.createCollection")}
-                            </Button>
-                          ) : null}
-                        </>
-                      );
-
                       if (document.databaseMembership && !isLocalFileDocument) {
                         return (
                           <DocumentBlockFields
@@ -8716,13 +9440,16 @@ function PageEditorSessionBody({
                               databaseDocumentId ??
                               document.databaseMembership.databaseDocumentId
                             }
-                            canEdit={editorCanEdit}
+                            canEdit={
+                              editorCanEdit && !mcpDirectoryWidgetReadOnly
+                            }
+                            usePagePropertiesOnly={mcpDirectoryWidgetReadOnly}
                             suggesting={isSuggesting || isStartingSuggestion}
                             enteringSuggestion={isStartingSuggestion}
                             onPrimaryFieldAvailabilityChange={
                               handlePrimaryFieldAvailabilityChange
                             }
-                            primaryEditor={primaryEditorWithStarter}
+                            primaryEditor={primaryEditor}
                             pageProperties={document.properties}
                             onAdditionalContentChange={
                               handleAdditionalBlockContentChange
@@ -8731,11 +9458,12 @@ function PageEditorSessionBody({
                         );
                       }
 
-                      return primaryEditorWithStarter;
+                      return primaryEditor;
                     })()}
                     {!bodyHydrationPending &&
-                    !isLocalFileDocument &&
+                    collabEnabled &&
                     canEdit &&
+                    !canEditWithoutCollaboration &&
                     !collabSynced ? (
                       <div
                         className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
@@ -8829,6 +9557,30 @@ function PageEditorSessionBody({
           </CommentHistoryScrollContainer>
         </aside>
 
+        {showUtilityPanelRegion && utilityPanel ? (
+          <aside
+            ref={utilityPanelRegionRef}
+            tabIndex={-1}
+            className="absolute inset-y-0 end-0 z-40 flex w-80 max-w-full flex-col border-s border-border bg-background shadow-[var(--agent-kit-drawer-elevation)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-8 motion-safe:duration-[260ms] motion-safe:ease-[var(--ease-drawer)]"
+            aria-label={
+              utilityPanel === "info"
+                ? t("editor.toolbar.info")
+                : t("comments.title")
+            }
+            data-document-utility-region
+          >
+            {utilityPanel === "comments" ? (
+              <CommentHistoryScrollContainer className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                {renderUtilityPanelContent(utilityPanel)}
+              </CommentHistoryScrollContainer>
+            ) : (
+              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                {renderUtilityPanelContent(utilityPanel)}
+              </div>
+            )}
+          </aside>
+        ) : null}
+
         <Sheet
           modal
           open={showUtilityPanelSheet}
@@ -8863,7 +9615,10 @@ function PageEditorSessionBody({
               if (hasInlineCommentSpace && hasFocusedCommentReply) return;
               const focusGeneration = utilityPanelFocusGenerationRef.current;
               const restoreTarget = utilityPanelSheetTriggerRef.current;
-              const fallbackTarget = commentsHistoryTriggerRef.current;
+              const fallbackTarget = commentsHistoryTriggerRef.current
+                ?.isConnected
+                ? commentsHistoryTriggerRef.current
+                : utilityPanelFocusFallbackRef.current;
               globalThis.setTimeout(() => {
                 if (utilityPanelFocusGenerationRef.current !== focusGeneration)
                   return;
@@ -8874,7 +9629,13 @@ function PageEditorSessionBody({
                 utilityPanelSheetTriggerRef.current = null;
               }, 0);
             }}
-            className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]"
+            overlayClassName={
+              shellLayout?.agentPanel === "overlay" ? "z-[79]" : undefined
+            }
+            className={cn(
+              "flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]",
+              shellLayout?.agentPanel === "overlay" && "z-[80]",
+            )}
             aria-describedby={undefined}
             onEscapeKeyDown={(event) => {
               preserveCommentReplyEscape(event);

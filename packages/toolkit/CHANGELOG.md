@@ -1,5 +1,120 @@
 # @agent-native/toolkit
 
+## 0.206.0
+
+### Minor Changes
+
+- 58b7507: Refresh Builder and BYOK model catalogs, including Claude Haiku 5.5, current provider IDs, and model picker options.
+
+### Patch Changes
+
+- e88f35c: Prevent new AI chat work from dispatching without an eligible provider, and provide a consistent Connect AI flow.
+
+  `createProductionAgentHandler` now requires the `assertAiSetupReady` callback. Existing callers must provide a readiness assertion before upgrading; refusals can use the existing `onRunNotStarted` callback to retain the user's prompt and retry context.
+
+  AgentKit transports must provide `assertAiSetupReady`, or clients for transports where shared Agent-Native provider setup does not apply must set `aiSetupReadiness: "not-applicable"` explicitly.
+
+- 80e66f8: Persist a sanitized first-prompt title for chat threads without replacing an existing title, hide prompt context from extracted previews, match context tags by exact name, and remove unused browser-installer dependencies from serverless functions.
+- 58b7507: Show custom-agent model choices using the active engine's supported models and label Builder fallbacks clearly.
+- 0889356: Redirect the deprecated Dispatch integrations route into Settings and preserve mounted OAuth return paths.
+- 3f0fe0f: Let an app open the extension iframe's `img-src` and `media-src` to remote origins.
+
+  The sandboxed extension iframe shipped `img-src 'self' data: blob:` and `media-src 'self' data: blob:`, so an extension could not show a product photo, avatar, or CDN asset without proxying the bytes through the app. `extensions.iframeImageSources` and `extensions.iframeMediaSources` (env `AGENT_NATIVE_EXTENSION_IFRAME_IMAGE_SOURCES` / `AGENT_NATIVE_EXTENSION_IFRAME_MEDIA_SOURCES`) now replace those two lists, comma-separated, defaulting to the previous values. Each entry is validated as a single CSP source expression, so a configured value cannot terminate the directive and append a new one. `connect-src` stays `'self'`. A remote image or media origin is an explicit egress permission: the browser requests that URL, so it can carry data out of the sandbox. API calls still go through the permission-gated host bridge.
+
+  The configured lists reach every extension frame: the server render route, and the client-rendered `srcDoc` frames in `ExtensionViewer` and `InlineExtensionFrame`, which read them from the authenticated `/_agent-native/extensions/iframe/display-sources` endpoint. The lists are validated again wherever the policy is built, so a resolved config mutated after validation cannot inject a directive, and a client that cannot load valid lists falls back to the default policy.
+
+- e174642: `ExtensionViewer` and `ExtensionViewerPage` accept optional `headerActions` for the toolbar's trailing controls, so an app can show its notifications bell on extension pages. The default is still the agent toggle.
+- d6f1e18: Downscale large chat images for vision and preserve a URL-backed copy for retries.
+- Release all public npm packages with a patch version bump.
+- 792ba44: Mask run failure messages and diagnostic details in session replays, preserving the default privacy marker with app-specific text selectors.
+- 8f0ffa5: Preserve browser session correlation across signup and same-origin agent chat, resolve onboarding identity before handoff, keep credential and local endpoint outcomes accurate through dismissals and pending saves, and preserve attempts across idle session rotation.
+- d6f1e18: Hydrate readable images and documents from owned storage URLs into model requests and report attachment processing failures to the model.
+  Send resized image payloads through their durable URLs so multiple references stay within the request's inline data limit.
+- d6f1e18: Preserve image MIME types through shared chat attachments, report active engine configuration errors instead of treating them as missing provider credentials, validate queued image sizes before decoding, keep legacy queued messages readable, and avoid misleading storage setup guidance for generic upload failures.
+- be0d784: Add opt-in, privacy-masked session replay for signup and login pages.
+- 68deb1e: Show known-new chat homes immediately while chat history loads.
+- af7acb9: Open the Agent runs popover next to its button instead of the top-left corner of the window.
+- 217260d: Start a signed-in visitor's early session read from the top of `<head>`, before the page's stylesheets and module preloads, instead of from the body after them, where it waited for every stylesheet to load. `AppProviders` reports the read during the server render, so pages that skip the session check still start none.
+
+  Toolkit now requires `@agent-native/core` 0.205.1 or later, the first release that exports `@agent-native/core/shared/ssr-session-bootstrap-slot`, which `AppProviders` imports.
+
+- 6e9fccf: Improve onboarding telemetry attribution and setup completion redirects.
+- Updated dependencies [e88f35c]
+- Updated dependencies [d6f1e18]
+- Updated dependencies [80e66f8]
+- Updated dependencies
+- Updated dependencies [d6f1e18]
+- Updated dependencies [f3d2b81]
+  - @agent-native/agentkit@0.206.0
+
+## 0.205.0
+
+### Patch Changes
+
+- b7e32e4: A chat that still shows a run as running after the server stopped tracking it now reloads the thread and refreshes the app's data, instead of waiting for the user to retry; a status check that cannot reach the server shows its own notice rather than "running" or "done". Threads created without a request org adopt their run's org so Human Review can open them, and a one-time migration backfills existing ones. A classifier that cannot run now emits `$ai_sentiment_failed` with a coarse reason, a failed trace write is counted and logged once per run, a thumbs-down for a run with no persisted trace is saved instead of answering 404, and the thumbs-down popover gains reason chips and Copy details. A run that ends `connection_required` now leaves a note for the thread's next run (named providers, who can connect them) so the agent stops retrying the same unconnected provider, and the card says who can grant it. Pre-model reference retrieval and the per-turn screen, URL and selection blocks report a typed status (`ok`, `empty`, `timed_out`, `failed`) and add a one-line context note only when degraded; traces record the context statuses and the requested reasoning effort. Tool search ranks an exact tool-name query first.
+- ab41d2b: Record actions called by outside agents over MCP, WebMCP, or A2A as the agent acting for the user, not as the user. Rows recorded before this change read the same way, and the Settings audit log names the protocol ("Agent via MCP").
+- de66ff4: Make Clips object storage optional during onboarding, keep local recordings previewable and downloadable, and clarify Builder account setup with a retry action when connection status cannot be read.
+- 947f911: Keep agent chat on a turn the server recovers after a crash: an open chat follows the successor run live, a reload no longer shows the interrupted attempt as a failed run above the answer, and a failed run's card stays in its own turn instead of moving below newer replies.
+- 4fe4088: Clips users can skip first-run setup and start recording without connecting storage.
+- cbc151c: Show names for DeepSeek V4.1 Flash and Z-AI GLM 5.3 Flash in the model picker, and label DeepSeek V4.1 Flash "DeepSeek Flash" instead of "Flash" on the closed picker.
+- 3dc0aeb: Add responsive overlay and triggerless options to the shared agent sidebar and Share button.
+- 9236359: `useCollabReconcile` takes an optional `isEditorClean(liveMarkdown)` from the host. When the host reports the live document holds no unsaved text, a lead client adopts a newer snapshot right after the catch-up sync instead of waiting out the 2.5 s peer settle. Hosts that leave it unset keep the wait.
+- 1b1d976: Distinguish confirmed automation work, explicitly declared no-op skips, and undelivered failures in run history and automation status. Preserve failure causes and recovery codes without pausing legitimate no-op runs.
+- Release all public npm packages with a patch version bump.
+- f325447: Keep agent-panel settings navigation inside apps mounted below a base path.
+- cc79bd1: Re-enable the stuck-run banner's Retry and Cancel buttons when aborting the run fails, instead of leaving them disabled with a spinner.
+- 8418b84: Run the once-a-minute scheduled sweep on Vercel and Cloudflare Workers. Vercel builds now add a cron job that calls the sweep with `CRON_SECRET`, and Cloudflare builds add a Cron Trigger whose `scheduled` handler calls it with a token signed by `A2A_SECRET`, so scheduled automations, queued event automations, and stale-run cleanup no longer stop on those hosts. Vercel Hobby rejects a deployment whose cron runs more than once a day, so Hobby projects must set `AGENT_NATIVE_VERCEL_CRON_SCHEDULE` to a daily expression such as `0 9 * * *` before deploying this version. Both schedulers request the public sweep path, so a custom `runtime.frameworkRoutePrefix` or app base path is honored. A workspace Vercel deploy takes each app's cron from that app's own build, so every app in the workspace must build with this version of `@agent-native/core`; the deploy fails and names any app whose build scheduled no sweep. The Automations page now names a missing trigger secret and no longer claims event automations still run on a host without a scheduler or in a build with recurring jobs turned off.
+
+  On a cold Cloudflare Worker, framework routes no longer return 404 or wait out the readiness timeout: the request telemetry hook no longer throws where `AsyncLocalStorage.enterWith()` is unavailable, and pending plugin initialization is passed to `waitUntil` so it can continue after the response is sent.
+
+- 004f2a9: Continuing a stopped agent run no longer repeats the steps it already finished. A run the server ends after its worker died now saves its finished tool calls to the thread, a new message after an unfinished turn tells the agent what that turn already did, and the run failure card offers Continue, which resumes the stopped run's own turn so a finished send or charge is not run again. AgentKit transports can implement the new optional `continueRun`.
+- 701c672: Keep a typed `@` in the agent composer. It now suggests mentions and the host's Add-menu context sources (such as Design context pickers and Integrations) inline, with focus left in the prompt. Picking a source runs it or opens its picker as a dialog. Only an explicit pick makes a chip: Enter or Tab on a highlighted suggestion, or a click. Otherwise the text stays plain, so a literal like `@builder.io` is sent as written, Enter sends the text even while a search is still running, and typing Space after an exact name no longer converts it. One Escape dismisses the suggestions for that `@`. Sent messages show chips only for real mentions, not for any `@word`.
+- ae5aed6: An MCP App widget document now stays a widget for its whole life: `isMcpAppWidgetEmbed()` keeps its first positive answer and marks `<html data-agent-native-mcp-widget>`, `useIsMcpAppWidgetEmbed()` subscribes to that change, a directory widget capability token identifies a widget without the chat-bridge query flag, and `/_agent-native/embed/start` always adds the flag for directory widget tickets. `AppProviders` emits a first-paint script that sets the marker before the server-rendered skeleton paints, and `AppShellSkeleton` renders blank in a widget so the app's own sidebar never flashes.
+- Updated dependencies [b7e32e4]
+- Updated dependencies [e7416e0]
+- Updated dependencies
+- Updated dependencies [5c5e00e]
+- Updated dependencies [004f2a9]
+  - @agent-native/agentkit@0.205.0
+
+## 0.204.0
+
+### Patch Changes
+
+- c8bbbd4: Clarify Builder setup choices in the shared first-run onboarding flow.
+- 4ba5ea5: Render action chat UI in the AgentSidebar conversation.
+- Release all public npm packages with a patch version bump.
+- 4c1d77f: Open the "Connect storage to upload files" popover only after the composer's Add context menu finishes closing, anchored to the + button, so it no longer slides across the screen and disappears.
+- Updated dependencies
+- Updated dependencies [bed3b01]
+  - @agent-native/agentkit@0.204.0
+
+## 0.203.1
+
+### Patch Changes
+
+- b717c70: Move AgentKit usage below message actions and round credits to one decimal place.
+- Release all public npm packages with a patch version bump.
+- 2842af8: Keep failed spawned-agent cards visually neutral in chat.
+- Updated dependencies
+  - @agent-native/agentkit@0.203.1
+
+## 0.203.0
+
+### Patch Changes
+
+- 8944abb: Accept SVG files in agent chat again, as reference attachments. A dropped file that can't be added now shows a short, wrapping error naming the file instead of a clipped list of accepted types, and prompt composers without their own error surface show the rejection inline instead of ignoring the file.
+- 6b0f888: Show per-run provider or Builder credit costs in chat, and keep historical usage without billing metadata unclassified across usage dashboards.
+- d317d31: Keep model choices current and show the Builder.io included-services count immediately.
+- Release all public npm packages with a patch version bump.
+- 6f748b3: Keep ocean renderer tuning and color modules out of the signup hydration entry chunk.
+- de755c7: Keep signup wave backgrounds empty until the ocean is ready and position them clear of the marketing copy.
+- Updated dependencies [3d573d7]
+- Updated dependencies
+- Updated dependencies [3d573d7]
+- Updated dependencies [4738d38]
+  - @agent-native/agentkit@0.203.0
+
 ## 0.202.0
 
 ### Minor Changes
@@ -715,8 +830,8 @@
   election, so a viewer could win it and then apply nothing at all, leaving a session where every editor's work was dropped.
 - c595519: Adds a shared `afterBodyPointerUnlock` helper (`@agent-native/toolkit/ui/pointer-lock`) that defers opening a follow-up Dialog/Sheet/AlertDialog until `document.body.style.pointerEvents` is confirmed unlocked, avoiding the Radix dismissable-layer race where a new modal mounts before a closing one (with a nested Select) finishes unregistering and leaves the page permanently unclickable.
 - 9735e4d: Fix the desktop agent picker readiness, tooltip stacking, and terminal mode control.
-- 15b86eb: `VisualScrubInput` keeps focus on Enter instead of blurring, and selects the
-  committed value the way Figma's inspector fields do. Blurring handed the next
+- 15b86eb: `VisualScrubInput` keeps focus on Enter instead of blurring and selects the
+  committed value so editing can continue in the field. Blurring handed the next
   keystroke to whatever global shortcut owned that key, so typing a value and
   continuing to type could fire a canvas command (a zoom jump, in the report that
   found this) while the user believed they were still editing the field.
@@ -1037,44 +1152,5 @@
 ### Patch Changes
 
 - 14818b6: Allow the first local edit in a newly synced empty collaborative document to reach the host application's canonical save path.
-
-## 0.10.7
-
-### Patch Changes
-
-- 52cce19: Stop the agent composer from locking into a silently dead state. An
-  engine-readiness check that timed out or failed is now kept distinct from a
-  confirmed "no provider configured": it leaves the composer usable instead of
-  disabling it, and retries on a backoff instead of latching until reload. The
-  2.5s client budget that a single warm-server status probe routinely lost is
-  now a 15s abort ceiling rather than a deadline the probes race. A composer is
-  only ever disabled when the "Connect AI" affordance renders alongside it.
-
-## 0.10.6
-
-### Patch Changes
-
-- 8afb252: Allow newly created empty collaborative editors to persist their first real user edit after the shared document finishes loading.
-
-## 0.10.5
-
-### Patch Changes
-
-- 0e2c19d: Use borderless accent styling for shared secondary controls and organization pickers.
-- 0e2c19d: Align shared chat history rails with left-aligned New Chat controls and animate chat-list expansion using intrinsic sizing.
-- 0e2c19d: Expose a shared command-menu open event and sidebar footer action composition primitive.
-
-## 0.10.4
-
-### Patch Changes
-
-- 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
-  inside blocks created through the shared slash-command menu.
-
-## 0.10.3
-
-### Patch Changes
-
-- 180b41d: Preserve native pointer, keyboard, accessibility, and ref props when legacy Toolkit buttons are composed as menu triggers.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

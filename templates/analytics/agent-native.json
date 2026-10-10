@@ -7,6 +7,13 @@
     }
   },
   "doctor": {
-    "failOnBuild": false
+    "failOnBuild": false,
+    "dbToolScopingDenylist": {
+      "bigquery_cache": "provider cache, not a user-facing resource",
+      "dashboard_name_locks": "internal dashboard-name serialization rows, never exposed to raw DB tools",
+      "dashboard_views": "view telemetry, scoped by dashboard or action",
+      "first_party_analytics_cache": "internal query cache, accessed through scoped analytics queries",
+      "session_recording_session_associations": "child rows are scoped through authorized session recordings"
+    }
   }
 }

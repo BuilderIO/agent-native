@@ -9,7 +9,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccess, type ShareRole } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { parseHTML } from "linkedom/worker";
 import { z } from "zod";
@@ -42,6 +42,7 @@ async function readDeck(
   reviewOrgId?: string,
 ) {
   let row;
+  let accessRole: "owner" | ShareRole;
   if (reviewPreview) {
     const orgId = getRequestOrgId();
     if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
@@ -75,18 +76,20 @@ async function readDeck(
       fail("Deck not found.", { statusCode: 404 });
     }
     row = access.resource;
+    accessRole = access.role;
   } else {
     const access = await resolveAccess("deck", deckId);
     if (!access) {
       throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
     }
     row = access.resource;
+    accessRole = access.role;
   }
   const data = JSON.parse(row.data);
   const normalized = ensureUniqueSlideIds(
     Array.isArray(data?.slides) ? data.slides : [],
   );
-  return { row, data, ...normalized };
+  return { row, data, accessRole, ...normalized };
 }
 
 async function loadDeckWithUniqueSlideIds(
@@ -444,6 +447,8 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (args, ctx) => {
+    const isWidgetCaller =
+      ctx?.caller === "mcp-widget" || ctx?.caller === "mcp-widget-write";
     const deckId = args.deckId ?? args.id;
     if (!deckId) {
       fail("Pass the deck id as `id` or `deckId`.", {
@@ -451,11 +456,14 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const { row, data, slides } = await loadDeckWithUniqueSlideIds(
-      deckId,
-      args.reviewPreview,
-      args.reviewOrgId,
-    );
+    const { row, data, slides, accessRole } =
+      ctx?.caller === "mcp-widget"
+        ? await readDeck(deckId)
+        : await loadDeckWithUniqueSlideIds(
+            deckId,
+            args.reviewPreview,
+            args.reviewOrgId,
+          );
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
@@ -505,9 +513,16 @@ export default defineAction({
       slides.map((slide: any) => slide.id),
     );
     const linkedDesignSystemId = resolveDeckDesignSystemId(row, data);
+    const designSystemReader =
+      ctx?.caller === "mcp-widget"
+        ? {
+            run: (args: { id: string; compact?: "true" | "false" }) =>
+              getDesignSystem.run(args, ctx),
+          }
+        : getDesignSystem;
     const designSystem = await loadAgentDesignSystemContext(
       linkedDesignSystemId,
-      getDesignSystem,
+      designSystemReader,
     );
     const { deckStyle, representativeSlideId } = summarizeDeckStyle(
       slides as any,
@@ -519,6 +534,7 @@ export default defineAction({
         id: row.id,
         title: row.title || data?.title,
         visibility: row.visibility,
+        ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
         designSystemId: linkedDesignSystemId,
         designSystem,
         ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
@@ -588,6 +604,7 @@ export default defineAction({
       createdByMe:
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+      ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
       designSystemId: linkedDesignSystemId,
       designSystem,
       ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),

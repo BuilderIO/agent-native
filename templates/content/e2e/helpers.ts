@@ -12,6 +12,13 @@ import {
   type TestInfo,
 } from "@playwright/test";
 
+import {
+  SaveLineageCapture,
+  type SaveLineageCheckpointName,
+  type SaveLineageEvent,
+  type UpdateDocumentRequestLineage,
+} from "./save-lineage";
+
 export const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
   "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
@@ -69,6 +76,8 @@ export async function getDocument(page: Page, id: string) {
     title?: string;
     content?: string;
     revision?: string;
+    bodyRevision?: number;
+    contentHash?: string;
   };
 }
 
@@ -84,7 +93,14 @@ export async function getPreviewDraft(page: Page, documentId: string) {
     `get-preview-document-draft (${response.status()}): ${text}`,
   ).toBe(true);
   return (
-    JSON.parse(text) as { draft: { title: string; content: string } | null }
+    JSON.parse(text) as {
+      draft: {
+        title: string;
+        content: string;
+        editorSessionId?: string | null;
+        editGeneration?: number | null;
+      } | null;
+    }
   ).draft;
 }
 
@@ -118,12 +134,21 @@ export async function createPage(
 /** Unique words a scenario types, so each can be counted on every surface. */
 export class Markers {
   readonly all: string[] = [];
+  /** Words a tab deleted after typing them, which must not come back. */
+  readonly removed: string[] = [];
   private readonly run = randomUUID().slice(0, 4);
 
   next(author: string): string {
-    const marker = `zq${this.run}${author}${this.all.length + 1}x`;
+    const marker = `zq${this.run}${author}${this.all.length + this.removed.length + 1}x`;
     this.all.push(marker);
     return marker;
+  }
+
+  remove(marker: string): void {
+    const at = this.all.indexOf(marker);
+    if (at < 0) throw new Error(`${marker} is not a marker`);
+    this.all.splice(at, 1);
+    this.removed.push(marker);
   }
 }
 
@@ -225,6 +250,8 @@ export interface TabRecord {
   saveOutcomes: Partial<Record<SaveOutcome, number>>;
   /** Refusal codes, and the reason the server gave for a History diversion. */
   saveCodes: Record<string, number>;
+  saveLineage: SaveLineageEvent[];
+  saveLineageDropped: number;
   realtimeRefusals: number;
   realtimeStreams: number;
   collabPollTimes: number[];
@@ -241,6 +268,8 @@ function emptyTab(label: string): TabRecord {
     saveRequests: 0,
     saveOutcomes: {},
     saveCodes: {},
+    saveLineage: [],
+    saveLineageDropped: 0,
     realtimeRefusals: 0,
     realtimeStreams: 0,
     collabPollTimes: [],
@@ -258,34 +287,67 @@ function pageOf(request: Request): Page | null {
   }
 }
 
-async function classifySave(
-  response: Response,
-): Promise<{ outcome: SaveOutcome; code?: string }> {
+export async function classifySave(response: Response): Promise<{
+  outcome: SaveOutcome;
+  code?: string;
+  bodyState: "absent" | "invalid" | "valid";
+  body: Record<string, any>;
+}> {
   let body: Record<string, any> = {};
+  let bodyState: "absent" | "invalid" | "valid" = "invalid";
   try {
-    body = (await response.json()) as Record<string, any>;
+    const text = await response.text();
+    if (text.length === 0) {
+      bodyState = "absent";
+    } else {
+      try {
+        const parsed: unknown = JSON.parse(text);
+        body = parsed as Record<string, any>;
+        if (
+          parsed !== null &&
+          typeof parsed === "object" &&
+          !Array.isArray(parsed)
+        ) {
+          bodyState = "valid";
+        }
+      } catch {
+        bodyState = "invalid";
+      }
+    }
   } catch {
-    // coercion-ok: an unreadable body is classified by its status alone.
-    body = {};
+    // coercion-ok: unreadable response bodies keep the original status-based
+    // outcome; the lineage records the body as invalid instead of absent.
+    bodyState = "invalid";
   }
   if (!response.ok()) {
     const code = String(
       body.errorCode ?? body.code ?? body.error ?? `HTTP ${response.status()}`,
     ).slice(0, 80);
-    return { outcome: "refused", code };
+    return { outcome: "refused", code, bodyState, body };
   }
-  if (body.conflict === true) return { outcome: "conflict" };
-  if (body.superseded === true) return { outcome: "superseded" };
+  if (body.conflict === true) return { outcome: "conflict", bodyState, body };
+  if (body.superseded === true)
+    return { outcome: "superseded", bodyState, body };
   if (body.preservationRequired === true)
     return {
       outcome: "preserved-to-history",
       code: `preservation:${String(body.reason ?? "unknown")}`,
+      bodyState,
+      body,
     };
   if (body.bodyIntentOutcome?.status === "displaced-preserved")
-    return { outcome: "merged-displaced" };
+    return { outcome: "merged-displaced", bodyState, body };
   if (body.browserSaveAttempt?.result === "replayed")
-    return { outcome: "replayed" };
-  return { outcome: "written" };
+    return { outcome: "replayed", bodyState, body };
+  return { outcome: "written", bodyState, body };
+}
+
+export function isCollabPollQuery(params: URLSearchParams): boolean {
+  const since = params.get("since");
+  const cursor = params.has("cursor");
+  if (since !== null && cursor) return false;
+  if (since !== null) return Number(since) > 0;
+  return cursor;
 }
 
 function refuseRealtimeStream(route: Route) {
@@ -305,6 +367,12 @@ export class TabSet {
   readonly detached = emptyTab("detached");
   private readonly pending: Promise<void>[] = [];
   private readonly sentAt = new WeakMap<Request, number>();
+  private readonly saveLineage = new SaveLineageCapture();
+  private readonly lineageByRequest = new WeakMap<
+    Request,
+    { record: TabRecord; entry: UpdateDocumentRequestLineage }
+  >();
+  private readonly activeSaveLineage = new Set<UpdateDocumentRequestLineage>();
   private savesInFlight = 0;
 
   private constructor(readonly context: BrowserContext) {}
@@ -396,6 +464,25 @@ export class TabSet {
     await Promise.all(this.pending);
   }
 
+  captureReadback(
+    checkpoint: SaveLineageCheckpointName,
+    documentId: string,
+    document: Awaited<ReturnType<typeof getDocument>>,
+  ): void {
+    this.saveLineage.captureReadback(this.detached, {
+      checkpoint,
+      documentId,
+      content: document.content,
+      contentHash: document.contentHash,
+      bodyRevision: document.bodyRevision,
+      revision: document.revision,
+      savesInFlight: this.savesInFlight,
+      pendingRequestOrders: [...this.activeSaveLineage]
+        .map((entry) => entry.order)
+        .sort((left, right) => left - right),
+    });
+  }
+
   /**
    * Wait until no tab has a save on the wire. Reloading or closing a tab cuts
    * off its save in flight, which is a race of its own; without this wait the
@@ -428,13 +515,16 @@ export class TabSet {
       record.saveRequests++;
       this.savesInFlight++;
       this.sentAt.set(request, Date.now());
+      const entry = this.saveLineage.captureRequest(record, request.postData());
+      if (entry) {
+        this.lineageByRequest.set(request, { record, entry });
+        this.activeSaveLineage.add(entry);
+      }
     }
-    // The collaboration poll is the only poll request without a cursor.
-    if (
-      url.pathname === POLL_PATH &&
-      url.searchParams.has("since") &&
-      !url.searchParams.has("cursor")
-    ) {
+    // The shared transport sends both `since` and `cursor`, except its first
+    // poll (`since=0` alone); the collaboration poll sends only one of them,
+    // and never `since=0` once it holds a baseline.
+    if (url.pathname === POLL_PATH && isCollabPollQuery(url.searchParams)) {
       record.collabPollTimes.push(Date.now());
     }
   }
@@ -453,8 +543,20 @@ export class TabSet {
     this.savesInFlight--;
     const sentAt = this.sentAt.get(request);
     if (sentAt !== undefined) record.saveDurationsMs.push(Date.now() - sentAt);
+    const lineage = this.lineageByRequest.get(request);
+    const lineageResponse = lineage
+      ? this.saveLineage.beginResponse(lineage.entry, response.status())
+      : undefined;
+    if (lineage) this.activeSaveLineage.delete(lineage.entry);
     this.pending.push(
-      classifySave(response).then(({ outcome, code }) => {
+      classifySave(response).then(({ outcome, code, bodyState, body }) => {
+        if (lineage && lineageResponse)
+          this.saveLineage.finishResponse(
+            lineage.entry,
+            lineageResponse,
+            bodyState,
+            bodyState === "valid" ? body : undefined,
+          );
         record.saveOutcomes[outcome] = (record.saveOutcomes[outcome] ?? 0) + 1;
         if (code) record.saveCodes[code] = (record.saveCodes[code] ?? 0) + 1;
       }),
@@ -471,6 +573,11 @@ export class TabSet {
     const page = pageOf(request);
     const record = (page && this.tabs.get(page)) || this.detached;
     record.saveOutcomes.aborted = (record.saveOutcomes.aborted ?? 0) + 1;
+    const lineage = this.lineageByRequest.get(request);
+    if (lineage) {
+      this.activeSaveLineage.delete(lineage.entry);
+      this.saveLineage.failRequest(lineage.entry);
+    }
   }
 }
 
@@ -678,6 +785,36 @@ export async function typeAtParagraphEnd(
   await page.keyboard.type(text, { delay: delayMs });
 }
 
+/** Select `text` in the editor and delete it with the keyboard, as a person would. */
+export async function deleteEditorText(
+  page: Page,
+  text: string,
+): Promise<void> {
+  await page.evaluate(
+    ({ needle, editor }) => {
+      const root = document.querySelector(editor);
+      if (!root) throw new Error("No editor");
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        const at = node.data.indexOf(needle);
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + needle.length);
+        const selection = window.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return;
+      }
+      throw new Error(`The editor has no text node containing ${needle}`);
+    },
+    { needle: text, editor: EDITOR },
+  );
+  await page.keyboard.press("Backspace");
+  await expect(page.locator(EDITOR)).not.toContainText(text);
+}
+
 export function countMarkers(
   text: string,
   markers: readonly string[],
@@ -866,18 +1003,27 @@ export interface IntegrityObservation {
   surface: string;
   lost: string[];
   duplicated: string[];
+  /** Words a tab deleted that came back. */
+  resurrected: string[];
 }
 
 function judge(
   at: IntegrityObservation["at"],
   surface: string,
-  counts: Record<string, number>,
+  text: string,
+  markers: readonly string[],
+  removed: readonly string[],
 ): IntegrityObservation {
+  const counts = countMarkers(text, markers);
+  const removedCounts = countMarkers(text, removed);
   return {
     at,
     surface,
     lost: Object.keys(counts).filter((marker) => counts[marker] === 0),
     duplicated: Object.keys(counts).filter((marker) => counts[marker] > 1),
+    resurrected: Object.keys(removedCounts).filter(
+      (marker) => removedCounts[marker] > 0,
+    ),
   };
 }
 
@@ -889,15 +1035,16 @@ const CONVERGENCE_DEADLINE_MS = 45_000;
 
 /**
  * The integrity gate: every marker appears exactly once in the saved page
- * and in each open tab's editor, after the tabs have had time to converge,
- * again after a refresh, and again in a tab opened alone, where no live copy
- * can stand in for a lost save. History and recovery views do not count.
+ * and in each open tab's editor, and no deleted marker appears at all, after
+ * the tabs have had time to converge, again after a refresh, and again in a
+ * tab opened alone, where no live copy can stand in for a lost save. History
+ * and recovery views do not count.
  */
 export async function observeIntegrity(
   tabs: TabSet,
   reader: Page,
   id: string,
-  markers: readonly string[],
+  markers: Markers,
 ): Promise<IntegrityObservation[]> {
   const observations: IntegrityObservation[] = [];
   const open = [...tabs.tabs.keys()].filter((page) => !page.isClosed());
@@ -905,12 +1052,17 @@ export async function observeIntegrity(
   const settle = async (at: IntegrityObservation["at"], pages: Page[]) => {
     const deadline = Date.now() + CONVERGENCE_DEADLINE_MS;
     let round: IntegrityObservation[] = [];
+    let lastDocument: Awaited<ReturnType<typeof getDocument>> | undefined;
     do {
+      lastDocument = await getDocument(reader, id);
+      tabs.captureReadback(at, id, lastDocument);
       round = [
         judge(
           at,
           "sql",
-          countMarkers((await getDocument(reader, id)).content ?? "", markers),
+          lastDocument.content ?? "",
+          markers.all,
+          markers.removed,
         ),
       ];
       for (const page of pages)
@@ -918,13 +1070,12 @@ export async function observeIntegrity(
           judge(
             at,
             tabs.record(page).label,
-            countMarkers(await editorText(page), markers),
+            await editorText(page),
+            markers.all,
+            markers.removed,
           ),
         );
-      if (
-        round.every((entry) => !entry.lost.length && !entry.duplicated.length)
-      )
-        break;
+      if (round.every((entry) => !integrityProblem(entry))) break;
       await delay(1_000);
     } while (Date.now() < deadline);
     observations.push(...round);
@@ -937,6 +1088,7 @@ export async function observeIntegrity(
   await settle("deadline", open);
 
   await tabs.quiet();
+  tabs.captureReadback("before-refresh", id, await getDocument(reader, id));
   for (const page of open) {
     await page.reload({ waitUntil: "domcontentloaded" });
     await expectEditorReady(page);
@@ -944,6 +1096,7 @@ export async function observeIntegrity(
   await settle("refresh", open);
 
   await tabs.quiet();
+  tabs.captureReadback("before-close", id, await getDocument(reader, id));
   for (const page of open) await page.close();
   const alone = await tabs.open("alone", id);
   await settle("reopened-alone", [alone]);
@@ -976,12 +1129,18 @@ export function writeScenarioRecord(
   appendFileSync(file, `${JSON.stringify(record)}\n`);
 }
 
+export function integrityProblem(entry: IntegrityObservation): boolean {
+  return Boolean(
+    entry.lost.length || entry.duplicated.length || entry.resurrected.length,
+  );
+}
+
 export function integrityFailures(record: ScenarioRecord): string[] {
   return record.integrity
-    .filter((entry) => entry.lost.length || entry.duplicated.length)
+    .filter(integrityProblem)
     .map(
       (entry) =>
-        `${entry.at} ${entry.surface}: lost ${JSON.stringify(entry.lost)}, duplicated ${JSON.stringify(entry.duplicated)}`,
+        `${entry.at} ${entry.surface}: lost ${JSON.stringify(entry.lost)}, duplicated ${JSON.stringify(entry.duplicated)}, deleted but back ${JSON.stringify(entry.resurrected)}`,
     );
 }
 

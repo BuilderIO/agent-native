@@ -19,6 +19,7 @@ import { getDatabaseRuntimeFingerprint } from "../db/runtime-diagnostics.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   flushObservability,
+  recordHttpServerHandoff,
   recordHttpServerRequest,
 } from "../observability/metrics.js";
 import {
@@ -29,6 +30,7 @@ import {
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { track } from "../tracking/index.js";
 import { getAppBasePathFromViteEnv } from "./app-base-path.js";
+import { httpRouteForRequest } from "./http-route.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const TELEMETRY_EVENT_NAME = "http.response";
@@ -92,6 +94,7 @@ interface HttpRequestTelemetryState {
   requestSequence: number;
   frameworkReadyWaitMs: number;
   db: DatabaseRequestTelemetry;
+  dbMeasured: boolean;
   startupDb?: DatabaseRequestTelemetry;
 }
 
@@ -381,6 +384,14 @@ async function emitTelemetry(
   const statusCode = responseStatusCode(event, response);
   const pathname = requestPath(event);
   const decision = trackingDecision(pathname, statusCode, state);
+  const route =
+    state.routeTemplate ??
+    httpRouteForRequest({
+      method: getMethod(event),
+      pathname,
+      matchedRoute: (event.context as { matchedRoute?: { route?: unknown } })
+        ?.matchedRoute?.route,
+    });
 
   if (decision.track) {
     try {
@@ -395,12 +406,8 @@ async function emitTelemetry(
           method: getMethod(event),
           path: normalizeHttpTelemetryPath(pathname),
           route_kind: routeKind(pathname),
-          ...(actionName
-            ? {
-                action_name: actionName,
-                route_template: state.routeTemplate,
-              }
-            : {}),
+          route_template: route,
+          ...(actionName ? { action_name: actionName } : {}),
           status_code: statusCode,
           status_class: statusClass(statusCode),
           sample_rate: decision.sampleRate,
@@ -432,6 +439,7 @@ async function emitTelemetry(
           db_url_hash: db.urlHash,
           db_neon_endpoint: db.neon?.endpointId,
           db_neon_pooled: db.neon?.pooled,
+          db_measured: state.dbMeasured,
           db_operation_count: state.db.operationCount,
           db_query_count: state.db.queryCount,
           db_rows_returned: state.db.rowsReturned,
@@ -478,14 +486,56 @@ async function emitTelemetry(
       // Response telemetry is best-effort. Never perturb request handling.
     }
   }
-  recordHttpServerRequest({
-    method: getMethod(event),
-    statusCode,
-    durationMs,
-    route: state.routeTemplate,
-  });
-  await flushTrackingEvents(state.trackingScope);
-  await flushObservability();
+  const metric = { method: getMethod(event), statusCode, durationMs, route };
+  recordHttpServerRequest(metric);
+  const recordHandoff = () =>
+    recordHttpServerHandoff({
+      ...metric,
+      durationMs: Date.now() - state.startedAt,
+    });
+  const flush = async () => {
+    await flushTrackingEvents(state.trackingScope);
+    await flushObservability();
+  };
+  const waitUntil = responseWaitUntil(event);
+  if (waitUntil) {
+    recordHandoff();
+    waitUntil(flush());
+    return;
+  }
+  await flush();
+  // Recorded after the export it measures, so the next flush carries it.
+  recordHandoff();
+}
+
+type WaitUntil = (promise: Promise<unknown>) => void;
+
+const NETLIFY_CONTEXT_STORE_KEY = Symbol.for(
+  "@netlify/functions/request-context-store",
+);
+
+type NetlifyContextStore = {
+  getStore?: () => { context?: { waitUntil?: unknown } } | undefined;
+};
+
+// h3 holds the Response until the response hook settles, so awaiting the
+// export here delays every reply by up to the flush timeout.
+function responseWaitUntil(event: H3Event): WaitUntil | undefined {
+  const req = event.req as { waitUntil?: unknown } | undefined;
+  if (typeof req?.waitUntil === "function") {
+    return req.waitUntil.bind(req) as WaitUntil;
+  }
+  // Nitro's Netlify entry drops the function context. The Netlify runtime
+  // still keeps it in the AsyncLocalStorage that `getContext()` from
+  // `@netlify/functions` reads, registered under this global symbol.
+  const store = (globalThis as Record<symbol, unknown>)[
+    NETLIFY_CONTEXT_STORE_KEY
+  ] as NetlifyContextStore | undefined;
+  const netlifyContext = store?.getStore?.()?.context;
+  if (typeof netlifyContext?.waitUntil === "function") {
+    return netlifyContext.waitUntil.bind(netlifyContext) as WaitUntil;
+  }
+  return undefined;
 }
 
 function requestTelemetryState(
@@ -612,6 +662,7 @@ function logSlowRequest(
       module_to_request_ms: moduleToRequestMs(state),
       process_age_ms: state.processAgeAtStartMs,
       framework_ready_wait_ms: Math.round(state.frameworkReadyWaitMs),
+      db_measured: state.dbMeasured,
       db_ms: Math.round(state.db.operationWallMs),
       db_connect_ms: Math.round(state.db.connectTotalMs),
       db_operation_count: state.db.operationCount,
@@ -664,10 +715,11 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
       requestSequence: ++processState.requestSequence,
       frameworkReadyWaitMs: 0,
       db: createDatabaseRequestTelemetry(),
+      dbMeasured: false,
     };
     (event.context as Record<PropertyKey, unknown>)[REQUEST_TELEMETRY_KEY] =
       state;
-    enterDatabaseRequestTelemetry(state.db);
+    state.dbMeasured = enterDatabaseRequestTelemetry(state.db);
     try {
       event.res.headers.set(REQUEST_ID_HEADER, state.requestId);
       event.res.errHeaders.set(REQUEST_ID_HEADER, state.requestId);

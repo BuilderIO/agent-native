@@ -8,6 +8,7 @@ export default {
     overview: "Visão geral",
     dashboard: "Dashboard",
     dataSources: "Fontes de dados",
+    sourceStatus: "Status das fontes",
     dataDictionary: "Dicionário de dados",
     sessions: "Sessões",
     monitoring: "Monitoring",
@@ -88,7 +89,7 @@ export default {
     visibilityPrivateOnly: "Meus",
     visibilitySharedOnly: "Compartilhado",
     visibilityAllDescription: "Mostrar todos os itens",
-    visibilityPrivateOnlyDescription: "Mostrar apenas itens visíveis para você",
+    visibilityPrivateOnlyDescription: "Mostrar itens que você criou",
     visibilitySharedOnlyDescription:
       "Mostrar itens compartilhados com a organização e públicos",
     hiddenAnalyses: "Análises ocultas",
@@ -524,6 +525,34 @@ export default {
       resourcesSubmitted: "{{count}} recursos enviados.",
     },
   },
+  dataStatus: {
+    sources: "Fontes",
+    index: "Índice",
+    connected: "Conectado",
+    notConnected: "Não conectado",
+    needsReauth: "Reautenticação necessária",
+    error: "Erro",
+    loadingSources: "Carregando o status das fontes",
+    indexNotImported: "Nenhum índice gerado foi importado.",
+    indexUnreadable:
+      "Não foi possível ler o índice salvo. Envie um índice válido.",
+    indexReadFailed: "Não foi possível carregar o status do índice.",
+    lastBuilt: "Última compilação",
+    freshness: "Atualidade",
+    fresh: "Atual · {{age}}",
+    stale: "Desatualizado · {{age}}",
+    generatedUnapproved: "Gerado · não aprovado",
+    entriesBySource: "{{count}} entradas por fonte",
+    noSourceEntries: "Nenhuma contagem por fonte disponível.",
+    countUnavailable: "Indisponível",
+    adminUpload: "Envio do administrador",
+    exportDictionary: "Exportar dicionário",
+    exportingDictionary: "Exportando dicionário…",
+    exportFailed: "Falha ao exportar o dicionário. Tente novamente.",
+    exportEmpty: "Não há entradas no dicionário para exportar.",
+    exportLimitReached:
+      "O dicionário excede o limite de exportação. Entre em contato com um administrador.",
+  },
   dataDictionary: {
     intro:
       "O catálogo de métricas, tabelas e definições de negócios que o agente analítico usa ao criar painéis a partir de prompts. Mantenha as entradas precisas e o agente deixará de adivinhar seus dados.",
@@ -584,6 +613,29 @@ export default {
     exampleUseCasePlaceholder: "Quando alguém deve alcançar essa métrica?",
     saving: "Salvando...",
     saveEntry: "Salvar entrada",
+    importIndex: "Importar índice de fontes",
+    indexNotImported: "Nenhum índice de fontes gerado foi importado.",
+    indexUnreadable:
+      "Não foi possível ler o índice salvo; importe novamente um arquivo válido.",
+    indexReadFailed:
+      "Não foi possível verificar o índice de fontes salvo. Tente novamente.",
+    indexReady: "{{count}} definições de fontes geradas em {{date}}.",
+    indexStale:
+      "O snapshot tem {{days}} dias. Atualize-o para verificar revisões mais recentes das fontes.",
+    indexFileInvalid:
+      "Escolha um arquivo JSON de índice válido com até 750 KB.",
+    replaceIndexTitle: "Substituir índice de fontes?",
+    replaceIndexDescription:
+      "Isso substitui o índice de fontes atual da organização. As definições importadas continuam como sugestões não aprovadas e não são resultados de consultas ao vivo.",
+    indexPreview: "{{count}} definições de {{sources}}; geradas em {{date}}.",
+    replaceIndex: "Substituir índice",
+    importingIndex: "Importando…",
+    indexImportFailed:
+      "Não foi possível importar o índice. Confira o arquivo e tente novamente.",
+    dictionaryPage:
+      "Página {{page}} · {{total}} resultados, {{count}} exibidos",
+    previousPage: "Anterior",
+    nextPage: "Próxima",
   },
   dataSources: {
     uploadFile: "Carregar arquivo",
@@ -621,6 +673,10 @@ export default {
       "Usando credenciais salvas neste aplicativo. Para reutilização em aplicativos, conecte e conceda este provedor no Dispatch.",
     sharedFallback:
       "Conecte ou conceda este provedor no Dispatch para reutilizá-lo em aplicativos ou salve as credenciais locais abaixo.",
+    sharedNeedsReauth:
+      "Esta conexão compartilhada precisa ser autorizada novamente. Reconecte-a no Dispatch.",
+    sharedError:
+      "Esta conexão compartilhada informou um erro. Abra o Dispatch para revisar e corrigir.",
     workspaceReadyDescription:
       "Esta fonte está pronta através de uma conexão de espaço de trabalho compartilhado. Gerencie o acesso compartilhado no Dispatch ou adicione credenciais locais somente para este aplicativo.",
     testing: "Testando...",
@@ -692,6 +748,19 @@ export default {
     copied: "Copiado",
     copy: "Cópia",
     keyActions: "Principais ações {{name}}",
+    manageReplayOrigins: "Gerenciar origens de reprodução",
+    replayOriginsDescription:
+      "Adicione origens HTTPS exatas, uma por linha. As origens existentes serão mantidas.",
+    currentReplayOrigins: "Origens permitidas atuais",
+    anyReplayOriginAllowed:
+      "No momento, qualquer origem é permitida. Ao adicionar origens, a reprodução ficará limitada à lista; inclua todos os apps que usam esta chave.",
+    originsToAdd: "Origens para adicionar",
+    replayOriginsPlaceholder: "https://app.example.com",
+    addReplayOrigins: "Adicionar origens",
+    addingReplayOrigins: "Adicionando origens…",
+    replayOriginsUpdateFailed:
+      "Não foi possível atualizar as origens permitidas.",
+    cancel: "Cancelar",
     lastUsed: "último {{date}} usado",
     neverUsed: "nunca usado",
     revoking: "Revogando...",
@@ -979,6 +1048,7 @@ export default {
     dashboard: "Painel - Analytics",
     dataDictionary: "Dicionário de Dados - Analytics",
     dataSources: "Fontes de dados - Analytics",
+    sourceStatus: "Status das fontes - Analytics",
     sessions: "Sessões - Analytics",
     eventCatalog: "Catálogo de eventos - Analytics",
     routePerformance: "Desempenho por rota - Analytics",
@@ -1092,6 +1162,12 @@ export default {
   },
   sqlDashboard: {
     customRange: "Intervalo personalizado",
+    allValues: "Todos",
+    searchValues: "Buscar valores",
+    noValuesFound: "Nenhum valor encontrado",
+    selectAll: "Selecionar tudo",
+    selectOnly: "Só",
+    selectOnlyValue: "Somente {{value}}",
     untitledDashboard: "Painel sem título",
     dashboardFallback: "painel",
     viewOnly: "Você tem acesso somente visualização a este painel.",
@@ -1510,6 +1586,8 @@ export default {
     replayLoading: "Carregando replay...",
     replayLoadingProgress:
       "{{loaded}} de {{total}} blocos de replay carregados",
+    replayTargetFallback:
+      "O ponto solicitado ({{requested}}) não está disponível; exibindo o quadro de replay mais próximo em {{available}}.",
     replayUnavailable: "Nenhum bloco de replay para esta sessão",
     replayUnavailableDescription:
       "A sessão tem eventos de analytics, mas nenhum evento de bloco rrweb foi encontrado.",
@@ -1519,6 +1597,19 @@ export default {
       "Blocos com escopo usados para reconstruir este replay. As URLs do provedor permanecem privadas.",
     chunkAndEventCount: "{{chunks}} chunks, {{events}} replay events",
     replayEventCount: "{{events}} replay events",
+    saveScreenshot: "Baixar captura",
+    savingScreenshot: "Salvando captura…",
+    screenshotDownloaded: "Captura baixada",
+    screenshotSaveFailed: "Não foi possível salvar a captura",
+    copyScreenshot: "Copiar para o Design",
+    copyingScreenshot: "Copiando captura…",
+    screenshotCopiedForDesign: "Captura copiada. Cole-a no Design.",
+    screenshotCopyFailed:
+      "Não foi possível copiar a captura. Baixe-a e envie o PNG para o Design.",
+    screenshotCopyUnsupportedAssets:
+      "Captura não copiada: este momento contém mídias ou imagens que não podem ser capturadas com segurança. Tente outro momento do replay.",
+    screenshotUnsupportedAssets:
+      "Captura não salva: algumas mídias incorporadas ou imagens não podem ser capturadas com segurança.",
     timeline: "Linha do tempo de eventos",
     replayTimeline: "Linha do tempo do replay",
     timelineDescription: "Mostrando {{count}} de {{total}} eventos úteis.",
@@ -1553,8 +1644,12 @@ export default {
     time: "Hora",
     storageSetupTitle: "Conectar armazenamento de replay",
     storageSetupDescription:
-      "As gravações de replay de sessão precisam de armazenamento antes que os fragmentos possam ser salvos. Use o Builder.io para armazenamento no plano gratuito ou configure seu próprio bucket compatível com S3.",
+      "As gravações de replay precisam de um provedor autorizado para envio de arquivos. O Builder.io pode armazená-las quando a permissão de envio for concedida, ou configure seu próprio bucket compatível com S3.",
     storageConnected: "Armazenamento conectado",
+    storageStatusUnavailable:
+      "Não foi possível verificar o status do armazenamento de replay. Tente novamente para saber se os envios estão disponíveis.",
+    builderAiConnectedStorageNeedsGrant:
+      "O Builder.io está conectado para IA e créditos, mas os envios de replay precisam de uma permissão de armazenamento separada.",
     connectBuilder: "Usar Builder.io",
     configureS3: "Configurar armazenamento S3",
     devtools: "Ferramentas de dev",
@@ -1588,6 +1683,58 @@ export default {
       "Nenhuma mensagem de console corresponde aos filtros atuais.",
     devtoolsNoNetworkMatches:
       "Nenhuma solicitação corresponde aos filtros atuais.",
+    storyboardSelectionCoverage:
+      "{{selected}} de {{total}} sessões de replay selecionadas ({{percent}}).",
+    storyboardSelectHint: "Selecione até 3 sessões para criar um storyboard.",
+    clearStoryboardSelection: "Limpar seleção",
+    createStoryboard: "Criar storyboard",
+    selectReplayForStoryboard: "Selecionar replay {{id}} para o storyboard",
+    storyboardDesignId: "ID do Design (opcional)",
+    storyboardTitle: "Título do storyboard",
+    storyboardDefaultTitle: "Storyboard de replay de sessão",
+    storyboardTimestamps: "Horários (até 3, separados por vírgula)",
+    storyboardReplayPreview: "Prévia do replay",
+    storyboardStartingCapture:
+      "Selecione esta aba do Analytics no seletor de captura do navegador.",
+    storyboardLoadingReplay: "Carregando replay {{replayId}}…",
+    storyboardCapturingFrame:
+      "Capturando {{current}} de {{total}} · {{replayId}} · {{timestamp}}",
+    storyboardSendingToDesign: "Enviando capturas para o Design…",
+    storyboardComplete: "{{screenshots}} capturas foram adicionadas ao Design.",
+    storyboardTimestampError: "Use mm:ss, hh:mm:ss ou mm:ss.mmm.",
+    storyboardTimestampRequired:
+      "Informe pelo menos um horário para cada replay selecionado.",
+    storyboardTimestampLimit: "Escolha até 3 horários por replay.",
+    storyboardDuplicateTimestamp: "Remova horários duplicados.",
+    storyboardScreenshotLimit: "Escolha até 9 capturas.",
+    storyboardReplayLimit: "Selecione até 3 sessões de replay.",
+    storyboardCaptureFailed: "Falha ao capturar a tela.",
+    storyboardCanceled: "A captura foi cancelada.",
+    storyboardReplayIncomplete:
+      "O replay {{replayId}} contém eventos indisponíveis; a exportação foi interrompida.",
+    storyboardViewportUnavailable:
+      "As dimensões gravadas da janela não estão disponíveis.",
+    storyboardTimestampOutOfRange:
+      "O horário está fora do replay {{replayId}}.",
+    storyboardScreenshotTooLarge: "Uma captura excede o limite de 5 MB.",
+    storyboardBatchTooLarge: "O lote de capturas excede o limite de 20 MB.",
+    storyboardRouteUnavailable:
+      "A rota em {{timestamp}} não está disponível para o replay {{replayId}}.",
+    storyboardNoDesignResponse:
+      "O Design não retornou um resultado do storyboard.",
+    storyboardTemporaryCleanupPending:
+      "O storyboard foi salvo, mas não foi possível remover os arquivos temporários de captura.",
+    storyboardTemporaryCleanupFailed:
+      "A limpeza das capturas temporárias ainda está pendente.",
+    storyboardUnexpectedResponse:
+      "A exportação das capturas retornou uma resposta ilegível. Tente novamente.",
+    storyboardSaveOutcomeUnknown:
+      "O Design pode ter salvo o storyboard. Verifique o Design antes de tentar novamente.",
+    openStoryboard: "Abrir storyboard no Design",
+    cancelStoryboardCapture: "Cancelar captura",
+    captureToDesign: "Capturar e adicionar ao Design",
+    storyboardSelectAnalyticsTab:
+      "Selecione esta aba do Analytics no seletor de captura do navegador.",
   },
   catalog: {
     description:
@@ -1704,5 +1851,59 @@ export default {
     name: "Nome",
     appId: "ID do app",
     flagKey: "Sinalizador de recurso",
+  },
+  githubFolderSync: {
+    menuItem: "Sincronizar com o GitHub",
+    folderActions: "Ações da pasta",
+    title: "Sincronizar {{name}} com o GitHub",
+    loadFailed:
+      "Não foi possível carregar o status da sincronização com o GitHub.",
+    actionFailed: "Não foi possível atualizar a sincronização com o GitHub.",
+    owner: "Proprietário",
+    repo: "Repositório",
+    branch: "Branch",
+    path: "Caminho da pasta no repositório",
+    ownerRequired: "Informe o proprietário no GitHub.",
+    repoRequired: "Informe o nome do repositório.",
+    branchRequired: "Informe o nome do branch.",
+    connect: "Conectar pasta",
+    linkedTo: "Vinculada a",
+    rootPath: "Raiz do repositório",
+    exportPullRequest: "Pull request de exportação",
+    pullRequest: "Pull request nº {{number}}",
+    prOpen: "Aberta",
+    prMerged: "Mesclada",
+    prClosed: "Fechada",
+    dashboard: "Dashboard",
+    status: "Status",
+    statuses: {
+      inSync: "Sincronizado",
+      githubChanged: "Alterado no GitHub",
+      appChanged: "Alterado no app",
+      bothChanged: "Alterado nos dois lados",
+      conflict: "Conflito",
+      notExported: "Não está no GitHub",
+      newInGithub: "Novo no GitHub",
+      removedInGithub: "Excluído no GitHub",
+      exportPending: "Exportação pendente",
+      noAccess: "Sem acesso",
+    },
+    conflictPanel: "Painel: {{id}}",
+    conflictOrder: "Ordem dos painéis",
+    conflictMeta: "Configurações do dashboard",
+    checkGitHub: "Verificar GitHub",
+    pullFromGitHub: "Puxar do GitHub",
+    exportToGitHub: "Exportar para o GitHub",
+    disconnect: "Desconectar",
+    disconnectTitle: "Desconectar esta pasta do GitHub?",
+    disconnectDescription:
+      "Os dashboards continuam neste app. Os arquivos no GitHub não são alterados.",
+    pulled: "Puxado do GitHub.",
+    exported: "Exportado para o GitHub.",
+    nothingToExport: "Nada para exportar.",
+    finalizedMerged: "A pull request de exportação aberta foi mesclada.",
+    finalizedClosed: "A pull request de exportação aberta foi fechada.",
+    skippedHeading: "Dashboards ignorados",
+    skippedItem: "{{title}}: {{reason}}",
   },
 };

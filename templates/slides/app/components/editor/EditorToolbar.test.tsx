@@ -14,9 +14,13 @@ import { createRef, type AnchorHTMLAttributes, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  shareButton: vi.fn(() => null),
+  shareButton: vi.fn((_props: ShareButtonProps) => null),
+  openMcpAppHostLink: vi.fn<(url: string) => Promise<boolean> | false>(
+    () => false,
+  ),
   exportMenu: vi.fn(),
   registerEditorCommands: vi.fn(),
+  widgetEmbed: { value: false },
   creativeContextLabEnabled: { value: true },
   uploadPromptFiles: vi.fn(),
   cleanupUploadedPromptFiles: vi.fn(),
@@ -30,6 +34,11 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   deckContentConflicts: [] as Array<{ slideId: string; canResolve: boolean }>,
   resolveDeckContentConflict: vi.fn(),
+  saving: { value: false },
+  readOnlyDirectoryWidget: { value: false },
+  saveError: {
+    value: undefined as { status?: number; retryable: boolean } | undefined,
+  },
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -39,6 +48,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       : key === "creativeContext.share.tabLabel"
         ? "Context"
         : key,
+}));
+
+vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+  openMcpAppHostLink: (url: string) => mocks.openMcpAppHostLink(url),
+  useIsMcpAppWidgetEmbed: () => mocks.widgetEmbed.value,
+  useIsMcpDirectoryWidgetReadOnlyEmbed: () =>
+    mocks.readOnlyDirectoryWidget.value,
 }));
 
 vi.mock("sonner", () => ({
@@ -66,20 +82,20 @@ vi.mock("@agent-native/toolkit/collab-ui", () => ({
 }));
 
 vi.mock("@/components/visual-editor", () => ({
-  SaveStatusIndicator: () => null,
+  SaveStatusIndicator: () => <div data-testid="save-status" />,
 }));
 
 vi.mock("@/context/DeckContext", () => ({
-  getDeckSaveError: () => undefined,
+  getDeckSaveError: () => mocks.saveError.value,
   getStaleContentConflictSlideId: () => undefined,
-  hasFailedDeckSave: () => false,
+  hasFailedDeckSave: () => mocks.saveError.value !== undefined,
   hasUnsavedDeckChanges: () => false,
   useDeckContentConflicts: () => mocks.deckContentConflicts,
   useDecks: () => ({
     resolveContentConflict: vi.fn(),
     resolveDeckContentConflict: mocks.resolveDeckContentConflict,
   }),
-  useSaveState: () => ({ saving: false }),
+  useSaveState: () => ({ saving: mocks.saving.value }),
 }));
 
 vi.mock("@/lib/utils", () => ({
@@ -149,6 +165,8 @@ function render(ui: ReactNode, options?: RenderOptions) {
 }
 
 type ShareButtonProps = {
+  mobileSheet?: boolean;
+  basicSharingOnly?: boolean;
   resourceType?: string;
   resourceId?: string;
   resourceTitle?: string;
@@ -197,8 +215,12 @@ const deckWithSlides: Deck = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.widgetEmbed.value = false;
   mocks.creativeContextLabEnabled.value = true;
   mocks.deckContentConflicts = [];
+  mocks.saveError.value = undefined;
+  mocks.saving.value = false;
+  mocks.readOnlyDirectoryWidget.value = false;
 });
 
 afterEach(() => {
@@ -206,6 +228,213 @@ afterEach(() => {
 });
 
 describe("<EditorToolbar>", () => {
+  const viewerToolbar = () => (
+    <TooltipProvider>
+      <EditorToolbar
+        deck={deck}
+        deckId="deck-1"
+        deckTitle="Test deck"
+        canEdit={false}
+        onTitleChange={vi.fn()}
+        currentSlideIndex={0}
+        sidebarOpen={true}
+        onToggleSidebar={vi.fn()}
+        onGenerateImage={vi.fn()}
+        onOpenAssetLibrary={vi.fn()}
+        onShowHistory={vi.fn()}
+        historyButtonRef={createRef<HTMLButtonElement>()}
+      />
+    </TooltipProvider>
+  );
+
+  it("keeps the save failure visible once the role drops to view only", () => {
+    mocks.saveError.value = { status: 403, retryable: true };
+    render(viewerToolbar());
+
+    expect(screen.getByText("editorToolbar.viewOnly")).toBeTruthy();
+    expect(screen.getByTestId("save-status")).toBeTruthy();
+  });
+
+  it("shows no save status to a viewer with nothing failed", () => {
+    render(viewerToolbar());
+
+    expect(screen.queryByTestId("save-status")).toBeNull();
+  });
+
+  it("hides save failures in a read-only directory widget", () => {
+    mocks.saveError.value = { status: 403, retryable: true };
+    mocks.readOnlyDirectoryWidget.value = true;
+    render(viewerToolbar());
+
+    expect(screen.queryByTestId("save-status")).toBeNull();
+  });
+
+  const widgetToolbar = (
+    props: { onTitleChange?: (title: string) => void } = {},
+  ) => (
+    <TooltipProvider>
+      <EditorToolbar
+        deck={deckWithSlides}
+        deckId="deck-1"
+        deckTitle="Test deck"
+        canEdit
+        onTitleChange={props.onTitleChange ?? vi.fn()}
+        currentSlideIndex={0}
+        currentSlide={deckWithSlides.slides[0]}
+        sidebarOpen
+        onToggleSidebar={vi.fn()}
+        onGenerateImage={vi.fn()}
+        onOpenAssetLibrary={vi.fn()}
+        onShowHistory={vi.fn()}
+        historyButtonRef={createRef<HTMLButtonElement>()}
+        onToggleComments={vi.fn()}
+        onUndo={vi.fn()}
+        onRedo={vi.fn()}
+        onToggleLayers={vi.fn()}
+        onToggleAnimations={vi.fn()}
+      />
+    </TooltipProvider>
+  );
+
+  it("keeps the embedded toolbar to the title, Share and slide editing controls", () => {
+    mocks.widgetEmbed.value = true;
+    const onTitleChange = vi.fn();
+    render(widgetToolbar({ onTitleChange }));
+
+    const title = screen.getByDisplayValue("Test deck");
+    expect(title).toHaveProperty("readOnly", false);
+    fireEvent.change(title, { target: { value: "Renamed" } });
+    expect(onTitleChange).toHaveBeenCalledWith("Renamed");
+
+    expect(mocks.shareButton).toHaveBeenCalled();
+    const shareProps = mocks.shareButton.mock.calls.at(-1)![0];
+    expect(shareProps).toMatchObject({
+      resourceType: "deck",
+      resourceId: "deck-1",
+      resourceTitle: "Test deck",
+    });
+    // The context tab, access requests and agent links need actions the
+    // widget grant does not carry.
+    expect(shareProps.shareTabs).toBeUndefined();
+    expect(shareProps.basicSharingOnly).toBe(true);
+    expect(shareProps.mobileSheet).toBe(true);
+
+    expect(screen.queryByText("editorToolbar.present")).toBeNull();
+    expect(screen.queryByLabelText("editorToolbar.backToDecks")).toBeNull();
+    screen.getByRole("button", { name: "editorToolbar.more" }).click();
+    expect(screen.queryByText("editorToolbar.comments")).toBeNull();
+    expect(screen.queryByText("editorToolbar.savedVersions")).toBeNull();
+    expect(screen.queryByText("editorToolbar.importFile")).toBeNull();
+    expect(mocks.exportMenu).not.toHaveBeenCalled();
+  });
+
+  it("keeps the creative context tab in Share outside the widget", () => {
+    render(widgetToolbar());
+
+    const shareProps = mocks.shareButton.mock.calls.at(-1)![0];
+    expect(shareProps.shareTabs?.tabs?.[0]?.value).toBe("context");
+    expect(shareProps.basicSharingOnly).toBe(false);
+    expect(
+      screen.queryByRole("button", {
+        name: "editorToolbar.openInAgentNative",
+      }),
+    ).toBeNull();
+  });
+
+  describe("Open in Agent-Native", () => {
+    const openSpy = vi.fn();
+
+    beforeEach(() => {
+      mocks.widgetEmbed.value = true;
+      openSpy.mockReset();
+      vi.stubGlobal("open", openSpy);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const openButton = () =>
+      screen.getByRole("button", { name: "editorToolbar.openInAgentNative" });
+
+    it("asks the host to open the deck's app link", async () => {
+      mocks.openMcpAppHostLink.mockResolvedValue(true);
+      render(widgetToolbar());
+
+      fireEvent.click(openButton());
+
+      expect(mocks.openMcpAppHostLink).toHaveBeenCalledTimes(1);
+      expect(mocks.openMcpAppHostLink.mock.calls[0]![0]).toMatch(
+        /\/deck\/deck-1$/,
+      );
+      await Promise.resolve();
+      expect(openSpy).not.toHaveBeenCalled();
+    });
+
+    it("opens a new tab when the host has no link bridge", () => {
+      mocks.openMcpAppHostLink.mockReturnValue(false);
+      render(widgetToolbar());
+
+      fireEvent.click(openButton());
+
+      expect(openSpy).toHaveBeenCalledWith(
+        mocks.openMcpAppHostLink.mock.calls[0]![0],
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+
+    it.each([
+      ["refuses the link", () => Promise.resolve(false)],
+      ["rejects the request", () => Promise.reject(new Error("blocked"))],
+    ])("opens a new tab when the host %s", async (_name, request) => {
+      mocks.openMcpAppHostLink.mockImplementation(request);
+      render(widgetToolbar());
+
+      fireEvent.click(openButton());
+
+      await waitFor(() => expect(openSpy).toHaveBeenCalledTimes(1));
+    });
+  });
+
+  it("waits for a retry to settle before refetching the role", () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    mocks.saveError.value = { status: 403, retryable: true };
+    const { rerender } = render(viewerToolbar());
+
+    mocks.saveError.value = undefined;
+    mocks.saving.value = true;
+    rerender(viewerToolbar());
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["action", "list-resource-shares"],
+    });
+
+    mocks.saveError.value = { status: 403, retryable: true };
+    mocks.saving.value = false;
+    rerender(viewerToolbar());
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["action", "list-resource-shares"],
+    });
+    invalidate.mockRestore();
+  });
+
+  it("refetches the role once an access-lost failure clears", () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    mocks.saveError.value = { status: 403, retryable: true };
+    const { rerender } = render(viewerToolbar());
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ["action", "list-resource-shares"],
+    });
+
+    mocks.saveError.value = undefined;
+    rerender(viewerToolbar());
+
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ["action", "list-resource-shares"],
+    });
+    invalidate.mockRestore();
+  });
+
   it("keeps the deck title read-only for viewers", () => {
     render(
       <TooltipProvider>

@@ -46,4 +46,16 @@ describe("Dispatch route registration", () => {
       );
     }
   });
+
+  it("matches Settings tabs under the Settings page", () => {
+    for (const path of [
+      "/settings/integrations",
+      "/settings/api-keys",
+      "/settings/integrations/builder",
+    ]) {
+      expect(matchRoutes(dispatchRoutes, path)?.at(-1)?.route.path).toBe(
+        "settings/*",
+      );
+    }
+  });
 });

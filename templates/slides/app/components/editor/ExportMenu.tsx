@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
@@ -130,7 +131,9 @@ export function ExportStatusDialog({
         }
       }}
     >
-      <DialogContent hideClose={status.state === "exporting"}>
+      <DialogContent
+        hideClose={status.state === "exporting" || status.state === "ready"}
+      >
         {status.state === "exporting" ? (
           <>
             <DialogHeader>
@@ -178,15 +181,6 @@ export function ExportStatusDialog({
                 {status.message}
               </DialogDescription>
             </DialogHeader>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onStatusChange({ state: "idle" })}
-              >
-                {t("comments.close")}
-              </Button>
-            </DialogFooter>
           </>
         ) : null}
       </DialogContent>
@@ -289,6 +283,11 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     };
 
     const exportPptxFromServer = async () => {
+      trackEvent("slide_export_started", {
+        app_name: "slides",
+        template_name: "slides",
+        format: "pptx",
+      });
       await flushDeckSave(deckId);
       const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
         method: "POST",
@@ -329,6 +328,11 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       runExport(
         "html",
         async () => {
+          trackEvent("slide_export_started", {
+            app_name: "slides",
+            template_name: "slides",
+            format: "html",
+          });
           const res = await fetch(`${appBasePath()}/api/exports/html`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -382,6 +386,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
             title: t("editorExport.googleSlidesCreated"),
             description: t("editorExport.googleSlidesCreatedHint"),
             openUrl: result.url,
+            openLabel: t("editorExport.googleSlidesGoTo"),
           });
           return;
         }

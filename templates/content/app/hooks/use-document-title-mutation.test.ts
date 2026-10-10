@@ -210,6 +210,75 @@ describe("title changes and database query membership", () => {
     client.clear();
   });
 
+  it("cancels an in-flight document read before a content-only save", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    useQueryClient.mockReturnValue(client);
+    const id = "new-page";
+    const queryKey = ["action", "get-document", { id }];
+    const staleDocument = {
+      id,
+      title: "",
+      content: "",
+      updatedAt: "2026-10-08T00:00:00.000Z",
+      revision: "revision-1",
+      bodyRevision: 0,
+      contentHash: "empty",
+      softDeletedDatabaseIds: [],
+    };
+    client.setQueryData(queryKey, staleDocument);
+
+    let requestSignal: AbortSignal | undefined;
+    let resolveRead!: (document: typeof staleDocument) => void;
+    const staleRead = new Promise<typeof staleDocument>((resolve) => {
+      resolveRead = resolve;
+    });
+    const observer = new QueryObserver(client, {
+      queryKey,
+      enabled: false,
+      retry: false,
+      queryFn: ({ signal }) => {
+        requestSignal = signal;
+        return staleRead;
+      },
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    const pendingRead = observer.refetch().catch(() => undefined);
+
+    try {
+      await vi.waitFor(() => expect(requestSignal).toBeDefined());
+      useUpdateDocument();
+      const mutation = useActionMutation.mock.calls.find(
+        ([name]) => name === "update-document",
+      )![1];
+      const variables = { id, content: "typed text" };
+      const context = await mutation.onMutate(variables);
+
+      expect(requestSignal?.aborted).toBe(true);
+
+      const savedDocument = {
+        ...staleDocument,
+        content: "typed text",
+        updatedAt: "2026-10-08T00:00:01.000Z",
+        revision: "revision-2",
+        bodyRevision: 1,
+        contentHash: "typed",
+      };
+      mutation.onSuccess(savedDocument, variables, context);
+      resolveRead(staleDocument);
+      await pendingRead;
+
+      expect(client.getQueryData(queryKey)).toMatchObject({
+        content: "typed text",
+        revision: "revision-2",
+      });
+    } finally {
+      unsubscribe();
+      client.clear();
+    }
+  });
+
   it.each([
     "👍🏽",
     {

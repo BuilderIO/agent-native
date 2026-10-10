@@ -846,6 +846,7 @@ const editorToolbarMessages = {
   localAndNotionChanged:
     "Local and Notion changed since the last sync. Choose which version wins.",
   morePageActions: "More page actions",
+  formatting: "Formatting",
   suggestEdits: "Suggest edits",
   suggesting: "Suggesting",
   stopSuggesting: "Stop suggesting",
@@ -855,6 +856,7 @@ const editorToolbarMessages = {
   notionPageUrlOrId: "Notion page URL or page ID",
   open: "Open",
   openInNotion: "Open in Notion",
+  openInAgentNative: "Open in Agent-Native",
   orgCanFindAndView: "Anyone in your organization can find and view",
   orgLinkCanView: "Anyone in your organization with the link can view",
   pageBreadcrumb: "Page breadcrumb",
@@ -1186,6 +1188,10 @@ const enUS = {
     genericError: "Something went wrong",
   },
   editor: {
+    widgetLoadStalled: "Still waiting for {{stage}}. Request: {{action}}.",
+    widgetDocumentLoadStage: "the saved page body",
+    widgetDraftCheckStage: "page draft recovery",
+    widgetEditorInitStage: "the rich-text editor to initialize",
     suggestionFormattingUnsupported:
       "This formatting cannot be suggested safely. Your draft is kept. Undo the last edit to continue.",
     suggestionFormattingBaselineUnsupported:
@@ -1299,7 +1305,6 @@ const enUS = {
     reorderField: "Reorder {{name}}",
     title: "Title",
     toggleField: "Toggle {{name}}",
-    createCollection: "Create collection",
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
     emptyBlockPlaceholder: "Press ‘/’ for commands",
@@ -1474,6 +1479,9 @@ const enUS = {
     aiUndo: "Undo",
     aiDone: "Done",
     aiMoreChanges: "+{{count}} more",
+    suggestionReplaced: "Replaced",
+    suggestionWithdrawn: "Withdrawn",
+    suggestedChange: "Suggested change",
     aiUndoUnavailable: "Removed text can't be restored automatically",
     aiUndoFailed: "Couldn't undo the change",
     aiResolvedByAi: "Resolved by AI",
@@ -1644,6 +1652,11 @@ const enUS = {
     deletePermanently: "Delete permanently",
     failedCreateDatabase: "Failed to create collection",
     failedCreatePage: "Failed to create page",
+    failedCreatePageDraftDescription:
+      "Your draft is saved in this browser. You can retry page creation or discard the draft.",
+    discardFailedCreatePageQuestion: "Discard pending creation?",
+    discardFailedCreatePageDescription:
+      "This clears the pending creation and any unsaved draft. If the page was already saved, it will remain in your workspace.",
     failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
     failedPermanentDeleteDatabase: "Failed to permanently delete collection",
@@ -2012,6 +2025,10 @@ const esESRawLiteralOverrides: PartialMessages = {
     documentNotFound: "Documento no encontrado",
   },
   editor: {
+    widgetLoadStalled: "Aún se espera {{stage}}. Solicitud: {{action}}.",
+    widgetDocumentLoadStage: "el cuerpo de la página guardada",
+    widgetDraftCheckStage: "la recuperación del borrador de la página",
+    widgetEditorInitStage: "la inicialización del editor de texto enriquecido",
     suggestionCreateFailed: "No se pudo crear la sugerencia",
     suggestionsCount: "{{count}} sugerencias",
     acceptSuggestion: "Aceptar",

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
+import {
+  upgradeModelForProvider,
+  type ModelEngineConfig,
+} from "../agent/model-version.js";
 
 export { DEFAULT_MODEL };
 import {
@@ -102,6 +106,10 @@ export type ChatModelCatalogLoad =
   | {
       state: "available";
       groups: EngineModelGroup[];
+      /** Runtime normalization config for the engines represented in groups. */
+      modelEngines: Readonly<Record<string, ModelEngineConfig>>;
+      /** The server-selected engine, independent of a persisted chat choice. */
+      currentModelEngine: ModelEngineConfig | null;
       /** The server's current model, or `DEFAULT_MODEL` when it names none. */
       defaultModel: string;
       /**
@@ -147,6 +155,9 @@ export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
   const builderConnected = builderResult.value?.configured === true;
   const currentEngineName = enginesData.current?.engine;
   const currentModel = enginesData.current?.model;
+  const currentEngine = enginesData.engines.find(
+    (engine) => engine.name === currentEngineName,
+  );
   const build = (engines: readonly ChatModelEngineEntry[]) =>
     buildChatModelGroups({
       engines,
@@ -155,11 +166,62 @@ export async function loadChatModelCatalog(): Promise<ChatModelCatalogLoad> {
       currentEngineName,
       currentModel,
     });
+  const groups = build(enginesData.engines);
+  const modelEngines = Object.fromEntries(
+    enginesData.engines.flatMap((engine) => {
+      if (!engine.defaultModel) return [];
+      const selectableModels = groups
+        .filter((group) => group.engine === engine.name)
+        .flatMap((group) => group.models);
+      const supportedModels =
+        engine.runtimeSupportedModels ??
+        engine.supportedModels ??
+        selectableModels;
+      if (supportedModels.length === 0) return [];
+      return [
+        [
+          engine.name,
+          {
+            name: engine.name,
+            label: engine.label,
+            defaultModel: engine.defaultModel,
+            supportedModels,
+            selectableModels,
+            ...(engine.acceptsCustomModels
+              ? { acceptsCustomModels: true }
+              : {}),
+            ...(engine.preserveCustomModels
+              ? { preserveCustomModels: true }
+              : {}),
+          },
+        ],
+      ];
+    }),
+  ) as Record<string, ModelEngineConfig>;
+  const currentModelEngine = currentEngineName
+    ? (modelEngines[currentEngineName] ?? null)
+    : null;
+  const currentEngineModels = groups
+    .filter((group) => group.engine === currentEngineName)
+    .flatMap((group) => group.models);
+  const defaultModelCandidates =
+    currentEngine?.runtimeSupportedModels ?? currentEngineModels;
+  const defaultModel = currentModel
+    ? currentEngine?.preserveCustomModels
+      ? currentModel
+      : (upgradeModelForProvider(
+          currentModel,
+          defaultModelCandidates,
+          currentEngineName ?? "",
+        ) ?? currentModel)
+    : DEFAULT_MODEL;
 
   return {
     state: "available",
-    groups: build(enginesData.engines),
-    defaultModel: currentModel ?? DEFAULT_MODEL,
+    groups,
+    modelEngines,
+    currentModelEngine,
+    defaultModel,
     loadLiveGroups: async () => {
       // Gated on Ollama actually being the current engine (not merely present
       // in the catalog, which it always is): every app registers it by
@@ -430,26 +492,91 @@ export function useChatModels({
           }
 
           const selectableGroups =
-            unavailableSelectionPolicy === "require-explicit"
+            unavailableSelectionPolicy === "require-explicit" ||
+            !selection.selectedEngine
               ? configuredGroups
               : groups;
-          const selectedGroup = selectableGroups.find(
+          const exactSelectedGroups = selectableGroups.filter(
             (group) =>
-              group.models.includes(selection.selectedModel) &&
+              (group.models.includes(selection.selectedModel) ||
+                (selection.selectedEngine === group.engine &&
+                  group.preserveCustomModels)) &&
               (!selection.selectedEngine ||
                 group.engine === selection.selectedEngine),
           );
+          const exactSelectedGroup = selection.selectedEngine
+            ? exactSelectedGroups[0]
+            : new Set(exactSelectedGroups.map((group) => group.engine)).size ===
+                1
+              ? exactSelectedGroups[0]
+              : undefined;
+          const upgradeCandidates = exactSelectedGroup
+            ? []
+            : selectableGroups.flatMap((group) => {
+                if (
+                  selection.selectedEngine &&
+                  group.engine !== selection.selectedEngine
+                ) {
+                  return [];
+                }
+                const model =
+                  group.preserveCustomModels &&
+                  selection.selectedEngine === group.engine
+                    ? selection.selectedModel
+                    : upgradeModelForProvider(
+                        selection.selectedModel,
+                        group.models,
+                        group.engine,
+                      );
+                return model ? [{ group, model }] : [];
+              });
+          const upgradeCandidateKeys = new Set(
+            upgradeCandidates.map(({ group, model }) =>
+              JSON.stringify([group.engine, model]),
+            ),
+          );
+          const upgradedSelection =
+            upgradeCandidateKeys.size === 1 ? upgradeCandidates[0] : undefined;
+          const selectedGroup = exactSelectedGroup ?? upgradedSelection?.group;
           if (selectedGroup) {
+            const selectedModel =
+              upgradeModelForProvider(
+                selection.selectedModel,
+                selectedGroup.models,
+                selectedGroup.engine,
+              ) ?? selection.selectedModel;
+            const nextSelection = {
+              ...selection,
+              selectedModel,
+              selectedEngine: selectedGroup.engine,
+            };
             unavailableSelectionRef.current = null;
             setUnavailableSelection(null);
-            if (selection.selectedEngine !== selectedGroup.engine) {
+            if (selectionRef.current.selectedEngine !== selectedGroup.engine) {
               setSelectedEngine(selectedGroup.engine);
             }
+            if (selectionRef.current.selectedModel !== selectedModel) {
+              setSelectedModel(selectedModel);
+              setSelectedEffort(
+                resolveReasoningEffortSelection(
+                  selectedModel,
+                  selection.selectedEffort,
+                ),
+              );
+            }
             if (
-              selectionRef.current.selectedModel !== selection.selectedModel
+              selection.selectedModel !== selectedModel ||
+              selection.selectedEngine !== selectedGroup.engine
             ) {
-              setSelectedModel(selection.selectedModel);
-              setSelectedEffort(selection.selectedEffort);
+              selectionRef.current = nextSelection;
+              writePersisted(storageKey, {
+                model: selectedModel,
+                engine: selectedGroup.engine,
+                effort: resolveReasoningEffortSelection(
+                  selectedModel,
+                  selection.selectedEffort,
+                ),
+              });
             }
             finish();
             return;

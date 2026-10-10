@@ -50,12 +50,18 @@ import {
   isMergeSafeDeckPatchOperations,
   type SlideFieldBaseline,
 } from "../../shared/deck-write";
+import { isDeckAccessLostStatus } from "../lib/deck-access-lost";
+import {
+  applyRemoteSlideUnderInlineEdit,
+  onInlineEditRemoteRetry,
+} from "../lib/inline-edit-remote";
 import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
 } from "../lib/normalize-slide-padding";
 import { mergeSlideContent } from "../lib/slide-content-merge";
 import { renderArtifactGrowth } from "../lib/slide-source-map";
+import { undoRevealForOps, type UndoReveal } from "../lib/undo-reveal";
 
 type GranularOp =
   | {
@@ -155,7 +161,13 @@ type PendingPersistedResultHandler = {
 function addSlideFields(
   slide: Slide,
 ): Extract<GranularOp, { op: "add-slide" }>["fields"] {
-  const { id: _id, imageLoading: _imageLoading, ...fields } = slide;
+  const {
+    id: _id,
+    imageLoading: _imageLoading,
+    imagePrompt: _imagePrompt,
+    layoutFitRevision: _layoutFitRevision,
+    ...fields
+  } = slide;
   return {
     ...fields,
     content: normalizeSlidePadding(fields.content),
@@ -348,6 +360,8 @@ export interface UpdateSlideOptions {
   persistence?: "debounced" | "immediate";
   preserveLocalState?: boolean;
   recordUndoOnly?: boolean;
+  /** Never merge this write into the previous undo step (each key press is a step). */
+  separateUndo?: boolean;
   clearMissingImagePreviews?: boolean;
 }
 
@@ -404,6 +418,7 @@ export interface Deck {
   shareToken?: string;
   visibility?: "private" | "org" | "public";
   createdByMe?: boolean;
+  widgetAccessRole?: "owner" | "viewer" | "commenter" | "editor" | "admin";
   designSystemId?: string;
   tweaks?: Record<string, string | number | boolean>;
   starred?: boolean;
@@ -477,6 +492,7 @@ interface DeckContextType {
       designSystemId?: string | null;
       deferPersistence?: boolean;
       undoableCreation?: boolean;
+      creation?: DeckCreation;
     },
   ) => Deck;
   ensureDeckPersisted: (id: string) => Promise<DeckPersistenceResult>;
@@ -559,6 +575,8 @@ interface DeckContextType {
   undo: (deckId?: string) => void;
   redo: (deckId?: string) => void;
   undoAvailability: Record<string, { canUndo: boolean; canRedo: boolean }>;
+  /** Called after each Undo/Redo with the objects the step changed. */
+  subscribeUndoReveal: (listener: (reveal: UndoReveal) => void) => () => void;
 }
 
 const DeckContext = createContext<DeckContextType | null>(null);
@@ -706,6 +724,11 @@ const deckSaveRetryAttempts = new Map<string, number>();
 const deckRevisionConflictRetryAttempts = new Map<string, number>();
 const failedSaveDecks = new Set<string>();
 const deckSaveErrors = new Map<string, DeckSaveError>();
+// The open deck is on screen but not reachable on the server: its refetch
+// answered 403/404 (its owner no longer lets this viewer read it), or the
+// request that created it failed and it never existed there.
+const deckUnavailableErrors = new Map<string, DeckSaveError>();
+const DECK_CREATE_FAILED = "deck_create_failed";
 const staleContentConflicts = new Map<string, Set<string> | null>();
 const staleFullReplaceDrafts = new Map<string, Deck>();
 const verifiedFullReplaceOps = new WeakSet<
@@ -781,6 +804,14 @@ function markDeckSaveFailed(
   cause?: unknown,
   message?: string,
 ): void {
+  const createFailure = deckUnavailableErrors.get(deckId);
+  if (createFailure && hasFailedDeckCreate(deckId)) {
+    // Every write to a deck that never got created answers 404; that is the
+    // failed create showing through, not access that was lost.
+    failedSaveDecks.add(deckId);
+    deckSaveErrors.set(deckId, createFailure);
+    return;
+  }
   failedSaveDecks.add(deckId);
   deckSaveErrors.set(
     deckId,
@@ -791,9 +822,61 @@ function markDeckSaveFailed(
       pendingOpsQueue.has(deckId) &&
         !staleContentConflicts.has(deckId) &&
         !staleFullReplaceDrafts.has(deckId) &&
-        !isTerminalClientSaveError(cause),
+        (!isTerminalClientSaveError(cause) || isDeckAccessLostSave(cause)),
     ),
   );
+}
+
+function isDeckAccessLostSave(cause: unknown): boolean {
+  return (
+    !!cause &&
+    typeof cause === "object" &&
+    "status" in cause &&
+    isDeckAccessLostStatus(cause.status)
+  );
+}
+
+function markDeckAccessLost(deckId: string, cause: unknown): void {
+  if (deckUnavailableErrors.has(deckId)) return;
+  deckUnavailableErrors.set(
+    deckId,
+    new DeckSaveError(
+      deckId,
+      cause,
+      `Deck ${deckId} is no longer accessible; local copy retained`,
+      true,
+    ),
+  );
+  notifySaveListeners();
+}
+
+function markDeckCreateFailed(deckId: string, cause: unknown): void {
+  const error = new DeckSaveError(
+    deckId,
+    { errorCode: DECK_CREATE_FAILED },
+    `Failed to create deck ${deckId}; local copy retained`,
+  );
+  error.cause = cause;
+  // The failed create is the deck's save failure whichever request settled
+  // first, and it keeps the local-only copy counted as unsaved.
+  deckUnavailableErrors.set(deckId, error);
+  failedSaveDecks.add(deckId);
+  deckSaveErrors.set(deckId, error);
+  notifySaveListeners();
+}
+
+/** A deck that exists only locally because its create request failed. */
+function hasFailedDeckCreate(deckId: string): boolean {
+  return deckUnavailableErrors.get(deckId)?.errorCode === DECK_CREATE_FAILED;
+}
+
+function clearDeckAccessLost(deckId: string): void {
+  const error = deckUnavailableErrors.get(deckId);
+  if (!error) return;
+  deckUnavailableErrors.delete(deckId);
+  // A failed create is also what later writes to the deck report.
+  if (deckSaveErrors.get(deckId) === error) clearDeckSaveFailure(deckId);
+  notifySaveListeners();
 }
 
 function clearDeckSaveFailure(deckId: string): void {
@@ -919,7 +1002,12 @@ function mergeConflictedDraft(
       op.slideId === slideId &&
       typeof op.fields.content === "string"
     ) {
-      draft = op.fields.content;
+      // A rebased retry already carries the earlier remote's edits, which the
+      // confirmed base lacks; merging it again would read them as overlapping
+      // edits. The draft it was merged from is what derives from the base.
+      draft = mergedRetryOps.has(op)
+        ? (mergedSlideDrafts.get(deckId)?.get(slideId) ?? op.fields.content)
+        : op.fields.content;
     }
   }
   const base = confirmedSlideBaseContent(deckId, slideId);
@@ -1085,7 +1173,21 @@ function requestDeckResync(deckId: string) {
   for (const handler of deckResyncHandlers) handler(deckId);
 }
 
+// Decks whose remote change could not be shown on the canvas of an open text
+// edit yet because a local write was in flight or an IME composition was
+// open. Unlike the sync deferred above, the edit ending is not what unblocks
+// it, so it retries as soon as the writes settle.
+const inlineEditRemoteRetryDecks = new Set<string>();
+// Decks whose remote change waits for an IME composition to end. Save settling
+// must not retry these: the composition is still open and would hold it again.
+const inlineEditCompositionHeldDecks = new Set<string>();
+
 function flushDeferredRemoteSyncs() {
+  for (const deckId of [...inlineEditRemoteRetryDecks]) {
+    if (hasUnsavedDeckChanges(deckId)) continue;
+    inlineEditRemoteRetryDecks.delete(deckId);
+    setTimeout(() => requestDeckResync(deckId), 0);
+  }
   for (const deckId of [...deferredRemoteSyncDecks]) {
     if (
       hasUnsavedDeckChanges(deckId) ||
@@ -1098,12 +1200,20 @@ function flushDeferredRemoteSyncs() {
   }
 }
 
+onInlineEditRemoteRetry((deckId) => {
+  if (!inlineEditCompositionHeldDecks.delete(deckId)) return;
+  inlineEditRemoteRetryDecks.add(deckId);
+  flushDeferredRemoteSyncs();
+});
+
 // Slides whose pending save carries a merge of another writer's edits, with
 // the local draft the merge started from. Until the editor re-reads the merged
 // result its content still derives from that draft, so the draft - not the
 // merged text - is what the next write must be based on; otherwise the next
 // keystroke save would silently overwrite the merged-in edits.
 const mergedSlideDrafts = new Map<string, Map<string, string>>();
+// Rebased retry ops whose content is a merge result rather than a local draft.
+const mergedRetryOps = new WeakSet<GranularOp>();
 
 type SaveStateSnapshot = {
   saving: boolean;
@@ -1186,7 +1296,8 @@ export function hasFailedDeckSave(deckId: string): boolean {
     failedSaveDecks.has(deckId) ||
     staleContentConflicts.has(deckId) ||
     staleSlideFieldDrafts.has(deckId) ||
-    staleFullReplaceDrafts.has(deckId)
+    staleFullReplaceDrafts.has(deckId) ||
+    deckUnavailableErrors.has(deckId)
   );
 }
 
@@ -1194,6 +1305,7 @@ export function getDeckSaveError(deckId: string): DeckSaveError | undefined {
   if (!hasFailedDeckSave(deckId)) return undefined;
   return (
     deckSaveErrors.get(deckId) ??
+    deckUnavailableErrors.get(deckId) ??
     (staleContentConflicts.has(deckId) || staleFullReplaceDrafts.has(deckId)
       ? new DeckSaveError(
           deckId,
@@ -1454,7 +1566,9 @@ async function persistDeckOps(
           { keepalive: true, method: "PUT", signal },
         ),
       );
-      const trailingOps = ops.slice(1) as PatchDeckOp[];
+      const trailingOps = collapseKeepaliveSlidePatches(
+        ops.slice(1),
+      ) as PatchDeckOp[];
       if (trailingOps.length > 0) {
         results.push(
           await callDeckWriteAction(
@@ -1470,7 +1584,7 @@ async function persistDeckOps(
         await callDeckWriteAction(
           "patch-deck",
           deckId,
-          { operations: ops as PatchDeckOp[] },
+          { operations: collapseKeepaliveSlidePatches(ops) as PatchDeckOp[] },
           { keepalive: true, signal },
         ),
       );
@@ -1493,7 +1607,9 @@ async function persistDeckOps(
         { method: "PUT", signal },
       ),
     );
-    const trailingOps = ops.slice(1) as PatchDeckOp[];
+    const trailingOps = collapseKeepaliveSlidePatches(
+      ops.slice(1),
+    ) as PatchDeckOp[];
     if (trailingOps.length > 0) {
       results.push(
         await callDeckWriteAction<unknown>(
@@ -1505,11 +1621,15 @@ async function persistDeckOps(
       );
     }
   } else {
+    // The server checks every content op in a batch against the slide as it
+    // stood when the batch began, so edits queued behind an in-flight save
+    // (a drag, then nudges) cannot go out as separate ops with chained base
+    // hashes: all but the first would be rejected as stale.
     results.push(
       await callDeckWriteAction<unknown>(
         "patch-deck",
         deckId,
-        { operations: ops as PatchDeckOp[] },
+        { operations: collapseKeepaliveSlidePatches(ops) as PatchDeckOp[] },
         { signal },
       ),
     );
@@ -1667,6 +1787,7 @@ function drainPendingDeckOps(
         const coveredSlideSequences = new Map(
           slideLocalWriteSequences.get(deckId) ?? [],
         );
+        const keepaliveGeneration = deckSaveGenerations.get(deckId) ?? 0;
         const keepaliveSave = persistDeckOps(
           deckId,
           keepaliveOps,
@@ -1674,6 +1795,11 @@ function drainPendingDeckOps(
           { keepalive: true },
         ).then(
           (results) => {
+            if (
+              (deckSaveGenerations.get(deckId) ?? 0) !== keepaliveGeneration
+            ) {
+              return;
+            }
             acknowledgeKeepaliveDeckOps(
               deckId,
               keepaliveOps,
@@ -1770,6 +1896,7 @@ function drainPendingDeckOps(
       deckSaveRetryAttempts.delete(deckId);
       deckRevisionConflictRetryAttempts.delete(deckId);
       clearDeckSaveFailure(deckId);
+      clearDeckAccessLost(deckId);
       const mergedDrafts = mergedSlideDrafts.get(deckId);
       if (mergedDrafts) {
         for (const op of ops) {
@@ -2058,11 +2185,14 @@ function drainPendingDeckOps(
             const merged = mergedContent.get(op.slideId);
             if (merged !== undefined) {
               const drafts = mergedSlideDrafts.get(deckId) ?? new Map();
-              if (!drafts.has(op.slideId)) {
+              if (!mergedRetryOps.has(op)) {
                 drafts.set(op.slideId, rebasedOp.fields.content as string);
               }
               mergedSlideDrafts.set(deckId, drafts);
               rebasedOp.fields.content = merged;
+            }
+            if (merged !== undefined || mergedRetryOps.has(op)) {
+              mergedRetryOps.add(rebasedOp);
             }
             const remoteContent = remoteSlides.get(op.slideId)?.content;
             if (typeof remoteContent === "string") {
@@ -2424,6 +2554,7 @@ function acknowledgeKeepaliveDeckOps(
   coveredSlideSequences: Map<string, number>,
   results: unknown[],
 ) {
+  clearDeckAccessLost(deckId);
   clearPersistedStaleSlideFieldDrafts(deckId, persistedOps);
   rememberPersistedSlideContent(deckId, persistedOps);
   const acknowledgedContent = new Map<string, string>();
@@ -2596,6 +2727,22 @@ async function flushDeckSave(
 }
 
 async function retryDeckSave(deckId: string): Promise<void> {
+  if (deckUnavailableErrors.has(deckId)) {
+    requestDeckResync(deckId);
+    if (!failedSaveDecks.has(deckId)) return;
+  }
+  await retryFailedDeckSave(deckId);
+}
+
+// Focus is the cheapest signal that an owner may have restored access: one
+// write attempt per focus, and only while the last save was refused for it.
+function retryAccessLostDeckSave(deckId: string): void {
+  const error = deckSaveErrors.get(deckId);
+  if (!error?.retryable || !isDeckAccessLostStatus(error.status)) return;
+  void retryFailedDeckSave(deckId).catch(() => {});
+}
+
+async function retryFailedDeckSave(deckId: string): Promise<void> {
   const failedSaveError = getDeckSaveError(deckId);
   if (
     !failedSaveError?.retryable ||
@@ -2886,6 +3033,7 @@ function discardPendingDeckOps(deckId: string) {
   deckSaveRetryAttempts.delete(deckId);
   deckRevisionConflictRetryAttempts.delete(deckId);
   clearDeckSaveFailure(deckId);
+  deckUnavailableErrors.delete(deckId);
   staleContentConflicts.delete(deckId);
   staleFullReplaceDrafts.delete(deckId);
   staleContentRetrySlides.delete(deckId);
@@ -3519,9 +3667,24 @@ async function deleteDeckFromAPI(id: string): Promise<void> {
   }
 }
 
-async function createDeckOnAPI(deck: Deck): Promise<void> {
+/** How a deck the browser creates came to exist; recorded once, by add-deck. */
+export type DeckCreation = {
+  method: "generated" | "import_pdf" | "import_docx" | "blank";
+  purpose?: "direct" | "reference";
+};
+
+async function createDeckOnAPI(
+  deck: Deck,
+  creation?: DeckCreation,
+): Promise<void> {
   const result = await callAction<unknown>("add-deck", {
     deck: deckPayload(deck),
+    ...(creation
+      ? {
+          creationMethod: creation.method,
+          ...(creation.purpose ? { purpose: creation.purpose } : {}),
+        }
+      : {}),
   });
   rememberDeckServerRevision(deck.id, result);
 }
@@ -3598,10 +3761,19 @@ function opTargetsSlide(op: GranularOp, slideId: string): boolean {
  * whole request duration. The slide being mid inline-edit (typing not yet
  * committed to any op) also counts as a pending write.
  */
-function hasPendingWriteForSlide(deckId: string, slideId: string): boolean {
+function hasPendingWriteForSlide(
+  deckId: string,
+  slideId: string,
+  options?: { ignoreInlineEdit?: boolean },
+): boolean {
   if (staleFullReplaceDrafts.has(deckId)) return true;
   if (hasStaleContentConflict(deckId, slideId)) return true;
-  if (activeInlineEditSlides.get(deckId)?.has(slideId)) return true;
+  if (
+    !options?.ignoreInlineEdit &&
+    activeInlineEditSlides.get(deckId)?.has(slideId)
+  ) {
+    return true;
+  }
   const inFlightOps = inFlightOpSlides.get(deckId);
   if (inFlightOps?.some((op) => opTargetsSlide(op, slideId))) return true;
   const queue = pendingOpsQueue.get(deckId);
@@ -3609,13 +3781,65 @@ function hasPendingWriteForSlide(deckId: string, slideId: string): boolean {
   return queue.some((op) => opTargetsSlide(op, slideId));
 }
 
-export function pendingWriteSlideIds(deck: Deck | undefined): Set<string> {
+export function pendingWriteSlideIds(
+  deck: Deck | undefined,
+  options?: { ignoreInlineEdit?: boolean },
+): Set<string> {
   const ids = new Set<string>();
   if (!deck) return ids;
   for (const slide of deck.slides) {
-    if (hasPendingWriteForSlide(deck.id, slide.id)) ids.add(slide.id);
+    if (hasPendingWriteForSlide(deck.id, slide.id, options)) ids.add(slide.id);
   }
   return ids;
+}
+
+/**
+ * Another writer's saved copy of a slide whose text this client is editing.
+ * The editor shows it around the open edit and, only then, the copy becomes
+ * this client's baseline for the slide: a copy the canvas never showed would
+ * be overwritten by the next draft, which is derived from the canvas.
+ */
+function adoptRemoteSlideUnderInlineEdit(
+  deckId: string,
+  slide: Slide,
+  serverSlide: Slide,
+  pendingAtReadStart: ReadonlySet<string> | undefined,
+): boolean {
+  if (!activeInlineEditSlides.get(deckId)?.has(slide.id)) return false;
+  if (
+    typeof serverSlide.content !== "string" ||
+    typeof slide.content !== "string"
+  ) {
+    return false;
+  }
+  const confirmed = confirmedSlideBaseContent(deckId, slide.id);
+  // Nothing new from the other side: this is the typist's own saved draft
+  // coming back, which the canvas already shows.
+  if (confirmed === undefined || confirmed === serverSlide.content)
+    return false;
+  if (
+    pendingAtReadStart?.has(slide.id) ||
+    hasPendingWriteForSlide(deckId, slide.id, { ignoreInlineEdit: true })
+  ) {
+    // The write may have settled while the read was in flight, after the
+    // save-state flush already ran; flushing here resyncs at once if so.
+    inlineEditRemoteRetryDecks.add(deckId);
+    flushDeferredRemoteSyncs();
+    return false;
+  }
+  const result = applyRemoteSlideUnderInlineEdit(
+    deckId,
+    slide.id,
+    confirmed,
+    serverSlide.content,
+  );
+  if (result === "later") inlineEditCompositionHeldDecks.add(deckId);
+  if (result !== "applied") return false;
+  rememberConfirmedSlideContent(deckId, slide.id, serverSlide.content);
+  const sent = sentSlideContent.get(deckId);
+  sent?.delete(slide.id);
+  if (sent?.size === 0) sentSlideContent.delete(deckId);
+  return true;
 }
 
 function hasPendingDeleteForSlide(deckId: string, slideId: string): boolean {
@@ -3656,7 +3880,16 @@ export function mergeServerSlideUpdate(
       hasStaleContentConflict(deckId, slide.id) ||
       hasPendingWriteForSlide(deckId, slide.id)
     ) {
-      return slide;
+      if (
+        !adoptRemoteSlideUnderInlineEdit(
+          deckId,
+          slide,
+          serverSlide,
+          options?.pendingAtReadStart,
+        )
+      ) {
+        return slide;
+      }
     }
     adopted = true;
     return serverSlide;
@@ -3760,12 +3993,26 @@ export function DeckProvider({
     new Map<string, LocalOpUndoController<DeckUndoOp>>(),
   );
   const lastUndoDeckIdRef = useRef<string | null>(null);
+  const undoRevealListenersRef = useRef(
+    new Set<(reveal: UndoReveal) => void>(),
+  );
+  const subscribeUndoReveal = useCallback(
+    (listener: (reveal: UndoReveal) => void) => {
+      undoRevealListenersRef.current.add(listener);
+      return () => {
+        undoRevealListenersRef.current.delete(listener);
+      };
+    },
+    [],
+  );
   const lastExternalUpdateRef = useRef(0);
   const pendingCreateIdsRef = useRef<Set<string>>(new Set());
+  const confirmedPendingCreateIdsRef = useRef<Set<string>>(new Set());
   const pendingCreatePromisesRef = useRef<Map<string, Promise<void>>>(
     new Map(),
   );
   const deferredCreateDecksRef = useRef<Map<string, Deck>>(new Map());
+  const deferredCreateMethodsRef = useRef<Map<string, DeckCreation>>(new Map());
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
   const deletedSlideTombstonesRef = useRef<Map<string, Set<string>>>(new Map());
@@ -4319,6 +4566,17 @@ export function DeckProvider({
             direction === "undo" ? entry.redo : entry.undo,
             startingDecks,
           );
+          // Nothing consumes the reveal without a mounted editor, and a
+          // multi-slide step makes the diff expensive.
+          const reveal =
+            undoRevealListenersRef.current.size > 0
+              ? undoRevealForOps(
+                  startingDecks.find((deck) => deck.id === deckId),
+                  deckId,
+                  applicableOps,
+                  direction,
+                )
+              : null;
           setDecks((prev) => {
             let next = prev;
             for (const op of applicableOps) {
@@ -4326,6 +4584,11 @@ export function DeckProvider({
             }
             return next;
           });
+          if (reveal) {
+            for (const listener of undoRevealListenersRef.current) {
+              listener(reveal);
+            }
+          }
           let currentDecks = startingDecks;
           for (const op of applicableOps) {
             markDeckDirty(op.deckId);
@@ -4555,6 +4818,11 @@ export function DeckProvider({
       return listRead.status;
     }
     const fresh = listRead.decks;
+    for (const deck of fresh) {
+      if (pendingCreateIdsRef.current.has(deck.id)) {
+        confirmedPendingCreateIdsRef.current.add(deck.id);
+      }
+    }
     staleDeckIdsRef.current.clear();
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
@@ -4562,10 +4830,15 @@ export function DeckProvider({
     const addedIds = fresh
       .filter((d) => !currentIds.has(d.id))
       .map((d) => d.id);
+    // A list that omits the open deck cannot tell revoked from deleted; the
+    // deck's own read decides, and keeps the local copy while it does.
+    const openDeckId = currentOpenDeckIdFromWindow();
     const removed = currentDecks.filter(
       (d) =>
         !freshById.has(d.id) &&
+        d.id !== openDeckId &&
         !staleFullReplaceDrafts.has(d.id) &&
+        !hasFailedDeckCreate(d.id) &&
         !isNewerThanSnapshot(d.id, createSeqAtRequest),
     );
     for (const id of freshById.keys()) localCreateSeqByIdRef.current.delete(id);
@@ -4684,20 +4957,48 @@ export function DeckProvider({
     ): Promise<OpenDeckSync> => {
       const snapshotGeneration = serverSnapshotGenerationRef.current;
       const requestId = nextOpenDeckRequestId(currentOpenId);
+      // An open text edit is not a write that can race the read: the merge
+      // below decides per slide whether the editor can take the remote copy.
       const pendingAtReadStart = pendingWriteSlideIds(
         decksRef.current.find((d) => d.id === currentOpenId),
+        { ignoreInlineEdit: true },
       );
       const writeSeqAtReadStart = deckLocalWriteSeq.get(currentOpenId) ?? 0;
+      // A 404 from a read that began before the create landed says nothing
+      // about access, even when the create has finished by the time it returns.
+      const createPendingAtReadStart =
+        pendingCreateIdsRef.current.has(currentOpenId);
       const read = await readDeckFromAPI(currentOpenId);
       if (openDeckRequestIdByDeckRef.current.get(currentOpenId) !== requestId) {
         return { read: "superseded", deck: null };
       }
+      if (
+        read.status === "ok" &&
+        pendingCreateIdsRef.current.has(currentOpenId)
+      ) {
+        confirmedPendingCreateIdsRef.current.add(currentOpenId);
+      }
       pollControlRef.current.onRead(currentOpenId, read.status);
+      if (read.status === "ok") clearDeckAccessLost(currentOpenId);
+      else if (
+        (read.status === "forbidden" || read.status === "not-found") &&
+        !createPendingAtReadStart &&
+        !pendingCreateIdsRef.current.has(currentOpenId) &&
+        decksRef.current.some((d) => d.id === currentOpenId)
+      ) {
+        markDeckAccessLost(currentOpenId, read.error);
+      }
       if (
         !options?.clearPendingWrites &&
         (deckLocalWriteSeq.get(currentOpenId) ?? 0) !== writeSeqAtReadStart
       ) {
-        deferredRemoteSyncDecks.add(currentOpenId);
+        if (activeInlineEditSlides.get(currentOpenId)?.size) {
+          deferredRemoteSyncDecks.delete(currentOpenId);
+          inlineEditRemoteRetryDecks.add(currentOpenId);
+        } else {
+          deferredRemoteSyncDecks.add(currentOpenId);
+        }
+        flushDeferredRemoteSyncs();
         return { read: read.status, deck: null };
       }
       if (read.status !== "ok") return { read: read.status, deck: null };
@@ -4790,6 +5091,12 @@ export function DeckProvider({
       snapshotGeneration = serverSnapshotGenerationRef.current,
     ) => {
       ++deckListRequestIdRef.current;
+      for (const deck of nextDecks) {
+        if (pendingCreateIdsRef.current.has(deck.id)) {
+          confirmedPendingCreateIdsRef.current.add(deck.id);
+        }
+      }
+      for (const deck of nextDecks) clearDeckAccessLost(deck.id);
       const reconciledDecks = nextDecks.map((deck) =>
         deck.previewSlide
           ? deck
@@ -4833,7 +5140,9 @@ export function DeckProvider({
       setDecks((prev) => {
         const preserved = prev.filter(
           (d) =>
-            !nextIds.has(d.id) && isNewerThanSnapshot(d.id, createSeqAtRequest),
+            !nextIds.has(d.id) &&
+            (isNewerThanSnapshot(d.id, createSeqAtRequest) ||
+              hasFailedDeckCreate(d.id)),
         );
         return preserved.length === 0
           ? protectedDecks
@@ -4900,6 +5209,7 @@ export function DeckProvider({
       ...pendingOpsQueue.keys(),
       ...inFlightSaves,
       ...failedSaveDecks,
+      ...deckUnavailableErrors.keys(),
       ...staleContentConflicts.keys(),
       ...staleSlideFieldDrafts.keys(),
       ...staleFullReplaceDrafts.keys(),
@@ -4914,6 +5224,8 @@ export function DeckProvider({
       slideLocalWriteSequences.delete(deckId);
       sentSlideContent.delete(deckId);
       activeInlineEditSlides.delete(deckId);
+      inlineEditRemoteRetryDecks.delete(deckId);
+      inlineEditCompositionHeldDecks.delete(deckId);
     }
 
     ++deckBaselineRequestIdRef.current;
@@ -4921,8 +5233,10 @@ export function DeckProvider({
     ++serverSnapshotGenerationRef.current;
     openDeckRequestIdByDeckRef.current.clear();
     pendingCreateIdsRef.current.clear();
+    confirmedPendingCreateIdsRef.current.clear();
     pendingCreatePromisesRef.current.clear();
     deferredCreateDecksRef.current.clear();
+    deferredCreateMethodsRef.current.clear();
     pendingDuplicateSourceIdsRef.current.clear();
     dirtyDeckIdsRef.current.clear();
     deletedSlideTombstonesRef.current.clear();
@@ -5187,6 +5501,15 @@ export function DeckProvider({
   }, [openDeckId]);
 
   useEffect(() => {
+    const onFocus = () => {
+      const deckId = currentOpenDeckIdFromWindow();
+      if (deckId) retryAccessLostDeckSave(deckId);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
+  useEffect(() => {
     const resync = (deckId: string) => {
       if (currentOpenDeckIdFromWindow() !== deckId) return;
       void refetchOpenDeckIfChanged(deckId).catch((error) => {
@@ -5434,6 +5757,7 @@ export function DeckProvider({
         designSystemId?: string | null;
         deferPersistence?: boolean;
         undoableCreation?: boolean;
+        creation?: DeckCreation;
       },
     ): Deck => {
       const insertIndex = decksRef.current.length;
@@ -5467,15 +5791,30 @@ export function DeckProvider({
       noteLocalCreate(newDeck.id);
       if (options?.deferPersistence) {
         deferredCreateDecksRef.current.set(newDeck.id, newDeck);
+        if (options.creation) {
+          deferredCreateMethodsRef.current.set(newDeck.id, options.creation);
+        }
       } else {
-        const createPromise = createDeckOnAPI(newDeck);
+        const scopeGeneration = deckScopeGenerationRef.current;
+        const createPromise = createDeckOnAPI(newDeck, options?.creation);
         pendingCreatePromisesRef.current.set(newDeck.id, createPromise);
         createPromise
           .catch((err) => {
             console.error(`Failed to create deck ${newDeck.id}:`, err);
+            // A deck deleted or undone while its create was pending has no
+            // local copy left to protect.
+            if (
+              scopeGeneration === deckScopeGenerationRef.current &&
+              decksRef.current.some((deck) => deck.id === newDeck.id)
+            ) {
+              if (!confirmedPendingCreateIdsRef.current.has(newDeck.id)) {
+                markDeckCreateFailed(newDeck.id, err);
+              }
+            }
           })
           .finally(() => {
             pendingCreateIdsRef.current.delete(newDeck.id);
+            confirmedPendingCreateIdsRef.current.delete(newDeck.id);
             if (
               pendingCreatePromisesRef.current.get(newDeck.id) === createPromise
             ) {
@@ -5518,8 +5857,10 @@ export function DeckProvider({
       const deferredDeck = deferredCreateDecksRef.current.get(id);
       if (deferredDeck) {
         deferredCreateDecksRef.current.delete(id);
+        const creation = deferredCreateMethodsRef.current.get(id);
+        deferredCreateMethodsRef.current.delete(id);
         const scopeGeneration = deckScopeGenerationRef.current;
-        const createPromise = createDeckOnAPI(deferredDeck);
+        const createPromise = createDeckOnAPI(deferredDeck, creation);
         pendingCreatePromisesRef.current.set(id, createPromise);
         try {
           await createPromise;
@@ -5660,6 +6001,7 @@ export function DeckProvider({
     (id: string) => {
       const scopeGeneration = deckScopeGenerationRef.current;
       if (deferredCreateDecksRef.current.delete(id)) {
+        deferredCreateMethodsRef.current.delete(id);
         pendingCreateIdsRef.current.delete(id);
       }
       const beforeDeck = decksRef.current.find((deck) => deck.id === id);
@@ -5937,9 +6279,9 @@ export function DeckProvider({
           );
           recordUndo(before, op, {
             label,
-            coalesceKey: `${deckId}:${slideId}:${Object.keys(updates)
-              .sort()
-              .join(",")}`,
+            coalesceKey: options.separateUndo
+              ? undefined
+              : `${deckId}:${slideId}:${Object.keys(updates).sort().join(",")}`,
           });
         }
         return storedContent;
@@ -5968,9 +6310,9 @@ export function DeckProvider({
       if (before && !options?.preserveLocalState) {
         recordUndo(before, op, {
           label,
-          coalesceKey: `${deckId}:${slideId}:${Object.keys(updates)
-            .sort()
-            .join(",")}`,
+          coalesceKey: options?.separateUndo
+            ? undefined
+            : `${deckId}:${slideId}:${Object.keys(updates).sort().join(",")}`,
         });
       }
       return storedContent;
@@ -6532,6 +6874,7 @@ export function DeckProvider({
         undo,
         redo,
         undoAvailability,
+        subscribeUndoReveal,
       }}
     >
       {children}

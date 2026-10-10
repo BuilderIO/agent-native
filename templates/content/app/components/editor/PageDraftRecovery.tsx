@@ -1,4 +1,6 @@
+import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import { callAction, useSession } from "@agent-native/core/client/hooks";
+import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import type { Document } from "@shared/api";
@@ -19,7 +21,10 @@ import {
   useUpdateDocument,
   useUpdatePreviewDocumentDraft,
 } from "@/hooks/use-documents";
-import { isDocumentCreationPending } from "@/lib/optimistic-document";
+import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "@/lib/optimistic-document";
 import {
   readDocumentShapeHint,
   readPageIconRowHint,
@@ -60,6 +65,14 @@ export function PageDraftRecovery({
 }) {
   const t = useT();
   const navigate = useNavigate();
+  const openAiWidget = isOpenAiMcpAppHost();
+  const widgetBridgeActive = isEmbedMcpChatBridgeActive();
+  const scopedWidgetReadOnly = document.mcpDirectoryWidgetReadOnly === true;
+  const skipDraftRecovery =
+    openAiWidget ||
+    scopedWidgetReadOnly ||
+    document.canEdit !== true ||
+    document.source?.mode === "local-files";
   const { session } = useSession();
   const scopeKey = session?.email
     ? JSON.stringify([
@@ -69,12 +82,20 @@ export function PageDraftRecovery({
       ])
     : null;
   const queryClient = useQueryClient();
-  const creationPending = isDocumentCreationPending(document);
+  const creationPending = isDocumentCreationPending(queryClient, document);
+  const skipCreationDraftRecoveryRef = useRef(
+    creationPending || isDocumentCreationConfirmed(queryClient, document),
+  );
+  if (creationPending || isDocumentCreationConfirmed(queryClient, document)) {
+    skipCreationDraftRecoveryRef.current = true;
+  }
+  const skipCreationDraftRecovery = skipCreationDraftRecoveryRef.current;
   const drafts = usePreviewDocumentDraft(document.id, {
-    enabled: !creationPending,
+    enabled:
+      !creationPending && !skipDraftRecovery && !skipCreationDraftRecovery,
     createdAt: document.createdAt,
   });
-  const update = useUpdateDocument();
+  const update = useUpdateDocument({ saveOrigin: "recovery" });
   const updateDraft = useUpdatePreviewDocumentDraft();
   const resolveDraft = useResolvePreviewDocumentDraft();
   const [releasedScopeKey, setReleasedScopeKey] = useState<string | null>(null);
@@ -112,7 +133,13 @@ export function PageDraftRecovery({
   useEffect(() => {
     setVerifiedScopeKey(null);
     setReleasedScopeKey(null);
-    if (!scopeKey || creationPending) return;
+    if (
+      !scopeKey ||
+      creationPending ||
+      skipDraftRecovery ||
+      skipCreationDraftRecovery
+    )
+      return;
     let cancelled = false;
     void ensurePreviewDocumentDraftRead(
       queryClient,
@@ -128,7 +155,14 @@ export function PageDraftRecovery({
     return () => {
       cancelled = true;
     };
-  }, [creationPending, document.id, scopeKey, verificationRevision]);
+  }, [
+    creationPending,
+    document.id,
+    skipDraftRecovery,
+    skipCreationDraftRecovery,
+    scopeKey,
+    verificationRevision,
+  ]);
 
   useEffect(() => {
     setJournalState("checking");
@@ -166,18 +200,41 @@ export function PageDraftRecovery({
       setJournalState("ready");
       return;
     }
-    const sameAsCanonical =
-      entry.snapshot.title === document.title &&
-      entry.snapshot.content === document.content;
-    const sameAsSqlDraft =
-      draft?.title === entry.snapshot.title &&
+    const matchingSqlDraft =
+      draft?.editorSessionId === entry.scope.writerId &&
+      draft.editGeneration === entry.snapshot.editGeneration &&
       draft.content === entry.snapshot.content;
+    // The SQL draft can contain a title update whose localStorage write failed.
+    // Only adopt it when the writer, generation, and body all identify this journal.
+    let journalStorageSnapshot = entry.snapshot;
+    const journalTitleIsClean =
+      entry.snapshot.title === entry.snapshot.baseTitle;
+    let journalSnapshot =
+      matchingSqlDraft &&
+      journalTitleIsClean &&
+      draft.title !== entry.snapshot.title
+        ? {
+            ...entry.snapshot,
+            title: draft.title,
+            baseTitle: draft.title,
+          }
+        : entry.snapshot;
+    const matchingSqlDraftHasLocalTitleConflict =
+      matchingSqlDraft &&
+      !journalTitleIsClean &&
+      entry.snapshot.title !== draft?.title;
+    const sameAsCanonical =
+      journalSnapshot.title === document.title &&
+      journalSnapshot.content === document.content;
+    const sameAsSqlDraft =
+      draft?.title === journalSnapshot.title &&
+      draft.content === journalSnapshot.content;
     if (
       sameAsCanonical ||
       (sameAsSqlDraft && draft?.baseDocumentUpdatedAt === document.updatedAt)
     ) {
       try {
-        clearPageDraftJournal(entry.scope, entry.snapshot);
+        clearPageDraftJournal(entry.scope, journalStorageSnapshot);
         setJournalState("checking");
         setJournalRevision((revision) => revision + 1);
       } catch {
@@ -185,7 +242,7 @@ export function PageDraftRecovery({
       }
       return;
     }
-    if (draft && !sameAsSqlDraft) {
+    if (draft && !sameAsSqlDraft && !matchingSqlDraftHasLocalTitleConflict) {
       setJournalState("waiting_sql");
       return;
     }
@@ -193,7 +250,6 @@ export function PageDraftRecovery({
     if (journalAttemptRef.current === attempt) return;
     journalAttemptRef.current = attempt;
     setJournalState("promoting");
-    let journalSnapshot = entry.snapshot;
     const promote = async () => {
       const retainedDraft =
         sameAsSqlDraft &&
@@ -235,7 +291,7 @@ export function PageDraftRecovery({
       });
       if (preserved.status !== "resolved")
         throw new Error("The journal could not be preserved in history.");
-      if (!clearPageDraftJournal(entry.scope, journalSnapshot))
+      if (!clearPageDraftJournal(entry.scope, journalStorageSnapshot))
         throw new Error("The journal changed during History preservation.");
       toast.success(t("editor.previewDraftSavedToHistory"));
       await queryClient.refetchQueries(documentQueryFilter(document.id));
@@ -263,55 +319,55 @@ export function PageDraftRecovery({
           { method: "GET" },
         );
         if (receipt.found && receipt.preservationRequired) {
-          if (!clearPageDraftJournal(entry.scope, journalSnapshot))
+          if (!clearPageDraftJournal(entry.scope, journalStorageSnapshot))
             throw new Error("The journal changed during History preservation.");
           toast.success(t("editor.previewDraftSavedToHistory"));
           setJournalState("checking");
           return;
         }
         if (receipt.found) {
-          clearPageDraftJournal(entry.scope, journalSnapshot);
+          clearPageDraftJournal(entry.scope, journalStorageSnapshot);
           await queryClient.refetchQueries(documentQueryFilter(document.id));
           setJournalState("checking");
           return;
         }
       }
       const baseUpdatedAt =
-        entry.snapshot.baseUpdatedAt ??
-        (entry.snapshot.baseTitle === document.title &&
-        entry.snapshot.baseContent === document.content
+        journalSnapshot.baseUpdatedAt ??
+        (journalSnapshot.baseTitle === document.title &&
+        journalSnapshot.baseContent === document.content
           ? document.updatedAt
           : null);
       const localChangedTitle =
-        entry.snapshot.title !== entry.snapshot.baseTitle;
+        journalSnapshot.title !== journalSnapshot.baseTitle;
       const titleConflict =
         localChangedTitle &&
-        document.title !== entry.snapshot.baseTitle &&
-        document.title !== entry.snapshot.title;
+        document.title !== journalSnapshot.baseTitle &&
+        document.title !== journalSnapshot.title;
       if (!baseUpdatedAt || titleConflict) {
         await promote();
         return;
       }
       let winnerTitle = document.title;
-      let attemptedContent = entry.snapshot.content;
+      let attemptedContent = journalSnapshot.content;
       const outcome = await saveDocumentWithRebase({
         base: {
-          content: entry.snapshot.baseContent,
+          content: journalSnapshot.baseContent,
           updatedAt: baseUpdatedAt,
-          revision: entry.snapshot.baseRevision,
+          revision: journalSnapshot.baseRevision,
         },
-        content: entry.snapshot.content,
+        content: journalSnapshot.content,
         canRetry: (winner) => {
           winnerTitle = winner.title;
           return (
             !localChangedTitle ||
-            winner.title === entry.snapshot.baseTitle ||
-            winner.title === entry.snapshot.title
+            winner.title === journalSnapshot.baseTitle ||
+            winner.title === journalSnapshot.title
           );
         },
         confirmsWrite: (winner) =>
           winner.title ===
-          (localChangedTitle ? entry.snapshot.title : winnerTitle),
+          (localChangedTitle ? journalSnapshot.title : winnerTitle),
         persist: (content, base) => {
           attemptedContent = content;
           const saveAttemptId = crypto.randomUUID();
@@ -331,50 +387,51 @@ export function PageDraftRecovery({
           });
           if (written.snapshot.saveAttemptId !== saveAttemptId)
             throw new Error("A newer local edit superseded journal replay.");
+          journalStorageSnapshot = written.snapshot;
           journalSnapshot = nextSnapshot;
           return update.mutateAsync({
             id: document.id,
             browserSaveAttemptId: saveAttemptId,
-            ...(localChangedTitle ? { title: entry.snapshot.title } : {}),
+            ...(localChangedTitle ? { title: journalSnapshot.title } : {}),
             content,
             baseUpdatedAt: base.updatedAt ?? undefined,
             baseRevision: base.revision,
             ...(localChangedTitle
-              ? { baseTitle: entry.snapshot.baseTitle }
+              ? { baseTitle: journalSnapshot.baseTitle }
               : {}),
             loadedUpdatedAt: base.updatedAt ?? undefined,
             loadedContentWasEmpty: base.content === "",
             editorSessionId: entry.scope.writerId,
-            editorEditGeneration: entry.snapshot.editGeneration,
+            editorEditGeneration: journalSnapshot.editGeneration,
             editorSnapshotTitle: localChangedTitle
-              ? entry.snapshot.title
+              ? journalSnapshot.title
               : winnerTitle,
             editorSnapshotContent: content,
-            ...(entry.snapshot.authoredBaseRevision &&
-            entry.snapshot.authoredBaseContent !== undefined &&
+            ...(journalSnapshot.authoredBaseRevision &&
+            journalSnapshot.authoredBaseContent !== undefined &&
             authoredCandidateMatchesContent(
               content,
-              entry.snapshot.authoredCandidateContent,
+              journalSnapshot.authoredCandidateContent,
             )
               ? {
-                  authoredBaseRevision: entry.snapshot.authoredBaseRevision,
-                  authoredBaseContent: entry.snapshot.authoredBaseContent,
+                  authoredBaseRevision: journalSnapshot.authoredBaseRevision,
+                  authoredBaseContent: journalSnapshot.authoredBaseContent,
                   authoredCandidateContent:
-                    entry.snapshot.authoredCandidateContent,
+                    journalSnapshot.authoredCandidateContent,
                 }
               : {}),
           });
         },
       });
       if (outcome.status === "superseded") {
-        clearPageDraftJournal(entry.scope, journalSnapshot);
+        clearPageDraftJournal(entry.scope, journalStorageSnapshot);
         await queryClient.refetchQueries(documentQueryFilter(document.id));
         await drafts.refetch();
         setJournalState("checking");
         return;
       }
       if (outcome.status === "preservation") {
-        if (!clearPageDraftJournal(entry.scope, journalSnapshot))
+        if (!clearPageDraftJournal(entry.scope, journalStorageSnapshot))
           throw new Error("The journal changed during History preservation.");
         toast.success(t("editor.previewDraftSavedToHistory"));
         await queryClient.refetchQueries(documentQueryFilter(document.id));
@@ -401,7 +458,7 @@ export function PageDraftRecovery({
         await promote();
         return;
       }
-      clearPageDraftJournal(entry.scope, journalSnapshot);
+      clearPageDraftJournal(entry.scope, journalStorageSnapshot);
       await queryClient.refetchQueries(documentQueryFilter(document.id));
       await drafts.refetch();
       setJournalState("checking");
@@ -691,6 +748,9 @@ export function PageDraftRecovery({
       {children}
     </LiveEditorSessionContext.Provider>
   );
+  // Scoped widget tickets identify the document, not a cookie session whose
+  // private draft journal can be verified.
+  if (skipDraftRecovery || skipCreationDraftRecovery) return withNotice(null);
   if (editorReleased) return withNotice(null);
   if (drafts.isError)
     return (
@@ -725,6 +785,14 @@ export function PageDraftRecovery({
         title={document.title}
         iconRow={readPageIconRowHint(document.id)}
         shape={readDocumentShapeHint(document)}
+        stalledLoad={
+          widgetBridgeActive
+            ? {
+                stage: t("editor.widgetDraftCheckStage"),
+                action: "get-preview-document-draft",
+              }
+            : undefined
+        }
       />
     );
   if (!draft) return withNotice(null);

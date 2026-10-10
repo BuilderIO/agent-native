@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./read-design-editor-source";
 import {
   computeInteractZoomToFit,
   DEFAULT_INTERACT_DEVICE_PRESET,
@@ -92,7 +93,7 @@ describe("responsive Interact defaults", () => {
 });
 
 describe("responsive Interact wiring", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
   const editorSurface =
     source +
     readdirSync("app/pages/design-editor/commands")
@@ -132,7 +133,7 @@ describe("responsive Interact wiring", () => {
       "responsiveInteractActive && !minimalUi ? (",
     );
     expect(pinnedExitIndex).toBeGreaterThan(-1);
-    const pinnedExit = source.slice(pinnedExitIndex, pinnedExitIndex + 400);
+    const pinnedExit = source.slice(pinnedExitIndex, pinnedExitIndex + 600);
     expect(pinnedExit).toContain("<ResponsiveInteractExitButton");
     expect(pinnedExit).toContain("onClose={handleExitResponsiveInteract}");
     expect(pinnedExit).toContain(
@@ -155,9 +156,8 @@ describe("responsive Interact wiring", () => {
     expect(source).toContain(
       'className="pointer-events-none flex min-w-0 justify-center"',
     );
-    expect(source).toContain(
-      "isMobileViewport && minimalInspectorHasSelection",
-    );
+    expect(source).toContain("shouldAutoOpenMobileInspector");
+    expect(source).toContain("hasSelection: minimalInspectorHasSelection");
   });
 
   it("resets chrome mode when same-design navigation changes embed mode", () => {
@@ -237,12 +237,9 @@ describe("responsive Interact wiring", () => {
     expect(commandChannel).not.toContain("!id || !isSignedIn");
   });
 
-  it("routes every Interact request into the responsive view", () => {
-    expect(source).toContain(
-      'handleModeChange("interact", { targetFileId: screenId })',
-    );
-    expect(source).toContain('handleModeChange("interact");');
-    expect(source).toContain("enterSingleScreen(screenId, { mode });");
+  it("keeps screen focus on All screens and reserves Interact for explicit mode changes", () => {
+    expect(source).toContain('if (mode === "interact")');
+    expect(source).toContain("handleSidebarScreenSelect(match.id)");
     expect(source).not.toContain("enterSingleScreenInteract");
     expect(editorSurface).toContain("resolveModeChangeView({");
     expect(editorSurface).toContain('options?.mode ?? "interact"');
@@ -257,7 +254,9 @@ describe("responsive Interact wiring", () => {
   it("keeps editor-shell editing paths inert while Interact owns the screen", () => {
     const hotkeys = source.slice(
       source.indexOf("useDesignHotkeys({"),
-      source.indexOf("const startRetryGeneration"),
+      source.indexOf(
+        "canEditSelectedLiveLayerRef.current = canEditSelectedLiveLayer;",
+      ),
     );
     expect(hotkeys).toContain("!responsiveInteractActive");
 
@@ -281,9 +280,10 @@ describe("responsive Interact wiring", () => {
   });
 
   it("keeps a way out of Interact into Edit/Annotate on the one canvas path", () => {
+    const barMountStart = source.indexOf("<ResponsiveInteractBar");
     const barMount = source.slice(
-      source.indexOf("<ResponsiveInteractBar"),
-      source.indexOf("onClose={handleExitResponsiveInteract}"),
+      barMountStart,
+      source.indexOf("onClose={handleExitResponsiveInteract}", barMountStart),
     );
     expect(barMount).toContain("onModeChange={(next) => {");
     expect(barMount).toContain("setRuntimeLayerSnapshotRequest(");

@@ -21,6 +21,7 @@ import {
   applySubmittedUserMessage,
   buildUserMessage,
 } from "../agent/thread-data-builder.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import {
   adoptThreadScopeIfUnscoped,
   createThreadShareLink,
@@ -286,7 +287,6 @@ describe("chat thread store", () => {
         updated_at: 2,
       };
     };
-
     await updateThreadData(
       "thread-1",
       JSON.stringify({ messages: [userMessage] }),
@@ -302,6 +302,543 @@ describe("chat thread store", () => {
     ]);
     expect(row!.message_count).toBe(2);
     expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
+  });
+
+  describe("inline attachment bytes", () => {
+    const pixels = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+    const uploaded =
+      "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Fkept";
+    const imageMessage = {
+      id: "user-2",
+      role: "user",
+      content: [
+        { type: "text", text: `compare with ${pixels}` },
+        { type: "image", image: pixels },
+      ],
+      attachments: [
+        {
+          id: "a1",
+          type: "image",
+          name: "local.png",
+          contentType: "image/png",
+          content: [{ type: "image", image: pixels }],
+        },
+        {
+          id: "a2",
+          type: "image",
+          name: "kept.png",
+          contentType: "image/png",
+          content: [{ type: "image", image: pixels }],
+          metadata: { uploadUrl: uploaded },
+        },
+        {
+          id: "a3",
+          type: "file",
+          name: "spec.pdf",
+          content: [
+            {
+              type: "file",
+              data: "JVBERi0xLjQ=",
+              mimeType: "application/pdf",
+              filename: "spec.pdf",
+            },
+          ],
+        },
+      ],
+    };
+
+    it("stores a client snapshot with upload URLs and visible placeholders, never bytes", async () => {
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [
+            { message: userMessage, parentId: null },
+            { message: imageMessage, parentId: "user-1" },
+          ],
+        }),
+        "Thread",
+        "make this slide better",
+        2,
+      );
+
+      assertNoInlineImageBytes(row!.thread_data, "thread_data");
+      const stored = JSON.parse(row!.thread_data).messages[1].message;
+      expect(stored.content).toEqual([
+        { type: "text", text: "compare with [inline image/png data omitted]" },
+        { type: "file", mediaType: "image/png", omitted: "inline-bytes" },
+      ]);
+      expect(stored.attachments.map((att: any) => att.content[0])).toEqual([
+        { type: "file", mediaType: "image/png", omitted: "inline-bytes" },
+        { type: "image", image: uploaded },
+        {
+          type: "file",
+          mimeType: "application/pdf",
+          filename: "spec.pdf",
+          name: "spec.pdf",
+          mediaType: "application/pdf",
+          omitted: "inline-bytes",
+        },
+      ]);
+    });
+
+    it("scrubs bytes a legacy row already holds on its next write", async () => {
+      row!.thread_data = JSON.stringify({
+        messages: [{ message: imageMessage, parentId: null }],
+      });
+
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+        }),
+        "Thread",
+        "make this slide better",
+        1,
+      );
+
+      expect(row!.thread_data).toContain('"id":"user-2"');
+      assertNoInlineImageBytes(row!.thread_data, "thread_data");
+    });
+
+    it("forks without copying the source's inline bytes", async () => {
+      row!.thread_data = JSON.stringify({
+        messages: [{ message: imageMessage, parentId: null }],
+      });
+      let inserted: string | undefined;
+      const execute = executeMock.getMockImplementation()!;
+      executeMock.mockImplementation(async (query: any) => {
+        if (/INSERT INTO chat_threads/i.test(query.sql)) {
+          inserted = query.args[4];
+          return { rows: [], rowsAffected: 1 };
+        }
+        return execute(query);
+      });
+
+      await forkThread("thread-1", "user@example.com", { id: "thread-fork" });
+
+      expect(inserted).toContain('"id":"user-2"');
+      assertNoInlineImageBytes(inserted, "forked thread_data");
+    });
+  });
+
+  it("recounts delta history against the latest row after a CAS conflict", async () => {
+    const agentKitUser = { id: "agentkit-user", role: "user", parts: [] };
+    const concurrentAssistant = {
+      id: "concurrent-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    const incomingAssistant = {
+      id: "incoming-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: userMessage, parentId: null }],
+      agentKit: { messages: [agentKitUser] },
+    });
+    row!.message_count = 2;
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+          agentKit: { messages: [agentKitUser, concurrentAssistant] },
+        }),
+        message_count: 3,
+        updated_at: 2,
+      };
+    };
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [incomingAssistant],
+        },
+      }),
+      "Thread",
+      "Done.",
+      3,
+    );
+
+    const repository = JSON.parse(row!.thread_data);
+    expect(
+      repository.agentKit.messages.map((message: any) => message.id),
+    ).toEqual(["agentkit-user", "concurrent-assistant", "incoming-assistant"]);
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("preserves the latest title and preview while recounting a snapshot delta after CAS", async () => {
+    const concurrentAssistant = {
+      id: "concurrent-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    const incomingAssistant = {
+      id: "incoming-assistant",
+      role: "assistant",
+      parts: [],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: userMessage, parentId: null }],
+      agentKit: { messages: [] },
+    });
+    row!.message_count = 1;
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        title: "Generated title",
+        preview: "Latest preview",
+        thread_data: JSON.stringify({
+          messages: [{ message: userMessage, parentId: null }],
+          agentKit: { messages: [concurrentAssistant] },
+        }),
+        message_count: 2,
+        updated_at: 2,
+      };
+    };
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [incomingAssistant],
+        },
+      }),
+      "Stale title",
+      "Stale preview",
+      2,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("Generated title");
+    expect(row!.preview).toBe("Latest preview");
+    expect(row!.message_count).toBe(3);
+    expect(JSON.parse(row!.thread_data).agentKit.messages).toEqual([
+      concurrentAssistant,
+      incomingAssistant,
+    ]);
+  });
+
+  it("seeds blank snapshot metadata from the first visible merged prompt", async () => {
+    row!.title = "";
+    row!.preview = "  Saved   preview  ";
+    const contextOnlyMessage = {
+      message: {
+        id: "context-only-prompt",
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<context>Private instructions only</context>",
+          },
+        ],
+      },
+      parentId: null,
+    };
+    const visiblePrompt = {
+      message: {
+        id: "visible-prompt",
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Find flights to <context>private note</context>Tokyo",
+          },
+        ],
+      },
+      parentId: "context-only-prompt",
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [contextOnlyMessage],
+      agentKit: { messages: [] },
+    });
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [visiblePrompt],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "",
+      "",
+      2,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("Find flights to Tokyo");
+    expect(row!.preview).toBe("  Saved   preview  ");
+  });
+
+  it("preserves exact nonblank snapshot title and preview strings", async () => {
+    row!.title = "  Manual   title  ";
+    row!.preview = "  Saved   preview  ";
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [userMessage],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Generated title",
+      "Generated preview",
+      1,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("  Manual   title  ");
+    expect(row!.preview).toBe("  Saved   preview  ");
+  });
+
+  it.each([
+    { title: "", preview: "", expectedTitle: "Find flights to Tokyo" },
+    { title: "", preview: "   ", expectedTitle: "Find flights to Tokyo" },
+    {
+      title: "  Manual   title  ",
+      preview: "",
+      expectedTitle: "  Manual   title  ",
+    },
+  ])(
+    "fills only blank snapshot metadata from merged visible prompts: %j",
+    async ({ title, preview, expectedTitle }) => {
+      row!.title = title;
+      row!.preview = preview;
+      const contextOnlyMessage = {
+        message: {
+          id: "context-only-prompt",
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "<context>Private instructions only</context>",
+            },
+          ],
+        },
+        parentId: null,
+      };
+      const firstVisiblePrompt = {
+        message: {
+          id: "first-visible-prompt",
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Find flights to <context>private note</context>Tokyo",
+            },
+          ],
+        },
+        parentId: "context-only-prompt",
+      };
+      const latestVisiblePrompt = {
+        message: {
+          id: "latest-visible-prompt",
+          role: "user",
+          content: [{ type: "text", text: "Book a return flight" }],
+        },
+        parentId: "first-visible-prompt",
+      };
+      row!.thread_data = JSON.stringify({
+        messages: [contextOnlyMessage],
+        agentKit: { messages: [] },
+      });
+
+      await updateThreadData(
+        "thread-1",
+        JSON.stringify({
+          messages: [firstVisiblePrompt, latestVisiblePrompt],
+          agentKit: { _snapshotDelta: true, messages: [] },
+        }),
+        "Stale title",
+        "Stale preview",
+        3,
+        { preserveCurrentTitleAndPreview: true },
+      );
+
+      expect(row!.title).toBe(expectedTitle);
+      expect(row!.preview).toBe("Book a return flight");
+    },
+  );
+
+  it("keeps blank snapshot metadata blank when merged history has no visible prompt", async () => {
+    row!.title = "";
+    row!.preview = "";
+    row!.thread_data = JSON.stringify({
+      messages: [
+        {
+          message: {
+            id: "context-only-prompt",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context>Private instructions only</context>",
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+      agentKit: { messages: [] },
+    });
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Stale title",
+      "Stale preview",
+      1,
+      { preserveCurrentTitleAndPreview: true },
+    );
+
+    expect(row!.title).toBe("");
+    expect(row!.preview).toBe("");
+  });
+
+  it("lets explicit metadata preservation win over snapshot title seeding", async () => {
+    row!.title = "";
+    row!.preview = "";
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [userMessage],
+        agentKit: { _snapshotDelta: true, messages: [] },
+      }),
+      "Generated title",
+      "Generated preview",
+      2,
+      {
+        preserveCurrentMetadata: true,
+        preserveCurrentTitleAndPreview: true,
+      },
+    );
+
+    expect(row!.title).toBe("");
+    expect(row!.preview).toBe("");
+    expect(row!.message_count).toBe(1);
+  });
+
+  it("seeds a blank title from the first prompt without replacing it on later saves", async () => {
+    row!.title = "";
+    row!.thread_data = "{}";
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "first-prompt",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "<context>Private instructions</context>\nPlan   next week",
+              },
+            ],
+          },
+          parentId: null,
+        },
+      ],
+    };
+    await updateThreadData("thread-1", JSON.stringify(repository), "", "", 1);
+    expect(row!.title).toBe("Plan next week");
+    await updateThreadData("thread-1", "{}", "", "", 1);
+    expect(row!.title).toBe("Plan next week");
+    await renameThread("thread-1", "My renamed thread");
+    await updateThreadData("thread-1", JSON.stringify(repository), "", "", 1);
+    expect(row!.title).toBe("My renamed thread");
+  });
+
+  it("reports when the thread disappeared before a save", async () => {
+    row = null;
+
+    await expect(updateThreadData("thread-1", "{}", "", "", 0)).resolves.toBe(
+      false,
+    );
+  });
+
+  it("rechecks annotation delta baselines after a cross-process CAS conflict", async () => {
+    const baseline = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Original source",
+      },
+    };
+    const snapshotEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Snapshot edit",
+      },
+    };
+    const concurrentEdit = {
+      messageId: "assistant-1",
+      annotation: {
+        id: "source-1",
+        kind: "source",
+        label: "Concurrent edit",
+      },
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [],
+      agentKit: { annotations: [baseline] },
+    });
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({
+          messages: [],
+          agentKit: { annotations: [concurrentEdit] },
+        }),
+        updated_at: 2,
+      };
+    };
+    const annotationConflicts: Array<{
+      messageId: string;
+      annotationId?: string;
+      operation: "upsert" | "remove";
+    }> = [];
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          annotations: [],
+          annotationUpserts: [{ entry: snapshotEdit, baseline }],
+        },
+      }),
+      "Thread",
+      "",
+      0,
+      {
+        onAnnotationConflict: (conflict) => annotationConflicts.push(conflict),
+      },
+    );
+
+    expect(JSON.parse(row!.thread_data).agentKit.annotations).toEqual([
+      concurrentEdit,
+    ]);
+    expect(JSON.parse(row!.thread_data).agentKit).not.toHaveProperty(
+      "annotationUpserts",
+    );
+    expect(annotationConflicts).toEqual([
+      {
+        messageId: "assistant-1",
+        annotationId: "source-1",
+        operation: "upsert",
+      },
+    ]);
   });
 
   it("counts AgentKit-only messages when saving thread history", async () => {
@@ -329,6 +866,758 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
+  it("counts a root user mirror once when its AgentKit ID differs", async () => {
+    const rootMessage = buildUserMessage({
+      text: "Make this change",
+      runId: "run-user-mirror",
+      agentKitMessageId: "client-user-mirror",
+    });
+    const repository = {
+      messages: [{ message: rootMessage, parentId: null }],
+      agentKit: {
+        messages: [{ id: "client-user-mirror", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Make this change",
+      2,
+    );
+
+    expect(row!.message_count).toBe(1);
+
+    const identicalMessage = buildUserMessage({
+      text: "Same client ID",
+      runId: "run-user-identical",
+      agentKitMessageId: "shared-user-id",
+    });
+    identicalMessage.id = "shared-user-id";
+    const identicalRepository = {
+      messages: [{ message: identicalMessage, parentId: null }],
+      agentKit: {
+        messages: [{ id: "shared-user-id", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(identicalRepository),
+      "Thread",
+      "Same client ID",
+      1,
+    );
+
+    expect(row!.message_count).toBe(1);
+
+    const unmatchedRepository = {
+      messages: [
+        {
+          message: buildUserMessage({
+            text: "Another request",
+            runId: "run-user-unmatched",
+          }),
+          parentId: null,
+        },
+      ],
+      agentKit: {
+        messages: [{ id: "unmatched-client-user", role: "user", parts: [] }],
+      },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(unmatchedRepository),
+      "Thread",
+      "Another request",
+      2,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts unique messages across merged legacy and AgentKit history", async () => {
+    const legacyMessage = {
+      id: "legacy-user",
+      role: "user",
+      content: [{ type: "text", text: "Old prompt." }],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [{ message: legacyMessage, parentId: null }],
+      agentKit: { _mergeRootMessages: true, messages: [] },
+    });
+    row!.message_count = 1;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          _mergeRootMessages: true,
+          messages: [{ id: "new-assistant", role: "assistant", parts: [] }],
+        },
+      }),
+      "Thread",
+      "Done.",
+      2,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a folded AgentKit reply once when the root stores its continuation", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Write forty lines" }],
+          },
+          {
+            id: "message-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "First half." }],
+          },
+        ],
+        events: [
+          {
+            id: "event-run-1",
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "message-1", role: "assistant" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a fully projected folded reply once across its runs", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "message-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "First half." }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "message-2",
+            role: "assistant",
+            parts: [{ type: "text", text: " Second half." }],
+            metadata: { runId: "run-2" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("keeps a folded root reply when event mapping cannot identify its run messages", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "partial-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "First half." }],
+          },
+          {
+            id: "partial-2",
+            role: "assistant",
+            parts: [{ type: "text", text: "Additional tool response." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "partial-1", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "partial-2", role: "assistant" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("keeps a distinct final assistant reply when a run has multiple messages", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Here is the complete result." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Here is the complete" }],
+            metadata: { runId: "run-1" },
+          },
+          {
+            id: "unrelated-final",
+            role: "assistant",
+            parts: [{ type: "text", text: "The tool returned a value." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+        _mergeRootMessages: true,
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Make the report",
+      3,
+    );
+
+    expect(row!.message_count).toBe(4);
+  });
+
+  it("counts a raw tool-call mirror once when its result is in AgentKit", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-hello",
+                toolName: "hello",
+                args: {
+                  details: { name: "AgentKit Browser", browser: true },
+                },
+                result: {
+                  message: "Hello, AgentKit Browser!",
+                  ok: true,
+                },
+              },
+              { type: "text", text: "The task is complete." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Calling the tool." }],
+          },
+          {
+            id: "assistant-final-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "The task is complete." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-tool-step", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-final-answer", role: "assistant" },
+          },
+        ],
+        toolCalls: [
+          {
+            id: "call-hello",
+            name: "hello",
+            input: {
+              details: { browser: true, name: "AgentKit Browser" },
+            },
+            output: { ok: true, message: "Hello, AgentKit Browser!" },
+            messageId: "assistant-final-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("counts a raw tool-call mirror once when its stored result is model-facing text and the AgentKit output is structured", async () => {
+    const output = {
+      ok: true,
+      message: "Hello, AgentKit Browser!",
+      ui: { kind: "greeting", name: "AgentKit Browser" },
+    };
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-hello",
+                toolName: "hello",
+                args: { details: { name: "AgentKit Browser" } },
+                result: JSON.stringify(
+                  { ok: true, message: "Hello, AgentKit Browser!" },
+                  null,
+                  2,
+                ),
+              },
+              { type: "text", text: "The task is complete." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-tool-step",
+            role: "assistant",
+            parts: [{ type: "text", text: "Calling the tool." }],
+          },
+          {
+            id: "assistant-final-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "The task is complete." }],
+          },
+        ],
+        events: [
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-tool-step", role: "assistant" },
+          },
+          {
+            type: "message.created",
+            runId: "run-1",
+            message: { id: "assistant-final-answer", role: "assistant" },
+          },
+        ],
+        toolCalls: [
+          {
+            id: "call-hello",
+            name: "hello",
+            input: { details: { name: "AgentKit Browser" } },
+            output,
+            messageId: "assistant-final-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
+  it("counts a mirrored reply once when only the durable copy has reasoning", async () => {
+    const repository = {
+      messages: [
+        { message: { ...userMessage }, parentId: null },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              { type: "reasoning", text: "The stored reasoning." },
+              { type: "text", text: "Done." },
+            ],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "assistant-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Say hello",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts an identical root and AgentKit assistant mirror once", async () => {
+    const repository = {
+      messages: [
+        {
+          message: { ...userMessage },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          { id: "user-1", role: "user", parts: [] },
+          {
+            id: "reply-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+            metadata: { runId: "run-1" },
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a mirrored reply when the completed run no longer has message events", async () => {
+    const runId = "run-without-message-events";
+    const input = { lookup: "account-1" };
+    const output = { answer: "Done." };
+    const repository = {
+      messages: [
+        {
+          message: {
+            ...userMessage,
+            metadata: {
+              custom: {
+                submittedRunId: runId,
+                agentKitMessageId: "client-user",
+              },
+            },
+          },
+        },
+        {
+          message: {
+            id: "server-answer",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-lookup",
+                toolName: "lookup",
+                args: input,
+                result: output,
+              },
+              { type: "text", text: output.answer },
+            ],
+            metadata: { runId },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "client-user", role: "user", parts: [] },
+          {
+            id: "client-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: output.answer }],
+          },
+        ],
+        events: [],
+        runs: [{ id: runId, status: "completed" }],
+        toolCalls: [
+          {
+            id: "call-lookup",
+            name: "lookup",
+            input,
+            output,
+            status: "completed",
+            runId,
+            messageId: "client-answer",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts many root assistant mirrors once each", async () => {
+    const messageCount = 256;
+    const rootMessages = Array.from({ length: messageCount }, (_, index) => {
+      const runId = `run-${index}`;
+      const text = `Answer ${index}`;
+      return {
+        message: {
+          id: `server-${index}`,
+          role: "assistant",
+          content: [{ type: "text", text }],
+          metadata: { runId },
+        },
+        parentId: index > 0 ? `server-${index - 1}` : null,
+      };
+    });
+    const agentKitMessages = Array.from(
+      { length: messageCount },
+      (_, index) => ({
+        id: `client-${index}`,
+        role: "assistant",
+        parts: [{ type: "text", text: `Answer ${index}` }],
+        metadata: { runId: `run-${index}` },
+      }),
+    );
+    const repository = {
+      messages: rootMessages,
+      agentKit: { _mergeRootMessages: true, messages: agentKitMessages },
+    };
+    row!.thread_data = JSON.stringify({ messages: [] });
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Answer 255",
+      0,
+    );
+
+    expect(row!.message_count).toBe(messageCount);
+  });
+
+  it("counts disjoint mixed legacy history without the merge marker", async () => {
+    const sharedMessage = {
+      id: "shared-message",
+      role: "assistant",
+      parts: [],
+    };
+    const legacyMessage = {
+      id: "legacy-user",
+      role: "user",
+      content: [{ type: "text", text: "Old prompt." }],
+    };
+    row!.thread_data = JSON.stringify({
+      messages: [
+        { message: legacyMessage, parentId: null },
+        { message: sharedMessage, parentId: "legacy-user" },
+      ],
+      agentKit: { messages: [] },
+    });
+    row!.message_count = 2;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({
+        messages: [],
+        agentKit: {
+          _snapshotDelta: true,
+          messages: [
+            sharedMessage,
+            { id: "new-agentkit-message", role: "assistant", parts: [] },
+          ],
+        },
+      }),
+      "Thread",
+      "Done.",
+      3,
+    );
+
+    expect(row!.message_count).toBe(3);
+  });
+
   it("preserves a title committed while message persistence was stale", async () => {
     row!.title = "Generated chat title";
 
@@ -341,6 +1630,62 @@ describe("chat thread store", () => {
     );
 
     expect(row!.title).toBe("Generated chat title");
+  });
+
+  it("does not replace full thread data when snapshot validation fails", async () => {
+    row!.thread_data = JSON.stringify({
+      messages: [userMessage],
+      queuedMessages: [{ id: "queued-1", text: "Keep this" }],
+      customData: { marker: "preserved" },
+      agentKit: {
+        events: [
+          {
+            id: "existing-event",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+        _eventRunWatermarks: { "run-1": 1 },
+      },
+    });
+    row!.message_count = 1;
+    const existingThreadData = row!.thread_data;
+    const incompleteSnapshot = JSON.stringify({
+      messages: [],
+      agentKit: {
+        _snapshotDelta: true,
+        eventRunSnapshotBatches: [
+          {
+            runId: "run-1",
+            snapshotId: "incomplete-snapshot",
+            lastSequence: 2,
+            expectedEventCount: 2,
+            complete: true,
+          },
+        ],
+        events: [
+          {
+            id: "new-event-1",
+            runId: "run-1",
+            sequence: 1,
+            type: "run.started",
+          },
+        ],
+      },
+    });
+
+    await expect(
+      updateThreadData("thread-1", incompleteSnapshot, "Thread", "Done", 2, {
+        maxAttempts: 1,
+      }),
+    ).rejects.toThrow(
+      "Agent chat event snapshot ended before all events arrived.",
+    );
+
+    expect(row!.thread_data).toBe(existingThreadData);
+    expect(row!.message_count).toBe(1);
+    expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
   it("throws after exhausted thread-data conflicts by default", async () => {
@@ -390,7 +1735,7 @@ describe("chat thread store", () => {
         1,
         { maxAttempts: 1, ignoreConflicts: true },
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
   });
 
@@ -457,6 +1802,36 @@ describe("chat thread store", () => {
     ]);
     expect(row!.preview).toBe("make this slide better");
     expect(row!.message_count).toBe(1);
+  });
+
+  it("rejects data URLs before directly persisting a queued attachment", async () => {
+    const originalThreadData = row!.thread_data;
+
+    await expect(
+      mutateThreadQueuedMessages("thread-1", {
+        type: "append",
+        message: {
+          id: "queued-inline-image",
+          text: "Use this image",
+          requestAttachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              url: "data:image/png;base64,aGVsbG8=",
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("queuedMessage.requestAttachments[0].url");
+
+    expect(row!.thread_data).toBe(originalThreadData);
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        /UPDATE chat_threads SET thread_data/i.test(
+          typeof query === "string" ? query : query.sql,
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("rechecks a queue claim after a cross-process CAS conflict", async () => {

@@ -449,7 +449,6 @@ const editor = {
   pageBodySyncing: "このページのコンテンツはまだ同期中です",
   pageBodySyncingDescription:
     "既存のコンテンツを上書きしないよう、ページ本文の同期が完了するまで編集は一時停止されます。",
-  createCollection: "コレクションを作成",
   creatingDatabase: "インラインコレクションを作成しています...",
   databaseCreated: "コレクションが作成されました",
   emptyBlockPlaceholder: "「/」でコマンドを表示",
@@ -802,10 +801,12 @@ const editor = {
     linkToNotionPage: "Notionページへのリンク",
     localFile: "ローカルファイル",
     morePageActions: "その他のページアクション",
+    formatting: "書式",
     noPagesFound: "ページが見つかりませんでした",
     notifications: "通知",
     notionSync: "Notionの同期",
     openInNotion: "概念で開く",
+    openInAgentNative: "Agent-Native で開く",
     orgCanFindAndView: "組織内の誰でも検索して表示できます",
     orgLinkCanView: "組織内のリンクを知っている人は誰でも閲覧できます",
     pin: "固定",
@@ -1059,6 +1060,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "{{stage}}を待機しています。リクエスト: {{action}}。",
+    widgetDocumentLoadStage: "保存済みページの本文",
+    widgetDraftCheckStage: "ページ下書きの復元",
+    widgetEditorInitStage: "リッチテキストエディターの初期化",
     iconPickerIcons: "アイコン",
     iconPickerEmoji: "絵文字",
     iconPickerRecent: "最近",
@@ -1442,6 +1447,9 @@ const overrides = {
     aiUndo: "元に戻す",
     aiDone: "完了",
     aiMoreChanges: "ほか {{count}} 件",
+    suggestionReplaced: "置き換え済み",
+    suggestionWithdrawn: "取り下げ済み",
+    suggestedChange: "提案された変更",
     aiUndoUnavailable: "削除されたテキストは自動で元に戻せません",
     aiUndoFailed: "変更を元に戻せませんでした",
     aiResolvedByAi: "AI が解決",
@@ -1483,6 +1491,11 @@ const overrides = {
     resize: "サイドバーの幅を変更",
     expand: "サイドバーを展開",
     failedCreatePage: "ページを作成できませんでした",
+    failedCreatePageDraftDescription:
+      "下書きはこのブラウザーに保存されています。ページの作成を再試行するか、下書きを破棄できます。",
+    discardFailedCreatePageQuestion: "作成待ちを破棄しますか？",
+    discardFailedCreatePageDescription:
+      "保留中の作成と未保存の下書きを消去します。ページがすでに保存されている場合は、ワークスペースに残ります。",
     failedDeletePage: "ページを削除できませんでした",
     failedPermanentDeletePage: "ページを完全に削除できませんでした",
     failedRestorePage: "ページを復元できませんでした",

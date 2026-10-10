@@ -61,6 +61,24 @@ describe("hasActiveAgentRuns", () => {
 
     expect(hasActiveAgentRuns(thread)).toBe(true);
   });
+
+  it("restores a pending approval run when its active-id projection is missing", () => {
+    const started = reduceAgentEvent(
+      createAgentThreadState("thread-1"),
+      event(1, { type: "run.started" }),
+    );
+    const withoutActiveId = { ...started, activeRunIds: [] };
+    const awaitingApproval = reduceAgentEvent(
+      withoutActiveId,
+      event(2, {
+        type: "approval.requested",
+        request: { id: "approval-1", title: "Continue?" },
+      }),
+    );
+
+    expect(awaitingApproval.activeRunIds).toEqual(["run-1"]);
+    expect(hasActiveAgentRuns(awaitingApproval)).toBe(true);
+  });
 });
 
 function event(
@@ -386,6 +404,121 @@ describe("AgentKit lifecycle projections", () => {
       output: "final result",
     });
     expect(reduced.tools["tool-1"]?.input).toBeUndefined();
+  });
+
+  it("preserves the message association when a terminal tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.started",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "running",
+          messageId: "assistant-1",
+          input: { query: "report" },
+        },
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "Found it.",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      messageId: "assistant-1",
+      input: { query: "report" },
+      output: "Found it.",
+    });
+  });
+
+  it("preserves streamed output when a terminal tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "Found ",
+      }),
+      event(3, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "it.",
+      }),
+      event(4, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      output: "Found it.",
+    });
+  });
+
+  it("preserves streamed output when a running tool update omits it", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "Found ",
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "running",
+        },
+      }),
+      event(4, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "it.",
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "running",
+      output: "Found it.",
+    });
+  });
+
+  it("uses the output provided by a terminal tool update", () => {
+    const reduced = [
+      event(1, { type: "run.started" }),
+      event(2, {
+        type: "tool.delta",
+        toolCallId: "tool-1",
+        outputTextDelta: "partial output",
+      }),
+      event(3, {
+        type: "tool.updated",
+        toolCall: {
+          id: "tool-1",
+          name: "Search",
+          status: "completed",
+          output: "final output",
+        },
+      }),
+    ].reduce(reduceAgentEvent, createAgentThreadState("thread-1"));
+
+    expect(reduced.tools["tool-1"]).toMatchObject({
+      status: "completed",
+      output: "final output",
+    });
   });
 
   it("does not reopen settled tool, activity, task, or action projections", () => {

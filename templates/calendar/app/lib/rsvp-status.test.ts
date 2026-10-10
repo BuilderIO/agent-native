@@ -1,7 +1,11 @@
 import type { CalendarEvent } from "@shared/api";
 import { describe, expect, it } from "vitest";
 
-import { canInlineRsvp, hasTimeProposal } from "./rsvp-status";
+import {
+  canInlineRsvp,
+  getTimeProposals,
+  hasTimeProposal,
+} from "./rsvp-status";
 
 describe("canInlineRsvp", () => {
   it("allows RSVP controls on owned Google events", () => {
@@ -32,16 +36,18 @@ describe("hasTimeProposal", () => {
     };
 
     expect(hasTimeProposal(event)).toBe(false);
+    const proposal = {
+      displayName: "Guest",
+      email: "second-guest@example.com",
+      comment: "Proposal: Sep 11, 1-1:30pm",
+    };
     expect(
       hasTimeProposal({
-        attendees: [
-          ...event.attendees!,
-          {
-            email: "second-guest@example.com",
-            comment: "Proposal: Sep 11, 1-1:30pm",
-          },
-        ],
+        attendees: [...event.attendees!, proposal],
       }),
     ).toBe(true);
+    expect(getTimeProposals({ attendees: [proposal] })).toEqual([
+      { attendee: proposal, comment: proposal.comment },
+    ]);
   });
 });

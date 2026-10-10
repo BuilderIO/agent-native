@@ -1,7 +1,7 @@
 const URL_PATTERN = /https?:\/\/[^\s"'<>)]+|(?<=["'\s]|^)\/\/[^\s"'<>)]+/gi;
 
 const SENSITIVE_URL_PATH_PATTERN =
-  /\/(?:reset-password|password-reset|magic-link|magic_link|verify-email|email-verification|verification|confirm-email|auth\/callback|sso\/callback|unlock-account)(?:[/?]|$)/i;
+  /\/(?:reset-password|password-reset|magic-link|magic_link|email-link|verify-email|email-verification|verification|confirm-email|auth\/callback|sso\/callback|unlock-account)(?:[/?]|$)/i;
 
 const SENSITIVE_QUERY_PARAM_PATTERN =
   /(?:\?|#|&(?:amp;)?)(?:token|code|otp|otp_code|otpcode|verification_code|verificationcode|verify_token|verifytoken|reset_token|resettoken|magic|auth|auth_token|authtoken|session|sid|sig|signature|secret|key|nonce|access_token|accesstoken|id_token|idtoken|oobcode)=/i;

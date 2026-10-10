@@ -144,7 +144,7 @@ describe("design import clipboard helpers", () => {
     ).toBe(true);
   });
 
-  it("detects current bare-comment Figma clipboard markers", () => {
+  it("detects bare-comment clipboard markers", () => {
     const html =
       '<meta charset="utf-8"><!--(figmeta)ZXhhbXBsZQ==(/figmeta)--><!--(figma)ZXhhbXBsZQ==(/figma)-->';
     expect(hasFigmaClipboardPayload(html)).toBe(true);

@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("Design editor mobile layout", () => {
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const editorSource = readDesignEditorSource();
   const layoutSource = readFileSync("app/components/layout/Layout.tsx", "utf8");
   const bottomToolbarSource = readFileSync(
     "app/components/design/editor/DesignBottomToolbar.tsx",
@@ -51,15 +53,13 @@ describe("Design editor mobile layout", () => {
     expect(editorSource).toContain(
       'className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"',
     );
-    expect(editorSource).toContain('activeLeftPanel === "agent" ? 320 : 220');
+    expect(editorSource).toContain("resolveLeftSidebarWidth(");
     const resizeSource = readFileSync(
       "app/pages/design-editor/commands/start-sidebar-resize.ts",
       "utf8",
     );
-    expect(resizeSource).toContain('activeLeftPanel === "agent"\n      ? 320');
-    expect(resizeSource).toContain(
-      'const minWidth = side === "left" ? leftPanelMinWidth : 240;',
-    );
+    expect(resizeSource).toContain("snapLeftSidebarDragWidth(");
+    expect(resizeSource).toContain("Math.min(390, Math.max(240,");
   });
 
   it("keeps the app shell in non-Builder embedded routes", () => {
@@ -82,6 +82,40 @@ describe("Design editor mobile layout", () => {
     expect(editorSource).toContain(
       "embedded && !hostOwnsChrome && !embedChromeRequested",
     );
+  });
+
+  it("keeps floating canvas controls reachable inside an MCP App widget", () => {
+    expect(editorSource).toContain(
+      "const widgetEmbed = useIsMcpAppWidgetEmbed();",
+    );
+    expect(editorSource).toContain(
+      "embedded && !shellMode && !embedChromeRequested && !widgetEmbed;",
+    );
+    expect(editorSource).toContain(
+      "widgetEmbed || (embedded && !hostOwnsChrome && !embedChromeRequested)",
+    );
+    expect(editorSource).toContain(
+      "(!minimalUi || minimalInspectorHasSelection)",
+    );
+    expect(editorSource).toContain("!isMobileViewport &&\n    !uiHidden &&");
+    expect(editorSource).toContain("minimalUi && !hostOwnsChrome ? (");
+    expect(editorSource).toContain("initialFitScreenId: widgetEmbed\n");
+  });
+
+  it("keeps save warnings out of a read-only directory widget but not other sessions", () => {
+    const warn = editorSource.slice(
+      editorSource.indexOf("const warnChangesWillRetry = useCallback"),
+      editorSource.indexOf("const journalOutboxEntry = useCallback"),
+    );
+
+    expect(warn).toContain(
+      'if (readOnlyWidget) return;\n    toast.warning(t("visualEditor.changesSaveWhenReconnected")',
+    );
+    expect(warn).toContain(
+      'if (readOnlyWidget) return;\n    toast.error(t("visualEditor.changesDiscarded")',
+    );
+    // Both toasts stay otherwise unconditional, so normal sessions still warn.
+    expect(warn.match(/if \(readOnlyWidget\) return;/g)).toHaveLength(2);
   });
 
   it("lets the compact workspace rail scroll on short screens", () => {

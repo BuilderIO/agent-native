@@ -64,7 +64,7 @@ may request conversation confirmation. Otherwise,
   Design MCP connector and its normal OAuth/device authorization. Never replace
   either path with a local Design server.
 
-Inside Design, use **Show/Hide UI** from the `Cmd K` menu or press Figma's
+Inside Design, use **Show/Hide UI** from the `Cmd K` menu or press the
 `Shift \` shortcut to toggle all editing chrome so only the canvas remains.
 
 ## Browser WebMCP (Default Without Connector)

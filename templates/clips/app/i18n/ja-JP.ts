@@ -8,6 +8,7 @@ const messages = {
       providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
     common: { retry: "再試行" },
+    onboarding: { skipForNow: "今はスキップ" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -215,6 +216,7 @@ const messages = {
   recordingPage: {
     back: "戻る",
     done: "完了",
+    backToClip: "クリップに戻る",
     untitledClip: "無題のクリップ",
     recordingNotFound: "録画が見つかりません",
     noAccess: "このクリップにアクセスできない可能性があります。",
@@ -311,6 +313,8 @@ const messages = {
     silenceWorking: "無音部分を削除しています…",
     silenceCompleted: "無音部分の削除が完了しました",
     silenceFailed: "無音部分の削除に失敗しました",
+    silenceEditsUnreadable:
+      "保存済みの編集を読み取れなかったため、無音部分は削除されませんでした。",
     generatePrSummary: "PRサマリーを生成する",
     generateSop: "SOPを生成する",
     generateSopTooltip:
@@ -342,7 +346,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "エージェントが読み取り可能なクリップ コンテキスト",
     agentInstructions:
-      "トランスクリプトのagentContextUrlとJPEGフレームURLsを取得します。フレーム URLs をフェッチして、トランスクリプトを読むだけでなく、画面を確認します。",
+      "最初にagentContextUrlを開きます。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。",
     untitledClip: "無題のクリップ",
     incorrectPassword: "パスワードが間違っています",
     passwordProtected: "このクリップはパスワードで保護されています",
@@ -606,7 +610,7 @@ const messages = {
     openInCodex: "Codex で開く",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
-      "この Clips エージェントコンテキスト URL を取得してください: {{agentContextUrl}}。音声の文脈には transcript.segments を使い、画面を見るために recommendedFrames またはフレーム API URL を取得し、browserDiagnostics がある場合は、編集済みのコンソールログと fetch/XHR リクエストのメタデータを確認してください。",
+      "このClipsエージェントコンテキストURLを読み取ってください: {{agentContextUrl}}。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。バグ報告ではbrowserDiagnosticsがあれば確認してください。",
     agentTokenDescription:
       "このクリップは非公開のため、エージェント用の一時的な読み取り専用リンクです。2 時間で期限切れになります。",
     agentPublicDescription:
@@ -1350,6 +1354,11 @@ const messages = {
     burningRedactions: "マスクを動画に焼き込んでいます…",
     burningRedactionsPercent: "マスクを動画に焼き込んでいます… {{percent}}%",
     editFailed: "その編集を保存できませんでした",
+    refreshFailed:
+      "最新の編集内容を読み込めませんでした。編集を続ける前にもう一度お試しください。",
+    autoSaveHint: "編集内容はこのクリップに自動保存されます",
+    savingChanges: "変更を保存中…",
+    changesSaved: "このクリップに変更を保存しました",
     nothingToRedo: "やり直す操作がありません",
   },
   transcriptEditor: {
@@ -1387,6 +1396,14 @@ const messages = {
     agentTitle: "会話に参加するには無料の Clips アカウントを作成",
     genericTitle: "続行するには無料の Clips アカウントを作成",
     description: "完了すると、このクリップに戻ります。",
+    verificationPendingTitle: "メールアドレスを確認してください",
+    verificationPendingCopy:
+      "{{email}} に確認メールを送信しました。メールを開いてアカウント作成を完了し、このクリップに戻ってください。",
+    resendVerification: "確認メールを再送信",
+    resendingVerification: "確認メールを送信しています...",
+    verificationEmailResent: "新しい確認メールを送信しました。",
+    verificationEmailFailed:
+      "確認メールを再送信できませんでした。もう一度お試しいただくか、メールリンクでログインしてください。",
     passwordsMismatch: "パスワードが一致しません。",
     commentIntent: "コメント",
     reactIntent: "リアクションを追加",
@@ -1465,15 +1482,24 @@ const messages = {
     builderConnectPopupError:
       "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合はブラウザーのタブで開き、それ以外の場合はもう一度お試しください。",
     builderConnectError:
-      "Builder.io を設定できませんでした。もう一度お試しいただくか、サポートにお問い合わせください。",
+      "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、S3 互換ストレージを選択してください。",
+    builderConnectErrorAskAdmin:
+      "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、オーナーまたは管理者にストレージの設定を依頼してください。",
+    builderStatusReadError:
+      "接続状態を確認できません。もう一度お試しください。",
+    builderUploadGrantMissing:
+      "Builder.io は AI 用に接続されていますが、この接続ではクリップをアップロードできません。アップロード権限を付けて Builder.io を再接続するか、オーナーまたは管理者に相談してください。",
+    builderGrantAskAdmin:
+      "オーナーまたは管理者に、クリップのアップロード権限を付けて Builder.io を接続するよう依頼してください。",
+    statusUnavailable: "動画ストレージの状態を確認できませんでした。",
     checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:
-      "5 分以内に Builder から応答がありませんでした。もう一度お試しください。",
+      "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
     description:
       "録画した動画を Builder.io または S3 互換ストレージに保存します。Builder.io には無料のホスティングと AI クレジットが含まれています。",
-    createBuilderAccount: "Builder.io アカウントを作成",
+    createBuilderAccount: "Builder.io を使う",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",
     whyPrompt: "なぜこれが表示されていますか？",
@@ -1829,6 +1855,9 @@ const messages = {
     storageConnectedUploading:
       "ストレージを接続しました。録画をアップロードしています…",
     downloadCopy: "コピーをダウンロード",
+    localRecordingPreview: "ローカル録画のプレビュー",
+    localPreviewUnavailable:
+      "ローカルプレビューは利用できません。コピーをダウンロードできます。",
     localRecordingOpenElsewhere:
       "その録画は別の Clips タブでまだ開いています。",
     uploadWaitingForConnection:

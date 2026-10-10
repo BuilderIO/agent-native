@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { withDbTimeout } from "../db/client.js";
@@ -416,7 +418,7 @@ describe("http response telemetry", () => {
     });
   });
 
-  it("does not derive action names from unknown action URLs", async () => {
+  it("records unknown action URLs under the action template without naming an action", async () => {
     const { requestHooks, responseHooks } = createHooks();
     processState.requestSequence = 5;
     const tracked: TrackingEvent[] = [];
@@ -432,7 +434,9 @@ describe("http response telemetry", () => {
     await responseHooks[0](new Response("not found", { status: 404 }), event);
 
     expect(tracked[0]?.properties).not.toHaveProperty("action_name");
-    expect(tracked[0]?.properties).not.toHaveProperty("route_template");
+    expect(tracked[0]?.properties).toMatchObject({
+      route_template: "/_agent-native/actions/:action",
+    });
   });
 
   it("uses registered action metadata before the route handler runs", async () => {
@@ -507,11 +511,15 @@ describe("http response telemetry", () => {
     const unregister = registerObservabilityProvider({
       meterProvider: {
         getMeter: () => ({
-          createHistogram: () => ({
+          createHistogram: (name: string) => ({
             record: (
               _value: number,
               attributes?: Record<string, string | number>,
-            ) => recorded.push(attributes),
+            ) => {
+              if (name === "http.server.request.duration") {
+                recorded.push(attributes);
+              }
+            },
           }),
           createCounter: () => ({ add() {} }),
         }),
@@ -537,9 +545,255 @@ describe("http response telemetry", () => {
         {
           "http.request.method": "GET",
           "http.response.status_code": 200,
+          "http.route": "page",
         },
       ]);
       expect(forceFlush).toHaveBeenCalledOnce();
+    } finally {
+      unregister();
+    }
+  });
+
+  describe("flush handoff", () => {
+    const netlifyStoreKey = Symbol.for(
+      "@netlify/functions/request-context-store",
+    );
+    let releaseFlush: () => void = () => undefined;
+    let forceFlush: ReturnType<typeof vi.fn>;
+    let unregister: () => void = () => undefined;
+
+    beforeEach(() => {
+      processState.requestSequence = 5;
+      const pending = new Promise<void>((resolve) => {
+        releaseFlush = resolve;
+      });
+      forceFlush = vi.fn(() => pending);
+      unregister = registerObservabilityProvider({
+        meterProvider: {
+          getMeter: () => ({
+            createHistogram: () => ({ record() {} }),
+            createCounter: () => ({ add() {} }),
+          }),
+          forceFlush,
+        },
+      });
+    });
+
+    afterEach(() => {
+      releaseFlush();
+      unregister();
+      delete (globalThis as Record<symbol, unknown>)[netlifyStoreKey];
+    });
+
+    async function respond(
+      event: ReturnType<typeof eventFor>,
+      run: <T>(fn: () => T) => T = (fn) => fn(),
+    ) {
+      const { requestHooks, responseHooks } = createHooks();
+      await requestHooks[0](event);
+      let settled = false;
+      const hook = run(() =>
+        Promise.resolve(responseHooks[0](new Response("ok"), event)),
+      ).then(() => {
+        settled = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { hook, settled: () => settled };
+    }
+
+    async function expectHandedOffExport(handedOff: Promise<unknown>[]) {
+      expect(handedOff).toHaveLength(1);
+      expect(forceFlush).toHaveBeenCalledOnce();
+      let exported = false;
+      void handedOff[0].then(() => {
+        exported = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(exported).toBe(false);
+      releaseFlush();
+      await handedOff[0];
+      expect(exported).toBe(true);
+    }
+
+    it("returns before the export finishes when the request carries waitUntil", async () => {
+      const event = eventFor("/some/page");
+      const handedOff: Promise<unknown>[] = [];
+      Object.assign(event.req, {
+        waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
+      });
+
+      const { settled } = await respond(event);
+
+      expect(settled()).toBe(true);
+      await expectHandedOffExport(handedOff);
+    });
+
+    it("uses the Netlify request context store when the request has no waitUntil", async () => {
+      const handedOff: Promise<unknown>[] = [];
+      const store = new AsyncLocalStorage<{
+        context: { waitUntil: (promise: Promise<unknown>) => void };
+      }>();
+      (globalThis as Record<symbol, unknown>)[netlifyStoreKey] = store;
+      const context = {
+        waitUntil: (promise: Promise<unknown>) => {
+          handedOff.push(promise);
+        },
+      };
+
+      const { settled } = await respond(eventFor("/some/page"), (fn) =>
+        store.run({ context }, fn),
+      );
+
+      expect(settled()).toBe(true);
+      await expectHandedOffExport(handedOff);
+    });
+
+    it("waits for the export inline when no waitUntil exists", async () => {
+      const { hook, settled } = await respond(eventFor("/some/page"));
+
+      expect(settled()).toBe(false);
+      releaseFlush();
+      await hook;
+      expect(settled()).toBe(true);
+    });
+  });
+
+  describe("handoff duration", () => {
+    let recorded: Array<{ name: string; value: number }>;
+    let nowSpy: ReturnType<typeof vi.spyOn>;
+    let unregister: () => void = () => undefined;
+    const startedAt = 1_000_000;
+
+    function registerMeter(forceFlush: () => Promise<void>) {
+      unregister = registerObservabilityProvider({
+        meterProvider: {
+          getMeter: () => ({
+            createHistogram: (name: string) => ({
+              record: (value: number) => recorded.push({ name, value }),
+            }),
+            createCounter: () => ({ add() {} }),
+          }),
+          forceFlush,
+        },
+      });
+    }
+
+    beforeEach(() => {
+      processState.requestSequence = 5;
+      recorded = [];
+      nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    });
+
+    afterEach(() => {
+      nowSpy.mockRestore();
+      unregister();
+    });
+
+    function durations(name: string) {
+      return recorded.filter((r) => r.name === name).map((r) => r.value);
+    }
+
+    it("includes an inline export that holds the response", async () => {
+      registerMeter(async () => {
+        nowSpy.mockReturnValue(startedAt + 3_200);
+      });
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor("/some/page");
+      await requestHooks[0](event);
+      nowSpy.mockReturnValue(startedAt + 1_200);
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(durations("http.server.request.duration")).toEqual([1.2]);
+      expect(durations("agent_native.http.server.handoff.duration")).toEqual([
+        3.2,
+      ]);
+    });
+
+    it("excludes an export handed to waitUntil", async () => {
+      let releaseFlush: () => void = () => undefined;
+      registerMeter(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseFlush = resolve;
+          }),
+      );
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor("/some/page");
+      const handedOff: Promise<unknown>[] = [];
+      Object.assign(event.req, {
+        waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
+      });
+      await requestHooks[0](event);
+      nowSpy.mockReturnValue(startedAt + 1_200);
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(durations("agent_native.http.server.handoff.duration")).toEqual([
+        1.2,
+      ]);
+      expect(handedOff).toHaveLength(1);
+      releaseFlush();
+      await handedOff[0];
+    });
+  });
+
+  it("attributes a framework 401 to its route on the metric and the span", async () => {
+    processState.requestSequence = 5;
+    const recorded: Array<Record<string, string | number> | undefined> = [];
+    const spanAttributes: Array<Record<string, unknown> | undefined> = [];
+    __setAgentTracerForTests({
+      startSpan(
+        _name: string,
+        options?: { attributes?: Record<string, unknown> },
+      ): AgentSpan {
+        spanAttributes.push(options?.attributes);
+        return {
+          setAttribute() {},
+          setAttributes() {},
+          setStatus() {},
+          recordException() {},
+          end() {},
+        };
+      },
+    });
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: (name: string) => ({
+            record: (
+              _value: number,
+              attributes?: Record<string, string | number>,
+            ) => {
+              if (name === "http.server.request.duration") {
+                recorded.push(attributes);
+              }
+            },
+          }),
+          createCounter: () => ({ add() {} }),
+        }),
+      },
+    });
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor(
+        "/_agent-native/agent-chat/runs/run-1783002639448-8rptjt/events",
+      );
+      await requestHooks[0](event);
+      await responseHooks[0](
+        new Response("unauthorized", { status: 401 }),
+        event,
+      );
+
+      expect(recorded).toEqual([
+        {
+          "http.request.method": "GET",
+          "http.response.status_code": 401,
+          "http.route": "/_agent-native/agent-chat/runs/:runId/events",
+        },
+      ]);
+      expect(spanAttributes[0]).toMatchObject({
+        "http.route": "/_agent-native/agent-chat/runs/:runId/events",
+        "http.status_code": 401,
+      });
     } finally {
       unregister();
     }
@@ -551,8 +805,10 @@ describe("http response telemetry", () => {
     const unregister = registerObservabilityProvider({
       meterProvider: {
         getMeter: () => ({
-          createHistogram: () => ({
-            record: (value: number) => recorded.push(value),
+          createHistogram: (name: string) => ({
+            record: (value: number) => {
+              if (name === "http.server.request.duration") recorded.push(value);
+            },
           }),
           createCounter: () => ({ add() {} }),
         }),
@@ -611,6 +867,42 @@ describe("http response telemetry", () => {
     });
     expect(line?.boot_to_module_ms).toEqual(expect.any(Number));
     expect(line?.module_to_request_ms).toEqual(expect.any(Number));
+    expect(line?.db_measured).toBe(true);
+  });
+
+  it("does not throw from the request hook where AsyncLocalStorage cannot enterWith", async () => {
+    const storageKey = Symbol.for(
+      "@agent-native/core/db.request-telemetry-storage",
+    );
+    const globalRef = globalThis as Record<symbol, unknown>;
+    const originalStorage = globalRef[storageKey];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    globalRef[storageKey] = {
+      getStore: () => undefined,
+      run: (_store: unknown, fn: () => unknown) => fn(),
+      enterWith: () => {
+        throw new Error("asyncLocalStorage.enterWith() is not implemented");
+      },
+    };
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      processState.requestSequence = 0;
+
+      for (const path of ["/_agent-native/jobs/_process-sweep", "/"]) {
+        const event = eventFor(path);
+        expect(() => requestHooks[0](event)).not.toThrow();
+        await responseHooks[0](new Response("{}"), event);
+      }
+
+      expect(loggedLines()[0]).toMatchObject({
+        cold_start: true,
+        db_measured: false,
+      });
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      globalRef[storageKey] = originalStorage;
+      warnSpy.mockRestore();
+    }
   });
 
   it("does not put live phase timings on a shared-cacheable response", async () => {

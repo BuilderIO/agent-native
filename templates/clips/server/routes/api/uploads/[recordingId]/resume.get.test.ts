@@ -88,16 +88,24 @@ vi.mock("../../../../lib/recordings.js", () => ({
   ownerEmailMatches: () => "owner-match",
 }));
 
-vi.mock("../../../../lib/recording-upload-state.js", () => ({
-  listRecordingChunkKeys: (...args: unknown[]) =>
-    mockListRecordingChunkKeys(...args),
-  recordingChunkIndexFromKey: (key: string) => {
-    const raw = key.slice(key.lastIndexOf("-") + 1);
-    return /^\d+$/.test(raw) ? Number(raw) : null;
-  },
-  sumRecordingChunkBytes: (...args: unknown[]) =>
-    mockSumRecordingChunkBytes(...args),
-}));
+vi.mock("../../../../lib/recording-upload-state.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../../../lib/recording-upload-state.js")
+    >();
+  return {
+    listRecordingChunkKeys: (...args: unknown[]) =>
+      mockListRecordingChunkKeys(...args),
+    recordingChunkIndexFromKey: (key: string) => {
+      const raw = key.slice(key.lastIndexOf("-") + 1);
+      return /^\d+$/.test(raw) ? Number(raw) : null;
+    },
+    recordingUploadStateMatchesAttempt:
+      actual.recordingUploadStateMatchesAttempt,
+    sumRecordingChunkBytes: (...args: unknown[]) =>
+      mockSumRecordingChunkBytes(...args),
+  };
+});
 
 vi.mock("../../../../lib/resumable-session.js", () => ({
   deleteResumableSession: (...args: unknown[]) =>
@@ -242,8 +250,18 @@ describe("/api/uploads/:recordingId/resume route", () => {
         failureReason:
           "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
         uploadProgress: 40,
+        uploadAttemptId: "earlier-attempt-0001",
+        uploadGenerationId: "generation-1",
       },
     ];
+    mockReadAppState.mockResolvedValueOnce({
+      recordingId: "rec-1",
+      status: "failed",
+      uploadAttemptId: "earlier-attempt-0001",
+      uploadGenerationId: "generation-1",
+      browserSessionId: "earlier-browser-session",
+      progress: 50,
+    });
     mockGetResumableSession.mockResolvedValue({
       bytesUploaded: 7_864_320,
       lastCommittedIndex: 1,
@@ -266,7 +284,12 @@ describe("/api/uploads/:recordingId/resume route", () => {
         progress: 40,
         bytesReceived: 7_864_320,
         retryableInterruption: false,
+        uploadAttemptId: "client-attempt-0001",
+        uploadGenerationId: "generation-1",
       }),
+    );
+    expect(mockCompareAndSetAppState.mock.calls[0]?.[2]).not.toHaveProperty(
+      "browserSessionId",
     );
     expect(mockDb.update).toHaveBeenCalledOnce();
   });
@@ -368,6 +391,14 @@ describe("/api/uploads/:recordingId/resume route", () => {
         uploadGenerationId: null,
       },
     ];
+    mockReadAppState.mockResolvedValueOnce({
+      recordingId: "rec-1",
+      status: "uploading",
+      uploadAttemptId: "client-attempt-0001",
+      uploadGenerationId: null,
+      browserSessionId: "current-browser-session",
+      progress: 50,
+    });
     mockCompareAndSetAppState.mockResolvedValue(false);
     const consoleInfo = vi
       .spyOn(console, "info")
@@ -383,6 +414,9 @@ describe("/api/uploads/:recordingId/resume route", () => {
 
     expect(mockWriteAppState).toHaveBeenCalledWith("refresh-signal", {
       ts: expect.any(Number),
+    });
+    expect(mockCompareAndSetAppState.mock.calls[0]?.[2]).toMatchObject({
+      browserSessionId: "current-browser-session",
     });
   });
 

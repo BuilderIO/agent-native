@@ -140,6 +140,17 @@ describe("isResumableEngineError", () => {
     }
   });
 
+  it("keeps invalid requests terminal when their message says timeout", () => {
+    expect(
+      isResumableEngineError(
+        new EngineError("Invalid request timed out", {
+          errorCode: "invalid_request",
+          providerRetryable: false,
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("inspects nested cause chains for transport markers", () => {
     const inner = new Error("ECONNRESET while streaming");
     const outer = new Error("wrapper error");
@@ -512,6 +523,56 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
     expect(usage.usageReported).toBeFalsy();
     expect(usage.firstEngineEventAtMs).toBeUndefined();
+  });
+
+  it("sums the follow-up and write-receipt counters across a continuation", async () => {
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({ type: "auto_continue", reason: "no_progress" });
+        return {
+          inputTokens: 7,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+          llmCalls: 2,
+          receiptUnverifiedCount: 1,
+        };
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+        llmCalls: 3,
+        followUpMs: 800,
+        followUpInputTokens: 150,
+        receiptUnverifiedCount: 1,
+        receiptChangedFalseCount: 2,
+      };
+    });
+
+    const usage = await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        () => {},
+        "thread-1",
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    expect(usage).toMatchObject({
+      llmCalls: 5,
+      followUpMs: 800,
+      followUpInputTokens: 150,
+      receiptUnverifiedCount: 2,
+      receiptChangedFalseCount: 2,
+    });
   });
 
   it("keeps a reported attempt's usage flag and first-event timing across a continuation", async () => {

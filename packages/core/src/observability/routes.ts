@@ -7,14 +7,20 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+import { z } from "zod";
 
 import { isActionContractError } from "../action.js";
+import { resolveThreadAccess } from "../chat-threads/store.js";
 import { getOrgContext } from "../org/context.js";
+import { isOrgMember } from "../org/membership.js";
 import { getSession } from "../server/auth.js";
-import { readBody } from "../server/h3-helpers.js";
+import { readBody, readBodyWithSizeLimit } from "../server/h3-helpers.js";
 import { getRequestContext } from "../server/request-context.js";
 import { track } from "../tracking/registry.js";
-import { promoteTraceEvalFromStore } from "./actions/promote-trace-eval.js";
+import {
+  promoteTraceEvalFromStore,
+  PROMOTE_TRACE_EVAL_BODY_LIMIT,
+} from "./actions/promote-trace-eval.js";
 import { emitAiFeedbackSurveyEvent } from "./posthog-ai.js";
 import {
   getObservabilityOverview,
@@ -42,6 +48,32 @@ const FEEDBACK_TYPES = [
   "category",
   "text",
 ] as const satisfies readonly FeedbackType[];
+
+const MAX_FEEDBACK_VALUE_CHARS = 20_000;
+const MAX_ID_CHARS = 200;
+const tracePromotionRequestSchema = z
+  .object({
+    reviewedPrompt: z.string().optional(),
+    reviewedHistory: z
+      .array(
+        z.object({
+          role: z.enum(["user", "assistant"]),
+          text: z.string(),
+        }),
+      )
+      .optional(),
+    mustContain: z.string().optional(),
+    datasetName: z.string().optional(),
+  })
+  .strict();
+
+// An id past the bound is recorded truncated but never looked up: no real id is
+// that long, and its prefix can name a different row.
+function idClaim(value: unknown): { id: string; overlong: boolean } | null {
+  if (!value) return null;
+  const id = String(value);
+  return { id: id.slice(0, MAX_ID_CHARS), overlong: id.length > MAX_ID_CHARS };
+}
 
 function isFeedbackType(value: unknown): value is FeedbackType {
   return (
@@ -152,17 +184,30 @@ export function createObservabilityHandler() {
       parts[2] === "promote"
     ) {
       const runId = decodeURIComponent(parts[1]);
-      let body: { mustContain?: unknown; datasetName?: unknown };
+      let body: z.infer<typeof tracePromotionRequestSchema>;
       try {
-        const raw = await readBody(event);
+        const raw = await readBodyWithSizeLimit(
+          event,
+          PROMOTE_TRACE_EVAL_BODY_LIMIT,
+        );
         // An unreadable or non-object payload is not the same as an absent
         // one. Absent bodies arrive as `{}` and may promote; garbage must not.
         if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
           setResponseStatus(event, 400);
           return { error: "Invalid JSON body" };
         }
-        body = raw as { mustContain?: unknown; datasetName?: unknown };
-      } catch {
+        const parsed = tracePromotionRequestSchema.safeParse(raw);
+        if (!parsed.success) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid trace promotion body" };
+        }
+        body = parsed.data;
+      } catch (error) {
+        const statusCode = (error as { statusCode?: unknown })?.statusCode;
+        if (statusCode === 413) {
+          setResponseStatus(event, 413);
+          return { error: "Request body too large" };
+        }
         setResponseStatus(event, 400);
         return { error: "Invalid JSON body" };
       }
@@ -170,6 +215,11 @@ export function createObservabilityHandler() {
         return await promoteTraceEvalFromStore(
           {
             runId,
+            reviewedPrompt:
+              typeof body.reviewedPrompt === "string"
+                ? body.reviewedPrompt
+                : undefined,
+            reviewedHistory: body.reviewedHistory,
             mustContain:
               typeof body.mustContain === "string"
                 ? body.mustContain
@@ -231,35 +281,93 @@ export function createObservabilityHandler() {
         return { error: "feedbackType is required" };
       }
       const rawValue = body.value;
-      const value =
+      let value =
         rawValue == null
           ? ""
           : typeof rawValue === "object"
             ? JSON.stringify(rawValue)
             : String(rawValue);
+      if (value.length > MAX_FEEDBACK_VALUE_CHARS) {
+        setResponseStatus(event, 413);
+        return { error: "Feedback value is too large" };
+      }
       const id = nanoid();
       const idempotencyKey =
         feedbackType === "text"
           ? getHeader(event, "idempotency-key")?.trim() || null
           : null;
       const org = await getOrgContext(event);
-      const runId = body.runId ? String(body.runId) : null;
-      let threadId = body.threadId ? String(body.threadId) : null;
+      const runClaim = idClaim(body.runId);
+      const threadClaim = idClaim(body.threadId);
+      let runId = runClaim?.id ?? null;
+      let threadId = threadClaim?.id ?? null;
       let model: string | undefined;
       let orgId = org.orgId;
-      if (runId) {
-        const summary = await getTraceSummary(runId, {
-          userId: owner,
-          ...(org.orgId ? { orgId: org.orgId } : {}),
-        });
-        if (!summary || (threadId && threadId !== summary.threadId)) {
+      let unverifiedRunId: string | undefined;
+      let unverifiedThreadId: string | undefined;
+      // A thread id is the caller's claim until one of their own runs vouches
+      // for it or they are shown to have access to the thread.
+      let threadVouched = false;
+      if (runId && runClaim?.overlong) {
+        unverifiedRunId = runId;
+        runId = null;
+      } else if (runId) {
+        // Ownership is the user, not the org: a run recorded with no org, or
+        // under another of the caller's orgs, is still the caller's own.
+        const summary = await getTraceSummary(runId, { userId: owner });
+        // Trace writes are fire-and-forget, so a vote can arrive for a run
+        // that was never persisted. That is a missing trace, not a run that
+        // belongs to someone else: the latter still answers 404.
+        const traceMissing = !summary && !(await getTraceSummary(runId));
+        if (traceMissing) {
+          unverifiedRunId = runId;
+          runId = null;
+        } else if (
+          !summary ||
+          (threadId && (threadClaim?.overlong || threadId !== summary.threadId))
+        ) {
           setResponseStatus(event, 404);
           return { error: "Trace not found" };
+        } else {
+          threadId = summary.threadId;
+          threadVouched = true;
+          model = summary.model || undefined;
+          // The run is the caller's, but it may be recorded under an org they
+          // have since left; that org's review data is not theirs to write to.
+          if (summary.orgId && summary.orgId !== org.orgId) {
+            orgId = (await isOrgMember(summary.orgId, owner))
+              ? summary.orgId
+              : null;
+          }
         }
-        threadId = summary.threadId;
-        model = summary.model || undefined;
-        orgId = summary.orgId ?? org.orgId;
       }
+      if (
+        threadId &&
+        !threadVouched &&
+        (threadClaim?.overlong ||
+          !(await resolveThreadAccess(owner, threadId, "viewer", {
+            orgId: org.orgId ?? undefined,
+          })))
+      ) {
+        // The thread may live in another app (a workspace chat rail posts
+        // votes to the host for a remote app's thread), so an unverifiable id
+        // is not an error. A missing and an inaccessible thread must answer
+        // alike, or the route reveals which thread ids exist.
+        unverifiedThreadId = threadId;
+        threadId = null;
+      }
+      const traceMissing = !!(unverifiedRunId || unverifiedThreadId);
+      if (traceMissing && rawValue && typeof rawValue === "object") {
+        value = JSON.stringify({
+          ...rawValue,
+          traceMissing: true,
+          ...(unverifiedRunId ? { unverifiedRunId } : {}),
+          ...(unverifiedThreadId ? { unverifiedThreadId } : {}),
+        });
+      }
+      const traceMissingResult = traceMissing
+        ? { traceMissing: true as const }
+        : {};
       const inserted = await insertFeedback({
         id,
         runId,
@@ -274,7 +382,7 @@ export function createObservabilityHandler() {
         source: "chat",
         createdAt: Date.now(),
       });
-      if (!inserted) return { id };
+      if (!inserted) return { id, ...traceMissingResult };
       {
         const isThumb =
           feedbackType === "thumbs_up" || feedbackType === "thumbs_down";
@@ -294,6 +402,11 @@ export function createObservabilityHandler() {
             run_id: runId,
             thread_id: threadId,
             model,
+            ...(traceMissing ? { trace_missing: true } : {}),
+            ...(unverifiedRunId ? { unverified_run_id: unverifiedRunId } : {}),
+            ...(unverifiedThreadId
+              ? { unverified_thread_id: unverifiedThreadId }
+              : {}),
             $ai_trace_id: runId ?? undefined,
             $ai_session_id: threadId ?? undefined,
             $ai_model: model,
@@ -325,7 +438,7 @@ export function createObservabilityHandler() {
           )
           .catch(() => {});
       }
-      return { id };
+      return { id, ...traceMissingResult };
     }
 
     if (method === "GET" && parts.length === 1 && parts[0] === "feedback") {

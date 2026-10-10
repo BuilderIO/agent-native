@@ -1,4 +1,74 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "観測されたセッションの参照",
+    sessionsOfAll: "{count} セッション · 全体の {percent}",
+    sessionsOfAppRoot:
+      "{count} セッション · {app} コホートの {percent}（n={rootCount}）",
+    sessionsOfPrevious: "{count} セッション · 前のステップの {percent}",
+    sessionsOfParent: "{count} セッション · {label} の {percent}",
+    observedContinuation: "同じ録画 · 例{fromExample} → 例{toExample}",
+    observedContinuationCompact: "例{fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "{count} セッション · このステップの {percent}",
+    partialSample: "一部のサンプル",
+    continuedOnUnpictured:
+      "未表示の経路で継続: {count} · このステップの {percent}",
+    noLaterStepObserved: "後続のステップは未観測",
+    examplePosition: "ギャラリー {current}/{total}",
+    sourceExampleLabel: "ソース",
+    showExample: "ソース例{current}を表示",
+    screenshotExamples: "スクリーンショットの例",
+    screenshotAlt:
+      "{label}、ソース例{source}、ギャラリー位置 {current}/{total}、撮影日 {date}",
+    screenshotMissing: "スクリーンショット未取得",
+    recordingUnavailable: "利用不可",
+    recordingGap: "記録の空白",
+    recordingGapDuration: "記録の空白 · {duration}",
+    eventTime: "イベント時刻（UTC）",
+    generationCompletedEvent: "generation_completed イベント（UTC）",
+    replayObservation: "リプレイ観測",
+    utcTimestamp: "UTC タイムスタンプ",
+    recordingId: "録画 ID",
+    replayOffset: "リプレイ位置",
+    replayOffsetUnavailable: "利用不可",
+    replaySeek: "リプレイシーク",
+    checkpointSeekTarget: "チェックポイントのシーク先",
+    analyticsCheckpointOffset: "Analytics チェックポイント位置",
+    replayObserved: "リプレイ観測時刻",
+    screenshotCaptured: "スクリーンショット取得時刻",
+    screenshotExportTimestamp: "スクリーンショット書き出し UTC 時刻",
+    output: "出力",
+    outputTitle: "出力タイトル",
+    observedState: "観測された状態",
+    actorRecording: "実行者（録画）",
+    actorSource: "実行者の情報源",
+    recordingMetadata: "録画メタデータ",
+    evidence: "根拠",
+    generationCompletedEvidence: "generation_completed イベント",
+    renderedOutputEvidence: "描画結果を観測。完了イベントは主張していません",
+    openFullPrompt: "プロンプト全文を開く",
+    prompt: "プロンプト",
+    promptEnglish: "プロンプト（英語）",
+    promptSource: "プロンプト（元の言語）",
+    source: "情報源",
+    promptNotCaptured: "プロンプト未取得",
+    actorUnavailable: "実行者情報なし",
+    replayDetails: "リプレイとソースの詳細",
+    sourceApp: "ソースアプリ",
+    route: "キャプチャ時の現在のルート",
+    routeUnavailable: "利用できません",
+    captureSourceFingerprint: "キャプチャ元のフィンガープリント",
+    captureSourceUnavailable: "提供されていません",
+    recordingStarted: "録画開始時刻",
+    appBandHeading: "{app} · {count} セッション",
+    journeyTitleSummary:
+      "{app} · {from} から {to} · {count} セッション{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} から {to} · アプリごとの別コホート{partial}",
+    sessionCount: "{count} セッション",
+    otherPaths: "その他の経路",
+    htmlLanguage: "ja-JP",
+  },
   composer: { menu: { integrations: "連携" } },
   creativeContext: {
     title: "ライブラリ",
@@ -226,6 +296,19 @@ export default {
       exportSvg: "SVG をエクスポート",
       actionsPrefill: "確認して送信",
       retry: "再試行",
+      currentDesign: "現在のDesign",
+      chooseDesign:
+        "Design（必要であれば、どのDesignを使うか質問してください）",
+      importFramePrompt:
+        "このFigmaフレームを{{destination}}にインポートし、取り込めなかった内容を示してください: {{url}}",
+      importFilePrompt:
+        "このFigmaファイルを開き、最上位のフレームを一覧にして、どのフレームをインポートするか質問してください: {{url}}",
+      inspectFramePrompt:
+        "このFigmaフレームの構造、コンポーネント、スタイル、再利用可能なトークンを要約してください: {{url}}",
+      inspectFilePrompt:
+        "このFigmaファイルの構造、コンポーネント、スタイル、再利用可能なトークンを要約してください: {{url}}",
+      exportSvgPrompt:
+        "現在のDesign画面をFigmaで使うSVGとしてエクスポートし、静的なSVGコンテンツになる部分を示してください。",
     },
   },
   common: {
@@ -698,6 +781,9 @@ export default {
       tools: "ツール",
       tokens: "トークン",
       label: "デザインワークスペース",
+      account: "アカウント",
+      collapse: "サイドバーを折りたたむ",
+      expand: "サイドバーを展開",
     },
     breakpointBar: {
       base: "ベース",
@@ -789,12 +875,10 @@ export default {
       "{{path}} は開いた後にディスク上で変更されています。画面を再読み込みしてもう一度お試しください。",
     applyToSourceError: "ソースへの保存に失敗しました: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "トークンをインポート",
       importTitle: "トークンをインポート",
       importHint:
@@ -806,6 +890,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "貼り付けたトークンをインポート",
       importedCount: "{{count}} 個のトークンをインポートしました",
+      count: "{{count}} 個のトークン",
+      search: "トークンを検索",
+      noMatches: "一致するトークンがありません",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -853,6 +940,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
       figmaPasteImagesDontShowAgain: "今後は表示しない",
+      figmaPasteUploadImage: "画像をアップロード",
+      figmaPasteUploadImageFor: "「{{name}}」をアップロード",
+      figmaPasteImageFallbackName: "画像 {{index}}",
+      figmaPasteUploadImageSuccess: "画像を埋めました",
+      figmaPasteUploadImageInvalid:
+        "SVG、PNG、JPG などの画像ファイルを選択してください。",
+      figmaPasteUploadImageError: "その画像を埋められませんでした",
       figmaHydrationDialogTitle: "Figma を接続して画像を読み込む",
       figmaHydrationDialogDescription:
         "Figma アクセストークンを入力して、インポートされた画面{{screensPlural}}の不足している {{count}} 枚の画像{{plural}}を読み込んでください。",
@@ -942,6 +1036,9 @@ export default {
         figmaPasteFailed: "Figma 貼り付けのインポートに失敗しました",
         uploadFailed: "ファイルのアップロードに失敗しました",
         invalidFigFile: ".fig で終わるファイルを選択してください。",
+        unsupportedFileType: ".fig、.html、.htm ファイルを選択してください。",
+        importBusy:
+          "別のインポートを実行中です。先に完了するかキャンセルしてください。",
         figFileTooLarge:
           "この .fig ファイルは大きすぎます。アップロードは {{max}} MB までです。Figma で目的のフレームだけを新しいファイルにコピーし、そのファイルを .fig として書き出すか、「Figma から貼り付け」をご利用ください。",
       },
@@ -954,6 +1051,8 @@ export default {
       "ファイルを作成する前に生成が停止しました。同じプロンプトから続行するには、もう一度お試しください。",
     generationStoppedCheckAgent:
       "ファイルを作成する前に生成が停止しました。エージェントのメッセージを確認するか、もう一度お試しください。",
+    invalidCanvasDimensions:
+      "指定されたキャンバスサイズには対応していません。エディターの上限内で、正のピクセル寸法を指定してください。",
     notFound: "デザインが見つかりません",
     backToDesigns: "デザインに戻る",
     designNotFoundDescription: "このデザインは存在しないか、削除されています。",
@@ -981,7 +1080,17 @@ export default {
     saveTemplate: "テンプレートを保存",
     templateSaved: "テンプレートをライブラリに保存しました",
     templateSaveFailed: "このテンプレートを保存できませんでした",
-    clickToRename: "クリックして名前を変更",
+    fileMenu: {
+      pendingEditsBlocked:
+        "複製する前に、保留中のビジュアル編集を適用または破棄してください。",
+      designs: "デザイン",
+      rename: "名前を変更",
+      duplicate: "複製",
+      versionHistory: "バージョン履歴",
+      import: "インポート…",
+      delete: "削除",
+      deleteError: "このデザインを削除できませんでした",
+    },
     collaborators: "共同編集者",
     share: "共有",
     signUpToSave: "登録",
@@ -1003,6 +1112,10 @@ export default {
       interact: "Interact",
       screens: "画面",
     },
+    topBar: {
+      modeDesign: "デザイン",
+      modeSwitch: "エディターモード",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1023,6 +1136,10 @@ export default {
     keyboardShortcuts: {
       title: "キーボードショートカット",
       close: "近い: キーボードショートカット",
+      search: "検索",
+      searchLabel: "キーボードショートカットを検索",
+      categoriesLabel: "ショートカットのカテゴリ",
+      empty: "「{{query}}」に一致するショートカットはありません",
       codeContext: "コード",
       screenContext: "画面",
       nudgeAmount: {
@@ -1055,11 +1172,6 @@ export default {
         leftBracket: "左角括弧",
         rightBracket: "右角括弧",
       },
-      descriptions: {
-        toggleUi: "今すぐ押してパネルを隠し、作業に集中できます",
-        undo: "直前のデザイン変更を元に戻します",
-        redo: "元に戻したデザイン変更を復元します",
-      },
       categories: {
         essential: "基本",
         tools: "ツール",
@@ -1091,6 +1203,7 @@ export default {
         showLayers: "レイヤー",
         showAssets: "アセット",
         toggleUi: "View",
+        toggleMinimalUi: "ミニマルUI",
         toggleComments: "コメントをピン留め",
         zoomIn: "拡大",
         zoomOut: "縮小",
@@ -1512,6 +1625,13 @@ export default {
       permissionPromptSettingsInstructions:
         "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、ローカル ネットワークを「許可」に設定します。",
       permissionPromptRetry: "接続を再試行",
+      previewCredentialsUnavailableTitle:
+        "ローカルプレビューの認証情報を利用できません",
+      previewCredentialsUnavailableDescription:
+        "インスペクターでこの画面の localhost 接続を再接続してから、もう一度お試しください。",
+      publicPreviewUnavailableDescription:
+        "localhost のプレビューは公開ユーザーには共有されません。この画面を見るには、共同編集者としてこのデザインを開いてください。",
+      previewCredentialsRetry: "認証情報を再取得",
     },
   },
   multiScreenCanvas: {
@@ -1522,6 +1642,7 @@ export default {
     fork: "分岐",
     fullView: "全体表示",
     preview: "プレビュー",
+    focusScreen: "画面にフォーカス",
     openAndDuplicate:
       "{{display}} を選択します。集中してスクロールするには操作モードを使用。",
     openAndPreview:
@@ -1596,6 +1717,8 @@ export default {
     assetAdded: "アセットが追加されました",
     assetsNoImageUrl: "Assets が画像 URL を返しませんでした。",
     failedToUploadFile: "ファイルのアップロードに失敗しました",
+    imageAttachmentUnavailable:
+      "この画像を視覚入力として準備できませんでした。より小さい PNG、JPG、GIF、WebP ファイルを添付してください。",
     attachmentsTooLarge:
       "添付ファイルが大きすぎます。アップロードは合計 {{max}} MB までです。ファイル数を減らすか、より小さいファイルを添付してください。",
     failedToSubmitPrompt: "プロンプトを送信できませんでした",
@@ -2032,6 +2155,15 @@ export default {
       "コードとリポジトリのインデックス作成にはBuilder Enterpriseプランが必要です",
   },
   designSystems: {
+    comingSoonTitle: "デザインシステムは近日公開予定です",
+    waitlist: {
+      join: "ウェイトリストに登録",
+      joining: "登録中…",
+      joined: "ウェイトリストに登録されました",
+      error: "ウェイトリストに登録できませんでした。もう一度お試しください。",
+      unavailable:
+        "ウェイトリストへの登録は現在利用できません。後でもう一度お試しください。",
+    },
     deleteError: "デザインシステムを削除できませんでした",
     updateSuccess: "デザインシステムが更新されました",
     updateError: "デザインシステムを更新できませんでした",

@@ -30,6 +30,12 @@ import {
 import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import {
+  decodeSearchCursor,
+  matchSearchFields,
+  paginateSearchResults,
+  searchTerms,
+} from "./analytics-term-matcher.js";
+import {
   parseDashboardCertification,
   type DashboardCertification,
 } from "./dashboard-certification.js";
@@ -367,6 +373,7 @@ function escapeLikeLiteral(value: string): string {
 
 type DashboardReferenceSearchQuery = {
   phrase: string;
+  search: string;
   terms: string[];
 };
 
@@ -376,7 +383,8 @@ function dashboardReferenceSearchQuery(
   const phrase = search.trim().replace(/\s+/g, " ").toLowerCase();
   return {
     phrase,
-    terms: phrase.split(" ").filter(Boolean).slice(0, 8),
+    search: search.trim(),
+    terms: searchTerms(search).slice(0, 8),
   };
 }
 
@@ -408,17 +416,24 @@ function dashboardReferenceMatch(
     description: dashboardReferenceFieldText(row.description),
     config: dashboardReferenceFieldText(row.config),
   } satisfies Record<DashboardReferenceRecord["matchedFields"][number], string>;
+  const fieldWeights = { id: 30, name: 80, description: 45, config: 10 };
+  const matches = matchSearchFields(
+    query.search,
+    Object.entries(fields).map(([field, value]) => ({
+      value,
+      weight: fieldWeights[field as keyof typeof fieldWeights],
+    })),
+  );
+  if (matches.score <= 0) return null;
   const matchedFields = Object.entries(fields)
-    .filter(([, value]) => query.terms.some((term) => value.includes(term)))
+    .filter(
+      ([, value]) =>
+        matchSearchFields(query.search, [{ value, weight: 1 }]).score > 0,
+    )
     .map(
       ([field]) => field as DashboardReferenceRecord["matchedFields"][number],
     );
-  const matchedTerms = query.terms.filter((term) =>
-    Object.values(fields).some((value) => value.includes(term)),
-  ).length;
-  if (matchedTerms !== query.terms.length) return null;
-
-  let score = matchedTerms * 100;
+  let score = matches.score;
   for (const [field, value] of Object.entries(fields)) {
     const weight =
       field === "name"
@@ -1155,8 +1170,41 @@ export async function searchDashboardReferences(
   limit = 8,
   dbOverride?: any,
 ): Promise<DashboardReferenceRecord[]> {
+  const result = await searchDashboardReferencesPage(
+    ctx,
+    search,
+    limit,
+    undefined,
+    dbOverride,
+  );
+  return result.results;
+}
+
+export type DashboardReferenceSearchPage = {
+  results: DashboardReferenceRecord[];
+  searched: number;
+  of: number;
+  truncated: boolean;
+  nextPage: string | null;
+};
+
+export async function searchDashboardReferencesPage(
+  ctx: AccessCtx,
+  search: string,
+  limit = 8,
+  nextPage?: string,
+  dbOverride?: any,
+): Promise<DashboardReferenceSearchPage> {
   const query = dashboardReferenceSearchQuery(search);
-  if (!query.phrase || query.terms.length === 0) return [];
+  if (!query.phrase || query.terms.length === 0) {
+    return {
+      results: [],
+      searched: 0,
+      of: 0,
+      truncated: false,
+      nextPage: null,
+    };
+  }
   const boundedLimit = Math.min(
     Math.max(Number.isFinite(limit) ? Math.trunc(limit) : 8, 1),
     MAX_DASHBOARD_REFERENCE_RESULTS,
@@ -1175,10 +1223,7 @@ export async function searchDashboardReferences(
     );
   };
   const phraseMatch = wildcardMatches(query.phrase);
-  const tokenMatch =
-    query.terms.length === 1
-      ? wildcardMatches(query.terms[0]!)
-      : and(...query.terms.map(wildcardMatches));
+  const tokenMatch = or(...query.terms.map(wildcardMatches));
   const where = and(
     access,
     isNull(schema.dashboards.archivedAt),
@@ -1201,12 +1246,14 @@ export async function searchDashboardReferences(
     .from(schema.dashboards)
     .where(where)
     .orderBy(desc(schema.dashboards.updatedAt))
-    .limit(MAX_DASHBOARD_REFERENCE_CANDIDATES);
+    .limit(MAX_DASHBOARD_REFERENCE_CANDIDATES + 1);
+  const candidateTruncated = rows.length > MAX_DASHBOARD_REFERENCE_CANDIDATES;
+  const candidates = rows.slice(0, MAX_DASHBOARD_REFERENCE_CANDIDATES);
 
   const ranked: Array<{
     record: DashboardReferenceRecord;
     score: number;
-  }> = rows
+  }> = candidates
     .map((row: any) => {
       let description =
         typeof row.description === "string" ? row.description : null;
@@ -1248,7 +1295,9 @@ export async function searchDashboardReferences(
     ranked.map(({ record }) => `${record.kind}:${record.id}`),
   );
   const allSettings = await getScopedLegacySettings(ctx);
+  let searchedLegacySettings = 0;
   for (const [key, value] of Object.entries(allSettings)) {
+    searchedLegacySettings += 1;
     const scope = legacyDashboardReferenceScope(key, ctx);
     if (
       !scope ||
@@ -1293,14 +1342,23 @@ export async function searchDashboardReferences(
     await assertNoOwnedReferenceHiddenByScope(db, ctx, search, query);
   }
 
-  return ranked
+  const ordered = ranked
     .sort(
       (a, b) =>
         b.score - a.score ||
         b.record.updatedAt.localeCompare(a.record.updatedAt),
     )
-    .slice(0, boundedLimit)
     .map(({ record }) => record);
+  const cursorSearch = `dashboard-references\n${query.phrase}`;
+  const page = paginateSearchResults({
+    search: cursorSearch,
+    results: ordered,
+    searched: candidates.length + searchedLegacySettings,
+    limit: boundedLimit,
+    offset: decodeSearchCursor(cursorSearch, nextPage),
+    truncated: candidateTruncated,
+  });
+  return { ...page, results: page.results };
 }
 
 async function assertNoOwnedReferenceHiddenByScope(
@@ -1587,6 +1645,20 @@ async function snapshotDashboardRevision(
   return id;
 }
 
+/**
+ * The edit check `upsertDashboard` makes, for callers that must know the
+ * caller can edit before they run anything on the dashboard's behalf.
+ */
+export async function assertDashboardEditable(
+  dashboardId: string,
+  ctx: AccessCtx,
+): Promise<void> {
+  await assertAccess("dashboard", dashboardId, "editor", {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+}
+
 export async function createDashboardRevisionSnapshot(
   dashboardId: string,
   ctx: AccessCtx,
@@ -1617,17 +1689,24 @@ export async function createDashboardRevisionSnapshot(
  * in between, the fenced UPDATE affects zero rows and this throws
  * `DashboardConflictError` instead of silently clobbering their write. Omit
  * it (the default) to keep the prior unconditional last-write-wins behavior,
- * which existing callers (legacy migration, revision restore, and any
- * one-shot write that isn't a read-modify-write) still rely on.
+ * which existing callers (legacy migration, revision restore, and one-shot
+ * writes) still rely on. Those saves retry the same requested body against the
+ * latest revision so every successful write advances its version token.
  */
-export async function upsertDashboard(
+export interface DashboardUpsertOutcome {
+  dashboard: DashboardRecord;
+  didWrite: boolean;
+}
+
+async function upsertDashboardWithOutcome(
   id: string,
   kind: DashboardKind,
   body: Record<string, unknown>,
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
-): Promise<DashboardRecord> {
+): Promise<DashboardUpsertOutcome> {
   const existing = await getDashboard(id, ctx);
+  const observedUpdatedAt = expectedUpdatedAt ?? existing?.updatedAt;
   if (!existing && expectedUpdatedAt !== undefined) {
     throw new DashboardConflictError(id);
   }
@@ -1640,12 +1719,20 @@ export async function upsertDashboard(
       orgId: ctx.orgId ?? undefined,
     });
   }
+  if (
+    existing &&
+    observedUpdatedAt !== undefined &&
+    existing.updatedAt !== observedUpdatedAt
+  ) {
+    throw new DashboardConflictError(id);
+  }
   const changed =
     !existing ||
     existing.kind !== kind ||
     existing.title !== title ||
     stableStringify(existing.config) !== configJson;
-  if (existing && !changed) return existing;
+  if (existing && !changed) return { dashboard: existing, didWrite: false };
+  let persistedDashboard: DashboardRecord | undefined;
   const nameChanged =
     !existing ||
     normalizeDashboardName(existing.title) !== normalizeDashboardName(title);
@@ -1658,31 +1745,27 @@ export async function upsertDashboard(
         kind,
         title,
         config: configJson,
-        updatedAt: nowIso(),
+        updatedAt: nextDashboardVersion(existing.updatedAt),
         updatedBy: ctx.email,
       };
-      if (expectedUpdatedAt !== undefined) {
+      if (observedUpdatedAt !== undefined) {
         // Fenced write. Snapshot the revision only after we know this exact
         // write actually landed — otherwise a lost race would record a
         // revision for a save that never happened.
-        const updateResult = await writeDb
+        const [row] = await writeDb
           .update(schema.dashboards)
           .set(setValues)
           .where(
             and(
               eq(schema.dashboards.id, id),
-              eq(schema.dashboards.updatedAt, expectedUpdatedAt),
+              eq(schema.dashboards.updatedAt, observedUpdatedAt),
             ),
-          );
-        const affected = affectedRowCount(updateResult);
-        if (affected === undefined) {
-          throw new Error(
-            "The Postgres update did not report an affected-row count for the fenced dashboard update.",
-          );
-        }
-        if (affected === 0) {
+          )
+          .returning();
+        if (!row) {
           throw new DashboardConflictError(id);
         }
+        persistedDashboard = rowToDashboard(row);
         if (changed)
           await snapshotDashboardRevision(
             writeDb,
@@ -1698,23 +1781,37 @@ export async function upsertDashboard(
             ctx,
             requestRevisionChatContext(),
           );
-        await writeDb
+        const [row] = await writeDb
           .update(schema.dashboards)
           .set(setValues)
-          .where(eq(schema.dashboards.id, id));
+          .where(eq(schema.dashboards.id, id))
+          .returning();
+        if (!row) {
+          throw new Error(
+            `Dashboard "${id}" disappeared before its update completed.`,
+          );
+        }
+        persistedDashboard = rowToDashboard(row);
       }
     } else {
-      await writeDb.insert(schema.dashboards).values({
-        id,
-        kind,
-        title,
-        config: configJson,
-        ownerEmail: ctx.email,
-        orgId: ctx.orgId,
-        visibility: "private",
-        createdBy: ctx.email,
-        updatedBy: ctx.email,
-      });
+      const [row] = await writeDb
+        .insert(schema.dashboards)
+        .values({
+          id,
+          kind,
+          title,
+          config: configJson,
+          ownerEmail: ctx.email,
+          orgId: ctx.orgId,
+          visibility: "private",
+          createdBy: ctx.email,
+          updatedBy: ctx.email,
+        })
+        .returning();
+      if (!row) {
+        throw new Error(`Dashboard "${id}" insert returned no row.`);
+      }
+      persistedDashboard = rowToDashboard(row);
     }
   };
   if (nameChanged) {
@@ -1729,11 +1826,10 @@ export async function upsertDashboard(
   } else {
     await persist(db);
   }
-  const [row] = await db
-    .select()
-    .from(schema.dashboards)
-    .where(eq(schema.dashboards.id, id));
-  const dashboard = rowToDashboard(row);
+  if (!persistedDashboard) {
+    throw new Error(`Dashboard "${id}" write returned no persisted row.`);
+  }
+  const dashboard = persistedDashboard;
   recordScopedChange(
     "dashboards",
     "change",
@@ -1742,10 +1838,73 @@ export async function upsertDashboard(
     dashboard.orgId,
     dashboard.visibility,
   );
-  return dashboard;
+  return { dashboard, didWrite: true };
+}
+
+export async function upsertDashboardOutcome(
+  id: string,
+  kind: DashboardKind,
+  body: Record<string, unknown>,
+  ctx: AccessCtx,
+  expectedUpdatedAt?: string,
+): Promise<DashboardUpsertOutcome> {
+  return expectedUpdatedAt === undefined
+    ? await upsertDashboardLastWriteWins(id, kind, body, ctx)
+    : await upsertDashboardWithOutcome(id, kind, body, ctx, expectedUpdatedAt);
+}
+
+export async function upsertDashboard(
+  id: string,
+  kind: DashboardKind,
+  body: Record<string, unknown>,
+  ctx: AccessCtx,
+  expectedUpdatedAt?: string,
+): Promise<DashboardRecord> {
+  const outcome = await upsertDashboardOutcome(
+    id,
+    kind,
+    body,
+    ctx,
+    expectedUpdatedAt,
+  );
+  return outcome.dashboard;
 }
 
 export const DASHBOARD_SAVE_MAX_ATTEMPTS = 3;
+
+async function upsertDashboardLastWriteWins(
+  id: string,
+  kind: DashboardKind,
+  body: Record<string, unknown>,
+  ctx: AccessCtx,
+): Promise<DashboardUpsertOutcome> {
+  let lastConflict: unknown;
+  for (let attempt = 0; attempt < DASHBOARD_SAVE_MAX_ATTEMPTS; attempt++) {
+    const existing = await getDashboard(id, ctx);
+    try {
+      return await upsertDashboardWithOutcome(
+        id,
+        kind,
+        body,
+        ctx,
+        existing?.updatedAt,
+      );
+    } catch (err) {
+      if (err instanceof DashboardConflictError) {
+        lastConflict = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+  const finalError = new Error(
+    `Could not save dashboard "${id}" after ${DASHBOARD_SAVE_MAX_ATTEMPTS} attempt(s); it kept changing concurrently. Re-read the dashboard and try again.`,
+  );
+  if (lastConflict !== undefined) {
+    (finalError as Error & { cause?: unknown }).cause = lastConflict;
+  }
+  throw finalError;
+}
 
 /**
  * Read-modify-write helper for the four action call sites that fetch a
@@ -1766,7 +1925,7 @@ export const DASHBOARD_SAVE_MAX_ATTEMPTS = 3;
  * times before failing loud with a clear error so callers never silently
  * drop a write or loop forever.
  */
-export async function upsertDashboardWithRetry(
+export async function upsertDashboardWithRetryOutcome(
   id: string,
   ctx: AccessCtx,
   mutate: (existing: DashboardRecord) =>
@@ -1779,7 +1938,7 @@ export async function upsertDashboardWithRetry(
         body: Record<string, unknown>;
       }>,
   maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
-): Promise<DashboardRecord> {
+): Promise<DashboardUpsertOutcome> {
   let lastConflict: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const existing = await getDashboard(id, ctx);
@@ -1791,7 +1950,13 @@ export async function upsertDashboardWithRetry(
     const result = await mutate(existing);
     const { kind, body } = result;
     try {
-      return await upsertDashboard(id, kind, body, ctx, existing.updatedAt);
+      return await upsertDashboardWithOutcome(
+        id,
+        kind,
+        body,
+        ctx,
+        existing.updatedAt,
+      );
     } catch (err) {
       if (err instanceof DashboardConflictError) {
         lastConflict = err;
@@ -1807,6 +1972,29 @@ export async function upsertDashboardWithRetry(
     (finalError as Error & { cause?: unknown }).cause = lastConflict;
   }
   throw finalError;
+}
+
+export async function upsertDashboardWithRetry(
+  id: string,
+  ctx: AccessCtx,
+  mutate: (existing: DashboardRecord) =>
+    | {
+        kind: DashboardKind;
+        body: Record<string, unknown>;
+      }
+    | Promise<{
+        kind: DashboardKind;
+        body: Record<string, unknown>;
+      }>,
+  maxAttempts: number = DASHBOARD_SAVE_MAX_ATTEMPTS,
+): Promise<DashboardRecord> {
+  const outcome = await upsertDashboardWithRetryOutcome(
+    id,
+    ctx,
+    mutate,
+    maxAttempts,
+  );
+  return outcome.dashboard;
 }
 
 function nextDashboardVersion(updatedAt: string): string {

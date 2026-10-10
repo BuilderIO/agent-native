@@ -241,7 +241,7 @@ test("dragging a screen into line draws a guide through every screen it aligns w
     expect(
       verticalGuides.length,
       "equal-width screens sharing a left edge also share a centre and a right " +
-        "edge, so Figma lights up every matching line, not just the closest one",
+        "edge, so the editor highlights each matching line, not just the closest one",
     ).toBeGreaterThan(1);
     expect(
       verticalGuides.every((box) => isPainted(box.paint)),
@@ -291,7 +291,7 @@ test("dragging a screen near an existing gap snaps the spacing to match it", asy
     ).toBeCloseTo(rhythm, 1);
     expect(
       spacingMarks.length,
-      "Figma marks both the new gap and the gap it matched",
+      "The new gap and the matched gap should both be marked",
     ).toBeGreaterThanOrEqual(2);
     expect(
       spacingMarks.every((mark) => isPainted(mark.paint)),
@@ -451,7 +451,7 @@ test("dragging an element inside a screen lights up every edge it lines up with"
     expect(
       result.guideNodes,
       "the two boxes are the same width and share a left edge, so their " +
-        "centres and right edges line up too — Figma draws all three",
+        "centres and right edges line up too, so all three guides should be visible",
     ).toBeGreaterThan(1);
     expect(
       isPainted(result.guidePaint),
@@ -484,7 +484,7 @@ test("dragging an element near an existing gap snaps the spacing to match it", a
   }
 });
 
-test("dragging an element shows its constraint lines and pixel size, Figma-style", async ({
+test("dragging an element shows its constraint lines and pixel size", async ({
   page,
   request,
 }) => {
@@ -496,7 +496,7 @@ test("dragging an element shows its constraint lines and pixel size, Figma-style
     expect(result.top, "the element never moved").not.toBe("280px");
     expect(
       result.sizeBadge,
-      "Figma pins the dragged object's dimensions under it",
+      "The dragged object's dimensions should remain visible",
     ).toBe("120 × 80");
     expect(
       result.constraintLines,
@@ -519,8 +519,8 @@ test("dragging an element shows how far it is from its nearest neighbour", async
     expect(result.top, "the element never moved").not.toBe("280px");
     expect(
       result.distanceLabels,
-      "Figma only prints a gap that matches another one; we print the nearest " +
-        "neighbour's distance so the user can see closeness while dragging",
+      "The editor shows gaps between nearby elements so users can see the " +
+        "nearest neighbour distance while dragging",
     ).toBeGreaterThan(0);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});

@@ -1,3 +1,5 @@
+import { parseBase64DataUrl } from "@agent-native/core/shared";
+
 import {
   base64ToBytes,
   readAscii,
@@ -453,7 +455,7 @@ type OverrideEntry = SymbolOverride;
  * An active override scope contributed by an enclosing INSTANCE. `startIndex`
  * is the position in the running guid path at which this instance's master
  * tree begins; override keys in `map` are joined-guid paths RELATIVE to that
- * point (matching what Figma stores in `symbolOverrides[].guidPath`).
+ * point (each override key is a joined path relative to this instance).
  *
  * Multiple layers stack: an outer instance's overrides remain valid even
  * after we descend through nested inner instances, because the descendant's
@@ -1129,7 +1131,7 @@ function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
       recordApproximation(
         node,
         ctx,
-        "GRADIENT_DIAMOND approximated as an ellipse; its falloff is an L1 distance, so Figma draws a four-pointed star. The REST walker reproduces it exactly with four quadrant-tiled linear gradients",
+        "GRADIENT_DIAMOND is approximated as an ellipse; its L1-distance falloff forms a four-pointed star. The REST walker approximates that effect with four quadrant-tiled linear gradients",
       );
       return `radial-gradient(${stops})`;
     }
@@ -1294,7 +1296,7 @@ function diamondBackgroundLayers(
   recordApproximation(
     node,
     ctx,
-    "GRADIENT_DIAMOND drawn as four quadrant-tiled linear gradients — the same shape Figma draws, since its falloff is linear within each quadrant",
+    "GRADIENT_DIAMOND drawn as four quadrant-tiled linear gradients — linear falloff within each quadrant",
   );
   return layers;
 }
@@ -1454,13 +1456,17 @@ export function imageSizeFromUnknownBytes(
 function intrinsicImageSize(
   url: string,
 ): { width: number; height: number } | null {
-  const match = /^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/.exec(
-    url,
-  );
-  if (!match) return null;
+  const parsed = parseBase64DataUrl(url);
+  if (
+    !parsed ||
+    !["image/png", "image/jpeg", "image/jpg"].includes(parsed.mediaType) ||
+    !/^[A-Za-z0-9+/=]+$/.test(parsed.data)
+  ) {
+    return null;
+  }
   return imageSizeFromBytes(
-    base64ToBytes(match[2]!),
-    match[1] === "png" ? "png" : "jpeg",
+    base64ToBytes(parsed.data),
+    parsed.mediaType === "image/png" ? "png" : "jpeg",
   );
 }
 
@@ -1558,7 +1564,7 @@ function borderShorthand(
         recordApproximation(
           node,
           ctx,
-          "dashed INSIDE stroke on a node with children drawn solid; an inset box-shadow cannot be dashed, and a real border would shrink the content box Figma leaves alone",
+          "dashed INSIDE stroke on a node with children drawn solid; an inset box-shadow cannot be dashed, and a real border would shrink the content box",
         );
       }
       return { boxShadow: `inset 0 0 0 ${num(uniformW)}px ${color}` };
@@ -2283,7 +2289,7 @@ function buildCss(
       node,
       ctx,
       node.type === "BOOLEAN_OPERATION"
-        ? "BOOLEAN_OPERATION has no decodable geometry; omitted rather than painted as its bounding box. Figma flattens a boolean outline only for REST and the .fig container — a clipboard paste carries just the operands — so import the frame with a Figma token, or upload the .fig, to get the real shape."
+        ? "BOOLEAN_OPERATION has no decodable geometry; omitted rather than painted as its bounding box. The input contains only boolean operands; retry REST import with a Figma token or upload the .fig source file to recover the combined shape."
         : `${node.type} has no decodable geometry; omitted rather than painted as its bounding box`,
     );
   }
@@ -3729,8 +3735,9 @@ const TOP_LEVEL_RENDERABLE_TYPES = new Set(["FRAME", "SYMBOL", "INSTANCE"]);
 export function collectTopLevelFrames(
   parent: FigNode,
   childrenOf: Map<string, FigNode[]>,
+  maxNodes = DEFAULT_MAX_RENDERED_NODES,
 ): FigNode[] {
-  return collectTopLevelFrameBounds(parent, childrenOf).map(
+  return collectTopLevelFrameBounds(parent, childrenOf, maxNodes).map(
     (entry) => entry.node,
   );
 }
@@ -3738,6 +3745,7 @@ export function collectTopLevelFrames(
 function collectTopLevelFrameBounds(
   parent: FigNode,
   childrenOf: Map<string, FigNode[]>,
+  maxNodes: number,
 ): Array<{ node: FigNode; x: number; y: number }> {
   type Affine = {
     m00: number;
@@ -3788,7 +3796,7 @@ function collectTopLevelFrameBounds(
   while (stack.length > 0) {
     const { node, depth, matrix } = stack.pop()!;
     visited += 1;
-    if (visited > DEFAULT_MAX_RENDERED_NODES) {
+    if (visited > maxNodes) {
       throw new Error(".fig section traversal exceeded its node budget.");
     }
     if (depth > DEFAULT_MAX_TREE_DEPTH) {
@@ -3860,14 +3868,14 @@ const VARIABLE_FIELD_TO_PROP: Record<string, keyof FigNode> = {
  * Rewrites bound design-token variables into literal layout fields (padding, corner radius,
  * spacing, border weight) so the renderer doesn't need to know about variables.
  *
- * Figma bakes a literal alongside each binding, but the literal can be stale (e.g. the mode
+ * The node data includes a literal alongside each binding, but it can be stale (e.g. the mode
  * changed after the node was created). We overwrite a present literal only when the active mode
  * was found explicitly on the node or an ancestor — the collection default is NOT recoverable
  * from the document, so when no explicit mode exists we leave the baked value alone. A missing
  * literal is always filled.
  *
  * Local variables with a unique published counterpart by name are redirected to the published
- * one; Figma drops stale local copies on paste and this matches what renders in isolation.
+ * one; Paste payloads can omit stale local copies, which otherwise alter the isolated render.
  *
  * Mutates nodes in place; unresolvable bindings leave the literal untouched.
  */
@@ -4080,9 +4088,11 @@ export function renderHtmlTemplates(
   const pages = selection
     ? allPages.filter((page) => {
         if (selection.has(guidKey(page.guid))) return true;
-        return collectTopLevelFrames(page, childrenOf).some((frame) =>
-          selection.has(guidKey(frame.guid)),
-        );
+        return collectTopLevelFrames(
+          page,
+          childrenOf,
+          ctx.maxRenderedNodes,
+        ).some((frame) => selection.has(guidKey(frame.guid)));
       })
     : allPages;
 
@@ -4091,12 +4101,14 @@ export function renderHtmlTemplates(
     const page = pages[pageIdx]!;
     const pageDirName = sanitizeFilename(page.name, `page-${pageIdx + 1}`);
     const pageSelected = selection?.has(guidKey(page.guid)) ?? false;
-    const pageFrames = collectTopLevelFrameBounds(page, ctx.childrenOf).filter(
-      (c) => {
-        if (!selection || pageSelected) return true;
-        return selection.has(guidKey(c.node.guid));
-      },
-    );
+    const pageFrames = collectTopLevelFrameBounds(
+      page,
+      ctx.childrenOf,
+      ctx.maxRenderedNodes,
+    ).filter((c) => {
+      if (!selection || pageSelected) return true;
+      return selection.has(guidKey(c.node.guid));
+    });
     if (frames.length + pageFrames.length > maxFrames) {
       throw new Error(
         `.fig document has too many top-level frames (max ${maxFrames}).`,

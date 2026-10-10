@@ -1,7 +1,14 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess, roleSatisfies } from "@agent-native/core/sharing";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import {
+  assertAccess,
+  currentAccess,
+  roleSatisfies,
+} from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -19,6 +26,7 @@ import {
 } from "./_database-utils.js";
 import {
   accessibleDocumentIds,
+  directDocumentAccessSql,
   resolveDocumentAccess,
 } from "./_document-access.js";
 import {
@@ -26,10 +34,10 @@ import {
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
+import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
   getDatabaseById,
   listPropertiesForDocument,
-  resolvePropertyDatabaseForDocument,
   serializeDatabase,
 } from "./_property-utils.js";
 import {
@@ -37,6 +45,7 @@ import {
   documentHasInlineDatabase,
   hasSuggestionBodyTarget,
 } from "./_suggestion-eligibility.js";
+import { contentWidgetEditCapabilities } from "./_widget-edit-capabilities.js";
 
 function canEditRole(role: string) {
   return role === "owner" || role === "admin" || role === "editor";
@@ -91,6 +100,12 @@ export default defineAction({
       .describe(
         "Backing collection document ID; only use with databaseId for the exact collection context.",
       ),
+    includePreviewDraft: z
+      .boolean()
+      .optional()
+      .describe(
+        "Also return the current user's private unsaved draft of this page as previewDraft. The editor sets this when it opens a page; other callers omit it.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -116,6 +131,7 @@ export default defineAction({
     const hasInlineDatabase = documentHasInlineDatabase(doc.content ?? "");
     const mayBeExternallyLinked =
       canCommentRole(access.role) && !source?.mode && !hasInlineDatabase;
+    const readsPreviewDraft = args.includePreviewDraft === true && !!userEmail;
 
     // These reads depend only on the document, so they run as one round of
     // parallel statements. The checks after them decide what is returned.
@@ -127,14 +143,21 @@ export default defineAction({
       bodyHydrationTarget,
       favoriteIds,
       externalLink,
+      previewDraft,
     ] = await Promise.all([
       isSoftDeletedDatabaseDocument(args.id),
       db
         .select({
           databaseId: schema.contentDatabases.id,
           databaseDocumentId: schema.contentDatabases.documentId,
+          databaseTitle: schema.contentDatabases.title,
           systemRole: schema.contentDatabases.systemRole,
           primaryId: schema.documentPropertyDefinitions.id,
+          databaseDocumentDescription: schema.documents.description,
+          databaseDocumentDirectlyGranted: directDocumentAccessSql(
+            schema.documents,
+            currentAccess(),
+          ),
         })
         .from(schema.contentDatabaseItems)
         .innerJoin(
@@ -143,6 +166,10 @@ export default defineAction({
             schema.contentDatabases.id,
             schema.contentDatabaseItems.databaseId,
           ),
+        )
+        .leftJoin(
+          schema.documents,
+          eq(schema.documents.id, schema.contentDatabases.documentId),
         )
         .leftJoin(
           schema.documentPropertyDefinitions,
@@ -183,6 +210,19 @@ export default defineAction({
             )
             .limit(1)
         : [],
+      readsPreviewDraft
+        ? previewDocumentDraftAnswer(
+            userEmail!,
+            getRequestOrgId() ?? "",
+            doc.id,
+          ).catch(
+            // coercion-ok: a failure here is no answer, not "nothing to
+            // recover". This page's access can come from its space, which the
+            // draft read never uses. Leaving previewDraft out sends the browser
+            // to get-preview-document-draft, which asks again and reports it.
+            () => undefined,
+          )
+        : undefined,
     ]);
     if (softDeleted) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
@@ -226,12 +266,35 @@ export default defineAction({
             (row) => row.item.databaseId === selectedDatabaseId,
           )
         : databaseItems[0]) ?? null;
+    const contextMembership = (() => {
+      const row = args.databaseId
+        ? memberships.find(
+            (membership) => membership.databaseId === args.databaseId,
+          )
+        : (memberships.find((membership) => membership.systemRole === null) ??
+          memberships[0]);
+      return row
+        ? {
+            database: {
+              id: row.databaseId,
+              documentId: row.databaseDocumentId,
+              title: row.databaseTitle,
+              systemRole: row.systemRole,
+            },
+            databaseDocumentDescription: row.databaseDocumentDescription,
+            databaseDocumentDirectlyGranted:
+              row.databaseDocumentDirectlyGranted,
+          }
+        : null;
+    })();
+    // The initial read wave proves the empty case; retain the resolver's
+    // existing selection behavior when memberships are present.
     const propertyDatabase = selectedDatabaseId
       ? (databaseMembership?.database ??
         (database?.id === selectedDatabaseId
           ? database
           : await getDatabaseById(selectedDatabaseId)))
-      : await resolvePropertyDatabaseForDocument(doc);
+      : (database ?? databaseMembership?.database ?? null);
     const hasPropertyDatabaseAccess = Boolean(
       propertyDatabase && accessibleDatabases.has(propertyDatabase.documentId),
     );
@@ -256,7 +319,6 @@ export default defineAction({
     if (selectedDatabaseId && !propertyDatabase) {
       throw new Error(`Database "${selectedDatabaseId}" not found`);
     }
-    const bodyHydrationAccess = await readBodyHydrationAccess();
     const bodyHydration = bodyHydrationMembership
       ? serializeDatabaseMembership(bodyHydrationMembership).bodyHydration
       : null;
@@ -264,11 +326,19 @@ export default defineAction({
     // read only when it will be returned, and its errors surface after the
     // property checks that preceded it.
     const readContextPath =
-      databaseMembership && !hasPropertyDatabaseAccess
+      (!doc.parentId && !databaseMembership) ||
+      (databaseMembership && !hasPropertyDatabaseAccess)
         ? null
         : deferFailure(
-            getDocumentContextPath(doc, { databaseId: args.databaseId }),
+            getDocumentContextPath(doc, {
+              databaseId: args.databaseId,
+              preloaded: {
+                membership: contextMembership,
+                backingDatabaseExists: Boolean(database),
+              },
+            }),
           );
+    const bodyHydrationAccess = await readBodyHydrationAccess();
     const [properties] = await Promise.all([
       listPropertiesForDocument(doc, selectedDatabaseId, {
         // A share authorizes the exact page and its membership-local fields,
@@ -313,6 +383,12 @@ export default defineAction({
       hasInlineDatabase,
     });
     const revision = documentRevisionToken(doc.bodyRevision, doc.content ?? "");
+    const widgetEditCapabilities = contentWidgetEditCapabilities(ctx, {
+      id: doc.id,
+      spaceId: doc.spaceId,
+      databaseId: database?.id,
+      databaseDocumentId: database?.documentId,
+    });
 
     track(
       "document_viewed",
@@ -356,6 +432,15 @@ export default defineAction({
       canSuggest,
       canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),
+      ...(ctx?.mcpDirectoryWidgetReadOnly
+        ? { mcpDirectoryWidgetReadOnly: true as const }
+        : {}),
+      ...(widgetEditCapabilities.canEditDocument
+        ? { mcpDirectoryWidgetCanEditDocument: true as const }
+        : {}),
+      ...(widgetEditCapabilities.canEditDatabaseRows
+        ? { mcpDirectoryWidgetCanEditDatabaseRows: true as const }
+        : {}),
       database: database
         ? serializeDatabase(database, doc.description)
         : undefined,
@@ -400,6 +485,9 @@ export default defineAction({
             definition: { ...property.definition, databaseId: null },
           })),
       contextPath,
+      // The same answer get-preview-document-draft gives, so a page open
+      // needs no second request before it can show the page.
+      ...(previewDraft ? { previewDraft } : {}),
     };
   },
   link: ({ result }) => {

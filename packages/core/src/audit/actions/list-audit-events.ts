@@ -6,7 +6,7 @@ import { queryAuditApps, queryAuditEventPage } from "../store.js";
 
 export default defineAction({
   description:
-    "List audit-log events (who changed what, when, and whether it was you or the agent) for resources you can access. Supports filtering by target resource, actor (agent vs human), status, agent thread/turn, app, and time range, with offset paging. Use this to answer 'what did the agent change', 'who edited this record', or 'show recent changes'. Organization owners and admins pass scope 'organization' to read the organization's settings and admin trail (default model, member roles, Builder.io, and other org settings changes, including refused attempts), which is the Settings audit log.",
+    "List audit-log events (who changed what, when, and whether it was a human, agent, service principal, or system) for resources you can access. Supports filtering by target resource, actor, status, agent thread/turn, app, and time range, with offset paging. Use this to answer 'what did the agent change', 'who edited this record', or 'show recent changes'. Organization owners and admins pass scope 'organization' to read the organization's settings and admin trail (default model, member roles, Builder.io, and other org settings changes, including refused attempts), which is the Settings audit log.",
   schema: z.object({
     scope: z
       .enum(["accessible", "organization"])
@@ -23,9 +23,11 @@ export default defineAction({
       .optional()
       .describe("Filter to one resource id (pair with targetType)."),
     actorKind: z
-      .enum(["agent", "human", "system"])
+      .enum(["agent", "human", "service", "system"])
       .optional()
-      .describe("Filter to changes made by the agent, a human, or the system."),
+      .describe(
+        "Filter to changes made by an agent, human, service principal, or the system.",
+      ),
     actorEmail: z.string().optional().describe("Filter to one actor's email."),
     status: z
       .enum(["success", "error", "denied"])

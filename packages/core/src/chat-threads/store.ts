@@ -1,12 +1,21 @@
 import crypto from "node:crypto";
 
-import type { AgentRunOptions } from "@agent-native/agentkit/protocol";
+import {
+  parseQueueMessageInput,
+  type AgentRunOptions,
+} from "@agent-native/agentkit/protocol";
 
 import {
+  extractThreadMeta,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   normalizeThreadTitle,
+  type ThreadAnnotationSnapshotConflict,
 } from "../agent/thread-data-builder.js";
+import {
+  representedRootAssistantMessageIds,
+  threadMessageRecord,
+} from "../agent/thread-message-projection.js";
 import { getDbExec } from "../db/client.js";
 import { createGetDb } from "../db/create-get-db.js";
 import {
@@ -16,6 +25,7 @@ import {
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
+import { stripInlineBytes } from "../shared/inline-bytes.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
@@ -417,7 +427,80 @@ function countThreadMessages(value: unknown, fallback: number): number {
   if (repoMessageCount === undefined && agentKitMessageCount === undefined) {
     return fallback;
   }
-  return Math.max(repoMessageCount ?? 0, agentKitMessageCount ?? 0);
+
+  const rootMessages = Array.isArray(repo.messages) ? repo.messages : [];
+  const agentKitMessages = Array.isArray(repo.agentKit?.messages)
+    ? repo.agentKit.messages
+    : [];
+  const mirroredRootIds = representedRootAssistantMessageIds({
+    rootMessages,
+    snapshotMessages: agentKitMessages,
+    events: repo.agentKit?.events,
+    runs: repo.agentKit?.runs,
+    toolCalls: repo.agentKit?.toolCalls,
+  });
+  const agentKitUserMessageId = (entry: unknown): string | undefined => {
+    const message = threadMessageRecord(entry);
+    if (message?.role !== "user") return undefined;
+    const metadata = message.metadata;
+    const custom =
+      metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>).custom
+        : undefined;
+    const agentKitMessageId =
+      custom && typeof custom === "object" && !Array.isArray(custom)
+        ? (custom as Record<string, unknown>).agentKitMessageId
+        : undefined;
+    return typeof agentKitMessageId === "string"
+      ? agentKitMessageId
+      : undefined;
+  };
+  const snapshotUserMessageCounts = new Map<string, number>();
+  for (const entry of agentKitMessages) {
+    const message = threadMessageRecord(entry);
+    if (message?.role !== "user" || typeof message.id !== "string") continue;
+    snapshotUserMessageCounts.set(
+      message.id,
+      (snapshotUserMessageCounts.get(message.id) ?? 0) + 1,
+    );
+  }
+  const rootUserMirrorIdsByAgentKitId = new Map<string, string[]>();
+  for (const entry of rootMessages) {
+    const message = threadMessageRecord(entry);
+    const agentKitId = agentKitUserMessageId(entry);
+    if (typeof message?.id !== "string" || !agentKitId) continue;
+    const rootIds = rootUserMirrorIdsByAgentKitId.get(agentKitId);
+    if (rootIds) rootIds.push(message.id);
+    else rootUserMirrorIdsByAgentKitId.set(agentKitId, [message.id]);
+  }
+  const mirroredRootUserIds = new Set<string>();
+  for (const [agentKitId, rootIds] of rootUserMirrorIdsByAgentKitId) {
+    if (
+      rootIds.length === 1 &&
+      snapshotUserMessageCounts.get(agentKitId) === 1
+    ) {
+      mirroredRootUserIds.add(rootIds[0]!);
+    }
+  }
+  const messageIds = new Set<string>();
+  let unkeyedMessages = 0;
+  const countMessage = (entry: unknown) => {
+    const message = threadMessageRecord(entry);
+    if (typeof message?.id === "string") messageIds.add(message.id);
+    else unkeyedMessages += 1;
+  };
+  for (const entry of rootMessages) {
+    const message = threadMessageRecord(entry);
+    if (
+      typeof message?.id === "string" &&
+      (mirroredRootIds.has(message.id) || mirroredRootUserIds.has(message.id))
+    ) {
+      continue;
+    }
+    countMessage(entry);
+  }
+  for (const entry of agentKitMessages) countMessage(entry);
+  return messageIds.size + unkeyedMessages;
 }
 
 function forkThreadData(
@@ -952,10 +1035,13 @@ export async function forkThread(
     return null;
   }
   const id = opts?.id ?? generateId();
-  const threadData = forkThreadData(
-    source.threadData,
-    id,
-    snapshot?.fromMessageId,
+  const threadData = JSON.stringify(
+    stripInlineBytes(
+      JSON.parse(
+        forkThreadData(source.threadData, id, snapshot?.fromMessageId),
+      ),
+      "placeholder",
+    ),
   );
   const now = Date.now();
   const title = source.title ? `${source.title} (fork)` : "";
@@ -1314,6 +1400,8 @@ export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
+  preserveCurrentTitleAndPreview?: boolean;
+  onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
   transformThreadData?: (
     currentThreadData: string,
   ) => string | { threadData: string; preview?: string };
@@ -1336,7 +1424,7 @@ export async function updateThreadData(
   preview: string,
   messageCount: number,
   options: UpdateThreadDataOptions = {},
-): Promise<void> {
+): Promise<boolean> {
   // getThread() ensures the table exists. Keep that bootstrap inside the
   // retry boundary below so a cold serverless process can recover from a
   // transient initialization/read failure too.
@@ -1351,7 +1439,7 @@ export async function updateThreadData(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const current = await getThread(id);
-      if (!current) return;
+      if (!current) return false;
 
       const transformed = options.transformThreadData?.(current.threadData);
       const incomingThreadData =
@@ -1360,35 +1448,54 @@ export async function updateThreadData(
           : (transformed?.threadData ?? threadData);
       let nextThreadData = incomingThreadData;
       let nextMessageCount = messageCount;
-      try {
-        const merged = mergeThreadDataForClientSave(
-          parseThreadData(current.threadData),
-          parseThreadData(incomingThreadData),
-          {
-            preserveExistingQueuedMessages:
-              options.preserveExistingQueuedMessages ?? true,
-            preserveExistingTopLevelKeys:
-              options.preserveExistingTopLevelKeys ?? true,
-          },
-        );
-        nextThreadData = JSON.stringify(merged);
-        nextMessageCount = countThreadMessages(merged, messageCount);
-      } catch {
-        // Keep the caller's serialized value if either JSON blob is malformed.
-      }
+      const annotationConflicts: ThreadAnnotationSnapshotConflict[] = [];
+      const merged = mergeThreadDataForClientSave(
+        parseThreadData(current.threadData),
+        parseThreadData(incomingThreadData),
+        {
+          preserveExistingQueuedMessages:
+            options.preserveExistingQueuedMessages ?? true,
+          preserveExistingTopLevelKeys:
+            options.preserveExistingTopLevelKeys ?? true,
+          onAnnotationConflict: (conflict) =>
+            annotationConflicts.push(conflict),
+        },
+      );
+      // Client snapshots can predate their upload URL, so inline bytes become a
+      // visible placeholder rather than failing the save; legacy rows are
+      // scrubbed on their next write.
+      nextThreadData = JSON.stringify(stripInlineBytes(merged, "placeholder"));
+      nextMessageCount = countThreadMessages(merged, messageCount);
 
       const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
       // Completion persistence can race the separate generated-title save.
       // Keep a title already committed by that save when this caller only has
       // its stale empty snapshot.
-      const nextTitle = options.preserveCurrentMetadata
+      const preserveCurrentMetadata = options.preserveCurrentMetadata;
+      const preserveCurrentTitleAndPreview =
+        options.preserveCurrentTitleAndPreview;
+      const snapshotMetaForBlankFields =
+        !options.preserveCurrentMetadata &&
+        options.preserveCurrentTitleAndPreview &&
+        (!current.title.trim() || !current.preview.trim())
+          ? extractThreadMeta(merged)
+          : undefined;
+      const nextTitle = preserveCurrentMetadata
         ? current.title
-        : title || current.title;
-      const nextPreview = options.preserveCurrentMetadata
+        : preserveCurrentTitleAndPreview
+          ? current.title.trim()
+            ? current.title
+            : snapshotMetaForBlankFields?.title || current.title
+          : title || current.title || extractThreadMeta(merged).title;
+      const nextPreview = preserveCurrentMetadata
         ? current.preview
-        : typeof transformed === "object" && transformed.preview !== undefined
-          ? transformed.preview
-          : preview;
+        : preserveCurrentTitleAndPreview
+          ? current.preview.trim()
+            ? current.preview
+            : snapshotMetaForBlankFields?.preview || current.preview
+          : typeof transformed === "object" && transformed.preview !== undefined
+            ? transformed.preview
+            : preview;
       const result = await client.execute({
         sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
         args: [
@@ -1404,8 +1511,11 @@ export async function updateThreadData(
       });
 
       if (result.rowsAffected > 0) {
+        for (const conflict of annotationConflicts) {
+          options.onAnnotationConflict?.(conflict);
+        }
         emitChatThreadChange(id);
-        return;
+        return true;
       }
 
       lastConflict = true;
@@ -1430,7 +1540,7 @@ export async function updateThreadData(
   if (lastError) throw lastError;
 
   if (lastConflict) {
-    if (options.ignoreConflicts) return;
+    if (options.ignoreConflicts) return false;
     const error = new Error(
       `Failed to update chat thread ${id} after concurrent write conflicts.`,
     ) as Error & { statusCode?: number; statusMessage?: string };
@@ -1438,6 +1548,8 @@ export async function updateThreadData(
     error.statusMessage = error.message;
     throw error;
   }
+
+  return false;
 }
 
 export interface ThreadEngineMeta {
@@ -1493,6 +1605,7 @@ export interface QueuedMessage {
   threadId?: string;
   createdAt?: string;
   attachments?: unknown[];
+  requestAttachments?: unknown[];
   metadata?: Record<string, unknown>;
   options?: AgentRunOptions;
   promotionClaim?: { id: string; expiresAt: number };
@@ -1521,6 +1634,16 @@ export async function mutateThreadQueuedMessages(
   threadId: string,
   mutation: ThreadQueuedMessageMutation,
 ): Promise<ThreadQueuedMessageMutationResult | null> {
+  if (mutation.type === "append") {
+    parseQueueMessageInput(
+      {
+        ...mutation.message,
+        threadId: mutation.message.threadId ?? threadId,
+      },
+      "queuedMessage",
+    );
+  }
+
   return withThreadDataLock(threadId, async () => {
     let result: ThreadQueuedMessageMutationResult | undefined;
     await updateThreadData(threadId, "{}", "", "", 0, {

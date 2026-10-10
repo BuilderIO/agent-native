@@ -1460,7 +1460,7 @@ describe("generated bridge modules", () => {
 });
 
 it(
-  "embedded canvas gesture bridge preserves app input unless a Figma pan gesture is active",
+  "embedded canvas gesture bridge preserves app input unless pan navigation is active",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -2780,7 +2780,7 @@ it(
       });
       expect(guideVisible).toBe(true);
 
-      // Holding Cmd/Ctrl bypasses snapping entirely (Figma behavior) — nudge
+      // Holding Cmd/Ctrl bypasses snapping entirely (app behavior) — nudge
       // one px further (still well within snap range if snapping were
       // active) and hold Meta so the raw (unsnapped) position is used.
       await page.keyboard.down(PLATFORM_PRIMARY_KEY);
@@ -3191,7 +3191,7 @@ it(
 );
 
 it(
-  "uses direct single-click selection inside screens while the board keeps Figma container-first selection",
+  "uses direct single-click selection inside screens while board clicks use container-first selection",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -3239,7 +3239,7 @@ it(
         });
 
         // HUMAN-DIRECTED UX EXCEPTION: the screen path is intentionally a
-        // direct single-click selection, unlike the board's Figma behavior.
+        // direct single-click selection, unlike the board's app behavior.
         await page.mouse.click(160, 160);
         await page.waitForFunction(
           () => ((window as any).__selectedIds as string[]).length > 0,
@@ -3951,8 +3951,8 @@ it(
       <text id="vector-text" x="0" y="30">abc</text>
     </svg>
   </div>
-  <svg id="vector-native-oracle" aria-hidden="true" viewBox="0 0 40 40" style="position:absolute;left:700px;top:0;width:48px;height:48px;font-size:20px">
-    <text id="vector-native-oracle-text" x="0" y="30">abc</text>
+  <svg id="vector-native-measurement-fixture" aria-hidden="true" viewBox="0 0 40 40" style="position:absolute;left:700px;top:0;width:48px;height:48px;font-size:20px">
+    <text id="vector-native-measurement-fixture-text" x="0" y="30">abc</text>
   </svg>
 </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
@@ -4044,16 +4044,24 @@ it(
           },
           nativeVector: {
             width: document
-              .querySelector<SVGSVGElement>("#vector-native-oracle")!
+              .querySelector<SVGSVGElement>(
+                "#vector-native-measurement-fixture",
+              )!
               .getBoundingClientRect().width,
             height: document
-              .querySelector<SVGSVGElement>("#vector-native-oracle")!
+              .querySelector<SVGSVGElement>(
+                "#vector-native-measurement-fixture",
+              )!
               .getBoundingClientRect().height,
             fontSize: getComputedStyle(
-              document.querySelector<SVGSVGElement>("#vector-native-oracle")!,
+              document.querySelector<SVGSVGElement>(
+                "#vector-native-measurement-fixture",
+              )!,
             ).fontSize,
             textWidth: document
-              .querySelector<SVGTextElement>("#vector-native-oracle-text")!
+              .querySelector<SVGTextElement>(
+                "#vector-native-measurement-fixture-text",
+              )!
               .getBoundingClientRect().width,
           },
           vectorCommitted: (
@@ -7226,7 +7234,7 @@ describe("editor chrome bridge — text editing session", () => {
   );
 
   it(
-    "T24: while a session is active but unfocused, the next keydown refocuses the editable instead of falling through",
+    "T24: lost text-edit focus refocuses for typing but forwards Delete to the host",
     { timeout: 30_000 },
     async () => {
       const browser = await chromium.launch({ headless: true });
@@ -7292,6 +7300,38 @@ describe("editor chrome bridge — text editing session", () => {
         expect(afterKey.activeId).toBe("target");
         expect(afterKey.text).toBe("Hello worlda");
 
+        await page.evaluate(() => {
+          document.body.dataset.deleteHotkeyForwarded = "false";
+          window.addEventListener("message", (event) => {
+            if (
+              event.data?.type === "design-hotkey" &&
+              event.data.key === "Delete"
+            ) {
+              document.body.dataset.deleteHotkeyForwarded = "true";
+            }
+          });
+          document.querySelector<HTMLElement>("#steal")!.focus();
+        });
+        await page.keyboard.press("Delete");
+        await page.waitForFunction(
+          () => document.body.dataset.deleteHotkeyForwarded === "true",
+        );
+        const afterDelete = await page.evaluate(() => ({
+          activeId: document.activeElement?.id,
+          editing: !!document.querySelector("[data-agent-native-text-editing]"),
+          text: document.querySelector("#target")?.textContent,
+        }));
+        expect(afterDelete.activeId).toBe("steal");
+        expect(afterDelete.editing).toBe(false);
+        expect(afterDelete.text).toBe("Hello worlda");
+
+        await page.evaluate(() => {
+          window.postMessage(
+            { type: "begin-text-edit", nodeId: "target", force: true },
+            "*",
+          );
+        });
+        await page.waitForSelector("[data-agent-native-text-editing]");
         await page.evaluate(() => {
           document.querySelector<HTMLElement>("#steal")!.focus();
         });
@@ -9279,8 +9319,8 @@ async function readBridgeMessages(page: import("@playwright/test").Page) {
 }
 
 // Selects `selector` directly via the bridge's `select-element` postMessage
-// instead of a plain click. Plain clicks now resolve container-first (Figma
-// parity — containerFirstSelectionTarget): clicking a descendant nested more
+// instead of a plain click. Plain clicks now resolve container-first (the app
+// container-first selection handler): clicking a descendant nested more
 // than one level below the current container scope (the screen root, i.e.
 // document.body, by default) selects that scope's direct child on the path
 // to the pointer, not the descendant itself. A setup that needs a specific
@@ -16477,7 +16517,7 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   // keydown handler leaves the browser's native paste alone and schedules a
   // design-hotkey post on a 0ms timer, but the document-level "paste"
   // listener unconditionally cancels that timer the instant a real paste
-  // DOMEvent arrives (Figma-clipboard-flavored or not) so paste is never
+  // DOMEvent arrives (provider-specific or not) so paste is never
   // double-handled. Chromium's synthetic CDP keyboard input dispatches that
   // real paste event even against a non-editable, unfocused document body,
   // so this chord can't be exercised as a simple "did a design-hotkey
@@ -18542,7 +18582,7 @@ it(
 );
 
 it(
-  "editor chrome bridge posts the full element-select payload when the host drives selection via select-element (Layers panel parity with pointer selection)",
+  "editor chrome bridge posts the full element-select payload when the host drives selection via select-element (the same selection payload as pointer selection)",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });

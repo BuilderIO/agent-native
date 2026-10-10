@@ -4,7 +4,6 @@ import {
   type GuidedQuestionAnswers,
 } from "@agent-native/toolkit/app/chat/agentkit-chat";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
-import { isLocalRuntimeEngine } from "@agent-native/toolkit/composer";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "@shared/mutation-turn";
 import { useCallback } from "react";
 
@@ -13,7 +12,11 @@ import {
   formatComposerContext,
   hasComposerSystemContext,
 } from "@/lib/composer-context";
-import { loadDesignSystemGenerationContext } from "@/pages/design-editor/generation-prompt-directives";
+import {
+  designCanvasIntentDirectives,
+  loadDesignSystemGenerationContext,
+  variantContentDirective,
+} from "@/pages/design-editor/generation-prompt-directives";
 
 export interface QuestionFlowModelSelection {
   model?: string;
@@ -72,9 +75,6 @@ export function buildGenerationBriefContext(
     .join("\n\n");
 }
 
-const RESPONSIVE_GENERATION_REQUIREMENTS =
-  'Responsive behavior is mandatory for every web design. Read the form-factor answer above: for Desktop or Both/responsive, call generate-design with `primaryViewport: "desktop"` and a 1440x1024 canvas frame; use `primaryViewport: "mobile"` only for an explicitly mobile-primary choice. Use mobile-first responsive CSS, then take desktop and mobile screenshots and fix any overflow before reporting the design complete.';
-
 function existingDesignContinuationContext(
   designId: string | undefined,
 ): string {
@@ -90,6 +90,19 @@ function existingDesignContinuationContext(
 const SETTLED_ANSWERS_INSTRUCTION =
   "Treat every question below as settled: do not ask it again, and do not ask for a confirmation of it. Continue the work these answers were blocking.";
 
+function continueDesignInstruction(
+  designId: string | undefined,
+  brief: QuestionFlowGenerationBrief | null | undefined,
+): string {
+  if (!designId) {
+    return "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.";
+  }
+  return (
+    `Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 concise directions. ${variantContentDirective(brief?.prompt, brief?.designSystemId, brief?.images?.length)}` +
+    ' Wait for their chat pick, delete each unchosen variant screen at most once, call get-design-snapshot exactly once with fileId for the kept screen, then call edit-design exactly once on that same fileId in a bounded pass. Use mode "replace-file" when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save. Otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing.'
+  );
+}
+
 export function useQuestionFlow(
   designId: string | undefined,
   {
@@ -102,12 +115,9 @@ export function useQuestionFlow(
 ) {
   const stateKey = designQuestionsStateKey(designId);
   const existingDesignContext = existingDesignContinuationContext(designId);
-  const providerStatusChecksEnabled = !isLocalRuntimeEngine(
-    getModelSelection?.()?.engine,
-  );
   const flow = useGuidedQuestionFlow({
     enabled,
-    providerStatusChecksEnabled,
+    engine: getModelSelection?.()?.engine,
     stateKey,
     queryKey: [stateKey],
     submitMessage: "Here are my answers — go ahead.",
@@ -121,11 +131,7 @@ export function useQuestionFlow(
         "Answers:",
         formattedAnswers,
         "",
-        RESPONSIVE_GENERATION_REQUIREMENTS,
-        "",
-        designId
-          ? 'Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 concise directions using label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens - wait for their chat pick, delete each unchosen variant screen at most once, call get-design-snapshot exactly once with fileId for the kept screen, then call edit-design exactly once on that same fileId in a bounded pass. Use mode "replace-file" when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save. Otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing.'
-          : "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.",
+        continueDesignInstruction(designId, getGenerationBrief?.()),
       ]
         .filter(Boolean)
         .join("\n"),
@@ -142,10 +148,14 @@ export function useQuestionFlow(
 
   const sendContinuation = useCallback(
     async (message: string, context?: string) => {
-      flow.clear();
       const selection = getModelSelection?.() ?? {};
       const { model, engine, effort } = selection;
       const brief = getGenerationBrief?.() ?? null;
+      if (getGenerationBrief && !brief) {
+        flow.clear();
+        return;
+      }
+      flow.clear();
       const designSystemContext =
         brief?.designSystemId && !hasComposerSystemContext(brief.contextItems)
           ? await loadDesignSystemGenerationContext(brief.designSystemId)
@@ -156,7 +166,12 @@ export function useQuestionFlow(
       );
       const tabId = sendToDesignAgentChat({
         message,
-        context: [briefContext, context, DESIGN_MUTATION_REQUIRED_DIRECTIVE]
+        context: [
+          briefContext,
+          designCanvasIntentDirectives(brief?.prompt).join("\n"),
+          context,
+          DESIGN_MUTATION_REQUIRED_DIRECTIVE,
+        ]
           .filter(Boolean)
           .join("\n\n"),
         submit: true,
@@ -194,18 +209,20 @@ export function useQuestionFlow(
         "Answers:",
         formattedAnswers,
         "",
-        RESPONSIVE_GENERATION_REQUIREMENTS,
-        "",
-        designId
-          ? 'Now continue the design. Honor any answer about variations: if the user asked to explore options, call present-design-variants with 2-5 concise directions using label, description, accentColor, and feature bullets; omit large content HTML when needed because the action can render compact representative screens - wait for their chat pick, delete each unchosen variant screen at most once, call get-design-snapshot exactly once with fileId for the kept screen, then call edit-design exactly once on that same fileId in a bounded pass. Use mode "replace-file" when expanding the representative placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save. Otherwise call generate-design with one complete, renderable index.html first. Do not ask another question unless a required decision is still genuinely missing.'
-          : "Now continue the design. Honor any answer about variations: use variants only if requested; otherwise generate one polished direction.",
+        continueDesignInstruction(designId, getGenerationBrief?.()),
       ]
         .filter(Boolean)
         .join("\n");
 
       void sendContinuation("Here are my answers — go ahead.", context);
     },
-    [designId, flow.isSubmissionBlocked, flow.questions, sendContinuation],
+    [
+      designId,
+      flow.isSubmissionBlocked,
+      flow.questions,
+      getGenerationBrief,
+      sendContinuation,
+    ],
   );
 
   const handleSkip = useCallback(() => {
@@ -213,8 +230,8 @@ export function useQuestionFlow(
     void sendContinuation(
       "Skip the questions — decide for me.",
       designId
-        ? `${existingDesignContext} The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults. ${RESPONSIVE_GENERATION_REQUIREMENTS} Generate one polished first direction unless the original prompt explicitly requested options.`
-        : `The user skipped the pre-generation questions. Proceed with reasonable defaults. ${RESPONSIVE_GENERATION_REQUIREMENTS} Generate one polished first direction unless the original prompt explicitly requested options.`,
+        ? `${existingDesignContext} The user skipped the pre-generation questions for design ${designId}. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.`
+        : "The user skipped the pre-generation questions. Proceed with reasonable defaults. Generate one polished first direction unless the original prompt explicitly requested options.",
     );
   }, [designId, flow.isSubmissionBlocked, sendContinuation]);
 

@@ -80,6 +80,16 @@ export interface ShareButtonProps {
   shareUrl?: string;
   /** Use a bottom sheet for the share surface below the small-screen breakpoint. */
   mobileSheet?: boolean;
+  /**
+   * The session can run only the basic share actions (list, share, unshare,
+   * visibility), as a scoped MCP App widget session can. Omits the access
+   * request review, the agent-context link and the people suggestions, which
+   * need other routes, and the admin role and email note, which such a
+   * session may not send; an email is still added by typing it.
+   */
+  basicSharingOnly?: boolean;
+  /** Open the share surface without rendering a trigger button. */
+  hideTrigger?: boolean;
   /** Override the optional temporary agent-context link label. */
   agentShareLabel?: string;
   /** Resource-specific agent actions shown in the Clips-style sharing tabs. */
@@ -91,6 +101,7 @@ export interface ShareButtonProps {
     label: string;
     copiedLabel: string;
     onCopy: () => Promise<boolean | void> | boolean | void;
+    className?: string;
   };
   /** Optional label for the primary copyable link section. */
   shareUrlLabel?: string;
@@ -218,6 +229,18 @@ function visibilityMeta(
   };
 }
 
+// A scoped host session cannot grant the admin role, so it is not offered.
+const BASIC_SHARING_ROLES: readonly Role[] = ["viewer", "commenter", "editor"];
+
+function allowedRolesFor(
+  props: Pick<ShareButtonProps, "allowedRoles" | "basicSharingOnly">,
+): readonly Role[] | undefined {
+  return (
+    props.allowedRoles ??
+    (props.basicSharingOnly ? BASIC_SHARING_ROLES : undefined)
+  );
+}
+
 function roleOptions(
   t: ShareTranslate,
 ): Array<{ value: Role; label: string; description: string }> {
@@ -310,7 +333,7 @@ export function ShareButton(props: ShareButtonProps) {
     onShareSuccess: props.onShareSuccess,
     shareTabs: props.shareTabs,
     shareUrl: props.shareUrl,
-    allowedRoles: props.allowedRoles,
+    allowedRoles: allowedRolesFor(props),
     hideInSearchControl: props.hideInSearchControl,
   });
   useEffect(() => {
@@ -347,12 +370,13 @@ export function ShareButton(props: ShareButtonProps) {
   if (isSmallScreen) {
     return (
       <Sheet open={controller.open} onOpenChange={controller.handleOpenChange}>
-        {props.quickCopy ? (
+        {props.hideTrigger ? null : props.quickCopy ? (
           <JoinedShareControl
             trigger={<SheetTrigger asChild>{trigger}</SheetTrigger>}
             copyLabel={props.quickCopy.label}
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
+            className={props.quickCopy.className}
           />
         ) : (
           <SheetTrigger asChild>{trigger}</SheetTrigger>
@@ -378,13 +402,18 @@ export function ShareButton(props: ShareButtonProps) {
   }
   return (
     <Popover open={controller.open} onOpenChange={controller.handleOpenChange}>
-      {props.quickCopy ? (
+      {props.hideTrigger ? (
+        <PopoverAnchor asChild>
+          <span aria-hidden="true" className="fixed end-4 top-16 size-px" />
+        </PopoverAnchor>
+      ) : props.quickCopy ? (
         <PopoverAnchor asChild>
           <JoinedShareControl
             trigger={<PopoverTrigger asChild>{trigger}</PopoverTrigger>}
             copyLabel={props.quickCopy.label}
             copiedLabel={props.quickCopy.copiedLabel}
             onCopy={props.quickCopy.onCopy}
+            className={props.quickCopy.className}
           />
         </PopoverAnchor>
       ) : (
@@ -463,12 +492,13 @@ function SharePanel(
   const generalAccessLabel =
     props.generalAccessLabel ??
     t("agentChat.share.generalAccess", { defaultValue: "General access" });
-  const accessRequests = canManage ? (
-    <AccessRequestsSection
-      resourceType={props.resourceType}
-      resourceId={props.resourceId}
-    />
-  ) : null;
+  const accessRequests =
+    canManage && !props.basicSharingOnly ? (
+      <AccessRequestsSection
+        resourceType={props.resourceType}
+        resourceId={props.resourceId}
+      />
+    ) : null;
   const shareLinks = (
     <>
       {props.shareUrl ? (
@@ -604,8 +634,10 @@ function SharePanel(
               <div className="w-full sm:min-w-0 sm:flex-1">
                 <MemberAutocomplete
                   value={inviteEmail}
-                  open={suggestionsOpen}
-                  onOpenChange={setSuggestionsOpen}
+                  open={suggestionsOpen && !props.basicSharingOnly}
+                  onOpenChange={(open) => {
+                    if (!props.basicSharingOnly) setSuggestionsOpen(open);
+                  }}
                   onValueChange={(next) => {
                     onInviteEmailChange(next);
                     if (shareError) setShareError(null);
@@ -650,7 +682,7 @@ function SharePanel(
                 value={role}
                 onChange={setRole}
                 roleCopy={props.roleCopy}
-                allowedRoles={props.allowedRoles}
+                allowedRoles={allowedRolesFor(props)}
               />
               <button
                 type="button"
@@ -682,7 +714,7 @@ function SharePanel(
                     defaultValue: "Notify people",
                   })}
                 </label>
-                {notifyPeople ? (
+                {notifyPeople && !props.basicSharingOnly ? (
                   <button
                     type="button"
                     aria-expanded={messageOpen}
@@ -700,7 +732,10 @@ function SharePanel(
                 ) : null}
               </div>
             ) : null}
-            {hasInviteEmail && notifyPeople && messageOpen ? (
+            {hasInviteEmail &&
+            notifyPeople &&
+            messageOpen &&
+            !props.basicSharingOnly ? (
               <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
                 <textarea
                   aria-label={t("agentChat.share.message", {
@@ -771,7 +806,7 @@ function SharePanel(
                   disabled={inFlight.has(keyOf(s))}
                   plain
                   roleCopy={props.roleCopy}
-                  allowedRoles={props.allowedRoles}
+                  allowedRoles={allowedRolesFor(props)}
                 />
               ) : (
                 <span className="text-xs text-muted-foreground">
@@ -812,7 +847,7 @@ function SharePanel(
         </div>
       ) : null}
 
-      {!props.agentTabContent ? (
+      {!props.agentTabContent && !props.basicSharingOnly ? (
         <AgentShareSection
           enabled={data?.agentReadable === true}
           resourceType={props.resourceType}
@@ -843,7 +878,7 @@ function SharePanel(
     const agentPanel = (
       <div className="space-y-4">
         {props.agentTabContent}
-        {!loadFailed && !isLoading ? (
+        {!loadFailed && !isLoading && !props.basicSharingOnly ? (
           <AgentShareSection
             enabled={data?.agentReadable === true}
             resourceType={props.resourceType}

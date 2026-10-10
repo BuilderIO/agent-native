@@ -8,6 +8,7 @@ const messages = {
       providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
     },
     common: { retry: "Reintentar" },
+    onboarding: { skipForNow: "Omitir por ahora" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -217,6 +218,7 @@ const messages = {
   recordingPage: {
     back: "Atrás",
     done: "Listo",
+    backToClip: "Volver al clip",
     untitledClip: "Clip sin título",
     recordingNotFound: "Grabación no encontrada",
     noAccess: "Es posible que no tengas acceso a este clip.",
@@ -315,6 +317,8 @@ const messages = {
     silenceWorking: "Eliminando silencios…",
     silenceCompleted: "Eliminación de silencios completada",
     silenceFailed: "No se pudieron eliminar los silencios",
+    silenceEditsUnreadable:
+      "No se pudieron leer las ediciones guardadas, así que no se eliminaron los silencios.",
     generatePrSummary: "Generar resumen de relaciones públicas",
     generateSop: "Generar SOP",
     generateSopTooltip:
@@ -346,7 +350,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Contexto de clip legible por el agente",
     agentInstructions:
-      "Obtenga agentContextUrl para la transcripción y el marco JPEG URLs. Busque el cuadro URLs para VER la pantalla, no solo leer la transcripción.",
+      "Abre primero agentContextUrl. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo.",
     untitledClip: "Clip sin título",
     incorrectPassword: "Contraseña incorrecta",
     passwordProtected: "Este clip está protegido con contraseña.",
@@ -611,7 +615,7 @@ const messages = {
     openInCodex: "Abrir en Codex",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
-      "Obtén esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Usa transcript.segments para el contexto hablado, obtén recommendedFrames o las URLs de la API de fotogramas para ver la pantalla y revisa browserDiagnostics si está presente para ver registros de consola redactados y metadatos de solicitudes fetch/XHR.",
+      "Lee esta URL de contexto para agentes de Clips: {{agentContextUrl}}. Lee la transcripción completa con apis.transcript y carga recommendedFrames[].url (o apis.frame.urlTemplate con atMs) como imágenes. Conserva exactamente id y agent_access. Ante cualquier error, consulta failureKind, error y nextStep en la respuesta JSON. Si failureKind=access, explica que el enlace no concede acceso; para un clip privado, pide al propietario que elija {{shareWithAgents}} en el menú Compartir de Clips y envíe el enlace generado. Si failureKind=media y la transcripción funciona, explica que no se pudo recuperar el vídeo almacenado y que otro enlace no lo solucionará. Si failureKind=processing, sigue nextStep; no significa que falte el vídeo ni que el enlace sea inválido. Si failureKind=expired, pide al propietario que amplíe o quite la caducidad del clip en el menú Compartir, guarde el cambio y después elija {{shareWithAgents}} y envíe el enlace nuevo. Usa también browserDiagnostics si está disponible para informar de un error.",
     agentTokenDescription:
       "Enlace temporal de solo lectura para agentes, porque este clip no es público. Caduca en 2 horas.",
     agentPublicDescription:
@@ -1368,6 +1372,11 @@ const messages = {
     burningRedactionsPercent:
       "Aplicando las difuminaciones al vídeo… {{percent}} %",
     editFailed: "No se ha podido guardar ese cambio",
+    refreshFailed:
+      "No se pudieron cargar los cambios más recientes. Vuelve a intentarlo antes de editar.",
+    autoSaveHint: "Los cambios se guardan automáticamente en este clip",
+    savingChanges: "Guardando cambios…",
+    changesSaved: "Cambios guardados en este clip",
     nothingToRedo: "Nada que rehacer",
   },
   transcriptEditor: {
@@ -1406,6 +1415,14 @@ const messages = {
       "Crea una cuenta gratuita de Clips para unirte a la conversación",
     genericTitle: "Crea una cuenta gratuita de Clips para continuar",
     description: "Volverás a este clip en cuanto termines.",
+    verificationPendingTitle: "Verifica tu correo electrónico",
+    verificationPendingCopy:
+      "Enviamos un correo de verificación a {{email}}. Ábrelo para terminar de crear tu cuenta y volver a este clip.",
+    resendVerification: "Reenviar correo de verificación",
+    resendingVerification: "Enviando correo de verificación...",
+    verificationEmailResent: "Enviamos otro correo de verificación.",
+    verificationEmailFailed:
+      "No pudimos reenviar el correo de verificación. Inténtalo de nuevo o inicia sesión con un enlace por correo.",
     passwordsMismatch: "Las contraseñas no coinciden.",
     commentIntent: "comentar",
     reactIntent: "añadir una reacción",
@@ -1486,15 +1503,25 @@ const messages = {
     builderConnectPopupError:
       "No se pudo abrir Builder.io. Si esta aplicación está integrada en un chat, ábrela en una pestaña del navegador; de lo contrario, inténtalo de nuevo.",
     builderConnectError:
-      "No se pudo configurar Builder.io. Inténtalo de nuevo o contacta con el soporte.",
+      "No se pudo completar la configuración de Builder.io. Inténtalo de nuevo o elige almacenamiento compatible con S3.",
+    builderConnectErrorAskAdmin:
+      "No se pudo completar la configuración de Builder.io. Inténtalo de nuevo o pide a un propietario o administrador que configure el almacenamiento.",
+    builderStatusReadError:
+      "El estado de la conexión no está disponible. Vuelve a intentarlo para comprobarlo.",
+    builderUploadGrantMissing:
+      "Builder.io está conectado para IA, pero esta conexión no puede subir clips. Vuelve a conectar Builder.io con permiso para subir archivos o pide ayuda a un propietario o administrador.",
+    builderGrantAskAdmin:
+      "Pide a un propietario o administrador que conecte Builder.io con permiso para subir clips.",
+    statusUnavailable:
+      "No se pudo comprobar si el almacenamiento de vídeo está listo.",
     checkingBuilderConnection: "Comprobando la conexión con Builder…",
     builderTimeout:
-      "No hubo respuesta de Builder en 5 minutos. Inténtalo de nuevo.",
+      "No se pudo confirmar que el almacenamiento de Builder.io esté listo. Inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
     description:
       "Guarda los vídeos grabados con Builder.io o con almacenamiento compatible con S3. Builder.io incluye alojamiento gratuito y créditos de IA.",
-    createBuilderAccount: "Crear cuenta de Builder.io",
+    createBuilderAccount: "Usar Builder.io",
     signInWithBuilderAccount: "Iniciar sesión con una cuenta de Builder.io",
     free: "Gratis",
     whyPrompt: "¿Por qué veo esto?",
@@ -1846,6 +1873,9 @@ const messages = {
     storageConnectedUploading:
       "Almacenamiento conectado. Subiendo tu grabación…",
     downloadCopy: "Descargar una copia",
+    localRecordingPreview: "Vista previa de la grabación local",
+    localPreviewUnavailable:
+      "La vista previa local no está disponible. Aún puedes descargar una copia.",
     localRecordingOpenElsewhere:
       "Esa grabación sigue abierta en otra pestaña de Clips.",
     uploadWaitingForConnection:

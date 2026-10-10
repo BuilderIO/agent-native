@@ -17,7 +17,8 @@ export interface SlideStyleSnapshot {
   y: number;
   width: number;
   height: number;
-  rotation: number;
+  /** Clockwise degrees in [0, 360), or null when the object's transform is not readable. */
+  rotation: number | null;
   slideWidth: number;
   slideHeight: number;
   color: string;
@@ -39,6 +40,31 @@ export interface SlideStyleSnapshot {
   listKind: "bullet" | "ordered" | null;
   textStyleScope?: "block" | "selection";
   mixedTextStyles?: InlineTextStyleKey[];
+}
+
+export function haveSameSlideStyleControls(
+  current: SlideStyleSnapshot | null,
+  next: SlideStyleSnapshot,
+): boolean {
+  if (!current) return false;
+  const currentKeys = Object.keys(current) as (keyof SlideStyleSnapshot)[];
+  const nextKeys = Object.keys(next) as (keyof SlideStyleSnapshot)[];
+  if (currentKeys.length !== nextKeys.length) return false;
+
+  return currentKeys.every((key) => {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) return false;
+    // Text preview is published with the selection; the toolbar only needs style changes.
+    if (key === "textPreview") return true;
+    if (key === "mixedTextStyles") {
+      const previous = current.mixedTextStyles;
+      const upcoming = next.mixedTextStyles;
+      return previous === undefined
+        ? upcoming === undefined
+        : previous.length === upcoming?.length &&
+            previous.every((style, index) => style === upcoming[index]);
+    }
+    return Object.is(current[key], next[key]);
+  });
 }
 
 export type SlideStylePatch = Partial<{
@@ -63,8 +89,9 @@ export type SlideStylePatch = Partial<{
   top: string;
   width: string;
   height: string;
-  transform: string;
   zIndex: string;
+  /** Degrees; set on the object's effective transform, not written as a `transform`. */
+  rotation: number;
 }>;
 
 const MULTI_STYLE_KEYS = [
@@ -173,10 +200,6 @@ export function formatValue(value: number) {
   return Number.isInteger(value)
     ? String(value)
     : String(Number(value.toFixed(2)));
-}
-
-export function rotationTransform(rotation: number) {
-  return `rotate(${formatValue(rotation)}deg)`;
 }
 
 export function resolveHorizontalAlignment(snapshot: SlideStyleSnapshot) {

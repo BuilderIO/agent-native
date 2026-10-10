@@ -1,4 +1,76 @@
 export default {
+  journeyCanvas: {
+    observedSessionReference: "Référence de session observée",
+    sessionsOfAll: "{count} sessions · {percent} du total",
+    sessionsOfAppRoot:
+      "{count} sessions · {percent} de la cohorte {app} (n={rootCount})",
+    sessionsOfPrevious: "{count} sessions · {percent} de l’étape précédente",
+    sessionsOfParent: "{count} sessions · {percent} de {label}",
+    observedContinuation:
+      "Même enregistrement · exemple {fromExample} → exemple {toExample}",
+    observedContinuationCompact: "Ex. {fromExample} → {toExample}",
+    observedBranchLabel: "{label} · {percent}",
+    sessionsOfStep: "{count} sessions · {percent} de cette étape",
+    partialSample: "échantillon partiel",
+    continuedOnUnpictured:
+      "Suite sur des parcours non illustrés : {count} · {percent} de cette étape",
+    noLaterStepObserved: "Aucune étape suivante observée",
+    examplePosition: "Galerie {current} sur {total}",
+    sourceExampleLabel: "Source",
+    showExample: "Afficher l’exemple source {current}",
+    screenshotExamples: "Exemples de captures d’écran",
+    screenshotAlt:
+      "{label}, exemple source {source}, position dans la galerie {current} sur {total}, capturé le {date}",
+    screenshotMissing: "Aucune capture d’écran",
+    recordingUnavailable: "indisponible",
+    recordingGap: "Intervalle sans enregistrement",
+    recordingGapDuration: "Intervalle sans enregistrement · {duration}",
+    eventTime: "Heure de l’événement (UTC)",
+    generationCompletedEvent: "événement generation_completed (UTC)",
+    replayObservation: "Observation de la relecture",
+    utcTimestamp: "Horodatage UTC",
+    recordingId: "ID de l’enregistrement",
+    replayOffset: "Décalage de relecture",
+    replayOffsetUnavailable: "indisponible",
+    replaySeek: "Position de relecture",
+    checkpointSeekTarget: "Cible de positionnement du point de contrôle",
+    analyticsCheckpointOffset: "Décalage du point de contrôle Analytics",
+    replayObserved: "Relecture observée",
+    screenshotCaptured: "Capture d’écran prise",
+    screenshotExportTimestamp: "Horodatage UTC de l’export de capture",
+    output: "Résultat",
+    outputTitle: "Titre du résultat",
+    observedState: "État observé",
+    actorRecording: "Acteur (enregistrement)",
+    actorSource: "Source de l’acteur",
+    recordingMetadata: "métadonnées de l’enregistrement",
+    evidence: "Preuve",
+    generationCompletedEvidence: "événement generation_completed",
+    renderedOutputEvidence:
+      "résultat rendu observé ; aucun événement de fin n’est affirmé",
+    openFullPrompt: "Ouvrir le prompt complet",
+    prompt: "Prompt",
+    promptEnglish: "Prompt (anglais)",
+    promptSource: "Prompt (source)",
+    source: "Source",
+    promptNotCaptured: "Prompt non capturé",
+    actorUnavailable: "Acteur indisponible",
+    replayDetails: "Détails de relecture et de source",
+    sourceApp: "Application source",
+    route: "Route actuelle lors de la capture",
+    routeUnavailable: "indisponible",
+    captureSourceFingerprint: "Empreinte de la source de capture",
+    captureSourceUnavailable: "non fournie",
+    recordingStarted: "Début de l’enregistrement",
+    appBandHeading: "{app} · {count} sessions",
+    journeyTitleSummary:
+      "{app} · du {from} au {to} · {count} sessions{partial}",
+    journeyTitleAppBandsSummary:
+      "{from} au {to} · cohortes distinctes par application{partial}",
+    sessionCount: "{count} sessions",
+    otherPaths: "Autres parcours",
+    htmlLanguage: "fr-FR",
+  },
   composer: { menu: { integrations: "Intégrations" } },
   creativeContext: {
     title: "Bibliothèque",
@@ -224,6 +296,18 @@ export default {
       exportSvg: "Exporter SVG",
       actionsPrefill: "Vérifiez puis envoyez",
       retry: "Réessayer",
+      currentDesign: "le Design actuel",
+      chooseDesign: "un Design (demandez-moi lequel utiliser si nécessaire)",
+      importFramePrompt:
+        "Importez cette frame Figma dans {{destination}} et indiquez les éléments que l’importateur n’a pas pu conserver : {{url}}",
+      importFilePrompt:
+        "Ouvrez ce fichier Figma, listez ses frames de premier niveau et demandez-moi laquelle importer : {{url}}",
+      inspectFramePrompt:
+        "Inspectez cette frame Figma et résumez sa structure, ses composants, ses styles et ses jetons réutilisables : {{url}}",
+      inspectFilePrompt:
+        "Inspectez ce fichier Figma et résumez sa structure, ses composants, ses styles et ses jetons réutilisables : {{url}}",
+      exportSvgPrompt:
+        "Exportez l’écran Design actuel en SVG pour l’utiliser dans Figma et indiquez quelles parties deviennent du contenu SVG statique.",
     },
   },
   common: {
@@ -698,12 +782,15 @@ export default {
     },
     leftRail: {
       file: "Fichier",
-      agent: "Agent",
+      agent: "Agents",
       assets: "Ressources",
       import: "Importer",
       tools: "Outils",
       tokens: "Jetons",
       label: "Espace de travail Design",
+      account: "Compte",
+      collapse: "Réduire la barre latérale",
+      expand: "Développer la barre latérale",
     },
     breakpointBar: {
       base: "Base",
@@ -795,12 +882,10 @@ export default {
       "{{path}} a été modifié sur le disque depuis son ouverture. Rechargez l'écran et réessayez.",
     applyToSourceError: "Impossible d'enregistrer dans la source : {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Importer des jetons",
       importTitle: "Importer des jetons",
       importHint:
@@ -812,6 +897,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Importer les jetons collés",
       importedCount: "{{count}} jetons importés",
+      count: "{{count}} jetons",
+      search: "Rechercher des jetons",
+      noMatches: "Aucun jeton correspondant",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -859,6 +947,13 @@ export default {
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} nécessite{{plural}} un accès Figma pour être chargée{{plural}}.",
       figmaPasteImagesDontShowAgain: "Ne plus afficher",
+      figmaPasteUploadImage: "Importer une image",
+      figmaPasteUploadImageFor: "Importer « {{name}} »",
+      figmaPasteImageFallbackName: "Image {{index}}",
+      figmaPasteUploadImageSuccess: "Image ajoutée",
+      figmaPasteUploadImageInvalid:
+        "Choisissez un fichier image, par exemple SVG, PNG ou JPG.",
+      figmaPasteUploadImageError: "Impossible d’ajouter cette image",
       figmaHydrationDialogTitle: "Connecter Figma pour charger les images",
       figmaHydrationDialogDescription:
         "Saisissez votre token d'accès Figma pour charger {{count}} image{{plural}} manquante{{plural}} dans l'écran{{screensPlural}} importé{{screensPlural}}.",
@@ -947,6 +1042,9 @@ export default {
         figmaPasteFailed: "Échec de l’import du collage Figma",
         uploadFailed: "Échec du téléversement",
         invalidFigFile: "Choisissez un fichier se terminant par .fig.",
+        unsupportedFileType: "Choisissez un fichier .fig, .html ou .htm.",
+        importBusy:
+          "Une autre importation est en cours. Terminez-la ou annulez-la d’abord.",
         figFileTooLarge:
           "Ce .fig est trop volumineux : les téléversements sont limités à {{max}} Mo. Dans Figma, copiez uniquement le frame souhaité dans un nouveau fichier et exportez ce fichier en .fig, ou utilisez Coller depuis Figma.",
       },
@@ -959,6 +1057,8 @@ export default {
       "La génération s’est arrêtée avant de créer des fichiers. Réessayez pour continuer depuis le même prompt.",
     generationStoppedCheckAgent:
       "La génération s’est arrêtée avant de créer des fichiers. Consultez le message de l’agent ou réessayez.",
+    invalidCanvasDimensions:
+      "La taille de canevas demandée n’est pas prise en charge. Utilisez des dimensions en pixels positives dans les limites de l’éditeur.",
     notFound: "Design introuvable",
     backToDesigns: "Retour aux designs",
     designNotFoundDescription:
@@ -987,7 +1087,17 @@ export default {
     saveTemplate: "Enregistrer le modèle",
     templateSaved: "Modèle enregistré dans la bibliothèque",
     templateSaveFailed: "Impossible d’enregistrer ce modèle",
-    clickToRename: "Cliquer pour renommer",
+    fileMenu: {
+      pendingEditsBlocked:
+        "Appliquez ou annulez vos modifications visuelles en attente avant de dupliquer.",
+      designs: "Designs",
+      rename: "Renommer",
+      duplicate: "Dupliquer",
+      versionHistory: "Historique des versions",
+      import: "Importer…",
+      delete: "Supprimer",
+      deleteError: "Impossible de supprimer ce design",
+    },
     collaborators: "Collaborateurs",
     share: "Partager",
     signUpToSave: "S'inscrire",
@@ -1010,6 +1120,10 @@ export default {
       interact: "Interact",
       screens: "Écrans",
     },
+    topBar: {
+      modeDesign: "Conception",
+      modeSwitch: "Mode de l'éditeur",
+    },
     fileTabs: "Files",
     tools: {
       move: "Move",
@@ -1030,6 +1144,10 @@ export default {
     keyboardShortcuts: {
       title: "Raccourcis clavier",
       close: "Fermer: Raccourcis clavier",
+      search: "Rechercher",
+      searchLabel: "Rechercher des raccourcis clavier",
+      categoriesLabel: "Catégories de raccourcis",
+      empty: "Aucun raccourci ne correspond à « {{query}} »",
       codeContext: "Code",
       screenContext: "Écrans",
       nudgeAmount: {
@@ -1062,12 +1180,6 @@ export default {
         leftBracket: "Crochet gauche",
         rightBracket: "Crochet droit",
       },
-      descriptions: {
-        toggleUi:
-          "Appuyez maintenant pour masquer les panneaux et vous concentrer sur votre travail",
-        undo: "Revenez sur votre dernière modification de design",
-        redo: "Restaurez la modification de design que vous venez d’annuler",
-      },
       categories: {
         essential: "Essentiels",
         tools: "Outils",
@@ -1099,6 +1211,7 @@ export default {
         showLayers: "Calques",
         showAssets: "Ressources",
         toggleUi: "View",
+        toggleMinimalUi: "Interface minimale",
         toggleComments: "Épingler un commentaire",
         zoomIn: "Zoom avant",
         zoomOut: "Zoom arrière",
@@ -1524,6 +1637,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis définissez Réseau local sur Autoriser.",
       permissionPromptRetry: "Réessayer la connexion",
+      previewCredentialsUnavailableTitle:
+        "Les identifiants de l’aperçu local ne sont pas disponibles",
+      previewCredentialsUnavailableDescription:
+        "Reconnectez la connexion localhost de cet écran dans l’inspecteur, puis réessayez.",
+      publicPreviewUnavailableDescription:
+        "Les aperçus localhost ne sont pas partagés avec les visiteurs publics. Ouvrez ce design comme collaborateur pour voir cet écran.",
+      previewCredentialsRetry: "Réessayer les identifiants",
     },
   },
   multiScreenCanvas: {
@@ -1534,6 +1654,7 @@ export default {
     fork: "Créer une branche",
     fullView: "Vue complète",
     preview: "Aperçu",
+    focusScreen: "Centrer l’écran",
     openAndDuplicate:
       "Sélectionner {{display}}. Utilisez Interagir pour le défilement ciblé.",
     openAndPreview:
@@ -1609,6 +1730,8 @@ export default {
     assetAdded: "Actif ajouté",
     assetsNoImageUrl: "Assets n'a pas renvoyé d'URL d'image.",
     failedToUploadFile: "Échec du téléchargement du fichier",
+    imageAttachmentUnavailable:
+      "Impossible de préparer cette image comme référence visuelle. Joignez un fichier PNG, JPG, GIF ou WebP plus petit.",
     attachmentsTooLarge:
       "Ces pièces jointes sont trop volumineuses. Les téléversements sont limités à {{max}} Mo au total : joignez moins de fichiers ou des fichiers plus petits.",
     failedToSubmitPrompt: "Impossible d’envoyer le prompt",
@@ -2051,6 +2174,15 @@ export default {
       "L'indexation du code et des dépôts nécessite le forfait Builder Enterprise",
   },
   designSystems: {
+    comingSoonTitle: "Les systèmes de conception arrivent bientôt",
+    waitlist: {
+      join: "Rejoindre la liste d’attente",
+      joining: "Inscription…",
+      joined: "Vous êtes sur la liste d’attente",
+      error: "Impossible de rejoindre la liste d’attente. Réessayez.",
+      unavailable:
+        "Les inscriptions à la liste d’attente sont indisponibles pour le moment. Réessayez plus tard.",
+    },
     deleteError: "Impossible de supprimer le système de conception",
     updateSuccess: "Système de conception mis à jour",
     updateError: "Impossible de mettre à jour le système de conception",

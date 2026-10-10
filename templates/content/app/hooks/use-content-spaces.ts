@@ -1,3 +1,4 @@
+import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
 import {
   useActionMutation,
   useActionQuery,
@@ -52,12 +53,15 @@ export function shouldAutoEnsureContentSpaces({
   );
 }
 
-export function useContentSpaces() {
+export function useContentSpaces(options: { enabled?: boolean } = {}) {
+  const openAiWidget = isOpenAiMcpAppHost();
+  const enabled = options.enabled !== false && !openAiWidget;
   return useActionQuery<ListContentSpacesResponse>(
     "list-content-spaces",
     undefined,
     {
-      placeholderData: (previous) => previous,
+      enabled,
+      placeholderData: enabled ? (previous) => previous : undefined,
     },
   );
 }

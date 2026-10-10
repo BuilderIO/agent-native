@@ -33,6 +33,7 @@ import {
   isAgentConnectionRequiredError,
   type ActionAutomationContext,
   type ActionCaller,
+  type WriteReceipt,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -56,6 +57,7 @@ import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import {
   describeAttachmentBytesVerdict,
+  normalizeImageMediaType,
   reconcileImageBytes,
   reconcilePdfBytes,
 } from "../file-upload/attachment-bytes.js";
@@ -74,6 +76,8 @@ import {
   SETTINGS_VIEW_STATE_KEY,
 } from "../navigation/settings-redirects.js";
 import { shouldInferSentimentForTurn } from "../observability/sentiment.js";
+import { parseServiceIdentityEmail } from "../org/service-identity.js";
+import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
@@ -84,14 +88,19 @@ import {
   writeOptionalKeyCache,
 } from "../secrets/optional-key-cache.js";
 import {
+  AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+  isAgentChatAiSetupRequiredError,
+} from "../server/agent-chat-ai-setup.js";
+import {
   COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS,
-  preloadJevContextForPrompt,
+  preloadJevContextWithStatus,
   type JevPromptContextCandidate,
 } from "../server/agent-chat/prompt-resources.js";
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
 } from "../server/agent-chat/skill-frontmatter.js";
+import { captureError } from "../server/capture-error.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
@@ -114,6 +123,7 @@ import {
   getRequestRunContext,
   ensureRequestRunContext,
   getRequestContext,
+  getRequestAuthCapability,
   getRequestOrgId,
   getRequestUserEmail,
   runWithRequestContext,
@@ -125,7 +135,21 @@ import {
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
+import {
+  isContextDegraded,
+  preloadedContextUnavailableNote,
+  readReportedContextStatus,
+  screenContextUnavailableNote,
+  SELECTION_CONTEXT_UNAVAILABLE_NOTE,
+  worstContextStatus,
+  type ContextStatus,
+} from "../shared/context-status.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
+import {
+  DurableAttachmentReferenceRequiredError,
+  stripInlineBytes,
+} from "../shared/inline-bytes.js";
 import {
   isReasoningEffort,
   normalizeReasoningEffortForRequest,
@@ -143,10 +167,22 @@ import {
   formatAgentWarningsForToolResult,
 } from "./action-warnings.js";
 import {
+  CONTINUE_UNAVAILABLE_CODE,
+  type ContinueTrigger,
+} from "./auto-continue.js";
+import { clipHead } from "./clip-text.js";
+import {
+  connectionRequiredMessage,
+  priorConnectionContextNote,
+  resolvePriorConnectionNote,
+  type PriorConnectionNote,
+} from "./connection-required-note.js";
+import {
   buildSystemManifestSections,
   readContextXraySystemSections,
 } from "./context-xray/manifest.js";
 import {
+  AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRuntimeDiagnosticDetail,
@@ -169,6 +205,7 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isContextOverflowCode,
   isContextOverflowMessage,
+  isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
   PROVIDER_RATE_LIMITED_ERROR_CODE,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
@@ -182,6 +219,10 @@ import {
   isResolvedEngineUsableForRequest,
   type ResolveEngineConfig,
 } from "./engine/index.js";
+import {
+  limitProviderTools,
+  MAX_PROVIDER_TOOLS,
+} from "./engine/limit-provider-tools.js";
 import {
   resolveEmptyResponseRetryMaxOutputTokens,
   resolveMainChatMaxOutputTokens,
@@ -198,6 +239,8 @@ import {
 } from "./engine/tool-call-journal-seed.js";
 import {
   backfillEngineMessagesToolResults,
+  INTERRUPTED_TOOL_RESULT_MARKER,
+  isInterruptedToolResult,
   stringifyToolUseInputForGateway,
   unmatchedToolResultReplayText,
 } from "./engine/translate-anthropic.js";
@@ -211,10 +254,11 @@ import type {
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
-  FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
+  FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT,
   FOLLOW_UP_SUGGESTIONS_INSTRUCTION,
   FOLLOW_UP_SUGGESTIONS_MAX_OUTPUT_TOKENS,
   FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+  buildFollowUpCompletionMessages,
   followUpSuggestionsTool,
   identifyFollowUpSuggestions,
   parseFollowUpSuggestions,
@@ -255,7 +299,7 @@ import {
   toolCallsFromContent,
   type Processor,
 } from "./processors.js";
-import { resolveUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
+import { applyUncheckedDefaultModelReplacement } from "./provider-model-selection.js";
 import {
   startRun,
   subscribeToRun,
@@ -326,9 +370,12 @@ import {
 } from "./tool-result-images.js";
 import {
   createToolSearchEntry,
+  extractToolSearchResultNames,
   filterActionsForAgentDiscovery,
+  readLoadedToolNames,
   searchToolRegistry,
   TOOL_SEARCH_ACTION_NAME,
+  withLoadedToolNames,
 } from "./tool-search.js";
 import {
   normalizeAgentActionScope,
@@ -343,6 +390,12 @@ import {
   AgentChatStructuredMessage,
   RunEvent,
 } from "./types.js";
+import {
+  mergeFinalResponseGuards,
+  readWriteReceipt,
+  writeReceiptGuard,
+  type ToolWriteReceipt,
+} from "./write-receipts.js";
 
 registerBuiltinEngines();
 
@@ -534,6 +587,11 @@ export function normalizeChatScope(
 
 function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
   return browserTabId ? `${key}:${browserTabId}` : key;
+}
+
+/** `readAppState` throws when the request has no identity: that is no user to read for, not a failed read. */
+function hasAppStateIdentity(): boolean {
+  return Boolean(getRequestUserEmail() || getRequestAuthCapability());
 }
 
 async function readAppStateForBrowserTab<T>(
@@ -791,6 +849,15 @@ export interface ResolvedOwnerApiKey {
   credentialProvenance?: CredentialProvenance;
 }
 
+export class OwnerAgentEngineSettingUnavailableError extends Error {
+  readonly errorCode = "agent_engine_settings_unavailable";
+
+  constructor(cause: unknown) {
+    super("Unable to read the active agent engine setting.", { cause });
+    this.name = "OwnerAgentEngineSettingUnavailableError";
+  }
+}
+
 const NO_OWNER_API_KEY: ResolvedOwnerApiKey = {
   apiKey: undefined,
   apiKeyEnvVar: undefined,
@@ -913,7 +980,9 @@ export async function resolveOwnerEngineApiKey(input: {
   const canUseFallback =
     fallback && canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY");
   if (activeEngineSetting?.status === "unavailable" && !canUseFallback) {
-    throw activeEngineSetting.error;
+    throw new OwnerAgentEngineSettingUnavailableError(
+      activeEngineSetting.error,
+    );
   }
   return fallback && canUseFallback
     ? {
@@ -950,7 +1019,12 @@ export async function resolveChatEngine(input: {
       model: input.model,
     });
   } catch (error) {
-    if (error instanceof CredentialEndpointMismatchError) throw error;
+    if (
+      input.engineOption !== undefined ||
+      error instanceof CredentialEndpointMismatchError
+    ) {
+      throw error;
+    }
     return resolveEngine(key);
   }
 }
@@ -1044,6 +1118,8 @@ export interface ActionEntry {
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
+  /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
+  confirmsAutomationWork?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: import("../action.js").ActionPlanModeConfig<any>;
@@ -1609,7 +1685,23 @@ type AgentRunTrackingSource = Pick<
   "userId" | "authUserId" | "anonymousId" | "sessionId"
 > & { isSyntheticTraffic?: boolean };
 
+export interface PreparedAgentRequest {
+  message?: string;
+  displayMessage?: string;
+  attachments?: AgentChatAttachment[];
+  jevPromptCandidates?: JevPromptContextCandidate[];
+  jevFallbackCandidateIds?: string[];
+  /**
+   * Whether the app's own reference retrieval reached the model. Omit it to
+   * report nothing; `timed_out` and `failed` tell the model it is working
+   * without references it would normally have.
+   */
+  status?: ContextStatus;
+}
+
 export interface ProductionAgentOptions {
+  /** Gate a newly admitted user turn after trusted continuation checks. */
+  assertAiSetupReady: () => Promise<void>;
   actions?: Record<string, ActionEntry>;
   /** @deprecated Use `actions` instead */
   scripts?: Record<string, ActionEntry>;
@@ -1673,22 +1765,7 @@ export interface ProductionAgentOptions {
     dispatchToBackground: boolean;
     isBackgroundWorker?: boolean;
     mode: AgentExecutionMode;
-  }) =>
-    | void
-    | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-        jevPromptCandidates?: JevPromptContextCandidate[];
-        jevFallbackCandidateIds?: string[];
-      }
-    | Promise<void | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-        jevPromptCandidates?: JevPromptContextCandidate[];
-        jevFallbackCandidateIds?: string[];
-      }>;
+  }) => void | PreparedAgentRequest | Promise<void | PreparedAgentRequest>;
   resolveActionSurface?: (
     details: AgentActionSurfaceDetails,
   ) => AgentActionSurfaceResolution | Promise<AgentActionSurfaceResolution>;
@@ -1863,10 +1940,49 @@ const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
 const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
+
+const MAX_LOADED_SKILL_SLUGS = 16;
+const LOADED_SKILL_SLUG_PATTERN = /^skill-[a-z0-9]+(?:-+[a-z0-9]+)*$/;
+
+export function normalizeLoadedSkillSlugs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const slugs = value.filter(
+    (slug): slug is string =>
+      typeof slug === "string" &&
+      slug.length <= 200 &&
+      LOADED_SKILL_SLUG_PATTERN.test(slug),
+  );
+  return [...new Set(slugs.reverse())]
+    .slice(0, MAX_LOADED_SKILL_SLUGS)
+    .reverse();
+}
+
+function skillPageIntactInHistory(
+  messages: readonly EngineMessage[],
+  slug: string,
+  page: string,
+): boolean {
+  const ending = page.trimEnd().slice(-200);
+  return messages.some((message) =>
+    message.content.some(
+      (part) =>
+        part.type === "tool-result" &&
+        part.toolName === "docs-search" &&
+        !part.isError &&
+        part.toolInput.includes(JSON.stringify(slug)) &&
+        part.content.includes(ending),
+    ),
+  );
+}
 export function resolveSourceSweepToolCallThreshold(): number {
   return getAppConfig().agent.sourceSweepToolCallThreshold;
 }
 const EXPANDED_TOOL_SCHEMA_WARN_BYTES = 32_000;
+const MAX_TOOL_SEARCH_OVERFLOW_NAMES_SHOWN = 5;
+const PROVIDER_CORE_TOOL_NAMES = [
+  TOOL_SEARCH_ACTION_NAME,
+  FOLLOW_UP_SUGGESTIONS_TOOL_NAME,
+];
 
 const MAX_SCREEN_CONTEXT_CHARS = 10_000;
 
@@ -1901,6 +2017,18 @@ function generateRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export { DurableAttachmentReferenceRequiredError };
+
+export function serializeDurableDispatchPayload(
+  body: Record<string, unknown>,
+): string {
+  const payload = JSON.stringify(stripInlineBytes(body, "reject"));
+  if (typeof payload !== "string") {
+    throw new TypeError("Durable dispatch payload could not be serialized");
+  }
+  return payload;
+}
+
 function toolInputActivityLabel(toolName?: string): string {
   return toolName ? `Preparing ${toolName} action` : "Preparing action input";
 }
@@ -1933,7 +2061,9 @@ export function isRetryableError(err: unknown): boolean {
     return false;
 
   if (engineErr) {
-    if (engineErr.providerRetryable === true) return true;
+    if (engineErr.providerRetryable !== undefined) {
+      return engineErr.providerRetryable;
+    }
     const sc = engineErr.statusCode;
     if (sc === 429 || sc === 500 || sc === 502 || sc === 503 || sc === 529)
       return true;
@@ -2057,23 +2187,6 @@ function retryDelay(
   });
 }
 
-type SupportedImageMediaType =
-  | "image/jpeg"
-  | "image/png"
-  | "image/gif"
-  | "image/webp";
-
-function isSupportedImageMediaType(
-  mediaType: string,
-): mediaType is SupportedImageMediaType {
-  return (
-    mediaType === "image/jpeg" ||
-    mediaType === "image/png" ||
-    mediaType === "image/gif" ||
-    mediaType === "image/webp"
-  );
-}
-
 function isSvgMediaType(mediaType: string | undefined): boolean {
   return mediaType?.split(";")[0]?.trim().toLowerCase() === "image/svg+xml";
 }
@@ -2134,14 +2247,45 @@ function dataUrlToFilePart(
   att: AgentChatAttachment,
 ): { type: "file"; data: string; mediaType: string; filename?: string } | null {
   if (att.type !== "file" || typeof att.data !== "string") return null;
-  const match = att.data.match(/^data:([^;]+);base64,(.+)$/);
-  if (!match) return null;
+  const parsed = parseBase64DataUrl(att.data);
+  if (!parsed) return null;
   return {
     type: "file",
-    data: match[2],
-    mediaType: att.contentType || match[1],
+    data: parsed.data,
+    mediaType:
+      att.contentType?.split(";", 1)[0]?.trim().toLowerCase() ||
+      parsed.mediaType,
     filename: att.name || undefined,
   };
+}
+
+function describeUnprocessedAttachment(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const contentType = att.contentType
+    ? ` contentType="${escapeAttachmentAttribute(att.contentType)}"`
+    : "";
+  return `<chat-attachment-processing-error code="unsupported-or-malformed-payload" name="${name}"${contentType}>The attachment included file data or a URL reference, but its contents were not sent to the model because the payload could not be converted to a supported attachment. Do not infer or describe its contents. Tell the user it could not be read and ask them to reattach it in a supported format.</chat-attachment-processing-error>`;
+}
+
+function describeReferenceOnlyAttachment(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const contentType = att.contentType
+    ? ` contentType="${escapeAttachmentAttribute(att.contentType)}"`
+    : "";
+  const url = escapeAttachmentAttribute(att.url || "");
+  return `<chat-attachment-reference-note code="reference-only-unavailable" name="${name}"${contentType} url="${url}">The attachment has a stored reference URL, but no readable contents were included in this request. Do not claim to have read or describe its contents. Use the URL only with an authorized tool or target that can retrieve it, or tell the user its contents were unavailable.</chat-attachment-reference-note>`;
+}
+
+function describeAttachmentPreUploadFailure(): string {
+  return '<chat-attachment-processing-error code="pre-upload-failed">One or more attachments could not be prepared for this request. Their contents may be missing from the model context. Do not claim to have read or seen them; tell the user attachment processing failed and ask them to retry or provide the relevant content in text.</chat-attachment-processing-error>';
+}
+
+function describeMissingAttachmentPayload(att: AgentChatAttachment): string {
+  const name = escapeAttachmentAttribute(att.name || "attachment");
+  const contentType = att.contentType
+    ? ` contentType="${escapeAttachmentAttribute(att.contentType)}"`
+    : "";
+  return `<chat-attachment-processing-error code="missing-payload" name="${name}"${contentType}>The attachment arrived without readable file contents or a reference. Do not infer or describe its contents. Tell the user it could not be read and ask them to attach it again.</chat-attachment-processing-error>`;
 }
 
 export function buildUserContentWithAttachments(opts: {
@@ -2171,14 +2315,19 @@ export function buildUserContentWithAttachments(opts: {
           textAttachments.push(
             `[${label} was uploaded to ${uploadedUrl}, but was not sent as a vision image because no supported base64 image data was present. Use the URL for embedding/reference if needed.]`,
           );
+        } else {
+          textAttachments.push(describeMissingAttachmentPayload(att));
         }
         continue;
       }
-      const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
+      const parsed = parseBase64DataUrl(att.data);
+      const mediaType = parsed
+        ? normalizeImageMediaType(parsed.mediaType)
+        : null;
       if (
-        match &&
-        isSupportedImageMediaType(match[1]) &&
-        match[2].length > MAX_INLINE_IMAGE_BASE64_CHARS
+        parsed &&
+        mediaType &&
+        parsed.data.length > MAX_INLINE_IMAGE_BASE64_CHARS
       ) {
         const label = att.name ? `"${att.name}"` : "An image";
         const limit = formatBase64CharBudget(MAX_INLINE_IMAGE_BASE64_CHARS);
@@ -2189,15 +2338,15 @@ export function buildUserContentWithAttachments(opts: {
         );
         continue;
       }
-      if (match && isSupportedImageMediaType(match[1])) {
+      if (parsed && mediaType) {
         const verdict = reconcileImageBytes({
-          base64: match[2],
-          declared: match[1],
+          base64: parsed.data,
+          declared: mediaType,
         });
         if (verdict.kind === "ok") {
           userContent.push({
             type: "image",
-            data: match[2],
+            data: parsed.data,
             mediaType: verdict.mediaType,
           });
         } else {
@@ -2207,7 +2356,7 @@ export function buildUserContentWithAttachments(opts: {
             : "";
           const logName = att.name ?? "(unnamed)";
           console.warn(
-            `[attachments] dropped image block name=${logName} declared=${match[1]} verdict=${verdict.kind} base64Chars=${match[2].length}`,
+            `[attachments] dropped image block name=${logName} declared=${parsed.mediaType} verdict=${verdict.kind} base64Chars=${parsed.data.length}`,
           );
           textAttachments.push(
             `[${label} could not be sent for vision analysis because ${describeAttachmentBytesVerdict(verdict)}.` +
@@ -2216,7 +2365,7 @@ export function buildUserContentWithAttachments(opts: {
           );
         }
       } else {
-        const mime = match?.[1] ?? att.contentType ?? "unknown format";
+        const mime = parsed?.mediaType ?? att.contentType ?? "unknown format";
         const label = att.name ? `"${att.name}"` : "An image";
         const uploadedHint = uploadedUrl
           ? ` It is available at ${uploadedUrl}; use that URL for embedding/reference if the task does not require vision analysis.`
@@ -2293,6 +2442,25 @@ export function buildUserContentWithAttachments(opts: {
         attachmentCharBudget,
       );
     }
+    if (!textAttachment && typeof att.data === "string") {
+      textAttachments.push(describeUnprocessedAttachment(att));
+    } else if (!textAttachment && typeof uploadedUrl === "string") {
+      textAttachments.push(describeReferenceOnlyAttachment(att));
+    } else if (
+      !textAttachment &&
+      !(
+        att.type === "file" &&
+        typeof att.text === "string" &&
+        att.text.length === 0 &&
+        att.contentType
+          ?.split(";", 1)[0]
+          ?.trim()
+          .toLowerCase()
+          .startsWith("text/")
+      )
+    ) {
+      textAttachments.push(describeMissingAttachmentPayload(att));
+    }
   }
 
   userContent.push({
@@ -2304,6 +2472,102 @@ export function buildUserContentWithAttachments(opts: {
   });
 
   return userContent;
+}
+
+/** Images reach only a model that reads them; the model learns one was withheld. */
+function replaceImagesForModelWithoutVision(
+  messages: EngineMessage[],
+  model: string,
+): EngineMessage[] {
+  const note = `<chat-attachment-processing-error code="model-without-vision" model="${escapeAttachmentAttribute(model)}">An attached image was not sent because the active model cannot read images. Do not infer or describe its contents. Tell the user to switch to a vision-capable model if the image matters.</chat-attachment-processing-error>`;
+  return messages.map((message) =>
+    message.content.some((part) => part.type === "image")
+      ? {
+          ...message,
+          content: message.content.map((part) =>
+            part.type === "image"
+              ? { type: "text" as const, text: note }
+              : part,
+          ),
+        }
+      : message,
+  );
+}
+
+/**
+ * Every engine's stop error passes through here with the request in hand, so
+ * this is where a provider's rejection of an inline attachment becomes the
+ * non-retryable `invalid_attachment`: resending the same bytes fails the same
+ * way, and an `http_400` lets Retry loop on it.
+ */
+function engineStopError(
+  event: Extract<EngineEvent, { type: "stop" }>,
+  messages: EngineMessage[],
+): EngineError {
+  const error = event.error ?? "Engine stream error";
+  const parts = messages.flatMap((message) => message.content);
+  const hasInlineAttachment = parts.some(
+    (part) =>
+      part.type === "image" ||
+      part.type === "file" ||
+      (part.type === "tool-result" && (part.images?.length ?? 0) > 0),
+  );
+  const attachmentRejected =
+    event.errorCode === "invalid_attachment" ||
+    (hasInlineAttachment &&
+      (event.statusCode === 413 ||
+        ((event.statusCode === undefined ||
+          event.statusCode === 400 ||
+          event.statusCode === 422) &&
+          isInvalidAttachmentProviderMessage(error))));
+  const names = parts.flatMap((part) =>
+    part.type === "file" && part.filename ? [`"${part.filename}"`] : [],
+  );
+  return new EngineError(
+    attachmentRejected
+      ? `The model provider rejected an attachment in this request${names.length > 0 ? ` (${names.join(", ")})` : ""}: ${error}`
+      : error,
+    {
+      errorCode: attachmentRejected ? "invalid_attachment" : event.errorCode,
+      upgradeUrl: event.upgradeUrl,
+      statusCode: event.statusCode,
+      providerRetryable: attachmentRejected ? false : event.providerRetryable,
+      contextOverflow: event.contextOverflow,
+      requestId: event.requestId,
+      requestShape: event.requestShape,
+      retryAfterMs: event.retryAfterMs,
+    },
+  );
+}
+
+export function appendRequestAttachmentContextToResumedHistory(
+  messages: EngineMessage[],
+  attachments: AgentChatAttachment[] | undefined,
+): void {
+  if (!attachments?.length) return;
+  const attachmentContent = buildUserContentWithAttachments({
+    text: "",
+    attachments,
+  }).filter((part) => part.type !== "text" || part.text.trim());
+  if (!attachmentContent.length) return;
+
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.role !== "user") continue;
+    const missingContent = attachmentContent.filter(
+      (candidate) =>
+        !message.content.some((existing) =>
+          existing.type === "image" && candidate.type === "image"
+            ? existing.data === candidate.data &&
+              existing.mediaType === candidate.mediaType
+            : existing.type === "text" && candidate.type === "text"
+              ? existing.text === candidate.text
+              : false,
+        ),
+    );
+    message.content.push(...missingContent);
+    return;
+  }
 }
 
 function coerceStructuredToolResultWire(part: {
@@ -2833,6 +3097,12 @@ export interface AgentLoopUsage {
   engineName?: string;
   model: string;
   llmCalls?: number;
+  /** Wall time and input tokens of the end-of-turn follow-up suggestions call. */
+  followUpMs?: number;
+  followUpInputTokens?: number;
+  /** Write receipts this run with `verified` other than true / with `changed: false`. */
+  receiptUnverifiedCount?: number;
+  receiptChangedFalseCount?: number;
   /**
    * True once the engine reported at least one real `usage` event for this
    * run. The token fields above start at 0 and are only ever incremented —
@@ -2842,6 +3112,39 @@ export interface AgentLoopUsage {
    */
   usageReported?: boolean;
   firstEngineEventAtMs?: number;
+}
+
+/**
+ * Folds one loop attempt's usage into a running total. Every wrapper that
+ * re-enters `runAgentLoop` merges through this, so a field added to
+ * `AgentLoopUsage` cannot be reported by the loop and dropped by a wrapper.
+ */
+export function mergeAgentLoopUsage(
+  total: AgentLoopUsage,
+  next: AgentLoopUsage,
+): void {
+  total.inputTokens += next.inputTokens;
+  total.outputTokens += next.outputTokens;
+  total.cacheReadTokens += next.cacheReadTokens;
+  total.cacheWriteTokens += next.cacheWriteTokens;
+  for (const key of [
+    "builderCreditsUsed",
+    "llmCalls",
+    "followUpMs",
+    "followUpInputTokens",
+    "receiptUnverifiedCount",
+    "receiptChangedFalseCount",
+  ] as const) {
+    if (typeof next[key] === "number") {
+      total[key] = (total[key] ?? 0) + next[key];
+    }
+  }
+  total.engineName = next.engineName ?? total.engineName;
+  total.model = next.model;
+  if (next.usageReported) total.usageReported = true;
+  // Keep the earliest attempt's first event — a later continuation
+  // attempt starting fresh must not overwrite genuine first-token timing.
+  total.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
 }
 
 export type AgentLoopOutcome =
@@ -2865,7 +3168,11 @@ export interface AgentLoopToolResultSummary {
   content: string;
   isError: boolean;
   artifacts?: ArtifactReceipt[];
+  /** The action's `_receipt`, read before the result was truncated. */
+  receipt?: WriteReceipt;
 }
+
+export type { ToolWriteReceipt };
 
 export interface AgentLoopFinalResponseGuardContext {
   messages: EngineMessage[];
@@ -2874,6 +3181,8 @@ export interface AgentLoopFinalResponseGuardContext {
   text: string;
   toolCalls: AgentLoopToolCallSummary[];
   toolResults: AgentLoopToolResultSummary[];
+  /** Every write receipt this turn; set by the loop, absent only in hand-built contexts. */
+  receipts?: ToolWriteReceipt[];
   retryCount: number;
   executionMode: AgentExecutionMode;
 }
@@ -2980,6 +3289,13 @@ export function isResumableEngineError(err: unknown): boolean {
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (
+    (err instanceof EngineError && err.providerRetryable === false) ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
+  if (
     code === "builder_gateway_timeout" ||
     code === "builder_gateway_network_error" ||
     code === "builder_gateway_stream_ended" ||
@@ -2991,6 +3307,9 @@ export function isResumableEngineError(err: unknown): boolean {
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
+    (code === "overloaded_error" &&
+      err instanceof EngineError &&
+      err.providerRetryable === true) ||
     code === "timeout"
   ) {
     return true;
@@ -3032,6 +3351,8 @@ export function isTransientProviderRateLimitError(err: unknown): boolean {
   }
   if (code === "http_429" || code === "http_529") return true;
   if (code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE) return true;
+  if (code === "overloaded_error" && err.providerRetryable === true)
+    return true;
   if (code === "rate_limited" && err.providerRetryable === true) return true;
   return false;
 }
@@ -3059,6 +3380,9 @@ export function continuationReasonForResumableError(
     code === "http_529" ||
     code === "rate_limited" ||
     code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
+    (code === "overloaded_error" &&
+      err instanceof EngineError &&
+      err.providerRetryable === true) ||
     (err instanceof EngineError &&
       (err.statusCode === 429 ||
         err.statusCode === 529 ||
@@ -3414,12 +3738,56 @@ export function isCachedToolResultVisibleInContext(
   return false;
 }
 
-const INTERRUPTED_TOOL_RESULT_MARKER =
-  "Interrupted before this tool returned a result.";
 const INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS = 5_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
+const MAX_ALREADY_LOADED_TOOL_SEARCHES = 4;
+const MAX_STOP_ERROR_LINE_CHARS = 300;
+
+/** `error: message` for a JSON `{ error, message }` result; `undefined` when the text is not one. */
+function jsonErrorCause(text: string): string | undefined {
+  if (!text.startsWith("{")) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+    // coercion-ok: unparseable text is not a JSON error result; the caller reads its first line
+  } catch {
+    return undefined;
+  }
+  const { error, message } = (parsed ?? {}) as Record<string, unknown>;
+  if (typeof error !== "string" || !error.trim()) return undefined;
+  return typeof message === "string" && message.trim()
+    ? `${error}: ${message}`
+    : error;
+}
+
+function errorCauseLine(text: string): string {
+  const body = text.trim().replace(/^Error running [^\s:]+:\s*/, "");
+  return (
+    (jsonErrorCause(body) ?? body)
+      .split(/\r?\n/)
+      .find((line) => line.trim())
+      ?.trim() ?? ""
+  );
+}
+
+/**
+ * The line of a failed tool result that names the cause, for a message the
+ * user reads. It takes the credential-sanitized text and keeps identifiers and
+ * emails, since a column or account name is the diagnosis; the trace-grade
+ * `toolErrorSignature` redacts those. A pretty-printed JSON error opens with
+ * `Error running x: {`, and a `(errorCode: ...)` suffix keeps it from parsing,
+ * so a bare first line can be only a bracket.
+ */
+function stopErrorLine(sanitizedResult: string): string {
+  const lines = sanitizedResult.split(/\r?\n/).filter((line) => line.trim());
+  for (const candidate of [sanitizedResult, ...lines]) {
+    const cause = errorCauseLine(candidate);
+    if (/[\p{L}\p{N}]/u.test(cause)) return cause;
+  }
+  return errorCauseLine(sanitizedResult) || "(no error text)";
+}
 
 function isToolCallTimeoutResult(content: string): boolean {
   return /tool call timed out after \d+(?:\.\d+)? seconds?/i.test(content);
@@ -3469,9 +3837,10 @@ function seedWriteToolInterruptionsFromHistory(
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
       if (
-        typeof part.content === "string" &&
-        (part.content === INTERRUPTED_TOOL_RESULT_MARKER ||
-          (part.isError === true && isToolCallTimeoutResult(part.content)))
+        isInterruptedToolResult(part.content) ||
+        (part.isError === true &&
+          typeof part.content === "string" &&
+          isToolCallTimeoutResult(part.content))
       ) {
         const key = toolCallCacheKey(call.name, call.input);
         interruptions.set(key, (interruptions.get(key) ?? 0) + 1);
@@ -3773,28 +4142,12 @@ function isDefaultInitialToolName(name: string): boolean {
   return DEFAULT_INITIAL_TOOL_NAMES.has(name);
 }
 
-function extractToolSearchResultNames(value: unknown): string[] {
-  if (!value || typeof value !== "object") return [];
-  const result = value as { query?: unknown; results?: unknown };
-  if (typeof result.query !== "string" || result.query.trim().length === 0) {
-    return [];
-  }
-  if (!Array.isArray(result.results)) return [];
+function readToolSearchHistory(messages: EngineMessage[]): {
+  names: string[];
+  unreadable: number;
+} {
   const names: string[] = [];
-  for (const item of result.results) {
-    if (!item || typeof item !== "object") continue;
-    const record = item as Record<string, unknown>;
-    if (record.callable === false) continue;
-    const name = record.name;
-    if (typeof name === "string" && name.trim()) names.push(name);
-  }
-  return names;
-}
-
-function extractToolSearchResultNamesFromMessages(
-  messages: EngineMessage[],
-): string[] {
-  const names: string[] = [];
+  let unreadable = 0;
   for (const message of messages) {
     if (message.role !== "user") continue;
     for (const part of message.content) {
@@ -3805,14 +4158,12 @@ function extractToolSearchResultNamesFromMessages(
       ) {
         continue;
       }
-      try {
-        names.push(...extractToolSearchResultNames(JSON.parse(part.content)));
-      } catch {
-        // Tool results are best-effort history hints; ignore non-JSON content.
-      }
+      const loaded = readLoadedToolNames(part.content);
+      if (loaded) names.push(...loaded);
+      else unreadable += 1;
     }
   }
-  return names;
+  return { names, unreadable };
 }
 
 function normalizeToolInputSchema(
@@ -4708,6 +5059,74 @@ function validateRawToolInput(
   });
 }
 
+type ModelInputObserver = (
+  messages: readonly unknown[],
+) => void | Promise<void>;
+
+function projectModelInputForObserver(messages: readonly unknown[]): unknown[] {
+  const seen = new WeakMap<object, unknown>();
+  const project = (value: unknown, isImageListEntry = false): unknown => {
+    if (!value || typeof value !== "object") return value;
+    const existing = seen.get(value);
+    if (existing !== undefined) return existing;
+    if (Array.isArray(value)) {
+      const projected: unknown[] = [];
+      seen.set(value, projected);
+      for (const entry of value) {
+        projected.push(project(entry, isImageListEntry));
+      }
+      return projected;
+    }
+
+    const part = value as Record<string, unknown>;
+    const isMedia =
+      isImageListEntry || part.type === "image" || part.type === "file";
+    if (isMedia) {
+      const mediaType =
+        typeof part.mediaType === "string" ? part.mediaType : "unknown";
+      const filename =
+        part.type === "file" && typeof part.filename === "string"
+          ? ` ${part.filename}`
+          : "";
+      const label = part.type === "file" ? `file${filename}` : "image";
+      const data = typeof part.data === "string" ? part.data : "";
+      return {
+        type: "text",
+        text: `[${label}: ${mediaType}, ~${Math.floor((data.length * 3) / 4)} bytes]`,
+      };
+    }
+
+    const projected: Record<string, unknown> = {};
+    seen.set(value, projected);
+    for (const [key, nested] of Object.entries(part)) {
+      projected[key] =
+        key === "images" && Array.isArray(nested)
+          ? project(nested, true)
+          : project(nested);
+    }
+    return projected;
+  };
+
+  return project(messages) as unknown[];
+}
+
+function notifyModelInputObserver(
+  observer: ModelInputObserver | undefined,
+  messages: readonly unknown[],
+): void {
+  if (!observer) return;
+  try {
+    const result = observer(projectModelInputForObserver(messages));
+    if (result !== undefined) {
+      void Promise.resolve(result).catch(() => {
+        // coercion-ok: observer failures cannot change agent execution.
+      });
+    }
+  } catch {
+    // coercion-ok: observer failures cannot change agent execution.
+  }
+}
+
 export async function runAgentLoop(opts: {
   engine: AgentEngine;
   model: string;
@@ -4719,6 +5138,7 @@ export async function runAgentLoop(opts: {
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
+  onModelInput?: ModelInputObserver;
   onUsage?: (usage: AgentLoopUsage) => void;
   onOutcome?: (outcome: AgentLoopOutcome) => void;
   ownerEmail?: string | null;
@@ -4756,6 +5176,7 @@ export async function runAgentLoop(opts: {
   finalResponseGuardRequestText?: string;
   threadId?: string;
   turnId?: string;
+  loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
   toolLimits?: {
     timeoutMs?: number;
@@ -4810,6 +5231,8 @@ export async function runAgentLoop(opts: {
     : providedAvailableTools;
   let completedFollowUpSuggestions: AgentSuggestion[] | undefined;
   let completingFollowUpSuggestions = false;
+  let followUpCompletionContext: EngineMessage[] = [];
+  let followUpStartedAt: number | undefined;
   let followUpCompletionFailed = false;
   const failFollowUpCompletion = (code: FollowUpSuggestionsFailure) => {
     if (followUpCompletionFailed) return;
@@ -4826,7 +5249,7 @@ export async function runAgentLoop(opts: {
     });
   };
   if (followUpRunId) send({ type: "suggestions", suggestions: [] });
-  let model = opts.model;
+  let model = normalizeModelForEngine(engine, opts.model);
   let outcomeReported = false;
   const reportOutcome = (outcome: AgentLoopOutcome) => {
     if (outcomeReported) return;
@@ -4844,8 +5267,8 @@ export async function runAgentLoop(opts: {
   const availableToolMap = new Map(
     (availableTools ?? tools).map((tool) => [tool.name, tool]),
   );
-  const activeToolNames = new Set(tools.map((tool) => tool.name));
-  let activeTools = tools;
+  let activeTools = limitProviderTools(tools, PROVIDER_CORE_TOOL_NAMES);
+  const activeToolNames = new Set(activeTools.map((tool) => tool.name));
   let appAuthorizationPromise:
     | Promise<import("../org/app-roles.js").AppAuthorizationContext | null>
     | undefined;
@@ -4872,26 +5295,73 @@ export async function runAgentLoop(opts: {
 
   let expandedToolSchemaBytes = 0;
   let reportedExpandedToolSchemaBytes = false;
-  const expandActiveTools = (names: string[]): string[] => {
-    const added: string[] = [];
-    for (const name of names) {
-      if (activeToolNames.has(name)) continue;
+  let alreadyLoadedToolSearches = 0;
+  // Tools loaded after the first request, least recently needed first.
+  const loadedToolNames = new Set<string>();
+  const noteToolNeeded = (name: string) => {
+    if (loadedToolNames.delete(name)) loadedToolNames.add(name);
+  };
+  // `names` lead with what the model needs most. Below MAX_PROVIDER_TOOLS they
+  // append in registry order, so the tools prefix of the prompt cache survives.
+  // Past it the request keeps, in this order: tool-search and the follow-up
+  // tool, `pinned` (already promised this step) and `names`, the initial
+  // tools, then the other loaded tools most recently needed first, so the least
+  // recently needed loaded tools are evicted before any initial one. A tool
+  // that still does not fit is returned as overflow and never becomes active,
+  // so `activeTools` is exactly what the engine sends and nothing it dropped is
+  // reported as loaded.
+  const expandActiveTools = (
+    names: string[],
+    pinned: ReadonlySet<string> = new Set(),
+  ): { added: string[]; overflow: string[] } => {
+    const requested = new Set(names);
+    for (const name of requested) noteToolNeeded(name);
+    const wanted = [...requested].flatMap((name) => {
       const tool = availableToolMap.get(name);
-      if (!tool) continue;
-      activeToolNames.add(name);
-      expandedToolSchemaBytes += JSON.stringify(tool).length;
-      added.push(name);
-    }
-    if (added.length > 0) {
-      const expandedTools = (availableTools ?? tools).filter((tool) =>
-        activeToolNames.has(tool.name),
-      );
-      const prioritizedNames = new Set(names);
-      if (followUpRunId) prioritizedNames.add(FOLLOW_UP_SUGGESTIONS_TOOL_NAME);
-      activeTools = [
-        ...expandedTools.filter((tool) => prioritizedNames.has(tool.name)),
-        ...expandedTools.filter((tool) => !prioritizedNames.has(tool.name)),
-      ];
+      return tool && !activeToolNames.has(name) ? [tool] : [];
+    });
+    const added: string[] = [];
+    const overflow: string[] = [];
+    if (wanted.length > 0) {
+      if (activeTools.length + wanted.length <= MAX_PROVIDER_TOOLS) {
+        const wantedNames = new Set(wanted.map((tool) => tool.name));
+        activeTools = [
+          ...activeTools,
+          ...(availableTools ?? tools).filter((tool) =>
+            wantedNames.has(tool.name),
+          ),
+        ];
+      } else {
+        const byName = new Map(
+          [...activeTools, ...wanted].map((tool) => [tool.name, tool] as const),
+        );
+        const priority = new Set([
+          ...PROVIDER_CORE_TOOL_NAMES,
+          ...pinned,
+          ...names,
+          ...activeTools
+            .map((tool) => tool.name)
+            .filter((name) => !loadedToolNames.has(name)),
+          ...[...loadedToolNames].reverse(),
+        ]);
+        activeTools = [...priority]
+          .flatMap((name) => byName.get(name) ?? [])
+          .slice(0, MAX_PROVIDER_TOOLS);
+      }
+      activeToolNames.clear();
+      for (const tool of activeTools) activeToolNames.add(tool.name);
+      for (const name of loadedToolNames) {
+        if (!activeToolNames.has(name)) loadedToolNames.delete(name);
+      }
+      for (const tool of wanted) {
+        if (!activeToolNames.has(tool.name)) {
+          overflow.push(tool.name);
+          continue;
+        }
+        added.push(tool.name);
+        loadedToolNames.add(tool.name);
+        expandedToolSchemaBytes += JSON.stringify(tool).length;
+      }
     }
     if (
       !reportedExpandedToolSchemaBytes &&
@@ -4902,10 +5372,17 @@ export async function runAgentLoop(opts: {
         `[agent-loop] expanded tool schemas reached ${expandedToolSchemaBytes} bytes across ${activeToolNames.size} active tools (runId=${opts.runId ?? "none"})`,
       );
     }
-    return added;
+    return { added, overflow };
   };
 
-  expandActiveTools(extractToolSearchResultNamesFromMessages(messages));
+  const priorSearches = readToolSearchHistory(messages);
+  if (priorSearches.unreadable > 0) {
+    console.warn(
+      `[agent-loop] ${priorSearches.unreadable} earlier tool-search result(s) could not be read, so the tools they loaded were not restored (runId=${opts.runId ?? "none"})`,
+    );
+  }
+  // Newest searches lead, so they win if history alone overflows the cap.
+  expandActiveTools(priorSearches.names.reverse());
 
   const processorChain =
     opts.processors && opts.processors.length > 0
@@ -4951,6 +5428,11 @@ export async function runAgentLoop(opts: {
     actions,
   });
   const toolResultHistory: AgentLoopToolResultSummary[] = [];
+  const turnReceipts = (): ToolWriteReceipt[] =>
+    toolResultHistory.flatMap((result) =>
+      result.receipt ? [{ tool: result.name, ...result.receipt }] : [],
+    );
+  let receiptGuardRetried = false;
   const runCtx = getRequestRunContext();
   if (runCtx) {
     runCtx.toolCalls = toolCallHistory;
@@ -4967,7 +5449,8 @@ export async function runAgentLoop(opts: {
     journalRead.status === "read" ? journalRead.priorToolCalls : [];
   const journaledPriorToolResults =
     journalRead.status === "read" ? journalRead.priorToolResults : [];
-  let loadedSkillsContext = "";
+  let threadSkillPages = new Map<string, string>();
+  let currentJournalSkillBodies = new Map<string, string>();
   const hasLoadedSkillPage = journaledPriorToolResults.some((result) => {
     const input =
       result.input && typeof result.input === "object"
@@ -4981,21 +5464,46 @@ export async function runAgentLoop(opts: {
       result.content.startsWith("# Skill:")
     );
   });
-  if (isInternalContinuationTurn(messages) && hasLoadedSkillPage) {
-    const { loadAgentsBundle, getRuntimeSkillsForUser, skillDocsSlug } =
-      await import("../server/agents-bundle.js");
-    const runtimeSkills = await getRuntimeSkillsForUser(
-      await loadAgentsBundle(),
-      opts.ownerEmail ?? getRequestUserEmail(),
+  const reuseJournaledSkillPages =
+    isInternalContinuationTurn(messages) && hasLoadedSkillPage;
+  const threadSkillSlugs = opts.loadedSkillSlugs ?? [];
+  if (reuseJournaledSkillPages || threadSkillSlugs.length > 0) {
+    const skillUserEmail = opts.ownerEmail ?? getRequestUserEmail();
+    const { loadSkillDocPages } = await import("../scripts/docs/search.js");
+    threadSkillPages = await loadSkillDocPages(
+      threadSkillSlugs,
+      skillUserEmail,
     );
-    loadedSkillsContext = loadedSkillPagesContext(
-      journaledPriorToolResults,
-      new Set(runtimeSkills.map((skill) => skillDocsSlug(skill.meta.name))),
-    );
+    if (reuseJournaledSkillPages) {
+      const { loadAgentsBundle, getRuntimeSkillsForUser, skillDocsSlug } =
+        await import("../server/agents-bundle.js");
+      const runtimeSkills = await getRuntimeSkillsForUser(
+        await loadAgentsBundle(),
+        skillUserEmail,
+      );
+      currentJournalSkillBodies = new Map(
+        runtimeSkills.map((skill) => [
+          skillDocsSlug(skill.meta.name),
+          skill.content,
+        ]),
+      );
+    }
   }
-  const continuationSystemPrompt = loadedSkillsContext
-    ? `${systemPrompt}\n\n${loadedSkillsContext}`
-    : systemPrompt;
+  // Dedupe against the messages the model actually receives: memory
+  // compaction and retry trimming can remove a page that `messages` still has.
+  const continuationSystemPromptFor = (
+    sentMessages: readonly EngineMessage[],
+  ): string => {
+    const loadedSkillsContext = loadedSkillPagesContext(
+      reuseJournaledSkillPages ? journaledPriorToolResults : [],
+      threadSkillPages,
+      currentJournalSkillBodies,
+      (slug, page) => skillPageIntactInHistory(sentMessages, slug, page),
+    );
+    return loadedSkillsContext
+      ? `${systemPrompt}\n\n${loadedSkillsContext}`
+      : systemPrompt;
+  };
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
   const unreadableJournalStop: TerminalActionStop | null =
@@ -5167,46 +5675,32 @@ export async function runAgentLoop(opts: {
       { name: string; input: unknown; error: string }
     >();
     let contextMessages = completingFollowUpSuggestions
-      ? [
-          ...messages,
-          {
-            role: "user" as const,
-            content: [
-              {
-                type: "text" as const,
-                text: FOLLOW_UP_SUGGESTIONS_COMPLETION_INSTRUCTION,
-              },
-            ],
-          },
-        ]
+      ? followUpCompletionContext
       : messages;
 
-    try {
-      if (opts.threadId) {
-        contextMessages = await applyContextXrayTransformForIteration({
-          threadId: opts.threadId,
-          ownerEmail: opts.ownerEmail,
-          turnId: opts.turnId,
-          model,
-          messages: contextMessages,
-          systemSections: opts.systemSections,
-        });
+    // The completion call carries a digest, not the conversation: the manifest
+    // and memory window describe the full thread, and the transform would
+    // overwrite this turn's manifest with the digest.
+    if (opts.threadId && !completingFollowUpSuggestions) {
+      contextMessages = await applyContextXrayTransformForIteration({
+        threadId: opts.threadId,
+        ownerEmail: opts.ownerEmail,
+        turnId: opts.turnId,
+        model,
+        messages: contextMessages,
+        systemSections: opts.systemSections,
+      });
 
-        if (opts.ownerEmail) {
-          contextMessages = await applyObservationalMemoryToContext(
-            contextMessages,
-            {
-              threadId: opts.threadId,
-              ownerEmail: opts.ownerEmail,
-              orgId: opts.orgId ?? null,
-            },
-          );
-        }
+      if (opts.ownerEmail) {
+        contextMessages = await applyObservationalMemoryToContext(
+          contextMessages,
+          {
+            threadId: opts.threadId,
+            ownerEmail: opts.ownerEmail,
+            orgId: opts.orgId ?? null,
+          },
+        );
       }
-    } catch (error) {
-      if (signal.aborted || !completingFollowUpSuggestions) throw error;
-      failFollowUpCompletion("context_error");
-      break;
     }
     if (signal.aborted) break;
 
@@ -5227,10 +5721,16 @@ export async function runAgentLoop(opts: {
             providerOptions.anthropic;
           providerOptions = { ...providerOptions, anthropic };
         }
+        const engineMessages =
+          engine.capabilities.vision === false
+            ? replaceImagesForModelWithoutVision(contextMessages, model)
+            : contextMessages;
         const streamOpts = {
           model,
-          systemPrompt: continuationSystemPrompt,
-          messages: contextMessages,
+          systemPrompt: completingFollowUpSuggestions
+            ? FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT
+            : continuationSystemPromptFor(engineMessages),
+          messages: engineMessages,
           tools: loopBreakerCloseout
             ? []
             : completingFollowUpSuggestions
@@ -5257,6 +5757,7 @@ export async function runAgentLoop(opts: {
         };
 
         usage.llmCalls = (usage.llmCalls ?? 0) + 1;
+        notifyModelInputObserver(opts.onModelInput, engineMessages);
         const eventStream = engine.stream(streamOpts);
         let thinkingBuffer = "";
         const toolInputNames = new Map<string, string>();
@@ -5526,6 +6027,10 @@ export async function runAgentLoop(opts: {
               usage.outputTokens += eventUsage.outputTokens;
               usage.cacheReadTokens += eventUsage.cacheReadTokens;
               usage.cacheWriteTokens += eventUsage.cacheWriteTokens;
+              if (completingFollowUpSuggestions) {
+                usage.followUpInputTokens =
+                  (usage.followUpInputTokens ?? 0) + eventUsage.inputTokens;
+              }
               if (eventUsage.builderCreditsUsed !== undefined) {
                 usage.builderCreditsUsed =
                   (usage.builderCreditsUsed ?? 0) +
@@ -5536,16 +6041,7 @@ export async function runAgentLoop(opts: {
             } else if (event.type === "stop") {
               terminalStopReason = event.reason;
               if (event.reason === "error") {
-                throw new EngineError(event.error ?? "Engine stream error", {
-                  errorCode: event.errorCode,
-                  upgradeUrl: event.upgradeUrl,
-                  statusCode: event.statusCode,
-                  providerRetryable: event.providerRetryable,
-                  contextOverflow: event.contextOverflow,
-                  requestId: event.requestId,
-                  requestShape: event.requestShape,
-                  retryAfterMs: event.retryAfterMs,
-                });
+                throw engineStopError(event, engineMessages);
               }
             }
             if (hasNoProgressStalled()) {
@@ -5660,6 +6156,10 @@ export async function runAgentLoop(opts: {
         }
         throw err;
       }
+    }
+
+    if (completingFollowUpSuggestions && followUpStartedAt !== undefined) {
+      usage.followUpMs = Date.now() - followUpStartedAt;
     }
 
     if (tripwire || followUpCompletionFailed) break;
@@ -5889,6 +6389,8 @@ export async function runAgentLoop(opts: {
       const finalResponseDraftText = collectTextParts(
         assistantContentForHistory,
       );
+      const receipts = turnReceipts();
+      const receiptGuard = writeReceiptGuard(receipts, receiptGuardRetried);
       if (opts.finalResponseGuard) {
         try {
           guard = await opts.finalResponseGuard({
@@ -5898,6 +6400,7 @@ export async function runAgentLoop(opts: {
             text: finalResponseDraftText,
             toolCalls: [...toolCallHistory],
             toolResults: [...toolResultHistory],
+            receipts,
             retryCount: finalGuardRetries,
             executionMode: opts.executionMode ?? "act",
           });
@@ -5905,6 +6408,11 @@ export async function runAgentLoop(opts: {
           send({ type: "clear" });
           throw err;
         }
+      }
+      if (receiptGuard) {
+        guard = guard
+          ? mergeFinalResponseGuards(receiptGuard, guard)
+          : receiptGuard;
       }
       if (guard) {
         completedFollowUpSuggestions = undefined;
@@ -5918,7 +6426,10 @@ export async function runAgentLoop(opts: {
             : Math.max(0, Math.min(3, Math.trunc(guard.maxRetries ?? 1)));
         if (finalGuardRetries < maxGuardRetries) {
           if (typeof guard !== "string" && guard.expandToolSurface) {
-            expandActiveTools([...availableToolMap.keys()]);
+            expandActiveTools([...activeToolNames, ...availableToolMap.keys()]);
+          }
+          if (receiptGuard && receiptGuard.maxRetries > 0) {
+            receiptGuardRetried = true;
           }
           finalGuardRetries += 1;
           send({ type: "clear" });
@@ -5951,6 +6462,12 @@ export async function runAgentLoop(opts: {
           terminalStopReason === "end_turn"
         ) {
           completingFollowUpSuggestions = true;
+          followUpStartedAt = Date.now();
+          followUpCompletionContext = buildFollowUpCompletionMessages({
+            requestText: finalResponseGuardRequestText,
+            replyText: finalResponseDraftText,
+            toolNames: toolCallHistory.map((call) => call.name),
+          });
           continue;
         }
       }
@@ -6029,9 +6546,15 @@ export async function runAgentLoop(opts: {
 
     const approvedToolCallKeys = new Set<string>(opts.approvedToolCalls ?? []);
 
+    // A tool-search in this step loads schemas the model can call only on the
+    // next step, so a sibling search must not read them as already callable.
+    const toolNamesLoadedThisStep = new Set<string>();
+    let countedAlreadyLoadedSearchThisStep = false;
+
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
+      noteToolNeeded(toolCall.name);
       const actionEntry = actions[toolCall.name];
       const placeholderNormalization = actionEntry
         ? normalizeOptionalToolPlaceholders(
@@ -6125,12 +6648,14 @@ export async function runAgentLoop(opts: {
         content: string,
         isError: boolean,
         artifacts?: ArtifactReceipt[],
+        receipt?: WriteReceipt,
       ) => {
         toolResultHistory.push({
           name: toolCall.name,
           content,
           isError,
           ...(artifacts?.length ? { artifacts } : {}),
+          ...(receipt ? { receipt } : {}),
         });
       };
       let directStop: { message: string; explicit: boolean } | null = null;
@@ -6179,10 +6704,15 @@ export async function runAgentLoop(opts: {
           const result =
             `Stopped after ${anyArgsCount} attempts at ${toolCall.name} that all failed the same way ` +
             `with different arguments. Last error: ${sanitizedResult}`;
+          const lastErrorLine = stopErrorLine(sanitizedResult);
           requestedActionStop ??= {
             message:
-              `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way, ` +
-              "so changing the arguments again would not have worked. Anything completed before this is saved.",
+              `I stopped because the ${toolCall.name} action rejected ${anyArgsCount} different attempts the same way. ` +
+              `Last error: ${
+                lastErrorLine.length > MAX_STOP_ERROR_LINE_CHARS
+                  ? `${clipHead(lastErrorLine, MAX_STOP_ERROR_LINE_CHARS)}…`
+                  : lastErrorLine
+              }\n\nAnything completed before this is saved.`,
             errorCode: "repeated_tool_error_across_arguments",
             details: sanitizedResult,
           };
@@ -6266,6 +6796,33 @@ export async function runAgentLoop(opts: {
           content: result,
           isError: true,
         };
+      }
+
+      // Before approval, so a human is never asked to approve a call the
+      // principal's grant already forbids. Covers framework tools that bypass
+      // `defineAction`, which enforces the same grant for the actions.
+      const userEmail = opts.ownerEmail ?? getRequestUserEmail();
+      if (parseServiceIdentityEmail(userEmail)) {
+        const {
+          enforceServicePrincipalActionGrant,
+          ServicePrincipalRefusedError,
+        } = await import("../org/service-principal-guard.js");
+        try {
+          await enforceServicePrincipalActionGrant({
+            email: userEmail,
+            orgId: opts.orgId ?? getRequestOrgId() ?? null,
+            actionName: toolCall.name,
+            caller: opts.actionCaller ?? "tool",
+          });
+        } catch (error) {
+          if (
+            !(error instanceof ServicePrincipalRefusedError) ||
+            error.statusCode !== 403
+          ) {
+            throw error;
+          }
+          return declineToolCall(error.message);
+        }
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
@@ -6728,6 +7285,7 @@ export async function runAgentLoop(opts: {
         let result: string;
         let chatUIResult: unknown;
         let isError = false;
+        let toolErrorCode: string | undefined;
         let mcpApp:
           | import("../mcp-client/app-result.js").AgentMcpAppPayload
           | undefined;
@@ -6736,6 +7294,7 @@ export async function runAgentLoop(opts: {
           | undefined;
         let toolArtifacts: ArtifactReceipt[] = [];
         let fileMutation: AgentFileMutationProof | undefined;
+        let receipt: WriteReceipt | undefined;
         try {
           // The run may have been aborted while we waited above for an
           // interrupted tool's ledger result (the wait can poll for minutes).
@@ -6915,12 +7474,39 @@ export async function runAgentLoop(opts: {
             }
           }
           chatUIResult = resultForAgent;
+          // Before stringify and truncation: a large result must not lose it.
+          receipt = readWriteReceipt(resultForAgent);
           toolArtifacts = detectArtifactReceipts(resultForAgent, toolCall.name);
           if (toolResultImages) {
             imageNotes = [
               ...describeToolResultImages(toolResultImages),
               ...imageNotes,
             ];
+          }
+          let toolSearch:
+            | {
+                matched: string[];
+                overflow: string[];
+                loadedThisStep: string[];
+              }
+            | undefined;
+          if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
+            const matched = extractToolSearchResultNames(rawForAgent);
+            const { added, overflow } = expandActiveTools(
+              matched,
+              toolNamesLoadedThisStep,
+            );
+            for (const name of added) toolNamesLoadedThisStep.add(name);
+            const loadedThisStep = matched.filter((name) =>
+              toolNamesLoadedThisStep.has(name),
+            );
+            toolSearch = { matched, overflow, loadedThisStep };
+            if (matched.length > 0) {
+              resultForAgent = withLoadedToolNames(
+                rawForAgent as Record<string, unknown>,
+                loadedThisStep,
+              );
+            }
           }
           let resultStr =
             typeof resultForAgent === "string"
@@ -6934,21 +7520,93 @@ export async function runAgentLoop(opts: {
             resultStr = `${resultStr}\n\n${imageNotes.join("\n")}`;
           }
           result = resultStr;
-          if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
-            const added = expandActiveTools(
-              extractToolSearchResultNames(rawForAgent),
-            );
-            if (added.length > 0) {
-              result += `\n\nLoaded matching tool schemas for next step: ${added.join(", ")}`;
+          if (toolSearch) {
+            const { matched, overflow, loadedThisStep } = toolSearch;
+            const loadedNote = `Loaded matching tool schemas for the next step, not this one: ${loadedThisStep.join(", ")}`;
+            if (loadedThisStep.length > 0) {
+              result += `\n\n${loadedNote}`;
+              alreadyLoadedToolSearches = 0;
+            } else if (
+              matched.length > 0 &&
+              matched.every((name) => activeToolNames.has(name))
+            ) {
+              const priorMessage = (rawForAgent as { message?: unknown })
+                .message;
+              result = JSON.stringify(
+                {
+                  ...(resultForAgent as Record<string, unknown>),
+                  alreadyLoaded: true,
+                  message: [
+                    `All ${matched.length} matches are already callable; call them directly.`,
+                    typeof priorMessage === "string" ? priorMessage : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
+                },
+                null,
+                2,
+              );
+              // One count per step, reset by any progress: parallel searches
+              // are one repeat, and a run that searches between writes is not
+              // repeating.
+              if (!countedAlreadyLoadedSearchThisStep) {
+                countedAlreadyLoadedSearchThisStep = true;
+                alreadyLoadedToolSearches += 1;
+              }
+              if (
+                alreadyLoadedToolSearches >= MAX_ALREADY_LOADED_TOOL_SEARCHES
+              ) {
+                requestedActionStop ??= {
+                  message:
+                    `Stopped because tool-search was used ${alreadyLoadedToolSearches} times in a row to look for tools that were already callable, ` +
+                    "which means the same step is repeating rather than making progress. " +
+                    "Everything completed before this point is preserved above.",
+                  errorCode: "repeated_tool_call",
+                };
+              }
+            }
+            if (overflow.length > 0) {
+              const shown = overflow.slice(
+                0,
+                MAX_TOOL_SEARCH_OVERFLOW_NAMES_SHOWN,
+              );
+              const more =
+                overflow.length > shown.length
+                  ? `, and ${overflow.length - shown.length} more`
+                  : "";
+              const overflowNote = `Could not load ${overflow.length} matched ${overflow.length === 1 ? "tool" : "tools"} because the per-request tool limit (${MAX_PROVIDER_TOOLS}) was reached: ${shown.join(", ")}${more}. They are not callable; use tools you already have.`;
+              // A repeated search's own message says its matches are
+              // available, which these are not.
+              result =
+                (rawForAgent as { repeated?: unknown }).repeated === true
+                  ? JSON.stringify(
+                      {
+                        ...(resultForAgent as Record<string, unknown>),
+                        message: [
+                          loadedThisStep.length > 0 ? loadedNote : "",
+                          overflowNote,
+                        ]
+                          .filter(Boolean)
+                          .join(" "),
+                      },
+                      null,
+                      2,
+                    )
+                  : `${result}\n\n${overflowNote}`;
             }
           }
         } catch (err: any) {
+          toolErrorCode = isActionContractError(err)
+            ? err.errorCode
+            : undefined;
           if (signal.aborted) {
             result = INTERRUPTED_TOOL_RESULT_MARKER;
           } else if (isAgentConnectionRequiredError(err)) {
-            const message =
+            const message = connectionRequiredMessage(
               sanitizeToolErrorValue(err.message) ||
-              `Connect ${err.provider} to continue.`;
+                `Connect ${err.provider} to continue.`,
+              err.reason,
+            );
             result = sanitizeToolErrorValue(err.toolResult || message);
             requestedConnection ??= {
               requestId: randomUUID(),
@@ -7008,11 +7666,23 @@ export async function runAgentLoop(opts: {
           );
         }
         if (isError) {
+          receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
             result = finalizeToolErrorResult(result);
           }
         } else {
           fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
+          // Only a write or a receipt is progress; a read-only call between
+          // redundant searches is the same repeating step.
+          if (!actionIsReadOnly || receipt) alreadyLoadedToolSearches = 0;
+          if (receipt && receipt.verified !== true) {
+            usage.receiptUnverifiedCount =
+              (usage.receiptUnverifiedCount ?? 0) + 1;
+          }
+          if (receipt && !receipt.changed) {
+            usage.receiptChangedFalseCount =
+              (usage.receiptChangedFalseCount ?? 0) + 1;
+          }
         }
 
         const agentWarnings = drainAgentWarnings();
@@ -7062,18 +7732,21 @@ export async function runAgentLoop(opts: {
           input: toolCall.input as Record<string, unknown>,
           result,
           ...(isError ? { isError: true } : {}),
+          ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(isError
             ? { completedSideEffect: false }
-            : !actionIsReadOnly
-              ? { completedSideEffect: true }
-              : {}),
+            : receipt
+              ? { completedSideEffect: receipt.changed }
+              : !actionIsReadOnly
+                ? { completedSideEffect: true }
+                : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
           ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });
-        recordToolResult(result, isError, toolArtifacts);
+        recordToolResult(result, isError, toolArtifacts, receipt);
         if (!isError) {
           noteToolCallSucceeded(actionEntry);
           if (cacheKey) {
@@ -7387,11 +8060,19 @@ export function isRecoverableContinuationError(event: {
   error: string;
   errorCode?: string;
   recoverable?: boolean;
+  providerRetryable?: boolean;
 }): boolean {
   const code = String(event.errorCode ?? "").toLowerCase();
   const message = event.error.toLowerCase();
-  if (code === "builder_gateway_error") return false;
-  if (event.recoverable === false) return false;
+  if (
+    event.providerRetryable === false ||
+    event.recoverable === false ||
+    code === "builder_gateway_error" ||
+    code === "invalid_request" ||
+    code === "invalid_request_error"
+  ) {
+    return false;
+  }
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
@@ -7412,6 +8093,7 @@ export function isRecoverableContinuationError(event: {
     code === "http_504" ||
     code === "http_529" ||
     code === "run_timeout" ||
+    (code === "overloaded_error" && event.providerRetryable === true) ||
     message.includes("timeout") ||
     isProviderConnectionErrorMessage(message) ||
     message.includes("temporarily unavailable")
@@ -7602,25 +8284,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     engineName: opts.engine.name,
     model: opts.model,
   };
-  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) => {
-    usage.inputTokens += next.inputTokens;
-    usage.outputTokens += next.outputTokens;
-    usage.cacheReadTokens += next.cacheReadTokens;
-    usage.cacheWriteTokens += next.cacheWriteTokens;
-    if (next.builderCreditsUsed !== undefined) {
-      usage.builderCreditsUsed =
-        (usage.builderCreditsUsed ?? 0) + next.builderCreditsUsed;
-    }
-    usage.engineName = next.engineName ?? usage.engineName;
-    usage.model = next.model;
-    if (typeof next.llmCalls === "number") {
-      usage.llmCalls = (usage.llmCalls ?? 0) + next.llmCalls;
-    }
-    if (next.usageReported) usage.usageReported = true;
-    // Keep the earliest attempt's first event — a later continuation
-    // attempt starting fresh must not overwrite genuine first-token timing.
-    usage.firstEngineEventAtMs ??= next.firstEngineEventAtMs;
-  };
+  const addUsage = (next: Awaited<ReturnType<typeof runAgentLoop>>) =>
+    mergeAgentLoopUsage(usage, next);
 
   const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
   const resumeResumableErrorsInProcess =
@@ -8132,6 +8797,145 @@ async function readTurnStartedAt(
   return Number.isFinite(startedAt) && startedAt > 0 ? startedAt : null;
 }
 
+interface AdmittedQueuedMessagePromotion {
+  id: string;
+  text: string;
+  attachments?: unknown[];
+  metadata?: Record<string, unknown>;
+  options?: Record<string, unknown>;
+}
+
+function queuedPromotionRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+async function readAdmittedQueuedMessagePromotion(opts: {
+  ownerEmail: string | null;
+  orgId: string | null;
+  threadId?: string;
+  messageId: unknown;
+  claimId: unknown;
+  message: string;
+  continuationRequested: boolean;
+}): Promise<AdmittedQueuedMessagePromotion | null> {
+  const messageId =
+    typeof opts.messageId === "string" ? opts.messageId.trim() : "";
+  const claimId = typeof opts.claimId === "string" ? opts.claimId.trim() : "";
+  if (
+    !opts.ownerEmail ||
+    !opts.threadId ||
+    !messageId ||
+    !claimId ||
+    opts.continuationRequested
+  ) {
+    return null;
+  }
+
+  const { resolveThreadAccess } = await import("../chat-threads/store.js");
+  const thread = await resolveThreadAccess(
+    opts.ownerEmail,
+    opts.threadId,
+    "editor",
+    { orgId: opts.orgId ?? undefined },
+  );
+  if (!thread) return null;
+
+  let repository: unknown;
+  try {
+    repository = JSON.parse(thread.threadData || "{}");
+  } catch {
+    // coercion-ok: malformed persisted queue data cannot authorize a continuation.
+    return null;
+  }
+  if (!hasOwn(repository, "queuedMessages")) return null;
+  const queuedMessages = repository.queuedMessages;
+  if (!Array.isArray(queuedMessages)) return null;
+  const queuedMessage = queuedMessages.find(
+    (candidate) => hasOwn(candidate, "id") && candidate.id === messageId,
+  );
+  if (!queuedMessage || !hasOwn(queuedMessage, "promotionClaim")) {
+    return null;
+  }
+
+  const promotionClaim = queuedMessage.promotionClaim;
+  if (
+    !(
+      hasOwn(queuedMessage, "text") &&
+      queuedMessage.text === opts.message &&
+      hasOwn(promotionClaim, "id") &&
+      promotionClaim.id === claimId &&
+      hasOwn(promotionClaim, "expiresAt") &&
+      typeof promotionClaim.expiresAt === "number" &&
+      Number.isFinite(promotionClaim.expiresAt) &&
+      promotionClaim.expiresAt > Date.now()
+    )
+  ) {
+    return null;
+  }
+
+  if (typeof queuedMessage.text !== "string") return null;
+  const attachments = hasOwn(queuedMessage, "attachments")
+    ? queuedMessage.attachments
+    : undefined;
+  const metadata = hasOwn(queuedMessage, "metadata")
+    ? queuedMessage.metadata
+    : undefined;
+  const options = hasOwn(queuedMessage, "options")
+    ? queuedMessage.options
+    : undefined;
+  if (
+    (attachments !== undefined && !Array.isArray(attachments)) ||
+    (Array.isArray(attachments) &&
+      attachments.some((attachment) => {
+        const file = queuedPromotionRecord(attachment);
+        return !file || file.type !== "file" || typeof file.name !== "string";
+      })) ||
+    (metadata !== undefined &&
+      (!metadata || typeof metadata !== "object" || Array.isArray(metadata))) ||
+    (options !== undefined &&
+      (!options || typeof options !== "object" || Array.isArray(options)))
+  ) {
+    return null;
+  }
+
+  return {
+    id: messageId,
+    text: queuedMessage.text,
+    ...(Array.isArray(attachments) ? { attachments } : {}),
+    ...(metadata ? { metadata: metadata as Record<string, unknown> } : {}),
+    ...(options ? { options: options as Record<string, unknown> } : {}),
+  };
+}
+
+/** @internal exported for unit tests only */
+export function queuedPromotionAttachments(
+  attachments: unknown[],
+): AgentChatAttachment[] {
+  return attachments.map((value) => {
+    const file = queuedPromotionRecord(value)!;
+    // A saved queue entry is always a file part; the media type decides whether
+    // the model sees pixels (image) or a file reference.
+    const isImage =
+      typeof file.mediaType === "string" &&
+      file.mediaType
+        .split(";", 1)[0]!
+        .trim()
+        .toLowerCase()
+        .startsWith("image/");
+    return {
+      type: isImage ? "image" : "file",
+      name: file.name,
+      ...(typeof file.fileId === "string" ? { id: file.fileId } : {}),
+      ...(typeof file.mediaType === "string"
+        ? { mediaType: file.mediaType, contentType: file.mediaType }
+        : {}),
+      ...(typeof file.url === "string" ? { url: file.url } : {}),
+    } as AgentChatAttachment;
+  });
+}
+
 async function emitRunText(run: ActiveRun, text: string): Promise<void> {
   const runEvent: RunEvent = {
     seq: run.events.length,
@@ -8390,14 +9194,16 @@ export async function chainServerDrivenContinuation(opts: {
     try {
       await d.insertRun(nextRunId, effectiveThreadId, effectiveTurnId, {
         dispatchMode: "background",
-        dispatchPayload: JSON.stringify(continuationBody),
+        dispatchPayload: serializeDurableDispatchPayload(continuationBody),
         ...(opts.turnInitiator ? { turnInitiator: opts.turnInitiator } : {}),
       });
       nextRowInserted = true;
     } catch (insertErr) {
       if (
         insertErr instanceof AgentTurnInitiatorMismatchError ||
-        insertErr instanceof AgentTurnInitiatorUnavailableError
+        insertErr instanceof AgentTurnInitiatorUnavailableError ||
+        insertErr instanceof ServicePrincipalRefusedError ||
+        insertErr instanceof DurableAttachmentReferenceRequiredError
       ) {
         throw insertErr;
       }
@@ -8563,6 +9369,10 @@ export async function chainServerDrivenContinuation(opts: {
       reason: continuationReason,
     };
   } catch (chainErr) {
+    const failureCode =
+      chainErr instanceof DurableAttachmentReferenceRequiredError
+        ? chainErr.code
+        : "background_continuation_dispatch_failed";
     await d
       .recordRunDiagnostic(
         runId,
@@ -8580,13 +9390,11 @@ export async function chainServerDrivenContinuation(opts: {
       .updateRunStatusIfRunning(runId, "errored")
       .catch(() => false);
     if (statusUpdated) {
-      await d
-        .setRunTerminalReason(runId, "background_continuation_dispatch_failed")
-        .catch(() => {});
+      await d.setRunTerminalReason(runId, failureCode).catch(() => {});
       await d
         .setRunError(
           runId,
-          "background_continuation_dispatch_failed",
+          failureCode,
           chainErr instanceof Error ? chainErr.message : String(chainErr),
         )
         .catch(() => {});
@@ -8644,13 +9452,24 @@ export type AgentModelSelectionSource =
   | "request"
   | "configured"
   | "stored"
-  | "default";
+  | "default"
+  | "provider-selection-fallback";
 
 function isConcreteModelSelection(
   model: string | null | undefined,
 ): model is string {
   const normalized = typeof model === "string" ? model.trim() : "";
   return normalized.length > 0 && normalized !== "auto";
+}
+
+export function resolveAgentExperimentModelOverride(options: {
+  requestModel?: string | null;
+  experimentModel?: string | null;
+}): string | undefined {
+  if (isConcreteModelSelection(options.requestModel)) return undefined;
+  return isConcreteModelSelection(options.experimentModel)
+    ? options.experimentModel
+    : undefined;
 }
 
 export function resolveAgentModelSelection(options: {
@@ -8731,9 +9550,10 @@ export function createProductionAgentHandler(
 
     const {
       message,
-      history = [],
-      structuredHistory,
-      references = [],
+      history: submittedHistory = [],
+      structuredHistory: submittedStructuredHistory,
+      loadedSkillSlugs: requestedLoadedSkillSlugs,
+      references: submittedReferences = [],
       threadId,
       attachments,
       displayMessage,
@@ -8741,37 +9561,66 @@ export function createProductionAgentHandler(
       queuedMessageId,
       queuedMessageClaimId,
       agentKitMessageId: requestedAgentKitMessageId,
-      internalContinuation,
+      internalContinuation: submittedInternalContinuation,
       autoContinueOfRunId: requestedAutoContinueOfRunId,
+      continueOfRunId: requestedContinueOfRunId,
       turnId: requestTurnId,
-      model: requestModel,
-      engine: requestEngine,
-      effort: requestEffort,
+      model: submittedModel,
+      engine: submittedEngine,
+      effort: submittedEffort,
       browserTabId,
       scope,
-      harness: requestHarness,
+      harness: submittedHarness,
       trackInRunsTray,
       skipPendingSelectionContext,
     } = body;
-    const autoContinueOfRunId =
-      internalContinuation === true &&
-      typeof requestedAutoContinueOfRunId === "string" &&
-      requestedAutoContinueOfRunId.trim().length <= 200
-        ? requestedAutoContinueOfRunId.trim() || undefined
-        : undefined;
-    if (requestEngine !== undefined && typeof requestEngine !== "string") {
-      setResponseStatus(event, 400);
-      return { error: "engine must be a string" };
-    }
-    const requestParentId =
+    let requestHistory = submittedHistory;
+    let requestStructuredHistory = submittedStructuredHistory;
+    let requestReferences = submittedReferences;
+    let requestModel = submittedModel;
+    let requestEngine = submittedEngine;
+    let requestEffort = submittedEffort;
+    let internalContinuation = submittedInternalContinuation;
+    let requestHarness = submittedHarness;
+    let requestSkipPendingSelectionContext = skipPendingSelectionContext;
+    let requestParentId =
       parentId === null
         ? null
         : typeof parentId === "string" && parentId.trim()
           ? parentId.trim()
           : undefined;
+    let requestMetadata = body.metadata;
+    const continuedRunId = (requested: unknown) =>
+      internalContinuation === true &&
+      typeof requested === "string" &&
+      requested.trim().length <= 200
+        ? requested.trim() || undefined
+        : undefined;
+    const autoContinueOfRunId = continuedRunId(requestedAutoContinueOfRunId);
+    // The stopped run this request resumes in its own turn, from the turn's
+    // history and journal, whether the chat or a person asked.
+    const continueOf: { runId: string; trigger: ContinueTrigger } | undefined =
+      autoContinueOfRunId
+        ? { runId: autoContinueOfRunId, trigger: "auto" }
+        : (() => {
+            const runId = continuedRunId(requestedContinueOfRunId);
+            return runId ? { runId, trigger: "manual" } : undefined;
+          })();
+    const continueRefusal = (code: string) => ({
+      error:
+        continueOf?.trigger === "manual"
+          ? "This turn can no longer be continued."
+          : "This turn will not continue automatically.",
+      code,
+      retryable: false,
+    });
+    if (requestEngine !== undefined && typeof requestEngine !== "string") {
+      setResponseStatus(event, 400);
+      return { error: "engine must be a string" };
+    }
     setupMark("bodyParsed");
 
-    const agentKitMessageId =
+    let agentKitMessageId =
       typeof requestedAgentKitMessageId === "string" &&
       requestedAgentKitMessageId.trim().length <= 200
         ? requestedAgentKitMessageId.trim() || undefined
@@ -8861,6 +9710,9 @@ export function createProductionAgentHandler(
       });
     const mutableBody = body as unknown as Record<string, unknown>;
     if (!isBackgroundWorker) {
+      // A client can submit this private field, so overwrite it at the boundary.
+      mutableBody[AGENT_CHAT_BROWSER_SESSION_ID_FIELD] =
+        getRequestContext()?.browserSessionId ?? null;
       delete mutableBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD];
     }
     if (dispatchToBackground) {
@@ -8879,11 +9731,10 @@ export function createProductionAgentHandler(
       requestRunCtx.chatScope = requestChatScope;
       requestRunCtx.isBackgroundWorker = isBackgroundWorker;
     }
-    const requestMode: AgentExecutionMode =
-      body.mode === "plan" ? "plan" : "act";
+    let requestMode: AgentExecutionMode = body.mode === "plan" ? "plan" : "act";
     const hasMessageText =
       typeof message === "string" && message.trim().length > 0;
-    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    let hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (!hasMessageText && !hasAttachments) {
       setResponseStatus(event, 400);
       return { error: "message is required" };
@@ -8891,10 +9742,10 @@ export function createProductionAgentHandler(
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
     let requestDisplayMessage = displayMessage;
-    const requestContext = buildRecentUserRequestContext({
+    let requestContext = buildRecentUserRequestContext({
       request: requestMessage,
-      history,
-      structuredHistory,
+      history: requestHistory,
+      structuredHistory: requestStructuredHistory,
     });
 
     const ownerEmail = await resolveAgentOwnerEmail(options, event);
@@ -8912,6 +9763,200 @@ export function createProductionAgentHandler(
       setResponseStatus(event, 401);
       return { error: "Background agent runs require a persisted initiator" };
     }
+    const requestedApprovedToolCalls =
+      Array.isArray(body.approvedToolCalls) && body.approvedToolCalls.length > 0
+        ? body.approvedToolCalls
+            .filter((key: unknown): key is string => typeof key === "string")
+            .slice(0, 200)
+        : undefined;
+    const resolvedApprovalTurnId =
+      !isBackgroundWorker &&
+      ownerEmail &&
+      threadId &&
+      requestedApprovedToolCalls?.length
+        ? await resolveAgentToolApprovalTurnId({
+            ownerEmail,
+            orgId: getRequestOrgId() ?? null,
+            threadId,
+            requestedTurnId: requestTurnId,
+            approvalKeys: requestedApprovedToolCalls,
+          })
+        : null;
+    // The continuation marker is client-controlled. Defer setup admission only
+    // for automatic successors when the named stop and turn can be checked
+    // under the run-slot lock. A user's manual Continue starts new work and
+    // still requires current provider readiness.
+    const canDeferSetupGateForContinuationAdmission = Boolean(
+      continueOf?.trigger === "auto" &&
+      continueOf &&
+      typeof threadId === "string" &&
+      threadId.trim() &&
+      typeof requestTurnId === "string" &&
+      requestTurnId.trim(),
+    );
+    const admittedQueuedMessage = await readAdmittedQueuedMessagePromotion({
+      ownerEmail,
+      orgId: getRequestOrgId() ?? null,
+      threadId,
+      messageId: queuedMessageId,
+      claimId: queuedMessageClaimId,
+      message: typeof message === "string" ? message : "",
+      continuationRequested:
+        submittedInternalContinuation === true ||
+        typeof requestedAutoContinueOfRunId === "string" ||
+        typeof requestedContinueOfRunId === "string",
+    });
+    const isQueuedPromotion = admittedQueuedMessage !== null;
+    if (admittedQueuedMessage) {
+      // A claim admits the persisted queue payload, not extra fields in this request.
+      const promotionOptions = admittedQueuedMessage.options ?? {};
+      const promotionMetadata = {
+        ...(admittedQueuedMessage.metadata ?? {}),
+        ...(queuedPromotionRecord(promotionOptions.metadata) ?? {}),
+      };
+      requestMessage = admittedQueuedMessage.text;
+      agentKitMessageId = admittedQueuedMessage.id;
+      requestDisplayMessage = admittedQueuedMessage.text;
+      requestAttachments = queuedPromotionAttachments(
+        admittedQueuedMessage.attachments ?? [],
+      );
+      hasAttachments = requestAttachments.length > 0;
+      requestReferences = [];
+      requestHistory = [];
+      requestStructuredHistory = undefined;
+      internalContinuation = false;
+      requestHarness = undefined;
+      requestSkipPendingSelectionContext = false;
+      requestParentId = undefined;
+      requestMetadata = promotionMetadata;
+      requestModel =
+        typeof promotionOptions.model === "string"
+          ? promotionOptions.model
+          : undefined;
+      const promotionOptionMetadata = queuedPromotionRecord(
+        promotionOptions.metadata,
+      );
+      const promotionEngine =
+        admittedQueuedMessage.metadata?.engine ??
+        promotionOptionMetadata?.engine;
+      requestEngine =
+        typeof promotionEngine === "string" ? promotionEngine : undefined;
+      requestEffort = isReasoningEffort(promotionOptions.reasoningEffort)
+        ? promotionOptions.reasoningEffort
+        : undefined;
+      requestMode = promotionOptions.mode === "plan" ? "plan" : "act";
+      requestContext = buildRecentUserRequestContext({
+        request: requestMessage,
+        history: requestHistory,
+      });
+      const mutableBody = body as unknown as Record<string, unknown>;
+      mutableBody.message = requestMessage;
+      mutableBody.displayMessage = requestDisplayMessage;
+      mutableBody.attachments = requestAttachments;
+      mutableBody.references = requestReferences;
+      mutableBody.history = requestHistory;
+      delete mutableBody.structuredHistory;
+      mutableBody.metadata = requestMetadata;
+      mutableBody.model = requestModel;
+      if (requestEngine === undefined) {
+        delete mutableBody.engine;
+      } else {
+        mutableBody.engine = requestEngine;
+      }
+      mutableBody.effort = requestEffort;
+      mutableBody.mode = requestMode;
+      delete mutableBody.internalContinuation;
+      delete mutableBody.autoContinueOfRunId;
+      delete mutableBody.continueOfRunId;
+      delete mutableBody.harness;
+      delete mutableBody.parentId;
+      delete mutableBody.options;
+      delete mutableBody.skipPendingSelectionContext;
+    }
+    const recordUnstartedTurn = async (failure: {
+      code: string;
+      message: string;
+    }) => {
+      const unstartedTurnId =
+        typeof requestTurnId === "string" && requestTurnId.trim()
+          ? requestTurnId.trim()
+          : undefined;
+      const normalizedThreadId =
+        typeof threadId === "string" ? threadId.trim() : "";
+      if (
+        !options.onRunNotStarted ||
+        !normalizedThreadId ||
+        !unstartedTurnId ||
+        continueOf ||
+        isBackgroundWorker ||
+        runRequestContext?.agentRunAnonymous === true
+      ) {
+        return;
+      }
+      try {
+        await options.onRunNotStarted({
+          runId: unstartedTurnId,
+          turnId: unstartedTurnId,
+          threadId: normalizedThreadId,
+          message:
+            typeof requestDisplayMessage === "string" &&
+            requestDisplayMessage.trim()
+              ? requestDisplayMessage
+              : requestMessage,
+          attachments: requestAttachments,
+          ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+            ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+          ...(agentKitMessageId ? { agentKitMessageId } : {}),
+          retryContext: retryContextFromRequest(body, (dropped) =>
+            console.warn(
+              `[agent-chat] dropped ${dropped} invalid reference(s) from a refused turn's retry context`,
+            ),
+          ),
+          failure,
+        });
+      } catch (error) {
+        console.error(
+          "[agent-chat] could not record a refused turn in its thread:",
+          error,
+        );
+        captureError(error, {
+          route: "agent-chat",
+          tags: {
+            source: "agent-chat",
+            failureClass: "unstarted-turn-persist",
+          },
+          extra: { threadId: normalizedThreadId, runId: unstartedTurnId },
+        });
+      }
+    };
+    if (
+      !isBackgroundWorker &&
+      runRequestContext?.agentRunAnonymous !== true &&
+      !resolvedApprovalTurnId &&
+      !canDeferSetupGateForContinuationAdmission &&
+      !isQueuedPromotion
+    ) {
+      try {
+        await options.assertAiSetupReady();
+      } catch (error) {
+        if (isAgentChatAiSetupRequiredError(error)) {
+          const setupError = error as {
+            statusMessage?: unknown;
+            message?: unknown;
+          };
+          await recordUnstartedTurn({
+            code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+            message:
+              (typeof setupError.statusMessage === "string" &&
+                setupError.statusMessage) ||
+              (typeof setupError.message === "string" && setupError.message) ||
+              "Connect an AI provider before chatting.",
+          });
+        }
+        throw error;
+      }
+    }
     const contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
@@ -8919,7 +9964,7 @@ export function createProductionAgentHandler(
       message: requestMessage,
       displayMessage: requestDisplayMessage,
       attachments: requestAttachments,
-      references,
+      references: requestReferences,
       threadId,
       requestContext,
       contextPrefetchDeadlineAt,
@@ -8930,6 +9975,7 @@ export function createProductionAgentHandler(
     });
     let jevPromptCandidates: JevPromptContextCandidate[] = [];
     let jevFallbackCandidateIds: string[] = [];
+    const preparedReferenceStatus = readReportedContextStatus(preparedRequest);
     if (preparedRequest) {
       if (
         typeof preparedRequest.message === "string" &&
@@ -8952,8 +9998,8 @@ export function createProductionAgentHandler(
     }
     const jevRequestContext = buildJevRequestContext({
       request: requestMessage,
-      history,
-      structuredHistory,
+      history: requestHistory,
+      structuredHistory: requestStructuredHistory,
     });
     const requestedHostedHarness = normalizeHostedHarnessRuntime(
       requestHarness?.runtime,
@@ -9133,6 +10179,9 @@ export function createProductionAgentHandler(
           "[agent-native] preUploadAttachments failed:",
           err instanceof Error ? err.message : String(err),
         );
+        requestMessage = requestMessage
+          ? `${requestMessage}\n\n${describeAttachmentPreUploadFailure()}`
+          : describeAttachmentPreUploadFailure();
       }
     }
 
@@ -9193,22 +10242,17 @@ export function createProductionAgentHandler(
       !requestModelIsExplicit && !configuredModelIsExplicit
         ? await getStoredModelForEngine(engine, { appId: options.appId })
         : undefined;
-    const modelSelection = resolveAgentModelSelection({
-      requestModel,
-      configuredModel,
-      storedModel,
-      defaultModel: engine.defaultModel,
-    });
-    // Only the engine default yields to the provider's checked models. A model
-    // the request or a stored default names still runs after it is unchecked,
-    // so chats already on it keep working.
-    const modelCandidate =
-      modelSelection.source === "default"
-        ? ((await resolveUncheckedDefaultModelReplacement(engine)) ??
-          modelSelection.model)
-        : modelSelection.model;
+    const modelSelection = await applyUncheckedDefaultModelReplacement(
+      engine,
+      resolveAgentModelSelection({
+        requestModel,
+        configuredModel,
+        storedModel,
+        defaultModel: engine.defaultModel,
+      }),
+    );
     workerStep("model_done");
-    const model = normalizeModelForEngine(engine, modelCandidate);
+    const model = normalizeModelForEngine(engine, modelSelection.model);
     let effectiveModel = model;
     let modelSelectionSource: AgentModelSelectionSource | "experiment" =
       modelSelection.source;
@@ -9219,17 +10263,23 @@ export function createProductionAgentHandler(
     }> = [];
 
     try {
-      if (ownerEmail) {
+      // A pinned request model suppresses the experiment's model override, so
+      // resolving would assign (and persist) a variant this turn never ran.
+      if (ownerEmail && !requestModelIsExplicit) {
         const { resolveActiveExperimentConfig } =
           await import("../observability/experiments.js");
         const expConfig = await resolveActiveExperimentConfig(ownerEmail);
         if (expConfig) {
           experimentAssignments = [...expConfig.assignments];
-          if (typeof expConfig.configs.model === "string") {
-            effectiveModel = normalizeModelForEngine(
-              engine,
-              expConfig.configs.model,
-            );
+          const experimentModel = resolveAgentExperimentModelOverride({
+            requestModel,
+            experimentModel:
+              typeof expConfig.configs.model === "string"
+                ? expConfig.configs.model
+                : undefined,
+          });
+          if (experimentModel) {
+            effectiveModel = normalizeModelForEngine(engine, experimentModel);
             modelSelectionSource = "experiment";
           }
         }
@@ -9248,7 +10298,7 @@ export function createProductionAgentHandler(
     options.onEngineResolved?.(engine, effectiveModel);
 
     console.log(
-      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} turnId=${requestTurnId ?? "(none)"}`,
+      `[agent-chat] resolved engine=${engine.name} model=${effectiveModel} requestModel=${requestModel ?? "(none)"} requestEngine=${requestEngine ?? "(none)"} modelSource=${modelSelectionSource} engineDefault=${engine.defaultModel} effort=${reasoningEffort ?? "unset"} turnId=${requestTurnId ?? "(none)"}`,
     );
 
     if (
@@ -9316,7 +10366,7 @@ export function createProductionAgentHandler(
     setupMark("prepDone");
     workerStep("env_config");
     const enrichedMessageThunk = () =>
-      enrichMessage(requestMessage, references);
+      enrichMessage(requestMessage, requestReferences);
     const loopSettingsThunk = () =>
       readAgentLoopSettings({
         userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
@@ -9364,6 +10414,25 @@ export function createProductionAgentHandler(
         }
       })();
 
+    // `empty` (no navigation yet) stays silent; a timeout or a throw adds a
+    // note, because the model would otherwise read it as an app with no page.
+    const screenStatuses: Record<
+      "screen" | "url" | "selection",
+      ContextStatus
+    > = { screen: "empty", url: "empty", selection: "empty" };
+    // Once a cap fires the model has the fallback note, so a read that
+    // resolves late must not change what the trace says it saw.
+    const noteScreenStatus = (
+      source: keyof typeof screenStatuses,
+      status: ContextStatus,
+    ) => {
+      if (screenStatuses[source] !== "timed_out") {
+        screenStatuses[source] = status;
+      }
+    };
+    const screenUnavailableNote = screenContextUnavailableNote(
+      Boolean(surfacedRequestActions["view-screen"]),
+    );
     const screenContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
         const screenStart = Date.now();
@@ -9383,6 +10452,7 @@ export function createProductionAgentHandler(
                 typeof result === "string"
                   ? result
                   : JSON.stringify(result, null, 2);
+              noteScreenStatus("screen", "ok");
               return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
             }
           } else {
@@ -9391,11 +10461,18 @@ export function createProductionAgentHandler(
               requestBrowserTabId,
             );
             if (navigation) {
+              noteScreenStatus("screen", "ok");
               return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
             }
           }
-        } catch {
-          // DB not ready or no navigation state — skip silently
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("screen", "failed");
+          console.warn(
+            "[agent-chat] current-screen context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return screenUnavailableNote;
         } finally {
           setupMarks.screenMs = Date.now() - screenStart;
         }
@@ -9440,10 +10517,17 @@ export function createProductionAgentHandler(
               );
               if (settingsPage) lines.push(settingsPage);
             }
+            noteScreenStatus("url", "ok");
             return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
           }
-        } catch {
-          // DB not ready — skip silently
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("url", "failed");
+          console.warn(
+            "[agent-chat] current-url context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return screenUnavailableNote;
         }
         return "";
       })();
@@ -9451,7 +10535,7 @@ export function createProductionAgentHandler(
     const SELECTION_TTL_MS = 5 * 60 * 1000;
     const selectionContextThunk = (): Promise<string> =>
       (async (): Promise<string> => {
-        if (skipPendingSelectionContext === true) return "";
+        if (requestSkipPendingSelectionContext === true) return "";
         try {
           const sel = (await readAppState("pending-selection-context")) as {
             text?: string;
@@ -9461,13 +10545,20 @@ export function createProductionAgentHandler(
           const capturedAt =
             typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
           if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
+          noteScreenStatus("selection", "ok");
           return (
             `\n\nThe user has selected the following text and pressed Cmd I to focus the agent. ` +
             `Treat this as the immediate context to act on:\n` +
             `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
           );
-        } catch {
-          // DB not ready — skip silently
+        } catch (error) {
+          if (!hasAppStateIdentity()) return "";
+          noteScreenStatus("selection", "failed");
+          console.warn(
+            "[agent-chat] selection context unavailable:",
+            error instanceof Error ? error.message : String(error),
+          );
+          return SELECTION_CONTEXT_UNAVAILABLE_NOTE;
         }
         return "";
       })();
@@ -9478,7 +10569,7 @@ export function createProductionAgentHandler(
         if (options.skipFilesContext || requestedHostedHarness) {
           return filesContext;
         }
-        if (history.length === 0) {
+        if (requestHistory.length === 0) {
           try {
             const {
               resourceListAccessible,
@@ -9630,6 +10721,7 @@ export function createProductionAgentHandler(
       loopSettings,
       enrichedMessage,
       jevContextCredentials,
+      priorConnection,
     ] = await Promise.all([
       presendCap("systemPrompt", systemPromptThunk, "", 13000, () => {
         // An empty configured prompt is valid, but an empty timeout fallback
@@ -9639,9 +10731,27 @@ export function createProductionAgentHandler(
         systemPromptError ??= systemPromptTimeoutError;
       }),
       presendCap("time", timeContextThunk, "", 9000),
-      presendCap("screen", screenContextThunk, "", 9000),
-      presendCap("url", urlContextThunk, "", 9000),
-      presendCap("selection", selectionContextThunk, "", 9000),
+      presendCap(
+        "screen",
+        screenContextThunk,
+        screenUnavailableNote,
+        9000,
+        () => {
+          screenStatuses.screen = "timed_out";
+        },
+      ),
+      presendCap("url", urlContextThunk, screenUnavailableNote, 9000, () => {
+        screenStatuses.url = "timed_out";
+      }),
+      presendCap(
+        "selection",
+        selectionContextThunk,
+        SELECTION_CONTEXT_UNAVAILABLE_NOTE,
+        9000,
+        () => {
+          screenStatuses.selection = "timed_out";
+        },
+      ),
       presendCap("files", filesContextThunk, "", 12000),
       presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
       presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
@@ -9649,6 +10759,22 @@ export function createProductionAgentHandler(
         "jevContextCredentials",
         () => getJevContextCredentials(ownerEmail ?? getRequestUserEmail()),
         { apiKey: undefined, personalApiKey: undefined, builderAuth: null },
+        9000,
+      ),
+      presendCap(
+        "priorConnection",
+        // The foreground of a dispatched run never prompts the model; the
+        // worker re-reads, so reading here would pay for it twice.
+        (): Promise<PriorConnectionNote> =>
+          threadId && !dispatchToBackground
+            ? resolvePriorConnectionNote({
+                threadId,
+                orgId: getRequestOrgId() ?? null,
+                appId: options.appId,
+                excludeRunId: backgroundRunMarker?.runId,
+              })
+            : Promise.resolve({ status: "none" }),
+        { status: "unreadable", error: "timed out" },
         9000,
       ),
     ]);
@@ -9672,7 +10798,22 @@ export function createProductionAgentHandler(
         },
       });
     }
+    // Screen and URL share one note; the same failure needn't be told twice.
+    if (urlBlock === screenBlock) urlBlock = "";
     const screenContext = timeBlock + screenBlock + urlBlock + selectionBlock;
+    // Referenced agents don't share this run's tools, so a note telling the
+    // model to call view-screen would send them looking for a tool they lack.
+    const withoutUnavailableNote = (block: string) =>
+      block === screenUnavailableNote ||
+      block === SELECTION_CONTEXT_UNAVAILABLE_NOTE
+        ? ""
+        : block;
+    const referencedAgentContext =
+      timeBlock +
+      withoutUnavailableNote(screenBlock) +
+      withoutUnavailableNote(urlBlock) +
+      withoutUnavailableNote(selectionBlock);
+    const screenStatus = worstContextStatus(...Object.values(screenStatuses));
     const surfacedActionRegistry =
       requestMode === "plan"
         ? createPlanModeActionRegistry(surfacedRequestActions)
@@ -9708,7 +10849,7 @@ export function createProductionAgentHandler(
           COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
         )
       : undefined;
-    const [requestTools, jevContext] = await Promise.all([
+    const [requestTools, jevPreload] = await Promise.all([
       preloadJevTools({
         request: jevRequestContext,
         skip: Boolean(internalContinuation || dispatchToBackground),
@@ -9721,7 +10862,7 @@ export function createProductionAgentHandler(
         availableTools: availableRequestTools,
         readOnlyOnly: requestMode === "plan",
       }),
-      preloadJevContextForPrompt({
+      preloadJevContextWithStatus({
         request: jevRequestContext,
         appId: options.appId,
         owner: ownerEmail ?? undefined,
@@ -9738,7 +10879,27 @@ export function createProductionAgentHandler(
         fallbackCandidateIds: jevFallbackCandidateIds,
       }),
     ]);
+    const jevContext = jevPreload.context;
     if (jevContext) systemPrompt = `${systemPrompt}\n\n${jevContext}`;
+    const prefetchStatus = worstContextStatus(
+      jevPreload.status,
+      preparedReferenceStatus,
+    );
+    if (runContext) {
+      runContext.contextStatus = {
+        prefetch: prefetchStatus,
+        screen: screenStatus,
+      };
+    }
+    // Per-turn, so the stable system prompt prefix keeps caching.
+    const prefetchNote =
+      prefetchStatus && isContextDegraded(prefetchStatus)
+        ? preloadedContextUnavailableNote(prefetchStatus, {
+            // The other source delivered, so only part of the context is missing.
+            partial:
+              jevPreload.status === "ok" || preparedReferenceStatus === "ok",
+          })
+        : "";
     const contextXraySystemSections = [
       ...readContextXraySystemSections(event),
       ...(jevContext
@@ -9779,21 +10940,29 @@ export function createProductionAgentHandler(
         ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
         : systemPrompt;
 
-    const agentRefs = references.filter((r) => r.type === "agent");
-    const customAgentRefs = references.filter((r) => r.type === "custom-agent");
+    const agentRefs = requestReferences.filter((r) => r.type === "agent");
+    const customAgentRefs = requestReferences.filter(
+      (r) => r.type === "custom-agent",
+    );
     const planModeAgentNote =
       requestMode === "plan" && agentRefs.length > 0
         ? "\n\n<plan-mode-note>Connected external agent mentions were not called because Plan mode is read-only. Mention that they can be called after the user switches to Act mode if the plan needs them.</plan-mode-note>"
         : "";
 
     const userContent = buildUserContentWithAttachments({
-      text: enrichedMessage + screenContext + filesContext + planModeAgentNote,
+      text:
+        enrichedMessage +
+        screenContext +
+        prefetchNote +
+        priorConnectionContextNote(priorConnection) +
+        filesContext +
+        planModeAgentNote,
       attachments: requestAttachments,
     });
 
     const historyMessages =
-      structuredHistoryToEngineMessages(structuredHistory) ??
-      history
+      structuredHistoryToEngineMessages(requestStructuredHistory) ??
+      requestHistory
         .filter((m) => m.content.trim())
         .map(
           (m): EngineMessage => ({
@@ -9806,23 +10975,17 @@ export function createProductionAgentHandler(
       ...historyMessages,
       { role: "user" as const, content: userContent },
     ];
-    const requestedApprovedToolCalls =
-      Array.isArray(body.approvedToolCalls) && body.approvedToolCalls.length > 0
-        ? body.approvedToolCalls
-            .filter((key: unknown): key is string => typeof key === "string")
-            .slice(0, 200)
-        : undefined;
     // The durable approval row is the authorization boundary. Do not require
     // the client to reproduce the original structured history exactly: the UI
     // may truncate tool arguments and intentionally assigns fresh replay ids.
     // The loop still consumes only a matching server-created grant for the
     // current owner/org/thread/turn/tool/input tuple.
     const exactApprovedToolCall = findApprovedStructuredToolCall(
-      structuredHistory,
+      requestStructuredHistory,
       requestedApprovedToolCalls,
     );
     const firstRequestPayloadDetail = buildFirstRequestPayloadDetail({
-      isFirstRequest: history.length === 0,
+      isFirstRequest: requestHistory.length === 0,
       systemPrompt: requestSystemPrompt,
       messages,
       tools: requestTools,
@@ -9832,19 +10995,6 @@ export function createProductionAgentHandler(
       isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
-    const resolvedApprovalTurnId =
-      !isBackgroundWorker &&
-      ownerEmail &&
-      threadId &&
-      requestedApprovedToolCalls?.length
-        ? await resolveAgentToolApprovalTurnId({
-            ownerEmail,
-            orgId: getRequestOrgId() ?? null,
-            threadId,
-            requestedTurnId: requestTurnId,
-            approvalKeys: requestedApprovedToolCalls,
-          })
-        : null;
     const effectiveTurnId =
       typeof backgroundRunMarker?.turnId === "string" &&
       backgroundRunMarker.turnId.trim()
@@ -9853,6 +11003,27 @@ export function createProductionAgentHandler(
           (typeof requestTurnId === "string" && requestTurnId.trim()
             ? requestTurnId.trim()
             : runId));
+    let durableDispatchPayload: string | undefined;
+    if (dispatchToBackground) {
+      try {
+        durableDispatchPayload = serializeDurableDispatchPayload({
+          ...body,
+          ...(Array.isArray(attachments) || requestAttachments.length > 0
+            ? { attachments: requestAttachments }
+            : {}),
+        } as unknown as Record<string, unknown>);
+      } catch (error) {
+        if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
+          throw error;
+        }
+        setResponseStatus(event, 503);
+        return {
+          error: error.message,
+          code: error.code,
+          retryable: false,
+        };
+      }
+    }
     const foregroundSelfChainEligible =
       !isBackgroundWorker &&
       !dispatchToBackground &&
@@ -9898,11 +11069,9 @@ export function createProductionAgentHandler(
               ? "foreground-self-chain"
               : "foreground",
           ...(dispatchToBackground
-            ? { dispatchPayload: JSON.stringify(body) }
+            ? { dispatchPayload: durableDispatchPayload }
             : {}),
-          ...(autoContinueOfRunId
-            ? { autoContinueOf: autoContinueOfRunId }
-            : {}),
+          ...(continueOf ? { continueOf } : {}),
         });
       } catch (error) {
         await setupResumeClaim?.release();
@@ -9919,14 +11088,10 @@ export function createProductionAgentHandler(
         await setupResumeClaim?.release();
         return { ok: true, stopped: true };
       }
-      if (slot.autoContinueRefused) {
+      if (slot.continueRefused) {
         await setupResumeClaim?.release();
         setResponseStatus(event, 409);
-        return {
-          error: "This turn will not continue automatically.",
-          code: slot.autoContinueRefused,
-          retryable: false,
-        };
+        return continueRefusal(slot.continueRefused);
       }
       if (slot.completedRunId) {
         const stream = await replayCompletedTurn(threadId, effectiveTurnId);
@@ -10005,26 +11170,33 @@ export function createProductionAgentHandler(
       ? Math.max(0, priorTurnInputTokensFromBody)
       : 0;
 
-    // A server successor and an automatic continuation resume the same turn
-    // the same way: the thread's tool calls and results, plus the turn's
+    // A server successor and a continuation, automatic or chosen, resume the
+    // same turn the same way: the thread's tool calls and results, plus the turn's
     // journal of finished steps, so nothing already done is sent again.
-    if (
-      (isChainedBackgroundContinuation || autoContinueOfRunId) &&
-      effectiveThreadId
-    ) {
+    if ((isChainedBackgroundContinuation || continueOf) && effectiveThreadId) {
       try {
         const { getThread } = await import("../chat-threads/store.js");
-        const { resumeThreadHistoryForRequest } =
+        const { latestPromptTurnId, resumeThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
+        const threadData = (await getThread(effectiveThreadId))?.threadData;
         const { messages: resumed, foundTurnPrompt } =
-          resumeThreadHistoryForRequest(
-            (await getThread(effectiveThreadId))?.threadData,
-          );
+          resumeThreadHistoryForRequest(threadData);
         // A continuation always follows a stopped run, so a thread without
         // that turn's prompt means its history was lost, not that there was
         // none. A successor stays best-effort and resumes from what is there.
-        if (autoContinueOfRunId && !foundTurnPrompt) {
+        if (continueOf && !foundTurnPrompt) {
           throw new Error(`thread ${effectiveThreadId} has no turn prompt`);
+        }
+        // Resuming takes the thread's newest prompt, so a newer one, even one
+        // whose run never started, would run under this turn's journal.
+        const promptTurnId =
+          continueOf && threadData ? latestPromptTurnId(threadData) : undefined;
+        if (promptTurnId && promptTurnId !== effectiveTurnId) {
+          if (await updateRunStatusIfRunning(runId, "errored")) {
+            await setRunTerminalReason(runId, CONTINUE_UNAVAILABLE_CODE);
+          }
+          setResponseStatus(event, 409);
+          return continueRefusal(CONTINUE_UNAVAILABLE_CODE);
         }
         if (resumed.length > 0) {
           const actionPreparationTool =
@@ -10041,13 +11213,17 @@ export function createProductionAgentHandler(
             effectiveThreadId,
             effectiveTurnId,
           );
-          if (autoContinueOfRunId && journalRead.status === "unreadable") {
+          if (continueOf && journalRead.status === "unreadable") {
             throw new Error(journalRead.error);
           }
           const journalNote =
             journalRead.status === "read" && journalRead.toolCallJournal
               ? buildResumeJournalNote(journalRead.toolCallJournal)
               : null;
+          appendRequestAttachmentContextToResumedHistory(
+            resumed,
+            requestAttachments,
+          );
           appendAgentLoopContinuation(resumed, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),
             ...(journalNote ? { journalNote } : {}),
@@ -10056,7 +11232,7 @@ export function createProductionAgentHandler(
           messages.push(...resumed);
         }
       } catch (error) {
-        if (autoContinueOfRunId) {
+        if (continueOf) {
           // The browser's history lacks the stopped run's tool results, so
           // continuing from it could repeat a step that already finished.
           console.warn(
@@ -10098,6 +11274,25 @@ export function createProductionAgentHandler(
           `[agent-chat] history recovery failed for thread ${threadId}; continuing with no prior context:`,
           err,
         );
+      }
+    }
+    if (!internalContinuation && !isChainedBackgroundContinuation && threadId) {
+      try {
+        const { loadStoppedPreviousTurnNote } =
+          await import("./previous-turn-note.js");
+        const note = await loadStoppedPreviousTurnNote(
+          threadId,
+          effectiveTurnId,
+        );
+        const prompt = messages.at(-1);
+        if (note && prompt?.role === "user") {
+          prompt.content = [{ type: "text", text: note }, ...prompt.content];
+        }
+      } catch (err) {
+        captureError(err, {
+          tags: { source: "agent-chat", failureClass: "previous-turn-note" },
+          extra: { threadId, turnId: effectiveTurnId },
+        });
       }
     }
     setupMark("depsThread");
@@ -10142,11 +11337,12 @@ export function createProductionAgentHandler(
         try {
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
-            dispatchPayload: JSON.stringify(body),
+            dispatchPayload: durableDispatchPayload!,
             ...(turnInitiator ? { turnInitiator } : {}),
           });
           backgroundRowInserted = true;
         } catch (err) {
+          if (err instanceof ServicePrincipalRefusedError) throw err;
           console.error(
             "[agent-chat] background insertRun failed; falling back to inline:",
             err instanceof Error ? err.message : err,
@@ -10453,7 +11649,13 @@ export function createProductionAgentHandler(
                 run,
                 effectiveThreadId,
                 effectiveTurnId,
-                requestBody: body as unknown as Record<string, unknown>,
+                requestBody: {
+                  ...body,
+                  ...(Array.isArray(attachments) ||
+                  requestAttachments.length > 0
+                    ? { attachments: requestAttachments }
+                    : {}),
+                } as unknown as Record<string, unknown>,
                 backgroundContinuationCount,
                 noProgressRepeat,
                 turnInputTokens,
@@ -10485,7 +11687,9 @@ export function createProductionAgentHandler(
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
             ...(turnInitiator ? { turnInitiator } : {}),
-          }).catch(() => {});
+          }).catch((error) => {
+            if (error instanceof ServicePrincipalRefusedError) throw error;
+          });
         }
         const won = await claimBackgroundRun(runId);
         if (!won) {
@@ -10622,7 +11826,10 @@ export function createProductionAgentHandler(
                     {
                       role: "user",
                       content: [
-                        { type: "text", text: enrichedMessage + screenContext },
+                        {
+                          type: "text",
+                          text: enrichedMessage + referencedAgentContext,
+                        },
                       ],
                     },
                   ],
@@ -10728,7 +11935,7 @@ export function createProductionAgentHandler(
                 const responseText = await callConnectedAgentReference({
                   agent: ref.name,
                   path: ref.path,
-                  message: enrichedMessage + screenContext,
+                  message: enrichedMessage + referencedAgentContext,
                   send,
                   callAgent,
                   resolveCallerAuth: resolveA2ACallerAuth,
@@ -10821,6 +12028,9 @@ export function createProductionAgentHandler(
           maxIterations: loopSettings.maxIterations,
           maxRunInputTokens: loopSettings.maxRunInputTokens,
           priorTurnInputTokens: turnInputTokens,
+          loadedSkillSlugs: normalizeLoadedSkillSlugs(
+            requestedLoadedSkillSlugs,
+          ),
           finalResponseGuard: options.finalResponseGuard,
           finalResponseGuardRequestText: messageToPersist,
           ...(resolvedRunSoftTimeoutMs > 0
@@ -10900,6 +12110,17 @@ export function createProductionAgentHandler(
                     : undefined,
                 metadata: {
                   modelSelectionSource,
+                  // What the request asked for; the loop may lower it on retry.
+                  reasoningEffortRequested: reasoningEffort ?? null,
+                  ...(prefetchStatus
+                    ? { contextPrefetchStatus: prefetchStatus }
+                    : {}),
+                  ...(screenStatus
+                    ? { screenContextStatus: screenStatus }
+                    : {}),
+                  ...(priorConnection.status !== "none"
+                    ? { priorConnectionRequest: priorConnection.status }
+                    : {}),
                   ...(turnUsageLabel ? { label: turnUsageLabel } : {}),
                   ...(experimentAssignments.length > 0
                     ? { experimentAssignments }

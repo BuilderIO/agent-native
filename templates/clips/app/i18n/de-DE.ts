@@ -7,6 +7,7 @@ const messages = {
         "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
     common: { retry: "Erneut versuchen" },
+    onboarding: { skipForNow: "Vorerst überspringen" },
   },
   timelineTrack: {
     helpOtherSide:
@@ -219,6 +220,7 @@ const messages = {
   recordingPage: {
     back: "Zurück",
     done: "Fertig",
+    backToClip: "Zurück zum Clip",
     untitledClip: "Unbenannter Clip",
     recordingNotFound: "Aufnahme nicht gefunden",
     noAccess: "Möglicherweise haben Sie keinen Zugriff auf diesen Clip.",
@@ -317,6 +319,8 @@ const messages = {
     silenceWorking: "Stille wird entfernt…",
     silenceCompleted: "Entfernen der Stille abgeschlossen",
     silenceFailed: "Entfernen der Stille fehlgeschlagen",
+    silenceEditsUnreadable:
+      "Gespeicherte Bearbeitungen konnten nicht gelesen werden; Stille wurde nicht entfernt.",
     generatePrSummary: "Erstellen Sie eine PR-Zusammenfassung",
     generateSop: "Generieren Sie SOP",
     generateSopTooltip:
@@ -348,7 +352,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Vom Agenten lesbarer Clip-Kontext",
     agentInstructions:
-      "Rufen Sie agentContextUrl für das Transkript und den JPEG-Frame URLs ab. Rufen Sie den Frame „URLs“ ab, um den Bildschirm zu SEHEN, und nicht nur, um das Transkript zu lesen.",
+      "Öffne zuerst agentContextUrl. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden.",
     untitledClip: "Unbenannter Clip",
     incorrectPassword: "Falsches Passwort",
     passwordProtected: "Dieser Clip ist passwortgeschützt",
@@ -617,7 +621,7 @@ const messages = {
     openInCodex: "In Codex öffnen",
     copyAgentPrompt: "Agent-Prompt kopieren",
     agentPrompt:
-      "Rufe diese Clips-Agent-Kontext-URL ab: {{agentContextUrl}}. Verwende transcript.segments fuer den gesprochenen Kontext, rufe recommendedFrames oder die Frame-API-URLs ab, um den Bildschirm zu sehen, und pruefe browserDiagnostics, falls vorhanden, fuer redigierte Konsolenprotokolle und fetch/XHR-Anfragemetadaten.",
+      "Lies diese Clips-Agent-Kontext-URL: {{agentContextUrl}}. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden. Nutze browserDiagnostics bei Fehlerberichten, falls vorhanden.",
     agentTokenDescription:
       "Temporärer Nur-Lese-Link für Agenten, da dieser Clip nicht öffentlich ist. Läuft in 2 Stunden ab.",
     agentPublicDescription:
@@ -1374,6 +1378,11 @@ const messages = {
     burningRedactionsPercent:
       "Die Schwärzungen werden in das Video gerendert … {{percent}} %",
     editFailed: "Diese Änderung konnte nicht gespeichert werden",
+    refreshFailed:
+      "Die neuesten Änderungen konnten nicht geladen werden. Bitte versuche es erneut, bevor du weiterbearbeitest.",
+    autoSaveHint: "Änderungen werden automatisch in diesem Clip gespeichert",
+    savingChanges: "Änderungen werden gespeichert…",
+    changesSaved: "Änderungen in diesem Clip gespeichert",
     nothingToRedo: "Nichts zum Wiederherstellen",
   },
   transcriptEditor: {
@@ -1412,6 +1421,14 @@ const messages = {
       "Erstelle ein kostenloses Clips-Konto, um der Unterhaltung beizutreten",
     genericTitle: "Erstelle ein kostenloses Clips-Konto, um fortzufahren",
     description: "Danach kehrst du direkt zu diesem Clip zurück.",
+    verificationPendingTitle: "Bestätige deine E-Mail-Adresse",
+    verificationPendingCopy:
+      "Wir haben eine Bestätigungs-E-Mail an {{email}} gesendet. Öffne sie, um die Kontoerstellung abzuschließen und zu diesem Clip zurückzukehren.",
+    resendVerification: "Bestätigungs-E-Mail erneut senden",
+    resendingVerification: "Bestätigungs-E-Mail wird gesendet...",
+    verificationEmailResent: "Eine neue Bestätigungs-E-Mail ist unterwegs.",
+    verificationEmailFailed:
+      "Die Bestätigungs-E-Mail konnte nicht erneut gesendet werden. Versuche es noch einmal oder melde dich mit einem E-Mail-Link an.",
     passwordsMismatch: "Die Passwörter stimmen nicht überein.",
     commentIntent: "kommentieren",
     reactIntent: "eine Reaktion hinzuzufügen",
@@ -1488,15 +1505,25 @@ const messages = {
     builderConnectPopupError:
       "Builder.io konnte nicht geöffnet werden. Wenn diese App in einem Chat eingebettet ist, öffne sie in einem Browser-Tab; versuche es andernfalls erneut.",
     builderConnectError:
-      "Builder.io konnte nicht eingerichtet werden. Bitte erneut versuchen oder den Support kontaktieren.",
+      "Die Einrichtung von Builder.io wurde nicht abgeschlossen. Versuche es erneut oder wähle S3-kompatiblen Speicher.",
+    builderConnectErrorAskAdmin:
+      "Die Einrichtung von Builder.io wurde nicht abgeschlossen. Versuche es erneut oder bitte einen Inhaber oder Admin, den Speicher einzurichten.",
+    builderStatusReadError:
+      "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
+    builderUploadGrantMissing:
+      "Builder.io ist für KI verbunden, aber diese Verbindung kann keine Clips hochladen. Verbinde Builder.io erneut mit Upload-Berechtigung oder bitte einen Inhaber oder Admin um Hilfe.",
+    builderGrantAskAdmin:
+      "Bitte einen Inhaber oder Admin, Builder.io mit Berechtigung zum Hochladen von Clips zu verbinden.",
+    statusUnavailable:
+      "Der Status des Videospeichers konnte nicht geprüft werden.",
     checkingBuilderConnection: "Builder-Verbindung wird geprüft…",
     builderTimeout:
-      "Nach 5 Minuten kam keine Antwort von Builder. Versuche es erneut.",
+      "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
     description:
       "Speichere aufgenommene Videos mit Builder.io oder S3-kompatiblem Speicher. Builder.io enthält kostenloses Hosting und KI-Guthaben.",
-    createBuilderAccount: "Builder.io-Konto erstellen",
+    createBuilderAccount: "Builder.io verwenden",
     signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
     free: "Kostenlos",
     whyPrompt: "Warum sehe ich das?",
@@ -1853,6 +1880,9 @@ const messages = {
     storageConnectedUploading:
       "Speicher verbunden. Deine Aufnahme wird hochgeladen…",
     downloadCopy: "Kopie herunterladen",
+    localRecordingPreview: "Vorschau der lokalen Aufnahme",
+    localPreviewUnavailable:
+      "Diese lokale Vorschau ist nicht verfügbar. Du kannst weiterhin eine Kopie herunterladen.",
     localRecordingOpenElsewhere:
       "Diese Aufnahme ist noch in einem anderen Clips-Tab geöffnet.",
     uploadWaitingForConnection:

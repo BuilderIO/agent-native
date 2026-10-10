@@ -437,7 +437,6 @@ const editor = {
   pageBodySyncing: "इस पेज की सामग्री अभी भी सिंक हो रही है",
   pageBodySyncingDescription:
     "पेज का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा सामग्री अधिलेखित न हो।",
-  createCollection: "संग्रह बनाएँ",
   creatingDatabase: "इनलाइन संग्रह बनाया जा रहा है...",
   databaseCreated: "संग्रह बनाया गया",
   emptyBlockPlaceholder: "कमांड के लिए '/' दबाएं",
@@ -788,10 +787,12 @@ const editor = {
     linkToNotionPage: "धारणा पृष्ठ से लिंक करें",
     localFile: "स्थानीय फ़ाइल",
     morePageActions: "अधिक पृष्ठ क्रियाएँ",
+    formatting: "स्वरूपण",
     noPagesFound: "कोई पेज नहीं मिला",
     notifications: "सूचनाएं",
     notionSync: "धारणा सिंक",
     openInNotion: "धारणा में खोलें",
+    openInAgentNative: "Agent-Native में खोलें",
     orgCanFindAndView: "आपके संगठन का कोई भी व्यक्ति ढूंढ और देख सकता है",
     orgLinkCanView: "आपके संगठन का कोई भी व्यक्ति जिसके पास लिंक है, देख सकता है",
     pin: "पिन करें",
@@ -1046,6 +1047,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "अब भी {{stage}} का इंतज़ार हो रहा है। अनुरोध: {{action}}।",
+    widgetDocumentLoadStage: "सहेजे गए पेज का मुख्य भाग",
+    widgetDraftCheckStage: "पेज ड्राफ़्ट की बहाली",
+    widgetEditorInitStage: "रिच-टेक्स्ट एडिटर के शुरू होने",
     iconPickerIcons: "आइकन",
     iconPickerEmoji: "इमोजी",
     iconPickerRecent: "हाल के",
@@ -1415,6 +1420,9 @@ const overrides = {
     aiUndo: "पूर्ववत करें",
     aiDone: "हो गया",
     aiMoreChanges: "+{{count}} और",
+    suggestionReplaced: "बदला गया",
+    suggestionWithdrawn: "वापस लिया गया",
+    suggestedChange: "सुझाया गया बदलाव",
     aiUndoUnavailable: "हटाया गया टेक्स्ट अपने-आप वापस नहीं लाया जा सकता",
     aiUndoFailed: "बदलाव पूर्ववत नहीं हो सका",
     aiResolvedByAi: "AI ने हल किया",
@@ -1456,6 +1464,11 @@ const overrides = {
     resize: "साइडबार का आकार बदलें",
     expand: "साइडबार फैलाएं",
     failedCreatePage: "पेज नहीं बन सका",
+    failedCreatePageDraftDescription:
+      "आपका ड्राफ़्ट इस ब्राउज़र में सेव है। आप पेज बनाने की फिर कोशिश कर सकते हैं या ड्राफ़्ट हटा सकते हैं।",
+    discardFailedCreatePageQuestion: "लंबित निर्माण छोड़ें?",
+    discardFailedCreatePageDescription:
+      "इससे लंबित निर्माण और कोई भी सहेजा नहीं गया ड्राफ़्ट साफ़ हो जाएगा। अगर पेज पहले से सहेजा गया है, तो वह आपके कार्यक्षेत्र में बना रहेगा।",
     failedDeletePage: "पेज हटाया नहीं जा सका",
     failedPermanentDeletePage: "पेज को स्थायी रूप से हटाया नहीं जा सका",
     failedRestorePage: "पेज पुनर्स्थापित नहीं किया जा सका",

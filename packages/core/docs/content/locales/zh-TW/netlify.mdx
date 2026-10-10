@@ -1,62 +1,225 @@
 ---
 title: "Netlify"
-description: "使用 Netlify Nitro 預設集將 agent-native 應用程式部署到 Netlify，並為縮減至零資料庫設定 keep-warm。"
+description: "使用 Netlify CLI 將獨立的 Agent-Native 應用程式部署到 Netlify，並為縮減至零資料庫設定 keep-warm。"
 ---
 
 # Netlify
 
-Nitro 的 `netlify` 預設集運作良好，而且在實務上，對於會連線外部 Postgres（Neon）的範本來說，它帶來很快的冷啟動速度（約 200ms TTFB）。若要在產生的 scaffold 外使用最精簡設定，請在 `vite.config.ts` 中這樣設定預設集：
+Netlify 會替你代管應用程式，因此不需要架設或維護伺服器。建置會把應用程式轉換成
+Netlify 直接提供的靜態檔案，以及 Netlify 依需求執行的函式，Netlify 也會為應用程式
+提供一個支援 HTTPS 的公開網址。
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "netlify" } })],
-});
+本指南會從頭開始示範如何部署一個獨立應用程式。你將建立應用程式，為它設定正式環境
+資料庫和驗證密鑰，為它建立一個 Netlify 網站，準備好資料庫，然後建置並部署它。
+
+<Callout tone="info">
+
+需要 Node.js `22.22+`。
+
+</Callout>
+
+你還需要一個 Netlify 帳號。請在你自己的電腦上執行本指南中的指令。Netlify CLI 會替你
+把完成的建置上傳到 Netlify。
+
+## 步驟 1：建立應用程式 {#step-1-create-the-app}
+
+建立新的獨立應用程式。下面的範例以 Chat 範本建立應用程式，但你可以從任何範本開始。
+進入應用程式的資料夾並安裝相依套件。`corepack enable` 會啟用應用程式所需的 `pnpm`
+版本，因此你不需要自行安裝 `pnpm`。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-產生的 Chat scaffold 仍然匯入 `agentNative`。設定會透過型別斷言將它指派給本機別名
-`agentNativePlugins`，再展開傳回的外掛陣列，以配合 Vite 套件型別。此別名接受與上方
-`agentNative` 範例相同的選項。若要將此 scaffold 部署至 Netlify，請在現有
-`agentNativePlugins({ ... })` 呼叫的選項中加入 `nitro: { preset: "netlify" }`。保留其他
-Chat 專用外掛、選項與別名。
+如果你想要，可以把 `my-app` 換成你自己的應用程式名稱。本指南的其餘部分假設你位於
+應用程式的資料夾中。
 
-……或者在建置時設定 `NITRO_PRESET=netlify`。
+<Callout tone="info">
 
-對於獨立應用程式，請建置 Netlify 輸出並部署靜態資源與函式：
+如果這些指令因對等相依性錯誤而失敗，原因可能是 npx 快取中有過時的套件副本。執行 `npx clear-npx-cache` 清除快取，然後重新執行這些指令。
+
+</Callout>
+
+## 步驟 2：設定環境密鑰 {#step-2-configure-environment-secrets}
+
+應用程式會從環境變數讀取其正式環境設定：
+
+| 變數                 | 必要 | 用途                                       |
+| -------------------- | ---- | ------------------------------------------ |
+| `DATABASE_URL`       | 是   | 將應用程式連線到它的 PostgreSQL 資料庫     |
+| `BETTER_AUTH_SECRET` | 是   | 為使用者工作階段簽章                       |
+| `BETTER_AUTH_URL`    | 否   | 設定使用者連到你的應用程式時使用的公開網址 |
+
+下面的 export 指令讓後續指令能在目前的 shell 中正常運作。部署之前，請把這些變數
+同樣儲存到主機的專案或服務環境設定中。下一個步驟會說明如何在 Netlify 中儲存它們。
+
+### 資料庫 URL {#database-url}
+
+在本機開發期間，如果未設定 `DATABASE_URL`，應用程式會把資料儲存在本機資料庫中。
+已部署的應用程式需要一個真正的 PostgreSQL 資料庫，在每次部署之間保留資料。Netlify
+不會在請求之間保留檔案，因此資料庫必須位於 Netlify 的函式之外。從你的提供者複製
+連線字串並匯出它：
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[資料庫提供者指南](/docs/neon)說明了在各個提供者處找到連線字串的位置。
+
+<Callout tone="warning">
+
+請選擇持久性的 PostgreSQL 提供者，例如 Neon、Supabase、Amazon RDS 等。
+
+</Callout>
+
+### 驗證密鑰 {#auth-secret}
+
+只需要產生一次，並在每次部署之間保持不變。
+
+應用程式使用 `BETTER_AUTH_SECRET` 為使用者工作階段簽章。如果它變更了，所有已登入的
+使用者都會被登出。下面的指令會產生一個隨機值：
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+請把產生的值儲存在安全的地方，例如密碼管理工具。每次部署時都使用相同的值。
+
+### 公開 URL {#public-url}
+
+選用。在使用自訂網域、反向代理，或需要固定公開來源的驗證/OAuth 流程時設定它。
+
+`BETTER_AUTH_URL` 是使用者連到你的應用程式時使用的公開網址。如果沒有設定，應用程式
+會根據每個傳入的請求推斷自己的網址。在 Netlify 提供給你的網址上，這通常沒有問題，
+但當你連接自訂網域時，請設定它，讓登入連結和 OAuth 重新導向使用該網域。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 步驟 3：連結網站並儲存密鑰 {#step-3-link-the-site-and-save-the-secrets}
+
+從命令列登入 Netlify，然後為應用程式建立一個新網站。專案名稱可以保留預設值，GitHub
+存放庫目前可以先留空。
+
+```bash
+npx netlify login
+
+npx netlify sites:create --name my-app
+```
+
+`sites:create` 會建立網站並把它連結到應用程式的資料夾，讓後續指令知道要使用哪個
+網站。這個名稱也會成為網站的網址，例如 `my-app.netlify.app`。網站名稱在整個
+Netlify 中共用，因此如果 `my-app` 已經被使用，請選擇其他名稱。你不需要 GitHub
+存放庫，因為你會在步驟 5 中從自己的電腦部署應用程式。
+
+把兩個必要變數儲存到網站的環境中：
+
+```bash
+npx netlify env:set DATABASE_URL "$DATABASE_URL"
+
+npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+```
+
+每個指令都會讀取你在步驟 2 中匯出的值並儲存到 Netlify，因此你不需要手動貼上密鑰。
+如果你有設定 `BETTER_AUTH_URL`，請用同樣的方式儲存它。之後你也可以在 Netlify
+資訊主頁的網站設定中查看和變更這些值。
+
+## 步驟 4：遷移 {#step-4-migrate}
+
+遷移會在你的資料庫中建立和更新應用程式所需的資料表。請在第一次部署之前執行此指令：
+
+```bash
+pnpm migrate:production
+```
+
+這個指令會在你的電腦上執行，並使用你在步驟 2 中匯出的 `DATABASE_URL` 連線到正式
+環境資料庫。升級應用程式之後、部署新版本之前，請再執行一次。
+
+## 步驟 5：部署 {#step-5-deploy}
+
+為 Netlify 建置應用程式：
 
 ```bash
 NITRO_PRESET=netlify pnpm build
+```
+
+`NITRO_PRESET=netlify` 會依照 Netlify 預期的格式建置應用程式。建置會把應用程式的
+靜態檔案寫入 `dist` 資料夾，並把它的伺服器函式寫入 `.netlify/functions-internal`
+資料夾。
+
+上傳建置並發布它：
+
+```bash
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-首次正式部署前，請在 Netlify 網站環境變數中設定 `DATABASE_URL` 和穩定的 `BETTER_AUTH_SECRET`。不要依賴本機開發使用的 PGlite 資料庫；`DATABASE_URL` 必須指向部署函式可存取的持久 PostgreSQL 資料庫。
+`--dir` 和 `--functions` 會告訴 CLI 在哪裡找到你剛剛建置的靜態檔案和函式。`--prod`
+會把它們發布到你的正式環境網址，而不是草稿預覽。
 
-對於工作區，執行以下指令，從一個 Netlify 網站部署每個應用程式：
+指令完成後，會輸出應用程式的正式環境網址。開啟它並建立第一個帳號。
+
+## 部署更新 {#deploy-updates}
+
+若要發布新版本，請在應用程式的資料夾中再次執行遷移、建置和部署指令：
 
 ```bash
-npx @agent-native/core@latest deploy --preset netlify
+pnpm migrate:production
+
+NITRO_PRESET=netlify pnpm build
+
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-工作區建置會將靜態資源寫入 `dist/_workspace_static/` 下，並將每個應用程式路由到自己的 Netlify function，且不強制進行資源重新導向，因此像 `/mail/assets/...` 這樣的檔案會先以靜態方式提供，之後伺服器 function 才會處理應用程式路由。
+網站連結和已儲存的變數會保持不變，因此你不需要重複步驟 3。
 
 ## Keep-warm 與縮減至零資料庫 {#netlify-keep-warm}
 
-啟用後，Netlify 建置會產生一個排程 function，**每分鐘**請求一次 `/_agent-native/health`。這會讓伺服器 function 及其資料庫保持喚醒狀態，因此閒置一段時間之後的下一位訪客不需要承受冷啟動（在 Neon 上是 1 到 5 秒）。
+閒置一段時間之後，第一個請求可能會比較慢，因為 Netlify 需要啟動函式，而縮減至零
+資料庫（例如 Neon 的免費方案）也需要喚醒。Agent-Native 可以透過 keep-warm 縮短這段
+等待時間。啟用後，建置會加入一個 Netlify 排程函式，**每分鐘**呼叫一次應用程式的
+`/_agent-native/health` 端點，讓伺服器函式及其資料庫保持喚醒狀態。
 
-Keep-warm **預設為停用**，因為每分鐘一次的喚醒會阻止按用量計費的縮減至零資料庫進行自動暫停。在免費方案的 Neon 上，這可能會耗盡計算配額，之後資料庫會在工作階段中途拒絕**所有**讀取。徵狀是應用程式完全掛掉，而不是變慢。當較低的下一位訪客延遲值得換來資料庫的喚醒時間時，請設定 `AGENT_NATIVE_ENABLE_KEEP_WARM=1`。
+Keep-warm **預設為停用**。讓資料庫保持喚醒會阻止它暫停，進而耗用免費或按用量計費
+方案的計算配額。如果配額用完，資料庫會拒絕**所有**讀取，應用程式也會停止運作。當更快
+的第一次造訪值得額外的資料庫運作時間時，請設定 `AGENT_NATIVE_ENABLE_KEEP_WARM=1`。
 
-keep-warm 排程和背景 function 喚醒，都只有在主要的 keep-warm 旗標啟用之後才會生效：
+以下變數控制 keep-warm。排程和背景設定只有在你啟用 `AGENT_NATIVE_ENABLE_KEEP_WARM`
+之後才會生效：
 
-| Variable                                    | Effect                                                                                                                                  |
+| 變數                                        | 效果                                                                                                                                    |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 選擇加入排程的伺服器/資料庫喚醒。預設未設定。                                                                                           |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 相容性關閉開關，設定後會覆蓋選擇加入的旗標。                                                                                            |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 使用 5 個欄位的 cron 表達式覆寫執行頻率，例如 `*/5 * * * *`。啟用時的預設頻率為 `* * * * *`。無法解析的值會**導致建置失敗**。           |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 只移除背景 function 的喚醒，保留伺服器的喚醒。喚醒 `server` 只是一次請求。喚醒 `-background` 則會啟動一個全新的容器，重新探測結構描述。 |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 啟用伺服器函式和資料庫的排程喚醒。預設未設定。                                                                                          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 即使設定了 `AGENT_NATIVE_ENABLE_KEEP_WARM`，也會停用 keep-warm。為了與舊版設定相容而保留。                                              |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 以 5 段式 cron 運算式變更喚醒的執行頻率，例如 `*/5 * * * *`。預設值是 `* * * * *`，也就是每分鐘一次。無效的 cron 值會**導致建置失敗**。 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 略過背景函式的喚醒，仍持續喚醒伺服器函式。喚醒伺服器只是一次請求。喚醒背景函式會啟動一個新的容器，並再次檢查資料庫 schema。             |
 
-如果你使用的是免費方案或其他有配額限制的資料庫方案，請讓 `AGENT_NATIVE_ENABLE_KEEP_WARM` 保持未設定。如果你選擇加入，請使用較慢的頻率，或設定 `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` 來移除成本較高的背景喚醒。
+如果你的資料庫使用的是免費方案或其他有限制的方案，請讓 `AGENT_NATIVE_ENABLE_KEEP_WARM`
+保持未設定。如果你啟用了它，請選擇較慢的排程，或設定
+`AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` 來略過成本較高的背景喚醒。
 
-## 接下來呢
+讀取這些變數的是建置，而不是執行中的應用程式。因為你在步驟 5 中是在自己的電腦上
+建置的，請在建置之前於同一個 shell 中設定它們。把它們儲存在 Netlify 的網站設定中，
+對在本機執行的建置沒有任何作用。例如，若要啟用 keep-warm 並使用每五分鐘一次的排程：
 
-- [**Deployment**](/docs/deployment) — 在第一次正式環境部署之前，選擇一個持久性資料庫和一個預設集
-- [**SSR Caching**](/docs/ssr-caching) — 預設的快取政策，以及 Netlify 獨立的 `netlify-cdn-cache-control` 行為
-- [Node.js](/docs/node-js), [Docker](/docs/docker)、[**Vercel**](/docs/vercel)、[**Cloudflare**](/docs/cloudflare) 和 [**Other Platforms**](/docs/other-platforms) — 其他的 Nitro 預設集
+```bash
+export AGENT_NATIVE_ENABLE_KEEP_WARM=1
+
+export AGENT_NATIVE_KEEP_WARM_SCHEDULE='*/5 * * * *'
+
+NITRO_PRESET=netlify pnpm build
+```
+
+然後照常部署。
+
+## 接下來呢 {#whats-next}
+
+- [**部署環境變數**](/docs/deployment-environment-variables) - 正式環境設定的完整清單
+- [**SSR 快取**](/docs/ssr-caching) - 預設的快取策略，以及 Netlify 獨立的 `netlify-cdn-cache-control` 行為
+- [**部署**](/docs/deployment) - 比較各個代管目標及其先決條件

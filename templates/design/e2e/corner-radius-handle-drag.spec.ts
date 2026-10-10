@@ -7,7 +7,14 @@ import {
   type Page,
 } from "@playwright/test";
 
-import { appPath, designFrame, gotoEditor, selectByText } from "./helpers";
+import {
+  appPath,
+  designFrame,
+  gotoEditor,
+  installBridge,
+  selectByText,
+  waitForBridge,
+} from "./helpers";
 
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Corner radius</title></head>
@@ -69,6 +76,38 @@ async function createDesign(request: APIRequestContext, content = SCREEN_HTML) {
     ],
   });
   return { designId, fileId };
+}
+
+async function waitForReloadedElement(
+  page: Page,
+  fileId: string,
+  selector: string,
+) {
+  await expect(
+    page.getByRole("button", { name: "Move", exact: true }),
+  ).toBeVisible({ timeout: 30_000 });
+  const element = designFrame(page, fileId).locator(selector);
+  await expect(element).toBeAttached({ timeout: 30_000 });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({ screenId, targetSelector }) => {
+          const iframe = Array.from(
+            document.querySelectorAll<HTMLIFrameElement>(
+              "iframe[data-design-preview-iframe]",
+            ),
+          ).find((candidate) => candidate.dataset.screenIframeId === screenId);
+          const previewDocument = iframe?.contentDocument;
+          return Boolean(
+            previewDocument?.readyState === "complete" &&
+            previewDocument.querySelector(targetSelector),
+          );
+        },
+        { screenId: fileId, targetSelector: selector },
+      ),
+    )
+    .toBe(true);
+  return element;
 }
 
 async function selectLayerFromTree(page: Page, layerName: string) {
@@ -141,6 +180,10 @@ async function dragSouthEastRadius(
   page: Page,
   frame: ReturnType<typeof designFrame>,
 ) {
+  await installBridge(page);
+  await page.evaluate(() => {
+    (window as any).__bridge = [];
+  });
   const target = frame.locator("#radius-target");
   const corner = frame.locator('[data-agent-native-radius-handle="se"]');
   const initial = await corner.boundingBox();
@@ -167,10 +210,15 @@ async function dragSouthEastRadius(
         );
       })
       .toBeLessThan(1);
-    const radius = await target.evaluate((element) =>
-      parseFloat(getComputedStyle(element).borderTopLeftRadius),
-    );
-    expect(radius).toBeGreaterThan(previousRadius);
+    let radius = previousRadius;
+    await expect
+      .poll(async () => {
+        radius = await target.evaluate((element) =>
+          parseFloat(getComputedStyle(element).borderTopLeftRadius),
+        );
+        return radius;
+      })
+      .toBeGreaterThan(previousRadius);
     previousRadius = radius;
     if (process.env.E2E_CAPTURE_RADIUS_SCREENSHOT === "1" && distance === 8) {
       await page.screenshot({
@@ -182,6 +230,8 @@ async function dragSouthEastRadius(
     }
   }
   await page.mouse.up();
+  const styleChange = await waitForBridge(page, "visual-style-change");
+  expect(styleChange.styles?.borderRadius).toBe(`${previousRadius}px`);
   return previousRadius;
 }
 
@@ -227,13 +277,15 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
       .toBe(`${committedRadius}px`);
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect
-      .poll(() =>
-        designFrame(page, fileId)
-          .locator("#radius-target")
-          .evaluate((element) => getComputedStyle(element).borderTopLeftRadius),
-      )
-      .toBe(`${committedRadius}px`);
+    const reloadedTarget = await waitForReloadedElement(
+      page,
+      fileId,
+      "#radius-target",
+    );
+    await expect(reloadedTarget).toHaveCSS(
+      "border-top-left-radius",
+      `${committedRadius}px`,
+    );
 
     await setOverviewZoom(page, 200);
     await selectLayerFromTree(page, "Radius target");
@@ -350,14 +402,17 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
     expect(Number(savedPolygon?.radius)).toBeGreaterThan(0);
     expect(savedPolygon?.d).toContain(" A ");
     await page.reload({ waitUntil: "domcontentloaded" });
+    const reloadedPolygon = await waitForReloadedElement(
+      page,
+      fileId,
+      "#filled-polygon",
+    );
     await expect
       .poll(() =>
-        designFrame(page, fileId)
-          .locator("#filled-polygon")
-          .evaluate((element) => ({
-            radius: element.getAttribute("data-an-corner-radius"),
-            d: element.querySelector(":scope > path")?.getAttribute("d"),
-          })),
+        reloadedPolygon.evaluate((element) => ({
+          radius: element.getAttribute("data-an-corner-radius"),
+          d: element.querySelector(":scope > path")?.getAttribute("d"),
+        })),
       )
       .toEqual(savedPolygon);
 
@@ -454,13 +509,15 @@ test("asymmetric normalized radius handle follows a normal drag without jumping"
       .toBe("149px 99px");
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect
-      .poll(() =>
-        designFrame(page, fileId)
-          .locator("#radius-target")
-          .evaluate((element) => getComputedStyle(element).borderTopLeftRadius),
-      )
-      .toBe("149px 99px");
+    const reloadedTarget = await waitForReloadedElement(
+      page,
+      fileId,
+      "#radius-target",
+    );
+    await expect(reloadedTarget).toHaveCSS(
+      "border-top-left-radius",
+      "149px 99px",
+    );
   } finally {
     await action(request, "delete-design", { id: designId });
   }

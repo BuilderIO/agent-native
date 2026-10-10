@@ -149,7 +149,7 @@ describe("Appearance corner radius on boxless text", () => {
       (button) => button.getAttribute("aria-label") === "Independent corners",
     );
 
-  it("disables the radius field and corner toggle like Figma does for text", async () => {
+  it("disables the radius field and corner toggle for text layers", async () => {
     await render(true);
     expect(radiusInput()?.disabled).toBe(true);
     expect(cornersToggle()?.disabled).toBe(true);

@@ -19,8 +19,8 @@ import {
   newOrgSelection,
   ORG_SELECTION_COOKIE,
 } from "../org/request-org-cache.js";
+import { checkWorkspaceAppAccessForRequest } from "../org/workspace-app-access-request.js";
 import {
-  isWorkspaceAppAccessAllowed,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
   WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
 } from "../org/workspace-app-access.js";
@@ -28,6 +28,7 @@ import {
   EMBED_SESSION_COOKIE,
   EMBED_START_PATH,
   EMBED_TARGET_HEADER,
+  isMcpDirectoryWidgetCapabilityScope,
 } from "../shared/embed-auth.js";
 import {
   FIRST_RUN_ONBOARDING_COOKIE,
@@ -43,6 +44,13 @@ import {
 import { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 import { devLoopbackAuthHint } from "./dev-origin-hint.js";
 import {
+  EMAIL_AUTH_LINK_LANDING_PATH,
+  emailAuthLinkFields,
+  emailAuthLinkLandingPage,
+  emailAuthVerificationPath,
+  emailAuthVerificationUrl,
+} from "./email-auth-links.js";
+import {
   isEmbedCapabilityScope,
   revokeEmbedSessionsForOwners,
   requestHasEmbedAuthMarker,
@@ -53,6 +61,7 @@ import {
 import { getPublicFrameworkPathname } from "./framework-request-context.js";
 import type { H3AppShim } from "./framework-request-handler.js";
 import {
+  FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   canonicalFrameworkPathname,
   getFrameworkRoutePrefix,
   publicFrameworkPath,
@@ -107,7 +116,10 @@ import {
 import type { ResolvedRequiredAuthProvider } from "../org/auth-policy.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
-import { AUTH_SIGNUP_INVITE_ONLY_CODE } from "../shared/auth-copy.js";
+import {
+  AUTH_SIGNUP_INVITE_ONLY_CODE,
+  resolveNativeAuthCopy,
+} from "../shared/auth-copy.js";
 import type {
   AuthPageProps,
   ResetPasswordPageProps,
@@ -168,6 +180,10 @@ import {
   type SignupAttributionContext,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
+import {
+  markBearerCredentialRefused,
+  respondBearerCredentialRefused,
+} from "./bearer-credential-refusal.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
@@ -257,9 +273,11 @@ import {
   getResetPasswordHtml,
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
+import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import {
   getRequestContext,
   markRequestIdentityAuthenticatedAtMs,
+  markVerifiedServiceIdentityForEvent,
   hasContinuationLocalRequestContext,
   hasExplicitPersonalOrgScope,
   markExplicitPersonalOrgScope,
@@ -349,6 +367,12 @@ export interface AuthOptions {
    */
   trustCustomEmailVerification?: boolean;
   publicPaths?: string[];
+  /**
+   * Routes whose handlers authenticate a query token. These bypass session
+   * auth only when the named query parameter is present; without it, normal
+   * session and workspace-app authorization runs.
+   */
+  publicPathsWithQueryToken?: Array<{ path: string; queryParam: string }>;
   /**
    * Public, unauthenticated ingest paths that may receive cross-origin
    * requests when CORS_ALLOWED_ORIGINS is unset. These routes must perform
@@ -1151,11 +1175,13 @@ export async function getMcpOAuthBearerSession(
   if (!bearerToken) return null;
 
   try {
-    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveMcpIdentityOrgId }] =
-      await Promise.all([
-        import("../mcp/oauth-route.js"),
-        import("../mcp/build-server.js"),
-      ]);
+    const [
+      { getMcpConnectUrl, getMcpOAuthAudiences },
+      { verifyAuth, resolveMcpIdentityOrgId },
+    ] = await Promise.all([
+      import("../mcp/oauth-route.js"),
+      import("../mcp/build-server.js"),
+    ]);
     const result = await verifyAuth(authHeader, undefined, {
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
@@ -1165,10 +1191,30 @@ export async function getMcpOAuthBearerSession(
       markCredentialMembershipUnavailable(event);
       return null;
     }
-    const identity = result.authed ? result.identity : undefined;
+    if (!result.authed) {
+      if (result.refusal) {
+        markBearerCredentialRefused(
+          event,
+          result.refusal,
+          getMcpConnectUrl(event),
+        );
+      }
+      return null;
+    }
+    const identity = result.identity;
     if (!identity?.userEmail) return null;
     if (identity.orgId === null) markExplicitPersonalOrgScope(event);
     const orgId = await resolveMcpIdentityOrgId(identity);
+    if (
+      identity.identityAssurance === "service" &&
+      identity.orgId &&
+      orgId === identity.orgId
+    ) {
+      markVerifiedServiceIdentityForEvent(event, {
+        userEmail: identity.userEmail,
+        orgId: identity.orgId,
+      });
+    }
     return {
       email: identity.userEmail,
       token: bearerToken,
@@ -2185,6 +2231,7 @@ interface AuthGuardConfig {
   authMode?: OnboardingHtmlOptions["authMode"];
   rootAuth: boolean;
   publicPaths: string[];
+  publicPathsWithQueryToken: Array<{ path: string; queryParam: string }>;
   publicCorsPaths: string[];
   workspaceAppAudience: WorkspaceAppAudience;
   workspaceAppPublicPaths: string[];
@@ -2199,6 +2246,14 @@ const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
   "@agent-native/core/auth.publicPaths",
 );
 const SESSION_RESOLUTION_ERROR_CONTEXT_KEY = "__anSessionResolutionError";
+
+export function isSessionResolutionUnavailable(event: H3Event): boolean {
+  return (
+    (event.context as Record<string, unknown> | undefined)?.[
+      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
+    ] === true
+  );
+}
 
 async function getLegacyCookieSessionSafely(
   event: H3Event,
@@ -3012,6 +3067,7 @@ function applyCorsHeaders(
           "Authorization",
           "X-Requested-With",
           "X-Request-Source",
+          "X-Content-Save-Origin",
           "X-Agent-Native-CSRF",
           "X-User-Timezone",
           "X-Agent-Native-Desktop-Verifier",
@@ -3727,21 +3783,6 @@ function loginHtmlResponse(
   });
 }
 
-function resolveWorkspaceAccessAppId(): string {
-  const app = getAppConfig().app;
-  const workspaceId = app.workspaceId?.trim();
-  if (workspaceId) return workspaceId;
-
-  const isDispatch = [
-    app.id,
-    app.legacyId,
-    app.template,
-    app.slug,
-    app.packageName,
-  ].some((value) => value?.trim().toLowerCase() === "dispatch");
-  return isDispatch ? "dispatch" : "";
-}
-
 function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
   if (!isReadMethod(event)) return false;
   if (pathname.endsWith(".data")) return false;
@@ -3873,10 +3914,10 @@ function createAuthGuardFn(
       return;
     }
 
-    // Scheduled recurring-job sweeps are self-fired by the platform scheduler
-    // through the durable background function and authenticate with the same
-    // short-lived HMAC token as the other internal processors. They do not
-    // carry a browser session, so let the route perform its own token check.
+    // Scheduled recurring-job sweeps are fired by the platform scheduler
+    // (Netlify's scheduled function, a Cloudflare Cron Trigger, or Vercel Cron)
+    // and authenticate with a short-lived HMAC token or Vercel's CRON_SECRET.
+    // They do not carry a browser session, so let the route check them itself.
     if (p === "/_agent-native/jobs/_process-sweep") {
       return;
     }
@@ -4118,7 +4159,27 @@ function createAuthGuardFn(
     if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
       return;
     }
-    if (isPublicPath(normalizedUrl, publicPaths, exactPublicPaths)) return;
+    const tokenPublicPaths = config.publicPathsWithQueryToken.filter(
+      ({ path }) => matchesPathList(p, [path]),
+    );
+    if (tokenPublicPaths.length > 0) {
+      const query = getQuery(event);
+      if (
+        tokenPublicPaths.some(({ queryParam }) => {
+          const value = query[queryParam];
+          if (typeof value === "string") return Boolean(value.trim());
+          return (
+            Array.isArray(value) &&
+            typeof value[0] === "string" &&
+            Boolean(value[0].trim())
+          );
+        })
+      ) {
+        return;
+      }
+    } else if (isPublicPath(normalizedUrl, publicPaths, exactPublicPaths)) {
+      return;
+    }
     if (shouldBypassAuthForBuilderConnect(event, p)) return;
     if (isPublicWorkspacePageRequest(event, p, config)) {
       return;
@@ -4155,34 +4216,19 @@ function createAuthGuardFn(
 
     const session = await getSession(event);
     if (session) {
-      const workspaceAppId = resolveWorkspaceAccessAppId();
       const method = getMethod(event);
-      const sharedWorkspaceAccessPath =
-        p === "/_agent-native/org/me" ||
-        p === "/_agent-native/actions/list-workspace-apps" ||
-        (method === "GET" &&
-          p === "/_agent-native/actions/list-workspace-app-access") ||
-        (method === "POST" &&
-          p === "/_agent-native/actions/set-workspace-app-access");
-      // Keep org-owned repair controls reachable when this app is disabled;
-      // each action or handler still enforces its org membership and role.
-      if (
-        workspaceAppId &&
-        !sharedWorkspaceAccessPath &&
-        (p.startsWith("/api/") || p.startsWith("/_agent-native/"))
-      ) {
-        const workspaceAppAccess = await isWorkspaceAppAccessAllowed(
-          workspaceAppId,
-          {
-            email: session.email,
-            orgId: session.orgId,
-          },
-        );
+      if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
+        const workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
+          path: p,
+          method,
+          email: session.email,
+          orgId: session.orgId,
+        });
         if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
           setResponseStatus(event, 503);
           return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
         }
-        if (!workspaceAppAccess) {
+        if (workspaceAppAccess === false) {
           setResponseStatus(event, 403);
           return { error: "You do not have access to this workspace app." };
         }
@@ -4193,6 +4239,8 @@ function createAuthGuardFn(
     if (isCredentialMembershipUnavailable(event)) {
       return respondCredentialMembershipUnavailable(event);
     }
+    const refused = respondBearerCredentialRefused(event);
+    if (refused) return refused;
 
     if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
       setResponseStatus(event, 401);
@@ -4642,6 +4690,14 @@ async function resolveSessionUncached(
   const cookieOnlyDesktopCheck = isDesktopSessionCookieOnlyCheck(event);
   if (!options.ignoreEmbedSession) {
     const embedSession = await resolveEmbedSessionFromRequest(event);
+    if (
+      isMcpDirectoryWidgetCapabilityApplicationStateRequest(
+        event,
+        embedSession?.scope,
+      )
+    ) {
+      return null;
+    }
     if (embedSession && !isEmbedCapabilityScope(embedSession.scope)) {
       return {
         email: embedSession.email,
@@ -4722,6 +4778,24 @@ async function resolveSessionUncached(
   if (authDisabledSession) return authDisabledSession;
 
   return null;
+}
+
+function isMcpDirectoryWidgetCapabilityApplicationStateRequest(
+  event: H3Event,
+  scope: string | undefined,
+): boolean {
+  if (!isMcpDirectoryWidgetCapabilityScope(scope)) return false;
+
+  const rawUrl = event.node?.req?.url ?? event.path ?? "/";
+  const base = "http://agent-native.invalid";
+  if (!URL.canParse(rawUrl, base)) return false;
+  const pathname = new URL(rawUrl, base).pathname;
+
+  const canonicalPath = canonicalFrameworkPathname(pathname);
+  const statePath = `${FRAMEWORK_INTERNAL_ROUTE_PREFIX}/application-state`;
+  return (
+    canonicalPath === statePath || canonicalPath.startsWith(`${statePath}/`)
+  );
 }
 
 async function promoteQuerySession(
@@ -4808,12 +4882,7 @@ export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
     return { error: "Method not allowed" };
   }
   const session = await getSession(event);
-  if (
-    !session &&
-    (event.context as Record<string, unknown>)[
-      SESSION_RESOLUTION_ERROR_CONTEXT_KEY
-    ] === true
-  ) {
+  if (!session && isSessionResolutionUnavailable(event)) {
     setResponseStatus(event, 503);
     return { error: "Session unavailable" };
   }
@@ -4882,6 +4951,19 @@ function normalizePath(path: string): string {
 function matchesPathList(path: string, paths: string[]): boolean {
   return paths.some((candidate) => {
     const normalized = normalizePath(candidate);
+    if (normalized.includes("/:")) {
+      const expectedSegments = normalized.split("/");
+      const actualSegments = path.split("/");
+      return (
+        expectedSegments.length === actualSegments.length &&
+        expectedSegments.every((segment, index) => {
+          if (/^:[A-Za-z][A-Za-z0-9_]*$/.test(segment)) {
+            return Boolean(actualSegments[index]);
+          }
+          return segment === actualSegments[index];
+        })
+      );
+    }
     return path === normalized || path.startsWith(normalized + "/");
   });
 }
@@ -5545,6 +5627,64 @@ async function mountBetterAuthRoutes(
         emailDomain: entry.email.split("@")[1] || "",
       });
       return { token: entry.token, email: entry.email };
+    }),
+  );
+
+  app.use(
+    EMAIL_AUTH_LINK_LANDING_PATH,
+    defineEventHandler(async (event) => {
+      const setupRequiredHtml = getDeploySettingsRequiredPage(
+        event,
+        getRequestPathAndSearch(event).rawPath,
+      );
+      if (setupRequiredHtml) return setupRequiredResponse(setupRequiredHtml);
+
+      const method = getMethod(event);
+      if (method !== "GET" && method !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+
+      const values =
+        method === "POST"
+          ? await readBody<Record<string, unknown>>(event)
+          : getQuery(event);
+      const verificationPath = emailAuthVerificationPath(values.kind);
+      const fields = emailAuthLinkFields(values);
+      const verificationURL = verificationPath
+        ? emailAuthVerificationUrl(getAppUrl(event, verificationPath), values)
+        : undefined;
+      if (!verificationURL || !fields) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid or expired email link." };
+      }
+
+      if (method === "POST") {
+        return new Response(null, {
+          status: 303,
+          headers: {
+            "cache-control": "no-store",
+            location: verificationURL.toString(),
+            "referrer-policy": "no-referrer",
+          },
+        });
+      }
+
+      const { locale, dir } = resolveLocaleFromRequest({
+        acceptLanguage: getHeader(event, "accept-language"),
+      });
+      const copy = resolveNativeAuthCopy(locale);
+      return emailAuthLinkLandingPage(
+        getAppUrl(event, EMAIL_AUTH_LINK_LANDING_PATH),
+        fields,
+        {
+          title: copy.emailLinkContinueTitle,
+          message: copy.emailLinkContinueMessage,
+          action: copy.emailLinkContinueAction,
+        },
+        locale,
+        dir,
+      );
     }),
   );
 
@@ -6422,7 +6562,9 @@ async function mountBetterAuthRoutes(
         setFirstRunOnboardingCookie(event);
       }
 
-      return response;
+      return isResponse
+        ? queryEchoSafeRedirect(event, response as Response)
+        : response;
     }),
   );
 
@@ -6505,7 +6647,10 @@ async function mountBetterAuthRoutes(
         ? query.return[0]
         : query.return;
       setFirstRunOnboardingCookie(event);
-      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302),
+      );
     }),
   );
 
@@ -6793,6 +6938,7 @@ async function mountBetterAuthRoutes(
   _authGuardConfig = {
     ...loginHtmlConfig,
     publicPaths,
+    publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],
     publicCorsPaths: options.publicCorsPaths ?? [],
     workspaceAppAudience,
     workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
@@ -6990,6 +7136,12 @@ export async function autoMountAuth(
           ...options.publicPaths,
         ];
       }
+      if (options.publicPathsWithQueryToken) {
+        _authGuardConfig.publicPathsWithQueryToken = [
+          ..._authGuardConfig.publicPathsWithQueryToken,
+          ...options.publicPathsWithQueryToken,
+        ];
+      }
       if (options.publicCorsPaths) {
         _authGuardConfig.publicCorsPaths = [
           ...new Set([
@@ -7067,6 +7219,7 @@ export async function autoMountAuth(
           }),
       rootAuth: options.rootAuth ?? Boolean(options.loginHtml),
       publicPaths,
+      publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],
       publicCorsPaths: options.publicCorsPaths ?? [],
       workspaceAppAudience,
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
@@ -7097,6 +7250,7 @@ export async function autoMountAuth(
     _authGuardConfig = {
       ...loginHtmlConfig,
       publicPaths,
+      publicPathsWithQueryToken: options.publicPathsWithQueryToken ?? [],
       publicCorsPaths: options.publicCorsPaths ?? [],
       workspaceAppAudience,
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,

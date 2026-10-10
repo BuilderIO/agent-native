@@ -7,15 +7,32 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   bumpChangeVersion: vi.fn(),
   callAction: vi.fn(),
-  sendToAgentChatAndConfirm: vi.fn(async (options: { tabId?: string }) => ({
-    tabId: options.tabId,
-    delivered: true,
-  })),
+  startBackgroundAgentSession: vi.fn(
+    (options: {
+      operationId: string;
+      threadId: string;
+      instructions?: string;
+    }) => {
+      const receipt = {
+        operationId: options.operationId,
+        threadId: options.threadId,
+        turnId: "turn-1",
+      };
+      return {
+        ...receipt,
+        accepted: Promise.resolve(receipt),
+        completion: Promise.resolve(),
+        status: vi.fn(),
+        cancel: vi.fn(),
+        open: vi.fn(),
+      };
+    },
+  ),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  generateTabId: () => "chat-123",
-  sendToAgentChatAndConfirm: mocks.sendToAgentChatAndConfirm,
+  getBackgroundAgentSessionStatus: vi.fn(),
+  startBackgroundAgentSession: mocks.startBackgroundAgentSession,
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
@@ -23,10 +40,22 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 vi.mock("@agent-native/core/client/hooks", async () => {
   const React = await import("react");
   return {
-    bumpChangeVersion: (...args: unknown[]) => mocks.bumpChangeVersion(...args),
+    bumpChangeVersion: (...args: unknown[]) => {
+      mocks.bumpChangeVersion(...args);
+      window.dispatchEvent(new Event("clips-test-change-version"));
+    },
     callAction: (...args: unknown[]) => mocks.callAction(...args),
     getChangeVersion: () => 0,
-    useChangeVersion: () => 0,
+    useChangeVersion: () => {
+      const [version, setVersion] = React.useState(0);
+      React.useEffect(() => {
+        const update = () => setVersion((current) => current + 1);
+        window.addEventListener("clips-test-change-version", update);
+        return () =>
+          window.removeEventListener("clips-test-change-version", update);
+      }, []);
+      return version;
+    },
     // Stands in for React Query: the action is served by the same `callAction`
     // mock the tests configure, and `refetch` resolves with the new data.
     useActionQuery: (name: string, args: unknown) => {
@@ -65,7 +94,11 @@ let root: ReturnType<typeof createRoot>;
 
 async function renderWith(result: Record<string, unknown>) {
   mocks.callAction.mockImplementation(async (name: string) =>
-    name === "list-ai-requests" ? result : {},
+    name === "list-ai-requests"
+      ? result
+      : name === "regenerate-title"
+        ? { updated: true }
+        : {},
   );
   container = document.createElement("div");
   root = createRoot(container);
@@ -147,6 +180,76 @@ describe("auto-title fallback", () => {
     expect(mocks.bumpChangeVersion).not.toHaveBeenCalled();
   });
 
+  it("retries auto-title after a transient queue conflict", async () => {
+    vi.useRealTimers();
+    const snapshot = {
+      requests: [],
+      titleCandidates: [candidate("rec_old", 5 * 60_000)],
+    };
+    let attempts = 0;
+    mocks.callAction.mockImplementation(async (name: string) => {
+      if (name === "list-ai-requests") return snapshot;
+      if (name === "regenerate-title") {
+        attempts += 1;
+        if (attempts === 1) throw new Error("active request conflict");
+        return { updated: true };
+      }
+      return {};
+    });
+    container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<TestBridge />);
+    });
+
+    await vi.waitFor(() => expect(regenerateTitleCalls()).toHaveLength(2), {
+      timeout: 3_000,
+    });
+  });
+
+  it("retries a failed fallback after its data effect is replaced", async () => {
+    vi.useRealTimers();
+    const snapshot = {
+      requests: [],
+      titleCandidates: [candidate("rec_old", 5 * 60_000)],
+    };
+    let rejectFirstAttempt: ((error: Error) => void) | undefined;
+    let attempts = 0;
+    mocks.callAction.mockImplementation(async (name: string) => {
+      if (name === "list-ai-requests") return snapshot;
+      if (name === "regenerate-title") {
+        attempts += 1;
+        if (attempts === 1) {
+          return new Promise((_, reject) => {
+            rejectFirstAttempt = reject;
+          });
+        }
+        return { updated: true };
+      }
+      return {};
+    });
+    container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => {
+      root.render(<TestBridge />);
+    });
+    await vi.waitFor(() => expect(regenerateTitleCalls()).toHaveLength(1));
+
+    await act(async () => {
+      window.dispatchEvent(new Event("clips-test-change-version"));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      rejectFirstAttempt?.(new Error("temporary queue failure"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await vi.waitFor(() => expect(regenerateTitleCalls()).toHaveLength(2), {
+      timeout: 3_000,
+    });
+  });
+
   it("waits for a candidate younger than two minutes", async () => {
     await renderWith({
       requests: [],
@@ -177,7 +280,7 @@ describe("auto-title fallback", () => {
     });
 
     await vi.waitFor(() =>
-      expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+      expect(mocks.startBackgroundAgentSession).toHaveBeenCalledOnce(),
     );
     expect(regenerateTitleCalls()).toHaveLength(0);
   });
@@ -197,11 +300,13 @@ describe("auto-title fallback", () => {
     });
 
     await vi.waitFor(() =>
-      expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+      expect(mocks.startBackgroundAgentSession).toHaveBeenCalledOnce(),
     );
-    const [options] = mocks.sendToAgentChatAndConfirm.mock.calls[0] as [
-      { context: string },
+    const [options] = mocks.startBackgroundAgentSession.mock.calls[0] as [
+      { instructions: string },
     ];
-    expect(JSON.parse(options.context).currentTitle).toBe("Quarterly planning");
+    expect(JSON.parse(options.instructions).currentTitle).toBe(
+      "Quarterly planning",
+    );
   });
 });

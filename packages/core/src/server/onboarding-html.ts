@@ -2116,6 +2116,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   .auth-wave-background {
     position: fixed;
     inset: 0;
+    transform: translateY(-15vh);
     z-index: 0;
     pointer-events: none;
   }
@@ -2218,15 +2219,15 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     .auth-marketing-home .auth-marketing-shell { display: block; }
     .auth-marketing-home .auth-marketing-shell-with-top-right { display: flex; }
   }
-  /* guard:allow-raw-color - these are the exact standalone auth palette tokens from Figma */
+  /* guard:allow-raw-color - standalone authentication palette tokens */
   body.has-marketing {
-    --auth-marketing-left-bg: #090909; /* guard:allow-raw-color - exact Figma auth palette */
-    --auth-marketing-right-bg: #141414; /* guard:allow-raw-color - exact Figma auth palette */
-    --auth-marketing-foreground: #faf9f5; /* guard:allow-raw-color - exact Figma auth palette */
-    --auth-marketing-muted: #9a9997; /* guard:allow-raw-color - exact Figma auth palette */
-    --auth-marketing-subtle: #858583; /* guard:allow-raw-color - exact Figma auth palette */
-    --auth-marketing-border: #2e2e2e; /* guard:allow-raw-color - exact Figma auth palette */
-    --auth-marketing-badge-bg: #1b1b1b; /* guard:allow-raw-color - exact Figma auth palette */
+    --auth-marketing-left-bg: #090909; /* guard:allow-raw-color - authentication palette */
+    --auth-marketing-right-bg: #141414; /* guard:allow-raw-color - authentication palette */
+    --auth-marketing-foreground: #faf9f5; /* guard:allow-raw-color - authentication palette */
+    --auth-marketing-muted: #9a9997; /* guard:allow-raw-color - authentication palette */
+    --auth-marketing-subtle: #858583; /* guard:allow-raw-color - authentication palette */
+    --auth-marketing-border: #2e2e2e; /* guard:allow-raw-color - authentication palette */
+    --auth-marketing-badge-bg: #1b1b1b; /* guard:allow-raw-color - authentication palette */
   }
   body.has-marketing,
   .auth-marketing-home {

@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { fail } from "@agent-native/core/action";
 import {
   deleteAppState,
   writeAppStateForCurrentTab,
@@ -17,6 +18,10 @@ import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
+  assertSingleCanvasOutput,
+  resolveCanvasIntent,
+} from "../shared/canvas-dimensions.js";
+import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
   type CanvasFramePlacement,
@@ -28,9 +33,12 @@ import {
   getResponsiveBreakpointWidths,
   getResponsiveGroupHeight,
   getResponsiveGroupWidth,
+  MAX_SANE_FRAME_ASPECT_RATIO,
+  MAX_SANE_FRAME_DIMENSION_PX,
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { hasSpecifiedDesignPrompt } from "../shared/specified-design-prompt.js";
 
 const VARIANT_GAP = 96;
 const MAX_COLUMNS = 3;
@@ -47,16 +55,17 @@ const DEFAULT_RESPONSIVE_BREAKPOINTS = [MOBILE_WIDTH].map((widthPx) => ({
   prefix: widthToPrefix(widthPx),
 }));
 
-const SPECIFICATION_SIGNAL_PATTERNS = [
-  /\b(?:attached|uploaded|reference|mockup|screenshot|wireframe|source of truth|source-of-truth)\b/i,
-  /\b(?:\d+\s*[- ]\s*col(?:umn)?|grid spec|layout spec|section order|feature list)\b/i,
-  /\b(?:design system|brand system|brand kit|visual language|tokens?)\b/i,
-] as const;
-
-export function hasSpecifiedDesignPrompt(prompt?: string): boolean {
-  const value = prompt?.trim() ?? "";
-  if (!value) return false;
-  return SPECIFICATION_SIGNAL_PATTERNS.some((pattern) => pattern.test(value));
+function isModelVisibleImageAttachment(attachment: {
+  type?: string;
+  name?: string;
+  contentType?: string;
+  displayOnly?: boolean;
+}): boolean {
+  if (attachment.displayOnly === true) return false;
+  if (attachment.type === "image") return true;
+  const contentType = attachment.contentType?.split(";", 1)[0]?.trim();
+  if (contentType) return contentType.toLowerCase().startsWith("image/");
+  return /\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(attachment.name ?? "");
 }
 
 async function hasLinkedDesignSystem(designId: string): Promise<boolean> {
@@ -485,14 +494,43 @@ function boundedDimension(value: unknown, min: number, max: number) {
     : undefined;
 }
 
+function fitVariantAspectRatio(width: number, height: number) {
+  if (width / height > MAX_SANE_FRAME_ASPECT_RATIO) {
+    return {
+      width,
+      height: Math.ceil(width / MAX_SANE_FRAME_ASPECT_RATIO),
+    };
+  }
+  if (height / width > MAX_SANE_FRAME_ASPECT_RATIO) {
+    return {
+      width: Math.ceil(height / MAX_SANE_FRAME_ASPECT_RATIO),
+      height,
+    };
+  }
+  return { width, height };
+}
+
 function inferVariantSize(
   variant: z.infer<typeof variantSchema>,
   prompt?: string,
+  intent = resolveCanvasIntent(prompt),
 ) {
-  const explicitWidth = boundedDimension(variant.width, 240, 1920);
-  const explicitHeight = boundedDimension(variant.height, 240, 3000);
+  const promptDimensions =
+    intent.kind === "fixed" ? intent.dimensions : undefined;
+  if (promptDimensions) return promptDimensions;
+
+  const explicitWidth = boundedDimension(
+    variant.width,
+    1,
+    MAX_SANE_FRAME_DIMENSION_PX,
+  );
+  const explicitHeight = boundedDimension(
+    variant.height,
+    1,
+    MAX_SANE_FRAME_DIMENSION_PX,
+  );
   if (explicitWidth && explicitHeight) {
-    return { width: explicitWidth, height: explicitHeight };
+    return fitVariantAspectRatio(explicitWidth, explicitHeight);
   }
 
   const content = variant.content ?? "";
@@ -506,16 +544,23 @@ function inferVariantSize(
   const inferredWidth = boundedDimension(cssWidth, 240, 1920);
   const inferredHeight = boundedDimension(cssHeight, 240, 3000);
   if (inferredWidth && inferredWidth <= 560) {
-    return {
-      width: explicitWidth ?? inferredWidth,
-      height: explicitHeight ?? inferredHeight ?? MOBILE_HEIGHT,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? inferredWidth,
+      explicitHeight ?? inferredHeight ?? MOBILE_HEIGHT,
+    );
   }
   if (inferredWidth && inferredHeight) {
-    return {
-      width: explicitWidth ?? inferredWidth,
-      height: explicitHeight ?? inferredHeight,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? inferredWidth,
+      explicitHeight ?? inferredHeight,
+    );
+  }
+
+  if (intent.kind === "fixed") {
+    return fitVariantAspectRatio(
+      explicitWidth ?? DESKTOP_WIDTH,
+      explicitHeight ?? DESKTOP_HEIGHT,
+    );
   }
 
   const lowercase = [
@@ -531,22 +576,22 @@ function inferVariantSize(
     /\b(?:mobile|phone|iphone|android)\b/.test(lowercase) ||
     /\b(?:max-w-sm|max-w-md|w-\[(?:360|375|390|393|414)px\])\b/.test(lowercase)
   ) {
-    return {
-      width: explicitWidth ?? MOBILE_WIDTH,
-      height: explicitHeight ?? MOBILE_HEIGHT,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? MOBILE_WIDTH,
+      explicitHeight ?? MOBILE_HEIGHT,
+    );
   }
   if (/\b(?:tablet|ipad)\b/.test(lowercase)) {
-    return {
-      width: explicitWidth ?? TABLET_WIDTH,
-      height: explicitHeight ?? TABLET_HEIGHT,
-    };
+    return fitVariantAspectRatio(
+      explicitWidth ?? TABLET_WIDTH,
+      explicitHeight ?? TABLET_HEIGHT,
+    );
   }
 
-  return {
-    width: explicitWidth ?? DESKTOP_WIDTH,
-    height: explicitHeight ?? DESKTOP_HEIGHT,
-  };
+  return fitVariantAspectRatio(
+    explicitWidth ?? DESKTOP_WIDTH,
+    explicitHeight ?? DESKTOP_HEIGHT,
+  );
 }
 
 function escapeHtml(value: string) {
@@ -776,17 +821,25 @@ export default defineAction({
     "call get-design-snapshot with fileId for the kept screen before " +
     "calling edit-design on that same fileId in a bounded pass. Use " +
     '`mode: "replace-file"` when expanding the representative placeholder ' +
-    "into a complete but compact product UI in the chosen direction. Do not call generate-design after a " +
+    "into a complete but compact product UI in the chosen direction. Pass " +
+    "the original user request in `brief` and keep `prompt` as the short chat " +
+    "caption so size and output type are preserved. Do not call generate-design after a " +
     "variant pick. Stop after the first successful edit-design save. For " +
     "complex apps, " +
     "make each variant a " +
     "compact representative screen; pass concise labels/descriptions/features " +
-    "and omit content only for open-ended exploration. For a prompt with a " +
-    "specific product surface, reference, layout, or design system, provide " +
-    "complete self-contained HTML for every variant; the generic fallback is " +
+    "and omit content only for open-ended exploration. For a fixed canvas " +
+    "(exact size, ad, social post), an attached reference image, or a brief " +
+    "with a specific reference, layout, or design system, provide complete " +
+    "self-contained HTML for every variant; the generic fallback is " +
     "blocked there. Design will render compact screens from direction data only " +
     "for open-ended exploration. Expand the chosen direction after the user " +
-    "picks. Screens from an earlier variant set are never " +
+    "picks. Exact pixel dimensions in the original brief set every variant's " +
+    "exact canvas size and suppress extra mobile or tablet frames. Static " +
+    "artwork such as ads, banners, social posts, flyers, and posters also has " +
+    "no responsive frames. Use one exact " +
+    "canvas size per call; different sizes require separate calls scoped to " +
+    "each screen. Screens from an earlier variant set are never " +
     "deleted automatically: if you are knowingly replacing your own earlier " +
     "set that the user never picked from or discussed, pass its set id in " +
     "deleteSupersededSetIds; otherwise leave old sets in place.",
@@ -796,12 +849,24 @@ export default defineAction({
       .string()
       .optional()
       .describe("Caption shown in chat above the variant choice buttons"),
+    brief: z
+      .string()
+      .optional()
+      .describe(
+        "Original user request for this design. Keep requested output type and exact dimensions here; prompt is only the short chat caption.",
+      ),
     variants: z
       .array(variantSchema)
       .min(2)
       .max(5)
       .describe(
         "2-5 concise, visually distinct generated design options to place as overview screens (3 is the sweet spot). Prefer short label/description/features for each direction; include inline HTML content only when it is compact enough to finish.",
+      ),
+    responsive: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether generated app direction screens should include responsive breakpoint frames. Defaults to true for app surfaces; exact dimensions and static artwork such as ads suppress extra device frames.",
       ),
     deleteSupersededSetIds: z
       .array(z.string())
@@ -834,18 +899,42 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (
-    { designId, prompt, variants, deleteSupersededSetIds },
+    { designId, prompt, brief, variants, deleteSupersededSetIds, responsive },
     context,
   ) => {
     await assertAccess("design", designId, "editor");
+    const originalBrief =
+      brief?.trim() ||
+      (prompt?.trim() && !/^pick a direction$/i.test(prompt.trim())
+        ? prompt.trim()
+        : "");
+    const intentPrompt = originalBrief;
+    const canvasIntent = resolveCanvasIntent(intentPrompt);
+    assertSingleCanvasOutput(canvasIntent);
+    const promptDimensions =
+      canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
     await snapshotDesignBeforeAgentEdit(designId, context);
+    const useResponsiveFrames =
+      canvasIntent.kind !== "fixed" && responsive !== false;
 
     const omittedContent = variants.filter(
       (variant) => !variant.content?.trim(),
     );
+    const hasUnrenderedImageReference = context?.attachments?.some(
+      isModelVisibleImageAttachment,
+    );
+    if (omittedContent.length > 0 && hasUnrenderedImageReference) {
+      fail(
+        "Every variant must include complete HTML when an image attachment is present; the direction-only fallback does not use attached image references.",
+        {
+          errorCode: "image_attachment_requires_variant_content",
+          statusCode: 422,
+        },
+      );
+    }
     if (
       omittedContent.length > 0 &&
-      (hasSpecifiedDesignPrompt(prompt) ||
+      (hasSpecifiedDesignPrompt(intentPrompt) ||
         (await hasLinkedDesignSystem(designId)))
     ) {
       throw new Error(
@@ -901,12 +990,20 @@ export default defineAction({
           );
           const fileId = nanoid();
           const providedContent = variant.content?.trim();
-          const initialSize = inferVariantSize(variant, prompt);
+          const initialSize = inferVariantSize(
+            variant,
+            intentPrompt,
+            canvasIntent,
+          );
           const rawContent =
             providedContent ||
-            fallbackVariantContent(variant, index, prompt, initialSize);
+            fallbackVariantContent(variant, index, intentPrompt, initialSize);
           const { width, height } = providedContent
-            ? inferVariantSize({ ...variant, content: rawContent })
+            ? inferVariantSize(
+                { ...variant, content: rawContent },
+                promptDimensions ? intentPrompt : undefined,
+                canvasIntent,
+              )
             : initialSize;
           const content = annotateScreenHtmlForPersist(rawContent, "html");
 
@@ -946,20 +1043,22 @@ export default defineAction({
       designId,
       mutate: (current, { updatedAt }) => {
         installedBreakpointSet =
+          useResponsiveFrames &&
           classifyBreakpointSet(current.breakpointSet) === "absent";
+        const currentBreakpointWidths = effectiveBreakpointWidths(
+          current.breakpointSet,
+        );
         const mergedFrames = mergeCanvasFramePlacements({
           existing: current.canvasFrames,
           placements: placeVariantScreens(
             screens,
-            effectiveBreakpointWidths(current.breakpointSet),
+            useResponsiveFrames ? currentBreakpointWidths : [],
             nextFreeCanvasRowY(current.canvasFrames, VARIANT_GAP, {
               ignoreFileIds: screens.map((screen) => screen.id),
               responsiveLayout: {
                 screenFileIds,
                 screenMetadataByFileId: current.screenMetadata,
-                breakpointWidths: effectiveBreakpointWidths(
-                  current.breakpointSet,
-                ),
+                breakpointWidths: currentBreakpointWidths,
               },
             }),
           ),
@@ -972,7 +1071,9 @@ export default defineAction({
           ? { ...current.designVariantSets }
           : {};
         for (const screen of screens) {
-          previousMetadata[screen.id] = {
+          const existingMetadata = previousMetadata[screen.id];
+          const metadata: Record<string, unknown> = {
+            ...(isRecord(existingMetadata) ? existingMetadata : {}),
             sourceType: "inline",
             previewState: "preview",
             title: screen.label,
@@ -981,10 +1082,21 @@ export default defineAction({
             variantSetId,
             variantId: screen.variantId,
           };
+          if (useResponsiveFrames) {
+            delete metadata.breakpointWidths;
+          } else {
+            metadata.breakpointWidths = [];
+          }
+          if (canvasIntent.kind === "fixed") {
+            metadata.heightPinned = true;
+            metadata.heightMode = "fixed";
+          }
+          previousMetadata[screen.id] = metadata;
         }
         previousVariantSets[variantSetId] = {
           id: variantSetId,
           prompt: prompt ?? "Pick a direction",
+          ...(originalBrief ? { brief: originalBrief } : {}),
           createdAt: now,
           screenCount: screens.length,
           screens: screens.map((screen) => ({
@@ -1002,7 +1114,8 @@ export default defineAction({
           canvasFrames: mergedFrames.canvasFrames,
           screenMetadata: previousMetadata,
           designVariantSets: previousVariantSets,
-          ...(classifyBreakpointSet(current.breakpointSet) !== "absent"
+          ...(!useResponsiveFrames ||
+          classifyBreakpointSet(current.breakpointSet) !== "absent"
             ? {}
             : {
                 breakpointSet: {
@@ -1029,16 +1142,30 @@ export default defineAction({
           : null;
         const persistedScreens = Array.isArray(set?.screens) ? set.screens : [];
         return (
-          hasBreakpointSet(current.breakpointSet) &&
-          screens.every(
-            (screen) =>
-              isRecord(canvasFrames[screen.id]) &&
-              isRecord(metadata[screen.id]) &&
+          (!useResponsiveFrames || hasBreakpointSet(current.breakpointSet)) &&
+          screens.every((screen) => {
+            const frame = canvasFrames[screen.id];
+            const screenMetadata = metadata[screen.id];
+            return (
+              isRecord(frame) &&
+              frame.width === screen.width &&
+              frame.height === screen.height &&
+              isRecord(screenMetadata) &&
+              screenMetadata.width === screen.width &&
+              screenMetadata.height === screen.height &&
+              (useResponsiveFrames
+                ? screenMetadata.breakpointWidths === undefined
+                : Array.isArray(screenMetadata.breakpointWidths) &&
+                  screenMetadata.breakpointWidths.length === 0) &&
+              (!promptDimensions ||
+                (screenMetadata.heightPinned === true &&
+                  screenMetadata.heightMode === "fixed")) &&
               persistedScreens.some(
                 (persisted) =>
                   isRecord(persisted) && persisted.id === screen.id,
-              ),
-          )
+              )
+            );
+          })
         );
       },
     });
@@ -1059,8 +1186,8 @@ export default defineAction({
         ),
       );
     const variantPickContext = [
-      prompt?.trim()
-        ? `The user's original request for this design: "${prompt.trim()}". Expand the kept direction into that, not into a generic version of it.`
+      originalBrief
+        ? `The user's original request for this design: "${originalBrief}". Expand the kept direction into that, not into a generic version of it.`
         : "",
       linkedDesign?.designSystemId
         ? `This design is linked to design system "${linkedDesign.designSystemId}". Call \`get-design-system\` for that id and apply its tokens, typography, and usage notes while expanding the kept screen — do not substitute a generic palette or font.`
