@@ -1433,6 +1433,7 @@ it("checks the rendered slide scale when the scaled profile is requested", async
   const page = {
     on: () => {},
     off: () => {},
+    addInitScript: async () => {},
     evaluate: async () => {},
     locator: (selector: string) =>
       selector === "#editor"
