@@ -40,4 +40,8 @@ describe("same-origin route paths", () => {
   it("requires a canonical origin as the route base", () => {
     expect(resolveSameOriginRoutePath(`${ORIGIN}/`, "/settings")).toBeNull();
   });
+
+  it("rejects an invalid origin", () => {
+    expect(resolveSameOriginRoutePath("not a URL", "/settings")).toBeNull();
+  });
 });
