@@ -147,6 +147,7 @@ import {
   normalizeAnalyticsTimestamp,
   parseAnalyticsTrackPayload,
   queryFirstPartyAnalytics,
+  FirstPartyAnalyticsQueryTimeoutError,
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
   scopedAnalyticsSql,
@@ -1151,6 +1152,21 @@ describe("normalizeAnalyticsTimestamp", () => {
 });
 
 describe("scopedAnalyticsSql", () => {
+  it("preserves source aliases after replacing the raw events table", () => {
+    const scoped = scopedAnalyticsSql(
+      "SELECT e.id FROM analytics_events e WHERE e.event_name = 'signup'",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+
+    expect(scoped.sql).toContain(
+      "FROM agent_native_scoped_analytics_events e WHERE e.event_name = 'signup'",
+    );
+    expect(scoped.sql).not.toContain(
+      "FROM agent_native_scoped_analytics_events AS analytics_events e",
+    );
+  });
+
   it("adds tenant and freshness guards around analytics event reads", () => {
     const scoped = scopedAnalyticsSql(
       "SELECT event_date, COUNT(*) AS count FROM analytics_events GROUP BY event_date",
@@ -1490,6 +1506,7 @@ describe("queryFirstPartyAnalytics", () => {
 
     expect(backendMocks.table).toHaveBeenCalledWith(
       "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      expect.any(AbortSignal),
     );
     expect(backendMocks.query).toHaveBeenCalledWith(
       expect.stringContaining("analytics_events"),
@@ -1529,8 +1546,19 @@ describe("queryFirstPartyAnalytics", () => {
       expect.stringContaining("analytics_events"),
       expect.any(Array),
       expect.objectContaining({ tableId: "first_party_analytics_events_raw" }),
-      expect.objectContaining(options),
+      expect.objectContaining({
+        maxBytesBilled: options.maxBytesBilled,
+        timeoutMs: expect.any(Number),
+        eventDateRange: options.eventDateRange,
+        signal: expect.any(AbortSignal),
+      }),
     );
+    expect(backendMocks.query.mock.calls.at(-1)?.[3].timeoutMs).toBeGreaterThan(
+      0,
+    );
+    expect(
+      backendMocks.query.mock.calls.at(-1)?.[3].timeoutMs,
+    ).toBeLessThanOrEqual(options.timeoutMs);
 
     const backendFailure = new Error("private SQL and provider details");
     healthMocks.record.mockClear();
@@ -1770,6 +1798,75 @@ describe("queryFirstPartyAnalytics", () => {
       expect(backendMocks.query).not.toHaveBeenCalled();
     },
   );
+
+  it("bounds backend and BigQuery table lookup by the read deadline", async () => {
+    healthMocks.outcome.mockReturnValueOnce("timeout");
+    healthMocks.classify.mockReturnValue("raw-events");
+    backendMocks.get.mockResolvedValueOnce({
+      sink: "bigquery",
+      table: "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    });
+    backendMocks.table.mockImplementationOnce(() => new Promise(() => {}));
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        { userEmail: "alice@example.com", orgId: "org_123" },
+        { timeoutMs: 10 },
+      ),
+    ).rejects.toBeInstanceOf(FirstPartyAnalyticsQueryTimeoutError);
+
+    expect(backendMocks.query).not.toHaveBeenCalled();
+    expect(healthMocks.record).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org_123" }),
+      expect.objectContaining({ outcome: "timeout", queryClass: "raw-events" }),
+    );
+  });
+
+  it("cancels backend resolution when its caller is cancelled", async () => {
+    let resolveBackend!: (value: { sink: string; table: null }) => void;
+    backendMocks.get.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveBackend = resolve;
+      }),
+    );
+    const controller = new AbortController();
+    const query = queryFirstPartyAnalytics(
+      "SELECT COUNT(*) FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      { signal: controller.signal },
+    );
+    controller.abort();
+
+    await expect(query).rejects.toMatchObject({ name: "AbortError" });
+    resolveBackend({ sink: "postgres", table: null });
+    expect(backendMocks.table).not.toHaveBeenCalled();
+  });
+
+  it("does not materialize the scoped raw event CTE on Postgres execution", async () => {
+    execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
+
+    await queryFirstPartyAnalytics(
+      "SELECT COUNT(*) AS count FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: null },
+      { cache: false },
+    );
+
+    const executedSql = execute.mock.calls.flatMap(([input]) =>
+      typeof input === "string"
+        ? [input]
+        : input && typeof input.sql === "string"
+          ? [input.sql]
+          : [],
+    );
+    expect(
+      executedSql.some((sql) =>
+        sql.includes(
+          "agent_native_scoped_analytics_events AS NOT MATERIALIZED",
+        ),
+      ),
+    ).toBe(true);
+  });
 
   it("keeps ad-hoc first-party reads uncached", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });

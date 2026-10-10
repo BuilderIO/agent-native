@@ -7,8 +7,10 @@ import {
   BigQueryQueryTimeoutError,
   type BigQueryBackendReason,
 } from "./bigquery.js";
+import { getFirstPartyAnalyticsBackend } from "./first-party-analytics-backend.js";
 import {
   queryFirstPartyAnalytics,
+  FirstPartyAnalyticsQueryTimeoutError,
   type AnalyticsScope,
 } from "./first-party-analytics.js";
 import {
@@ -57,6 +59,16 @@ const ONBOARDING_EVENTS_MAX_BYTES_BILLED = 25_000_000_000;
 const ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED = 10_000_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new DOMException("The operation was aborted", "AbortError");
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 export type OnboardingJourneyReadFailureKind =
   | "backend_error"
   | "query_timeout"
@@ -67,10 +79,16 @@ type OnboardingJourneyReadErrorType =
   | "bigquery_backend"
   | "bigquery_cost_limit"
   | "bigquery_timeout"
+  | "query_timeout"
   | "abort"
   | "type_error"
   | "error"
   | "non_error";
+
+export type OnboardingJourneyReadStage =
+  | "journey_events"
+  | "session_followup"
+  | "person_followup";
 
 function onboardingJourneyReadErrorType(
   error: unknown,
@@ -78,6 +96,8 @@ function onboardingJourneyReadErrorType(
   if (error instanceof BigQueryMaximumBytesBilledError)
     return "bigquery_cost_limit";
   if (error instanceof BigQueryQueryTimeoutError) return "bigquery_timeout";
+  if (error instanceof FirstPartyAnalyticsQueryTimeoutError)
+    return "query_timeout";
   if (error instanceof BigQueryBackendError) return "bigquery_backend";
   if (error instanceof Error && error.name === "AbortError") return "abort";
   if (error instanceof TypeError) return "type_error";
@@ -85,7 +105,7 @@ function onboardingJourneyReadErrorType(
 }
 
 export class OnboardingJourneyReadError extends Error {
-  readonly stage = "journey_events" as const;
+  readonly stage: OnboardingJourneyReadStage;
   readonly failureKind: OnboardingJourneyReadFailureKind;
   readonly backendStatus: number | null;
   readonly backendReason: BigQueryBackendReason | null;
@@ -93,10 +113,15 @@ export class OnboardingJourneyReadError extends Error {
   readonly safeErrorType: OnboardingJourneyReadErrorType;
   readonly page: number | null;
 
-  constructor(error: unknown, page: number | null = null) {
+  constructor(
+    error: unknown,
+    page: number | null = null,
+    stage: OnboardingJourneyReadStage = "journey_events",
+  ) {
     const failure = onboardingJourneyFailureDetails(error);
-    super("The scoped onboarding journey event query failed");
+    super("The scoped onboarding journey query failed");
     this.name = "OnboardingJourneyReadError";
+    this.stage = stage;
     this.failureKind = failure.kind;
     this.backendStatus = failure.backendStatus;
     this.backendReason = failure.backendReason;
@@ -128,9 +153,18 @@ function onboardingJourneyFailureDetails(error: unknown): {
       backendOperation: null,
     };
   }
+  if (error instanceof FirstPartyAnalyticsQueryTimeoutError) {
+    return {
+      kind: "query_timeout",
+      backendStatus: null,
+      backendReason: "timeout",
+      backendOperation: null,
+    };
+  }
   if (error instanceof BigQueryBackendError) {
     return {
-      kind: "backend_error",
+      kind:
+        error.backendReason === "timeout" ? "query_timeout" : "backend_error",
       backendStatus: error.backendStatus,
       backendReason: error.backendReason,
       backendOperation: error.operation,
@@ -194,7 +228,7 @@ export interface JourneySummary {
   rootN: number;
   coverage: {
     sessionsWithEvents: number;
-    /** Null when the recordings read failed: unknown, never zero. */
+    /** Null for summaries that skip replay reads or when a replay read fails. */
     sessionsWithReplay: number | null;
     truncated: boolean;
   };
@@ -447,7 +481,13 @@ async function readJourneyEvents(
   maxEventRows: number,
   observation: OnboardingJourneyObservationWindow,
   freezeReceivedAt: boolean,
+  signal?: AbortSignal,
 ): Promise<EventRead> {
+  const { sink } = await getFirstPartyAnalyticsBackend(scope, signal);
+  const maxPages =
+    sink === "bigquery"
+      ? MAX_ONBOARDING_EVENT_READ_PAGES
+      : Math.ceil((maxEventRows + 1) / EVENT_PAGE_ROWS);
   const raw: Record<string, unknown>[] = [];
   let truncated = false;
   let truncationReason: EventRead["truncationReason"] = null;
@@ -456,6 +496,7 @@ async function readJourneyEvents(
   let pages = 0;
   let rowsFetched = 0;
   for (;;) {
+    throwIfAborted(signal);
     // One row past the budget tells a full read from a cut one.
     const limit = Math.min(EVENT_PAGE_ROWS, maxEventRows + 1 - raw.length);
     let page: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
@@ -476,9 +517,11 @@ async function readJourneyEvents(
           timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
           maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
           eventDateRange: onboardingJourneyEventDateRange(filters, observation),
+          signal,
         },
       );
     } catch (error) {
+      if (signal?.aborted || isAbortError(error)) throw error;
       throw new OnboardingJourneyReadError(error, pages + 1);
     }
     pages += 1;
@@ -502,7 +545,7 @@ async function readJourneyEvents(
       raw.length = maxEventRows;
       break;
     }
-    if (pages >= MAX_ONBOARDING_EVENT_READ_PAGES) {
+    if (pages >= maxPages) {
       truncated = true;
       truncationReason = "page_budget";
       break;
@@ -674,7 +717,9 @@ async function readFollowup(
   read: EventRead,
   terminals: readonly OnboardingJourneyTerminalStep[],
   observation: OnboardingJourneyObservationWindow,
+  signal?: AbortSignal,
 ): Promise<JourneyFollowup> {
+  throwIfAborted(signal);
   if (
     read.truncated ||
     read.invalidRows ||
@@ -742,9 +787,14 @@ async function readFollowup(
       timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
       maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
       eventDateRange: onboardingJourneyEventDateRange(filters, observation),
+      signal,
     });
   } catch (error) {
+    if (signal?.aborted || isAbortError(error)) throw error;
     const failure = onboardingJourneyFailureDetails(error);
+    if (failure.kind === "query_error") {
+      throw new OnboardingJourneyReadError(error, null, "session_followup");
+    }
     const reason =
       failure.kind === "cost_limited"
         ? "followup_aggregate_cost_limited"
@@ -960,7 +1010,9 @@ async function readPersonFollowup(
   terminals: readonly OnboardingJourneyPersonMember[],
   sessionsWithoutSelectedStep: number,
   observation: OnboardingJourneyObservationWindow,
+  signal?: AbortSignal,
 ): Promise<JourneyPersonFollowup> {
+  throwIfAborted(signal);
   const horizonDays = ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS;
   const horizonMs = horizonDays * DAY_MS;
   const observationWatermark = observation.observationWatermark;
@@ -1210,9 +1262,14 @@ async function readPersonFollowup(
       timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
       maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
       eventDateRange,
+      signal,
     });
   } catch (error) {
+    if (signal?.aborted || isAbortError(error)) throw error;
     const failure = onboardingJourneyFailureDetails(error);
+    if (failure.kind === "query_error") {
+      throw new OnboardingJourneyReadError(error, null, "person_followup");
+    }
     const reason =
       failure.kind === "cost_limited"
         ? "person_followup_query_cost_limited"
@@ -1476,7 +1533,9 @@ export function formatJourneyOutline(
 export async function getOnboardingJourney(
   scope: AnalyticsScope,
   args: OnboardingJourneyArgs,
+  signal?: AbortSignal,
 ): Promise<JourneyTree | JourneySummary> {
+  throwIfAborted(signal);
   const observation = freezeObservationWindow(args);
   let read: EventRead;
   try {
@@ -1486,8 +1545,10 @@ export async function getOnboardingJourney(
       args.maxEventRows,
       observation,
       args.followUpMode === "person",
+      signal,
     );
   } catch (error) {
+    if (signal?.aborted || isAbortError(error)) throw error;
     if (error instanceof OnboardingJourneyReadError) throw error;
     throw new OnboardingJourneyReadError(error);
   }
@@ -1503,6 +1564,7 @@ export async function getOnboardingJourney(
     read,
     terminalSteps,
     observation,
+    signal,
   );
   const personFollowUp =
     args.followUpMode === "person"
@@ -1513,6 +1575,7 @@ export async function getOnboardingJourney(
           terminalSteps,
           sessionsWithoutSteps,
           observation,
+          signal,
         )
       : undefined;
   const sessionIds = [
@@ -1549,20 +1612,16 @@ export async function getOnboardingJourney(
   );
 
   let recordings: JourneyRecording[] | null;
-  try {
+  throwIfAborted(signal);
+  if (args.format === "summary") {
+    recordings = null;
+  } else {
     recordings = await readRecordings(
       scope,
       sessionIds,
       [...replayLinksByKey.values()],
       args,
     );
-  } catch (error) {
-    // A summary carries no examples, so it reports the count as unknown;
-    // a tree whose examples would be wrong fails instead.
-    if (args.format === "tree" || !(error instanceof JourneyRecordingsError)) {
-      throw error;
-    }
-    recordings = null;
   }
   const bySession = new Map<string, JourneyRecording[]>();
   for (const recording of recordings ?? []) {

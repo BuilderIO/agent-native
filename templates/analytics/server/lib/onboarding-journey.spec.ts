@@ -5,15 +5,26 @@ import {
   BigQueryBackendError,
   BigQueryMaximumBytesBilledError,
 } from "./bigquery.js";
+import { FirstPartyAnalyticsQueryTimeoutError } from "./first-party-analytics.js";
 
 const mocks = vi.hoisted(() => ({
   queryFirstPartyAnalytics: vi.fn(),
   listJourneyRecordings: vi.fn(),
+  getFirstPartyAnalyticsBackend: vi.fn(),
   requestOrigin: "https://analytics.example.test" as string | undefined,
 }));
 
 vi.mock("./first-party-analytics.js", () => ({
   queryFirstPartyAnalytics: mocks.queryFirstPartyAnalytics,
+  FirstPartyAnalyticsQueryTimeoutError: class extends Error {
+    constructor() {
+      super("First-party analytics query timed out");
+      this.name = "FirstPartyAnalyticsQueryTimeoutError";
+    }
+  },
+}));
+vi.mock("./first-party-analytics-backend.js", () => ({
+  getFirstPartyAnalyticsBackend: mocks.getFirstPartyAnalyticsBackend,
 }));
 vi.mock("./session-replay.js", () => ({
   listJourneyRecordings: mocks.listJourneyRecordings,
@@ -112,6 +123,11 @@ beforeEach(() => {
   eventId = 0;
   mocks.requestOrigin = "https://analytics.example.test";
   mocks.queryFirstPartyAnalytics.mockReset();
+  mocks.getFirstPartyAnalyticsBackend.mockReset();
+  mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
+    sink: "bigquery",
+    table: null,
+  });
   mocks.listJourneyRecordings.mockReset();
   mocks.listJourneyRecordings.mockResolvedValue({
     recordings: [recordingFor("s1"), recordingFor("s2")],
@@ -616,6 +632,63 @@ describe("getOnboardingJourney", () => {
     expect(personSql).toContain("e.received_at::timestamptz <");
     expect(personSql).toContain("'30 days'");
     now.mockRestore();
+  });
+
+  it("uses a typed session-follow-up stage for unclassified query errors", async () => {
+    const providerDetail = "private SQL policy detail";
+    mocks.queryFirstPartyAnalytics
+      .mockResolvedValueOnce({ rows: journeyRows(), schema: [] })
+      .mockRejectedValueOnce(new Error(providerDetail));
+
+    let failure: unknown;
+    try {
+      await getOnboardingJourney(scope, { ...ARGS, format: "summary" });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(OnboardingJourneyReadError);
+    expect(failure).toMatchObject({
+      stage: "session_followup",
+      failureKind: "query_error",
+      safeErrorType: "error",
+      backendStatus: null,
+      backendReason: null,
+      backendOperation: null,
+    });
+    expect((failure as Error).message).not.toContain(providerDetail);
+    expect(JSON.stringify(failure)).not.toContain(providerDetail);
+  });
+
+  it("uses a typed person-follow-up stage for unclassified query errors", async () => {
+    const providerDetail = "private SQL policy detail";
+    mocks.queryFirstPartyAnalytics
+      .mockResolvedValueOnce({ rows: journeyRows(), schema: [] })
+      .mockResolvedValueOnce({ rows: [], schema: [] })
+      .mockRejectedValueOnce(new Error(providerDetail));
+
+    let failure: unknown;
+    try {
+      await getOnboardingJourney(scope, {
+        ...ARGS,
+        followUpMode: "person",
+        format: "summary",
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(OnboardingJourneyReadError);
+    expect(failure).toMatchObject({
+      stage: "person_followup",
+      failureKind: "query_error",
+      safeErrorType: "error",
+      backendStatus: null,
+      backendReason: null,
+      backendOperation: null,
+    });
+    expect((failure as Error).message).not.toContain(providerDetail);
+    expect(JSON.stringify(failure)).not.toContain(providerDetail);
   });
 
   it("marks only the person follow-up incomplete when BigQuery rejects its byte cap", async () => {
@@ -1500,6 +1573,41 @@ describe("getOnboardingJourney", () => {
     }
   });
 
+  it("allows bounded Postgres reads beyond the BigQuery page budget", async () => {
+    const rows = Array.from({ length: 8_001 }, (_, index) =>
+      eventRow("postgres-pages", "pageview", index),
+    );
+    mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
+      sink: "postgres",
+      table: null,
+    });
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+      const offset = Number(/OFFSET (\d+)$/.exec(sql)?.[1] ?? 0);
+      const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1] ?? 0);
+      return { rows: rows.slice(offset, offset + limit), schema: [] };
+    });
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      format: "summary",
+      maxEventRows: 10_000,
+    })) as JourneySummary;
+
+    expect(mocks.queryFirstPartyAnalytics).toHaveBeenCalledTimes(3);
+    expect(summary.followUp).toMatchObject({
+      status: "incomplete",
+      incompleteReason: "journey_event_read_may_have_shifted",
+      coverage: {
+        journeyEventRead: {
+          rows: 8_001,
+          pages: 3,
+          truncated: false,
+          paginationConsistency: "may_have_shifted",
+        },
+      },
+    });
+  });
+
   it("counts rows it cannot read, and says so", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({
       rows: [
@@ -1598,6 +1706,58 @@ describe("getOnboardingJourney", () => {
     expect(JSON.stringify(failure)).not.toContain(providerDetail);
   });
 
+  it("classifies a provider-reported BigQuery timeout as a timeout", async () => {
+    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(
+      new BigQueryBackendError(
+        "job",
+        504,
+        "timeout",
+        "private provider detail",
+      ),
+    );
+
+    let failure: unknown;
+    try {
+      await getOnboardingJourney(scope, ARGS);
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(OnboardingJourneyReadError);
+    expect(failure).toMatchObject({
+      stage: "journey_events",
+      failureKind: "query_timeout",
+      backendStatus: 504,
+      backendReason: "timeout",
+      backendOperation: "job",
+    });
+    expect((failure as Error).message).not.toContain("private provider detail");
+    expect(JSON.stringify(failure)).not.toContain("private provider detail");
+  });
+
+  it("classifies backend resolution timeouts as query timeouts", async () => {
+    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(
+      new FirstPartyAnalyticsQueryTimeoutError(),
+    );
+
+    let failure: unknown;
+    try {
+      await getOnboardingJourney(scope, ARGS);
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(OnboardingJourneyReadError);
+    expect(failure).toMatchObject({
+      stage: "journey_events",
+      failureKind: "query_timeout",
+      safeErrorType: "query_timeout",
+      backendStatus: null,
+      backendReason: "timeout",
+      backendOperation: null,
+    });
+  });
+
   it("gives an empty window an empty tree with zero coverage", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({ rows: [], schema: [] });
     const tree = (await getOnboardingJourney(scope, ARGS)) as JourneyTree;
@@ -1625,7 +1785,7 @@ describe("summary format", () => {
       format: "summary",
     })) as JourneySummary;
     expect(summary.format).toBe("summary");
-    expect(summary.coverage.sessionsWithReplay).toBe(2);
+    expect(summary.coverage.sessionsWithReplay).toBeNull();
     expect(summary.coverage.truncated).toBe(false);
     expect(summary.outline.split("\n")).toEqual([
       "Signed up - n=3 (100% of all, 100% of parent), dropoff 1 (33.33%)",
@@ -1633,21 +1793,7 @@ describe("summary format", () => {
       "    Onboarding completed - n=1 (33.33% of all, 50% of parent), dropoff 1 (100%)",
     ]);
     expect(summary).not.toHaveProperty("nodes");
-  });
-
-  it("reports an unreadable recordings read as unknown, never zero", async () => {
-    mocks.queryFirstPartyAnalytics.mockResolvedValue({
-      rows: journeyRows(),
-      schema: [],
-    });
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    mocks.listJourneyRecordings.mockRejectedValueOnce(new Error("db down"));
-    const summary = (await getOnboardingJourney(scope, {
-      ...ARGS,
-      format: "summary",
-    })) as JourneySummary;
-    expect(summary.coverage.sessionsWithReplay).toBeNull();
-    log.mockRestore();
+    expect(mocks.listJourneyRecordings).not.toHaveBeenCalled();
   });
 
   it("labels continuation omitted by the node cap without adding it to drop-off", async () => {

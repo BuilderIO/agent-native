@@ -30,9 +30,10 @@ The pipeline runs without a UI. Codex does all four steps from the terminal:
 ## The tree
 
 `get-onboarding-journey` returns `JourneyTree`; `format: "summary"` returns the
-same counts as an indented `outline` with no examples. Use it first to choose a
-window, `app`, `maxDepth`, `minNodeSessions` (small branches merge into an
-`other` node), and `maxNodes`.
+same event-derived journey and follow-up counts as an indented `outline` with no
+examples. Summaries skip replay reads, so `coverage.sessionsWithReplay` is
+`null`. Use one first to choose a window, `app`, `maxDepth`, `minNodeSessions`
+(small branches merge into an `other` node), and `maxNodes`.
 
 To include the bounded cross-session estimate from the repository root, run:
 `pnpm --filter analytics action get-onboarding-journey --dateFrom=2026-08-01 --dateTo=2026-08-31 --app=all --emailFilter=exclude_builder --followUpMode=person --format=summary`.

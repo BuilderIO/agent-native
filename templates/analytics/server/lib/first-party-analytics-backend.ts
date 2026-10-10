@@ -18,7 +18,11 @@ import {
 import { requireRequestCredentialContext } from "./credentials-context.js";
 import { firstPartyEventPushdownPredicates } from "./first-party-analytics-pushdown.js";
 import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
-import { fetchGoogleWithRetry, getAccessToken } from "./gcloud.js";
+import {
+  fetchGoogleWithRetry,
+  getAccessToken,
+  raceWithAbort,
+} from "./gcloud.js";
 import {
   getScopedSettingRecord,
   putScopedSettingRecord,
@@ -177,19 +181,28 @@ function normalizeSink(value: unknown): FirstPartyAnalyticsSink {
 
 export async function getFirstPartyAnalyticsBackend(
   scope: FirstPartyAnalyticsScope,
+  signal?: AbortSignal,
 ): Promise<FirstPartyAnalyticsBackendConfig> {
+  if (signal?.aborted) {
+    throw new DOMException("The operation was aborted", "AbortError");
+  }
   const cacheKey = backendScopeKey(scope);
   const cached = backendConfigCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.config;
 
-  const setting = (await (scope.credentialScope === "org"
-    ? scope.orgId
-      ? getOrgSetting(scope.orgId, FIRST_PARTY_ANALYTICS_BACKEND_SETTING)
-      : null
-    : getScopedSettingRecord(
-        { email: scope.userEmail, orgId: scope.orgId },
-        FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
-      ))) as FirstPartyAnalyticsBackendSetting | null;
+  const settingRead =
+    scope.credentialScope === "org"
+      ? scope.orgId
+        ? getOrgSetting(scope.orgId, FIRST_PARTY_ANALYTICS_BACKEND_SETTING)
+        : null
+      : getScopedSettingRecord(
+          { email: scope.userEmail, orgId: scope.orgId },
+          FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
+        );
+  const setting = (await raceWithAbort(
+    Promise.resolve(settingRead),
+    signal,
+  )) as FirstPartyAnalyticsBackendSetting | null;
   const config = {
     sink: normalizeSink(setting?.sink),
     table: typeof setting?.table === "string" ? setting.table : null,
@@ -234,8 +247,9 @@ export function resetFirstPartyAnalyticsBackendCacheForTests(): void {
 
 export async function getFirstPartyAnalyticsTable(
   configuredTable?: string | null,
+  signal?: AbortSignal,
 ): Promise<BigQueryTableRef> {
-  const projectId = await getBigQueryProjectId();
+  const projectId = await getBigQueryProjectId(signal);
   return parseTableRef(configuredTable, projectId);
 }
 
@@ -1389,6 +1403,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     eventDateRange?: { startDate: string; endDate: string };
     maxBytesBilled?: number;
     timeoutMs?: number;
+    signal?: AbortSignal;
   } = {},
 ): Promise<{
   rows: Record<string, unknown>[];
@@ -1406,16 +1421,21 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   }
   const timeoutSignal =
     timeoutMs === undefined ? undefined : AbortSignal.timeout(timeoutMs);
+  const signal =
+    options.signal && timeoutSignal
+      ? AbortSignal.any([options.signal, timeoutSignal])
+      : (options.signal ?? timeoutSignal);
   let result: Awaited<ReturnType<typeof runQuery>>;
   try {
     result = await runQuery(
       `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, { eventDateRange: options.eventDateRange })}) AS first_party_analytics_query LIMIT 5000`,
       {
         maxBytesBilled: options.maxBytesBilled,
-        ...(timeoutSignal ? { signal: timeoutSignal } : {}),
+        ...(signal ? { signal } : {}),
       },
     );
   } catch (error) {
+    if (options.signal?.aborted) throw error;
     if (timeoutSignal?.aborted) throw new BigQueryQueryTimeoutError();
     throw error;
   }

@@ -19,7 +19,11 @@ vi.mock("./bigquery.js", () => ({
   getBigQueryProjectId,
   runQuery,
 }));
-vi.mock("./gcloud.js", () => ({ fetchGoogleWithRetry, getAccessToken }));
+vi.mock("./gcloud.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./gcloud.js")>()),
+  fetchGoogleWithRetry,
+  getAccessToken,
+}));
 vi.mock("@agent-native/core/db", () => ({ getDbExec: () => ({ execute }) }));
 vi.mock("./credentials-context.js", () => ({
   requireRequestCredentialContext: vi.fn(),
@@ -765,6 +769,14 @@ describe("first-party BigQuery backend", () => {
       fullyQualified:
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
     });
+  });
+
+  it("forwards the query abort signal through project resolution", async () => {
+    const signal = new AbortController().signal;
+
+    await getFirstPartyAnalyticsTable(undefined, signal);
+
+    expect(getBigQueryProjectId).toHaveBeenCalledWith(signal);
   });
 
   it("compares BigQuery retention metrics against the copied non-http scope", async () => {

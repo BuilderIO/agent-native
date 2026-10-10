@@ -1417,7 +1417,7 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
       WHEN lower(${TEMPLATE_EXPR}) = 'slides'
         THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
     END AS attempt_id,
-    e.session_id
+    e.session_id AS source_session_id
   FROM scoped_onboarding_events e
   JOIN cohort_sessions s ON s.session_id = e.session_id
   WHERE (
@@ -1436,16 +1436,17 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
         THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
     END IS NOT NULL
 ), unique_output_links AS (
-  SELECT template_name, output_id, attempt_id, MIN(session_id) AS session_id
+  SELECT template_name, output_id, attempt_id,
+    MIN(source_session_id) AS session_id
   FROM eligible_output_links
   GROUP BY template_name, output_id, attempt_id
-  HAVING COUNT(DISTINCT session_id) = 1
+  HAVING COUNT(DISTINCT source_session_id) = 1
 ), design_output_links AS (
   SELECT DISTINCT
     NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
     NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') AS attempt_id,
-    e.session_id,
-    'onboarding' AS journey_kind
+    e.session_id AS source_session_id,
+    'onboarding' AS source_journey_kind
   FROM scoped_onboarding_events e
   JOIN cohort_sessions s ON s.session_id = e.session_id
   WHERE lower(${TEMPLATE_EXPR}) = 'design'
@@ -1456,8 +1457,8 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
   SELECT DISTINCT
     NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
     NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') AS attempt_id,
-    e.session_id,
-    'standalone_setup' AS journey_kind
+    e.session_id AS source_session_id,
+    'standalone_setup' AS source_journey_kind
   FROM scoped_onboarding_events e
   JOIN standalone_setup_sessions s ON s.session_id = e.session_id
   WHERE lower(${TEMPLATE_EXPR}) = 'design'
@@ -1468,12 +1469,12 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
   SELECT
     output_id,
     attempt_id,
-    MIN(session_id) AS session_id,
-    MIN(journey_kind) AS journey_kind
+    MIN(source_session_id) AS session_id,
+    MIN(source_journey_kind) AS journey_kind
   FROM design_output_links
   GROUP BY output_id, attempt_id
-  HAVING COUNT(DISTINCT session_id) = 1
-    AND COUNT(DISTINCT journey_kind) = 1
+  HAVING COUNT(DISTINCT source_session_id) = 1
+    AND COUNT(DISTINCT source_journey_kind) = 1
 ), journey_events AS (
   SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
     e.properties, lower(${TEMPLATE_EXPR}) AS template_name, e.template, e.app,

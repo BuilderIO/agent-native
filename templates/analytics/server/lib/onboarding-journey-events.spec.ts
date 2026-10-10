@@ -1,8 +1,12 @@
 import { createRequire } from "node:module";
 
+import { readAgentSqlQuery } from "@agent-native/core/agent-sql";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { assertFirstPartyAnalyticsBigQuerySql } from "./first-party-analytics-backend.js";
+import {
+  assertFirstPartyAnalyticsBigQuerySql,
+  renderFirstPartyAnalyticsBigQuerySql,
+} from "./first-party-analytics-backend.js";
 import {
   scopedAnalyticsSql,
   validateFirstPartyAnalyticsSql,
@@ -265,6 +269,91 @@ describe("onboarding journey events SQL", () => {
       expect(() => assertFirstPartyAnalyticsBigQuerySql(sql)).not.toThrow();
       expect(sql).toContain(window.observationCutoff);
     }
+  });
+
+  it("keeps output uniqueness checks on source columns in BigQuery HAVING clauses", async () => {
+    await setup();
+    const sql = buildOnboardingJourneyEventsSql(
+      filters(),
+      { limit: 10, offset: 0 },
+      observation(),
+    );
+
+    expect(sql).toContain("e.session_id AS source_session_id");
+    expect(sql).toContain("MIN(source_session_id) AS session_id");
+    expect(sql).toContain("COUNT(DISTINCT source_session_id) = 1");
+    expect(sql).toContain("MIN(source_journey_kind) AS journey_kind");
+    expect(sql).toContain("COUNT(DISTINCT source_journey_kind) = 1");
+    expect(sql).not.toContain("HAVING COUNT(DISTINCT session_id)");
+
+    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    await client.query(scoped.sql, scoped.args);
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      scoped.sql,
+      scoped.args,
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "example-project.analytics.first_party_analytics_events_raw",
+      },
+      { eventDateRange: { startDate: yesterday, endDate: today } },
+    );
+    expect(() =>
+      readAgentSqlQuery(rendered, { dialect: "bigquery" }),
+    ).not.toThrow();
+  });
+
+  it("preserves hostile member JSON through PostgreSQL scoping and BigQuery rendering", async () => {
+    await setup();
+    const member = {
+      sessionId: "session'\\path\\u0027",
+      stepKey: "step:'quoted'\\u0027\nline",
+      tsMs: Date.parse(`${today}T12:00:00.000Z`),
+      app: "clips",
+      authUserId: "person'\\u0027\nline",
+    };
+    const sql = buildOnboardingJourneyPersonFollowupSql(
+      filters(),
+      [member],
+      observation(),
+    );
+    const scoped = scopedAnalyticsSql(sql, SCOPE);
+    const postgres = (await client.query(scoped.sql, scoped.args)) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    expect(postgres.rows).toHaveLength(1);
+    expect(postgres.rows[0]?.terminal_step_key).toBe(member.stepKey);
+
+    const payload = JSON.stringify({
+      sessionId: member.sessionId,
+      stepKey: member.stepKey,
+      app: member.app,
+      timestamp: new Date(member.tsMs).toISOString(),
+      authUserId: member.authUserId,
+    });
+    const table = {
+      projectId: "example-project",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "example-project.analytics.first_party_analytics_events_raw",
+    };
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      scoped.sql,
+      scoped.args,
+      table,
+    );
+    expect(rendered).toContain(
+      `'${payload.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`,
+    );
+    expect(() =>
+      readAgentSqlQuery(rendered, { dialect: "bigquery" }),
+    ).not.toThrow();
+    expect(rendered).toContain(
+      "FROM `example-project.analytics.first_party_analytics_events_raw`",
+    );
   });
 
   it("avoids an unused identity-bridge scan while keeping session email filters", async () => {

@@ -56,6 +56,7 @@ import { firstPartyEventPushdownPredicates } from "./first-party-analytics-pushd
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
 import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
 import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-volume.js";
+import { raceWithAbort } from "./gcloud.js";
 import {
   MAX_APP_LENGTH,
   MAX_EVENT_NAME_LENGTH,
@@ -101,9 +102,17 @@ export interface AnalyticsQueryOptions {
   cache?: boolean;
   timeoutMs?: number;
   maxBytesBilled?: number;
+  signal?: AbortSignal;
   eventDateRange?: { startDate: string; endDate: string };
   /** Debugging only: metrics exclude test identities by default. */
   includeTestIdentities?: boolean;
+}
+
+export class FirstPartyAnalyticsQueryTimeoutError extends Error {
+  constructor() {
+    super("First-party analytics query timed out");
+    this.name = "FirstPartyAnalyticsQueryTimeoutError";
+  }
 }
 
 const MAX_EVENTS_PER_REQUEST = 100;
@@ -1261,7 +1270,13 @@ export function scopedAnalyticsSql(
   sql: string,
   scope: AnalyticsScope,
   today = todayIsoDate(),
-  { includeTestIdentities = false }: { includeTestIdentities?: boolean } = {},
+  {
+    includeTestIdentities = false,
+    scopedEventsNotMaterialized = false,
+  }: {
+    includeTestIdentities?: boolean;
+    scopedEventsNotMaterialized?: boolean;
+  } = {},
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];
   const configuredSql = withConfiguredTestIdentities(sql);
@@ -1335,7 +1350,7 @@ export function scopedAnalyticsSql(
       ? rewrittenQuery.tokens[1]
       : null;
   const prefixEnd = recursiveToken?.end ?? withToken?.end;
-  const scopedCte = `${SCOPED_ANALYTICS_EVENTS_CTE} AS ${scopedEvents.sql}`;
+  const scopedCte = `${SCOPED_ANALYTICS_EVENTS_CTE} AS ${scopedEventsNotMaterialized ? "NOT MATERIALIZED " : ""}${scopedEvents.sql}`;
   const resultSql =
     prefixEnd !== undefined
       ? `${rewritten.slice(0, prefixEnd)} ${scopedCte},${rewritten.slice(prefixEnd)}`
@@ -1387,36 +1402,40 @@ async function withVerifiedPostgresQuery<T>(
   statement: AgentPostgresStatement,
   timeoutMs: number,
   read: (transaction: DbExec) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const exec = getDbExec();
   if (!exec.transaction) {
     throw new Error("This database does not support interactive transactions.");
   }
   const deadlineAt = Date.now() + timeoutMs;
-  return exec.transaction(async (transaction) => {
-    const checked: DbExec = {
-      execute: (input: DbExecStatement) => {
-        const remainingMs = deadlineAt - Date.now();
-        if (remainingMs <= 0)
-          throw new Error("First-party analytics query timed out");
-        const query = typeof input === "string" ? { sql: input } : input;
-        return transaction.execute({
-          ...query,
-          timeoutMs: remainingMs,
-          maxAttempts: 1,
-        });
-      },
-    };
-    await checked.execute("SET TRANSACTION READ ONLY");
-    await verifyAgentPostgresExpressions(
-      {
-        unsafe: async (sql, args) =>
-          (await checked.execute({ sql, args })).rows,
-      },
-      statement,
-    );
-    return read(checked);
-  });
+  return raceWithAbort(
+    exec.transaction(async (transaction) => {
+      const checked: DbExec = {
+        execute: (input: DbExecStatement) => {
+          const remainingMs = deadlineAt - Date.now();
+          if (remainingMs <= 0)
+            throw new FirstPartyAnalyticsQueryTimeoutError();
+          const query = typeof input === "string" ? { sql: input } : input;
+          return transaction.execute({
+            ...query,
+            timeoutMs: remainingMs,
+            maxAttempts: 1,
+          });
+        },
+      };
+      await checked.execute("SET TRANSACTION READ ONLY");
+      await verifyAgentPostgresExpressions(
+        {
+          unsafe: async (sql, args) =>
+            (await checked.execute({ sql, args })).rows,
+        },
+        statement,
+      );
+      return read(checked);
+    }),
+    signal,
+  );
 }
 
 export async function validateFirstPartyAnalyticsSqlForScope(
@@ -1447,120 +1466,180 @@ export async function queryFirstPartyAnalytics(
   options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsQueryResult> {
   validateFirstPartyAnalyticsSqlShape(sql);
-  const backend = await getFirstPartyAnalyticsBackend(scope);
+  const timeoutMs = options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS;
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > 2_147_483_647
+  ) {
+    throw new Error("First-party analytics timeout must be a positive integer");
+  }
   const scopeOptions = {
     includeTestIdentities: options.includeTestIdentities === true,
   };
   const queryClass = classifyFirstPartyAnalyticsQuery(sql);
-  if (firstPartyAnalyticsQueryTarget(sql, backend.sink) === "bigquery") {
-    validateAnalyticsSqlFunctions(
-      validateFirstPartyAnalyticsSqlShape(sql),
-      "bigquery",
+  const startedAt = Date.now();
+  const deadlineAt = Date.now() + timeoutMs;
+  const timeoutController = new AbortController();
+  const timeout = setTimeout(() => timeoutController.abort(), timeoutMs);
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, timeoutController.signal])
+    : timeoutController.signal;
+  const normalizeFailure = (error: unknown) => {
+    if (timeoutController.signal.aborted) {
+      return new FirstPartyAnalyticsQueryTimeoutError();
+    }
+    if (options.signal?.aborted) {
+      return error instanceof Error
+        ? error
+        : new DOMException("The operation was aborted", "AbortError");
+    }
+    return error;
+  };
+  const remainingTime = () => {
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs <= 0) throw new FirstPartyAnalyticsQueryTimeoutError();
+    return remainingMs;
+  };
+  try {
+    const backend = await raceWithAbort(
+      getFirstPartyAnalyticsBackend(scope, signal),
+      signal,
     );
-    const table = await getFirstPartyAnalyticsTable(backend.table);
-    const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
-    const startedAt = Date.now();
-    const recordBigQueryPressure = async (
-      outcome: ReturnType<typeof queryOutcomeFromError> | "success",
-    ) => {
+    const queryTarget = firstPartyAnalyticsQueryTarget(sql, backend.sink);
+    if (queryTarget === "bigquery") {
+      const recordBigQueryPressure = async (
+        outcome: ReturnType<typeof queryOutcomeFromError> | "success",
+      ) => {
+        try {
+          await recordFirstPartyAnalyticsQueryPressure(scope, {
+            durationMs: Date.now() - startedAt,
+            outcome,
+            queryClass,
+          });
+        } catch (error) {
+          console.warn(
+            "[first-party-analytics] Query pressure recording failed:",
+            { errorType: error instanceof Error ? error.name : "non_error" },
+          );
+        }
+      };
       try {
-        await recordFirstPartyAnalyticsQueryPressure(scope, {
-          durationMs: Date.now() - startedAt,
-          outcome,
-          queryClass,
-        });
-      } catch (error) {
-        console.warn(
-          "[first-party-analytics] Query pressure recording failed:",
-          { errorType: error instanceof Error ? error.name : "non_error" },
+        validateAnalyticsSqlFunctions(
+          validateFirstPartyAnalyticsSqlShape(sql),
+          "bigquery",
         );
+        const table = await raceWithAbort(
+          getFirstPartyAnalyticsTable(backend.table, signal),
+          signal,
+        );
+        const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
+        const result = await raceWithAbort(
+          queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table, {
+            maxBytesBilled: options.maxBytesBilled,
+            timeoutMs: remainingTime(),
+            eventDateRange: options.eventDateRange,
+            signal,
+          }),
+          signal,
+        );
+        if (timeoutController.signal.aborted) {
+          throw new FirstPartyAnalyticsQueryTimeoutError();
+        }
+        await recordBigQueryPressure("success");
+        return result;
+      } catch (error) {
+        const failure = normalizeFailure(error);
+        if (!options.signal?.aborted) {
+          await recordBigQueryPressure(queryOutcomeFromError(failure));
+        }
+        throw failure;
+      }
+    }
+
+    validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
+    const scoped = scopedAnalyticsSql(sql, scope, undefined, {
+      ...scopeOptions,
+      scopedEventsNotMaterialized: true,
+    });
+    const wrappedSql = `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS + 1}`;
+    const statement = readAgentPostgresStatement(wrappedSql);
+    const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args, scope);
+    const compute = async (
+      queryTimeoutMs = timeoutMs,
+    ): Promise<AnalyticsQueryResult> => {
+      const queryStartedAt = Date.now();
+      try {
+        const result = await withVerifiedPostgresQuery(
+          statement,
+          Math.min(queryTimeoutMs, remainingTime()),
+          (transaction) =>
+            transaction.execute({ sql: wrappedSql, args: scoped.args }),
+          signal,
+        );
+        if (timeoutController.signal.aborted) {
+          throw new FirstPartyAnalyticsQueryTimeoutError();
+        }
+        void recordFirstPartyAnalyticsQueryPressure(scope, {
+          durationMs: Date.now() - queryStartedAt,
+          outcome: "success",
+          queryClass,
+        }).catch((error) => {
+          console.warn(
+            "[first-party-analytics] Query pressure recording failed:",
+            { errorType: error instanceof Error ? error.name : "non_error" },
+          );
+        });
+        const resultRows = result.rows as Record<string, unknown>[];
+        const truncated = resultRows.length > MAX_QUERY_ROWS;
+        const rows = truncated
+          ? resultRows.slice(0, MAX_QUERY_ROWS)
+          : resultRows;
+        return {
+          rows,
+          schema: inferSchema(rows),
+          ...(truncated ? { truncated: true } : {}),
+        };
+      } catch (error) {
+        const failure = normalizeFailure(error);
+        if (!options.signal?.aborted) {
+          void recordFirstPartyAnalyticsQueryPressure(scope, {
+            durationMs: Date.now() - queryStartedAt,
+            outcome: queryOutcomeFromError(failure),
+            queryClass,
+          }).catch((recordingError) => {
+            console.warn(
+              "[first-party-analytics] Query pressure recording failed:",
+              {
+                errorType:
+                  recordingError instanceof Error
+                    ? recordingError.name
+                    : "non_error",
+              },
+            );
+          });
+        }
+        throw failure;
       }
     };
-    try {
-      const result = await queryFirstPartyAnalyticsInBigQuery(
-        scoped.sql,
-        scoped.args,
-        table,
-        {
-          maxBytesBilled: options.maxBytesBilled,
-          timeoutMs: options.timeoutMs,
-          eventDateRange: options.eventDateRange,
-        },
-      );
-      await recordBigQueryPressure("success");
-      return result;
-    } catch (error) {
-      await recordBigQueryPressure(queryOutcomeFromError(error));
-      throw error;
-    }
+    if (!options.cache) return await compute();
+    await withVerifiedPostgresQuery(
+      statement,
+      remainingTime(),
+      async () => {},
+      signal,
+    );
+    remainingTime();
+    return await raceWithAbort(
+      withFirstPartyCache(cacheKey, wrappedSql, compute, {
+        timeoutMs,
+        deadlineAt,
+      }),
+      signal,
+    );
+  } catch (error) {
+    throw normalizeFailure(error);
+  } finally {
+    clearTimeout(timeout);
   }
-  validateAnalyticsSqlFunctions(validateFirstPartyAnalyticsSqlShape(sql));
-  const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
-  const scopedSql = scoped.sql;
-  const wrappedSql = `SELECT * FROM (${scopedSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS + 1}`;
-  const statement = readAgentPostgresStatement(wrappedSql);
-  const timeoutMs = Math.max(
-    1,
-    options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
-  );
-  const deadlineAt = Date.now() + timeoutMs;
-  const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args, scope);
-  const compute = async (
-    queryTimeoutMs = timeoutMs,
-  ): Promise<AnalyticsQueryResult> => {
-    const startedAt = Date.now();
-    try {
-      const result = await withVerifiedPostgresQuery(
-        statement,
-        queryTimeoutMs,
-        (transaction) =>
-          transaction.execute({ sql: wrappedSql, args: scoped.args }),
-      );
-      const durationMs = Date.now() - startedAt;
-      void recordFirstPartyAnalyticsQueryPressure(scope, {
-        durationMs,
-        outcome: "success",
-        queryClass,
-      }).catch((error) => {
-        console.warn(
-          "[first-party-analytics] Query pressure recording failed:",
-          { errorType: error instanceof Error ? error.name : "non_error" },
-        );
-      });
-      const resultRows = result.rows as Record<string, unknown>[];
-      const truncated = resultRows.length > MAX_QUERY_ROWS;
-      const rows = truncated ? resultRows.slice(0, MAX_QUERY_ROWS) : resultRows;
-      return {
-        rows,
-        schema: inferSchema(rows),
-        ...(truncated ? { truncated: true } : {}),
-      };
-    } catch (error) {
-      void recordFirstPartyAnalyticsQueryPressure(scope, {
-        durationMs: Date.now() - startedAt,
-        outcome: queryOutcomeFromError(error),
-        queryClass,
-      }).catch((recordingError) => {
-        console.warn(
-          "[first-party-analytics] Query pressure recording failed:",
-          {
-            errorType:
-              recordingError instanceof Error
-                ? recordingError.name
-                : "non_error",
-          },
-        );
-      });
-      throw error;
-    }
-  };
-  if (!options.cache) return compute();
-  await withVerifiedPostgresQuery(statement, timeoutMs, async () => {});
-  const remainingMs = deadlineAt - Date.now();
-  if (remainingMs <= 0)
-    throw new Error("First-party analytics query timed out");
-  return withFirstPartyCache(cacheKey, wrappedSql, compute, {
-    timeoutMs,
-    deadlineAt,
-  });
 }
