@@ -11,6 +11,7 @@ import {
   readOracleFile,
   type OracleFileName,
 } from "./load";
+import { diffLedgerContent, readMarkdownLedger } from "./markdown";
 import {
   ORACLE_ID_PATTERN,
   OracleFileSchema,
@@ -94,6 +95,13 @@ describe("interaction oracle files", () => {
     const jsonIds = new Set(readAllRows().map((row) => row.id));
     const missing = readMarkdownLedgerIds().filter((id) => !jsonIds.has(id));
     expect(missing).toEqual([]);
+  });
+
+  it("same-id rows agree on probe, result, notes and confidence", () => {
+    const markdownRows = readMarkdownLedger(
+      readFileSync(MARKDOWN_PATH, "utf8"),
+    );
+    expect(diffLedgerContent(markdownRows, readAllRows())).toEqual([]);
   });
 
   it("every gap row has status gap", () => {
