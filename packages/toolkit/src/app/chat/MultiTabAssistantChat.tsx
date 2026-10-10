@@ -895,7 +895,11 @@ export type MultiTabAssistantChatProps = Omit<
   onCommandListenersReadyChange?: (ready: boolean) => void;
   onReferenceTargetChange?: () => void;
   onNavigationChange?: (event: Event, outcome: ChatNavigationOutcome) => void;
-  onTabsClosed?: (tabIds: string[]) => void;
+  onTabsClosed?: (tabIds: string[], outcome: "closed" | "missing") => void;
+  onTabsClosing?: (
+    tabIds: string[],
+    outcome: "closed" | "missing",
+  ) => (() => void) | void;
 };
 
 export type ChatNavigationOutcome =
@@ -931,6 +935,7 @@ export function MultiTabAssistantChat({
   onReferenceTargetChange,
   onNavigationChange,
   onTabsClosed,
+  onTabsClosing,
   ...props
 }: MultiTabAssistantChatProps) {
   const translate = useT();
@@ -2424,7 +2429,21 @@ export function MultiTabAssistantChat({
     });
     navigationChangeRef.current?.(event, "started");
   }, []);
-  const notifyTabsClosed = useCallback(
+  const mountedRef = useRef(true);
+  const pendingTabClosures = useRef(
+    new Set<{
+      tabIds: string[];
+      cancelled: { event: Event; targetId: string }[];
+      outcome: "closed" | "missing";
+      publications: (() => void)[];
+      ready: boolean;
+    }>(),
+  );
+  const tabsClosingRef = useRef(onTabsClosing);
+  tabsClosingRef.current = onTabsClosing;
+  const tabsClosedRef = useRef(onTabsClosed);
+  tabsClosedRef.current = onTabsClosed;
+  const cancelTabNavigations = useCallback(
     (tabIds: string[], outcome: "closed" | "missing" = "closed") => {
       const closed = new Set(tabIds);
       for (const tabId of closed)
@@ -2433,22 +2452,63 @@ export function MultiTabAssistantChat({
         ([, navigation]) => closed.has(navigation.targetId),
       );
       for (const [key] of cancelled) pendingNavigations.current.delete(key);
-      for (const [, navigation] of cancelled)
-        navigationChangeRef.current?.(navigation.event, outcome);
-      onTabsClosed?.(tabIds);
-    },
-    [onTabsClosed],
-  );
-  useEffect(
-    () => () => {
-      const pending = [...pendingNavigations.current.values()];
-      pendingNavigations.current.clear();
-      awaitingNavigationHandles.current.clear();
-      for (const navigation of pending)
-        navigationChangeRef.current?.(navigation.event, "unavailable");
+      const publication = tabsClosingRef.current?.(tabIds, outcome);
+      const closure = {
+        tabIds,
+        cancelled: cancelled.map(([, navigation]) => navigation),
+        outcome,
+        publications: publication ? [publication] : [],
+        ready: false,
+      };
+      pendingTabClosures.current.add(closure);
+      return closure;
     },
     [],
   );
+  const publishTabClosure = useCallback(
+    (closed: ReturnType<typeof cancelTabNavigations>) => {
+      if (!pendingTabClosures.current.delete(closed)) return;
+      for (const publish of closed.publications) publish();
+      tabsClosedRef.current?.(closed.tabIds, closed.outcome);
+      for (const navigation of closed.cancelled)
+        navigationChangeRef.current?.(navigation.event, closed.outcome);
+    },
+    [],
+  );
+  const [tabClosureVersion, setTabClosureVersion] = useState(0);
+  const notifyTabsClosed = useCallback(
+    (closed: ReturnType<typeof cancelTabNavigations>) => {
+      closed.ready = true;
+      if (!mountedRef.current) {
+        publishTabClosure(closed);
+        return;
+      }
+      setTabClosureVersion((version) => version + 1);
+    },
+    [publishTabClosure],
+  );
+  useEffect(() => {
+    const closures = [...pendingTabClosures.current].filter(
+      ({ ready }) => ready,
+    );
+    if (closures.length === 0) return;
+    queueMicrotask(() => {
+      for (const closed of closures) publishTabClosure(closed);
+    });
+  }, [tabClosureVersion, publishTabClosure]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const pending = [...pendingNavigations.current.values()];
+      pendingNavigations.current.clear();
+      awaitingNavigationHandles.current.clear();
+      for (const closed of [...pendingTabClosures.current])
+        publishTabClosure(closed);
+      for (const navigation of pending)
+        navigationChangeRef.current?.(navigation.event, "unavailable");
+    };
+  }, [publishTabClosure]);
   const [navigationSettlements, setNavigationSettlements] = useState<
     {
       event: Event;
@@ -2524,9 +2584,8 @@ export function MultiTabAssistantChat({
     // Prefill updates must commit before later retained drafts are released.
   }, [navigationSettlements, activeThreadId, navigationHandleVersion]);
 
-  const cleanupClosedTab = useCallback(
-    (tabId: string, outcome: "closed" | "missing" = "closed") => {
-      notifyTabsClosed([tabId], outcome);
+  const cleanupTabs = useCallback((tabIds: string[]) => {
+    for (const tabId of tabIds) {
       if (parentMapRef.current[tabId]) {
         dismissedSubAgentTabsRef.current.add(tabId);
       }
@@ -2554,63 +2613,36 @@ export function MultiTabAssistantChat({
         const { [tabId]: _, ...rest } = prev;
         return rest;
       });
+    }
+  }, []);
+  const cleanupClosedTabs = useCallback(
+    (tabIds: string[], outcome: "closed" | "missing" = "closed") => {
+      const closed = cancelTabNavigations(tabIds, outcome);
+      cleanupTabs(tabIds);
+      return () => notifyTabsClosed(closed);
     },
-    [notifyTabsClosed],
+    [cancelTabNavigations, cleanupTabs, notifyTabsClosed],
   );
 
   useEffect(() => {
     if (evictedThreadIds.length === 0) return;
-    for (const threadId of evictedThreadIds) cleanupClosedTab(threadId);
+    const notifyClosed = cleanupClosedTabs(evictedThreadIds);
     setOpenTabIds((prev) =>
       prev.filter((threadId) => !evictedThreadIds.includes(threadId)),
     );
-  }, [cleanupClosedTab, evictedThreadIds, setOpenTabIds]);
+    notifyClosed();
+  }, [cleanupClosedTabs, evictedThreadIds, setOpenTabIds]);
 
-  const closeTab = useCallback(
-    (tabId: string) => {
-      // Read the current list from the ref rather than a `setOpenTabIds`
-      // updater callback — `createThread()`/`switchThread()` below set
-      // `activeThreadId` synchronously as a side effect, and calling them
-      // from inside an updater left `openTabIds` and `activeThreadId`
-      // inconsistent for a render: the "ensure active thread is in open
-      // tabs" effect would then re-add the just-closed id, so the tab
-      // appeared to reopen itself right after closing.
-      const prev = openTabIdsRef.current;
-      if (prev.length <= 1) {
-        if (lastTabReplacementInFlightRef.current) return;
-        lastTabReplacementInFlightRef.current = true;
-        // Last tab — create a new one and replace the old tab once ready;
-        // the old tab stays visible in the meantime so the bar is never empty.
-        cleanupClosedTab(tabId);
-        void (async () => {
-          try {
-            const newId = await createThread();
-            if (newId) {
-              newThreadIds.current.add(newId);
-              setOpenTabIds([newId]);
-              writeThreadUrl(null);
-            }
-          } catch (error) {
-            console.error(
-              "[agent-chat] failed to replace the closed final tab",
-              error,
-            );
-          } finally {
-            lastTabReplacementInFlightRef.current = false;
-          }
-        })();
-        return;
-      }
-      const next = prev.filter((id) => id !== tabId);
-      if (tabId === activeThreadIdRef.current && next.length > 0) {
-        const idx = prev.indexOf(tabId);
-        switchThread(next[Math.min(idx, next.length - 1)]);
-      }
-      setOpenTabIds(next);
-      cleanupClosedTab(tabId);
-    },
-    [switchThread, createThread, cleanupClosedTab, writeThreadUrl],
-  );
+  const getClosingTabIds = useCallback((retainedTabId?: string) => {
+    const tabIds = new Set([
+      ...openTabIdsRef.current,
+      ...[...pendingNavigations.current.values()].map(
+        ({ targetId }) => targetId,
+      ),
+    ]);
+    if (retainedTabId) tabIds.delete(retainedTabId);
+    return [...tabIds];
+  }, []);
 
   const closeOtherTabs = useCallback(
     (tabId: string) => {
@@ -2619,8 +2651,7 @@ export function MultiTabAssistantChat({
           dismissedSubAgentTabsRef.current.add(id);
         }
       }
-      const closed = openTabIdsRef.current.filter((id) => id !== tabId);
-      for (const id of closed) cleanupClosedTab(id);
+      const notifyClosed = cleanupClosedTabs(getClosingTabIds(tabId));
       setOpenTabIds([tabId]);
       if (activeThreadIdRef.current !== tabId) {
         switchThread(tabId);
@@ -2638,29 +2669,85 @@ export function MultiTabAssistantChat({
         if (tabId in prev) return { [tabId]: prev[tabId] };
         return {};
       });
+      notifyClosed();
     },
-    [switchThread, cleanupClosedTab],
+    [switchThread, cleanupClosedTabs, getClosingTabIds],
   );
 
   const closeAllTabs = useCallback(async () => {
-    const id = await createThread();
-    if (id) {
-      notifyTabsClosed(openTabIdsRef.current.filter((tabId) => tabId !== id));
-      newThreadIds.current.add(id);
-      setOpenTabIds([id]);
-      switchThreadState(id);
-      writeThreadUrl(null);
-      dismissedSubAgentTabsRef.current.clear();
-      // Clean up all old refs
-      chatRefs.current.clear();
-      pendingDeliveries.current = [];
-      pendingContextItems.current.clear();
-      threadModelRef.current.clear();
-      setParentMap({});
-      setSubAgentNames({});
-      setSubAgentStatuses({});
+    const closed = cancelTabNavigations(getClosingTabIds());
+    try {
+      const id = await createThread();
+      if (!mountedRef.current) return;
+      if (id) {
+        const additional = cancelTabNavigations(getClosingTabIds(id));
+        closed.tabIds = [...new Set([...closed.tabIds, ...additional.tabIds])];
+        closed.cancelled.push(...additional.cancelled);
+        closed.publications.push(...additional.publications);
+        pendingTabClosures.current.delete(additional);
+        newThreadIds.current.add(id);
+        setOpenTabIds([id]);
+        switchThreadState(id);
+        writeThreadUrl(null);
+        dismissedSubAgentTabsRef.current.clear();
+        // Clean up all old refs
+        chatRefs.current.clear();
+        pendingDeliveries.current = [];
+        pendingContextItems.current.clear();
+        threadModelRef.current.clear();
+        setParentMap({});
+        setSubAgentNames({});
+        setSubAgentStatuses({});
+      }
+    } finally {
+      notifyTabsClosed(closed);
     }
-  }, [createThread, switchThreadState, writeThreadUrl, notifyTabsClosed]);
+  }, [
+    createThread,
+    switchThreadState,
+    writeThreadUrl,
+    cancelTabNavigations,
+    getClosingTabIds,
+    notifyTabsClosed,
+  ]);
+
+  const closeTab = useCallback(
+    (tabId: string) => {
+      // Read the current list from the ref rather than a `setOpenTabIds`
+      // updater callback — `createThread()`/`switchThread()` below set
+      // `activeThreadId` synchronously as a side effect, and calling them
+      // from inside an updater left `openTabIds` and `activeThreadId`
+      // inconsistent for a render: the "ensure active thread is in open
+      // tabs" effect would then re-add the just-closed id, so the tab
+      // appeared to reopen itself right after closing.
+      const prev = openTabIdsRef.current;
+      if (prev.length <= 1) {
+        if (lastTabReplacementInFlightRef.current) return;
+        lastTabReplacementInFlightRef.current = true;
+        // Last tab — create a new one and replace the old tab once ready;
+        // the old tab stays visible in the meantime so the bar is never empty.
+        void closeAllTabs()
+          .catch((error) => {
+            console.error(
+              "[agent-chat] failed to replace the closed final tab",
+              error,
+            );
+          })
+          .finally(() => {
+            lastTabReplacementInFlightRef.current = false;
+          });
+        return;
+      }
+      const next = prev.filter((id) => id !== tabId);
+      if (tabId === activeThreadIdRef.current && next.length > 0) {
+        const idx = prev.indexOf(tabId);
+        switchThread(next[Math.min(idx, next.length - 1)]);
+      }
+      setOpenTabIds(next);
+      cleanupClosedTabs([tabId])();
+    },
+    [switchThread, closeAllTabs, cleanupClosedTabs],
+  );
 
   // Keyboard shortcuts dispatched from AgentPanel based on the active mode
   useEffect(() => {
@@ -2741,7 +2828,7 @@ export function MultiTabAssistantChat({
         if (!pendingNavigations.current.has(getAgentChatNavigationKey(event)))
           return;
         if (openResult === "missing") {
-          cleanupClosedTab(threadId, "missing");
+          cleanupClosedTabs([threadId], "missing")();
           return;
         }
         if (openResult === "unavailable") {
@@ -2776,7 +2863,7 @@ export function MultiTabAssistantChat({
     return () =>
       window.removeEventListener("agent-chat:open-thread", handleOpenThread);
   }, [
-    cleanupClosedTab,
+    cleanupClosedTabs,
     createThread,
     openThread,
     switchThread,
@@ -2793,9 +2880,9 @@ export function MultiTabAssistantChat({
         const next = prev.filter((id) => id !== tabIdToClear);
         return next.includes(newTabId) ? next : [...next, newTabId];
       });
-      cleanupClosedTab(tabIdToClear);
+      cleanupClosedTabs([tabIdToClear])();
     });
-  }, [addTab, cleanupClosedTab]);
+  }, [addTab, cleanupClosedTabs]);
 
   const openFromHistory = useCallback(
     (threadId: string) => {

@@ -983,7 +983,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     }
   });
 
-  async function mountNavigationSidebar(cold = false) {
+  async function mountNavigationSidebar(cold = false, destinationOpen = true) {
     assistantChatMockState.referenceProbe = true;
     assistantChatMockState.referenceDisabled = false;
     threadMocks.threads.push({
@@ -993,7 +993,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
     window.localStorage.setItem(
       openTabsStorageKey("bridge-test"),
-      JSON.stringify(["thread-1", "thread-2"]),
+      JSON.stringify(destinationOpen ? ["thread-1", "thread-2"] : ["thread-1"]),
     );
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -1098,9 +1098,14 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     }
   });
 
-  it.each(["others", "all"] as const)(
-    "invalidates in-flight destinations when closing %s tabs",
-    async (closeMethod) => {
+  it.each([
+    ["others", true],
+    ["all", true],
+    ["others", false],
+    ["all", false],
+  ] as const)(
+    "invalidates in-flight destinations when closing %s tabs (alreadyOpen=%s)",
+    async (closeMethod, alreadyOpen) => {
       let finishLookup!: (result: "opened") => void;
       threadMocks.openThread.mockImplementationOnce(
         () =>
@@ -1108,10 +1113,11 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
             finishLookup = resolve;
           }),
       );
-      threadMocks.threads.push({ ...threadMocks.threads[0], id: "thread-2" });
+      if (alreadyOpen)
+        threadMocks.threads.push({ ...threadMocks.threads[0], id: "thread-2" });
       window.localStorage.setItem(
         openTabsStorageKey("close-navigation"),
-        JSON.stringify(["thread-1", "thread-2"]),
+        JSON.stringify(alreadyOpen ? ["thread-1", "thread-2"] : ["thread-1"]),
       );
       let header!: MultiTabAssistantChatHeaderProps;
       const outcomes: string[] = [];
@@ -1158,6 +1164,603 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         "Cancelled navigation prefill",
       );
       expect(outcomes).toEqual(["started", "closed"]);
+    },
+  );
+
+  it("cancels in-flight opens before awaiting the close-all replacement", async () => {
+    let finishLookup!: (result: "opened") => void;
+    let finishReplacement!: (id: string) => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    threadMocks.createThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplacement = resolve;
+        }),
+    );
+    let header!: MultiTabAssistantChatHeaderProps;
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="close-navigation"
+        renderHeader={(props) => {
+          header = props;
+          return null;
+        }}
+        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: {
+            threadId: "thread-2",
+            prefill: "Cancelled navigation prefill",
+          },
+        }),
+      ),
+    );
+    let closing!: Promise<void>;
+    await act(async () => {
+      closing = header.closeAllTabs();
+    });
+    expect(outcomes).toEqual(["started"]);
+    await act(async () => finishLookup("opened"));
+    expect(threadMocks.activeThreadId).toBe("thread-1");
+    expect(header.tabs.some((tab) => tab.id === "thread-2")).toBe(false);
+    await act(async () => {
+      finishReplacement("thread-3");
+      await closing;
+    });
+    expect(threadMocks.activeThreadId).toBe("thread-3");
+    expect(outcomes).toEqual(["started", "closed"]);
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+      "Cancelled navigation prefill",
+    );
+  });
+
+  it("reports tabs opened during delayed close-all replacement cleanup", async () => {
+    let finishReplacement!: (id: string) => void;
+    threadMocks.createThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplacement = resolve;
+        }),
+    );
+    let header!: MultiTabAssistantChatHeaderProps;
+    const closedTabs: string[][] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="close-navigation"
+        renderHeader={(props) => {
+          header = props;
+          return null;
+        }}
+        onTabsClosed={(ids) => closedTabs.push(ids)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    let closing!: Promise<void>;
+    await act(async () => {
+      closing = header.closeAllTabs();
+    });
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2" },
+        }),
+      ),
+    );
+    expect(threadMocks.activeThreadId).toBe("thread-2");
+    expect(closedTabs).toEqual([]);
+    await act(async () => {
+      finishReplacement("thread-3");
+      await closing;
+    });
+    expect(threadMocks.activeThreadId).toBe("thread-3");
+    expect(header.tabs.some((tab) => tab.id === "thread-2")).toBe(false);
+    expect(closedTabs).toEqual([["thread-1", "thread-2"]]);
+  });
+
+  it("preserves a pending open for the close-other-tabs survivor", async () => {
+    let finishLookup!: (result: "opened") => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    let header!: MultiTabAssistantChatHeaderProps;
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="close-navigation"
+        renderHeader={(props) => {
+          header = props;
+          return null;
+        }}
+        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: {
+            threadId: "thread-1",
+            prefill: "Surviving navigation prefill",
+          },
+        }),
+      ),
+    );
+    await act(async () => header.closeOtherTabs("thread-1"));
+    expect(outcomes).toEqual(["started"]);
+    await act(async () => finishLookup("opened"));
+    expect(threadMocks.activeThreadId).toBe("thread-1");
+    expect(outcomes).toEqual(["started", "selected"]);
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+      "Surviving navigation prefill",
+    );
+  });
+
+  it.each(["others", "all"] as const)(
+    "retains callback-created navigation after closing %s tabs",
+    async (closeMethod) => {
+      let finishOldLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOldLookup = resolve;
+          }),
+      );
+      let header!: MultiTabAssistantChatHeaderProps;
+      const outcomes: string[] = [];
+      const chat = () => (
+        <MultiTabAssistantChat
+          storageKey="close-navigation"
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+          onNavigationChange={(_event, outcome) => {
+            outcomes.push(outcome);
+            if (outcome === "closed")
+              window.dispatchEvent(
+                new CustomEvent("agent-chat:open-thread", {
+                  detail: {
+                    threadId: "thread-2",
+                    prefill: "Fresh callback prefill",
+                  },
+                }),
+              );
+          }}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      threadMocks.createThread.mockImplementation(async () => {
+        threadMocks.switchThread("thread-3");
+        return "thread-3";
+      });
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: {
+              threadId: "thread-2",
+              prefill: "Cancelled original prefill",
+            },
+          }),
+        ),
+      );
+      await act(async () => {
+        if (closeMethod === "others") header.closeOtherTabs("thread-1");
+        else await header.closeAllTabs();
+      });
+      expect(outcomes).toEqual(["started", "closed", "started", "selected"]);
+      expect(threadMocks.activeThreadId).toBe("thread-2");
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+        "Fresh callback prefill",
+      );
+      await act(async () => finishOldLookup("opened"));
+      expect(outcomes).toEqual(["started", "closed", "started", "selected"]);
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+        "Cancelled original prefill",
+      );
+    },
+  );
+
+  it("reports cancelled opens and retains the editor when close-all replacement fails", async () => {
+    let finishLookup!: (result: "opened") => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    const failure = new Error("Replacement unavailable");
+    threadMocks.createThread.mockRejectedValueOnce(failure);
+    let header!: MultiTabAssistantChatHeaderProps;
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="close-navigation"
+        renderHeader={(props) => {
+          header = props;
+          return null;
+        }}
+        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2" },
+        }),
+      ),
+    );
+    await act(async () => {
+      await expect(header.closeAllTabs()).rejects.toBe(failure);
+    });
+    expect(outcomes).toEqual(["started", "closed"]);
+    await act(async () => finishLookup("opened"));
+    expect(threadMocks.activeThreadId).toBe("thread-1");
+    expect(header.tabs.some((tab) => tab.id === "thread-2")).toBe(false);
+    await act(async () =>
+      dispatchSubmitChat({
+        message: "Still usable",
+        submit: false,
+        targetTabId: "thread-1",
+      }),
+    );
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith("Still usable");
+  });
+
+  it("settles cancelled opens on unmount during replacement creation exactly once", async () => {
+    let finishLookup!: (result: "opened") => void;
+    let finishReplacement!: (id: string) => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    threadMocks.createThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplacement = resolve;
+        }),
+    );
+    let header!: MultiTabAssistantChatHeaderProps;
+    const outcomes: string[] = [];
+    const publish = vi.fn();
+    await act(async () =>
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="close-navigation"
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+          onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+          onTabsClosing={() => publish}
+        />,
+      ),
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2" },
+        }),
+      ),
+    );
+    let closing!: Promise<void>;
+    await act(async () => {
+      closing = header.closeAllTabs();
+    });
+    expect(outcomes).toEqual(["started"]);
+    await act(async () => root.render(<div />));
+    expect(outcomes).toEqual(["started", "closed"]);
+    expect(publish).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      finishLookup("opened");
+      finishReplacement("thread-3");
+      await closing;
+    });
+    expect(outcomes).toEqual(["started", "closed"]);
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishes final-tab closure after replacement so callback recovery survives", async () => {
+    let finishLookup!: (result: "opened") => void;
+    let finishReplacement!: (id: string) => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    threadMocks.createThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReplacement = resolve;
+        }),
+    );
+    let header!: MultiTabAssistantChatHeaderProps;
+    const outcomes: string[] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="close-navigation"
+        renderHeader={(props) => {
+          header = props;
+          return null;
+        }}
+        onNavigationChange={(_event, outcome) => {
+          outcomes.push(outcome);
+          if (outcome === "closed")
+            window.dispatchEvent(
+              new CustomEvent("agent-chat:open-thread", {
+                detail: { threadId: "thread-2", prefill: "Final tab recovery" },
+              }),
+            );
+        }}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    await act(async () =>
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: "thread-2" },
+        }),
+      ),
+    );
+    await act(async () => header.closeTab("thread-1"));
+    expect(outcomes).toEqual(["started"]);
+    await act(async () => finishReplacement("thread-3"));
+    expect(threadMocks.activeThreadId).toBe("thread-2");
+    expect(header.tabs.some((tab) => tab.id === "thread-2")).toBe(true);
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+      "Final tab recovery",
+    );
+    await act(async () => finishLookup("opened"));
+    expect(outcomes).toEqual(["started", "closed", "started", "selected"]);
+  });
+
+  it("preserves fresh work to the same destination accepted before closure publication", async () => {
+    let finishLookup!: (result: "opened") => void;
+    threadMocks.openThread.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = resolve;
+        }),
+    );
+    await mountNavigationSidebar();
+    const results: unknown[] = [];
+    const recordResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    const reference = (label: string, insertMessageId: string) =>
+      window.dispatchEvent(
+        new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+          detail: {
+            label,
+            insertMessageId,
+            refType: "file",
+            refId: "/same-destination.md",
+            slotKey: "document",
+          },
+        }),
+      );
+    try {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-1" },
+          }),
+        );
+        reference("Old same-tab reference", "same-destination-old-reference");
+        dispatchSubmitChat({
+          message: "Old same-tab draft",
+          submit: false,
+          openSidebar: false,
+          submitMessageId: "same-destination-old-draft",
+        });
+      });
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("agent-chat:close-current-tab"));
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: { threadId: "thread-1" },
+          }),
+        );
+        reference(
+          "Fresh same-tab reference",
+          "same-destination-fresh-reference",
+        );
+        dispatchSubmitChat({
+          message: "Fresh same-tab draft",
+          submit: false,
+          openSidebar: false,
+          submitMessageId: "same-destination-fresh-draft",
+        });
+      });
+      expect(results).toEqual([
+        {
+          submitMessageId: "same-destination-old-draft",
+          delivered: false,
+          reason: "navigation-closed",
+        },
+      ]);
+      expect(threadMocks.activeThreadId).toBe("thread-1");
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+        "Fresh same-tab draft",
+      );
+      expect(assistantChatMockState.referenceDeliveries).toContainEqual({
+        threadId: "thread-1",
+        context: expect.stringContaining("Fresh same-tab reference"),
+      });
+      await act(async () => finishLookup("opened"));
+      expect(results).toHaveLength(1);
+    } finally {
+      window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+    }
+  });
+
+  it.each([false, true])(
+    "cancels dependent sidebar work for an unopened destination (recover=%s)",
+    async (recover) => {
+      let finishLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          }),
+      );
+      await mountNavigationSidebar(false, false);
+      threadMocks.createThread.mockImplementationOnce(async () => {
+        threadMocks.switchThread("thread-3");
+        return "thread-3";
+      });
+      const results: unknown[] = [];
+      const recordResult = (event: Event) => {
+        results.push((event as CustomEvent).detail);
+        if (recover) {
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: { threadId: "thread-2" },
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Fresh recovery document",
+                refType: "file",
+                refId: "/recovery.md",
+                slotKey: "document",
+                insertMessageId: `bulk-close-recovery-reference-${recover}`,
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Fresh recovery draft",
+            submit: false,
+            openSidebar: false,
+          });
+        }
+      };
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, recordResult);
+      try {
+        await act(async () => {
+          requestAgentChatThreadOpen({ threadId: "thread-2" });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(threadMocks.openThread).toHaveBeenCalledTimes(1);
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Cancelled document",
+                refType: "file",
+                refId: "/cancelled.md",
+                slotKey: "document",
+                insertMessageId: `bulk-close-reference-${recover}`,
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Cancelled dependent draft",
+            submit: false,
+            openSidebar: false,
+            submitMessageId: `bulk-close-draft-${recover}`,
+          });
+        });
+        await act(async () =>
+          window.dispatchEvent(new CustomEvent("agent-chat:close-all-tabs")),
+        );
+        expect(results).toEqual([
+          {
+            submitMessageId: `bulk-close-draft-${recover}`,
+            delivered: false,
+            reason: "navigation-closed",
+          },
+        ]);
+        await act(async () => finishLookup("opened"));
+        expect(threadMocks.activeThreadId).toBe(
+          recover ? "thread-2" : "thread-3",
+        );
+        if (recover) {
+          expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+            "Fresh recovery draft",
+          );
+          expect(assistantChatMockState.referenceDeliveries).toContainEqual({
+            threadId: "thread-2",
+            context: expect.stringContaining("Fresh recovery document"),
+          });
+        }
+        expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+          "Cancelled dependent draft",
+        );
+        await act(async () => {
+          requestAgentChatThreadOpen({ threadId: "thread-2" });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        await act(async () => {
+          dispatchSubmitChat({
+            message: "Fresh navigation draft",
+            submit: false,
+            openSidebar: false,
+          });
+        });
+        expect(threadMocks.activeThreadId).toBe("thread-2");
+        expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+          "Fresh navigation draft",
+        );
+        expect(
+          assistantChatMockState.referenceDeliveries.every(
+            ({ context }) => !context.includes("Cancelled document"),
+          ),
+        ).toBe(true);
+        expect(results).toEqual([
+          {
+            submitMessageId: `bulk-close-draft-${recover}`,
+            delivered: false,
+            reason: "navigation-closed",
+          },
+        ]);
+      } finally {
+        window.removeEventListener(
+          AGENT_CHAT_SUBMIT_RESULT_EVENT,
+          recordResult,
+        );
+      }
     },
   );
 

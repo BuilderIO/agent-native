@@ -700,8 +700,11 @@ export function AgentSidebar({
   const onReferenceTargetChange = useCallback(() => {
     drainPendingPanelEvents();
   }, [drainPendingPanelEvents]);
-  const cancelPendingEvents = useCallback(
-    (matches: (pending: PendingPanelEvent) => boolean, reason: string) => {
+  const preparePendingEventCancellation = useCallback(
+    (
+      matches: (pending: PendingPanelEvent) => boolean,
+      reason: string | ((pending: PendingPanelEvent) => string),
+    ) => {
       const cancelled: PendingPanelEvent[] = [];
       for (
         let index = pendingPanelEvents.current.length - 1;
@@ -712,26 +715,43 @@ export function AgentSidebar({
           cancelled.push(...pendingPanelEvents.current.splice(index, 1));
         }
       }
-      for (const pending of cancelled.reverse()) {
-        const submit =
-          pending.event instanceof MessageEvent
-            ? parseSubmitChatMessage(pending.event)
-            : null;
-        if (submit) {
-          reportAgentChatSubmitResult(submit.submitMessageId, false, reason);
-          cancelAgentChatSubmit(submit.submitMessageId);
-        } else {
-          if (isPanelNavigationEvent(pending.event))
-            claimAgentChatOpenRequest(getAgentChatNavigationKey(pending.event));
-          console.warn("[agent-chat] cancelled retained conversation event", {
-            type: pending.event.type,
-            reason,
-          });
+      cancelled.reverse();
+      const publish = () => {
+        for (const pending of cancelled) {
+          const cancellationReason =
+            typeof reason === "string" ? reason : reason(pending);
+          const submit =
+            pending.event instanceof MessageEvent
+              ? parseSubmitChatMessage(pending.event)
+              : null;
+          if (submit) {
+            reportAgentChatSubmitResult(
+              submit.submitMessageId,
+              false,
+              cancellationReason,
+            );
+            cancelAgentChatSubmit(submit.submitMessageId);
+          } else {
+            if (isPanelNavigationEvent(pending.event))
+              claimAgentChatOpenRequest(
+                getAgentChatNavigationKey(pending.event),
+              );
+            console.warn("[agent-chat] cancelled retained conversation event", {
+              type: pending.event.type,
+              reason: cancellationReason,
+            });
+          }
         }
-      }
-      drainPendingPanelEvents();
+        drainPendingPanelEvents();
+      };
+      return publish;
     },
     [drainPendingPanelEvents],
+  );
+  const cancelPendingEvents = useCallback(
+    (matches: (pending: PendingPanelEvent) => boolean, reason: string) =>
+      preparePendingEventCancellation(matches, reason)(),
+    [preparePendingEventCancellation],
   );
   const onNavigationChange = useCallback<
     NonNullable<MultiTabAssistantChatProps["onNavigationChange"]>
@@ -754,8 +774,10 @@ export function AgentSidebar({
     },
     [cancelPendingEvents, drainPendingPanelEvents],
   );
-  const onTabsClosed = useCallback(
-    (tabIds: string[]) => {
+  const onTabsClosing = useCallback<
+    NonNullable<MultiTabAssistantChatProps["onTabsClosing"]>
+  >(
+    (tabIds, outcome) => {
       const closed = new Set(tabIds);
       const closedNavigations = new Set(
         [
@@ -769,21 +791,28 @@ export function AgentSidebar({
           )
           .map(getAgentChatNavigationKey),
       );
-      cancelPendingEvents((pending) => {
-        if (
-          closedNavigations.has(getAgentChatNavigationKey(pending.event)) ||
-          (pending.navigation !== undefined &&
-            closedNavigations.has(pending.navigation))
-        )
-          return true;
-        const targetId =
-          pending.referenceTargetId ??
-          pending.targetId ??
-          pending.reference?.referenceTargetId;
-        return typeof targetId === "string" && closed.has(targetId);
-      }, "target-tab-closed");
+      return preparePendingEventCancellation(
+        (pending) => {
+          if (
+            closedNavigations.has(getAgentChatNavigationKey(pending.event)) ||
+            (pending.navigation !== undefined &&
+              closedNavigations.has(pending.navigation))
+          )
+            return true;
+          const targetId =
+            pending.referenceTargetId ??
+            pending.targetId ??
+            pending.reference?.referenceTargetId;
+          return typeof targetId === "string" && closed.has(targetId);
+        },
+        (pending) =>
+          pending.navigation !== undefined &&
+          closedNavigations.has(pending.navigation)
+            ? `navigation-${outcome}`
+            : "target-tab-closed",
+      );
     },
-    [cancelPendingEvents],
+    [preparePendingEventCancellation],
   );
   const onPanelReadyChange = useCallback(
     (ready: boolean) => {
@@ -1582,7 +1611,7 @@ export function AgentSidebar({
                 onReadyChange={onPanelReadyChange}
                 onReferenceTargetChange={onReferenceTargetChange}
                 onNavigationChange={onNavigationChange}
-                onTabsClosed={onTabsClosed}
+                onTabsClosing={onTabsClosing}
                 emptyStateText={emptyStateText}
                 suggestions={suggestions}
                 dynamicSuggestions={dynamicSuggestions}
