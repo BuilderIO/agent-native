@@ -235,9 +235,21 @@ describe("Analytics synthetic production source evals", () => {
     const negative = await reportFor(
       "dbt_mart.dim_users_core: user grain is not the declared grain",
     );
+    const commaSeparatedNegative = await reportFor(
+      "dbt_mart.dim_users_core: user grain, but this is not the declared grain",
+    );
+    const descriptiveNo = await reportFor(
+      "dbt_mart.dim_users_core: user grain with no duplicate users",
+    );
 
     expect(positive).toMatchObject({ total: 1, passed: 1, failed: 0 });
     expect(negative).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(commaSeparatedNegative).toMatchObject({
+      total: 1,
+      passed: 0,
+      failed: 1,
+    });
+    expect(descriptiveNo).toMatchObject({ total: 1, passed: 1, failed: 0 });
     expect(negative.results[0]?.scores[0]?.reason).toContain(
       "dbt_mart.dim_users_core did not declare its expected user grain",
     );

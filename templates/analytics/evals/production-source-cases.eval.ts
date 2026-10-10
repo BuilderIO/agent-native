@@ -107,8 +107,12 @@ export const sourceContracts = {
 const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const PHRASE_EDGE = String.raw`[\p{L}\p{N}_/\p{Pd}]`;
-const GRAIN_NEGATION =
-  /\b(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\b/;
+const GRAIN_NEGATION_PREFIX =
+  /\b(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\s+(?:(?:a|an|the|declared|expected|actual|correct)\s+)*$/i;
+const GRAIN_NEGATION_SUFFIX =
+  /^\s*(?:(?:is|are|was|were)\s+)?(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\b/i;
+const GRAIN_NEGATION_CLAUSE =
+  /^[,;:.]\s*(?:(?:but|which|however)\s+)?(?:(?:this|it|that|the model|the table|the relation)\s+)?(?:(?:is|are|was|were)\s+)?(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\s+(?:(?:a|an|the|declared|expected|actual|correct)\s+){0,3}(?:[\p{L}\p{N}_-]+\s+){0,2}grain\b/i;
 
 function findCompletePhraseIndex(text: string, phrase: string): number {
   const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -117,6 +121,16 @@ function findCompletePhraseIndex(text: string, phrase: string): number {
     "u",
   ).exec(text);
   return match?.index ?? -1;
+}
+
+function isNegatedGrainClaim(line: string, index: number, phrase: string) {
+  const prefix = line.slice(Math.max(0, index - 64), index);
+  const suffix = line.slice(index + phrase.length, index + phrase.length + 112);
+  return (
+    GRAIN_NEGATION_PREFIX.test(prefix) ||
+    GRAIN_NEGATION_SUFFIX.test(suffix) ||
+    GRAIN_NEGATION_CLAUSE.test(suffix)
+  );
 }
 
 function hasRelationGrainClaim(
@@ -150,28 +164,7 @@ function hasRelationGrainClaim(
       const phrase = grain.toLowerCase();
       const index = findCompletePhraseIndex(line, phrase);
       if (index < 0) return false;
-      const clauseStart = Math.max(
-        line.lastIndexOf(";", index),
-        line.lastIndexOf(",", index),
-        line.lastIndexOf(".", index),
-      );
-      const precedingClause = line.slice(clauseStart + 1, index);
-      const phraseEnd = index + phrase.length;
-      const followingClauseEnd = [
-        line.indexOf(";", phraseEnd),
-        line.indexOf(",", phraseEnd),
-        line.indexOf(".", phraseEnd),
-      ]
-        .filter((boundary) => boundary >= 0)
-        .sort((left, right) => left - right)[0];
-      const followingClause = line.slice(
-        phraseEnd,
-        followingClauseEnd ?? line.length,
-      );
-      return (
-        !GRAIN_NEGATION.test(precedingClause) &&
-        !GRAIN_NEGATION.test(followingClause)
-      );
+      return !isNegatedGrainClaim(line, index, phrase);
     });
   });
 }
