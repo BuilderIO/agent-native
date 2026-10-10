@@ -77,6 +77,7 @@ import {
   automationOwnerKind,
   classifyAutomationFailure,
   CONFIG_INVALID_ERROR_CODE,
+  CONNECTION_REQUIRED_ERROR_CODE,
   MISSING_TOOLS_ERROR_CODE,
   OWNER_MISSING_ERROR_CODE,
   pausedMessage,
@@ -425,6 +426,9 @@ async function assertLlmCredentialsUsable(input: {
  * The cause a failed run recorded for itself. Without this, a run that ended
  * on `missing_credentials` surfaced as the generic "ended with status:
  * errored" and the owner never learned why.
+ *
+ * A run that yielded to a connection request is a failed run even though it
+ * ended on a clean `done`: nobody is there to answer the request.
  */
 export function backgroundRunTerminalError(run: {
   events?: readonly {
@@ -433,10 +437,20 @@ export function backgroundRunTerminalError(run: {
       error?: string;
       details?: string;
       errorCode?: string;
+      provider?: string;
     };
   }[];
 }): { message: string; errorCode?: string } | null {
   const events = run.events ?? [];
+  const connection = events.find(
+    ({ event }) => event.type === "connection_required",
+  )?.event;
+  if (connection) {
+    return {
+      message: `The run stopped because ${connection.provider || "a provider"} is not connected. Connect it for this automation's owner so the automation can use it.`,
+      errorCode: CONNECTION_REQUIRED_ERROR_CODE,
+    };
+  }
   for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i].event;
     if (event.type === "missing_api_key") {
@@ -646,11 +660,19 @@ function backgroundAutomationPersistFailure(input: {
     };
   }
   const cutOffReason = backgroundRunCutOffReason(input.run);
-  if (!cutOffReason) return undefined;
-  return {
-    message: `Background automation was cut off before finishing (${cutOffReason})`,
-    errorCode: "background_automation_cut_off",
-  };
+  if (cutOffReason) {
+    return {
+      message: `Background automation was cut off before finishing (${cutOffReason})`,
+      errorCode: "background_automation_cut_off",
+    };
+  }
+  // Decided here, ahead of work confirmation: the failed tool that preceded the
+  // request would otherwise type the run `automation_no_confirmed_work`.
+  const cause = backgroundRunTerminalError(input.run);
+  if (cause?.errorCode === CONNECTION_REQUIRED_ERROR_CODE) {
+    return { message: cause.message, errorCode: cause.errorCode };
+  }
+  return undefined;
 }
 
 async function persistBackgroundAutomationTurn(input: {

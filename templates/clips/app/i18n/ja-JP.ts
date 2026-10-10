@@ -894,7 +894,7 @@ const messages = {
       "Clips Desktop の音声入力を表示または非表示にします。",
     labLookbackContext: "以前の画面時間を含める",
     labLookbackContextDescription:
-      "録画の前の最大5分間の画面時間を、自動で取得される補足コンテキストとして添付します。デフォルトではオフです。",
+      "録画の前の最大5分間の画面時間を、自動で取得される補足コンテキストとして添付します。",
     uploadWorkspaceTitle: "アクティブなワークスペース",
     uploadWorkspaceDescription:
       "デスクトップからのアップロードを含む新しい Clips 録画で使用するワークスペースを選択します。",

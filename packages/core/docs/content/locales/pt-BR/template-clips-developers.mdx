@@ -134,6 +134,19 @@ Cada operação é um arquivo TypeScript em `templates/clips/actions/`, montado 
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | O fluxo de incorporação anônima e de terceiros. Veja [Incorporar Clipes](/docs/template-clips-embed) |
 | `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | O lançador de relatório de bugs incorporado e os diagnósticos da extensão do Chrome                  |
 
+## Diagnósticos do navegador
+
+A extensão do Chrome anexa diagnósticos de console e de rede a uma gravação, e `save-browser-diagnostics` os armazena. Toda entrada de console e de rede carrega um `tabId`.
+
+| Tópico        | Comportamento                                                                                                                                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Abas          | Até cinco por gravação: a aba inicial e, depois, as abas ativas nos últimos 10 minutos, da mais recente para a mais antiga. Uma aba para a qual o usuário muda durante a gravação também é anexada. |
+| Mais de cinco | A aba menos ativa recentemente, exceto a que está em foco, é desanexada. As entradas dela até então permanecem na gravação.                                                                         |
+| Retrospectiva | Até 30 segundos antes do início da gravação, limitado pelo histórico de console da própria página e pela lista de tempos de recursos. Essas entradas têm `elapsedMs` negativo.                      |
+| `tabId`       | Definido em toda entrada de console e de rede.                                                                                                                                                      |
+| `method`      | `"UNKNOWN"` nas entradas de rede da retrospectiva, que vêm dos tempos de recursos e não têm método HTTP. Solicitações ao vivo informam o método.                                                    |
+| Não coletado  | Corpos e cabeçalhos de solicitações e respostas. As entradas de console e de rede são redigidas antes do envio.                                                                                     |
+
 ## Modelo de dados
 
 Definido em `templates/clips/server/db/schema.ts`.

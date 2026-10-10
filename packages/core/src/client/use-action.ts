@@ -1103,6 +1103,7 @@ export function useActionQuery<
     UseQueryOptions<TResult extends undefined ? ActionResult<TName> : TResult>,
     "queryKey" | "queryFn"
   > & {
+    queryKeyScope?: readonly unknown[];
     /**
      * The resource types this query reads (matching a write's `resources` and a
      * sync event's `resourceType`). Omit it and every resource-scoped change
@@ -1116,12 +1117,14 @@ export function useActionQuery<
   const {
     refetchInterval,
     retry: callerRetry,
+    queryKeyScope,
     resources,
     ...restOptions
   } = options ?? {};
-  const circuitKey = () => hashKey(["action", actionName, params]);
+  const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
+  const circuitKey = () => hashKey(queryKey);
   return useQuery<R>({
-    queryKey: ["action", actionName, params],
+    queryKey,
     queryFn: async ({ signal }) => {
       const key = circuitKey();
       assertActionCircuitClosed(key);

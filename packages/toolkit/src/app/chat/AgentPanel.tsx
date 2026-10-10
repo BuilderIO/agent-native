@@ -56,6 +56,7 @@ import {
 import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
 import {
   MultiTabAssistantChat,
+  type MultiTabAssistantChatHeaderCallbackProps,
   type MultiTabAssistantChatHeaderProps,
   type MultiTabAssistantChatProps,
 } from "./MultiTabAssistantChat.js";
@@ -1649,7 +1650,7 @@ function AgentPanelInner({
       showHistory,
       tabs,
       toggleHistory,
-    }: MultiTabAssistantChatHeaderProps) => {
+    }: MultiTabAssistantChatHeaderCallbackProps) => {
       const activeTab = activeTabId
         ? tabs.find((tab) => tab.id === activeTabId)
         : undefined;
@@ -1848,7 +1849,7 @@ function AgentPanelInner({
       closeAllTabs,
       showHistory,
       toggleHistory,
-    }: MultiTabAssistantChatHeaderProps) => {
+    }: MultiTabAssistantChatHeaderCallbackProps) => {
       const { activeTab, childTabs, focusParentId, hasSubTabs, mainTabs } =
         getAgentPanelChatTabGroups(tabs, activeTabId);
       const showSidebarChatTabs =

@@ -1,10 +1,18 @@
-import enUSMessages from "@/i18n/en-US";
-import DataDictionary from "@/pages/DataDictionary";
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
+import { redirect, type LoaderFunctionArgs } from "react-router";
 
-export function meta() {
-  return [{ title: enUSMessages.routeTitles.dataDictionary }];
+function target(url: URL): string {
+  return `/semantic-layer${url.search}${url.hash}`;
 }
 
-export default function DataDictionaryRoute() {
-  return <DataDictionary />;
+export function loader({ url }: LoaderFunctionArgs) {
+  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
+}
+
+export function clientLoader({ url }: LoaderFunctionArgs) {
+  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
+}
+
+export default function DataDictionaryAliasRoute() {
+  return null;
 }

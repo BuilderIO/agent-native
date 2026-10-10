@@ -1,7 +1,7 @@
 # Analytics source index
 
 Build an occasional, revision-stamped metadata index from dbt and tracking
-source code, then upload the JSON from **Data Dictionary → Import source index**.
+source code, then upload the JSON from **Semantic layer → Source index**.
 The index is stored in the selected organization, expires as a freshness signal
 after 90 days, and remains unapproved reference metadata. It never contains
 warehouse rows or copied SQL.

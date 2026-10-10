@@ -7,6 +7,7 @@ import {
   useActionQuery,
   useActionMutation,
   useAvatarUrl,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
@@ -192,6 +193,12 @@ type HomeSuggestionsResult =
       suggestions: [];
     };
 
+function isReadyHomeSuggestions(
+  result: HomeSuggestionsResult | undefined,
+): result is Extract<HomeSuggestionsResult, { status: "ready" }> {
+  return result?.status === "ready" && result.suggestions.length === 3;
+}
+
 export default function Index() {
   const t = useT();
   const navigate = useNavigate();
@@ -357,28 +364,127 @@ export default function Index() {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
+  const { session: suggestionSession } = useSession();
+  const homeSuggestionsIdentity = [
+    suggestionSession?.authUserId ??
+      suggestionSession?.userId ??
+      suggestionSession?.email ??
+      "anonymous",
+    suggestionSession?.orgId ?? "",
+  ];
+  const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
+  const homeSuggestionsProfile = useActionQuery<{
+    onboardingRole?: string | null;
+  }>(
+    "get-user-profile",
+    {},
+    {
+      enabled: quickActionsEnabled,
+      queryKeyScope: [homeSuggestionsIdentityScope],
+      staleTime: 0,
+    },
+  );
+  const homeSuggestionsProfileReady =
+    quickActionsEnabled &&
+    (homeSuggestionsProfile.data !== undefined ||
+      homeSuggestionsProfile.isError);
+  const homeSuggestionsCacheScope = JSON.stringify([
+    ...homeSuggestionsIdentity,
+    homeSuggestionsProfile.data?.onboardingRole ?? null,
+  ]);
+  const fallbackHomeSuggestions = useMemo(
+    () =>
+      [
+        t("chat.suggestionLandingPage"),
+        t("chat.suggestionBrandMatch"),
+        t("chat.suggestionMobile"),
+      ].map((prompt, index) => ({
+        id: `design-home-generic-${index}`,
+        label: prompt,
+        prompt,
+      })),
+    [t],
+  );
+  const [homeSuggestionsSnapshotState, setHomeSuggestionsSnapshotState] =
+    useState<{
+      scope: string;
+      suggestions: HomeSuggestion[];
+    } | null>(null);
+  const homeSuggestionsSnapshot =
+    homeSuggestionsProfileReady &&
+    homeSuggestionsSnapshotState?.scope === homeSuggestionsIdentityScope
+      ? homeSuggestionsSnapshotState.suggestions
+      : null;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
     {
-      enabled: quickActionsEnabled,
+      enabled: homeSuggestionsProfileReady && homeSuggestionsSnapshot === null,
+      queryKeyScope: [homeSuggestionsCacheScope],
       retry: false,
-      staleTime: 5 * 60 * 1000,
+      staleTime: (query) =>
+        isReadyHomeSuggestions(query.state.data) ? Number.POSITIVE_INFINITY : 0,
+      gcTime: Number.POSITIVE_INFINITY,
+      refetchOnMount: (query) => !isReadyHomeSuggestions(query.state.data),
+      refetchOnWindowFocus: (query) =>
+        !isReadyHomeSuggestions(query.state.data),
+      refetchOnReconnect: (query) => !isReadyHomeSuggestions(query.state.data),
     },
   );
-  const homeSuggestions =
+  const readyHomeSuggestions =
+    homeSuggestionsProfileReady &&
     homeSuggestionsQuery.data?.status === "ready" &&
-    homeSuggestionsQuery.data.suggestions.length
+    homeSuggestionsQuery.data.suggestions.length === 3
       ? homeSuggestionsQuery.data.suggestions
-      : [
-          t("chat.suggestionLandingPage"),
-          t("chat.suggestionBrandMatch"),
-          t("chat.suggestionMobile"),
-        ].map((prompt, index) => ({
-          id: `design-home-generic-${index}`,
-          label: prompt,
-          prompt,
-        }));
+      : null;
+  const homeSuggestionsUnavailable =
+    !homeSuggestionsQuery.isFetching &&
+    quickActionsEnabled &&
+    (homeSuggestionsQuery.isError ||
+      homeSuggestionsQuery.data?.status === "unavailable" ||
+      (homeSuggestionsQuery.data?.status === "ready" &&
+        homeSuggestionsQuery.data.suggestions.length !== 3));
+  useEffect(() => {
+    if (homeSuggestionsSnapshot !== null) return;
+    const result = homeSuggestionsQuery.data;
+    if (
+      quickActionsEnabled &&
+      homeSuggestionsProfileReady &&
+      result?.status === "ready" &&
+      result.suggestions.length === 3
+    ) {
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsIdentityScope,
+        suggestions: result.suggestions,
+      });
+    } else if (
+      quickActionsEnabled &&
+      homeSuggestionsProfileReady &&
+      homeSuggestionsUnavailable
+    ) {
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsIdentityScope,
+        suggestions: fallbackHomeSuggestions,
+      });
+    }
+  }, [
+    homeSuggestionsQuery.data,
+    homeSuggestionsSnapshot,
+    homeSuggestionsCacheScope,
+    homeSuggestionsIdentityScope,
+    quickActionsEnabled,
+    homeSuggestionsProfileReady,
+    homeSuggestionsUnavailable,
+    fallbackHomeSuggestions,
+  ]);
+  const homeSuggestions =
+    homeSuggestionsSnapshot ??
+    readyHomeSuggestions ??
+    (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);
+  const homeSuggestionsLoading =
+    homeSuggestionsSnapshot === null &&
+    readyHomeSuggestions === null &&
+    (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -1253,8 +1359,14 @@ export default function Index() {
           </div>
         }
         quickActions={
-          quickActionsEnabled ? (
+          homeSuggestionsLoading ||
+          homeSuggestionsUnavailable ||
+          readyHomeSuggestions !== null ||
+          homeSuggestionsSnapshot !== null ? (
             <AgentSuggestionBar
+              loading={homeSuggestionsLoading}
+              announceUpdates
+              layout="single-line"
               suggestions={homeSuggestions.map((suggestion, index) => ({
                 ...suggestion,
                 id: suggestion.id ?? `design-home-${index}`,

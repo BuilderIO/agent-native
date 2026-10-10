@@ -16,8 +16,7 @@ import {
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.ask",
   "/data-sources": "navigation.dataSources",
-  "/source-status": "navigation.sourceStatus",
-  "/data-dictionary": "navigation.dataDictionary",
+  "/semantic-layer": "navigation.semanticLayer",
   "/dashboards": "navigation.dashboards",
   "/analyses": "navigation.analyses",
   "/sessions": "navigation.sessions",

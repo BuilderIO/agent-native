@@ -932,7 +932,7 @@ export interface MultiTabAssistantChatHeaderProps {
   tabs: ChatTab[];
   activeTabId: string;
   activeTabMessageCount: number;
-  activeTabIsPersisted: boolean;
+  activeTabIsPersisted?: boolean;
   setActiveTabId: (tabId: string) => void;
   addTab: () => void;
   closeTab: (tabId: string) => void;
@@ -946,6 +946,13 @@ export interface MultiTabAssistantChatHeaderProps {
   tabCount: number;
 }
 
+export type MultiTabAssistantChatHeaderCallbackProps = Omit<
+  MultiTabAssistantChatHeaderProps,
+  "activeTabIsPersisted"
+> & {
+  activeTabIsPersisted: boolean;
+};
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export type MultiTabAssistantChatProps = Omit<
@@ -955,9 +962,13 @@ export type MultiTabAssistantChatProps = Omit<
   /** Show the tab bar. Default: true */
   showTabBar?: boolean;
   /** Optional custom single-row header renderer */
-  renderHeader?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
+  renderHeader?: (
+    props: MultiTabAssistantChatHeaderCallbackProps,
+  ) => React.ReactNode;
   /** Optional page-level top-bar actions renderer for the active tab. */
-  renderOverlay?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
+  renderOverlay?: (
+    props: MultiTabAssistantChatHeaderCallbackProps,
+  ) => React.ReactNode;
   /** Hide the chat content while keeping the header visible. Used when CLI/resources mode is active. */
   contentHidden?: boolean;
   /** Namespace for localStorage keys — used to isolate chat state per app in the frame. */
@@ -983,6 +994,28 @@ export type MultiTabAssistantChatProps = Omit<
   /** Reports the exact model engine selected for the active thread. */
   onActiveModelEngineChange?: (engine: ModelEngineConfig | null) => void;
 };
+
+type ChatHeaderTypeCheck<T extends true> = T;
+type ChatHeaderTypeMatch<A, B> = [A] extends [B]
+  ? [B] extends [A]
+    ? true
+    : false
+  : false;
+// eslint-disable-next-line no-unused-vars -- Enforced by the toolkit package typecheck.
+type ChatHeaderCallbackStatusIsBoolean = ChatHeaderTypeCheck<
+  ChatHeaderTypeMatch<
+    Parameters<
+      NonNullable<MultiTabAssistantChatProps["renderHeader"]>
+    >[0]["activeTabIsPersisted"],
+    boolean
+  >
+>;
+// eslint-disable-next-line no-unused-vars -- Enforced by the toolkit package typecheck.
+type LegacyChatHeaderStatusRemainsOptional = ChatHeaderTypeCheck<
+  {} extends Pick<MultiTabAssistantChatHeaderProps, "activeTabIsPersisted">
+    ? true
+    : false
+>;
 
 export function MultiTabAssistantChat({
   showTabBar = true,
@@ -3168,7 +3201,7 @@ export function MultiTabAssistantChat({
     }
   }
 
-  const headerProps: MultiTabAssistantChatHeaderProps = {
+  const headerProps: MultiTabAssistantChatHeaderCallbackProps = {
     tabs,
     activeTabId: activeThreadId ?? "",
     activeTabMessageCount: activeThreadId

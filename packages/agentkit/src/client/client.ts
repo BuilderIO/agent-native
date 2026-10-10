@@ -57,6 +57,7 @@ import {
   hasActiveAgentRuns,
   selectLatestAgentRun,
   reduceAgentEvent,
+  retireSupersededConnectionRequests,
   settleRunProjection,
   type AgentKitSnapshot,
   type AgentRunState,
@@ -4901,16 +4902,21 @@ export class AgentKitClient implements AgentKitController {
       (run): run is TerminalRunState =>
         this.isTerminalStatus(run.status) && !pendingCatchUpRunIds.has(run.id),
     );
-    const settled = terminalRuns.reduce(
-      (currentThread, run) =>
-        settleRunProjection(
-          currentThread,
-          run.id,
-          unconfirmableCatchUpRunIds.has(run.id) ? "failed" : run.status,
-          run.completedAt ?? this.now(),
-          run.activeMessageId,
-        ),
-      thread,
+    // A snapshot lists a request with the status it had when it was written, so
+    // every load re-retires what the live event order already retired.
+    const settled = retireSupersededConnectionRequests(
+      terminalRuns.reduce(
+        (currentThread, run) =>
+          settleRunProjection(
+            currentThread,
+            run.id,
+            unconfirmableCatchUpRunIds.has(run.id) ? "failed" : run.status,
+            run.completedAt ?? this.now(),
+            run.activeMessageId,
+            run.status,
+          ),
+        thread,
+      ),
     );
     if (
       pendingCatchUpRunIds.size > 0 ||
@@ -5606,12 +5612,18 @@ export class AgentKitClient implements AgentKitController {
           : current.events === baseline.events
             ? loaded.events
             : this.mergeEvents(loaded.events, live.events),
-      agents: mergeRecordProjection(
-        loaded.agents,
-        baseline.agents,
-        live.agents,
-        "agents",
-      ),
+      // Participants are never removed, and durable history drops agent.*
+      // events without listing agents, so a loaded registry can only add to
+      // or refresh the live one.
+      agents: {
+        ...live.agents,
+        ...mergeRecordProjection(
+          loaded.agents,
+          baseline.agents,
+          live.agents,
+          "agents",
+        ),
+      },
       agentInteractions: mergeListProjection(
         loaded.agentInteractions,
         baseline.agentInteractions,

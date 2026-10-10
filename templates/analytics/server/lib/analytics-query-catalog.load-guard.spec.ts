@@ -100,6 +100,14 @@ const state = vi.hoisted(() => ({
   getUserSetting: vi.fn(async () => ({ ids: ["dashboard-01"] })),
   getOrgSetting: vi.fn(async () => null),
   listOrgSettings: vi.fn(async () => ({})),
+  readSourceIndex: vi.fn(
+    async (): Promise<
+      { status: "not-configured" } | { status: "available"; bundle: never }
+    > => ({ status: "not-configured" }),
+  ),
+  sourceIndexDictionaryEntries: vi.fn(
+    () => [] as Array<Record<string, unknown>>,
+  ),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -113,6 +121,11 @@ vi.mock("./dashboard-catalog", () => ({
   get dashboardCatalogEntries() {
     return state.dashboardCatalogEntries;
   },
+}));
+
+vi.mock("./source-index-store", () => ({
+  readSourceIndex: state.readSourceIndex,
+  sourceIndexDictionaryEntries: state.sourceIndexDictionaryEntries,
 }));
 
 vi.mock("./dashboards-store", () => ({
@@ -162,6 +175,10 @@ describe("searchAnalyticsQueryCatalog", () => {
     state.listSettingsByPrefix.mockClear();
     state.getUserSetting.mockClear();
     state.listOrgSettings.mockClear();
+    state.readSourceIndex.mockReset();
+    state.readSourceIndex.mockResolvedValue({ status: "not-configured" });
+    state.sourceIndexDictionaryEntries.mockReset();
+    state.sourceIndexDictionaryEntries.mockReturnValue([]);
   });
 
   it("shortlists dashboards from metadata before hydrating explicit configs", async () => {
@@ -505,6 +522,44 @@ describe("searchAnalyticsQueryCatalog", () => {
     expect(warn).toHaveBeenCalledWith(
       "[analytics] Data dictionary search truncated.",
       { searchedDictionaryEntryCount: 400, dictionarySearchTruncated: true },
+    );
+  });
+
+  it("uses generated deprecation status when a saved dictionary overlay shares its id", async () => {
+    state.listOrgSettings.mockResolvedValueOnce({
+      "data-dict-index-user-model": {
+        id: "index-user-model",
+        metric: "User Model",
+        definition: "Reviewed definition",
+        status: "active",
+        approved: true,
+      },
+    });
+    state.readSourceIndex.mockResolvedValueOnce({
+      status: "available",
+      bundle: {} as never,
+    });
+    state.sourceIndexDictionaryEntries.mockReturnValueOnce([
+      {
+        id: "index-user-model",
+        metric: "User Model",
+        definition: "Generated definition",
+        status: "deprecated",
+        sourceIndex: true,
+        approved: false,
+        aiGenerated: true,
+      },
+    ]);
+
+    const result = await searchAnalyticsQueryCatalog({
+      search: "user model",
+      email: "alice@example.com",
+      orgId: "org-analytics",
+      limit: 6,
+    });
+
+    expect(result.candidates).not.toContainEqual(
+      expect.objectContaining({ id: "index-user-model" }),
     );
   });
 
