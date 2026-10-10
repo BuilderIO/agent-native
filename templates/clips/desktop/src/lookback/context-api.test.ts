@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getRecordingContextItem,
   listPendingRecordingContext,
+  requestRecordingContext,
 } from "./context-api";
 
 const target = { serverUrl: "https://clips.example.test", authToken: "" };
@@ -19,6 +20,34 @@ function stubFetch(body: unknown = { items: [] }, status = 200) {
   return fetchMock;
 }
 
+describe("requestRecordingContext", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the capturing device's id with the request", async () => {
+    const fetchMock = stubFetch({ id: "ctx1" });
+
+    await requestRecordingContext(target, {
+      recordingId: "rec1",
+      seconds: 30,
+      endedAt: "2026-10-09T10:00:00.000Z",
+      deviceId: "device-1",
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(new URL(String(url)).pathname).toBe(
+      "/_agent-native/actions/request-recording-context",
+    );
+    expect(JSON.parse(String(init?.body))).toEqual({
+      recordingId: "rec1",
+      seconds: 30,
+      endedAt: "2026-10-09T10:00:00.000Z",
+      deviceId: "device-1",
+    });
+  });
+});
+
 describe("listPendingRecordingContext", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -28,7 +57,10 @@ describe("listPendingRecordingContext", () => {
     const fetchMock = stubFetch();
 
     await expect(
-      listPendingRecordingContext(target, { excludeIds: ["ctx1", "ctx2"] }),
+      listPendingRecordingContext(target, {
+        deviceId: "device-1",
+        excludeIds: ["ctx1", "ctx2"],
+      }),
     ).resolves.toEqual([]);
 
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
@@ -39,10 +71,20 @@ describe("listPendingRecordingContext", () => {
     expect(url.searchParams.has("excludeIds")).toBe(false);
   });
 
+  it("sends the device id as a plain query parameter, not an array", async () => {
+    const fetchMock = stubFetch();
+
+    await listPendingRecordingContext(target, { deviceId: "device-1" });
+
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("deviceId")).toBe("device-1");
+    expect(url.searchParams.has("deviceId[]")).toBe(false);
+  });
+
   it("sends no excludeIds parameter when nothing has been skipped", async () => {
     const fetchMock = stubFetch();
 
-    await listPendingRecordingContext(target);
+    await listPendingRecordingContext(target, { deviceId: "device-1" });
 
     const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(url.searchParams.has("excludeIds")).toBe(false);

@@ -59,7 +59,10 @@ import {
 import { toolbarEnabledEffect } from "../lib/pill-session";
 import type { PillMode } from "../lib/pill-session";
 import { RECORDER_DISCARD_EVENT } from "../lib/recorder-events";
-import { setRecordingContextWindow } from "../lookback/context-api";
+import {
+  removeRecordingContext,
+  setRecordingContextWindow,
+} from "../lookback/context-api";
 import {
   canEditLookbackWindow,
   lookbackCardLine,
@@ -1318,7 +1321,9 @@ export function RecordingPill() {
           ? t("lookbackContext.failed")
           : lookbackCard.kind === "unreadable"
             ? t("lookbackContext.unreadable")
-            : null;
+            : lookbackCard.kind === "removed"
+              ? t("lookbackContext.removed")
+              : null;
 
   // The edit window is larger than the card, so the dialog gets room while open.
   function handleLookbackEditOpenChange(open: boolean) {
@@ -1342,6 +1347,16 @@ export function RecordingPill() {
       endedAt: next.endedAt,
     });
     setLookbackItem(updated);
+  }
+
+  async function removeLookbackWindow() {
+    const item = lookbackView.item;
+    if (!item) throw new Error("No earlier screen time to remove.");
+    const removed = await removeRecordingContext(
+      currentLookbackTarget(),
+      item.id,
+    );
+    setLookbackItem(removed);
   }
 
   return (
@@ -1483,6 +1498,7 @@ export function RecordingPill() {
               open={lookbackEditOpen}
               onOpenChange={handleLookbackEditOpenChange}
               onSave={saveLookbackWindow}
+              onRemove={removeLookbackWindow}
             />
           ) : null}
         </div>

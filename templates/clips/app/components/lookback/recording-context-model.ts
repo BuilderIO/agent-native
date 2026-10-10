@@ -17,6 +17,9 @@ export interface RecordingContextItem {
   width: number | null;
   height: number | null;
   error: string | null;
+  // The desktop that recorded the window. A pending item with one is held by
+  // that device, so this browser cannot make progress on it.
+  capturedDeviceId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -29,11 +32,18 @@ export function isContextItemUnfinished(item: RecordingContextItem): boolean {
   return item.status === "pending" || item.status === "processing";
 }
 
+export function isWaitingOnOtherDevice(item: RecordingContextItem): boolean {
+  return item.status === "pending" && Boolean(item.capturedDeviceId);
+}
+
 // The desktop worker finishes these, so the panel polls until none remain.
+// An item held by another device is excluded: this page cannot advance it.
 export function hasUnfinishedContextItems(
   items: readonly RecordingContextItem[],
 ): boolean {
-  return items.some(isContextItemUnfinished);
+  return items.some(
+    (item) => isContextItemUnfinished(item) && !isWaitingOnOtherDevice(item),
+  );
 }
 
 export function formatClock(totalSeconds: number): string {

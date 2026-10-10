@@ -43,7 +43,12 @@ export type RecordingContextUpdate = {
 
 export function requestRecordingContext(
   target: ClipsActionTarget,
-  input: { recordingId: string; seconds: number; endedAt: string },
+  input: {
+    recordingId: string;
+    seconds: number;
+    endedAt: string;
+    deviceId: string;
+  },
 ): Promise<RecordingContextItem> {
   return callClipsActionFor<RecordingContextItem>(
     target,
@@ -101,14 +106,16 @@ export async function getRecordingContextItem(
   return items.find((item) => item.id === id) ?? null;
 }
 
+// Only this device's footage is pending for it: the server omits items that
+// another device captured.
 export async function listPendingRecordingContext(
   target: ClipsActionTarget,
-  input: { excludeIds?: string[] } = {},
+  input: { deviceId: string; excludeIds?: string[] },
 ): Promise<RecordingContextItem[]> {
   const result = await callClipsActionFor<{ items: RecordingContextItem[] }>(
     target,
     "list-pending-recording-context",
-    { excludeIds: input.excludeIds },
+    { deviceId: input.deviceId, excludeIds: input.excludeIds },
     { method: "GET" },
   );
   return result.items;

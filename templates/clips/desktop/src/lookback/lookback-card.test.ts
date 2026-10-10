@@ -43,9 +43,12 @@ describe("lookbackCardLine", () => {
     expect(lookbackCardLine(view("failed"))).toEqual({ kind: "failed" });
   });
 
-  it("hides the line when there is no item or it was removed", () => {
+  it("hides the line when there is no item", () => {
     expect(lookbackCardLine(view(null))).toEqual({ kind: "hidden" });
-    expect(lookbackCardLine(view("removed"))).toEqual({ kind: "hidden" });
+  });
+
+  it("confirms the removal when the item this window just removed is shown", () => {
+    expect(lookbackCardLine(view("removed"))).toEqual({ kind: "removed" });
   });
 
   it("reports an unreadable read as its own state, not as no context", () => {

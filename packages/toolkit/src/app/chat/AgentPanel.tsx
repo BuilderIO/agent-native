@@ -408,11 +408,14 @@ export function shouldShowAgentPanelPageNewChatButton(
   tabs: MultiTabAssistantChatHeaderProps["tabs"],
   activeTabId: string,
   activeTabMessageCount: number,
+  activeTabIsPersisted = false,
 ) {
   return shouldShowAgentPanelPageHeader(
     tabs,
     activeTabId,
     activeTabMessageCount,
+    false,
+    activeTabIsPersisted,
   );
 }
 
@@ -421,9 +424,11 @@ export function shouldShowAgentPanelPageHeader(
   activeTabId: string,
   activeTabMessageCount: number,
   showWhenEmpty = false,
+  activeTabIsPersisted = false,
 ) {
   if (!activeTabId) return false;
   if (activeTabMessageCount > 0) return true;
+  if (activeTabIsPersisted) return true;
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   return Boolean(
@@ -1670,6 +1675,7 @@ function AgentPanelInner({
     ({
       activeTabId,
       activeTabMessageCount,
+      activeTabIsPersisted,
       addTab,
       clearActiveTab,
       showHistory,
@@ -1684,15 +1690,20 @@ function AgentPanelInner({
         activeTabId,
         activeTabMessageCount,
         showPageHeaderWhenEmpty,
+        activeTabIsPersisted,
       );
       const canShareActiveTab =
-        activeTab && (activeTabMessageCount > 0 || activeTab.status !== "idle");
+        activeTab &&
+        (activeTabIsPersisted ||
+          activeTabMessageCount > 0 ||
+          activeTab.status !== "idle");
       const showNewChatAction =
         showPageNewChatButton &&
         shouldShowAgentPanelPageNewChatButton(
           tabs,
           activeTabId,
           activeTabMessageCount,
+          activeTabIsPersisted,
         );
 
       return (
