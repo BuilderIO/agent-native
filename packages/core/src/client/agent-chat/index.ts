@@ -43,6 +43,7 @@ export {
   reportAgentChatSubmitResult,
   reportAgentChatSubmitTarget,
   requestAgentChatThreadOpen,
+  nextAgentChatStagedAt,
   requestAgentTaskOpen,
   sendToAgentChat,
   sendToAgentChatAndConfirm,

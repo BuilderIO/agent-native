@@ -1483,12 +1483,25 @@ export function sendToAgentChatAndConfirm(
   return confirmAgentChatSubmit(opts, options, tabId, sendToAgentChat);
 }
 
+let lastStagedAt = 0;
+
+// Cleanup matches a staged item by key, context and this time, so two stagings of the
+// same item within one millisecond must still differ, or a replaced item's cleanup
+// removes its replacement.
+export function nextAgentChatStagedAt(): number {
+  lastStagedAt = Math.max(Date.now(), lastStagedAt + 1);
+  return lastStagedAt;
+}
+
 export function setAgentChatContextItem(
   opts: AgentChatContextSetOptions,
 ): void {
   const normalized = normalizeAgentChatContextItem(opts);
   if (!normalized || typeof window === "undefined") return;
-  const item = { ...normalized, stagedAt: normalized.stagedAt ?? Date.now() };
+  const item = {
+    ...normalized,
+    stagedAt: normalized.stagedAt ?? nextAgentChatStagedAt(),
+  };
 
   publishAgentChatContextItems(
     withReplacedAgentChatContextItem(agentChatContextState.items, item),

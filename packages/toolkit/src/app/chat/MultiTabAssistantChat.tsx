@@ -15,6 +15,7 @@ import {
   filterAgentChatContextItems,
   getAgentChatContextState,
   isAgentChatSubmitCancelled,
+  nextAgentChatStagedAt,
   normalizeAgentChatContextItem,
   parseSubmitChatMessage,
   removeAgentChatContextItem,
@@ -140,18 +141,16 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (!send.submit) {
     // Checked against what the composer already holds, before the draft changes,
     // so a refused prefill leaves no draft without its context.
-    if (
-      send.prefillContext &&
-      !ref.canStageComposerContextItem(send.prefillContext)
-    ) {
+    const refusal = send.prefillContext
+      ? ref.composerContextRefusal(send.prefillContext)
+      : null;
+    if (refusal) {
       console.error(
-        "Prefill context does not fit alongside the composer's existing context; the prefill was not applied.",
+        refusal === "storage-unavailable"
+          ? "Browser storage cannot keep the prefill's context; the prefill was not applied."
+          : "Prefill context does not fit alongside the composer's existing context; the prefill was not applied.",
       );
-      reportAgentChatSubmitResult(
-        send.submitMessageId,
-        false,
-        "context-too-large",
-      );
+      reportAgentChatSubmitResult(send.submitMessageId, false, refusal);
       return;
     }
     // A context-only prefill has no text; it must not clear the user's draft.
@@ -2194,7 +2193,7 @@ export function MultiTabAssistantChat({
                 })),
           context,
           composerOnly: true,
-          stagedAt: Date.now(),
+          stagedAt: nextAgentChatStagedAt(),
           // Hidden only when there is prompt text to send with it; an empty
           // prefill would otherwise leave nothing visible to act on.
           ...(!contextLabel && hasPromptText ? { hidden: true } : {}),

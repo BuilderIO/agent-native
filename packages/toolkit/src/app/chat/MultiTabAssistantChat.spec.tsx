@@ -69,7 +69,9 @@ function legacyOpenTabsStorageKey(
 }
 
 const chatHandleMocks = vi.hoisted(() => ({
-  canStageComposerContextItem: vi.fn(() => true),
+  composerContextRefusal: vi.fn(
+    (): "context-too-large" | "storage-unavailable" | null => null,
+  ),
   sendMessage: vi.fn(async () => ({ status: "submitted" as const })),
   implementPlan: vi.fn(() => false),
   prefillMessage: vi.fn(),
@@ -407,8 +409,7 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         implementPlan: chatHandleMocks.implementPlan,
         prefillMessage: chatHandleMocks.prefillMessage,
         setComposerContextItem: chatHandleMocks.setComposerContextItem,
-        canStageComposerContextItem:
-          chatHandleMocks.canStageComposerContextItem,
+        composerContextRefusal: chatHandleMocks.composerContextRefusal,
         removeComposerContextItem: chatHandleMocks.removeComposerContextItem,
         clearComposerContextItems: chatHandleMocks.clearComposerContextItems,
         sendRecoveryMessage: chatHandleMocks.sendRecoveryMessage,
@@ -765,7 +766,9 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
-    chatHandleMocks.canStageComposerContextItem.mockReturnValueOnce(false);
+    chatHandleMocks.composerContextRefusal.mockReturnValueOnce(
+      "context-too-large",
+    );
     act(() => {
       dispatchSubmitChat({
         message: "Review this",
@@ -780,6 +783,37 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining("alongside the composer's existing context"),
     );
+    consoleError.mockRestore();
+  });
+
+  it("reports a prefill that browser storage refuses as storage-unavailable, not as a size limit", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.composerContextRefusal.mockReturnValueOnce(
+      "storage-unavailable",
+    );
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+        submitMessageId: "refused-prefill",
+      });
+    });
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(results).toContainEqual({
+      submitMessageId: "refused-prefill",
+      delivered: false,
+      reason: "storage-unavailable",
+    });
     consoleError.mockRestore();
   });
 

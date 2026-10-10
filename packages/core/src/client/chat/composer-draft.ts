@@ -259,23 +259,29 @@ export function writeAssistantChatHiddenContext(
   }
 }
 
-// Whether these items can be saved now. A probe write of the same payload finds a
-// full quota before a prefill changes the draft. The probe key holds a space, which
-// no encoded scope can produce, so it never collides with saved context.
+// Whether these items can be saved now, counting the entry they replace. The probe
+// writes the scope's own key and puts the previous value back, so a replacement that
+// fits in place is not refused and the stored context is left as it was.
 export function canWriteAssistantChatHiddenContext(
   scope: string | null | undefined,
   items: readonly HiddenContextWrite[],
 ): boolean {
   if (items.length === 0) return true;
+  const key = assistantChatHiddenContextKey(scope);
   const storage = getComposerDraftStorage();
-  if (!assistantChatHiddenContextKey(scope) || !storage) return false;
-  const probeKey = `${ASSISTANT_CHAT_HIDDEN_CONTEXT_PREFIX}capacity probe`;
+  if (!key || !storage) return false;
+  let previous: string | null;
   try {
-    storage.setItem(probeKey, serializeAssistantChatHiddenContext(items));
-    storage.removeItem(probeKey);
-    return true;
+    previous = storage.getItem(key);
+    storage.setItem(key, serializeAssistantChatHiddenContext(items));
   } catch {
-    // coercion-ok: storage refused the probe; the caller refuses the prefill.
+    // coercion-ok: storage refused the write; the previous entry is untouched.
     return false;
   }
+  // Restoring the previous value only swaps back what the probe wrote, so it fits. A
+  // failure here means another tab filled the origin mid-probe; it throws rather than
+  // leave the probe's payload in place of the saved context.
+  if (previous === null) storage.removeItem(key);
+  else storage.setItem(key, previous);
+  return true;
 }

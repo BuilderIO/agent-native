@@ -1967,28 +1967,28 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(publishAgentChatContextItems).not.toHaveBeenCalled();
   });
 
-  it("reports whether a composer can hold a prefill with its current context", async () => {
+  it("reports why a composer cannot hold a prefill with its current context", async () => {
     const ref = createRef<AssistantChatHandle>();
     await mount(baseProps(), ref);
 
     expect(
-      ref.current!.canStageComposerContextItem({
+      ref.current!.composerContextRefusal({
         key: "agent-chat-prefill-context",
         title: "Selected rows",
         context: "Selected rows: a, b",
         composerOnly: true,
         stagedAt: Date.now(),
       }),
-    ).toBe(true);
+    ).toBeNull();
     expect(
-      ref.current!.canStageComposerContextItem({
+      ref.current!.composerContextRefusal({
         key: "agent-chat-prefill-context",
         title: "Selected rows",
         context: "x".repeat(64 * 1024 + 1),
         composerOnly: true,
         stagedAt: Date.now(),
       }),
-    ).toBe(false);
+    ).toBe("context-too-large");
   });
 
   it("the composer's optimistic clear on submit keeps its context for a send that fails", async () => {
@@ -2032,7 +2032,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       });
     try {
       expect(
-        ref.current!.canStageComposerContextItem({
+        ref.current!.composerContextRefusal({
           key: "agent-chat-prefill-context",
           title: "Active app context",
           context: "Cast: Tom Holland",
@@ -2040,7 +2040,7 @@ describe("AgentKitAssistantChat host behavior", () => {
           hidden: true,
           stagedAt: Date.now(),
         }),
-      ).toBe(false);
+      ).toBe("storage-unavailable");
     } finally {
       setItem.mockRestore();
     }

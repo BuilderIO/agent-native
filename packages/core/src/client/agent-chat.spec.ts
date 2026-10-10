@@ -81,6 +81,7 @@ const {
   listAgentChatContext,
   normalizeAgentComposerReference,
   parseSubmitChatMessage,
+  nextAgentChatStagedAt,
   removeAgentChatContextItem,
   reportAgentChatSubmitResult,
   sendToAgentChat,
@@ -1696,6 +1697,17 @@ describe("sendToAgentChat", () => {
       "agent-panel:prepare",
       "agentNative:insert-composer-reference",
     ]);
+  });
+
+  it("never repeats a staging time within one page", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      const first = nextAgentChatStagedAt();
+      const second = nextAgentChatStagedAt();
+      expect(second).toBeGreaterThan(first);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("posts keyed context to the active chat without submitting", () => {

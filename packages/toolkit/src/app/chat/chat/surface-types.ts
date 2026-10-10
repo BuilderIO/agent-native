@@ -27,6 +27,10 @@ import type { AssistantChatHistoryConfig } from "./history-types.js";
 import type { BuilderSetupCardLayout } from "./run-recovery.js";
 
 export type AgentRequestMode = "act" | "plan";
+/** Why a composer cannot take a context item: the submit limit, or browser storage refusing the draft's context. */
+export type ComposerContextRefusal =
+  | "context-too-large"
+  | "storage-unavailable";
 type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
 export type AgentRecoveryAction = "continue" | "retry";
 
@@ -74,8 +78,10 @@ export interface AssistantChatHandle {
     item: AgentChatContextItem,
     options?: { focus?: boolean },
   ): void;
-  /** Whether the composer can hold this item alongside the context it already has. */
-  canStageComposerContextItem(item: AgentChatContextItem): boolean;
+  /** Why the composer cannot hold this item alongside the context it already has, or null when it can. */
+  composerContextRefusal(
+    item: AgentChatContextItem,
+  ): ComposerContextRefusal | null;
   /** Remove a keyed context item from the composer. */
   removeComposerContextItem(key: string): void;
   /** Clear all staged context items from the composer. */

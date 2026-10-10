@@ -214,27 +214,93 @@ describe("hidden composer context capacity", () => {
     window.localStorage.clear();
   });
 
-  it("refuses context the storage cannot take, and leaves no probe behind", () => {
-    const item = {
-      key: "prefill-context-probe",
-      title: "prefill-context-probe",
-      context: "Cast: Tom Holland",
-      stagedAt: Date.now(),
-    };
-    expect(canWriteAssistantChatHiddenContext("thread-p", [item])).toBe(true);
-    expect(window.localStorage.length).toBe(0);
+  const item = (context: string, stagedAt: number) => ({
+    key: "agent-chat-prefill-context",
+    title: "Selected rows",
+    context,
+    composerOnly: true,
+    stagedAt,
+  });
+  // Storage counts each entry's key and value against one origin quota.
+  const storedBytes = () => {
+    let total = 0;
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i) ?? "";
+      total += key.length + (window.localStorage.getItem(key)?.length ?? 0);
+    }
+    return total;
+  };
+  // A storage that refuses any write leaving the origin over the budget, as a full quota does.
+  const quotaStorage = (budget: number) => {
+    const write = window.localStorage.setItem.bind(window.localStorage);
+    return vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation((key, value) => {
+        const replaced = window.localStorage.getItem(key);
+        const after =
+          storedBytes() -
+          (replaced === null ? 0 : key.length + replaced.length) +
+          key.length +
+          value.length;
+        if (after > budget) throw new Error("QuotaExceededError");
+        write(key, value);
+      });
+  };
 
-    const setItem = vi
+  it("accepts a replacement that fits where the entry it replaces already sits", () => {
+    expect(
+      writeAssistantChatHiddenContext("thread-p", [item("a".repeat(300), 1)]),
+    ).toBe(true);
+    const storedKey = window.localStorage.key(0) ?? "";
+    const stored = window.localStorage.getItem(storedKey);
+
+    const quota = quotaStorage(storedBytes());
+    try {
+      expect(
+        canWriteAssistantChatHiddenContext("thread-p", [
+          item("b".repeat(300), 2),
+        ]),
+      ).toBe(true);
+    } finally {
+      quota.mockRestore();
+    }
+    expect(window.localStorage.getItem(storedKey)).toBe(stored);
+    expect(window.localStorage.length).toBe(1);
+  });
+
+  it("refuses context the storage cannot take and leaves the stored entry as it was", () => {
+    expect(
+      writeAssistantChatHiddenContext("thread-p", [item("a".repeat(20), 1)]),
+    ).toBe(true);
+    const storedKey = window.localStorage.key(0) ?? "";
+    const stored = window.localStorage.getItem(storedKey);
+
+    const quota = quotaStorage(storedBytes());
+    try {
+      expect(
+        canWriteAssistantChatHiddenContext("thread-p", [
+          item("b".repeat(2000), 2),
+        ]),
+      ).toBe(false);
+    } finally {
+      quota.mockRestore();
+    }
+    expect(window.localStorage.getItem(storedKey)).toBe(stored);
+  });
+
+  it("refuses when storage refuses every write, and stores nothing", () => {
+    const refuse = vi
       .spyOn(window.localStorage, "setItem")
       .mockImplementation(() => {
         throw new Error("QuotaExceededError");
       });
     try {
-      expect(canWriteAssistantChatHiddenContext("thread-p", [item])).toBe(
-        false,
-      );
+      expect(
+        canWriteAssistantChatHiddenContext("thread-p", [item("c", 1)]),
+      ).toBe(false);
     } finally {
-      setItem.mockRestore();
+      refuse.mockRestore();
     }
+    expect(window.localStorage.length).toBe(0);
   });
 });

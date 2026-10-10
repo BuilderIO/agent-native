@@ -34,6 +34,7 @@ import {
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   getAgentChatContextState,
+  nextAgentChatStagedAt,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
   reportAgentChatSubmitResult,
@@ -3052,7 +3053,7 @@ const AgentKitAssistantChatBody = forwardRef<
       // Stamp each staging, so cleanup can tell it from a later replacement with the same key.
       const item =
         normalized.stagedAt === undefined
-          ? { ...normalized, stagedAt: Date.now() }
+          ? { ...normalized, stagedAt: nextAgentChatStagedAt() }
           : normalized;
       if (item.composerOnly) {
         // Publishing would make composer-only context reachable from every open composer.
@@ -3118,20 +3119,20 @@ const AgentKitAssistantChatBody = forwardRef<
       },
       setComposerContextItem: (item, options) =>
         setContextItem(item, options?.focus !== false),
-      canStageComposerContextItem: (item) => {
+      composerContextRefusal: (item) => {
         const combined = [
           ...contextItems.filter((candidate) => candidate.key !== item.key),
           item,
         ];
+        if (!composerContextFits(combined)) return "context-too-large";
         // The draft text is stored beside this context, so a context the storage would
         // refuse is refused here, before the draft changes.
-        return (
-          composerContextFits(combined) &&
-          canWriteAssistantChatHiddenContext(
-            hiddenContextScope,
-            combined.filter((candidate) => candidate.composerOnly),
-          )
-        );
+        return canWriteAssistantChatHiddenContext(
+          hiddenContextScope,
+          combined.filter((candidate) => candidate.composerOnly),
+        )
+          ? null
+          : "storage-unavailable";
       },
       removeComposerContextItem: removeContextItem,
       clearComposerContextItems: () => {
