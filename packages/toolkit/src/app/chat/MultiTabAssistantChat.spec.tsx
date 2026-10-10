@@ -827,6 +827,76 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     },
   );
 
+  it.each([
+    { closeMethod: "others", attachBeforeClose: false },
+    { closeMethod: "all", attachBeforeClose: false },
+    { closeMethod: "others", attachBeforeClose: true },
+    { closeMethod: "all", attachBeforeClose: true },
+  ])(
+    "reports undelivered drafts when closing $closeMethod tabs (handle attached=$attachBeforeClose)",
+    async ({ closeMethod, attachBeforeClose }) => {
+      assistantChatMockState.deferredHandleThread = "thread-2";
+      let header!: MultiTabAssistantChatHeaderProps;
+      const results: unknown[] = [];
+      const record = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      const chat = () => (
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      threadMocks.createThread.mockImplementation(async () => {
+        threadMocks.switchThread("thread-3");
+        return "thread-3";
+      });
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      try {
+        await act(async () => root.render(chat()));
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Undelivered draft",
+            submit: false,
+            targetTabId: "thread-2",
+            submitMessageId: `pending-close-${closeMethod}-${attachBeforeClose}`,
+          }),
+        );
+        expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+        if (attachBeforeClose) {
+          assistantChatMockState.deferredHandleThread = null;
+          await act(async () => root.render(chat()));
+        }
+        await act(async () => {
+          if (closeMethod === "others") header.closeOtherTabs("thread-1");
+          else await header.closeAllTabs();
+        });
+        expect(results).toEqual([
+          {
+            submitMessageId: `pending-close-${closeMethod}-${attachBeforeClose}`,
+            delivered: false,
+            reason: "target-tab-closed",
+          },
+        ]);
+        assistantChatMockState.deferredHandleThread = null;
+        await act(async () => root.render(chat()));
+        await act(
+          async () => new Promise((resolve) => setTimeout(resolve, 75)),
+        );
+        expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+        expect(results).toHaveLength(1);
+      } finally {
+        window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      }
+    },
+  );
+
   it.each(["agent-chat:open-thread", "agent-task-open"])(
     "preserves the actual destination when %s follows blocked conversation work",
     async (type) => {
@@ -1319,6 +1389,96 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       "Surviving navigation prefill",
     );
   });
+
+  it.each(["agent-chat:open-thread", "agent-task-open"])(
+    "keeps a callback-created navigation ahead of an older %s request",
+    async (eventType) => {
+      const outcomes: Array<{ threadId: string; outcome: string }> = [];
+      const chat = () => (
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          onNavigationChange={(event, outcome) => {
+            const threadId = (event as CustomEvent).detail.threadId;
+            outcomes.push({ threadId, outcome });
+            if (threadId === "thread-2" && outcome === "started")
+              window.dispatchEvent(
+                new CustomEvent("agent-chat:open-thread", {
+                  detail: { threadId: "thread-3", prefill: "Newest draft" },
+                }),
+              );
+          }}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent(eventType, {
+            detail: { threadId: "thread-2", prefill: "Older draft" },
+          }),
+        ),
+      );
+      expect(threadMocks.openThread.mock.calls.map((call) => call[0])).toEqual([
+        "thread-3",
+      ]);
+      expect(threadMocks.activeThreadId).toBe("thread-3");
+      expect(threadMocks.switchThread).not.toHaveBeenCalledWith("thread-2");
+      expect(outcomes).toContainEqual({
+        threadId: "thread-2",
+        outcome: "superseded",
+      });
+      expect(outcomes).toContainEqual({
+        threadId: "thread-3",
+        outcome: "selected",
+      });
+      expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+        "Newest draft",
+      );
+    },
+  );
+
+  it.each(["agent-chat:open-thread", "agent-task-open"])(
+    "does not reopen a %s destination closed by its start callback",
+    async (eventType) => {
+      let header!: MultiTabAssistantChatHeaderProps;
+      const outcomes: string[] = [];
+      const chat = () => (
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+          onNavigationChange={(_event, outcome) => {
+            outcomes.push(outcome);
+            if (outcome === "started") header.closeOtherTabs("thread-1");
+          }}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent(eventType, {
+            detail: { threadId: "thread-2", prefill: "Cancelled draft" },
+          }),
+        ),
+      );
+      expect(threadMocks.openThread).not.toHaveBeenCalled();
+      expect(threadMocks.activeThreadId).toBe("thread-1");
+      expect(threadMocks.switchThread).not.toHaveBeenCalledWith("thread-2");
+      expect(outcomes).toEqual(["started", "closed"]);
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
+        "Cancelled draft",
+      );
+    },
+  );
 
   it.each(["others", "all"] as const)(
     "retains callback-created navigation after closing %s tabs",

@@ -619,6 +619,7 @@ export function AgentSidebar({
       runningTabIds.size > 0 ||
       hasPendingPanelEvents);
   const panelReadyRef = useRef(false);
+  const panelLoadFailedRef = useRef(false);
   const composerReadyRef = useRef(false);
   const composerElementRef = useRef<HTMLElement | null>(null);
   const panelElementRef = useRef<HTMLDivElement>(null);
@@ -706,16 +707,17 @@ export function AgentSidebar({
       reason: string | ((pending: PendingPanelEvent) => string),
     ) => {
       const cancelled: PendingPanelEvent[] = [];
-      for (
-        let index = pendingPanelEvents.current.length - 1;
-        index >= 0;
-        index--
-      ) {
-        if (matches(pendingPanelEvents.current[index])) {
-          cancelled.push(...pendingPanelEvents.current.splice(index, 1));
+      for (const queue of [
+        pendingPanelEvents.current,
+        pendingPanelControls.current,
+      ]) {
+        for (let index = queue.length - 1; index >= 0; index--) {
+          if (matches(queue[index])) {
+            cancelled.push(...queue.splice(index, 1));
+          }
         }
       }
-      cancelled.reverse();
+      cancelled.sort((a, b) => a.order - b.order);
       const publish = () => {
         for (const pending of cancelled) {
           const cancellationReason =
@@ -774,6 +776,15 @@ export function AgentSidebar({
     },
     [cancelPendingEvents, drainPendingPanelEvents],
   );
+  const onPanelLoadFailed = useCallback(() => {
+    panelLoadFailedRef.current = true;
+    panelReadyRef.current = false;
+    composerReadyRef.current = false;
+    composerElementRef.current = null;
+    cancelPendingEvents(() => true, "panel-load-failed");
+    setHasPendingPanelEvents(false);
+    setBackgroundPanelActive(false);
+  }, [cancelPendingEvents]);
   const onTabsClosing = useCallback<
     NonNullable<MultiTabAssistantChatProps["onTabsClosing"]>
   >(
@@ -987,6 +998,10 @@ export function AgentSidebar({
             ? reference
             : undefined,
       });
+      if (panelLoadFailedRef.current) {
+        cancelPendingEvents(() => true, "panel-load-failed");
+        return;
+      }
       setHasPendingPanelEvents(true);
       setBackgroundPanelActive(true);
       onReferenceTargetChange();
@@ -1157,6 +1172,7 @@ export function AgentSidebar({
   }, [
     ownsPanel,
     setOpenPersisted,
+    cancelPendingEvents,
     drainPendingPanelEvents,
     getReferenceTargetId,
     onReferenceTargetChange,
@@ -1594,6 +1610,7 @@ export function AgentSidebar({
           <LazyChunkErrorBoundary
             fallback={<LazyChunkRetryFallback />}
             shouldHandleError={isPanelImportError}
+            onError={onPanelLoadFailed}
           >
             <Suspense
               fallback={

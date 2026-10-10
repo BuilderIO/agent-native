@@ -6,6 +6,7 @@ export class LazyChunkErrorBoundary extends React.Component<
     children: React.ReactNode;
     fallback: React.ReactNode;
     shouldHandleError?: (error: unknown) => boolean;
+    onError?: (error: unknown) => void;
   },
   { error: unknown }
 > {
@@ -16,6 +17,7 @@ export class LazyChunkErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: unknown, errorInfo: React.ErrorInfo) {
+    this.props.onError?.(error);
     if (recoverFromStaleChunkError(error)) return;
     console.error("[agent-native] Lazy client chunk failed", error, errorInfo);
   }

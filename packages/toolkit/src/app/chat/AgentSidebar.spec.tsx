@@ -1436,4 +1436,73 @@ describe("AgentSidebar panel", () => {
         ?.getAttribute("data-active"),
     ).toBe("true");
   });
+
+  it("rejects retained and later drafts when the panel import fails", async () => {
+    vi.resetModules();
+    vi.doMock("./AgentSidebarPanel.js", () => {
+      throw new Error("Forced panel import failure");
+    });
+    mockPanel.resolveImport();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const chat = await import("@agent-native/core/client/agent-chat");
+    const { AgentSidebar: FailedSidebar } = await import("./AgentSidebar.js");
+    const results: unknown[] = [];
+    const record = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    try {
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+      await act(async () =>
+        root?.render(
+          <MemoryRouter>
+            <FailedSidebar defaultOpen={false}>
+              <div>Content</div>
+            </FailedSidebar>
+          </MemoryRouter>,
+        ),
+      );
+      const draft = (submitMessageId: string) =>
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: window.location.origin,
+            data: {
+              type: "agentNative.submitChat",
+              data: {
+                message: "Cannot deliver",
+                submit: false,
+                submitMessageId,
+              },
+            },
+          }),
+        );
+      await act(async () => draft("failed-chunk-first"));
+      await act(async () =>
+        window.dispatchEvent(new CustomEvent("agent-panel:open")),
+      );
+      await act(async () => draft("failed-chunk-second"));
+      expect(results).toEqual([
+        {
+          submitMessageId: "failed-chunk-first",
+          delivered: false,
+          reason: "panel-load-failed",
+        },
+        {
+          submitMessageId: "failed-chunk-second",
+          delivered: false,
+          reason: "panel-load-failed",
+        },
+      ]);
+      expect(chat.isAgentChatSubmitCancelled("failed-chunk-first")).toBe(true);
+      expect(chat.isAgentChatSubmitCancelled("failed-chunk-second")).toBe(true);
+      expect(container.querySelector('[role="alert"]')).toBeTruthy();
+    } finally {
+      window.removeEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      await act(async () => root?.unmount());
+      root = undefined;
+      vi.doUnmock("./AgentSidebarPanel.js");
+      errors.mockRestore();
+    }
+  });
 });

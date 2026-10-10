@@ -10,6 +10,7 @@ import {
   appendAgentChatContextToMessage,
   claimAgentChatOpenRequest,
   claimAgentChatSubmit,
+  cancelAgentChatSubmit,
   drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
   filterAgentChatContextItems,
@@ -1149,6 +1150,7 @@ export function MultiTabAssistantChat({
   const chatRefs = useRef<Map<string, AssistantChatHandle>>(new Map());
   // Sends queued until their target thread is ready (see PendingDelivery).
   const pendingDeliveries = useRef<PendingDelivery[]>([]);
+  const scheduledDeliveries = useRef(new Set<PendingDelivery>());
   const pendingContextItems = useRef<Map<string, AgentChatContextItem[]>>(
     new Map(),
   );
@@ -1156,7 +1158,7 @@ export function MultiTabAssistantChat({
   const [showHistory, setShowHistory] = useState(false);
   const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
-  const latestOpenThreadRequestRef = useRef(0);
+  const latestNavigationRequestRef = useRef(0);
 
   useEffect(() => {
     setPageOverlayScrolled(false);
@@ -2342,6 +2344,10 @@ export function MultiTabAssistantChat({
       const remaining: PendingDelivery[] = [];
       for (const delivery of pendingDeliveries.current) {
         if (isAgentChatSubmitCancelled(delivery.send.submitMessageId)) continue;
+        if (scheduledDeliveries.current.has(delivery)) {
+          remaining.push(delivery);
+          continue;
+        }
         const threadId = delivery.threadId ?? active ?? null;
         if (onlyThreadId && threadId !== onlyThreadId) {
           remaining.push(delivery);
@@ -2353,8 +2359,18 @@ export function MultiTabAssistantChat({
           bumpModelSelectionVersion();
         }
         if (threadId && ref) {
-          const { send } = delivery;
-          setTimeout(() => deliverPendingSend(ref, send), 50);
+          const scheduled = { ...delivery, threadId };
+          scheduledDeliveries.current.add(scheduled);
+          remaining.push(scheduled);
+          setTimeout(() => {
+            scheduledDeliveries.current.delete(scheduled);
+            const index = pendingDeliveries.current.indexOf(scheduled);
+            if (index < 0) return;
+            const currentRef = chatRefs.current.get(threadId);
+            if (!currentRef) return;
+            pendingDeliveries.current.splice(index, 1);
+            deliverPendingSend(currentRef, scheduled.send);
+          }, 50);
         } else {
           // Not ready — keep it, pinning the resolved threadId once known.
           remaining.push(
@@ -2418,22 +2434,32 @@ export function MultiTabAssistantChat({
 
   const awaitingNavigationHandles = useRef(new Set<string>());
   const pendingNavigations = useRef(
-    new Map<AgentChatNavigationKey, { event: Event; targetId: string }>(),
+    new Map<
+      AgentChatNavigationKey,
+      { event: Event; targetId: string; generation: number }
+    >(),
   );
   const navigationChangeRef = useRef(onNavigationChange);
   navigationChangeRef.current = onNavigationChange;
   const startNavigation = useCallback((event: Event, targetId: string) => {
-    pendingNavigations.current.set(getAgentChatNavigationKey(event), {
+    const navigation = {
       event,
       targetId,
-    });
+      generation: ++latestNavigationRequestRef.current,
+    };
+    pendingNavigations.current.set(
+      getAgentChatNavigationKey(event),
+      navigation,
+    );
     navigationChangeRef.current?.(event, "started");
+    return navigation;
   }, []);
   const mountedRef = useRef(true);
   const pendingTabClosures = useRef(
     new Set<{
       tabIds: string[];
-      cancelled: { event: Event; targetId: string }[];
+      cancelled: { event: Event; targetId: string; generation: number }[];
+      deliveries: PendingDelivery[];
       outcome: "closed" | "missing";
       publications: (() => void)[];
       ready: boolean;
@@ -2452,10 +2478,18 @@ export function MultiTabAssistantChat({
         ([, navigation]) => closed.has(navigation.targetId),
       );
       for (const [key] of cancelled) pendingNavigations.current.delete(key);
+      const deliveries = pendingDeliveries.current.filter((delivery) =>
+        closed.has(delivery.threadId ?? activeThreadIdRef.current ?? ""),
+      );
+      const removed = new Set(deliveries);
+      pendingDeliveries.current = pendingDeliveries.current.filter(
+        (delivery) => !removed.has(delivery),
+      );
       const publication = tabsClosingRef.current?.(tabIds, outcome);
       const closure = {
         tabIds,
         cancelled: cancelled.map(([, navigation]) => navigation),
+        deliveries,
         outcome,
         publications: publication ? [publication] : [],
         ready: false,
@@ -2468,6 +2502,14 @@ export function MultiTabAssistantChat({
   const publishTabClosure = useCallback(
     (closed: ReturnType<typeof cancelTabNavigations>) => {
       if (!pendingTabClosures.current.delete(closed)) return;
+      for (const delivery of closed.deliveries) {
+        reportAgentChatSubmitResult(
+          delivery.send.submitMessageId,
+          false,
+          `target-tab-${closed.outcome}`,
+        );
+        cancelAgentChatSubmit(delivery.send.submitMessageId);
+      }
       for (const publish of closed.publications) publish();
       tabsClosedRef.current?.(closed.tabIds, closed.outcome);
       for (const navigation of closed.cancelled)
@@ -2534,6 +2576,22 @@ export function MultiTabAssistantChat({
     },
     [],
   );
+  const continueNavigation = useCallback(
+    (navigation: ReturnType<typeof startNavigation>) => {
+      if (
+        pendingNavigations.current.get(
+          getAgentChatNavigationKey(navigation.event),
+        ) !== navigation
+      )
+        return false;
+      if (navigation.generation !== latestNavigationRequestRef.current) {
+        settleNavigation(navigation.event, "superseded");
+        return false;
+      }
+      return true;
+    },
+    [settleNavigation],
+  );
   useEffect(() => {
     if (navigationSettlements.length === 0) return;
     const consumed = new Set<(typeof navigationSettlements)[number]>();
@@ -2590,9 +2648,6 @@ export function MultiTabAssistantChat({
         dismissedSubAgentTabsRef.current.add(tabId);
       }
       chatRefs.current.delete(tabId);
-      pendingDeliveries.current = pendingDeliveries.current.filter(
-        (d) => d.threadId !== tabId,
-      );
       pendingContextItems.current.delete(tabId);
       newThreadIds.current.delete(tabId);
       mountedTabsRef.current.delete(tabId);
@@ -2683,6 +2738,7 @@ export function MultiTabAssistantChat({
         const additional = cancelTabNavigations(getClosingTabIds(id));
         closed.tabIds = [...new Set([...closed.tabIds, ...additional.tabIds])];
         closed.cancelled.push(...additional.cancelled);
+        closed.deliveries.push(...additional.deliveries);
         closed.publications.push(...additional.publications);
         pendingTabClosures.current.delete(additional);
         newThreadIds.current.add(id);
@@ -2692,7 +2748,6 @@ export function MultiTabAssistantChat({
         dismissedSubAgentTabsRef.current.clear();
         // Clean up all old refs
         chatRefs.current.clear();
-        pendingDeliveries.current = [];
         pendingContextItems.current.clear();
         threadModelRef.current.clear();
         setParentMap({});
@@ -2789,8 +2844,8 @@ export function MultiTabAssistantChat({
         typeof detail?.threadId === "string" ? detail.threadId : "";
       if (!detail || !threadId) return;
       if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
-      startNavigation(event, threadId);
-      const requestGeneration = ++latestOpenThreadRequestRef.current;
+      const navigation = startNavigation(event, threadId);
+      if (!continueNavigation(navigation)) return;
 
       const onlyIfActiveThreadId =
         typeof detail.onlyIfActiveThreadId === "string"
@@ -2810,8 +2865,7 @@ export function MultiTabAssistantChat({
         if (detail?.newThread === true) {
           newThreadIds.current.add(threadId);
           const createdId = await createThread(threadId);
-          if (!pendingNavigations.current.has(getAgentChatNavigationKey(event)))
-            return;
+          if (!continueNavigation(navigation)) return;
           if (!createdId) {
             settleNavigation(event, "unavailable");
             return;
@@ -2825,8 +2879,7 @@ export function MultiTabAssistantChat({
         }
         const activeThreadBeforeLookup = activeThreadIdRef.current;
         const openResult = await openThread(threadId);
-        if (!pendingNavigations.current.has(getAgentChatNavigationKey(event)))
-          return;
+        if (!continueNavigation(navigation)) return;
         if (openResult === "missing") {
           cleanupClosedTabs([threadId], "missing")();
           return;
@@ -2836,7 +2889,6 @@ export function MultiTabAssistantChat({
           return;
         }
         if (
-          requestGeneration !== latestOpenThreadRequestRef.current ||
           activeThreadIdRef.current !== activeThreadBeforeLookup ||
           (onlyIfActiveThreadId &&
             activeThreadIdRef.current &&
@@ -2869,6 +2921,7 @@ export function MultiTabAssistantChat({
     switchThread,
     writeThreadUrl,
     startNavigation,
+    continueNavigation,
     settleNavigation,
   ]);
 
@@ -2901,7 +2954,8 @@ export function MultiTabAssistantChat({
       const threadId = detail?.threadId;
       if (!threadId) return;
       if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
-      startNavigation(e, threadId);
+      const navigation = startNavigation(e, threadId);
+      if (!continueNavigation(navigation)) return;
       dismissedSubAgentTabsRef.current.delete(threadId);
       // Prefer an explicit parent (RunsTray/background hydration knows it);
       // inline task cards fall back to the active orchestrator thread.
@@ -2959,7 +3013,8 @@ export function MultiTabAssistantChat({
     switchThread,
     refreshThreads,
     parentMap,
-    onNavigationChange,
+    startNavigation,
+    continueNavigation,
     settleNavigation,
   ]);
 
