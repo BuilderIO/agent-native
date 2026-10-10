@@ -191,11 +191,19 @@ describe("useOrg while the action cache restore holds queries", () => {
   it("reports the org as loading, not as absent, until the held query fetches it", async () => {
     const fetchMock = vi.fn(async () => Response.json(org));
     vi.stubGlobal("fetch", fetchMock);
-    const seen: Array<{ isLoading: boolean; orgId?: string }> = [];
+    const seen: Array<{
+      isLoading: boolean;
+      isInitialLoading: boolean;
+      orgId?: string;
+    }> = [];
 
     function Probe() {
       const result = useOrg();
-      seen.push({ isLoading: result.isLoading, orgId: result.data?.orgId });
+      seen.push({
+        isLoading: result.isLoading,
+        isInitialLoading: result.isInitialLoading,
+        orgId: result.data?.orgId,
+      });
       return null;
     }
 
@@ -210,11 +218,19 @@ describe("useOrg while the action cache restore holds queries", () => {
 
     await act(async () => render(true));
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(seen.at(-1)).toEqual({ isLoading: true, orgId: undefined });
+    expect(seen.at(-1)).toEqual({
+      isLoading: true,
+      isInitialLoading: true,
+      orgId: undefined,
+    });
 
     await act(async () => render(false));
     await vi.waitFor(() => expect(seen.at(-1)?.orgId).toBe("org-1"));
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(seen.at(-1)).toEqual({ isLoading: false, orgId: "org-1" });
+    expect(seen.at(-1)).toEqual({
+      isLoading: false,
+      isInitialLoading: false,
+      orgId: "org-1",
+    });
   });
 });

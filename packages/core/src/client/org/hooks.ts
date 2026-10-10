@@ -63,9 +63,10 @@ export function useOrg(options: { enabled?: boolean } = {}) {
     staleTime: 30_000,
   });
   // A query held for the action-cache restore is not fetching, so TanStack
-  // reports isLoading false with no data. That is an unread org, not a null one.
+  // reports isLoading and isInitialLoading false with no data. That is an
+  // unread org, not a null one. Both aliases must agree or consumers diverge.
   if (!enabled || !isRestoring || !query.isPending) return query;
-  return { ...query, isLoading: true };
+  return { ...query, isLoading: true, isInitialLoading: true };
 }
 
 export interface UseOrgRoleResult {
