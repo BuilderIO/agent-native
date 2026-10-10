@@ -53,11 +53,13 @@ function collectTitleCitations(
   const node = value as AstNode;
   let skipped = inSkipped;
   if (node.type === "CallExpression") {
-    const modifiers = testModifiers(node.callee);
-    if (modifiers !== undefined) {
-      skipped = inSkipped || modifiers.some((m) => NOT_RUNNABLE.has(m));
+    const declaration = testDeclaration(node.callee);
+    if (declaration !== undefined) {
+      skipped =
+        inSkipped || declaration.modifiers.some((m) => NOT_RUNNABLE.has(m));
       const title = titleText(firstArgument(node));
-      if (!skipped && title !== undefined) {
+      // A suite title is not a test, so only it() and test() titles cite rows.
+      if (!skipped && declaration.base !== "describe" && title !== undefined) {
         for (const match of title.matchAll(CITATION_PATTERN)) {
           ids.push(match[1]);
         }
@@ -91,11 +93,12 @@ function titleText(node: AstNode | undefined): string | undefined {
 }
 
 /**
- * The modifiers after a test function name, for a call that is a test
- * declaration: it("..."), it.only("..."), it.skip.each([...])("...").
+ * The declaration a call makes: it("..."), it.only("..."), it.skip.each([...])("...").
  * Returns undefined for any other call.
  */
-function testModifiers(callee: unknown): string[] | undefined {
+function testDeclaration(
+  callee: unknown,
+): { base: string; modifiers: string[] } | undefined {
   const node = callee as AstNode;
   // it.skip.each([...])("title"): the outer call's callee is the table call.
   const chainNode = node.type === "CallExpression" ? node.callee : node;
@@ -109,7 +112,7 @@ function testModifiers(callee: unknown): string[] | undefined {
       return undefined;
     }
   }
-  return modifiers;
+  return { base, modifiers };
 }
 
 /** The dotted names of an identifier or plain member chain, e.g. it.skip.each. */

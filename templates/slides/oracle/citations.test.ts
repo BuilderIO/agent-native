@@ -22,13 +22,32 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual(["4.8"]);
   });
 
-  it("reads a citation from a describe() title", () => {
+  it("does not read a citation from a describe() title, because a suite is not a test", () => {
     expect(
       titleCitations(
         `describe("handles (oracle H.1)", () => {});`,
         "a.test.ts",
       ),
-    ).toEqual(["H.1"]);
+    ).toEqual([]);
+  });
+
+  it("does not count a suite citation when the suite holds no runnable test", () => {
+    const source = [
+      `describe("empty (oracle H.2)", () => {});`,
+      `describe("skipped (oracle H.3)", () => {`,
+      `  it.todo("moves");`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("reads a citation from a test inside a describe", () => {
+    const source = [
+      `describe("group", () => {`,
+      `  it("moves the box (oracle H.4)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["H.4"]);
   });
 
   it("reads a citation from an it.each() title", () => {
