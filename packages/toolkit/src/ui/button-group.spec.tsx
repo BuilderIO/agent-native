@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { ActionButtonProps } from "../design-system/types.js";
 import { ToolkitProvider } from "../provider.js";
-import { ButtonGroup } from "./button-group.js";
+import { ButtonGroup, ButtonGroupSeparator } from "./button-group.js";
 import { Button } from "./button.js";
 
 describe("ButtonGroup", () => {
@@ -55,17 +55,27 @@ describe("ButtonGroup", () => {
           <ButtonGroup>
             <a href="/share">Share</a>
             <Button>Copy</Button>
+            <ButtonGroupSeparator />
+            <button type="button">Open</button>
             <select aria-hidden="true" tabIndex={-1} />
           </ButtonGroup>
           <ButtonGroup orientation="vertical">
             <Button>Start</Button>
             <Button>Stop</Button>
           </ButtonGroup>
+          <ButtonGroup>
+            <Button>Before nested group</Button>
+            <ButtonGroup>
+              <Button>Nested action</Button>
+              <Button>Nested menu</Button>
+            </ButtonGroup>
+            <Button>After nested group</Button>
+          </ButtonGroup>
         </ToolkitProvider>,
       );
     });
 
-    const [horizontal, vertical] = Array.from(
+    const [horizontal, vertical, nested] = Array.from(
       container.querySelectorAll<HTMLElement>('[data-slot="button-group"]'),
     );
     expect(horizontal?.firstElementChild?.tagName).toBe("A");
@@ -73,24 +83,29 @@ describe("ButtonGroup", () => {
     expect(vertical?.firstElementChild?.tagName).toBe("SPAN");
     expect(
       horizontal?.className.includes(
-        "*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child)",
+        "*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child):not([data-slot=button-group]):not([data-slot=button-group]+*)",
       ),
     ).toBe(true);
     expect(
       horizontal?.className.includes(
-        "has(~*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true]))",
+        ":not([data-slot=button-group-separator]+*)",
       ),
     ).toBe(true);
     expect(
       vertical?.className.includes(
-        "*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child)",
+        "*:not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child):not([data-slot=button-group]):not([data-slot=button-group]+*)",
       ),
     ).toBe(true);
     expect(
       vertical?.className.includes(
-        "has(~*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true]))",
+        ":not([data-slot=button-group-separator]+*)",
       ),
     ).toBe(true);
+    expect(nested?.className).toContain("border-s-current/20");
+    expect(
+      horizontal?.querySelector('[data-slot="button-group-separator"]'),
+    ).not.toBeNull();
+    expect(horizontal?.lastElementChild?.tagName).toBe("SELECT");
     expect(
       Array.from(container.querySelectorAll("button")).every(
         (button) => !button.hasAttribute("data-slot"),
