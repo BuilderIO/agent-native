@@ -108,11 +108,11 @@ const METADATA_ONLY_TOOLS = new Set<string>(METADATA_ONLY_ACTION_ALLOWLIST);
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const PHRASE_EDGE = String.raw`[\p{L}\p{N}_/\p{Pd}]`;
 const GRAIN_NEGATION_PREFIX =
-  /\b(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\s+(?:(?:a|an|the|declared|expected|actual|correct)\s+)*$/i;
+  /\b(?:(?:do|does|did)\s+)?(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\s+(?:(?:have|has|a|an|the|true|declared|expected|actual|correct|valid|really|actually)\s+)*$/i;
 const GRAIN_NEGATION_SUFFIX =
-  /^\s*(?:(?:is|are|was|were)\s+)?(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\b/i;
+  /^\s*(?:(?:is|are|was|were)\s+)?(?:not|never|isn't|isn’t|wasn't|wasn’t|cannot|can't)\s+(?:(?:a|an|the)\s+)?(?:declared|expected|actual|correct|true|valid)\s+grain\b/i;
 const GRAIN_NEGATION_CLAUSE =
-  /^[,;:.]\s*(?:(?:but|which|however)\s+)?(?:(?:this|it|that|the model|the table|the relation)\s+)?(?:(?:is|are|was|were)\s+)?(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\s+(?:(?:a|an|the|declared|expected|actual|correct)\s+){0,3}(?:[\p{L}\p{N}_-]+\s+){0,2}grain\b/i;
+  /^[,;:.]\s*(?:(?:but|which|however)\s+)?(?:(?:this|it|that|the model|the table|the relation)\s+)?(?:(?:is|are|was|were)\s+)?(?:not|never|isn't|isn’t|wasn't|wasn’t|cannot|can't)\s+(?:(?:a|an|the)\s+)?(?:declared|expected|actual|correct|true|valid)\s+grain\b/i;
 
 function findCompletePhraseIndex(text: string, phrase: string): number {
   const escapedPhrase = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -154,9 +154,11 @@ function hasRelationGrainClaim(
     const competingGrain = allClaims.some(
       (candidate) =>
         candidate.grains[0]?.toLowerCase() !== expectedGrain &&
-        candidate.grains.some(
-          (grain) => findCompletePhraseIndex(line, grain.toLowerCase()) >= 0,
-        ),
+        candidate.grains.some((grain) => {
+          const phrase = grain.toLowerCase();
+          const index = findCompletePhraseIndex(line, phrase);
+          return index >= 0 && !isNegatedGrainClaim(line, index, phrase);
+        }),
     );
     if (competingGrain) return false;
 

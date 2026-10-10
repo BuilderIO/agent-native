@@ -2,6 +2,7 @@ type DictionaryEntry = Record<string, unknown>;
 
 const SOURCE_INDEX_FIELDS = [
   "status",
+  "aiGenerated",
   "sourceIndex",
   "sourcePath",
   "sourceRevision",
@@ -34,10 +35,16 @@ export function mergeDataDictionaryEntry(
       : existing.sourceIndex === true
         ? existing
         : null;
-  const overlay = incoming.sourceIndex === true ? existing : incoming;
+  const overlay =
+    incoming.sourceIndex === true
+      ? populatedFields(existing)
+      : {
+          ...populatedFields(existing),
+          ...populatedFields(incoming),
+        };
   const merged = {
     ...(generated ?? existing),
-    ...populatedFields(overlay),
+    ...overlay,
   };
 
   if (generated) {

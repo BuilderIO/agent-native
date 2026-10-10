@@ -210,6 +210,27 @@ describe("Analytics synthetic production source evals", () => {
     expect(contract.relationGrains).toHaveLength(2);
   });
 
+  it("keeps a positive grain when only an alternative grain is negated", async () => {
+    const report = await runEvals(
+      [cases[0]!],
+      runnerFor({
+        text: [
+          "dbt_mart.dim_users_core: user grain, not organization grain",
+          "dbt_mart.dim_organizations: organization grain",
+          "dbt_intermediate.user_organization_role: membership grain",
+          "user organization membership",
+        ].join("\n"),
+        toolCalls: ["search-bigquery-schema"],
+        ok: true,
+        runId: "eval:negated-alternative-grain-fixture",
+        durationMs: 0,
+      }),
+      { persist: false },
+    );
+
+    expect(report).toMatchObject({ total: 1, passed: 1, failed: 0 });
+  });
+
   it("rejects a negation that follows the expected grain phrase", async () => {
     const reportFor = (userGrainLine: string) =>
       runEvals(
@@ -238,6 +259,12 @@ describe("Analytics synthetic production source evals", () => {
     const commaSeparatedNegative = await reportFor(
       "dbt_mart.dim_users_core: user grain, but this is not the declared grain",
     );
+    const missingUserGrain = await reportFor(
+      "dbt_mart.dim_users_core: does not have user grain",
+    );
+    const notTrueUserGrain = await reportFor(
+      "dbt_mart.dim_users_core: not a true user grain",
+    );
     const descriptiveNo = await reportFor(
       "dbt_mart.dim_users_core: user grain with no duplicate users",
     );
@@ -249,6 +276,8 @@ describe("Analytics synthetic production source evals", () => {
       passed: 0,
       failed: 1,
     });
+    expect(missingUserGrain).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(notTrueUserGrain).toMatchObject({ total: 1, passed: 0, failed: 1 });
     expect(descriptiveNo).toMatchObject({ total: 1, passed: 1, failed: 0 });
     expect(negative.results[0]?.scores[0]?.reason).toContain(
       "dbt_mart.dim_users_core did not declare its expected user grain",

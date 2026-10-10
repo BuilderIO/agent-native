@@ -129,6 +129,7 @@ describe("list-data-dictionary", () => {
         definition: "Reviewed overlay",
         status: "active",
         approved: true,
+        aiGenerated: false,
       },
     });
     mocks.sourceIndexDictionaryEntries.mockReturnValue([
@@ -136,6 +137,7 @@ describe("list-data-dictionary", () => {
         id: "index-generated",
         metric: "Generated index entry",
         status: "deprecated",
+        aiGenerated: true,
         sourceIndex: true,
         sourceIndexGeneratedAt: "2026-10-10T00:00:00.000Z",
       },
@@ -152,6 +154,7 @@ describe("list-data-dictionary", () => {
       definition: "Reviewed overlay",
       approved: true,
       status: "deprecated",
+      aiGenerated: true,
       sourceIndexGeneratedAt: "2026-10-10T00:00:00.000Z",
     });
   });
