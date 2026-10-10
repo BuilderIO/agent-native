@@ -16,9 +16,6 @@ const MAX_QA_ASSET_BYTES = 16 * 1024 * 1024;
 const QA_UPLOAD_ROOT = path.resolve(
   "node_modules/.cache/agent-native-design/local-import-assets",
 );
-const LEGACY_QA_UPLOAD_ROOT = path.resolve(
-  "node_modules/.cache/agent-native-design/figma-qa-assets",
-);
 const MIME_EXTENSIONS = new Map([
   ["image/png", "png"],
   ["image/jpeg", "jpg"],
@@ -63,16 +60,14 @@ export function localImportAssetAssetPath(
 export function localImportAssetAssetPaths(
   ownerEmail: string,
   assetId: string,
-  options?: { rootDir?: string; legacyRootDir?: string },
+  options?: { rootDir?: string },
 ): string[] {
-  return [
-    localImportAssetAssetPath(ownerEmail, assetId, options?.rootDir),
-    localImportAssetAssetPath(
-      ownerEmail,
-      assetId,
-      options?.legacyRootDir ?? LEGACY_QA_UPLOAD_ROOT,
-    ),
-  ].filter((filepath): filepath is string => filepath !== null);
+  const filepath = localImportAssetAssetPath(
+    ownerEmail,
+    assetId,
+    options?.rootDir,
+  );
+  return filepath ? [filepath] : [];
 }
 
 export function localImportAssetAssetMimeType(assetId: string): string | null {
@@ -193,24 +188,7 @@ function createPrivateBlobProvider(options: {
   };
 }
 
-export function createPreviousLocalImportAssetPrivateBlobProvider(options?: {
-  rootDir?: string;
-  enabled?: () => boolean;
-}): PrivateBlobProvider {
-  return createPrivateBlobProvider({
-    id: "design-local-figma-qa-private",
-    name: "Design local QA private blobs",
-    rootDir: options?.rootDir ?? LEGACY_QA_UPLOAD_ROOT,
-    enabled: options?.enabled ?? isLocalImportAssetUploadEnabled,
-  });
-}
-
 export function registerLocalImportAssetUploadProvider(): void {
   registerFileUploadProvider(createLocalImportAssetUploadProvider());
   registerPrivateBlobProvider(createLocalImportAssetPrivateBlobProvider());
-  registerPrivateBlobProvider(
-    createPreviousLocalImportAssetPrivateBlobProvider({
-      enabled: () => false,
-    }),
-  );
 }
