@@ -372,6 +372,7 @@ export async function hydratePriorThreadImages(
   const newlyHydrated = new Map<string, AgentChatAttachment>();
   let unreadableCount = 0;
   let budgetOmittedCount = 0;
+  let requestDeadlineExpired = false;
 
   const hydrationOrder = [...selected].reverse();
   for (let index = 0; index < hydrationOrder.length; index++) {
@@ -395,6 +396,10 @@ export async function hydratePriorThreadImages(
       attachments.push({ ...cachedAttachment });
       continue;
     }
+    if (requestDeadlineExpired) {
+      budgetOmittedCount++;
+      continue;
+    }
     const result = await hydrateOwnedImageUrl(
       candidate.url,
       candidate.contentType,
@@ -402,9 +407,9 @@ export async function hydratePriorThreadImages(
     );
     if (result.kind !== "hydrated") {
       if (result.code === "request-time-limit") {
-        // The deadline is shared, so every later candidate would fail the same way.
-        budgetOmittedCount += hydrationOrder.length - index;
-        break;
+        requestDeadlineExpired = true;
+        budgetOmittedCount++;
+        continue;
       }
       if (result.code === "request-byte-limit") {
         budgetOmittedCount++;

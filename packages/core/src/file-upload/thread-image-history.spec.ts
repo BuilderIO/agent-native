@@ -294,6 +294,68 @@ describe("hydratePriorThreadImages", () => {
     );
   });
 
+  it("stops uncached reads after the deadline but keeps cached prior images", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const cachedUrl = "https://storage.example/cached.jpg";
+    const skippedUrl = "https://storage.example/skipped.jpg";
+    const deadlineUrl = "https://storage.example/deadline.jpg";
+    const bytes = Buffer.from(JPEG_BASE64, "base64");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== cachedUrl)
+        return new Response(null, { status: 404 });
+      return new Response(bytes, { headers: { "content-type": "image/jpeg" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const threadData = JSON.stringify({
+      messages: [
+        storedImage("cached.jpg", cachedUrl),
+        storedImage("skipped.jpg", skippedUrl),
+        storedImage("deadline.jpg", deadlineUrl),
+      ],
+    });
+    const scope = cacheScope(
+      "owner@example.com",
+      "org-cache-timeout",
+      "thread-cache-after-deadline",
+    );
+
+    const seeded = await hydratePriorThreadImages(threadData, {
+      cacheScope: scope,
+    });
+
+    expect(seeded.attachments.map((attachment) => attachment.name)).toEqual([
+      "cached.jpg",
+    ]);
+
+    fetchMock.mockClear();
+    findProviderMock.mockClear();
+    const budget = createOwnedAttachmentHydrationBudget();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(budget.deadlineAt - 1));
+    findProviderMock.mockImplementation(async () => {
+      vi.setSystemTime(new Date(budget.deadlineAt + 1));
+      return { id: "owned-storage" };
+    });
+
+    const result = await hydratePriorThreadImages(threadData, {
+      budget,
+      cacheScope: scope,
+    });
+
+    expect(result.attachments.map((attachment) => attachment.name)).toEqual([
+      "cached.jpg",
+    ]);
+    expect(result.contextNote).toContain(
+      "2 retained image attachments were omitted to stay within the request-wide image hydration budget.",
+    );
+    expect(result.contextNote).not.toContain(
+      "not readable from configured upload storage",
+    );
+    expect(findProviderMock).toHaveBeenCalledTimes(1);
+    expect(findProviderMock).toHaveBeenCalledWith(deadlineUrl);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("names the request-wide budget when no candidate budget is left", async () => {
     findProviderMock.mockResolvedValue({ id: "owned-storage" });
     const budget = createOwnedAttachmentHydrationBudget();
