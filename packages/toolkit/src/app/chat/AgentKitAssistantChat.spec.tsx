@@ -3930,6 +3930,13 @@ describe("AgentKitAssistantChat host behavior", () => {
           },
           {
             type: "file",
+            name: "opaque-id.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/opaque-id.png?token=secret",
+            fileId: "4b1f4cc034da4c8c8fe4a5d20fa87a32",
+          },
+          {
+            type: "file",
             name: "raw.png",
             mediaType: "image/png",
             url: "AQID",
@@ -4012,6 +4019,12 @@ describe("AgentKitAssistantChat host behavior", () => {
         name: "durable.png",
         mediaType: "image/png",
         url: "https://files.example.test/durable.png",
+      },
+      {
+        type: "file",
+        name: "opaque-id.png",
+        mediaType: "image/png",
+        fileId: "4b1f4cc034da4c8c8fe4a5d20fa87a32",
       },
       {
         type: "file",
@@ -6511,6 +6524,43 @@ describe("AgentKitAssistantChat host behavior", () => {
         agentNativeRecoveryOfRunId: "run-1",
       },
     });
+  });
+
+  it("shows a visible error when retrying without attachments fails", async () => {
+    chatMocks.failureError = {
+      code: "invalid_attachment",
+      message: "The provider rejected this attachment.",
+      retryable: false,
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-attachment",
+        role: "user",
+        parts: [
+          { type: "text", text: "Use this reference" },
+          {
+            type: "file",
+            name: "reference.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/reference.png",
+          },
+        ],
+      },
+    ];
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("transport unavailable"),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      chatMocks.failureProps.onRetryWithoutAttachments();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "agentChat.recovery.deferredSubmissionFailed",
+    );
   });
 
   it("offers no attachment-free retry when the failed request had no attachments", async () => {
