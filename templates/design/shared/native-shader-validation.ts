@@ -238,6 +238,38 @@ const benchmarkHostWallPhases = z
   })
   .strict();
 
+const benchmarkFullFrameWallPhases = z
+  .object({
+    scope: z.literal("full-render-internal-wall-intervals-not-CPU-or-GPU-time"),
+    stats: z
+      .object({
+        renderInternalWallMs: benchmarkRenderStats,
+        deviceWallMs: benchmarkRenderStats,
+        mountAwaitWallMs: benchmarkRenderStats,
+        scenePresentationWallMs: benchmarkRenderStats,
+        retirementWallMs: benchmarkRenderStats,
+      })
+      .strict(),
+    scenePresentation: z
+      .object({
+        scope: z.literal(
+          "nested-in-scene-presentation-wall-intervals-not-CPU-or-GPU-time",
+        ),
+        stats: z
+          .object({
+            sourceReadWallMs: benchmarkRenderStats,
+            composeWallMs: benchmarkRenderStats,
+            encodeWallMs: benchmarkRenderStats,
+            submitWallMs: benchmarkRenderStats,
+            errorScopeWallMs: benchmarkRenderStats,
+            publicationWallMs: benchmarkRenderStats,
+          })
+          .strict(),
+      })
+      .strict(),
+  })
+  .strict();
+
 const profileBytes = z
   .number()
   .int()
@@ -550,6 +582,7 @@ export const nativeShaderMountedMeasurementSchema = z
     sourceWallMs: benchmarkRenderStats,
     composeWallMs: benchmarkRenderStats,
     hostWallPhases: benchmarkHostWallPhases.optional(),
+    fullFrameWallPhases: benchmarkFullFrameWallPhases.optional(),
     deadlines: z
       .object({
         over60Hz: z.number().int().min(0).max(840),
@@ -597,8 +630,33 @@ export const nativeShaderMountedMeasurementSchema = z
         Object.values(value.hostWallPhases.stats).every(
           (stats) => stats.count === value.measuredRenderFrames,
         )) &&
+      (!value.fullFrameWallPhases ||
+        [
+          ...Object.values(value.fullFrameWallPhases.stats),
+          ...Object.values(value.fullFrameWallPhases.scenePresentation.stats),
+        ].every((stats) => stats.count === value.measuredRenderFrames)) &&
       value.deadlines.over120Hz >= value.deadlines.over60Hz,
     "mounted measurement counts must agree",
+  )
+  .refine(
+    (value) =>
+      !value.fullFrameWallPhases ||
+      (["p50", "p95", "p99", "max"] as const).every(
+        (key) =>
+          value.fullFrameWallPhases!.stats.renderInternalWallMs[key] ===
+            value.renderWallMs[key] &&
+          Object.values(value.fullFrameWallPhases!.stats).every(
+            (stats) => stats[key] <= value.renderWallMs[key],
+          ) &&
+          Object.values(
+            value.fullFrameWallPhases!.scenePresentation.stats,
+          ).every(
+            (stats) =>
+              stats[key] <=
+              value.fullFrameWallPhases!.stats.scenePresentationWallMs[key],
+          ),
+      ),
+    "full frame wall phases must fit their enclosing intervals",
   )
   .refine(
     (value) =>

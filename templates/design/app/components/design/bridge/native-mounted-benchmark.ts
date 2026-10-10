@@ -42,6 +42,63 @@ export function emptyNativeBenchmarkPhaseValues(): NativeBenchmarkPhaseValues {
   };
 }
 
+export const NATIVE_BENCHMARK_FRAME_PHASE_KEYS = [
+  "renderInternalWallMs",
+  "deviceWallMs",
+  "mountAwaitWallMs",
+  "scenePresentationWallMs",
+  "retirementWallMs",
+] as const;
+
+export const NATIVE_BENCHMARK_SCENE_PHASE_KEYS = [
+  "sourceReadWallMs",
+  "composeWallMs",
+  "encodeWallMs",
+  "submitWallMs",
+  "errorScopeWallMs",
+  "publicationWallMs",
+] as const;
+
+export type NativeBenchmarkFullFrameValues = {
+  frame: Record<(typeof NATIVE_BENCHMARK_FRAME_PHASE_KEYS)[number], number>;
+  scene: Record<(typeof NATIVE_BENCHMARK_SCENE_PHASE_KEYS)[number], number>;
+};
+
+export function emptyNativeBenchmarkFullFrameValues(): NativeBenchmarkFullFrameValues {
+  return {
+    frame: {
+      renderInternalWallMs: 0,
+      deviceWallMs: 0,
+      mountAwaitWallMs: 0,
+      scenePresentationWallMs: 0,
+      retirementWallMs: 0,
+    },
+    scene: {
+      sourceReadWallMs: 0,
+      composeWallMs: 0,
+      encodeWallMs: 0,
+      submitWallMs: 0,
+      errorScopeWallMs: 0,
+      publicationWallMs: 0,
+    },
+  };
+}
+
+export type NativeBenchmarkFullFrameWallPhases = {
+  scope: "full-render-internal-wall-intervals-not-CPU-or-GPU-time";
+  stats: Record<
+    (typeof NATIVE_BENCHMARK_FRAME_PHASE_KEYS)[number],
+    NativeBenchmarkStats
+  >;
+  scenePresentation: {
+    scope: "nested-in-scene-presentation-wall-intervals-not-CPU-or-GPU-time";
+    stats: Record<
+      (typeof NATIVE_BENCHMARK_SCENE_PHASE_KEYS)[number],
+      NativeBenchmarkStats
+    >;
+  };
+};
+
 export type NativeMountedBenchmarkWindow = {
   warmupRafIntervals: 120;
   measuredRafIntervals: 840;
@@ -50,6 +107,7 @@ export type NativeMountedBenchmarkWindow = {
   renderWallMs: NativeBenchmarkStats;
   sourceWallMs: NativeBenchmarkStats;
   composeWallMs: NativeBenchmarkStats;
+  fullFrameWallPhases?: NativeBenchmarkFullFrameWallPhases;
   hostWallPhases?: {
     scope: "wall-intervals-not-CPU-or-GPU-time";
     stats: Record<NativeBenchmarkPhaseKey, NativeBenchmarkStats>;
@@ -98,6 +156,67 @@ export function nativeBenchmarkStats(
   };
 }
 
+function nativeBenchmarkWallSumFits(
+  total: number,
+  intervals: readonly number[],
+): boolean {
+  const sum = intervals.reduce((value, interval) => value + interval, 0);
+  // This allowance covers binary64 arithmetic, not clock resolution or omitted work.
+  const roundingBound =
+    Number.EPSILON * Math.max(1, total, sum) * (intervals.length + 2);
+  return sum <= total + roundingBound;
+}
+
+function validNativeBenchmarkFullFrameValues(
+  value: NativeBenchmarkFullFrameValues,
+  renderWallMs: number,
+): boolean {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== 2 ||
+    !value.frame ||
+    !value.scene ||
+    typeof value.frame !== "object" ||
+    typeof value.scene !== "object" ||
+    Array.isArray(value.frame) ||
+    Array.isArray(value.scene)
+  )
+    return false;
+  if (
+    Object.keys(value.frame).length !==
+      NATIVE_BENCHMARK_FRAME_PHASE_KEYS.length ||
+    Object.keys(value.scene).length !== NATIVE_BENCHMARK_SCENE_PHASE_KEYS.length
+  )
+    return false;
+  return (
+    value.frame.renderInternalWallMs === renderWallMs &&
+    NATIVE_BENCHMARK_FRAME_PHASE_KEYS.every(
+      (key) =>
+        Number.isFinite(value.frame[key]) &&
+        value.frame[key] >= 0 &&
+        value.frame[key] <= renderWallMs,
+    ) &&
+    NATIVE_BENCHMARK_SCENE_PHASE_KEYS.every(
+      (key) =>
+        Number.isFinite(value.scene[key]) &&
+        value.scene[key] >= 0 &&
+        value.scene[key] <= value.frame.scenePresentationWallMs,
+    ) &&
+    nativeBenchmarkWallSumFits(renderWallMs, [
+      value.frame.deviceWallMs,
+      value.frame.mountAwaitWallMs,
+      value.frame.scenePresentationWallMs,
+      value.frame.retirementWallMs,
+    ]) &&
+    nativeBenchmarkWallSumFits(
+      value.frame.scenePresentationWallMs,
+      NATIVE_BENCHMARK_SCENE_PHASE_KEYS.map((key) => value.scene[key]),
+    )
+  );
+}
+
 export class NativeMountedBenchmarkWindowCollector {
   private lastRafAt: number | null = null;
   private warmupIntervals = 0;
@@ -107,6 +226,15 @@ export class NativeMountedBenchmarkWindowCollector {
   private composeWalls: number[] = [];
   private phaseWalls: Record<NativeBenchmarkPhaseKey, number[]> | null = null;
   private phasePresence: boolean | null = null;
+  private fullFramePresence: boolean | null = null;
+  private fullFrameWalls: Record<
+    (typeof NATIVE_BENCHMARK_FRAME_PHASE_KEYS)[number],
+    number[]
+  > | null = null;
+  private sceneWalls: Record<
+    (typeof NATIVE_BENCHMARK_SCENE_PHASE_KEYS)[number],
+    number[]
+  > | null = null;
   private finished = false;
 
   readonly request: NativeMountedBenchmarkRequest;
@@ -160,11 +288,21 @@ export class NativeMountedBenchmarkWindowCollector {
     sourceWallMs: number;
     composeWallMs: number;
     hostWallPhases?: NativeBenchmarkPhaseValues;
+    fullFrameWallPhases?: NativeBenchmarkFullFrameValues;
     failureCount: number;
   }): void {
     if (!this.isMeasuring) return;
     if (sample.failureCount !== 0)
       throw new NativeMountedBenchmarkError("benchmark-render-failed");
+    const fullFrame = sample.fullFrameWallPhases;
+    const hasFullFrame = fullFrame !== undefined;
+    if (
+      (this.fullFramePresence !== null &&
+        this.fullFramePresence !== hasFullFrame) ||
+      (hasFullFrame &&
+        !validNativeBenchmarkFullFrameValues(fullFrame!, sample.renderWallMs))
+    )
+      throw new NativeMountedBenchmarkError("benchmark-unavailable");
     const hasPhases = sample.hostWallPhases !== undefined;
     if (this.phasePresence !== null && this.phasePresence !== hasPhases)
       throw new NativeMountedBenchmarkError("benchmark-unavailable");
@@ -201,6 +339,19 @@ export class NativeMountedBenchmarkWindowCollector {
     this.sourceWalls.push(sample.sourceWallMs);
     this.composeWalls.push(sample.composeWallMs);
     this.phasePresence = hasPhases;
+    this.fullFramePresence = hasFullFrame;
+    if (fullFrame) {
+      this.fullFrameWalls ??= Object.fromEntries(
+        NATIVE_BENCHMARK_FRAME_PHASE_KEYS.map((key) => [key, []]),
+      ) as NonNullable<typeof this.fullFrameWalls>;
+      this.sceneWalls ??= Object.fromEntries(
+        NATIVE_BENCHMARK_SCENE_PHASE_KEYS.map((key) => [key, []]),
+      ) as NonNullable<typeof this.sceneWalls>;
+      for (const key of NATIVE_BENCHMARK_FRAME_PHASE_KEYS)
+        this.fullFrameWalls[key].push(fullFrame.frame[key]);
+      for (const key of NATIVE_BENCHMARK_SCENE_PHASE_KEYS)
+        this.sceneWalls[key].push(fullFrame.scene[key]);
+    }
     if (phase) {
       this.phaseWalls ??= {
         deviceWallMs: [],
@@ -230,6 +381,30 @@ export class NativeMountedBenchmarkWindowCollector {
       renderWallMs: nativeBenchmarkStats(this.renderWalls),
       sourceWallMs: nativeBenchmarkStats(this.sourceWalls),
       composeWallMs: nativeBenchmarkStats(this.composeWalls),
+      ...(this.fullFrameWalls && this.sceneWalls
+        ? {
+            fullFrameWallPhases: {
+              scope:
+                "full-render-internal-wall-intervals-not-CPU-or-GPU-time" as const,
+              stats: Object.fromEntries(
+                NATIVE_BENCHMARK_FRAME_PHASE_KEYS.map((key) => [
+                  key,
+                  nativeBenchmarkStats(this.fullFrameWalls![key]),
+                ]),
+              ) as NativeBenchmarkFullFrameWallPhases["stats"],
+              scenePresentation: {
+                scope:
+                  "nested-in-scene-presentation-wall-intervals-not-CPU-or-GPU-time" as const,
+                stats: Object.fromEntries(
+                  NATIVE_BENCHMARK_SCENE_PHASE_KEYS.map((key) => [
+                    key,
+                    nativeBenchmarkStats(this.sceneWalls![key]),
+                  ]),
+                ) as NativeBenchmarkFullFrameWallPhases["scenePresentation"]["stats"],
+              },
+            },
+          }
+        : {}),
       ...(this.phaseWalls
         ? {
             hostWallPhases: {
@@ -351,6 +526,7 @@ export class NativeMountedBenchmarkRun {
     sourceWallMs: number;
     composeWallMs: number;
     hostWallPhases?: NativeBenchmarkPhaseValues;
+    fullFrameWallPhases?: NativeBenchmarkFullFrameValues;
     failureCount: number;
   }): void {
     if (this.settled) return;

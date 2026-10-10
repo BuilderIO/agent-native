@@ -6,9 +6,13 @@ import {
   NATIVE_EFFECT_DEFINITION_CATALOG,
 } from "@shared/native-effect-presets";
 import { hashEffectDefinition } from "@shared/native-effect-trust";
+import type { EffectDocument } from "@shared/native-effects";
+import { parseNativeEmbeddedAssetRegistryText } from "@shared/native-embedded-assets";
+import { planNativeInputResources } from "@shared/native-input-resources";
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { NATIVE_THUMBNAIL_SYNTHETIC_INPUT_PATH } from "./native-thumbnail-inputs";
 import { NativeThumbnailService } from "./native-thumbnail-service";
 
 const services: NativeThumbnailService[] = [];
@@ -33,6 +37,139 @@ const options = (id: string) => ({
 });
 
 describe("shared native thumbnail work queue", () => {
+  it("places one fixed synthetic asset registry only in the isolated renderer document", async () => {
+    const service = new NativeThumbnailService();
+    services.push(service);
+    const internal = service as unknown as {
+      ensureFrame(signal: AbortSignal): Promise<HTMLIFrameElement>;
+    };
+    const controller = new AbortController();
+    const pending = internal.ensureFrame(controller.signal);
+    const frame = document.querySelector("iframe");
+    if (!frame) throw new Error("Isolated thumbnail frame is absent.");
+    const parsed = new DOMParser().parseFromString(frame.srcdoc, "text/html");
+    const registries = parsed.querySelectorAll<HTMLScriptElement>(
+      'script[type="application/x-agent-native-effect-assets"][data-agent-native-export-assets]',
+    );
+    expect(registries).toHaveLength(1);
+    const registry = parseNativeEmbeddedAssetRegistryText(
+      registries[0].textContent ?? "",
+    );
+    expect(registry.assets).toHaveLength(1);
+    expect(registry.assets[0].path).toBe(NATIVE_THUMBNAIL_SYNTHETIC_INPUT_PATH);
+    expect(document.querySelector("[data-agent-native-export-assets]")).toBe(
+      null,
+    );
+    controller.abort(new Error("Fixture frame check complete."));
+    await expect(pending).rejects.toThrow("Fixture frame check complete.");
+  });
+
+  it("binds thumbnail required samplers without supplying them to clean validation", async () => {
+    const definition = NATIVE_EFFECT_DEFINITION_CATALOG.find(
+      (entry) => entry.id === "an-native-owned-p-environment-metal",
+    );
+    if (!definition) throw new Error("Environment definition is absent.");
+    const service = new NativeThumbnailService();
+    services.push(service);
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+    if (!frame.contentWindow || !frame.contentDocument)
+      throw new Error("Isolated renderer is absent.");
+    const frameDocument = frame.contentDocument;
+    const frameWindow = frame.contentWindow;
+    (service as unknown as { frame: HTMLIFrameElement | null }).frame = frame;
+    vi.spyOn(frameWindow, "postMessage").mockImplementation(() => {});
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      putImageData: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      (callback) => callback(new Blob(["png"], { type: "image/png" })),
+    );
+    vi.spyOn(URL, "createObjectURL").mockReturnValue(
+      "blob:isolated-thumbnail-output",
+    );
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const readManifest = () => {
+      const script = frameDocument.querySelector<HTMLScriptElement>(
+        'script[type="application/x-agent-native-effects"]',
+      );
+      return script
+        ? (JSON.parse(script.textContent ?? "") as EffectDocument)
+        : null;
+    };
+    const scan = vi.fn(async () => {
+      const manifest = readManifest();
+      if (!manifest) return;
+      for (const instance of manifest.instances) {
+        const target = frameDocument.querySelector(
+          `[data-agent-native-node-id="${instance.nodeId}"]`,
+        );
+        if (!target) throw new Error("Thumbnail target is absent.");
+        const plan = planNativeInputResources(
+          manifest.definitions[0],
+          instance,
+        );
+        target.setAttribute(
+          "data-an-native-status",
+          plan.ok ? "ready" : "error",
+        );
+        if (!plan.ok) target.setAttribute("data-an-native-error", plan.code);
+      }
+    });
+    const render = vi.fn(async () => {
+      const manifest = readManifest();
+      if (!manifest) throw new Error("Thumbnail manifest is absent.");
+      expect(manifest.instances[0].bindings?.environment).toEqual({
+        kind: "asset",
+        url: NATIVE_THUMBNAIL_SYNTHETIC_INPUT_PATH,
+      });
+      return {
+        width: 320,
+        height: 200,
+        colorSpace: "srgb" as const,
+        alpha: "straight" as const,
+        rgba: new Uint8Array(320 * 200 * 4),
+      };
+    });
+    Object.defineProperty(frameWindow, "__anNativeShaders", {
+      configurable: true,
+      value: {
+        scan,
+        renderCompositionFramePixels: render,
+        requestStatusSnapshot: vi.fn(),
+        dispose: vi.fn(),
+      },
+    });
+    const thumbnail = await service.renderBatch({
+      ...options("environment"),
+      items: [{ ...options("environment").items[0], definition }],
+    });
+    expect(thumbnail).toMatchObject([
+      { status: "ready", objectUrl: "blob:isolated-thumbnail-output" },
+    ]);
+    const validation = await service.renderValidationBatch({
+      items: [
+        {
+          ...options("environment-validation").items[0],
+          definition,
+          placement: "fill",
+          fixture: {
+            sourceKind: "generated",
+            aspect: "landscape",
+            alpha: "opaque",
+            rounded: false,
+          },
+        },
+      ],
+      approvedExecutionHashes: [],
+    });
+    expect(validation).toMatchObject([
+      { status: "error", code: "input-resource-missing" },
+    ]);
+    expect(render).toHaveBeenCalledOnce();
+    expect(document.querySelector("[data-agent-native-node-id]")).toBe(null);
+  });
+
   it("mounts a decoded intrinsic source as an owned same-origin PNG and revokes it after validation", async () => {
     const service = new NativeThumbnailService();
     services.push(service);

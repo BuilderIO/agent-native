@@ -124,9 +124,11 @@ import {
 } from "./native-linear-golden";
 import {
   emptyNativeBenchmarkPhaseValues,
+  emptyNativeBenchmarkFullFrameValues,
   NativeMountedBenchmarkError,
   NativeMountedBenchmarkRun,
   type NativeBenchmarkPhaseValues,
+  type NativeBenchmarkFullFrameValues,
   type NativeMountedBenchmarkRequest,
   type NativeMountedBenchmarkWindow,
 } from "./native-mounted-benchmark";
@@ -1367,6 +1369,7 @@ class NativeShaderRuntime {
     sourceWallMs: number;
     composeWallMs: number;
     hostWallPhases: NativeBenchmarkPhaseValues;
+    fullFrameWallPhases: NativeBenchmarkFullFrameValues;
   } | null = null;
   private previewPolicy = new NativePreviewPolicyController();
   private previewDirty = true;
@@ -1481,6 +1484,8 @@ class NativeShaderRuntime {
   }
 
   private async presentScene(): Promise<void> {
+    const sceneWallPhases =
+      this.mountedBenchmarkRenderMetrics?.fullFrameWallPhases.scene;
     const body = document.body;
     if (!body || !this.device || this.disposed)
       throw new NativeSourceError(
@@ -1699,11 +1704,16 @@ class NativeShaderRuntime {
     }
     const authoredEpochBeforeRead = scene.provider.authoredSourceEpoch?.();
     let source: NativeSourceRecord[];
+    const sceneSourceStarted = sceneWallPhases ? performance.now() : 0;
     try {
       source = await scene.provider.readScene();
     } catch (error) {
       this.releaseScenePresentation();
       throw error;
+    } finally {
+      if (sceneWallPhases)
+        sceneWallPhases.sourceReadWallMs +=
+          performance.now() - sceneSourceStarted;
     }
     const sourceEpoch = scene.provider.sourceEpoch?.();
     const authoredEpochAfterRead = scene.provider.authoredSourceEpoch?.();
@@ -1754,6 +1764,7 @@ class NativeShaderRuntime {
     let scopeOpen = true;
     try {
       const encoder = device.createCommandEncoder();
+      const sceneComposeStarted = sceneWallPhases ? performance.now() : 0;
       const composed = await this.composeScene(
         scene.surface,
         source,
@@ -1765,6 +1776,10 @@ class NativeShaderRuntime {
           ? "srgb-css-linear"
           : "linear",
       );
+      if (sceneWallPhases)
+        sceneWallPhases.composeWallMs +=
+          performance.now() - sceneComposeStarted;
+      const sceneEncodeStarted = sceneWallPhases ? performance.now() : 0;
       const pipeline =
         this.presentPipeline ??
         (await this.pipeline(presentWgsl(this.colorPresented), this.format));
@@ -1803,8 +1818,17 @@ class NativeShaderRuntime {
           "scene-generation-changed",
           "The native scene changed before presentation.",
         );
+      if (sceneWallPhases)
+        sceneWallPhases.encodeWallMs += performance.now() - sceneEncodeStarted;
+      const sceneSubmitStarted = sceneWallPhases ? performance.now() : 0;
       device.queue.submit([encoder.finish()]);
+      if (sceneWallPhases)
+        sceneWallPhases.submitWallMs += performance.now() - sceneSubmitStarted;
+      const sceneErrorScopeStarted = sceneWallPhases ? performance.now() : 0;
       const gpuError = await device.popErrorScope();
+      if (sceneWallPhases)
+        sceneWallPhases.errorScopeWallMs +=
+          performance.now() - sceneErrorScopeStarted;
       scopeOpen = false;
       if (gpuError)
         throw new NativeSourceError("gpu-validation", gpuError.message);
@@ -1820,6 +1844,7 @@ class NativeShaderRuntime {
           "scene-generation-changed",
           "The native scene changed during presentation.",
         );
+      const scenePublicationStarted = sceneWallPhases ? performance.now() : 0;
       for (const [key, entry] of scene.surface.isolationTextures)
         if (entry.lastFrame !== this.renderEpoch) {
           scene.surface.isolationTextures.delete(key);
@@ -1892,6 +1917,9 @@ class NativeShaderRuntime {
       for (const id of nativeRecordIds) visitCommittedInputs(id);
       scene.committedInstances = committedInstances;
       scene.canvas.style.visibility = "visible";
+      if (sceneWallPhases)
+        sceneWallPhases.publicationWallMs +=
+          performance.now() - scenePublicationStarted;
     } catch (error) {
       if (scopeOpen) {
         try {
@@ -9846,6 +9874,7 @@ class NativeShaderRuntime {
           sourceWallMs: 0,
           composeWallMs: 0,
           hostWallPhases: emptyNativeBenchmarkPhaseValues(),
+          fullFrameWallPhases: emptyNativeBenchmarkFullFrameValues(),
         }
       : null;
     this.mountedBenchmarkRenderMetrics = benchmarkMetrics;
@@ -9859,9 +9888,13 @@ class NativeShaderRuntime {
         this.renderEpoch += 1;
         const deviceStarted = benchmarkMetrics ? performance.now() : 0;
         await this.ensureDevice();
-        if (benchmarkMetrics)
-          benchmarkMetrics.hostWallPhases.deviceWallMs +=
-            performance.now() - deviceStarted;
+        if (benchmarkMetrics) {
+          const deviceWallMs = performance.now() - deviceStarted;
+          benchmarkMetrics.hostWallPhases.deviceWallMs += deviceWallMs;
+          benchmarkMetrics.fullFrameWallPhases.frame.deviceWallMs +=
+            deviceWallMs;
+        }
+        const mountsStarted = benchmarkMetrics ? performance.now() : 0;
         for (const mount of this.mounts.values()) {
           if (!deterministic && this.offscreen(mount)) {
             mount.target.setAttribute("data-an-native-culled", "true");
@@ -9936,6 +9969,9 @@ class NativeShaderRuntime {
             );
           }
         }
+        if (benchmarkMetrics)
+          benchmarkMetrics.fullFrameWallPhases.frame.mountAwaitWallMs +=
+            performance.now() - mountsStarted;
         const hasBackdrop = [...this.mounts.values()].some(
           (mount) => mount.instance.placement === "backdrop",
         );
@@ -9975,7 +10011,17 @@ class NativeShaderRuntime {
             );
           }
           if (!this.scenePresentation) this.releaseScenePresentation();
-        } else await this.presentScene();
+        } else {
+          const sceneStarted = benchmarkMetrics ? performance.now() : 0;
+          try {
+            await this.presentScene();
+          } finally {
+            if (benchmarkMetrics)
+              benchmarkMetrics.fullFrameWallPhases.frame.scenePresentationWallMs +=
+                performance.now() - sceneStarted;
+          }
+        }
+
         if (
           this.disposed &&
           !failures.some((failure) => failure.code === "runtime-disposed")
@@ -9984,7 +10030,11 @@ class NativeShaderRuntime {
             code: "runtime-disposed",
             message: "runtime-disposed",
           });
+        const retirementStarted = benchmarkMetrics ? performance.now() : 0;
         this.retireBindings();
+        if (benchmarkMetrics)
+          benchmarkMetrics.fullFrameWallPhases.frame.retirementWallMs +=
+            performance.now() - retirementStarted;
       } catch (error) {
         this.releaseScenePresentation();
         const message = error instanceof Error ? error.message : String(error);
@@ -10043,11 +10093,15 @@ class NativeShaderRuntime {
             )?.instance.id,
           });
         }
+      const renderWallMs = performance.now() - started;
+      if (benchmarkMetrics)
+        benchmarkMetrics.fullFrameWallPhases.frame.renderInternalWallMs =
+          renderWallMs;
       return {
         time,
         rendered: complete.size,
         failures,
-        renderWallMs: performance.now() - started,
+        renderWallMs,
       };
     })();
     let result: NativeRenderResult;
@@ -10072,6 +10126,7 @@ class NativeShaderRuntime {
           sourceWallMs: benchmarkMetrics.sourceWallMs,
           composeWallMs: benchmarkMetrics.composeWallMs,
           hostWallPhases: benchmarkMetrics.hostWallPhases,
+          fullFrameWallPhases: benchmarkMetrics.fullFrameWallPhases,
           failureCount: result.failures.length,
         });
       if (

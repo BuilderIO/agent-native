@@ -20962,6 +20962,40 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       postSubmitWallMs: 0
     };
   }
+  var NATIVE_BENCHMARK_FRAME_PHASE_KEYS = [
+    "renderInternalWallMs",
+    "deviceWallMs",
+    "mountAwaitWallMs",
+    "scenePresentationWallMs",
+    "retirementWallMs"
+  ];
+  var NATIVE_BENCHMARK_SCENE_PHASE_KEYS = [
+    "sourceReadWallMs",
+    "composeWallMs",
+    "encodeWallMs",
+    "submitWallMs",
+    "errorScopeWallMs",
+    "publicationWallMs"
+  ];
+  function emptyNativeBenchmarkFullFrameValues() {
+    return {
+      frame: {
+        renderInternalWallMs: 0,
+        deviceWallMs: 0,
+        mountAwaitWallMs: 0,
+        scenePresentationWallMs: 0,
+        retirementWallMs: 0
+      },
+      scene: {
+        sourceReadWallMs: 0,
+        composeWallMs: 0,
+        encodeWallMs: 0,
+        submitWallMs: 0,
+        errorScopeWallMs: 0,
+        publicationWallMs: 0
+      }
+    };
+  }
   var NativeMountedBenchmarkError = class extends Error {
     constructor(code) {
       super(code);
@@ -20984,6 +21018,30 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       max: at(1)
     };
   }
+  function nativeBenchmarkWallSumFits(total, intervals) {
+    const sum = intervals.reduce((value, interval) => value + interval, 0);
+    const roundingBound = Number.EPSILON * Math.max(1, total, sum) * (intervals.length + 2);
+    return sum <= total + roundingBound;
+  }
+  function validNativeBenchmarkFullFrameValues(value, renderWallMs) {
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 2 || !value.frame || !value.scene || typeof value.frame !== "object" || typeof value.scene !== "object" || Array.isArray(value.frame) || Array.isArray(value.scene))
+      return false;
+    if (Object.keys(value.frame).length !== NATIVE_BENCHMARK_FRAME_PHASE_KEYS.length || Object.keys(value.scene).length !== NATIVE_BENCHMARK_SCENE_PHASE_KEYS.length)
+      return false;
+    return value.frame.renderInternalWallMs === renderWallMs && NATIVE_BENCHMARK_FRAME_PHASE_KEYS.every(
+      (key) => Number.isFinite(value.frame[key]) && value.frame[key] >= 0 && value.frame[key] <= renderWallMs
+    ) && NATIVE_BENCHMARK_SCENE_PHASE_KEYS.every(
+      (key) => Number.isFinite(value.scene[key]) && value.scene[key] >= 0 && value.scene[key] <= value.frame.scenePresentationWallMs
+    ) && nativeBenchmarkWallSumFits(renderWallMs, [
+      value.frame.deviceWallMs,
+      value.frame.mountAwaitWallMs,
+      value.frame.scenePresentationWallMs,
+      value.frame.retirementWallMs
+    ]) && nativeBenchmarkWallSumFits(
+      value.frame.scenePresentationWallMs,
+      NATIVE_BENCHMARK_SCENE_PHASE_KEYS.map((key) => value.scene[key])
+    );
+  }
   var NativeMountedBenchmarkWindowCollector = class {
     constructor(request) {
       this.lastRafAt = null;
@@ -20994,6 +21052,9 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       this.composeWalls = [];
       this.phaseWalls = null;
       this.phasePresence = null;
+      this.fullFramePresence = null;
+      this.fullFrameWalls = null;
+      this.sceneWalls = null;
       this.finished = false;
       this.request = request;
       if (request.warmupRafIntervals !== 120 || request.measuredRafIntervals !== 840)
@@ -21032,6 +21093,10 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       if (!this.isMeasuring) return;
       if (sample.failureCount !== 0)
         throw new NativeMountedBenchmarkError("benchmark-render-failed");
+      const fullFrame = sample.fullFrameWallPhases;
+      const hasFullFrame = fullFrame !== void 0;
+      if (this.fullFramePresence !== null && this.fullFramePresence !== hasFullFrame || hasFullFrame && !validNativeBenchmarkFullFrameValues(fullFrame, sample.renderWallMs))
+        throw new NativeMountedBenchmarkError("benchmark-unavailable");
       const hasPhases = sample.hostWallPhases !== void 0;
       if (this.phasePresence !== null && this.phasePresence !== hasPhases)
         throw new NativeMountedBenchmarkError("benchmark-unavailable");
@@ -21055,6 +21120,19 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
       this.sourceWalls.push(sample.sourceWallMs);
       this.composeWalls.push(sample.composeWallMs);
       this.phasePresence = hasPhases;
+      this.fullFramePresence = hasFullFrame;
+      if (fullFrame) {
+        this.fullFrameWalls ?? (this.fullFrameWalls = Object.fromEntries(
+          NATIVE_BENCHMARK_FRAME_PHASE_KEYS.map((key) => [key, []])
+        ));
+        this.sceneWalls ?? (this.sceneWalls = Object.fromEntries(
+          NATIVE_BENCHMARK_SCENE_PHASE_KEYS.map((key) => [key, []])
+        ));
+        for (const key of NATIVE_BENCHMARK_FRAME_PHASE_KEYS)
+          this.fullFrameWalls[key].push(fullFrame.frame[key]);
+        for (const key of NATIVE_BENCHMARK_SCENE_PHASE_KEYS)
+          this.sceneWalls[key].push(fullFrame.scene[key]);
+      }
       if (phase) {
         this.phaseWalls ?? (this.phaseWalls = {
           deviceWallMs: [],
@@ -21083,6 +21161,26 @@ fn linearSrgbToDisplayP3(rgb: vec3f) -> vec3f {
         renderWallMs: nativeBenchmarkStats(this.renderWalls),
         sourceWallMs: nativeBenchmarkStats(this.sourceWalls),
         composeWallMs: nativeBenchmarkStats(this.composeWalls),
+        ...this.fullFrameWalls && this.sceneWalls ? {
+          fullFrameWallPhases: {
+            scope: "full-render-internal-wall-intervals-not-CPU-or-GPU-time",
+            stats: Object.fromEntries(
+              NATIVE_BENCHMARK_FRAME_PHASE_KEYS.map((key) => [
+                key,
+                nativeBenchmarkStats(this.fullFrameWalls[key])
+              ])
+            ),
+            scenePresentation: {
+              scope: "nested-in-scene-presentation-wall-intervals-not-CPU-or-GPU-time",
+              stats: Object.fromEntries(
+                NATIVE_BENCHMARK_SCENE_PHASE_KEYS.map((key) => [
+                  key,
+                  nativeBenchmarkStats(this.sceneWalls[key])
+                ])
+              )
+            }
+          }
+        } : {},
         ...this.phaseWalls ? {
           hostWallPhases: {
             scope: "wall-intervals-not-CPU-or-GPU-time",
@@ -24567,7 +24665,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         const benchmarkMetrics = this.mountedBenchmark ? {
           sourceWallMs: 0,
           composeWallMs: 0,
-          hostWallPhases: emptyNativeBenchmarkPhaseValues()
+          hostWallPhases: emptyNativeBenchmarkPhaseValues(),
+          fullFrameWallPhases: emptyNativeBenchmarkFullFrameValues()
         } : null;
         this.mountedBenchmarkRenderMetrics = benchmarkMetrics;
         this.running = (async () => {
@@ -24578,8 +24677,12 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             this.renderEpoch += 1;
             const deviceStarted = benchmarkMetrics ? performance.now() : 0;
             await this.ensureDevice();
-            if (benchmarkMetrics)
-              benchmarkMetrics.hostWallPhases.deviceWallMs += performance.now() - deviceStarted;
+            if (benchmarkMetrics) {
+              const deviceWallMs = performance.now() - deviceStarted;
+              benchmarkMetrics.hostWallPhases.deviceWallMs += deviceWallMs;
+              benchmarkMetrics.fullFrameWallPhases.frame.deviceWallMs += deviceWallMs;
+            }
+            const mountsStarted = benchmarkMetrics ? performance.now() : 0;
             for (const mount of this.mounts.values()) {
               if (!deterministic && this.offscreen(mount)) {
                 mount.target.setAttribute("data-an-native-culled", "true");
@@ -24640,6 +24743,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 );
               }
             }
+            if (benchmarkMetrics)
+              benchmarkMetrics.fullFrameWallPhases.frame.mountAwaitWallMs += performance.now() - mountsStarted;
             const hasBackdrop = [...this.mounts.values()].some(
               (mount) => mount.instance.placement === "backdrop"
             );
@@ -24671,13 +24776,24 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 );
               }
               if (!this.scenePresentation) this.releaseScenePresentation();
-            } else await this.presentScene();
+            } else {
+              const sceneStarted = benchmarkMetrics ? performance.now() : 0;
+              try {
+                await this.presentScene();
+              } finally {
+                if (benchmarkMetrics)
+                  benchmarkMetrics.fullFrameWallPhases.frame.scenePresentationWallMs += performance.now() - sceneStarted;
+              }
+            }
             if (this.disposed && !failures.some((failure2) => failure2.code === "runtime-disposed"))
               failures.push({
                 code: "runtime-disposed",
                 message: "runtime-disposed"
               });
+            const retirementStarted = benchmarkMetrics ? performance.now() : 0;
             this.retireBindings();
+            if (benchmarkMetrics)
+              benchmarkMetrics.fullFrameWallPhases.frame.retirementWallMs += performance.now() - retirementStarted;
           } catch (error) {
             this.releaseScenePresentation();
             const message = error instanceof Error ? error.message : String(error);
@@ -24725,11 +24841,14 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
                 )?.instance.id
               });
             }
+          const renderWallMs = performance.now() - started;
+          if (benchmarkMetrics)
+            benchmarkMetrics.fullFrameWallPhases.frame.renderInternalWallMs = renderWallMs;
           return {
             time,
             rendered: complete.size,
             failures,
-            renderWallMs: performance.now() - started
+            renderWallMs
           };
         })();
         let result;
@@ -24753,6 +24872,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
               sourceWallMs: benchmarkMetrics.sourceWallMs,
               composeWallMs: benchmarkMetrics.composeWallMs,
               hostWallPhases: benchmarkMetrics.hostWallPhases,
+              fullFrameWallPhases: benchmarkMetrics.fullFrameWallPhases,
               failureCount: result.failures.length
             });
           if (!this.compositionAbort && !this.compositionPixelBusy && this.compositionPixelRatio === null && this.previewPolicy.observeRenderWall(result.renderWallMs)) {
@@ -25778,6 +25898,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       return represented;
     }
     async presentScene() {
+      const sceneWallPhases = this.mountedBenchmarkRenderMetrics?.fullFrameWallPhases.scene;
       const body = document.body;
       if (!body || !this.device || this.disposed)
         throw new NativeSourceError(
@@ -25952,11 +26073,15 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       }
       const authoredEpochBeforeRead = scene.provider.authoredSourceEpoch?.();
       let source3;
+      const sceneSourceStarted = sceneWallPhases ? performance.now() : 0;
       try {
         source3 = await scene.provider.readScene();
       } catch (error) {
         this.releaseScenePresentation();
         throw error;
+      } finally {
+        if (sceneWallPhases)
+          sceneWallPhases.sourceReadWallMs += performance.now() - sceneSourceStarted;
       }
       const sourceEpoch = scene.provider.sourceEpoch?.();
       const authoredEpochAfterRead = scene.provider.authoredSourceEpoch?.();
@@ -25993,6 +26118,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
       let scopeOpen = true;
       try {
         const encoder = device.createCommandEncoder();
+        const sceneComposeStarted = sceneWallPhases ? performance.now() : 0;
         const composed = await this.composeScene(
           scene.surface,
           source3,
@@ -26000,6 +26126,9 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
           "source",
           this.colorPresented === "srgb" && this.dynamicRangePresented === "sdr" && source3.length > 1 ? "srgb-css-linear" : "linear"
         );
+        if (sceneWallPhases)
+          sceneWallPhases.composeWallMs += performance.now() - sceneComposeStarted;
+        const sceneEncodeStarted = sceneWallPhases ? performance.now() : 0;
         const pipeline = this.presentPipeline ?? await this.pipeline(presentWgsl(this.colorPresented), this.format);
         this.presentPipeline = pipeline;
         const bind = this.bind(
@@ -26029,8 +26158,16 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "scene-generation-changed",
             "The native scene changed before presentation."
           );
+        if (sceneWallPhases)
+          sceneWallPhases.encodeWallMs += performance.now() - sceneEncodeStarted;
+        const sceneSubmitStarted = sceneWallPhases ? performance.now() : 0;
         device.queue.submit([encoder.finish()]);
+        if (sceneWallPhases)
+          sceneWallPhases.submitWallMs += performance.now() - sceneSubmitStarted;
+        const sceneErrorScopeStarted = sceneWallPhases ? performance.now() : 0;
         const gpuError = await device.popErrorScope();
+        if (sceneWallPhases)
+          sceneWallPhases.errorScopeWallMs += performance.now() - sceneErrorScopeStarted;
         scopeOpen = false;
         if (gpuError)
           throw new NativeSourceError("gpu-validation", gpuError.message);
@@ -26039,6 +26176,7 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
             "scene-generation-changed",
             "The native scene changed during presentation."
           );
+        const scenePublicationStarted = sceneWallPhases ? performance.now() : 0;
         for (const [key, entry] of scene.surface.isolationTextures)
           if (entry.lastFrame !== this.renderEpoch) {
             scene.surface.isolationTextures.delete(key);
@@ -26103,6 +26241,8 @@ fn ellipseCoverage(p: vec2f, center: vec2f, radii: vec2f) -> f32 {
         for (const id of nativeRecordIds) visitCommittedInputs(id);
         scene.committedInstances = committedInstances;
         scene.canvas.style.visibility = "visible";
+        if (sceneWallPhases)
+          sceneWallPhases.publicationWallMs += performance.now() - scenePublicationStarted;
       } catch (error) {
         if (scopeOpen) {
           try {

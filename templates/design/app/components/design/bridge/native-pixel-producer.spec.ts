@@ -345,6 +345,7 @@ function fakeGpu(
     mountedReadbackZero?: boolean;
     completeCanvasConfiguration?: boolean;
     assertNoTextureAlias?: boolean;
+    onScopePop?: () => void;
   } = {},
 ): {
   state: FakeGpuState;
@@ -551,6 +552,7 @@ function fakeGpu(
     pushErrorScope() {},
     async popErrorScope() {
       state.scopePops += 1;
+      options.onScopePop?.();
       if (
         options.holdPreviewRestore &&
         state.canvasWidths.includes(4) &&
@@ -668,6 +670,7 @@ async function startRuntime(
     if (kind === "2d")
       return {
         clearRect() {},
+        fillRect() {},
         drawImage() {},
         save() {},
         restore() {},
@@ -2361,6 +2364,136 @@ describe("atomic backdrop scene presentation", () => {
     active.dispose();
     document.body.append(target);
     expect(target.hasAttribute("data-an-native-scene-suppressed")).toBe(false);
+  });
+
+  it("measures serial mount and full-scene validation waits without changing publication", async () => {
+    let wall = 10000;
+    let phase: "mount" | "scene" = "mount";
+    fakeGpu({
+      onScopePop: () => {
+        wall += phase === "scene" ? 11 : 4;
+      },
+    });
+    const active = await startRuntime(true);
+    const computed = vi.mocked(window.getComputedStyle).getMockImplementation();
+    if (!computed) throw new Error("Computed style fixture unavailable.");
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element, pseudo) =>
+      element === document.documentElement
+        ? ({
+            ...computed(element, pseudo),
+            backgroundColor: "rgb(255, 255, 255)",
+          } as CSSStyleDeclaration)
+        : computed(element, pseudo),
+    );
+    const manifest = document.querySelector<HTMLScriptElement>(
+      'script[type="application/x-agent-native-effects"]',
+    );
+    if (!manifest?.textContent)
+      throw new Error("Authored fixture unavailable.");
+    const processor = OWNED_PROCESSOR_DEFINITIONS.find(
+      (definition) => definition.id === "an-native-owned-directional-smear",
+    );
+    if (!processor) throw new Error("Owned processor unavailable.");
+    const source = JSON.parse(manifest.textContent) as {
+      definitions: unknown[];
+      instances: Array<Record<string, unknown>>;
+    };
+    source.definitions.push(processor);
+    source.instances[0] = {
+      ...source.instances[0],
+      definitionId: processor.id,
+      definitionVersion: processor.version,
+      placement: "backdrop",
+      params: { mix: 0 },
+    };
+    manifest.textContent = JSON.stringify(source);
+    await active.scan();
+    active.pause();
+    await active.renderAt(0);
+    const internals = active as unknown as {
+      mountedBenchmark: {
+        onRender(sample: unknown): void;
+        fail(error: Error): void;
+        onFrame(): void;
+      } | null;
+      mounts: Map<string, { provider: { readScene(): Promise<unknown[]> } }>;
+      scenePresentation: { provider: { readScene(): Promise<unknown[]> } };
+      composeScene: (...args: unknown[]) => Promise<unknown>;
+      renderInternal(
+        time: number,
+        deterministic: boolean,
+      ): Promise<{ renderWallMs: number; failures: unknown[] }>;
+    };
+    const mount = internals.mounts.get("test-instance");
+    if (!mount || !internals.scenePresentation)
+      throw new Error("Normal backdrop presentation unavailable.");
+    const mountRead = mount.provider.readScene.bind(mount.provider);
+    vi.spyOn(mount.provider, "readScene").mockImplementation(async () => {
+      phase = "mount";
+      wall += 2;
+      return mountRead();
+    });
+    const sceneRead = internals.scenePresentation.provider.readScene.bind(
+      internals.scenePresentation.provider,
+    );
+    vi.spyOn(
+      internals.scenePresentation.provider,
+      "readScene",
+    ).mockImplementation(async () => {
+      phase = "scene";
+      wall += 7;
+      return sceneRead();
+    });
+    const compose = internals.composeScene.bind(internals);
+    vi.spyOn(internals, "composeScene").mockImplementation(async (...args) => {
+      wall += phase === "scene" ? 5 : 3;
+      return compose(...args);
+    });
+    vi.spyOn(performance, "now").mockImplementation(() => wall);
+    const record = vi.fn();
+    internals.mountedBenchmark = {
+      onRender: record,
+      fail(error) {
+        throw error;
+      },
+      onFrame() {},
+    };
+    try {
+      const result = await internals.renderInternal(1, false);
+      expect(result.failures).toEqual([]);
+      expect(record).toHaveBeenCalledOnce();
+      const sample = record.mock.calls[0][0] as {
+        renderWallMs: number;
+        hostWallPhases: { errorScopeWallMs: number };
+        fullFrameWallPhases: {
+          frame: Record<string, number>;
+          scene: Record<string, number>;
+        };
+      };
+      expect(sample.fullFrameWallPhases).toBeDefined();
+      expect(sample.fullFrameWallPhases.frame.renderInternalWallMs).toBe(
+        result.renderWallMs,
+      );
+      expect(sample.fullFrameWallPhases.frame.mountAwaitWallMs).toBe(9);
+      expect(sample.fullFrameWallPhases.frame.scenePresentationWallMs).toBe(23);
+      expect(sample.fullFrameWallPhases.scene.sourceReadWallMs).toBe(7);
+      expect(sample.fullFrameWallPhases.scene.composeWallMs).toBe(5);
+      expect(sample.fullFrameWallPhases.scene.errorScopeWallMs).toBe(11);
+      expect(sample.hostWallPhases.errorScopeWallMs).toBe(4);
+      expect(sample.renderWallMs).toBe(32);
+      expect(
+        document
+          .querySelector('[data-agent-native-node-id="test-target"]')
+          ?.getAttribute("data-an-native-status"),
+      ).toBe("ready");
+      expect(
+        document.querySelector<HTMLElement>(
+          "canvas[data-an-native-scene-presentation]",
+        )?.style.visibility,
+      ).toBe("visible");
+    } finally {
+      internals.mountedBenchmark = null;
+    }
   });
 
   it("preserves inert export records after full-scene presentation while restoring painted source opacity", async () => {

@@ -3,8 +3,16 @@ import {
   validateEffectDocument,
   type EffectDocument,
 } from "@shared/native-effects";
+import {
+  NATIVE_EMBEDDED_ASSETS_ATTR,
+  NATIVE_EMBEDDED_ASSETS_SCRIPT_TYPE,
+} from "@shared/native-embedded-assets";
 
 import { nativeShaderRuntimeBridgeScript } from "../../../.generated/bridge/native-shader-runtime.generated";
+import {
+  isolateNativeThumbnailInputs,
+  NATIVE_THUMBNAIL_INPUT_REGISTRY_TEXT,
+} from "./native-thumbnail-inputs";
 import {
   cropNativeThumbnailRgba,
   NATIVE_THUMBNAIL_HEIGHT,
@@ -228,7 +236,7 @@ function thumbnailDocument(): string {
     /<\/script/gi,
     "<\\/script",
   );
-  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:${SHEET_WIDTH}px;height:${SHEET_HEIGHT}px;overflow:hidden;background:transparent}</style></head><body><script data-agent-native-native-shader-runtime>${script}</script></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:${SHEET_WIDTH}px;height:${SHEET_HEIGHT}px;overflow:hidden;background:transparent}</style></head><body><script type="${NATIVE_EMBEDDED_ASSETS_SCRIPT_TYPE}" ${NATIVE_EMBEDDED_ASSETS_ATTR}>${NATIVE_THUMBNAIL_INPUT_REGISTRY_TEXT}</script><script data-agent-native-native-shader-runtime>${script}</script></body></html>`;
 }
 
 function thumbnailRuntime(frame: HTMLIFrameElement): NativeThumbnailRuntime {
@@ -1190,12 +1198,13 @@ export class NativeThumbnailService {
   private async perform(job: ThumbnailJob): Promise<NativeThumbnailResult[]> {
     const signal = job.controller.signal;
     aborted(signal);
-    const { prepared, results } = await deadline(
+    const { prepared: candidates, results } = await deadline(
       prepareNativeThumbnailBatch(job.options),
       signal,
       THUMBNAIL_DEADLINE_MS,
       "thumbnail-prepare-timeout",
     );
+    const prepared = candidates.map(isolateNativeThumbnailInputs);
     const output = new Map(results.map((result) => [result.id, result]));
     const misses: PreparedNativeThumbnail[] = [];
     for (const entry of prepared) {

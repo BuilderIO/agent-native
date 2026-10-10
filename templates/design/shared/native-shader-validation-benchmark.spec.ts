@@ -170,6 +170,66 @@ describe("mounted measurement validation", () => {
         },
       }).success,
     ).toBe(false);
+    const fullFrameWallPhases = {
+      scope: "full-render-internal-wall-intervals-not-CPU-or-GPU-time",
+      stats: {
+        renderInternalWallMs: stats(400),
+        deviceWallMs: stats(400),
+        mountAwaitWallMs: stats(400),
+        scenePresentationWallMs: stats(400),
+        retirementWallMs: stats(400),
+      },
+      scenePresentation: {
+        scope:
+          "nested-in-scene-presentation-wall-intervals-not-CPU-or-GPU-time",
+        stats: {
+          sourceReadWallMs: stats(400),
+          composeWallMs: stats(400),
+          encodeWallMs: stats(400),
+          submitWallMs: stats(400),
+          errorScopeWallMs: stats(400),
+          publicationWallMs: stats(400),
+        },
+      },
+    };
+    const accepted = nativeShaderMountedMeasurementSchema.parse({
+      ...measurement,
+      fullFrameWallPhases,
+    });
+    expect(accepted.fullFrameWallPhases).toEqual(fullFrameWallPhases);
+    for (const payload of [
+      null,
+      false,
+      {},
+      {
+        ...fullFrameWallPhases,
+        stats: { ...fullFrameWallPhases.stats, mountAwaitWallMs: stats(399) },
+      },
+      {
+        ...fullFrameWallPhases,
+        stats: {
+          ...fullFrameWallPhases.stats,
+          renderInternalWallMs: { ...stats(400), max: 5 },
+        },
+      },
+      {
+        ...fullFrameWallPhases,
+        scenePresentation: {
+          ...fullFrameWallPhases.scenePresentation,
+          stats: {
+            ...fullFrameWallPhases.scenePresentation.stats,
+            errorScopeWallMs: { ...stats(400), max: 5 },
+          },
+        },
+      },
+      { ...fullFrameWallPhases, extra: 1 },
+    ])
+      expect(
+        nativeShaderMountedMeasurementSchema.safeParse({
+          ...measurement,
+          fullFrameWallPhases: payload,
+        }).success,
+      ).toBe(false);
     expect(
       nativeShaderMountedMeasurementSchema.safeParse({
         ...measurement,

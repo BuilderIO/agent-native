@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   emptyNativeBenchmarkPhaseValues,
+  emptyNativeBenchmarkFullFrameValues,
+  type NativeBenchmarkFullFrameValues,
   NativeMountedBenchmarkError,
   NativeMountedBenchmarkRun,
   NativeMountedBenchmarkWindowCollector,
@@ -26,6 +28,197 @@ function collect(render = true) {
 }
 
 describe("live mounted benchmark window", () => {
+  it("keeps complete frame awaits separate from their nested full-scene phases", () => {
+    const window = new NativeMountedBenchmarkWindowCollector(request);
+    for (let index = 0; index <= 960; index += 1) {
+      window.onRaf(index * 10, "visible");
+      window.onRender({
+        renderWallMs: 40,
+        sourceWallMs: 9,
+        composeWallMs: 1,
+        fullFrameWallPhases: {
+          frame: {
+            renderInternalWallMs: 40,
+            deviceWallMs: 1,
+            mountAwaitWallMs: 15,
+            scenePresentationWallMs: 20,
+            retirementWallMs: 1,
+          },
+          scene: {
+            sourceReadWallMs: 7,
+            composeWallMs: 3,
+            encodeWallMs: 1,
+            submitWallMs: 1,
+            errorScopeWallMs: 6,
+            publicationWallMs: 1,
+          },
+        },
+        failureCount: 0,
+      });
+    }
+    const result = window.result();
+    expect(result.fullFrameWallPhases?.stats.renderInternalWallMs).toEqual(
+      result.renderWallMs,
+    );
+    expect(result.fullFrameWallPhases?.stats.mountAwaitWallMs).toMatchObject({
+      count: 840,
+      p95: 15,
+    });
+    expect(result.fullFrameWallPhases?.stats.scenePresentationWallMs.p95).toBe(
+      20,
+    );
+    expect(
+      result.fullFrameWallPhases?.scenePresentation.stats.errorScopeWallMs.p95,
+    ).toBe(6);
+    expect(result.sourceWallMs.p95).toBe(9);
+    expect(result.hostWallPhases).toBeUndefined();
+  });
+
+  it.each([
+    null,
+    false,
+    [],
+    {},
+    { frame: {}, scene: {} },
+    {
+      ...emptyNativeBenchmarkFullFrameValues(),
+      frame: {
+        ...emptyNativeBenchmarkFullFrameValues().frame,
+        renderInternalWallMs: 4,
+      },
+      extra: 1,
+    },
+    {
+      frame: {
+        ...emptyNativeBenchmarkFullFrameValues().frame,
+        renderInternalWallMs: 4,
+        mountAwaitWallMs: Number.NaN,
+      },
+      scene: emptyNativeBenchmarkFullFrameValues().scene,
+    },
+    {
+      frame: {
+        ...emptyNativeBenchmarkFullFrameValues().frame,
+        renderInternalWallMs: 5,
+      },
+      scene: emptyNativeBenchmarkFullFrameValues().scene,
+    },
+    {
+      frame: {
+        ...emptyNativeBenchmarkFullFrameValues().frame,
+        renderInternalWallMs: 4,
+        scenePresentationWallMs: 2,
+      },
+      scene: {
+        ...emptyNativeBenchmarkFullFrameValues().scene,
+        errorScopeWallMs: 3,
+      },
+    },
+  ])(
+    "rejects unreadable, incomplete, or mismatched full-frame phases %#",
+    (payload) => {
+      const window = new NativeMountedBenchmarkWindowCollector(request);
+      for (let index = 0; index <= 120; index += 1)
+        window.onRaf(index * 10, "visible");
+      expect(() =>
+        window.onRender({
+          renderWallMs: 4,
+          sourceWallMs: 1,
+          composeWallMs: 1,
+          fullFrameWallPhases:
+            payload as unknown as NativeBenchmarkFullFrameValues,
+          failureCount: 0,
+        }),
+      ).toThrowError("benchmark-unavailable");
+    },
+  );
+
+  it("accepts binary64 adjacent sums without clamping their original samples", () => {
+    const window = new NativeMountedBenchmarkWindowCollector(request);
+    for (let index = 0; index <= 960; index += 1) {
+      window.onRaf(index * 10, "visible");
+      const values = emptyNativeBenchmarkFullFrameValues();
+      values.frame.renderInternalWallMs = 0.3;
+      values.frame.deviceWallMs = 0.2;
+      values.frame.scenePresentationWallMs = 0.1;
+      values.scene.sourceReadWallMs = 0.1;
+      window.onRender({
+        renderWallMs: 0.3,
+        sourceWallMs: 0,
+        composeWallMs: 0,
+        fullFrameWallPhases: values,
+        failureCount: 0,
+      });
+    }
+    const result = window.result();
+    expect(result.fullFrameWallPhases?.stats.deviceWallMs.p95).toBe(0.2);
+    expect(result.fullFrameWallPhases?.stats.scenePresentationWallMs.p95).toBe(
+      0.1,
+    );
+    expect(result.renderWallMs.p95).toBe(0.3);
+  });
+
+  it.each([
+    "frame-overlap",
+    "scene-overlap",
+    "beyond-rounding",
+    "scene-beyond-rounding",
+  ])("rejects disjoint interval sum overflow: %s", (caseName) => {
+    const values = emptyNativeBenchmarkFullFrameValues();
+    values.frame.renderInternalWallMs = caseName.endsWith("rounding") ? 0.3 : 4;
+    if (caseName === "frame-overlap") {
+      values.frame.deviceWallMs = 3;
+      values.frame.mountAwaitWallMs = 3;
+    } else if (caseName === "scene-overlap") {
+      values.frame.scenePresentationWallMs = 4;
+      values.scene.sourceReadWallMs = 3;
+      values.scene.errorScopeWallMs = 3;
+    } else if (caseName === "beyond-rounding") {
+      values.frame.deviceWallMs = 0.200001;
+      values.frame.scenePresentationWallMs = 0.1;
+    } else {
+      values.frame.scenePresentationWallMs = 0.3;
+      values.scene.sourceReadWallMs = 0.200001;
+      values.scene.errorScopeWallMs = 0.1;
+    }
+    const window = new NativeMountedBenchmarkWindowCollector(request);
+    for (let index = 0; index <= 120; index += 1)
+      window.onRaf(index * 10, "visible");
+    expect(() =>
+      window.onRender({
+        renderWallMs: values.frame.renderInternalWallMs,
+        sourceWallMs: 0,
+        composeWallMs: 0,
+        fullFrameWallPhases: values,
+        failureCount: 0,
+      }),
+    ).toThrowError("benchmark-unavailable");
+  });
+
+  it("refuses a partial full-frame window and accepts explicit no-scene zero work", () => {
+    const window = new NativeMountedBenchmarkWindowCollector(request);
+    for (let index = 0; index <= 120; index += 1)
+      window.onRaf(index * 10, "visible");
+    const values = emptyNativeBenchmarkFullFrameValues();
+    values.frame.renderInternalWallMs = 4;
+    values.frame.mountAwaitWallMs = 3;
+    window.onRender({
+      renderWallMs: 4,
+      sourceWallMs: 1,
+      composeWallMs: 1,
+      fullFrameWallPhases: values,
+      failureCount: 0,
+    });
+    expect(() =>
+      window.onRender({
+        renderWallMs: 4,
+        sourceWallMs: 1,
+        composeWallMs: 1,
+        failureCount: 0,
+      }),
+    ).toThrowError("benchmark-unavailable");
+  });
+
   it("preserves typed saved-source refusal at the warmup boundary", async () => {
     const run = new NativeMountedBenchmarkRun(
       request,
