@@ -299,6 +299,7 @@ jobs:
           PULL_REQUEST_NUMBER: ${{ needs.authorize.outputs.pull_request_number }}
           SITE_NAME: ${{ needs.authorize.outputs.site }}
           SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}
+          REQUESTER_LOGIN: ${{ needs.authorize.outputs.requester_login }}
         with:
           github-token: ${{ github.token }}
           script: |

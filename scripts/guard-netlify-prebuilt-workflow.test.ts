@@ -319,6 +319,10 @@ describe("Netlify PR preview workflow guard", () => {
         "createDeploymentStatus",
       ),
     );
+    assert.equal(
+      (deploymentStep?.env as Workflow).REQUESTER_LOGIN,
+      "${{ needs.authorize.outputs.requester_login }}",
+    );
     assert.match(
       String((deploymentStep?.with as Workflow).script),
       /createDeploymentStatus/,
@@ -368,6 +372,10 @@ describe("Netlify PR preview workflow guard", () => {
       [
         "pullRequest.user.login?.toLowerCase() ===\n                    process.env.REQUESTER_LOGIN.toLowerCase()",
         "false",
+      ],
+      [
+        "          SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}\n          REQUESTER_LOGIN: ${{ needs.authorize.outputs.requester_login }}",
+        "          SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}",
       ],
       [
         "!['OWNER', 'MEMBER'].includes(context.payload.comment.author_association)",

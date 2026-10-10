@@ -287,6 +287,13 @@ export function validateNetlifyPrPreviewWorkflow(
   const expectedPreviewConcurrencyGroup = `netlify-pr-preview-\${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}-\${{ ${expectedPreviewConcurrencyExpression} }}`;
   const deployment = asRecord(jobs?.deployment);
   const deploymentPermissions = asRecord(deployment?.permissions);
+  const deploymentSteps = Array.isArray(deployment?.steps)
+    ? deployment.steps.map(asRecord)
+    : [];
+  const deploymentRecordStep = deploymentSteps.find(
+    (step) => step?.name === "Create the PR preview deployment",
+  );
+  const deploymentRecordEnv = asRecord(deploymentRecordStep?.env);
   const deploymentScript = githubScript(deployment ?? {});
   const createDeploymentOptions = callOptions(
     deploymentScript,
@@ -520,6 +527,8 @@ export function validateNetlifyPrPreviewWorkflow(
         ),
     ) ||
     deploymentPermissions?.["pull-requests"] !== "read" ||
+    deploymentRecordEnv?.REQUESTER_LOGIN !==
+      "${{ needs.authorize.outputs.requester_login }}" ||
     asRecord(jobs?.comment) ||
     !source.includes("actions/download-artifact@") ||
     !source.includes("actions/github-script@") ||
