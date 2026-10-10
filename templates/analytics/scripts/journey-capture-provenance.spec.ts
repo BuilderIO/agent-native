@@ -184,6 +184,39 @@ describe("sanitizePromptProvenanceCandidates", () => {
     }
   });
 
+  it("redacts Discord webhook paths and OAuth callback query values", () => {
+    const discordWebhookUrl =
+      "https://discord.com/api/webhooks/fake-webhook-id/fake.discord.webhook.token-123456";
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: [
+          discordWebhookUrl,
+          "https://app.example/callback?code=fake-oauth-code&state=fake-oauth-state",
+          "https://docs.example/reference?code=example-code&state=example-state",
+          "Use code to explain the state machine.",
+        ].join("\n"),
+      },
+    ]);
+    const text = result.messages[0]?.text ?? "";
+
+    expect(text).toBe(
+      [
+        "[REDACTED]",
+        "https://app.example/callback?code=[REDACTED]&state=[REDACTED]",
+        "https://docs.example/reference?code=example-code&state=example-state",
+        "Use code to explain the state machine.",
+      ].join("\n"),
+    );
+    for (const value of [
+      discordWebhookUrl,
+      "fake-oauth-code",
+      "fake-oauth-state",
+    ]) {
+      expect(text).not.toContain(value);
+    }
+  });
+
   it("redacts plain credential lines and past-tense credential phrasings", () => {
     const result = sanitizePromptProvenanceCandidates([
       { role: "user", text: "password fake-standalone-password-value" },
@@ -195,12 +228,16 @@ describe("sanitizePromptProvenanceCandidates", () => {
         role: "user",
         text: "I changed my password yesterday; no value is included.",
       },
+      { role: "user", text: "Pass rate is 40 percent this week." },
+      { role: "user", text: "The secret can be used later." },
     ]);
 
     expect(result.messages.map(({ text }) => text)).toEqual([
-      "[REDACTED]",
-      "[REDACTED]",
+      "password [REDACTED]",
+      "the API key was [REDACTED]",
       "I changed my password yesterday; no value is included.",
+      "Pass rate is 40 percent this week.",
+      "The secret can be used later.",
     ]);
     expect(JSON.stringify(result)).not.toContain(
       "fake-standalone-password-value",
@@ -304,7 +341,7 @@ describe("sanitizePromptProvenanceCandidates", () => {
     expect(text).not.toContain("fake-http-password");
   });
 
-  it("omits messages with ambiguous space-separated credential values", () => {
+  it("redacts space-separated credentials and preserves ordinary prose", () => {
     const result = sanitizePromptProvenanceCandidates([
       {
         role: "user",
@@ -326,7 +363,7 @@ describe("sanitizePromptProvenanceCandidates", () => {
 
     expect(result.messages.map(({ text }) => text)).toEqual([
       "[REDACTED]",
-      "[REDACTED]",
+      "My password is [REDACTED]\nfollow-up text",
       "[REDACTED]",
       "I changed my password yesterday; no value is included.",
     ]);

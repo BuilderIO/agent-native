@@ -16,14 +16,22 @@ const QUOTED_ARRAY_CREDENTIAL_FLAG =
 const SPACE_SEPARATED_CREDENTIAL_FORMS = [
   /(?:^|\s)--?([a-z][a-z0-9_.-]*)[ \t]+\S/gim,
   /\bexport[ \t]+([a-z][a-z0-9_.-]*)[ \t]+\S/gi,
-  /\b(?:(?:my|our|your|the)[ \t]+)?([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)?)[ \t]+(?:is|equals|was)[ \t]+\S/gi,
 ] as const;
 const BEARER_VALUE = /\bbearer\s+[a-z0-9._~+/-]+=*/gi;
 const JWT_VALUE = /\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g;
 const SLACK_INCOMING_WEBHOOK_URL =
   /\bhttps?:\/\/hooks\.slack(?:-gov)?\.com\/services\/[a-z0-9_-]+\/[a-z0-9_-]+\/[a-z0-9_-]+(?:\?[^\s]*)?/gi;
-const LINE_CREDENTIAL_VALUE =
-  /(?:^|[\r\n;])[ \t]*(?:(?:my|our|your|the)[ \t]+)?([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)?)[ \t]+(?![:=])\S/gim;
+const DISCORD_INCOMING_WEBHOOK_URL =
+  /\bhttps?:\/\/discord(?:app)?\.com\/api\/webhooks\/[a-z0-9_-]+\/[a-z0-9._-]+(?:\?[^\s]*)?/gi;
+const NATURAL_LANGUAGE_CREDENTIAL_KEY = String.raw`[a-z][a-z0-9_.-]*(?:[ \t]+(?:keys?|tokens?|secrets?|passwords?|passwd|passphrase|credentials?|authorization|authentication|auth|cookies?|session(?:[ \t]+(?:id|token))?|ids?|signatures?|sigs?|jwts?|otps?|pins?|pws?|pwd))?`;
+const NATURAL_LANGUAGE_CREDENTIAL_COPULA = new RegExp(
+  String.raw`((?:^|[\r\n;])[ \t]*(?:(?:my|our|your|the)[ \t]+)?)(${NATURAL_LANGUAGE_CREDENTIAL_KEY})([ \t]+(?:is|equals|was)[ \t]+)([^;\r\n]+)`,
+  "gim",
+);
+const NATURAL_LANGUAGE_CREDENTIAL_VALUE = new RegExp(
+  String.raw`((?:^|[\r\n;])[ \t]*(?:(?:my|our|your|the)[ \t]+)?)(${NATURAL_LANGUAGE_CREDENTIAL_KEY})([ \t]+)(?![:=])(\S+)`,
+  "gim",
+);
 const PROVIDER_TOKEN =
   /\b(?:github_pat_[a-z0-9_]{20,}|gh[pousr]_[a-z0-9_]{20,}|AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16}|sk-proj-[a-z0-9_-]{20,}|sk-ant-[a-z0-9_-]{20,}|(?:sk|rk)_(?:live|test)_[a-z0-9]{16,}|AIza[a-z0-9_-]{35}|xox[baprs]-[a-z0-9-]{10,}|npm_[a-z0-9]{30,})\b/gi;
 const SQL_CODE_BLOCK = /```(?:sql|postgres(?:ql)?)\b[\s\S]*?```/gi;
@@ -148,9 +156,6 @@ function isCredentialKey(key: string): boolean {
 }
 
 function hasSpaceSeparatedCredential(text: string): boolean {
-  for (const match of text.matchAll(LINE_CREDENTIAL_VALUE)) {
-    if (isCredentialKey(match[1] ?? "")) return true;
-  }
   for (const match of text.matchAll(QUOTED_ARRAY_CREDENTIAL_FLAG)) {
     if (isCredentialKey(match[2] ?? "")) return true;
   }
@@ -175,6 +180,39 @@ function urlQueryValueEnd(text: string, valueStart: number): number | null {
   return delimiter ? valueStart + delimiter.index : text.length;
 }
 
+function isOAuthCallbackUrl(text: string, valueStart: number): boolean {
+  const prefix = text.slice(0, valueStart);
+  const queryStart = prefix.lastIndexOf("?");
+  const schemeStart = prefix.lastIndexOf("://");
+  if (queryStart <= schemeStart || queryStart <= prefix.lastIndexOf("#")) {
+    return false;
+  }
+  const pathStart = text.indexOf("/", schemeStart + 3);
+  if (pathStart === -1 || pathStart > queryStart) return false;
+  return /\/(?:oauth2?|auth(?:entication)?|callback|redirect)(?:\/|$)/i.test(
+    text.slice(pathStart, queryStart),
+  );
+}
+
+function looksLikeCredentialValue(value: string): boolean {
+  return /[0-9_-]/.test(value) || value.length >= 24;
+}
+
+function redactNaturalLanguageCredentials(text: string): string {
+  const withCopulaValues = text.replace(
+    NATURAL_LANGUAGE_CREDENTIAL_COPULA,
+    (match, prefix, key, cue) =>
+      isCredentialKey(key) ? `${prefix}${key}${cue}[REDACTED]` : match,
+  );
+  return withCopulaValues.replace(
+    NATURAL_LANGUAGE_CREDENTIAL_VALUE,
+    (match, prefix, key, separator, value) =>
+      isCredentialKey(key) && looksLikeCredentialValue(value)
+        ? `${prefix}${key}${separator}[REDACTED]`
+        : match,
+  );
+}
+
 function redactCredentialAssignments(text: string): string {
   const assignments: Array<{
     redactStart: number;
@@ -183,8 +221,13 @@ function redactCredentialAssignments(text: string): string {
   }> = [];
   let coveredValueEnd = -1;
   for (const match of text.matchAll(ASSIGNMENT_KEY)) {
-    if (!isCredentialKey(match[2] ?? "")) continue;
     const valueStart = (match.index ?? 0) + match[0].length;
+    const key = match[2] ?? "";
+    const queryValueEnd = urlQueryValueEnd(text, valueStart);
+    const isOAuthCallbackParameter =
+      ["code", "state", "nonce"].includes(key.toLowerCase()) &&
+      isOAuthCallbackUrl(text, valueStart);
+    if (!isCredentialKey(key) && !isOAuthCallbackParameter) continue;
     if (valueStart < coveredValueEnd) continue;
 
     const quote = text[valueStart];
@@ -213,7 +256,6 @@ function redactCredentialAssignments(text: string): string {
       continue;
     }
 
-    const queryValueEnd = urlQueryValueEnd(text, valueStart);
     if (queryValueEnd !== null) {
       assignments.push({
         redactStart: valueStart,
@@ -244,11 +286,15 @@ function redactCredentialAssignments(text: string): string {
 }
 
 function redactCredentials(text: string): string {
-  if (hasSpaceSeparatedCredential(text)) return "[REDACTED]";
+  const naturalLanguageRedacted = redactNaturalLanguageCredentials(text);
+  if (hasSpaceSeparatedCredential(naturalLanguageRedacted)) {
+    return "[REDACTED]";
+  }
 
   return redactCredentialAssignments(
-    text
+    naturalLanguageRedacted
       .replace(SLACK_INCOMING_WEBHOOK_URL, "[REDACTED]")
+      .replace(DISCORD_INCOMING_WEBHOOK_URL, "[REDACTED]")
       .replace(URL_USERINFO, (_match, scheme) => `${scheme}[REDACTED]@`),
   )
     .replace(
