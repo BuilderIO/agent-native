@@ -288,15 +288,14 @@ async function captureScreenCard(
     .filter({ hasText: /^\s*\d+%\s*$/ })
     .first();
   await expect(zoom).toBeVisible();
-  if ((await zoom.innerText()).trim() !== "100%") {
-    await zoom.click();
-    await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
-  }
+  // Zoom to 100% keeps the viewport center, so center the Screen first.
+  await page.keyboard.press("Shift+2");
+  await zoom.click();
+  await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
   await expect(zoom).toHaveText(/100%/);
   const shell = page.locator(
     `[data-screen-shell][data-frame-id="${screenId}"]`,
   );
-  await shell.scrollIntoViewIfNeeded();
   const card = shell.locator("[data-screen-card]");
   await expect(card).toBeVisible();
   const bounds = await card.boundingBox();
@@ -589,6 +588,10 @@ async function panOverviewCanvas(page: Page, deltaY: number) {
     x: bounds.x + bounds.width / 2,
     y: bounds.y + bounds.height / 2,
   };
+  // Space activates a focused inspector button instead of panning.
+  await page.evaluate(() =>
+    (document.activeElement as HTMLElement | null)?.blur(),
+  );
   await page.mouse.move(start.x, start.y);
   await page.keyboard.down("Space");
   await page.mouse.down();
@@ -1475,12 +1478,12 @@ async function addNativeArtworkGradient(page: Page, layerName: string) {
     .getByRole("button", { name: "Add fill", exact: true })
     .click();
   await expect(paintRows).toHaveCount(previousRows + 1);
-  const gradientRow = paintRows.first();
-  await gradientRow
+  const newPaintTrigger = paintRows
+    .first()
     .getByRole("button")
     .filter({ hasText: /#[\da-f]{6}/i })
-    .first()
-    .click();
+    .first();
+  await expect(newPaintTrigger).toHaveAttribute("aria-expanded", "true");
   const dialog = page.getByRole("dialog");
   await page.getByRole("button", { name: "Linear", exact: true }).click();
   const stops = dialog.getByRole("group", { name: "Gradient stops" });
@@ -2954,6 +2957,9 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
       return [frame?.width, frame?.height, metadata?.width, metadata?.height];
     })
     .toEqual([390, 844, 390, 844]);
+  await zoom.click();
+  await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
+  await expect(zoom).toHaveText(/100%/);
   await page.keyboard.press("Shift+a");
   const mobileRootHeading = page.getByRole("heading", {
     name: "Auto layout",
