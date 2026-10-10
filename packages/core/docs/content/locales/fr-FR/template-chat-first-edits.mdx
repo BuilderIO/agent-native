@@ -1,21 +1,24 @@
 ---
 title: "Discussion : Votre première fonctionnalité"
-description: "Le seul fichier qui affiche l'écran de démarrage de Discussion, ce que font ses vrais props, et un guide complet pour ajouter une fonctionnalité de bout en bout."
+description: "Les fichiers qui affichent les écrans de démarrage de Chat, ce que font leurs vraies props, et un parcours complet pour ajouter une fonctionnalité de bout en bout."
 ---
 
 # Votre première fonctionnalité
 
-Cette page s'adresse aux développeurs qui étendent le [modèle Discussion](/docs/template-chat). Elle couvre le seul fichier qui affiche l'écran de chat de démarrage, puis parcourt tout ce que l'agent touche généralement lorsque vous demandez une véritable fonctionnalité.
+Cette page s'adresse aux développeurs qui étendent le [modèle Chat](/docs/template-chat). Elle présente les fichiers qui affichent les écrans de démarrage, puis parcourt tout ce que l'agent touche généralement quand vous demandez une vraie fonctionnalité.
 
 ## Premier code à inspecter {#first-code}
 
-- `actions/hello.ts` est le comportement de démarrage que l'agent peut
-  appeler. Remplacez-le ou ajoutez des actions à côté.
-- `app/routes/_index.tsx` affiche la surface de chat en pleine page. Ajustez
-  ici les suggestions, l'état vide, le composer, ou la mise en page
-  environnante.
-- `AGENTS.md` indique à l'agent intégré comment travailler dans cette
-  application.
+- `actions/hello.ts` est le comportement de départ que l'agent peut appeler.
+  Remplacez-le ou ajoutez des actions à côté.
+- `app/components/chat/ChatRouteContent.tsx` affiche la surface de chat pleine
+  page à `/chat/<threadId>`. Ajustez ici l'état vide, le composer ou les slots
+  de messages.
+- `app/components/home/HomePage.tsx` est la page Commencer que `/home` affiche
+  sous `pnpm dev`. Les builds de production l'ignorent, et définir
+  `SHOW_HOME_PAGE` sur `false` dans `app/lib/chat-paths.ts` la désactive aussi
+  en développement.
+- `AGENTS.md` indique à l'agent intégré comment travailler dans cette app.
 
 <FileTree
   id="doc-block-chat3"
@@ -23,7 +26,7 @@ Cette page s'adresse aux développeurs qui étendent le [modèle Discussion](/do
   entries={[
     {
       path: "actions/hello.ts",
-      note: "l'unique exemple d'action ; remplacez-la ou ajoutez des actions à côté",
+      note: "la seule action d'exemple ; remplacez-la ou ajoutez des actions à côté",
     },
     {
       path: "actions/view-screen.ts",
@@ -34,60 +37,71 @@ Cette page s'adresse aux développeurs qui étendent le [modèle Discussion](/do
       note: "action de navigation standard",
     },
     {
-      path: "app/routes/_index.tsx",
-      note: "affiche la surface de chat en pleine page ; modifiez les suggestions, l'état vide, le composer",
+      path: "app/routes/home.tsx",
+      note: "/home : la page Commencer sous pnpm dev ; en production, elle démarre un nouveau chat",
+    },
+    {
+      path: "app/routes/chat._index.tsx",
+      note: "/chat : démarre un nouveau chat et passe la main à /chat/:threadId",
     },
     {
       path: "app/routes/chat.$threadId.tsx",
-      note: "réexporte _index.tsx afin que /chat/:threadId affiche la même surface avec un id de fil dans l'URL",
+      note: "/chat/:threadId : affiche ChatRouteContent pour ce fil",
+    },
+    {
+      path: "app/components/chat/ChatRouteContent.tsx",
+      note: "la surface de chat pleine page ; modifiez l'état vide, le composer et les slots de messages",
+    },
+    {
+      path: "app/components/home/HomePage.tsx",
+      note: "la page Commencer, uniquement en développement",
+    },
+    {
+      path: "app/lib/chat-paths.ts",
+      note: "chemins du chat et l'interrupteur SHOW_HOME_PAGE",
     },
     {
       path: "AGENTS.md",
-      note: "conseils axés sur le chat que l'agent intégré lit",
+      note: "consignes centrées sur le chat que lit l'agent intégré",
     },
   ]}
 />
 
-Le véritable fichier de démarrage est plus qu'un simple `<AgentChatSurface />` — il connecte la synchronisation d'URL de fil, une identité d'onglet pour les exécutions multi-onglets, et une mise en page de composer hero, et son texte provient de clés i18n plutôt que de chaînes littérales :
+La surface de chat est assemblée à partir de briques AgentKit : un transport, une racine de fil et la vue de chat. Ses textes proviennent de clés i18n plutôt que de chaînes littérales :
 
 <AnnotatedCode
   id="doc-block-chat4"
-  title="app/routes/_index.tsx (extrait)"
-  filename="app/routes/_index.tsx"
+  title="app/components/chat/ChatRouteContent.tsx (abrégé)"
+  filename="app/components/chat/ChatRouteContent.tsx"
   language="tsx"
   code={
-    'import {\n  AgentChatSurface,\n  markAgentChatHomeHandoff,\n} from "@agent-native/core/client/agent-chat";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { useEffect } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { TAB_ID } from "@/lib/tab-id";\n\nfunction chatThreadPath(threadId: string | null) {\n  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";\n}\n\nexport default function ChatRoute() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const threadUrlSync = threadId\n    ? { routeThreadId: threadId, getPath: chatThreadPath, navigate }\n    : undefined;\n\n  useEffect(() => {\n    function handleChatRunning(event: Event) {\n      const detail = (event as CustomEvent).detail;\n      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");\n    }\n    window.addEventListener("agentNative.chatRunning", handleChatRunning);\n    return () =>\n      window.removeEventListener("agentNative.chatRunning", handleChatRunning);\n  }, []);\n\n  return (\n    <AgentChatSurface\n      mode="page"\n      chatViewTransition\n      threadUrlSync={threadUrlSync}\n      browserTabId={TAB_ID}\n      dynamicSuggestions={false}\n      suggestions={[\n        t("chat.suggestionCapabilities"),\n        t("chat.suggestionCustomize"),\n        t("chat.suggestionActions"),\n      ]}\n      emptyStateText={t("chat.emptyState")}\n      centerComposerWhenEmpty\n      composerLayoutVariant="hero"\n      composerPlaceholder={t("chat.composerPlaceholder")}\n      composerSlot={\n        <div className="mx-auto mb-5 max-w-xl px-4 text-center">\n          <h1>{t("chat.heroTitle")}</h1>\n          <p>{t("chat.heroDescription")}</p>\n        </div>\n      }\n    />\n  );\n}'
+    'import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";\nimport { useT } from "@agent-native/core/client/i18n";\nimport { AgentKitChat } from "@agent-native/toolkit/app/agentkit/react/components";\nimport { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";\nimport { useState } from "react";\nimport { useNavigate, useParams } from "react-router";\n\nimport { chatThreadPath } from "@/lib/chat-paths";\nimport { TAB_ID } from "@/lib/tab-id";\n\nexport default function ChatRouteContent() {\n  const { threadId } = useParams();\n  const navigate = useNavigate();\n  const t = useT();\n  const [transport] = useState(() =>\n    createAgentNativeAgentKitTransport({\n      browserTabId: TAB_ID,\n      surface: "app",\n      adapter: { textFormat: "markdown" },\n    }),\n  );\n  if (!threadId) return null;\n\n  return (\n    <CoreAgentKitRoot\n      transport={transport}\n      threadId={threadId}\n      labels={{ composerPlaceholder: t("chat.composerPlaceholder") }}\n      slots={{ emptyState: ChatEmptyState }}\n      onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}\n    >\n      <AgentKitChat\n        emptyComposerPlacement="center"\n        composerProps={{ requireAgentEngine: true, voiceEnabled: true }}\n      />\n    </CoreAgentKitRoot>\n  );\n}\n\nfunction ChatEmptyState() {\n  const t = useT();\n  return (\n    <div className="agentkit-chat-empty-copy">\n      <h1>{t("chat.heroTitle")}</h1>\n    </div>\n  );\n}'
   }
   annotations={[
     {
-      lines: "19-21",
-      label: "Synchronisation d'URL de fil",
-      note: "`/chat/:threadId` (`chat.$threadId.tsx`) réexporte ce même composant. Quand la route a un id de fil, `threadUrlSync` maintient l'URL et le fil actif parfaitement synchronisés : changer de fil pousse `/chat/<id>`, et ouvrir cette URL restaure le fil.",
+      lines: "15-21",
+      label: "Transport",
+      note: "`createAgentNativeAgentKitTransport` relie la vue de chat au runtime de l'agent de l'app. `TAB_ID` (`app/lib/tab-id.ts`, un id aléatoire généré une fois par onglet du navigateur) permet au runtime de distinguer les onglets ouverts de la même app, afin qu'une exécution lancée dans un onglet ne soit pas confondue avec celle d'un autre.",
     },
     {
-      lines: "38",
-      label: "Identité d'onglet",
-      note: "`TAB_ID` (`app/lib/tab-id.ts`, un id aléatoire généré une fois par onglet de navigateur) permet au runtime de chat partagé de distinguer plusieurs onglets ouverts de la même application, si bien qu'une exécution démarrée dans un onglet n'est pas confondue avec celle d'un autre.",
+      lines: "25-30",
+      label: "Racine du fil",
+      note: "`CoreAgentKitRoot` charge le fil indiqué dans `/chat/:threadId` (`chat.$threadId.tsx`). Visiter `/chat` crée un nouvel id de fil et passe la main ici. Quand un fil est dupliqué, `chatThreadPath` déplace l'URL vers le nouveau fil.",
     },
     {
-      lines: "39-44",
-      label: "Les suggestions sont des clés i18n",
-      note: 'Le texte des suggestions provient de `t("chat.suggestionCapabilities")` etc. (voir `app/i18n/en-US.ts`), pas de chaînes anglaises littérales, et `dynamicSuggestions={false}` désactive la génération de suggestions propre au runtime en faveur de ces trois-là.',
+      lines: "29",
+      label: "Slots",
+      note: "Les slots remplacent des parties de la vue de chat. Le vrai fichier passe aussi les slots `message`, `runFailure`, `connectionRequest` et `footer` pour les messages de reprise, les cartes de connexion MCP et le pied de page de l'agent.",
     },
     {
-      lines: "46-47",
-      label: "Mise en page de composer hero",
-      note: '`composerLayoutVariant="hero"` combiné à `centerComposerWhenEmpty` centre le composer avec un titre/description au-dessus, au lieu du composer simple ancré en bas qu\'utilisent les autres routes de chat en `mode="page"`.',
+      lines: "32-35",
+      label: "Composer centré",
+      note: "`emptyComposerPlacement=\"center\"` centre le composer jusqu'à ce que le fil contienne un message. `requireAgentEngine` affiche la carte Connecter l'IA jusqu'à ce qu'un modèle soit connecté.",
     },
     {
-      lines: "49-54",
-      label: "La prop composerSlot",
-      note: "JSX arbitraire affiché au-dessus du composer seulement pendant qu'il est centré — c'est ici que vit le titre « Comment puis-je aider ? ». Modifiez ceci pour changer l'accroche de l'état vide sans toucher au runtime.",
-    },
-    {
-      lines: "23-31",
-      label: "Relais de la page d'accueil",
-      note: "Quand une exécution démarre sur cette page, `markAgentChatHomeHandoff(\"chat\")` enregistre que la surface d'accueil possède l'exécution active, si bien que naviguer ailleurs puis revenir s'y rattache au lieu de la perdre.",
+      lines: "40-47",
+      label: "État vide",
+      note: "Le titre au-dessus du composer centré. Son texte est `chat.heroTitle` dans `app/i18n/en-US.ts` : modifiez le catalogue pour changer l'accroche, ou ajoutez des éléments ici.",
     },
   ]}
 />
@@ -128,10 +142,10 @@ Le reste de la fonctionnalité suit à partir de là :
 - `actions/create-note.ts` — un `defineAction` avec un schéma Zod (`title`, `body`), sur le modèle de `actions/hello.ts`.
 - `actions/list-notes.ts` — une action en lecture seule (`readOnly: true`, comme `actions/view-screen.ts`) qui interroge la nouvelle table via `accessFilter`.
 - `app/routes/notes.tsx` — une nouvelle route ; l'application utilise le routage par système de fichiers (`flatRoutes()` dans `app/routes.ts`), donc ajouter le fichier suffit à monter `/notes`.
-- Une nouvelle entrée dans le tableau `navItems` de `app/components/layout/Sidebar.tsx` pointant vers `/notes`.
+- Un lien dans `app/components/layout/Sidebar.tsx`, ajouté avant `ChatThreadsSection` et pointant vers `/notes`.
 - Un ajout à `AGENTS.md` indiquant à l'agent que les notes existent et quelles actions les gèrent.
 
-Une nouvelle action est appelable par le chat dès qu'elle existe — chaque `defineAction` est un outil par défaut, sauf s'il définit `agentTool: false`. Elle ne sera pas nécessairement dans la toute première requête du modèle, cependant : `server/plugins/agent-chat.ts` définit `INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello"]`, qui contrôle uniquement les schémas d'outils envoyés au premier tour. Tout le reste, y compris un tout nouveau `create-note`, reste accessible via `tool-search` et se charge à la demande — n'ajoutez un nom à cette liste que si vous le voulez dans le jeu d'outils par défaut du modèle dès le premier message.
+Une nouvelle action est appelable par le chat dès qu'elle existe — chaque `defineAction` est un outil par défaut, sauf s'il définit `agentTool: false`. Elle ne sera pas nécessairement dans la toute première requête du modèle, cependant : `server/plugins/agent-chat.ts` définit `INITIAL_TOOL_NAMES = ["view-screen", "navigate", "hello", "provider-api-request"]`, qui contrôle uniquement les schémas d'outils envoyés au premier tour. Tout le reste, y compris un tout nouveau `create-note`, reste accessible via `tool-search` et se charge à la demande — n'ajoutez un nom à cette liste que si vous le voulez dans le jeu d'outils par défaut du modèle dès le premier message.
 
 ## Utilisez votre propre backend d'agent {#own-agent-backend}
 
