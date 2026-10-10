@@ -29,8 +29,10 @@ import {
   default as importResourcePack,
 } from "./actions/import-resource-pack.js";
 import {
+  getFrontmatterValue,
   getResourceKind,
   isRemoteAgentPath,
+  parseFrontmatter,
   parseCustomAgentProfile,
   parseRemoteAgentManifest,
   parseSkillMetadata,
@@ -65,6 +67,30 @@ import {
   WORKSPACE_OWNER,
   type ResourceMeta,
 } from "./store.js";
+
+function isSameSkillUpload(
+  incomingContent: string,
+  existingContent: string,
+  path: string,
+): boolean {
+  const incomingSkill = parseSkillMetadata(incomingContent, path);
+  const existingSkill = parseSkillMetadata(existingContent, path);
+  if (!incomingSkill || !existingSkill) return false;
+
+  const incomingName = incomingSkill.name.trim();
+  if (incomingName !== existingSkill.name.trim()) return false;
+
+  const incomingDeclaredName = getFrontmatterValue(
+    parseFrontmatter(incomingContent),
+    "name",
+  )?.trim();
+  const existingDeclaredName = getFrontmatterValue(
+    parseFrontmatter(existingContent),
+    "name",
+  )?.trim();
+
+  return Boolean(incomingDeclaredName) || !existingDeclaredName;
+}
 
 async function resolveOwner(event: any, shared?: boolean): Promise<string> {
   if (shared) return sharedResourceOwner(await resolveOrgId(event));
@@ -505,7 +531,6 @@ export async function handleCreateResource(event: any) {
       ? (await getOrgContext(event)).email
       : undefined;
     const content = body.content ?? "";
-    const skillName = parseSkillMetadata(content, body.path)?.name.trim();
     for (let suffix = 1; suffix <= 1000; suffix += 1) {
       const path =
         suffix === 1 ? body.path : `skills/${match[1]}-${suffix}/SKILL.md`;
@@ -519,8 +544,7 @@ export async function handleCreateResource(event: any) {
         : null;
       if (
         personalResource &&
-        parseSkillMetadata(personalResource.content, path)?.name.trim() !==
-          skillName
+        !isSameSkillUpload(content, personalResource.content, path)
       ) {
         continue;
       }
@@ -557,8 +581,7 @@ export async function handleCreateResource(event: any) {
           continue;
         }
 
-        const existingName = parseSkillMetadata(existing.content, path)?.name;
-        if (!skillName || existingName !== skillName) {
+        if (!isSameSkillUpload(content, existing.content, path)) {
           nextPath = true;
           break;
         }

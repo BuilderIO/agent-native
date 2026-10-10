@@ -297,8 +297,7 @@ query.
 ### CI failures
 
 Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
-Record each CI fingerprint and failed occurrence with its Actions link; never
-create a GitHub tracker.
+Keep each row in this transcript; never issue-track CI fingerprints.
 Query failures mean **CI unavailable**, not empty. Deploy/release/publish rows
 follow [`deployment-recovery.md`](references/deployment-recovery.md) and stay
 active through target proof; track source-fix disposition separately.

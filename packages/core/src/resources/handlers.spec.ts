@@ -720,6 +720,47 @@ Legacy webhook.`,
       });
     });
 
+    it("preserves an explicitly named skill on a name-less path collision", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/create-skill/SKILL.md",
+        content: "---\nname: create-skill\n---\nExisting named skill",
+        updatedAt: 123,
+      };
+      const created = {
+        id: "new-skill",
+        owner: "test@test.com",
+        path: "skills/create-skill-2/SKILL.md",
+        content: "# New nameless skill",
+      };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfAbsent
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: "skills/create-skill/SKILL.md",
+          content: created.content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
+      expect(mockResourcePutIfAbsent).toHaveBeenNthCalledWith(
+        2,
+        "test@test.com",
+        created.path,
+        created.content,
+        "text/markdown",
+        undefined,
+      );
+    });
+
     it("retries a same-name upload after a concurrent update wins", async () => {
       const existing = {
         id: "existing-skill",
@@ -1084,6 +1125,52 @@ Legacy webhook.`,
       expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
         "__organization__:org-1",
         path,
+        content,
+        undefined,
+        undefined,
+      );
+    });
+
+    it("does not shadow a named personal skill with a path-derived organization upload", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      const path = "skills/create-skill/SKILL.md";
+      const personal = {
+        id: "personal-create-skill",
+        owner: "test@test.com",
+        path,
+        content: "---\nname: create-skill\n---\nPersonal skill",
+      };
+      mockResourceGetByPath.mockImplementation(async (owner, candidatePath) =>
+        owner === "test@test.com" && candidatePath === path ? personal : null,
+      );
+      const content = "# Organization skill without a declared name";
+      const created = {
+        id: "organization-create-skill",
+        owner: "__organization__:org-1",
+        path: "skills/create-skill-2/SKILL.md",
+        content,
+      };
+      mockResourcePutIfAbsent.mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path,
+          content,
+          shared: true,
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "__organization__:org-1",
+        created.path,
         content,
         undefined,
         undefined,

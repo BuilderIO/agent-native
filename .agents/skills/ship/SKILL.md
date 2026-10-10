@@ -362,8 +362,9 @@ because the PR is behind, checks are pending, or mergeability is UNKNOWN.
 
 If /review-latest-feedback was used, carry its start cursor, grouped reports,
 evidence links, and disposition table into the ship ledger and PR recap. Carry
-CI run/fingerprint occurrences in that ledger; do not create GitHub issues to
-track them.
+CI run/fingerprint occurrences in the ship task transcript and PR recap, while
+keeping the feedback task transcript as the cross-sweep ledger source. Do not
+create GitHub issues to track those failures.
 Follow review-latest-feedback for ownership, claims, reporter replies, and the
 exact disposition vocabulary; follow babysit-pr for review comments and merge
 blocking. Shipping does not independently change Slack reactions. Keep the

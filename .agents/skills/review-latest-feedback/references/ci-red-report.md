@@ -28,24 +28,38 @@ to find an active owner. An existing issue covers only the exact failure-level
 evidence it names: a run-ID-only match owns only that occurrence, and a workflow
 name alone does not cover every failure in it. Record the matching PR, issue,
 or Codex task as owner and keep every unmatched occurrence actionable. Do not
-create or update GitHub issues to track CI fingerprints. The current sweep's
-recap table is its CI ledger; carry unresolved occurrences into the ship ledger
-and PR recap, linked to their workflow runs. If a dedicated workflow already
-owns a reporter-managed issue, link it and leave its updates and recovery
-lifecycle to that workflow. If no active owner or canonical issue can be
-verified, record the ownership gap and next action in the recap instead of
-opening a competing ticket.
+create or update GitHub issues to track CI fingerprints. If a dedicated workflow
+already owns a reporter-managed issue, link it and leave its updates and
+recovery lifecycle to that workflow. If no active owner or canonical issue can
+be verified, record the ownership gap and next action instead of opening a
+competing ticket.
+
+The durable cross-sweep ledger is the **CI failure ledger** section in the most
+recent `review-latest-feedback` Codex task transcript. At the start of a sweep,
+use `list_threads` to locate the latest prior feedback task; if it is archived,
+search `list_archived_threads` pages. Read the task with `read_thread` and copy
+its unresolved occurrences, exact fingerprints, evidence links, and dispositions
+before running the new report. Inspect the transcript itself; titles and
+summaries are not the ledger. At the end of the sweep, include the complete
+current ledger in the task recap. A ship recap and PR body carry a snapshot, but
+do not replace this cross-sweep source.
+
+If there is no prior feedback task with a CI ledger, initialize from the current
+report. If task history cannot be listed or read, the transcript is truncated,
+or the prior ledger cannot be confirmed complete, record **prior CI ledger
+unavailable** and keep the missing carry-over state unresolved. Never turn an
+unreadable prior ledger into an empty table or claim those failures recovered.
 
 Preserve unresolved failures after they age out of the report's five-day
 window. A failure is recovered only after a later passing run of the same
 workflow and test/fingerprint, or a verified fix with a passing rerun; aging
-out of the report is not recovery. Carry unresolved rows from the prior sweep
-or ship recap into the current table. Keep each occurrence's evidence and
+out of the report is not recovery. Carry unresolved rows from the prior task
+transcript into the current ledger and keep each occurrence's evidence and
 disposition even when several failures share one fingerprint.
 
 Quarantine only with a named owner, expiry, and an explicitly authorized
 tracking issue. A green result produced by quarantine is a defect. Follow
-quarantined rows until fixed or restored. The CI table records run count,
+quarantined rows until fixed or restored. The CI failure ledger records run count,
 fingerprint and occurrence counts, query status, classification, disposition,
 evidence, and owner/action.
 
