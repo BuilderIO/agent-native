@@ -2,6 +2,7 @@ import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 
+import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderPanel";
 import type { ElementInfo } from "@/components/design/types";
 import { uniqueLayerId } from "@/pages/design-editor/canvas-primitive-insert";
 import {
@@ -255,6 +256,12 @@ export function runPastedSvgLayer(
     (insertionOptions.placement === "inside" ||
       insertionOptions.placement === "after")
   ) {
+    if (isShaderWriteInFlight(targetFileId)) {
+      toast.error(args.t("designEditor.toasts.saveConflict"), {
+        id: `design-source-shader-conflict:${targetFileId}`,
+      });
+      return true;
+    }
     const plan = planLinkedComponentStructureClone(
       baseContent,
       [root.outerHTML],
@@ -301,7 +308,12 @@ export function runPastedSvgLayer(
       forcePreviewFullDocument: true,
     });
   }
-  if (publication.status !== "accepted") return true;
+  if (publication.status !== "accepted") {
+    toast.error(args.t("designEditor.toasts.primitiveInsertFailed"), {
+      duration: 4000,
+    });
+    return true;
+  }
   args.selectInsertedLayers(
     targetFileId,
     publication.content,

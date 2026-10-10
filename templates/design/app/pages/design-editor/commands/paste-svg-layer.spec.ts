@@ -14,16 +14,22 @@ const {
   planLinkedComponentStructureCloneMock,
   queryFirstSelectorMock,
   parsePastedSvgMock,
+  shaderWrites,
   toastErrorMock,
 } = vi.hoisted(() => ({
   insertClonedHtmlLayersMock: vi.fn(),
   planLinkedComponentStructureCloneMock: vi.fn(),
   queryFirstSelectorMock: vi.fn(),
   parsePastedSvgMock: vi.fn(),
+  shaderWrites: new Set<string>(),
   toastErrorMock: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({ toast: { error: toastErrorMock } }));
+vi.mock("@/components/design/inspector/GlslShaderPanel", () => ({
+  isShaderWriteInFlight: (fileId: string | undefined) =>
+    Boolean(fileId && shaderWrites.has(fileId)),
+}));
 vi.mock("@/pages/design-editor/commands/pasted-svg", () => ({
   parsePastedSvg: parsePastedSvgMock,
 }));
@@ -158,6 +164,7 @@ function pastedSvgArgs() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  shaderWrites.clear();
   parsePastedSvgMock.mockReturnValue({
     svg: '<svg width="10" height="12"></svg>',
     width: 10,
@@ -259,7 +266,7 @@ describe("resolvePastedSvgInsertionOptions", () => {
 });
 
 describe("runPastedSvgLayer", () => {
-  it("consumes an active SVG without preview or selection when its write is refused", () => {
+  it("reports when an active SVG write is refused", () => {
     stubDomParser();
     const fixture = pastedSvgArgs();
     insertClonedHtmlLayersMock.mockReturnValue({
@@ -277,9 +284,13 @@ describe("runPastedSvgLayer", () => {
 
     expect(fixture.args.replacePreviewContent).not.toHaveBeenCalled();
     expect(fixture.args.selectInsertedLayers).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "designEditor.toasts.primitiveInsertFailed",
+      { duration: 4000 },
+    );
   });
 
-  it("consumes an SVG without selection when a non-active screen write is refused", () => {
+  it("reports when a non-active screen SVG write is refused", () => {
     stubDomParser();
     const fixture = pastedSvgArgs();
     fixture.args.files = [
@@ -311,6 +322,10 @@ describe("runPastedSvgLayer", () => {
     ).toBe(true);
 
     expect(fixture.args.selectInsertedLayers).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "designEditor.toasts.primitiveInsertFailed",
+      { duration: 4000 },
+    );
   });
 
   it("selects a non-active screen from the accepted file publication", () => {
@@ -449,6 +464,24 @@ describe("runPastedSvgLayer", () => {
       fixture.selectionBefore,
     );
     expect(insertClonedHtmlLayersMock).not.toHaveBeenCalled();
+  });
+
+  it("blocks linked SVG paste while a shader write is in flight", () => {
+    stubDomParser();
+    const fixture = pastedSvgArgs();
+    shaderWrites.add("screen-1");
+
+    expect(
+      runPastedSvgLayer(fixture.args, '<svg width="10" height="12"></svg>'),
+    ).toBe(true);
+
+    expect(planLinkedComponentStructureCloneMock).not.toHaveBeenCalled();
+    expect(fixture.applyLinkedComponentEdit).not.toHaveBeenCalled();
+    expect(insertClonedHtmlLayersMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "designEditor.toasts.saveConflict",
+      { id: "design-source-shader-conflict:screen-1" },
+    );
   });
 
   it("routes insertion after a selected leaf through linked structure editing", () => {
