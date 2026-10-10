@@ -42,8 +42,6 @@ import {
   figmaPasteImageNoticeDismissed,
 } from "@/lib/figma-paste-image-notice";
 
-import { uniqueLayerId } from "../canvas-primitive-insert";
-import { insertClonedHtmlLayers } from "../clone-and-pen-edit";
 import {
   bridgeSourceIdForCodeLayerNode,
   elementInfoFromCodeLayerNode,
@@ -63,14 +61,13 @@ import { runInsertFigmaPasteLayers } from "../commands/insert-figma-paste-layers
 import { runPasteCopiedScreens } from "../commands/paste-copied-screens";
 import { runPasteOverSelection } from "../commands/paste-over-selection";
 import { runPasteSelection } from "../commands/paste-selection";
+import { runPastedSvgLayer } from "../commands/paste-svg-layer";
 import { runPasteToReplace } from "../commands/paste-to-replace";
 import {
-  getOverviewCanvasCenter,
   runPastedImageFiles,
   type PastedImageFilesClientAnchor,
   type PastedImageFilesTarget,
 } from "../commands/pasted-image-files";
-import { parsePastedSvg } from "../commands/pasted-svg";
 import { runSendRuntimeLayerSemanticHandoff } from "../commands/send-runtime-layer-semantic-handoff";
 import {
   runContextMenuPaste,
@@ -82,7 +79,6 @@ import { resolveFigmaPasteScene } from "../figma-paste-scene";
 import {
   autoHeightScreenIds,
   getAllScreenFrameEntries,
-  findScreenFrameAtCanvasPoint,
   pinnedHeightScreenIds,
   withMeasuredFrameHeights,
   getBoardSelectionFitBounds,
@@ -689,127 +685,56 @@ export function useEditorClipboard({
 
   const handlePastedSvg = useCallback(
     (source: string, sourceScreenId?: string) => {
-      const parsed = parsePastedSvg(source);
-      if (!parsed || !canEditDesign || !activeFile?.id) return false;
-
-      let targetFileId = activeFile.id;
-      let point = { x: 120, y: 120 };
-      const pastedIntoScreen =
-        sourceScreenId &&
-        sourceScreenId !== boardFileId &&
-        files.some((file) => file.id === sourceScreenId);
-      if (pastedIntoScreen) {
-        targetFileId = sourceScreenId;
-        const frame = getAllScreenFrameEntries({
-          overviewScreens,
-          canvasFrameGeometryById,
-        }).find((candidate) => candidate.id === sourceScreenId);
-        if (frame) {
-          point = {
-            x: frame.geometry.width / 2,
-            y: frame.geometry.height / 2,
-          };
-        }
-      } else if (viewModeRef.current === "single") {
-        const iframe = canvasContainerRef.current?.querySelector<HTMLElement>(
-          "[data-design-preview-iframe]",
-        );
-        const rect = iframe?.getBoundingClientRect();
-        const factor = zoom / 100;
-        point = rect
-          ? {
-              x: Math.max(0, rect.width / 2 / factor),
-              y: Math.max(0, rect.height / 2 / factor),
-            }
-          : point;
-      } else if (boardFileId) {
-        const frames = getAllScreenFrameEntries({
-          overviewScreens,
-          canvasFrameGeometryById,
-        });
-        let anchor = (() => {
-          if (overviewSelectedScreenIds.length === 1) {
-            const selected = frames.find(
-              (frame) => frame.id === overviewSelectedScreenIds[0],
-            );
-            if (selected) {
-              return {
-                x: selected.geometry.x + selected.geometry.width / 2,
-                y: selected.geometry.y + selected.geometry.height / 2,
-              };
-            }
-          }
-          return getOverviewCanvasCenter(canvasContainerRef.current);
-        })();
-        const hitFrame = findScreenFrameAtCanvasPoint(
-          anchor,
-          frames,
+      return runPastedSvgLayer(
+        {
+          activeFileId: activeFile?.id,
+          applyLinkedComponentEdit,
+          applyFileContentUpdate,
+          applyLocalContentUpdate,
           boardFileId,
-        );
-        targetFileId = hitFrame?.id ?? boardFileId;
-        if (hitFrame) {
-          anchor = {
-            x: anchor.x - hitFrame.geometry.x,
-            y: anchor.y - hitFrame.geometry.y,
-          };
-        }
-        point = anchor;
-      }
-
-      const nodeId = uniqueLayerId("pasted-svg");
-      const svgDocument = new DOMParser().parseFromString(
-        parsed.svg,
-        "image/svg+xml",
+          canEditDesign,
+          canvasContainerRef,
+          canvasFrameGeometryById,
+          designId: id,
+          files,
+          getFreshActiveContent,
+          getFreshActivePreviewContent,
+          getScreenContent,
+          overviewScreens,
+          overviewSelectedScreenIds,
+          replacePreviewContent,
+          selectedElement,
+          selectedLayerTargets: selectedLayerTargetsRef.current,
+          selectionBefore: captureCurrentSelection(),
+          selectInsertedLayers,
+          t,
+          viewModeRef,
+          zoom,
+        },
+        source,
+        sourceScreenId,
       );
-      const root = svgDocument.documentElement;
-      root.setAttribute("data-agent-native-node-id", nodeId);
-      root.setAttribute("data-agent-native-layer-name", "Pasted SVG");
-      root.setAttribute("data-an-primitive", "pasted-svg");
-      root.setAttribute(
-        "style",
-        `${root.getAttribute("style") ?? ""};position:absolute;width:${parsed.width}px;height:${parsed.height}px;`,
-      );
-      const layerHtml = root.outerHTML;
-      const baseContent =
-        targetFileId === activeFile.id
-          ? (getFreshActivePreviewContent() ?? getFreshActiveContent())
-          : getScreenContent(targetFileId);
-      const insertion = insertClonedHtmlLayers(baseContent, [layerHtml], {
-        positions: [{ ...point, space: "visual" }],
-      });
-      if (!insertion) {
-        toast.error(t("designEditor.toasts.duplicateElementFailed"));
-        return true;
-      }
-      const nextContent = insertion.content;
-      if (targetFileId === activeFile.id) {
-        replacePreviewContent(nextContent, null, { forceFullDocument: true });
-        applyLocalContentUpdate(nextContent, {
-          forcePreviewFullDocument: true,
-        });
-      } else {
-        applyFileContentUpdate(targetFileId, nextContent, {
-          forcePreviewFullDocument: true,
-        });
-      }
-      selectInsertedLayers(targetFileId, nextContent, insertion.rootNodeIds);
-      return true;
     },
     [
       activeFile?.id,
+      applyLinkedComponentEdit,
       applyFileContentUpdate,
       applyLocalContentUpdate,
       boardFileId,
       canEditDesign,
       canvasContainerRef,
       canvasFrameGeometryById,
+      captureCurrentSelection,
       files,
       getFreshActiveContent,
       getFreshActivePreviewContent,
       getScreenContent,
+      id,
       overviewScreens,
       overviewSelectedScreenIds,
       replacePreviewContent,
+      selectedElement,
+      selectedLayerTargetsRef,
       selectInsertedLayers,
       t,
       viewModeRef,

@@ -88,7 +88,7 @@ afterEach(() => {
 });
 
 describe("resolveSlidePointerTarget on the clip slide", () => {
-  it("treats wrapper whitespace as empty slide at every nesting level", () => {
+  it("treats wrapper whitespace as empty slide at every nesting level (oracle 1.1)", () => {
     const { chain, resolve } = mountClipSlide();
     const stacks = {
       "row gap": chain("row1", "chart", "container"),
@@ -105,7 +105,7 @@ describe("resolveSlidePointerTarget on the clip slide", () => {
     }
   });
 
-  it("resolves the caption text leaf with a text cursor and edit grab", () => {
+  it("resolves the caption text leaf with a text cursor and edit grab (oracle 1.2, oracle 2.1)", () => {
     const { byId, chain, resolve } = mountClipSlide();
     const target = objectOf(
       resolve(chain("caption", "chart", "container"), { x: 600, y: 278 }),
@@ -119,7 +119,7 @@ describe("resolveSlidePointerTarget on the clip slide", () => {
     });
   });
 
-  it("falls to the caption body, still a text object, outside its line bounds", () => {
+  it("falls to the caption body, still a text object, outside its line bounds (oracle 1.4, oracle 2.3)", () => {
     const { byId, chain, resolve } = mountClipSlide();
     const target = objectOf(
       resolve(chain("caption", "chart", "container"), { x: 820, y: 278 }),
@@ -133,7 +133,7 @@ describe("resolveSlidePointerTarget on the clip slide", () => {
     });
   });
 
-  it("picks a bar fill, then its track, as painted bodies", () => {
+  it("picks a bar fill, then its track, as painted bodies (oracle 2.8)", () => {
     const { byId, chain, resolve } = mountClipSlide();
     const fill = objectOf(
       resolve(chain("fill1", "track1", "chart", "container"), {
@@ -152,7 +152,7 @@ describe("resolveSlidePointerTarget on the clip slide", () => {
     expect(track).toMatchObject({ hit: "body", object: byId("track1") });
   });
 
-  it("picks the card for its padding and the text leaf for its text", () => {
+  it("picks the card for its padding and the text leaf for its text (oracle 2.1, oracle 2.3)", () => {
     const { byId, chain, resolve } = mountClipSlide();
     const padding = objectOf(
       resolve(chain("card", "left", "container"), { x: 85, y: 290 }),
@@ -186,7 +186,7 @@ describe("resolveSlidePointerTarget on the clip slide", () => {
     });
   });
 
-  it("makes a callout that owns its text one object split into text and body", () => {
+  it("makes a callout that owns its text one object split into text and body (oracle 2.1, oracle 2.3)", () => {
     const { byId, chain, resolve } = mountClipSlide();
     const onText = objectOf(
       resolve(chain("callout", "left", "container"), { x: 200, y: 260 }),
@@ -202,7 +202,7 @@ describe("resolveSlidePointerTarget on the clip slide", () => {
     });
   });
 
-  it("gives the footer's blank area the footer leaf body, not its text", () => {
+  it("gives the footer's blank area the footer leaf body, not its text (oracle 1.4, oracle 2.3)", () => {
     // The footer is one full-width text leaf, so its blank left side is that
     // object's body (move), not a transparent wrapper and not a caret.
     const { byId, chain, resolve } = mountClipSlide();
@@ -258,7 +258,7 @@ describe("resolveSlidePointerTarget on the clip slide", () => {
     }
   });
 
-  it("outlines on hover exactly the object a press would take", () => {
+  it("outlines on hover exactly the object a press would take (oracle 1.10)", () => {
     const { chain, resolve } = mountClipSlide();
     for (const stack of [
       chain("caption", "chart", "container"),
@@ -309,7 +309,7 @@ describe("resolveSlidePointerTarget on the clip slide", () => {
 });
 
 describe("resolveSlidePointerTarget modifiers", () => {
-  it("never edits or drags on an additive press and duplicates from text on Alt", () => {
+  it("never edits or drags on an additive press and duplicates from text on Alt (oracle 5.6, oracle 6.2)", () => {
     const { chain, resolve } = mountClipSlide();
     const stack = chain("caption", "chart", "container");
     const point = { x: 600, y: 278 };
@@ -360,7 +360,7 @@ describe("resolveSlidePointerTarget groups", () => {
     return { root, byId, run, measure };
   }
 
-  it("drills from the group to a member only once the group is selected", () => {
+  it("drills from the group to a member only once the group is selected (oracle 7.1, oracle 7.2)", () => {
     const { byId, run } = mountGroup();
     expect(objectOf(run("a")).object).toBe(byId("group"));
     expect(objectOf(run("a", { selected: byId("outside") })).object).toBe(
@@ -375,12 +375,12 @@ describe("resolveSlidePointerTarget groups", () => {
     });
   });
 
-  it("keeps sibling members directly pickable while one member is selected", () => {
+  it("keeps sibling members directly pickable while one member is selected (oracle 4.10)", () => {
     const { byId, run } = mountGroup();
     expect(objectOf(run("b", { selected: byId("a") })).object).toBe(byId("b"));
   });
 
-  it("selects the whole group on a member press without a caret", () => {
+  it("selects the whole group on a member press without a caret (oracle 7.1)", () => {
     const { byId, run } = mountGroup();
     expect(objectOf(run("a"))).toMatchObject({
       hit: "body",
@@ -391,7 +391,7 @@ describe("resolveSlidePointerTarget groups", () => {
     });
   });
 
-  it("picks members directly when asked to go into groups (double-click)", () => {
+  it("picks members directly when asked to go into groups (double-click) (oracle 7.6)", () => {
     const { byId, run } = mountGroup();
     expect(objectOf(run("b", { intoGroups: true }))).toMatchObject({
       object: byId("b"),
@@ -399,7 +399,7 @@ describe("resolveSlidePointerTarget groups", () => {
     });
   });
 
-  it("does not hit-test the empty space inside a group's bounds", () => {
+  it("does not hit-test the empty space inside a group's bounds (oracle 7.4)", () => {
     const { byId, root, measure } = mountGroup();
     for (const selected of [null, byId("group"), byId("a")]) {
       expect(
@@ -446,7 +446,7 @@ describe("resolveSlidePointerTarget freeform objects", () => {
     return { root, byId, resolve };
   }
 
-  it("lets an unfilled freeform object on top block the text box below it", () => {
+  it("lets an unfilled freeform object on top block the text box below it (oracle 8.3, oracle F.2)", () => {
     const { byId, root, resolve } = mountFreeform();
     const slide = byId("slide");
     expect(
@@ -463,7 +463,7 @@ describe("resolveSlidePointerTarget freeform objects", () => {
     });
   });
 
-  it("selects and moves a persisted text box from its padding, unselected", () => {
+  it("selects and moves a persisted text box from its padding, unselected (oracle 1.4, oracle 2.3, oracle 4.4)", () => {
     const { byId, root, resolve } = mountFreeform();
     const target = objectOf(
       resolve([byId("lower"), byId("slide"), root], { x: 280, y: 255 }),
@@ -477,7 +477,7 @@ describe("resolveSlidePointerTarget freeform objects", () => {
     });
   });
 
-  it("keeps an empty text box whole-box hit-testable and blocking", () => {
+  it("keeps an empty text box whole-box hit-testable and blocking (oracle E.2)", () => {
     const { byId, root, resolve } = mountFreeform();
     const target = objectOf(
       resolve([byId("empty"), byId("lower"), byId("slide"), root], {
@@ -492,7 +492,7 @@ describe("resolveSlidePointerTarget freeform objects", () => {
     });
   });
 
-  it("grabs a freeform object from 5 px outside its border but not 6", () => {
+  it("grabs a freeform object from 5 px outside its border but not 6 (oracle 2.4)", () => {
     const { byId, root, resolve } = mountFreeform();
     const stack = [byId("slide"), root];
     expect(objectOf(resolve(stack, { x: 95, y: 230 }))).toMatchObject({
@@ -583,7 +583,7 @@ describe("resolveSlidePointerTarget edge slop by object kind", () => {
 
   const whitespace = { kind: "whitespace", cursor: "default" };
 
-  it("grabs the group from 4 px outside a text-box member on every side, not from 6", () => {
+  it("grabs the group from 4 px outside a text-box member on every side, not from 6 (oracle 7.9)", () => {
     const { byId, press } = mountSlop();
     for (const [x, y] of [
       [96, 120],
@@ -610,7 +610,7 @@ describe("resolveSlidePointerTarget edge slop by object kind", () => {
     }
   });
 
-  it("grabs the group from 4 px off a member inside the gap, but not the gap's midpoint", () => {
+  it("grabs the group from 4 px off a member inside the gap, but not the gap's midpoint (oracle 7.9)", () => {
     const { byId, press } = mountSlop();
     expect(objectOf(press(190, 144)).object).toBe(byId("textGroup"));
     expect(objectOf(press(190, 196)).object).toBe(byId("textGroup"));
@@ -618,7 +618,7 @@ describe("resolveSlidePointerTarget edge slop by object kind", () => {
     expect(press(190, 170)).toEqual(whitespace);
   });
 
-  it("drills a slop press to the nearest member once the group is selected", () => {
+  it("drills a slop press to the nearest member once the group is selected (oracle 7.10)", () => {
     const { byId, press } = mountSlop();
     const selected = byId("textGroup");
     expect(objectOf(press(96, 120, { selected }))).toMatchObject({
@@ -630,7 +630,7 @@ describe("resolveSlidePointerTarget edge slop by object kind", () => {
     expect(press(94, 120, { selected })).toEqual(whitespace);
   });
 
-  it("lets a drilled member's slop press reach the neighbouring member", () => {
+  it("lets a drilled member's slop press reach the neighbouring member (oracle 7.10)", () => {
     const { byId, press } = mountSlop();
     const selected = byId("ta");
     expect(objectOf(press(96, 220, { selected })).object).toBe(byId("tb"));
@@ -641,7 +641,7 @@ describe("resolveSlidePointerTarget edge slop by object kind", () => {
     expect(press(94, 220, { selected })).toEqual(whitespace);
   });
 
-  it("gives a group of only filled shapes no slop outside it or in its gap", () => {
+  it("gives a group of only filled shapes no slop outside it or in its gap (oracle 7.11)", () => {
     const { press } = mountSlop();
     for (const [x, y] of [
       [396, 120],
@@ -654,7 +654,7 @@ describe("resolveSlidePointerTarget edge slop by object kind", () => {
     }
   });
 
-  it("gives filled shapes, images and tables no slop at 4 px", () => {
+  it("gives filled shapes, images and tables no slop at 4 px (oracle 2.13)", () => {
     const { press } = mountSlop();
     for (const [label, x, y] of [
       ["filled shape", 596, 120],
@@ -666,13 +666,13 @@ describe("resolveSlidePointerTarget edge slop by object kind", () => {
     }
   });
 
-  it("keeps the slop on a text box whatever its fill", () => {
+  it("keeps the slop on a text box whatever its fill (oracle 2.13)", () => {
     const { byId, press } = mountSlop();
     expect(objectOf(press(596, 320)).object).toBe(byId("filledBox"));
     expect(press(594, 320)).toEqual(whitespace);
   });
 
-  it("gives unfilled text, bordered and empty shapes the slop at 4 px, not 6", () => {
+  it("gives unfilled text, bordered and empty shapes the slop at 4 px, not 6 (oracle 2.4, oracle 2.13)", () => {
     const { byId, press } = mountSlop();
     for (const [id, x, y] of [
       ["loose", 796, 120],
@@ -684,7 +684,7 @@ describe("resolveSlidePointerTarget edge slop by object kind", () => {
     }
   });
 
-  it("gives a line the slop perpendicular to it", () => {
+  it("gives a line the slop perpendicular to it (oracle 2.4)", () => {
     const { byId, press } = mountSlop();
     expect(objectOf(press(200, 396)).object).toBe(byId("rule"));
     expect(objectOf(press(200, 406)).object).toBe(byId("rule"));
@@ -694,7 +694,7 @@ describe("resolveSlidePointerTarget edge slop by object kind", () => {
     expect(press(200, 494)).toEqual(whitespace);
   });
 
-  it("shows the move cursor and outline in the slop band only for outline-hit objects", () => {
+  it("shows the move cursor and outline in the slop band only for outline-hit objects (oracle 1.5, oracle 1.11)", () => {
     const { byId, press } = mountSlop();
     expect(objectOf(press(796, 120))).toMatchObject({
       cursor: "move",
@@ -761,7 +761,7 @@ describe("resolveSlidePointerTarget special elements", () => {
     ).toBe(mixed);
   });
 
-  it("selects an image, including its persisted wrapper", () => {
+  it("selects an image, including its persisted wrapper (oracle 2.9)", () => {
     const root = document.createElement("div");
     root.innerHTML = `<div class="fmd-slide"><div id="wrap" class="fmd-pptx-image" data-slide-object-id="i1" style="position:absolute"><img id="img" src="x.png"></div></div>`;
     document.body.append(root);
@@ -903,7 +903,7 @@ describe("clampSelectionToTextRoot", () => {
     expect(selection.toString()).toBe("pha ");
   });
 
-  it("pins a forward drag that runs into the next leaf to the end of the press leaf", () => {
+  it("pins a forward drag that runs into the next leaf to the end of the press leaf (oracle 5.2)", () => {
     const { a, b } = mountLeaves();
     const selection = window.getSelection()!;
     selection.setBaseAndExtent(a.firstChild!, 3, b.firstChild!, 2);
@@ -914,7 +914,7 @@ describe("clampSelectionToTextRoot", () => {
     expect(selection.toString()).toBe("ha text");
   });
 
-  it("keeps the anchor of a backward drag that runs into the previous leaf", () => {
+  it("keeps the anchor of a backward drag that runs into the previous leaf (oracle 5.2)", () => {
     const { a, b } = mountLeaves();
     const selection = window.getSelection()!;
     selection.setBaseAndExtent(b.firstChild!, 4, a.firstChild!, 2);

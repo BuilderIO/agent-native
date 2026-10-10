@@ -69,6 +69,10 @@ export default {
       "{from} au {to} · cohortes distinctes par application{partial}",
     sessionCount: "{count} sessions",
     otherPaths: "Autres parcours",
+    otherBranchesShown: "Affichage de {shown} branches sur {total}",
+    otherBranchDetailsUnavailable:
+      "Les détails des branches ne figurent pas dans cet arbre de parcours",
+    otherBranchSourceKey: "Clé de l’étape source : {key}",
     htmlLanguage: "fr-FR",
   },
   composer: { menu: { integrations: "Intégrations" } },
@@ -1731,9 +1735,11 @@ export default {
     assetsNoImageUrl: "Assets n'a pas renvoyé d'URL d'image.",
     failedToUploadFile: "Échec du téléchargement du fichier",
     imageAttachmentUnavailable:
-      "Impossible de préparer cette image comme référence visuelle. Joignez un fichier PNG, JPG, GIF ou WebP plus petit.",
+      "Impossible de préparer cette image pour l’envoi. Essayez une image JPG, PNG, GIF ou WebP.",
+    imageAttachmentTooLarge:
+      "Chaque image peut atteindre {{perFile}} Mo, pour un total de {{total}} Mo d’images.",
     attachmentsTooLarge:
-      "Ces pièces jointes sont trop volumineuses. Les téléversements sont limités à {{max}} Mo au total : joignez moins de fichiers ou des fichiers plus petits.",
+      "Les images sont optimisées automatiquement. Le total des images optimisées et des autres fichiers ne peut pas dépasser {{max}} Mo.",
     failedToSubmitPrompt: "Impossible d’envoyer le prompt",
     skipPrompt: "Ignorer le prompt",
     startBlankCanvas: "Commencer avec une toile vierge",

@@ -240,10 +240,15 @@ function isSettingsPath(pathname: string): boolean {
   return pathname === "/settings" || pathname.startsWith("/settings/");
 }
 
+/** `/chat` is the blank chat page; `/chat/<threadId>` is one saved thread. */
+function isMailChatPath(pathname: string): boolean {
+  return pathname === "/chat" || pathname.startsWith("/chat/");
+}
+
 function isStandardLayoutPath(pathname: string): boolean {
   return (
     pathname === "/agent" ||
-    pathname === "/chat" ||
+    isMailChatPath(pathname) ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
     pathname.startsWith("/draft-queue/") ||
@@ -350,7 +355,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { session } = useSession();
-  const isAgentChatRoute = location.pathname === "/chat";
+  const isAgentChatRoute = isMailChatPath(location.pathname);
 
   const t = useT();
   setThreadCacheSessionScope(
@@ -386,7 +391,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       defaultOpen={typeof window !== "undefined" && wasMailChatOpen()}
       openStorageKey={mailChatOpenStorageKey()}
       agentPageHref="/settings/agent"
-      onFullscreenRequest={() => void navigate("/chat")}
+      onFullscreenRequest={(threadId?: string) =>
+        void navigate(
+          threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+        )
+      }
       composerPlaceholder={t("mail.aiFilter.composerPlaceholder")}
       emptyStateText={t("agent.emptyState")}
       dynamicSuggestions={false}
@@ -2373,7 +2382,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 function StandardLayout({ children }: AppLayoutProps) {
   const t = useT();
   const location = useLocation();
-  const isAgentChatRoute = location.pathname === "/chat";
+  const isAgentChatRoute = isMailChatPath(location.pathname);
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const headerTitle = useHeaderTitle();

@@ -104,8 +104,11 @@ vi.mock("../secrets/storage.js", async (importOriginal) => ({
   readAppSecrets: vi.fn(async () => new Map()),
 }));
 
-const { BACKGROUND_RUN_HARD_TIMEOUT_MS, runBackgroundAutomation } =
-  await import("./background-automation-runner.js");
+const {
+  BACKGROUND_RUN_HARD_TIMEOUT_MS,
+  backgroundRunTerminalError,
+  runBackgroundAutomation,
+} = await import("./background-automation-runner.js");
 
 async function abortReasonOf(runId: string): Promise<string | null> {
   const row = (await pglite
@@ -2798,6 +2801,89 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
       .get("engine-credentials")) as { error: string; error_code: string };
     expect(history.error_code).toBe("missing_credentials");
     expect(history.error).not.toContain("ended with status");
+  });
+
+  it("records a run that yielded to a connection request as a failure, not a success", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({
+          type: "tool_done",
+          id: "tc_1",
+          tool: "provider-api-request",
+          result: "hubspot requires an available workspace connection.",
+          isError: true,
+        });
+        opts.send?.({
+          type: "connection_required",
+          requestId: "request-1",
+          provider: "hubspot",
+          reason: "connect",
+        });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+
+    await expect(
+      runBackgroundAutomation(
+        runOptions(precondition("connection-yield")),
+        standardDeps,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "connection_required",
+      message: expect.stringContaining("hubspot"),
+    });
+    const history = (await pglite
+      .prepare(
+        `SELECT status, error, error_code FROM automation_runs WHERE automation = ?`,
+      )
+      .get("connection-yield")) as {
+      status: string;
+      error: string;
+      error_code: string;
+    };
+    expect(history).toMatchObject({
+      status: "error",
+      error_code: "connection_required",
+    });
+    expect(history.error).toContain("hubspot");
+    expect(history.error).not.toContain("ended with status");
+  });
+
+  it("only treats a connection request as the cause of a run that otherwise finished", () => {
+    expect(
+      backgroundRunTerminalError({
+        events: [
+          {
+            event: {
+              type: "connection_required",
+              provider: "google_drive",
+            },
+          },
+          { event: { type: "done" } },
+        ],
+      }),
+    ).toEqual({
+      message: expect.stringContaining("google_drive"),
+      errorCode: "connection_required",
+    });
+    expect(
+      backgroundRunTerminalError({
+        events: [{ event: { type: "text" } }, { event: { type: "done" } }],
+      }),
+    ).toBeNull();
+    expect(
+      backgroundRunTerminalError({
+        events: [{ event: { type: "error", error: "Gateway returned 502" } }],
+      }),
+    ).toEqual({ message: "Gateway returned 502", errorCode: undefined });
   });
 
   it("keeps a runtime error's real code and cause", async () => {

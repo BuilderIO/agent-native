@@ -947,49 +947,7 @@ export async function runAuthoringFuzz(
   let conflictResourceErrors = 0;
   let activeIndex = -1;
   let activePhase = "setup";
-  const requestTrace: Array<Record<string, unknown>> = [];
-  const recordRequestTrace = (
-    event: string,
-    detail: Record<string, unknown> = {},
-  ) => {
-    requestTrace.push({
-      at: Date.now(),
-      phase: activePhase,
-      step: activeIndex,
-      event,
-      ...detail,
-    });
-    if (requestTrace.length > 200) requestTrace.shift();
-  };
-  const requestTraceDetail = (request: any) => {
-    const url = new URL(request.url());
-    return {
-      url: `${url.origin}${url.pathname}`,
-      method: request.method(),
-      startedAt: watchedRequests.get(request) ?? null,
-      pendingAtReload: reloadNavigationRequests.has(request),
-    };
-  };
-  for (const request of watchedRequests.keys()) {
-    recordRequestTrace("pending-before-monitor", requestTraceDetail(request));
-  }
-  const onFrameNavigated = (frame: any) => {
-    if (frame !== page.mainFrame()) return;
-    const url = new URL(frame.url());
-    recordRequestTrace("frame-navigated", {
-      url: `${url.origin}${url.pathname}`,
-    });
-  };
-  const onDomContentLoaded = () => recordRequestTrace("domcontentloaded");
-  const onLoad = () => recordRequestTrace("load");
   const onConsole = (message: any) => {
-    if (
-      message.type() === "info" &&
-      message.text().startsWith("[slides-reload-lifecycle] ")
-    ) {
-      recordRequestTrace("page-lifecycle", { message: message.text() });
-      return;
-    }
     if (
       traceEnabled &&
       message.type() === "debug" &&
@@ -999,7 +957,6 @@ export async function runAuthoringFuzz(
       return;
     }
     if (message.type() !== "error") return;
-    recordRequestTrace("console-error", { message: message.text() });
     if (traceEnabled) {
       console.log(
         `[edit-fidelity] console error phase=${activePhase}: ${message.text()}`,
@@ -1026,10 +983,8 @@ export async function runAuthoringFuzz(
     }
     pageErrors.push(message.text());
   };
-  const onPageError = (error: Error) => {
-    recordRequestTrace("page-error", { message: error.stack ?? error.message });
+  const onPageError = (error: Error) =>
     pageErrors.push(error.stack ?? error.message);
-  };
   const onRequestFailed = (request: any) => {
     const requestStartedAt = watchedRequests.get(request);
     const requestPendingAtReloadNavigation =
@@ -1039,11 +994,6 @@ export async function runAuthoringFuzz(
     const url = request.url();
     const pathname = new URL(url).pathname;
     const errorText = request.failure()?.errorText ?? "unknown";
-    recordRequestTrace("request-failed", {
-      ...requestTraceDetail(request),
-      startedAt: requestStartedAt ?? null,
-      errorText,
-    });
     if (traceEnabled) {
       console.log(
         `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText})`,
@@ -1086,7 +1036,6 @@ export async function runAuthoringFuzz(
       isBrowserSessionPath(requestUrl.pathname)
     ) {
       watchedRequests.set(request, startedAt);
-      recordRequestTrace("request-started", requestTraceDetail(request));
     }
     if (!traceEnabled) return;
     pendingRequests.set(request, {
@@ -1106,20 +1055,11 @@ export async function runAuthoringFuzz(
     }
   };
   const onRequestSettled = (request: any) => {
-    if (watchedRequests.has(request)) {
-      recordRequestTrace("request-finished", requestTraceDetail(request));
-    }
     pendingRequests.delete(request);
     watchedRequests.delete(request);
     reloadNavigationRequests.delete(request);
   };
   const onResponse = (response: any) => {
-    if (watchedRequests.has(response.request())) {
-      recordRequestTrace("response", {
-        ...requestTraceDetail(response.request()),
-        status: response.status(),
-      });
-    }
     if (traceEnabled) {
       const responseUrl = new URL(response.url());
       if (
@@ -1155,20 +1095,6 @@ export async function runAuthoringFuzz(
   page.on("requestfailed", onRequestFailed);
   page.on("request", onRequest);
   page.on("requestfinished", onRequestSettled);
-  page.on("framenavigated", onFrameNavigated);
-  page.on("domcontentloaded", onDomContentLoaded);
-  page.on("load", onLoad);
-  const lifecycleScript = `(() => {
-    if (window.__slidesReloadLifecycleTraceInstalled) return;
-    window.__slidesReloadLifecycleTraceInstalled = true;
-    for (const event of ['pagehide', 'pageshow']) {
-      window.addEventListener(event, (value) => console.info('[slides-reload-lifecycle] ' + JSON.stringify({
-        event, at: Date.now(), persisted: value.persisted ?? null, path: location.pathname, visibility: document.visibilityState
-      })));
-    }
-  })()`;
-  await page.addInitScript(lifecycleScript);
-  await page.evaluate(lifecycleScript);
   await page.evaluate((traceHeartbeat: boolean) => {
     const scope = window as Window & {
       __slidesAuthoringInputTrace?: Array<Record<string, unknown>>;
@@ -4835,13 +4761,10 @@ export async function runAuthoringFuzz(
 
     activePhase = "save/reload";
     const persistence = await options.finishAndReload(() => {
-      recordRequestTrace("reload-navigation-started");
       for (const [request, startedAt] of watchedRequests.entries()) {
         reloadNavigationRequests.set(request, startedAt);
-        recordRequestTrace("pending-at-reload", requestTraceDetail(request));
       }
     });
-    recordRequestTrace("reload-completed");
     assertAuthoringPersistence(persistence);
     await checkPageErrors();
     const unexpectedConflictPaths = [
@@ -4988,11 +4911,6 @@ export async function runAuthoringFuzz(
     } catch (diagnosticError) {
       diagnostics = { status: "unavailable", error: String(diagnosticError) };
     }
-    for (const event of requestTrace) {
-      console.error(
-        `[edit-fidelity] seed=${seed} request-trace ${JSON.stringify(event)}`,
-      );
-    }
     throw formatAuthoringFuzzFailure(
       seed,
       activePhase,
@@ -5008,8 +4926,5 @@ export async function runAuthoringFuzz(
     page.off("request", onRequest);
     page.off("requestfinished", onRequestSettled);
     page.off("requestfailed", onRequestFailed);
-    page.off("framenavigated", onFrameNavigated);
-    page.off("domcontentloaded", onDomContentLoaded);
-    page.off("load", onLoad);
   }
 }

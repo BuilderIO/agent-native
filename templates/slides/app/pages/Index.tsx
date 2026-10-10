@@ -238,6 +238,12 @@ type HomeSuggestionsResult =
       suggestions: [];
     };
 
+function isReadyHomeSuggestions(
+  result: HomeSuggestionsResult | undefined,
+): result is Extract<HomeSuggestionsResult, { status: "ready" }> {
+  return result?.status === "ready" && result.suggestions.length === 3;
+}
+
 interface ImportedReferenceSource {
   deckId: string;
   filePath: string;
@@ -646,6 +652,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     refetch: refetchWorkspaceDefaults,
   } = useWorkspaceDefaults(isHome);
   const { session, status: sessionStatus } = useSession();
+  const homeSuggestionsIdentity = [
+    session?.authUserId ?? session?.userId ?? session?.email ?? "anonymous",
+    session?.orgId ?? "",
+  ];
+  const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
   // `session` is null while the check is loading or the server is unreachable,
   // neither of which means signed out. Only a definitive answer sends the user
   // to sign in; otherwise the server stays the authority on the request.
@@ -661,34 +672,130 @@ export default function Index({ active = true }: { active?: boolean }) {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
+  const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(true);
+  const fallbackHomeSuggestions = useMemo(
+    () =>
+      [
+        t("home.fallbackSuggestions.pitch"),
+        t("home.fallbackSuggestions.roadmap"),
+        t("home.fallbackSuggestions.explainer"),
+      ].map((prompt, index) => ({
+        id: `slides-home-generic-${index}`,
+        label: prompt,
+        prompt,
+      })),
+    [t],
+  );
+  const homeSuggestionsProfile = useActionQuery<{
+    onboardingRole?: string | null;
+  }>(
+    "get-user-profile",
+    {},
+    {
+      enabled: quickActionsEnabled,
+      queryKeyScope: [homeSuggestionsIdentityScope],
+      staleTime: 0,
+    },
+  );
+  const homeSuggestionsProfileReady =
+    quickActionsEnabled &&
+    (homeSuggestionsProfile.data !== undefined ||
+      homeSuggestionsProfile.isError);
+  const homeSuggestionsCacheScope = JSON.stringify([
+    ...homeSuggestionsIdentity,
+    homeSuggestionsProfile.data?.onboardingRole ?? null,
+  ]);
+  const [homeSuggestionsSnapshotState, setHomeSuggestionsSnapshotState] =
+    useState<{
+      scope: string;
+      suggestions: HomeSuggestion[];
+    } | null>(null);
+  const homeSuggestionsSnapshot =
+    homeSuggestionsProfileReady &&
+    homeSuggestionsSnapshotState?.scope === homeSuggestionsIdentityScope
+      ? homeSuggestionsSnapshotState.suggestions
+      : null;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
     {
-      enabled: isHome && quickActionsEnabled,
+      enabled:
+        isHome &&
+        showNewDeckPrompt &&
+        homeSuggestionsProfileReady &&
+        homeSuggestionsSnapshot === null,
+      queryKeyScope: [homeSuggestionsCacheScope],
       retry: false,
-      staleTime: 5 * 60 * 1000,
+      staleTime: (query) =>
+        isReadyHomeSuggestions(query.state.data) ? Number.POSITIVE_INFINITY : 0,
+      gcTime: Number.POSITIVE_INFINITY,
+      refetchOnMount: (query) => !isReadyHomeSuggestions(query.state.data),
+      refetchOnWindowFocus: (query) =>
+        !isReadyHomeSuggestions(query.state.data),
+      refetchOnReconnect: (query) => !isReadyHomeSuggestions(query.state.data),
     },
   );
-  const homeSuggestions =
+  const readyHomeSuggestions =
+    homeSuggestionsProfileReady &&
     homeSuggestionsQuery.data?.status === "ready" &&
-    homeSuggestionsQuery.data.suggestions.length
+    homeSuggestionsQuery.data.suggestions.length === 3
       ? homeSuggestionsQuery.data.suggestions
-      : [
-          t("home.fallbackSuggestions.pitch"),
-          t("home.fallbackSuggestions.roadmap"),
-          t("home.fallbackSuggestions.explainer"),
-        ].map((prompt, index) => ({
-          id: `slides-home-generic-${index}`,
-          label: prompt,
-          prompt,
-        }));
+      : null;
+  const homeSuggestionsUnavailable =
+    !homeSuggestionsQuery.isFetching &&
+    quickActionsEnabled &&
+    (homeSuggestionsQuery.isError ||
+      homeSuggestionsQuery.data?.status === "unavailable" ||
+      (homeSuggestionsQuery.data?.status === "ready" &&
+        homeSuggestionsQuery.data.suggestions.length !== 3));
+  useEffect(() => {
+    if (homeSuggestionsSnapshot !== null) return;
+    const result = homeSuggestionsQuery.data;
+    if (
+      quickActionsEnabled &&
+      homeSuggestionsProfileReady &&
+      result?.status === "ready" &&
+      result.suggestions.length === 3
+    ) {
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsIdentityScope,
+        suggestions: result.suggestions,
+      });
+    } else if (
+      quickActionsEnabled &&
+      homeSuggestionsProfileReady &&
+      homeSuggestionsUnavailable
+    ) {
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsIdentityScope,
+        suggestions: fallbackHomeSuggestions,
+      });
+    }
+  }, [
+    homeSuggestionsQuery.data,
+    homeSuggestionsSnapshot,
+    homeSuggestionsCacheScope,
+    homeSuggestionsIdentityScope,
+    quickActionsEnabled,
+    homeSuggestionsProfileReady,
+    homeSuggestionsUnavailable,
+    fallbackHomeSuggestions,
+  ]);
+  const homeSuggestions =
+    homeSuggestionsSnapshot ??
+    readyHomeSuggestions ??
+    (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);
+  const homeSuggestionsLoading =
+    isHome &&
+    showNewDeckPrompt &&
+    homeSuggestionsSnapshot === null &&
+    readyHomeSuggestions === null &&
+    (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
     useState<Deck | null>(null);
-  const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(true);
   const homeComposerRef = useRef<PromptPopoverHandle>(null);
   const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
     text: string;
@@ -2650,8 +2757,16 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       }
       quickActions={
-        isHome && showNewDeckPrompt ? (
+        isHome &&
+        showNewDeckPrompt &&
+        (homeSuggestionsLoading ||
+          homeSuggestionsUnavailable ||
+          readyHomeSuggestions !== null ||
+          homeSuggestionsSnapshot !== null) ? (
           <AgentSuggestionBar
+            loading={homeSuggestionsLoading}
+            announceUpdates
+            layout="single-line"
             suggestions={homeSuggestions.map((suggestion, index) => ({
               ...suggestion,
               id: suggestion.id ?? `slides-home-${index}`,

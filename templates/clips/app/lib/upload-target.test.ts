@@ -91,6 +91,32 @@ describe("openUploadTarget", () => {
     expect(dropRow).toHaveBeenCalledWith("srv-1");
   });
 
+  it("keeps capture local when storage rejects upload creation", async () => {
+    const onCreateFailed = vi.fn();
+    const dropRow = vi.fn();
+    const result = openUploadTarget({
+      intake: false,
+      ownerEmail: "me@example.com",
+      newId: () => "srv-1",
+      isStale: () => false,
+      fetchStatus: async () => ({ configured: true }),
+      create: async () =>
+        Response.json(
+          { error: "Video storage is not connected yet." },
+          { status: 503 },
+        ),
+      dropRow,
+      onCreateFailed,
+    });
+
+    await expect(result).resolves.toBeNull();
+    expect(dropRow).toHaveBeenCalledWith("srv-1");
+    expect(onCreateFailed).toHaveBeenCalledWith({
+      kind: "http",
+      status: 503,
+    });
+  });
+
   it("drops the row a lost response may have left, and records locally", async () => {
     const { result, dropRow } = open(async () => {
       throw new TypeError("Failed to fetch");

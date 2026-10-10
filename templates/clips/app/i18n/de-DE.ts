@@ -1,5 +1,68 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
+  lookbackContext: {
+    includeLast: "Letzte einbeziehen",
+    whatIsThis: "Was ist das?",
+    off: "Aus",
+    custom: "Benutzerdefiniert…",
+    customLabel: "Benutzerdefinierte Dauer",
+    customAmount: "Dauer",
+    customUnit: "Einheit",
+    unitSeconds: "Sekunden",
+    unitMinutes: "Minuten",
+    customSave: "Dauer verwenden",
+    customErrorEmpty: "Gib eine Dauer ein.",
+    customErrorInvalid: "Gib eine ganze Zahl in Sekunden oder Minuten ein.",
+    customErrorTooLong: "Höchstens 5 Min.",
+    turnOnRewind: "Rewind aktivieren",
+    rewindOffTitle: "Rewind aktivieren",
+    rewindOffBody:
+      "Rewind speichert lokal einen Verlauf deines Bildschirms, damit du die letzten Minuten vor einer Aufnahme einbeziehen kannst. Filmmaterial wird nur hochgeladen, wenn du es einbeziehst oder freigibst.",
+    requestFailed:
+      "Frühere Bildschirmzeit konnte nicht einbezogen werden. Die Aufnahme läuft ohne sie weiter.",
+    localOnlyUnavailable:
+      "Frühere Bildschirmzeit wird bei rein lokalen Aufnahmen nicht gespeichert.",
+    saving: "{{window}} davor wird gespeichert…",
+    ready: "Mit {{window}} davor",
+    failed: "Frühere Bildschirmzeit konnte nicht gespeichert werden",
+    unreadable: "Frühere Bildschirmzeit konnte nicht geprüft werden",
+    edit: "Bearbeiten",
+    editTitle: "Frühere Bildschirmzeit",
+    editSave: "Speichern",
+    editFailed:
+      "Das Zeitfenster konnte nicht gespeichert werden. Versuch es erneut.",
+    previewPreparing: "Vorschau wird vorbereitet…",
+    previewFailed: "Die Vorschau konnte nicht vorbereitet werden.",
+    previewLabel: "Vorschau der früheren Bildschirmzeit",
+    retry: "Erneut versuchen",
+    playSelection: "Auswahl abspielen",
+    removeFailed:
+      "Frühere Bildschirmzeit für die verworfene Aufnahme konnte nicht entfernt werden.",
+    removeFailedAction:
+      "Frühere Bildschirmzeit konnte nicht entfernt werden. Versuch es erneut.",
+    removeAction: "Frühere Bildschirmzeit entfernen",
+    removeConfirmTitle: "Frühere Bildschirmzeit entfernen?",
+    removeConfirmBody:
+      "Das Filmmaterial wird in den Papierkorb verschoben und der Clip enthält es nicht mehr.",
+    removeConfirm: "Entfernen",
+    removed: "Frühere Bildschirmzeit entfernt",
+    scrubberFromBefore: "Ab {{offset}} davor",
+    scrubberFromStart: "Ab Aufnahmebeginn",
+    scrubberToBefore: "Bis {{offset}} davor",
+    scrubberToStart: "Bis Aufnahmebeginn",
+    scrubberLength: "Dauer",
+    scrubberStartHandle: "Fensterbeginn",
+    scrubberEndHandle: "Fensterende",
+    tab: "Kontext",
+    label: "Bildschirm vor der Aufnahme",
+    window: "{{start}}–{{end}} vor der Aufnahme",
+    savingEarlierTime: "Frühere Bildschirmzeit wird gespeichert…",
+    loadFailed: "Frühere Bildschirmzeit konnte nicht geladen werden.",
+    empty: "An diesem Clip ist keine frühere Bildschirmzeit angehängt.",
+    larger: "Vergrößern",
+    editHint: "Bearbeite das Zeitfenster in Clips Desktop.",
+    waitingOtherDevice: "Warten auf das Gerät, das diesen Clip aufgenommen hat",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Builder.io nutzen",
@@ -779,6 +842,8 @@ const messages = {
     switchToNightly: "Zu Nightly-Builds wechseln",
     switchToStable: "Zu stabilen Builds wechseln",
     retry: "Erneut versuchen",
+    mountError:
+      "Clips konnte seinen Pfad im Workspace nicht ermitteln. Bitte den Workspace-Administrator, die App-Pfadkonfiguration zu prüfen.",
     heroDescription:
       "Ein Menüleisten-Recorder für Bildschirm, Kamera und Bildschirm + Kamera. Ein-Klick-Start, verschiebbare Kamerablase, Link zum sofortigen Teilen, wenn Sie anhalten.",
     versionReleased: "Version {{version}} – veröffentlicht {{date}}",
@@ -843,6 +908,9 @@ const messages = {
     labWisprFlow: "Sprachdiktat",
     labWisprFlowDescription:
       "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
+    labLookbackContext: "Frühere Bildschirmzeit einbeziehen",
+    labLookbackContextDescription:
+      "Bis zu fünf Minuten Bildschirmzeit vor einer Aufnahme als passiven Kontext anhängen.",
     uploadWorkspaceTitle: "Aktiver Arbeitsbereich",
     uploadWorkspaceDescription:
       "Wähle den Arbeitsbereich, den Clips für neue Aufnahmen einschließlich Desktop-Uploads verwendet.",
@@ -2208,22 +2276,6 @@ const messages = {
     guideStartTitle: "Click Start notes (Lokalisiert)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Lokalisiert)",
-  },
-  rewindExtension: {
-    title: "Frühere Aufnahme hinzufügen",
-    description:
-      "Wähle einen Zeitraum aus dem lokalen Rewind und füge ihn am Anfang dieses Clips ein. Nichts wird automatisch hinzugefügt.",
-    progressLabel: "Fortschritt der Rewind-Verarbeitung",
-    privateFirstTitle: "Diesen Clip zuerst privat machen",
-    privateFirstDescription:
-      "Der lokale Rewind-Verlauf kann Kontext von vor dem Aufnahmestart enthalten. Der Clip wird privat. Falls jemand direkten Zugriff hat, hält Clips an, damit du ihn zuerst unter Teilen entfernen kannst.",
-    makePrivateContinue: "Privat machen und fortfahren",
-    add30Seconds: "Vorherige 30 Sekunden hinzufügen",
-    add5Minutes: "Vorherige 5 Minuten hinzufügen",
-    add5MinutesDescription:
-      "Hilfreich, um den Einstieg in eine längere Erklärung wiederherzustellen.",
-    privateReady:
-      "Dieser Clip ist privat. Du kannst jetzt lokalen Rewind-Verlauf hinzufügen.",
   },
   browserDiagnostics: {
     debug: "Debug",

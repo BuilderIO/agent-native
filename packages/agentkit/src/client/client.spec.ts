@@ -3298,6 +3298,153 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("leaves snapshot persistence to the host when the transport lacks support", async () => {
+    const client = new AgentKitClient({ transport: createTransport([]) });
+
+    await expect(
+      client.persistThreadSnapshotWithResult("thread-1"),
+    ).resolves.toBeUndefined();
+    await expect(
+      client.persistThreadSnapshot("thread-1"),
+    ).resolves.toBeUndefined();
+
+    await client.shutdown();
+  });
+
+  it("reports snapshot persistence failures through the legacy API", async () => {
+    const transport = createTransport([]);
+    transport.persistThreadSnapshot = async () => {
+      throw new Error("History storage is unavailable.");
+    };
+    const client = new AgentKitClient({ transport });
+
+    await expect(
+      client.persistThreadSnapshotWithResult("thread-1"),
+    ).resolves.toBe(false);
+    await expect(client.persistThreadSnapshot("thread-1")).rejects.toThrow(
+      "Thread snapshot persistence failed.",
+    );
+    expect(client.getSnapshot()).toMatchObject({
+      connection: "error",
+      error: {
+        code: "thread_snapshot_persist_failed",
+        message: "History storage is unavailable.",
+      },
+    });
+    await client.shutdown();
+  });
+
+  it.each([
+    ["request_aborted", { code: "request_aborted" }],
+    ["AbortError", { name: "AbortError" }],
+    ["thread_snapshot_queue_full", { code: "thread_snapshot_queue_full" }],
+    [
+      "thread_snapshot_queue_stalled",
+      { code: "thread_snapshot_queue_stalled" },
+    ],
+  ] as const)(
+    "keeps legacy snapshot persistence nonfatal for expected deferral (%s)",
+    async (_label, properties) => {
+      const transport = createTransport([]);
+      const error = Object.assign(
+        new Error("Snapshot persistence did not complete."),
+        properties,
+      );
+      transport.persistThreadSnapshot = async () => {
+        throw error;
+      };
+      const onError = vi.fn();
+      const client = new AgentKitClient({ transport, onError });
+      const initialConnection = client.getSnapshot().connection;
+
+      await expect(client.persistThreadSnapshot("thread-1")).resolves.toBe(
+        undefined,
+      );
+
+      expect(client.getSnapshot().connection).toBe(initialConnection);
+      expect(client.getSnapshot()).not.toHaveProperty("error");
+      expect(onError).not.toHaveBeenCalled();
+      await client.shutdown();
+    },
+  );
+
+  it.each(["caller abort", "checkpoint timeout"] as const)(
+    "does not fail the client for a snapshot %s",
+    async (cancellation) => {
+      let transportSignal: AbortSignal | undefined;
+      const persistThreadSnapshot = vi.fn(
+        (_input: unknown, context?: { signal?: AbortSignal }) =>
+          new Promise<void>((_resolve, reject) => {
+            transportSignal = context?.signal;
+            transportSignal?.addEventListener(
+              "abort",
+              () => reject(transportSignal?.reason),
+              { once: true },
+            );
+          }),
+      );
+      const transport = createTransport([]);
+      transport.persistThreadSnapshot = persistThreadSnapshot;
+      const onError = vi.fn();
+      const client = new AgentKitClient({ transport, onError });
+      const abortController = new AbortController();
+
+      const saving = client.persistThreadSnapshotWithResult(
+        "thread-1",
+        undefined,
+        {
+          signal: abortController.signal,
+        },
+      );
+      await vi.waitFor(() =>
+        expect(persistThreadSnapshot).toHaveBeenCalledOnce(),
+      );
+      if (cancellation === "checkpoint timeout") {
+        const timeout = new Error(
+          "Chat thread snapshot persistence timed out.",
+        );
+        timeout.name = "TimeoutError";
+        abortController.abort(timeout);
+      } else {
+        abortController.abort();
+      }
+
+      await expect(saving).resolves.toBe(false);
+      expect(persistThreadSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: "thread-1" }),
+        expect.objectContaining({ signal: expect.anything() }),
+      );
+      expect(transportSignal?.aborted).toBe(true);
+      expect(client.getSnapshot()).toMatchObject({ connection: "idle" });
+      expect(client.getSnapshot()).not.toHaveProperty("error");
+      expect(onError).not.toHaveBeenCalled();
+      await client.shutdown();
+    },
+  );
+
+  it.each(["thread_snapshot_queue_full", "thread_snapshot_queue_stalled"])(
+    "does not fail the client for a deferred snapshot queue (%s)",
+    async (name) => {
+      const transport = createTransport([]);
+      transport.persistThreadSnapshot = async () => {
+        const error = new Error("Snapshot persistence is deferred.");
+        Object.assign(error, { code: name });
+        throw error;
+      };
+      const onError = vi.fn();
+      const client = new AgentKitClient({ transport, onError });
+      const initialConnection = client.getSnapshot().connection;
+
+      await expect(
+        client.persistThreadSnapshotWithResult("thread-1"),
+      ).resolves.toBe(false);
+
+      expect(client.getSnapshot().connection).toBe(initialConnection);
+      expect(onError).not.toHaveBeenCalled();
+      await client.shutdown();
+    },
+  );
+
   it("reloads the durable annotation after a concurrent snapshot update", async () => {
     const original = {
       id: "annotation-1",
@@ -5803,6 +5950,142 @@ describe("AgentKitClient", () => {
     ]);
   });
 
+  describe("a reloaded snapshot that still lists an open connection request", () => {
+    const openRequest = {
+      id: "connection-1",
+      provider: "google_drive",
+      reason: "connect" as const,
+      status: "requested" as const,
+    };
+    const run = (
+      id: string,
+      status: "completed" | "failed",
+      startedAt: string,
+    ) => ({
+      id,
+      threadId: "thread-1",
+      status,
+      lastSequence: 3,
+      startedAt,
+      completedAt: "2026-08-29T00:01:00.000Z",
+    });
+    const loadWith = async (snapshot: Partial<AgentThreadSnapshot>) => {
+      const transport = createTransport([]);
+      transport.getThreadSnapshot = async () => ({
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:01:00.000Z",
+        messages: [],
+        connectionRequests: [{ request: openRequest, runId: "run-1" }],
+        ...snapshot,
+      });
+      return new AgentKitClient({ transport }).loadThread("thread-1");
+    };
+
+    it("does not bring it back for a failed run", async () => {
+      const thread = await loadWith({
+        runs: [run("run-1", "failed", "2026-08-29T00:00:00.000Z")],
+        events: [
+          protocolEvent(1, { type: "run.started" }),
+          protocolEvent(2, {
+            type: "connection.requested",
+            request: openRequest,
+          }),
+          protocolEvent(3, {
+            type: "run.failed",
+            error: { code: "stream_ended", message: "Run ended early" },
+          }),
+        ],
+      });
+
+      expect(thread.runs["run-1"]?.status).toBe("failed");
+      expect(thread.connectionRequests).toEqual({});
+      expect(thread.connectionRequestRunIds).toEqual({});
+    });
+
+    it("does not bring it back once a newer run has started", async () => {
+      const thread = await loadWith({
+        runs: [
+          run("run-1", "completed", "2026-08-29T00:00:00.000Z"),
+          run("run-2", "completed", "2026-08-29T00:00:30.000Z"),
+        ],
+      });
+
+      expect(thread.connectionRequests).toEqual({});
+      expect(thread.connectionRequestRunIds).toEqual({});
+    });
+
+    it("keeps it for the latest completed run, which is waiting on the user", async () => {
+      const thread = await loadWith({
+        runs: [run("run-1", "completed", "2026-08-29T00:00:00.000Z")],
+      });
+
+      expect(thread.connectionRequests["connection-1"]).toEqual(openRequest);
+      expect(thread.connectionRequestRunIds["connection-1"]).toBe("run-1");
+    });
+
+    it("keeps it for a completed run whose terminal events cannot be replayed", async () => {
+      const transport = createTransport([]);
+      transport.getThreadSnapshot = async () => ({
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:01:00.000Z",
+        messages: [
+          {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [{ type: "text", text: "Connect Google Drive" }],
+          },
+        ],
+        events: [
+          protocolEvent(1, { type: "run.started" }),
+          protocolEvent(2, {
+            type: "connection.requested",
+            request: openRequest,
+          }),
+        ],
+        runs: [
+          {
+            ...run("run-1", "completed", "2026-08-29T00:00:00.000Z"),
+            lastSequence: 7,
+            activeMessageId: "assistant-1",
+          },
+        ],
+        activeRunIds: [],
+        connectionRequests: [{ request: openRequest, runId: "run-1" }],
+      });
+      transport.subscribeToRun = async function* () {
+        throw Object.assign(new Error("Replay is unavailable"), {
+          retryable: false,
+        });
+      };
+      const client = new AgentKitClient({
+        transport,
+        reconnect: { attempts: 3 },
+      });
+
+      try {
+        await client.loadThread("thread-1");
+        await vi.waitFor(() =>
+          expect(client.getSnapshot().connection).toBe("error"),
+        );
+
+        const thread = client.getThread("thread-1");
+        // The unconfirmed replay settles the run's items as failed; the run
+        // itself still completed, so the user's answer is still wanted.
+        expect(thread.messages).toContainEqual(
+          expect.objectContaining({ id: "assistant-1", status: "error" }),
+        );
+        expect(thread.runs["run-1"]?.status).toBe("completed");
+        expect(thread.connectionRequests["connection-1"]).toEqual(openRequest);
+        expect(thread.connectionRequestRunIds["connection-1"]).toBe("run-1");
+      } finally {
+        await client.dispose();
+      }
+    });
+  });
+
   it("resubscribes the same run after a connection continuation", async () => {
     let subscriptionCount = 0;
     const resolveConnectionRequest = vi.fn(async () => undefined);
@@ -6508,6 +6791,104 @@ describe("AgentKitClient", () => {
       agentId: "agent-planck",
       scope: "external",
       source: { label: "Agent-Native" },
+    });
+  });
+
+  describe("participants across a snapshot reload", () => {
+    const analytics = {
+      id: "agent-analytics",
+      name: "Analytics",
+      kind: "peer",
+      status: "completed",
+    } as const;
+    const snapshotWith = (extra: Partial<AgentThreadSnapshot>) =>
+      ({
+        id: "thread-1",
+        createdAt: "2026-08-29T00:00:00.000Z",
+        updatedAt: "2026-08-29T00:00:02.000Z",
+        messages: [],
+        runs: [
+          {
+            id: "run-1",
+            threadId: "thread-1",
+            status: "completed",
+            lastSequence: 3,
+          },
+        ],
+        activeRunIds: [],
+        ...extra,
+      }) satisfies AgentThreadSnapshot;
+
+    async function completedRunWithAnalytics(
+      snapshot: AgentThreadSnapshot,
+    ): Promise<AgentKitClient> {
+      const transport = createTransport([
+        protocolEvent(1, { type: "run.started" }),
+        protocolEvent(2, { type: "agent.registered", agent: analytics }),
+        protocolEvent(3, { type: "run.completed" }),
+      ]);
+      transport.getThreadSnapshot = async () => snapshot;
+      const client = new AgentKitClient({ transport });
+      const run = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Ask Analytics",
+      });
+      await run.completed;
+      return client;
+    }
+
+    it("keeps the participants a run registered when the stored history is compact", async () => {
+      // Durable history keeps run lifecycle events and drops agent.* ones, and
+      // the snapshot never carries a participant list of its own.
+      const client = await completedRunWithAnalytics(
+        snapshotWith({
+          events: [
+            protocolEvent(1, { type: "run.started" }),
+            protocolEvent(2, { type: "run.completed" }),
+          ],
+        }),
+      );
+
+      const thread = await client.loadThread("thread-1");
+
+      expect(thread.agents["agent-analytics"]).toMatchObject({
+        name: "Analytics",
+        status: "completed",
+      });
+      expect(client.getThread("thread-1").agents).toBe(thread.agents);
+    });
+
+    it("rebuilds participants from the events of a freshly loaded thread", async () => {
+      const transport = createTransport([]);
+      transport.getThreadSnapshot = async () =>
+        snapshotWith({
+          events: [
+            protocolEvent(1, { type: "run.started" }),
+            protocolEvent(2, { type: "agent.registered", agent: analytics }),
+            protocolEvent(3, { type: "run.completed" }),
+          ],
+        });
+      const client = new AgentKitClient({ transport });
+
+      const thread = await client.loadThread("thread-1");
+
+      expect(thread.agents).toEqual({ "agent-analytics": analytics });
+    });
+
+    it("takes a participant's newer state from a snapshot that lists it", async () => {
+      const client = await completedRunWithAnalytics(
+        snapshotWith({
+          events: [
+            protocolEvent(1, { type: "run.started" }),
+            protocolEvent(2, { type: "run.completed" }),
+          ],
+          agents: [{ ...analytics, status: "closed" }],
+        }),
+      );
+
+      const thread = await client.loadThread("thread-1");
+
+      expect(thread.agents["agent-analytics"]?.status).toBe("closed");
     });
   });
 

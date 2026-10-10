@@ -1433,7 +1433,6 @@ it("checks the rendered slide scale when the scaled profile is requested", async
   const page = {
     on: () => {},
     off: () => {},
-    addInitScript: async () => {},
     evaluate: async () => {},
     locator: (selector: string) =>
       selector === "#editor"
@@ -1466,68 +1465,6 @@ it("checks the rendered slide scale when the scaled profile is requested", async
       expectScaledSlide: true,
     }),
   ).rejects.toThrow("scaled fixture did not scale below 0.99 (scale 1.000)");
-});
-
-it("retains the latest request trace outside the truncated failure message", async () => {
-  const output = vi.spyOn(console, "error").mockImplementation(() => {});
-  const page = {
-    ...pageAtScale(1),
-    on: () => {},
-    off: () => {},
-    addInitScript: async () => {},
-    evaluate: async () => {},
-    locator: (selector: string) =>
-      selector === "#editor"
-        ? { waitFor: async () => {} }
-        : pageAtScale(1).locator(selector),
-  };
-  const pendingRequests = new Map(
-    Array.from(
-      { length: 205 },
-      (_, index) =>
-        [
-          {
-            url: () =>
-              `http://localhost/_agent-native/browser-sessions/${index}/requests/claim`,
-            method: () => "POST",
-          },
-          index,
-        ] as const,
-    ),
-  );
-  try {
-    await expect(
-      runAuthoringFuzz(page, {
-        seed: 42,
-        steps: 1,
-        editorSelector: "#editor",
-        slideSelector: "#slide",
-        slideContentSelector: "#slide-content",
-        originalHtml: "",
-        originalSlideHtml: "",
-        finishAndReload: async () => ({
-          originalHtml: "",
-          liveHtml: "",
-          savedHtml: "",
-          reloadedHtml: "",
-        }),
-        modifier: "Meta",
-        expectScaledSlide: true,
-        initialPendingWatchedRequests: pendingRequests,
-      }),
-    ).rejects.toThrow("scaled fixture did not scale below 0.99");
-    const events = output.mock.calls.map(([line]) =>
-      JSON.parse(String(line).split(" request-trace ")[1]),
-    );
-    expect(events).toHaveLength(200);
-    expect(events[0]).toMatchObject({ startedAt: 5, method: "POST" });
-    expect(events.at(-1)).toMatchObject({
-      startedAt: 204,
-      url: "http://localhost/_agent-native/browser-sessions/204/requests/claim",
-    });
-  } finally {
-    output.mockRestore();
-  }
 });
 
 it("prints a bounded failure excerpt with a deterministic seed and replay step count", () => {

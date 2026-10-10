@@ -91,11 +91,21 @@ pnpm dev
 
 ### 螢幕記憶（Rewind）
 
-| Action                                                                                                                          | 作用                                       |
-| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `get-screen-memory-status`、`query-screen-memory-context`                                                                       | 讀取本機 Rewind 緩衝區                     |
-| `request-rewind-extension`、`get-rewind-extension-request`、`list-rewind-extension-requests`、`update-rewind-extension-request` | 把 Rewind 歷史紀錄加進剪輯的審核與核准流程 |
-| `apply-rewind-extension`、`make-recording-private-for-rewind`                                                                   | 套用已核准的延伸內容；先強制將剪輯設為私人 |
+| Action                                                                                                                          | 作用                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `get-screen-memory-status`、`query-screen-memory-context`                                                                       | 讀取本機 Rewind 緩衝區                                                                                               |
+| `request-rewind-extension`、`get-rewind-extension-request`、`list-rewind-extension-requests`、`update-rewind-extension-request` | 已棄用的相容性動作。使用它們的編輯器選項已移除；更早的螢幕時間請改用 `request-recording-context`                     |
+| `apply-rewind-extension`                                                                                                        | 已棄用的相容性動作。為已移除的編輯器選項套用已核准的延伸內容                                                         |
+| `make-recording-private-for-rewind`                                                                                             | 先強制將剪輯設為私人                                                                                                 |
+| `request-recording-context`                                                                                                     | 僅限擁有者。在剪輯開始前請求更早的螢幕時間；該剪輯會變為私人                                                         |
+| `request-recording-context` (`deviceId`)                                                                                        | 選填。為項目標記錄製該剪輯的裝置，使只有該裝置的桌面應用程式會匯出它。未提供則表示沒有裝置紀錄                       |
+| `list-recording-context`                                                                                                        | 剪輯目前的更早螢幕時間項目：其時間範圍和狀態（檢視者存取權）                                                         |
+| `list-pending-recording-context`                                                                                                | 您擁有的剪輯中的待處理項目，供桌面匯出工作程序使用                                                                   |
+| `list-pending-recording-context` (`deviceId`)                                                                                   | 選填。提供 `deviceId` 時，只回傳此裝置擷取的項目，以及沒有裝置紀錄的項目。不提供時，清單不經過濾（供舊版用戶端使用） |
+| `update-recording-context`                                                                                                      | 桌面工作程序將項目回報為 `processing`、`ready` 或 `failed`                                                           |
+| `set-recording-context-window`                                                                                                  | 在其 5 分鐘原始範圍內修剪項目；項目會回到 `pending` 並重新匯出                                                       |
+| `remove-recording-context`                                                                                                      | 僅限擁有者。移除項目，並將其畫面錄製移到垃圾桶。桌面應用程式的編輯檢視與逐字稿分頁的面板都會呼叫它                   |
+| `rewind_preview_window`, `rewind_preview_discard`                                                                               | 僅限桌面應用程式（Tauri 指令，非動作）。建立或刪除視窗的本機預覽。永不上傳                                           |
 
 ### 跨應用和洞察
 
@@ -123,6 +133,19 @@ pnpm dev
 | `get-playback-position`、`save-playback-position`、`get-recording-player-data`        | 恢復播放；完整逐字稿和診斷資訊                                      |
 | `create-recording-intake-link`、`create-intake-recording`、`create-intake-agent-link` | 匿名的第三方嵌入流程。請參閱 [嵌入剪輯](/docs/template-clips-embed) |
 | `save-bug-report-context`、`save-browser-diagnostics`、`save-browser-transcript`      | 嵌入式錯誤回報啟動器，以及 Chrome 擴充功能診斷資訊                  |
+
+## 瀏覽器診斷
+
+Chrome 擴充功能會為錄製附加主控台和網路診斷資訊，由 `save-browser-diagnostics` 負責儲存。每一筆主控台和網路項目都帶有 `tabId`。
+
+| 主題     | 行為                                                                                                               |
+| -------- | ------------------------------------------------------------------------------------------------------------------ |
+| 分頁     | 每次錄製最多五個：起始分頁，然後是最近 10 分鐘內活躍過的分頁，依最近活躍排序。錄製期間使用者切換到的分頁也會附加。 |
+| 超過五個 | 除焦點分頁外，最久未活躍的分頁會被分離。其先前的項目仍保留在錄製中。                                               |
+| 回溯     | 錄製開始前最多 30 秒，以頁面自身的主控台歷史和資源計時清單為限。這些項目的 `elapsedMs` 為負值。                    |
+| `tabId`  | 設定在每一筆主控台和網路項目上。                                                                                   |
+| `method` | 回溯網路項目為 `"UNKNOWN"`，它們來自資源計時，沒有 HTTP 方法。即時請求會回報方法。                                 |
+| 不收集   | 請求和回應的內文與標頭。主控台和網路項目在上傳前會經過編輯處理。                                                   |
 
 ## 資料模型
 

@@ -76,6 +76,7 @@ describe("classifyAutomationFailure", () => {
     ["missing_tools", "missing_tools", true],
     ["config_invalid", "config_invalid", true],
     ["owner_missing", "owner_missing", true],
+    ["connection_required", "connection_required", true],
     // The pre-typed runner code is read as the typed one.
     ["background_automation_mcp_tools_unavailable", "missing_tools", true],
     // A rejected or unpermitted credential needs a person; a bare HTTP status
@@ -190,6 +191,33 @@ describe("applyAutomationFailure", () => {
     });
     expect(last.patch.lastError).toContain("Paused after 3 consecutive");
     expect(last.patch.lastError).toContain("No LLM provider is connected");
+  });
+
+  it("pauses an automation that keeps asking for a connection nobody is there to give", () => {
+    const failure = classifyAutomationFailure(
+      codedError(
+        "The run stopped because hubspot is not connected.",
+        "connection_required",
+      ),
+    );
+    let meta: Parameters<typeof applyAutomationFailure>[0] = { ...fresh };
+    let last = applyAutomationFailure(meta, failure, NOW);
+    for (let i = 1; i < PRECONDITION_PAUSE_AFTER; i += 1) {
+      expect(last.pause).toBe(false);
+      meta = {
+        enabled: true,
+        lastErrorCode: String(last.patch.lastErrorCode),
+        consecutiveFailures: Number(last.patch.consecutiveFailures),
+      };
+      last = applyAutomationFailure(meta, failure, NOW);
+    }
+    expect(last.pause).toBe(true);
+    expect(last.patch).toMatchObject({
+      enabled: false,
+      lastStatus: "paused",
+      lastErrorCode: "connection_required",
+      pausedReason: "connection_required",
+    });
   });
 
   it("gives ordinary runtime errors more attempts before pausing", () => {

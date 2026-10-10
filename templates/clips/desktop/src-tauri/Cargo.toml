@@ -26,6 +26,7 @@ tauri = { version = "2", features = [
   "tray-icon",
   "image-png",
   "macos-private-api",
+  "protocol-asset",
 ] }
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"

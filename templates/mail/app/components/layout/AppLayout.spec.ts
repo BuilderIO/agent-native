@@ -334,11 +334,13 @@ describe("AppLayout inbox tab bar", () => {
       "utf8",
     );
 
+    expect(source).toContain("onFullscreenRequest={(threadId?: string) =>");
     expect(source).toContain(
-      'onFullscreenRequest={() => void navigate("/chat")}',
+      '`/chat/${encodeURIComponent(threadId)}` : "/chat"',
     );
     expect(source).toContain("enabled={!isAgentChatRoute}");
     expect(source).toContain('pathname === "/chat"');
+    expect(source).toContain('pathname.startsWith("/chat/")');
     expect(chatRoute).toContain("<AgentChatSurface");
     expect(chatRoute).toContain("browserTabId={TAB_ID}");
     expect(chatRoute).toContain("showTabBar");

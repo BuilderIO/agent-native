@@ -112,7 +112,6 @@ export function renderEditorCanvasArea({
     activeTool,
     hoveredElement,
     runtimeStructureInsertRequest,
-    widgetEmbed,
     selectedElement,
     t,
     isVisualEditSurface,
@@ -328,7 +327,6 @@ export function renderEditorCanvasArea({
   const chromeInsetRight = rightInspectorCanvasInset({
     visible: rightSidebarVisible,
     width: rightSidebarWidth,
-    widgetEmbed,
     minimalUi,
   });
 

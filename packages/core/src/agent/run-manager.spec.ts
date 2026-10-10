@@ -3055,6 +3055,57 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("completes a run that yields to a connection request after a failed tool result", async () => {
+    // The agent loop sends no `done` after a connection request: it breaks out
+    // and the run manager synthesizes the terminal. Reading the failed tool
+    // result before it as an unfinished turn persisted `truncated`/`stream_ended`
+    // with no successor, so the thread read as failed instead of waiting on the
+    // user.
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-connection-yield",
+      "thread-connection-yield",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "provider-api-request",
+          id: "call-1",
+          input: {},
+          result: "hubspot requires an available workspace connection.",
+          isError: true,
+        });
+        send({
+          type: "connection_required",
+          requestId: "request-1",
+          provider: "hubspot",
+          reason: "connect",
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events.some((event) => event.type === "auto_continue")).toBe(false);
+    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(run.status).toBe("completed");
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-connection-yield",
+      "completed",
+    );
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      "run-connection-yield",
+      "truncated",
+    );
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-connection-yield",
+      "done",
+    );
+  });
+
   it("auto-continues a run that ends during action preparation", async () => {
     const events: AgentChatEvent[] = [];
     const run = startRun(

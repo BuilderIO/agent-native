@@ -10,7 +10,7 @@ Das öffentliche Agenten-Web erleichtert Agenten das Crawlen, Lesen, Zitieren un
 Die Dokumentationsseite ist die Referenzimplementierung. Heute wird Folgendes ausgeliefert:
 
 - `/robots.txt` mit einer Crawler-Richtlinie, die den Abruf erlaubt, aber das Training standardmäßig nicht zulässt.
-- `/sitemap.xml` mit absolut kanonischen URLs und `lastmod`, wenn die Quelldatei es verfügbar macht.
+- `/sitemap.xml` als Sitemap-Index, der auf eine `/sitemap-<locale>.xml` pro Sprache verweist, mit absolut kanonischen URLs und `lastmod`, wenn die Quelldatei es verfügbar macht.
 - `/llms.txt` und `/llms-full.txt` für agentenfreundliche Inhaltserkennung.
 - Markdown spiegelt wie `/docs/getting-started.md` wider.
 - `Accept: text/markdown`-Antworten für öffentliche Dokumentseiten nach einem Produktions-Build.
@@ -187,6 +187,8 @@ const files = buildAgentWebStaticFiles({
 ```
 
 Vite-Apps können `createAgentWebVitePlugin` von `@agent-native/core/vite` verwenden, um diese Dateien während Produktionsbuilds in `public`, `dist`, `dist/client`, `dist/server/public` oder `build/client` zu schreiben.
+
+Übergeben Sie `sitemapGroup` an `buildAgentWebStaticFiles` oder `createAgentWebVitePlugin`, um eine große Sitemap aufzuteilen. Die Option ordnet jede Seite einem Gruppenschlüssel zu, etwa ihrer Sprache, und `sitemap.xml` wird zu einem Sitemap-Index mit einer `sitemap-<group>.xml` pro Gruppe.
 
 ## Eine Website prüfen {#audit}
 

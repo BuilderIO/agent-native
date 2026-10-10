@@ -69,6 +69,7 @@ import {
   createPlanModeActionRegistry,
   createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
   appendRequestAttachmentContextToResumedHistory,
+  endsAtContinuationBoundary,
   preloadPlanModeEngineTools,
   queuedPromotionAttachments,
   normalizeAgentActionSurfaceResolution,
@@ -4244,6 +4245,19 @@ describe("createProductionAgentHandler", () => {
   });
 
   it("sends a named capability note instead of image pixels to engines without vision", async () => {
+    const hydratePriorImages = vi.fn(async () => ({
+      contextAttachments: [
+        {
+          type: "image" as const,
+          name: "prior.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    }));
+    const prepareAfterModel = vi.fn(async ({ vision }: { vision: boolean }) =>
+      vision ? hydratePriorImages() : undefined,
+    );
     const preUpload = vi
       .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
       .mockImplementationOnce(async ({ attachments }) => ({
@@ -4282,6 +4296,7 @@ describe("createProductionAgentHandler", () => {
       systemPrompt: "Test",
       engine,
       actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
     });
     const event = mockEvent(
       new Request("http://app.example.com/_agent-native/agent-chat", {
@@ -4328,9 +4343,27 @@ describe("createProductionAgentHandler", () => {
       }),
     );
     expect(JSON.stringify(userContent)).not.toContain(PNG_BASE64);
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "test-model",
+      vision: false,
+    });
+    expect(hydratePriorImages).not.toHaveBeenCalled();
   });
 
   it("sends images to a vision-capable Mistral model despite the provider default", async () => {
+    const hydratePriorImages = vi.fn(async () => ({
+      contextAttachments: [
+        {
+          type: "image" as const,
+          name: "prior.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    }));
+    const prepareAfterModel = vi.fn(async ({ vision }: { vision: boolean }) =>
+      vision ? hydratePriorImages() : undefined,
+    );
     const preUpload = vi
       .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
       .mockImplementationOnce(async ({ attachments }) => ({
@@ -4369,6 +4402,7 @@ describe("createProductionAgentHandler", () => {
       systemPrompt: "Test",
       engine,
       actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
     });
     const event = mockEvent(
       new Request("http://app.example.com/_agent-native/agent-chat", {
@@ -4406,7 +4440,12 @@ describe("createProductionAgentHandler", () => {
       .flatMap((messages) => messages)
       .filter((message) => message.role === "user")
       .flatMap((message) => message.content);
-    expect(userContent.some((part) => part.type === "image")).toBe(true);
+    expect(userContent.filter((part) => part.type === "image")).toHaveLength(2);
+    expect(
+      userContent.some(
+        (part) => part.type === "image" && part.data === PNG_BASE64,
+      ),
+    ).toBe(true);
     expect(
       userContent.some(
         (part) =>
@@ -4414,6 +4453,11 @@ describe("createProductionAgentHandler", () => {
           part.text.includes('code="vision-not-supported"'),
       ),
     ).toBe(false);
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "mistral-small-2506",
+      vision: true,
+    });
+    expect(hydratePriorImages).toHaveBeenCalledOnce();
   });
 
   it("skips experiment assignment resolution for an explicit request model", async () => {
@@ -17408,6 +17452,44 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       }),
     ).toBe(true);
     expect(backgroundContinuationReasonForRun(run)).toBe("stream_ended");
+  });
+
+  it("does NOT chain a run that yielded to a connection request after a failed tool", () => {
+    // The card is the user's turn. Chaining re-ran the model after the yield and
+    // it retried the same unconnectable provider run after run.
+    const run = makeRun([
+      {
+        type: "tool_done",
+        tool: "provider-api-request",
+        id: "tool-1",
+        input: {},
+        result: "google_drive requires an available workspace connection.",
+        isError: true,
+      },
+      {
+        type: "connection_required",
+        requestId: "request-1",
+        provider: "google_drive",
+        reason: "connect",
+      },
+    ]);
+
+    expect(endsAtContinuationBoundary(run)).toBe(false);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        foregroundSelfChainEligible: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(false);
   });
 
   it("does NOT chain a background run that sent final text after completed tools", () => {
