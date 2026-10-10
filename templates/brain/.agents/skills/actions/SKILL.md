@@ -149,6 +149,8 @@ const people = await callAction("search-people", { query }, { method: "GET" }); 
 
 Don't add manual generics like `useActionQuery<Meal[]>(...)` — types come from `.generated/action-types.d.ts`. Mutations auto-invalidate all `["action"]` query keys, so GET queries refetch.
 
+When a query result varies by viewer or another client context that is not part of the action arguments, pass that stable context through `queryKeyScope`. It partitions only the local query cache; it is not sent to the action and never replaces server-side authorization.
+
 ## How to Run (Agent)
 
 ```bash

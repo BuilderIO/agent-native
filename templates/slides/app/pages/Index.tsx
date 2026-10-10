@@ -646,6 +646,10 @@ export default function Index({ active = true }: { active?: boolean }) {
     refetch: refetchWorkspaceDefaults,
   } = useWorkspaceDefaults(isHome);
   const { session, status: sessionStatus } = useSession();
+  const homeSuggestionsCacheScope = JSON.stringify([
+    session?.authUserId ?? session?.userId ?? session?.email ?? "anonymous",
+    session?.orgId ?? "",
+  ]);
   // `session` is null while the check is loading or the server is unreachable,
   // neither of which means signed out. Only a definitive answer sends the user
   // to sign in; otherwise the server stays the authority on the request.
@@ -675,9 +679,15 @@ export default function Index({ active = true }: { active?: boolean }) {
       })),
     [t],
   );
-  const [homeSuggestionsSnapshot, setHomeSuggestionsSnapshot] = useState<
-    HomeSuggestion[] | null
-  >(null);
+  const [homeSuggestionsSnapshotState, setHomeSuggestionsSnapshotState] =
+    useState<{
+      scope: string;
+      suggestions: HomeSuggestion[];
+    } | null>(null);
+  const homeSuggestionsSnapshot =
+    homeSuggestionsSnapshotState?.scope === homeSuggestionsCacheScope
+      ? homeSuggestionsSnapshotState.suggestions
+      : null;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
@@ -687,6 +697,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         showNewDeckPrompt &&
         quickActionsEnabled &&
         homeSuggestionsSnapshot === null,
+      queryKeyScope: [homeSuggestionsCacheScope],
       retry: false,
       staleTime: Number.POSITIVE_INFINITY,
       gcTime: Number.POSITIVE_INFINITY,
@@ -717,9 +728,15 @@ export default function Index({ active = true }: { active?: boolean }) {
       result?.status === "ready" &&
       result.suggestions.length === 3
     ) {
-      setHomeSuggestionsSnapshot(result.suggestions);
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsCacheScope,
+        suggestions: result.suggestions,
+      });
     } else if (!homeSuggestionsQuery.isFetching && homeSuggestionsUnavailable) {
-      setHomeSuggestionsSnapshot(fallbackHomeSuggestions);
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsCacheScope,
+        suggestions: fallbackHomeSuggestions,
+      });
     }
   }, [
     homeSuggestionsQuery.data,
@@ -727,6 +744,7 @@ export default function Index({ active = true }: { active?: boolean }) {
     homeSuggestionsUnavailable,
     fallbackHomeSuggestions,
     homeSuggestionsSnapshot,
+    homeSuggestionsCacheScope,
     quickActionsEnabled,
   ]);
   const homeSuggestions =
@@ -2714,6 +2732,7 @@ export default function Index({ active = true }: { active?: boolean }) {
           homeSuggestionsSnapshot !== null) ? (
           <AgentSuggestionBar
             loading={homeSuggestionsLoading}
+            announceUpdates
             layout="single-line"
             suggestions={homeSuggestions.map((suggestion, index) => ({
               ...suggestion,

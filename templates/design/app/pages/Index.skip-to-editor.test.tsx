@@ -34,6 +34,13 @@ const mocks = vi.hoisted(() => ({
   suggestionRetrying: false,
   suggestionCachedReady: false,
   suggestionLabel: "Generated dashboard",
+  suggestionSession: {
+    authUserId: "viewer-a",
+    userId: "viewer-a",
+    email: "viewer-a@example.test",
+    orgId: "org-a",
+  },
+  suggestionQueryScope: null as readonly unknown[] | null,
   ownCount: 0,
   ownedCount: 0,
   ownStatus: "success",
@@ -127,7 +134,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   useActionQuery: (
     name: string,
     params: Record<string, unknown>,
-    options?: { enabled?: boolean },
+    options?: { enabled?: boolean; queryKeyScope?: readonly unknown[] },
   ) => {
     if (name === "list-designs") {
       if (params.compact === "true") {
@@ -177,6 +184,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
       };
     }
     if (name === "generate-home-suggestions") {
+      mocks.suggestionQueryScope = options?.queryKeyScope ?? null;
       if (options?.enabled === false) {
         if (mocks.suggestionCachedReady) {
           return {
@@ -267,7 +275,13 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
             : vi.fn().mockResolvedValue(undefined),
     mutate: vi.fn(),
   }),
-  useSession: () => ({ session: null, isLoading: false }),
+  useSession: () => ({
+    session: mocks.suggestionSession,
+    isLoading: false,
+    status: "authenticated",
+    error: null,
+    retry: vi.fn(),
+  }),
   useAvatarUrl: () => null,
   useChangeVersion: () => 0,
   useChangeVersions: () => 0,
@@ -475,6 +489,13 @@ beforeEach(async () => {
   mocks.suggestionRetrying = false;
   mocks.suggestionCachedReady = false;
   mocks.suggestionLabel = "Generated dashboard";
+  mocks.suggestionSession = {
+    authUserId: "viewer-a",
+    userId: "viewer-a",
+    email: "viewer-a@example.test",
+    orgId: "org-a",
+  };
+  mocks.suggestionQueryScope = null;
   mocks.systemsEnabled = true;
   mocks.systemsLoading = false;
   mocks.systemsError = null;
@@ -861,6 +882,29 @@ describe("Index skip to editor", () => {
     await act(async () => root.render(<Index />));
     expect(container.textContent).toContain("Generated dashboard");
     expect(container.textContent).not.toContain("Cached dashboard");
+  });
+
+  it("scopes the suggestion cache and snapshot to the signed-in viewer", async () => {
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).toContain("Generated dashboard");
+    expect(mocks.suggestionQueryScope).toEqual([
+      JSON.stringify(["viewer-a", "org-a"]),
+    ]);
+
+    mocks.suggestionSession = {
+      authUserId: "viewer-b",
+      userId: "viewer-b",
+      email: "viewer-b@example.test",
+      orgId: "org-b",
+    };
+    mocks.suggestionLabel = "Viewer B dashboard";
+    await act(async () => root.render(<Index />));
+
+    expect(container.textContent).toContain("Viewer B dashboard");
+    expect(container.textContent).not.toContain("Generated dashboard");
+    expect(mocks.suggestionQueryScope).toEqual([
+      JSON.stringify(["viewer-b", "org-b"]),
+    ]);
   });
 
   it.each([

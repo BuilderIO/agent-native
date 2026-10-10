@@ -1044,14 +1044,22 @@ export function useActionQuery<
   options?: Omit<
     UseQueryOptions<TResult extends undefined ? ActionResult<TName> : TResult>,
     "queryKey" | "queryFn"
-  >,
+  > & {
+    queryKeyScope?: readonly unknown[];
+  },
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   const apiDisabled = Boolean(agentNativeApiDisabledReason());
-  const { refetchInterval, retry: callerRetry, ...restOptions } = options ?? {};
-  const circuitKey = () => hashKey(["action", actionName, params]);
+  const {
+    refetchInterval,
+    retry: callerRetry,
+    queryKeyScope,
+    ...restOptions
+  } = options ?? {};
+  const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
+  const circuitKey = () => hashKey(queryKey);
   return useQuery<R>({
-    queryKey: ["action", actionName, params],
+    queryKey,
     queryFn: async ({ signal }) => {
       const key = circuitKey();
       assertActionCircuitClosed(key);

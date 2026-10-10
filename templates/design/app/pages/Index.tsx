@@ -7,6 +7,7 @@ import {
   useActionQuery,
   useActionMutation,
   useAvatarUrl,
+  useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
@@ -357,6 +358,14 @@ export default function Index() {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
+  const { session: suggestionSession } = useSession();
+  const homeSuggestionsCacheScope = JSON.stringify([
+    suggestionSession?.authUserId ??
+      suggestionSession?.userId ??
+      suggestionSession?.email ??
+      "anonymous",
+    suggestionSession?.orgId ?? "",
+  ]);
   const fallbackHomeSuggestions = useMemo(
     () =>
       [
@@ -370,14 +379,21 @@ export default function Index() {
       })),
     [t],
   );
-  const [homeSuggestionsSnapshot, setHomeSuggestionsSnapshot] = useState<
-    HomeSuggestion[] | null
-  >(null);
+  const [homeSuggestionsSnapshotState, setHomeSuggestionsSnapshotState] =
+    useState<{
+      scope: string;
+      suggestions: HomeSuggestion[];
+    } | null>(null);
+  const homeSuggestionsSnapshot =
+    homeSuggestionsSnapshotState?.scope === homeSuggestionsCacheScope
+      ? homeSuggestionsSnapshotState.suggestions
+      : null;
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
     {
       enabled: quickActionsEnabled && homeSuggestionsSnapshot === null,
+      queryKeyScope: [homeSuggestionsCacheScope],
       retry: false,
       staleTime: Number.POSITIVE_INFINITY,
       gcTime: Number.POSITIVE_INFINITY,
@@ -408,9 +424,15 @@ export default function Index() {
       result?.status === "ready" &&
       result.suggestions.length === 3
     ) {
-      setHomeSuggestionsSnapshot(result.suggestions);
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsCacheScope,
+        suggestions: result.suggestions,
+      });
     } else if (!homeSuggestionsQuery.isFetching && homeSuggestionsUnavailable) {
-      setHomeSuggestionsSnapshot(fallbackHomeSuggestions);
+      setHomeSuggestionsSnapshotState({
+        scope: homeSuggestionsCacheScope,
+        suggestions: fallbackHomeSuggestions,
+      });
     }
   }, [
     homeSuggestionsQuery.data,
@@ -418,6 +440,7 @@ export default function Index() {
     homeSuggestionsUnavailable,
     fallbackHomeSuggestions,
     homeSuggestionsSnapshot,
+    homeSuggestionsCacheScope,
     quickActionsEnabled,
   ]);
   const homeSuggestions =
@@ -1309,6 +1332,7 @@ export default function Index() {
             homeSuggestionsSnapshot !== null) ? (
             <AgentSuggestionBar
               loading={homeSuggestionsLoading}
+              announceUpdates
               layout="single-line"
               suggestions={homeSuggestions.map((suggestion, index) => ({
                 ...suggestion,

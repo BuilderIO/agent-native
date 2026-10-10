@@ -64,6 +64,7 @@ describe("AgentSuggestionBar", () => {
     const bar = container.querySelector('[data-agent-suggestion-bar="true"]');
     const buttons = container.querySelectorAll("button");
     expect(bar?.getAttribute("aria-label")).toBe("Next actions");
+    expect(bar?.getAttribute("aria-live")).toBeNull();
     expect(buttons).toHaveLength(2);
     expect(bar?.className).toContain("py-2");
     expect(bar?.className).toContain("min-w-0");
@@ -92,6 +93,7 @@ describe("AgentSuggestionBar", () => {
           ariaLabel="Suggested prompts"
           suggestions={[]}
           loading
+          announceUpdates
           layout="single-line"
           onSelect={() => {}}
         />,

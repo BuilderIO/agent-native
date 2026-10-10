@@ -31,6 +31,7 @@ export interface AgentSuggestionBarProps {
   renderSuggestion?: (suggestion: AgentSuggestionItem) => ReactNode;
   className?: string;
   loading?: boolean;
+  announceUpdates?: boolean;
   layout?: "wrap" | "single-line";
 }
 
@@ -145,6 +146,7 @@ export function AgentSuggestionBar({
   renderSuggestion,
   className,
   loading = false,
+  announceUpdates = false,
   layout = "wrap",
 }: AgentSuggestionBarProps) {
   const items = suggestions.map(normalizeAgentSuggestion);
@@ -157,7 +159,7 @@ export function AgentSuggestionBar({
     <section
       aria-label={ariaLabel}
       aria-busy={loading || undefined}
-      aria-live="polite"
+      aria-live={announceUpdates ? "polite" : undefined}
       data-agent-suggestion-bar="true"
       className={cn("w-full min-w-0 overflow-hidden px-3 py-2", className)}
     >
