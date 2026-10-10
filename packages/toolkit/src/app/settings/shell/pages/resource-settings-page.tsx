@@ -45,6 +45,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { uploadedSkillSlug } from "../../../../skill-upload.js";
 import { PromptComposer } from "../../../chat/index.js";
 import type { ResourceSettingsGroupConfig } from "../../../resources/index.js";
 import {
@@ -52,7 +53,6 @@ import {
   normalizeResourceFileName,
   requestSkillFromAgent,
   ResourcesPanel,
-  slugifyName,
 } from "../../../resources/index.js";
 
 /** Filled by the panel with a function that opens a resource in its editor. */
@@ -248,10 +248,7 @@ export function AddSkillMenu({
       );
       return;
     }
-    const baseName = file.name.replace(/\.[^./]+$/, "");
-    const slug = slugifyName(
-      baseName.toLowerCase() === "skill" ? "uploaded-skill" : baseName,
-    );
+    const slug = uploadedSkillSlug(file.name, content);
     const path = uniqueSkillPath(
       slug,
       collectPaths(tree.data ?? [], new Set<string>()),

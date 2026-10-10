@@ -89,6 +89,7 @@ import React, {
   useMemo,
 } from "react";
 
+import { uploadedSkillSlug } from "../../skill-upload.js";
 import {
   FileStorageSetupPopover,
   type FileStorageSetupCloseReason,
@@ -577,10 +578,7 @@ function CreateMenu({
     if (!files || files.length === 0) return;
     const file = files[0];
     const text = await file.text();
-    const baseName = file.name.replace(/\.[^./]+$/, "");
-    const slug = slugifyName(
-      baseName.toLowerCase() === "skill" ? "uploaded-skill" : baseName,
-    );
+    const slug = uploadedSkillSlug(file.name, text);
     setSkillUploadSlug(slug);
     setSkillUploadContent(text);
     setSkillUploadFileName(file.name);

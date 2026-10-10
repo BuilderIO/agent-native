@@ -10,6 +10,11 @@ const orgState = vi.hoisted(() => ({
   value: { orgId: "org-1", orgName: "Acme", role: "member" as string },
 }));
 
+vi.mock("../../../chat/index.js", () => ({ PromptComposer: () => null }));
+vi.mock("../../../resources/ResourceEditor.js", () => ({
+  ResourceEditor: () => null,
+}));
+
 vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: orgState.value, isLoading: false }),
 }));
@@ -35,6 +40,7 @@ import { SettingsShellProvider, type SettingsPageHeader } from "../context.js";
 import FilesSettingsPage from "./files.js";
 import InstructionsSettingsPage from "./instructions.js";
 import MemorySettingsPage from "./memory.js";
+import { AddSkillMenu } from "./resource-settings-page.js";
 import SkillsSettingsPage from "./skills.js";
 
 const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
@@ -260,6 +266,88 @@ describe("Memory page", () => {
 });
 
 describe("Skills page", () => {
+  it.each(["personal", "shared"] as const)(
+    "preserves existing skills when uploading different named SKILL.md files to %s",
+    async (scope) => {
+      orgState.value.role = "owner";
+      const originalTree = trees[scope];
+      const stored = new Map<string, string>([
+        ["skills/uploaded-skill/SKILL.md", "Existing generic skill"],
+        ["skills/create-skill/SKILL.md", "Existing named skill"],
+      ]);
+      trees[scope] = [...stored.keys()].map((path) =>
+        leaf(path, scope === "shared" ? "__shared__" : "me@example.test", {
+          kind: "skill",
+        }),
+      );
+      const uploadFetch = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (
+            String(input) === "/_agent-native/resources" &&
+            init?.method === "POST"
+          ) {
+            const body = JSON.parse(String(init.body));
+            expect(body.shared).toBe(scope === "shared");
+            stored.set(body.path, body.content);
+            const node = leaf(
+              body.path,
+              scope === "shared" ? "__shared__" : "me@example.test",
+              {
+                kind: "skill",
+              },
+            );
+            trees[scope].push(node);
+            return Response.json({ ...node.resource, content: body.content });
+          }
+          return fetchMock(input);
+        },
+      );
+      vi.stubGlobal("fetch", uploadFetch);
+      try {
+        await renderPage(() => (
+          <AddSkillMenu scope={scope} placement="empty" onCreated={() => {}} />
+        ));
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        });
+        for (const name of ["create-skill", "review-feedback"]) {
+          const input =
+            container.querySelector<HTMLInputElement>('input[type="file"]');
+          expect(input).toBeTruthy();
+          const file = new File(
+            [`---\nname: ${name}\n---\n${name} instructions`],
+            "SKILL.md",
+            {
+              type: "text/markdown",
+            },
+          );
+          Object.defineProperty(input!, "files", {
+            configurable: true,
+            value: [file],
+          });
+          await act(async () => {
+            input!.dispatchEvent(new Event("change", { bubbles: true }));
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          });
+        }
+        expect([...stored.entries()]).toEqual([
+          ["skills/uploaded-skill/SKILL.md", "Existing generic skill"],
+          ["skills/create-skill/SKILL.md", "Existing named skill"],
+          [
+            "skills/create-skill-2/SKILL.md",
+            "---\nname: create-skill\n---\ncreate-skill instructions",
+          ],
+          [
+            "skills/review-feedback/SKILL.md",
+            "---\nname: review-feedback\n---\nreview-feedback instructions",
+          ],
+        ]);
+      } finally {
+        trees[scope] = originalTree;
+      }
+    },
+  );
+
   it("puts Add skill in the page header and lists Dispatch skills", async () => {
     await renderPage(SkillsSettingsPage);
 
