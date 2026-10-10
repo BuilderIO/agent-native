@@ -5,10 +5,7 @@ import {
   describeSourceConfigIssues,
   validateSourceConfig,
 } from "../shared/source-config-validation.js";
-import {
-  normalizeZoomMeetingId,
-  normalizeZoomMeetingTopic,
-} from "../shared/zoom-meeting-filter.js";
+import { normalizeZoomMeetingId } from "../shared/zoom-meeting-filter.js";
 
 const zoomSourceConfigSchema = z
   .object({
@@ -23,17 +20,13 @@ const zoomSourceConfigSchema = z
             message: "must be a Zoom meeting ID like 123 4567 8901",
           }),
       )
-      .max(100)
-      .optional(),
+      .min(1, { message: "must list at least one approved meeting series" })
+      .max(100),
     meetingTopics: z
-      .array(
-        z
-          .string()
-          .refine((value) => normalizeZoomMeetingTopic(value) !== null, {
-            message: "must be a non-empty meeting title",
-          }),
-      )
-      .max(100)
+      .undefined({
+        message:
+          "is not supported; approve meeting series by meeting ID, since any host can reuse a title",
+      })
       .optional(),
   })
   .passthrough();
@@ -51,7 +44,7 @@ function assertValidZoomConfig(config: Record<string, unknown>) {
       .map((issue) => `${issue.field} ${issue.message}`)
       .join(
         "; ",
-      )}. Use {"zoom":{"meetingIds":["123 4567 8901"],"meetingTopics":["Weekly Sync"],"userIds":["user@example.com"],"lookbackDays":7,"includeSummaries":true}} with up to 100 meeting IDs or titles, up to 50 user IDs, 1-30 lookback days, and includeSummaries true or false.`,
+      )}. Use {"zoom":{"meetingIds":["123 4567 8901"],"userIds":["user@example.com"],"lookbackDays":7,"includeSummaries":true}} with 1-100 approved recurring meeting IDs, up to 50 user IDs, 1-30 lookback days, and includeSummaries true or false.`,
     {
       errorCode: "invalid_source_config",
       details: { issues },
