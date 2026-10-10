@@ -227,11 +227,14 @@ const PENDING_SELECTION_TTL_MS = 5 * 60 * 1000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
 const THREAD_HANDOFF_TTL_MS = 60_000;
 const MAX_THREAD_HANDOFF_SNAPSHOTS = 20;
+const MAX_PENDING_THREAD_SNAPSHOT_WRITES = 8;
 const MAX_THREAD_SNAPSHOT_SAVE_RETRIES = 3;
 const THREAD_SNAPSHOT_SAVE_TIMEOUT_MS = 30_000;
 const THREAD_SNAPSHOT_SAVE_RETRY_DELAY_MS = 1_000;
 const threadSnapshotPersistenceQueues = new Map<string, Promise<void>>();
 const threadSnapshotSaveQueues = new Map<string, Promise<void>>();
+const threadSnapshotPersistenceQueueSizes = new Map<string, number>();
+const threadSnapshotSaveQueueSizes = new Map<string, number>();
 const latestThreadSnapshotGenerations = new Map<string, number>();
 let threadSnapshotGeneration = 0;
 const DEFERRED_PROVIDER_SUBMISSIONS_VERSION = 1;
@@ -259,6 +262,11 @@ function enqueueThreadSnapshotPersistence<T>(
   persist: (context: AgentRequestContext) => Promise<T> | T,
   context?: AgentRequestContext,
 ): Promise<T> {
+  if (
+    !reserveThreadSnapshotQueueSlot(threadSnapshotPersistenceQueueSizes, key)
+  ) {
+    return Promise.reject(threadSnapshotQueueFullError());
+  }
   const previous =
     threadSnapshotPersistenceQueues.get(key) ?? Promise.resolve();
   let resolveResult!: (value: T | PromiseLike<T>) => void;
@@ -294,16 +302,18 @@ function enqueueThreadSnapshotPersistence<T>(
     });
   };
   const operation = previous.then(start, start);
-  const settled = operation.then(
-    () => undefined,
-    () => undefined,
-  );
+  const settled = operation
+    .then(
+      () => undefined,
+      () => undefined,
+    )
+    .then(() => {
+      releaseThreadSnapshotQueueSlot(threadSnapshotPersistenceQueueSizes, key);
+      if (threadSnapshotPersistenceQueues.get(key) === settled) {
+        threadSnapshotPersistenceQueues.delete(key);
+      }
+    });
   threadSnapshotPersistenceQueues.set(key, settled);
-  void settled.then(() => {
-    if (threadSnapshotPersistenceQueues.get(key) === settled) {
-      threadSnapshotPersistenceQueues.delete(key);
-    }
-  });
   void operation.catch(rejectResult);
   return result;
 }
@@ -312,6 +322,9 @@ function enqueueThreadSnapshotSave<T>(
   key: string,
   save: (context: AgentRequestContext) => Promise<T> | T,
 ): Promise<T> {
+  if (!reserveThreadSnapshotQueueSlot(threadSnapshotSaveQueueSizes, key)) {
+    return Promise.reject(threadSnapshotQueueFullError());
+  }
   const previous = threadSnapshotSaveQueues.get(key) ?? Promise.resolve();
   let resolveResult!: (value: T | PromiseLike<T>) => void;
   let rejectResult!: (reason?: unknown) => void;
@@ -336,16 +349,18 @@ function enqueueThreadSnapshotSave<T>(
     );
     return rawOperation.finally(() => window.clearTimeout(timeout));
   });
-  const settled = operation.then(
-    () => undefined,
-    () => undefined,
-  );
+  const settled = operation
+    .then(
+      () => undefined,
+      () => undefined,
+    )
+    .then(() => {
+      releaseThreadSnapshotQueueSlot(threadSnapshotSaveQueueSizes, key);
+      if (threadSnapshotSaveQueues.get(key) === settled) {
+        threadSnapshotSaveQueues.delete(key);
+      }
+    });
   threadSnapshotSaveQueues.set(key, settled);
-  void settled.then(() => {
-    if (threadSnapshotSaveQueues.get(key) === settled) {
-      threadSnapshotSaveQueues.delete(key);
-    }
-  });
   void operation.catch(rejectResult);
   return result;
 }
@@ -384,6 +399,31 @@ function abortError(signal: AbortSignal): Error {
   if (signal.reason instanceof Error) return signal.reason;
   const error = new Error("Chat thread snapshot persistence was aborted.");
   error.name = "AbortError";
+  return error;
+}
+
+function reserveThreadSnapshotQueueSlot(
+  queueSizes: Map<string, number>,
+  key: string,
+): boolean {
+  const pending = queueSizes.get(key) ?? 0;
+  if (pending >= MAX_PENDING_THREAD_SNAPSHOT_WRITES) return false;
+  queueSizes.set(key, pending + 1);
+  return true;
+}
+
+function releaseThreadSnapshotQueueSlot(
+  queueSizes: Map<string, number>,
+  key: string,
+): void {
+  const pending = queueSizes.get(key) ?? 0;
+  if (pending <= 1) queueSizes.delete(key);
+  else queueSizes.set(key, pending - 1);
+}
+
+function threadSnapshotQueueFullError(): Error {
+  const error = new Error("Too many chat thread snapshot writes are pending.");
+  error.name = "ThreadSnapshotQueueFullError";
   return error;
 }
 
@@ -2475,10 +2515,10 @@ const AgentKitAssistantChatBody = forwardRef<
   }, [appendRealtimeVoiceTranscript, props.isActiveComposer, threadId]);
 
   useEffect(() => {
-    if (!isRunning || !props.createTransport) return;
+    if (!isRunning) return;
     const interval = window.setInterval(() => saveSnapshotRef.current(), 5000);
     return () => window.clearInterval(interval);
-  }, [isRunning, props.createTransport]);
+  }, [isRunning]);
 
   const acquireSubmission = useCallback(async () => {
     if (

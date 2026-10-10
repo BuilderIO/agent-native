@@ -653,6 +653,19 @@ Before advancing a replay cursor, validate the entire received batch with
 `parseAgentEventSequence()`, which rejects the batch when the first event does
 not follow `afterSequence` or any later event leaves a sequence gap.
 
+`AgentKitController.persistThreadSnapshot()` resolves when persistence is
+unsupported or succeeds. It rejects when the transport fails to save. Callers
+that used to fire and forget this method should now handle the rejection or use
+`persistThreadSnapshotWithResult()`, which returns `true` on success, `false` on
+failure, and `undefined` when the transport does not support snapshot writes.
+
+```ts
+const saved = await controller.persistThreadSnapshotWithResult(threadId);
+if (saved === false) {
+  // Keep the snapshot available for retry or report the save failure.
+}
+```
+
 ### Approval decisions
 
 Every `AgentApprovalResponse` carries an explicit provider-neutral `decision` of

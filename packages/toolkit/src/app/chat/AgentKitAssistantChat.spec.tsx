@@ -6609,11 +6609,71 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(coreSignal?.aborted).toBe(true);
   });
 
-  it("does not checkpoint full snapshots every five seconds for the default transport", async () => {
+  it("bounds queued transport snapshot writes per thread", async () => {
+    let resolveFirstWrite: (() => void) | undefined;
+    let writeCount = 0;
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(() => {
+      writeCount += 1;
+      if (writeCount === 1) {
+        return new Promise<void>((resolve) => {
+          resolveFirstWrite = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+    await mount(baseProps({ createTransport: () => chatMocks.transport }));
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 404 }));
+    const persistThreadSnapshot = chatMocks.rootProps.transport
+      .persistThreadSnapshot as (input: unknown) => Promise<void>;
+    const writes = Array.from({ length: 8 }, (_, index) =>
+      persistThreadSnapshot({
+        threadId: "bounded-snapshot-queue-thread",
+        snapshot: {
+          messages: [
+            {
+              id: `bounded-snapshot-message-${index}`,
+              role: "user",
+              status: "complete",
+              parts: [],
+            },
+          ],
+        },
+      }),
+    );
+
+    try {
+      await vi.waitFor(() =>
+        expect(
+          chatMocks.transport.persistThreadSnapshot,
+        ).toHaveBeenCalledOnce(),
+      );
+      await expect(
+        persistThreadSnapshot({
+          threadId: "bounded-snapshot-queue-thread",
+          snapshot: { messages: [] },
+        }),
+      ).rejects.toMatchObject({ name: "ThreadSnapshotQueueFullError" });
+
+      resolveFirstWrite?.();
+      await Promise.allSettled(writes);
+      expect(chatMocks.transport.persistThreadSnapshot).toHaveBeenCalledTimes(
+        8,
+      );
+    } finally {
+      resolveFirstWrite?.();
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("checkpoints changed snapshots during default transport runs", async () => {
     const onSaveThread = vi.fn().mockResolvedValue(true);
-    const props = baseProps({ onSaveThread });
+    const onMessageCountChange = vi.fn();
+    const props = baseProps({ onSaveThread, onMessageCountChange });
     await mount(props);
-    vi.useFakeTimers();
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
 
     try {
       const message = {
@@ -6626,21 +6686,71 @@ describe("AgentKitAssistantChat host behavior", () => {
       chatMocks.thread = {
         ...chatMocks.thread,
         activeRunIds: ["default-transport-checkpoint-run"],
+        runs: {
+          "default-transport-checkpoint-run": {
+            id: "default-transport-checkpoint-run",
+            status: "running",
+            lastSequence: 0,
+          },
+        },
         messages: [message],
       };
       await act(async () => {
         root.render(<AgentKitAssistantChat {...props} />);
         for (let i = 0; i < 16; i++) await Promise.resolve();
       });
+      const intervalCallbacks = () =>
+        setIntervalSpy.mock.calls
+          .filter(([, delay]) => delay === 5_000)
+          .map(([callback]) => callback);
+      expect(intervalCallbacks().at(-1)).toEqual(expect.any(Function));
+      await flush();
       const saveCount = chatMocks.persistThreadSnapshot.mock.calls.length;
       expect(saveCount).toBeGreaterThan(0);
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(10_000);
-        for (let i = 0; i < 16; i++) await Promise.resolve();
+        chatMocks.thread = {
+          ...chatMocks.thread,
+          messages: [
+            ...chatMocks.thread.messages,
+            {
+              id: "default-transport-checkpoint-assistant",
+              role: "assistant",
+              status: "streaming",
+              parts: [{ type: "text", text: "Still working" }],
+            },
+          ],
+          runs: {
+            "default-transport-checkpoint-run": {
+              id: "default-transport-checkpoint-run",
+              status: "running",
+              lastSequence: 2,
+            },
+          },
+        };
+        root.render(
+          <AgentKitAssistantChat {...props} isActiveComposer={false} />,
+        );
+        for (let i = 0; i < 32; i++) await Promise.resolve();
       });
+      await act(async () => {
+        const periodicSave = intervalCallbacks().at(-1);
+        if (typeof periodicSave === "function") periodicSave();
+        for (let i = 0; i < 32; i++) await Promise.resolve();
+      });
+      await flush();
 
-      expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledTimes(saveCount);
+      expect(chatMocks.persistThreadSnapshot.mock.calls.length).toBeGreaterThan(
+        saveCount,
+      );
+      expect(onMessageCountChange).toHaveBeenCalledWith(2);
+      expect(onSaveThread).toHaveBeenCalledWith(
+        chatMocks.threadId,
+        expect.objectContaining({
+          threadData: expect.stringContaining('"lastSequence":2'),
+        }),
+        expect.anything(),
+      );
     } finally {
       chatMocks.thread = { ...chatMocks.thread, messages: [] };
       await act(async () => {
@@ -6648,7 +6758,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         await Promise.resolve();
       });
       await act(async () => root.render(null));
-      vi.useRealTimers();
+      setIntervalSpy.mockRestore();
     }
   });
 
