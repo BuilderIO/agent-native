@@ -1649,6 +1649,18 @@ describe("Slides prompt-led home", () => {
     expect(markup).not.toContain("agent-prompt-home-library");
   });
 
+  it("renders ready suggestions before effects snapshot them", () => {
+    const markup = renderToString(
+      <MemoryRouter initialEntries={["/home"]}>
+        <TooltipProvider>
+          <ActiveIndex />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain('aria-label="home.suggestedPrompts"');
+  });
+
   it("shows both tabs and defaults to Templates without accessible decks", () => {
     const home = renderHome({ decks: [ownDeck] });
     expect(

@@ -1473,6 +1473,12 @@ describe("home library", () => {
     );
   });
 
+  it("renders ready suggestions before effects snapshot them", () => {
+    expect(renderToString(<Index />)).toContain(
+      'aria-label="home.suggestedPrompts"',
+    );
+  });
+
   it("preserves an explicit Templates choice made while the summary is pending", async () => {
     mocks.ownCount = 1;
     mocks.ownStatus = "pending";

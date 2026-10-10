@@ -2761,6 +2761,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         showNewDeckPrompt &&
         (homeSuggestionsLoading ||
           homeSuggestionsUnavailable ||
+          readyHomeSuggestions !== null ||
           homeSuggestionsSnapshot !== null) ? (
           <AgentSuggestionBar
             loading={homeSuggestionsLoading}

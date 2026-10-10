@@ -1361,6 +1361,7 @@ export default function Index() {
         quickActions={
           homeSuggestionsLoading ||
           homeSuggestionsUnavailable ||
+          readyHomeSuggestions !== null ||
           homeSuggestionsSnapshot !== null ? (
             <AgentSuggestionBar
               loading={homeSuggestionsLoading}
