@@ -71,9 +71,9 @@ function pathForView(view?: string): string {
   }
 }
 
-function pathForCommand(command: any): string {
+export function pathForCommand(command: any): string {
   const path = pathForView(command?.view);
-  if (path !== NEW_CHAT_PATH && path !== HOME_PATH) return path;
+  if (command?.view !== "chat" && command?.view !== "ask") return path;
   const threadId =
     typeof command?.threadId === "string" ? command.threadId.trim() : "";
   return threadId ? chatThreadPath(threadId) : path;

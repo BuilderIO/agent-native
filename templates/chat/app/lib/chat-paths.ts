@@ -1,7 +1,8 @@
 import type { FilePart } from "@agent-native/agentkit";
-import type {
-  PromptComposerSubmitOptions,
-  Reference,
+import {
+  COMPOSER_CONTEXT_MAX_ITEMS,
+  type PromptComposerSubmitOptions,
+  type Reference,
 } from "@agent-native/toolkit/composer";
 
 export const HOME_PATH = "/home";
@@ -198,7 +199,9 @@ function normalizeFilePart(value: unknown): FilePart | null {
 function normalizeContextItems(
   value: unknown,
 ): NonNullable<ChatInitialComposerOptions["contextItems"]> | null {
-  if (!Array.isArray(value) || value.length > MAX_HANDOFF_ITEMS) return null;
+  if (!Array.isArray(value) || value.length > COMPOSER_CONTEXT_MAX_ITEMS) {
+    return null;
+  }
   const result: NonNullable<
     ChatInitialComposerOptions["contextItems"]
   >[number][] = [];
@@ -308,6 +311,29 @@ function failedChatHandoffKey(threadId: string): string {
   return `${FAILED_CHAT_HANDOFF_PREFIX}${encodeURIComponent(threadId)}`;
 }
 
+function clearFailedChatHandoffMarker(threadId: string): string {
+  return JSON.stringify({ version: 1, threadId, status: "cleared" });
+}
+
+function replaceFailedChatHandoffWithMarker(
+  threadId: string,
+): { status: "stored" } | { status: "unavailable"; cause: unknown } {
+  try {
+    window.sessionStorage.setItem(
+      failedChatHandoffKey(threadId),
+      clearFailedChatHandoffMarker(threadId),
+    );
+    return { status: "stored" };
+  } catch (cause) {
+    return { status: "unavailable", cause };
+  }
+}
+
+function invalidateExistingFailedChatHandoff(threadId: string): void {
+  if (typeof window === "undefined") return;
+  clearFailedChatHandoff(threadId);
+}
+
 /** Persist a bounded, JSON-safe Home-to-Chat submit until retry is accepted. */
 export function writeFailedChatHandoff(
   threadId: string,
@@ -324,10 +350,12 @@ export function writeFailedChatHandoff(
     return { status: "invalid", reason: "invalid-thread-id" };
   }
   if (text.length > MAX_HANDOFF_TEXT_LENGTH) {
+    invalidateExistingFailedChatHandoff(threadId);
     return { status: "invalid", reason: "message-too-large" };
   }
   const normalizedOptions = normalizeComposerOptions(options);
   if (!normalizedOptions) {
+    invalidateExistingFailedChatHandoff(threadId);
     return { status: "invalid", reason: "invalid-options" };
   }
   const serialized = JSON.stringify({
@@ -339,12 +367,14 @@ export function writeFailedChatHandoff(
   if (
     new TextEncoder().encode(serialized).byteLength > MAX_FAILED_HANDOFF_BYTES
   ) {
+    invalidateExistingFailedChatHandoff(threadId);
     return { status: "invalid", reason: "payload-too-large" };
   }
   try {
     window.sessionStorage.setItem(failedChatHandoffKey(threadId), serialized);
     return { status: "stored" };
   } catch (cause) {
+    invalidateExistingFailedChatHandoff(threadId);
     return { status: "unavailable", cause };
   }
 }
@@ -375,6 +405,9 @@ export function readFailedChatHandoff(
     if (!isRecord(envelope) || envelope.version !== 1) {
       return { status: "invalid", reason: "invalid-envelope" };
     }
+    if (envelope.status === "cleared" && envelope.threadId === threadId) {
+      return { status: "absent" };
+    }
     if (envelope.threadId !== threadId || typeof envelope.text !== "string") {
       return { status: "invalid", reason: "invalid-envelope" };
     }
@@ -398,15 +431,31 @@ export function clearFailedChatHandoff(
     };
   }
   if (!threadId.trim()) return { status: "absent" };
+  const key = failedChatHandoffKey(threadId);
   try {
-    if (
-      window.sessionStorage.getItem(failedChatHandoffKey(threadId)) === null
-    ) {
+    if (window.sessionStorage.getItem(key) === null) {
       return { status: "absent" };
     }
-    window.sessionStorage.removeItem(failedChatHandoffKey(threadId));
+  } catch (cause) {
+    const marker = replaceFailedChatHandoffWithMarker(threadId);
+    if (marker.status === "stored") {
+      return { status: "cleared" };
+    }
+    try {
+      window.sessionStorage.removeItem(key);
+      return { status: "cleared" };
+    } catch (removeCause) {
+      return { status: "unavailable", cause: removeCause ?? cause };
+    }
+  }
+  try {
+    window.sessionStorage.removeItem(key);
     return { status: "cleared" };
   } catch (cause) {
+    const marker = replaceFailedChatHandoffWithMarker(threadId);
+    if (marker.status === "stored") {
+      return { status: "cleared" };
+    }
     return { status: "unavailable", cause };
   }
 }

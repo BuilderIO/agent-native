@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { COMPOSER_CONTEXT_MAX_ITEMS } from "@agent-native/toolkit/composer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -75,6 +76,55 @@ describe("failed Chat handoff storage", () => {
       status: "cleared",
     });
     expect(readFailedChatHandoff("thread-one")).toEqual({ status: "absent" });
+  });
+
+  it("accepts the composer context limit and rejects values above it", () => {
+    const contextItems = Array.from(
+      { length: COMPOSER_CONTEXT_MAX_ITEMS },
+      (_, index) => ({
+        key: `context-${index}`,
+        title: `Context ${index}`,
+        context: `Use context ${index}.`,
+      }),
+    );
+
+    expect(
+      writeFailedChatHandoff("thread-one", "Use all context", {
+        contextItems,
+      }),
+    ).toEqual({ status: "stored" });
+    expect(readFailedChatHandoff("thread-one")).toMatchObject({
+      status: "found",
+      handoff: { options: { contextItems } },
+    });
+    expect(
+      writeFailedChatHandoff("thread-one", "Too much context", {
+        contextItems: [...contextItems, { ...contextItems[0]!, key: "extra" }],
+      }),
+    ).toEqual({ status: "invalid", reason: "invalid-options" });
+    expect(readFailedChatHandoff("thread-one")).toEqual({ status: "absent" });
+  });
+
+  it("uses a tombstone when session storage refuses to remove a cleared handoff", () => {
+    expect(
+      writeFailedChatHandoff("thread-one", "Accepted request", {}),
+    ).toEqual({ status: "stored" });
+    const removeItem = vi
+      .spyOn(window.sessionStorage, "removeItem")
+      .mockImplementation(() => {
+        throw new Error("storage remove failed");
+      });
+
+    expect(clearFailedChatHandoff("thread-one")).toEqual({
+      status: "cleared",
+    });
+    expect(readFailedChatHandoff("thread-one")).toEqual({ status: "absent" });
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.chat.failed-handoff:thread-one",
+      ),
+    ).toContain('"status":"cleared"');
+    removeItem.mockRestore();
   });
 
   it("rejects oversized or non-serializable payloads instead of saving partial state", () => {

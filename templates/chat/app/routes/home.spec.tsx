@@ -7,6 +7,8 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { readFailedChatHandoff } from "@/lib/chat-paths";
+
 const routeState = vi.hoisted(() => ({
   basePath: "",
   threadId: undefined as string | undefined,
@@ -229,6 +231,7 @@ describe("ChatRoute AgentKit surface", () => {
   let root: Root;
   let locationReplace: ReturnType<typeof vi.spyOn>;
   let restoreSessionStorageSetItem: (() => void) | null = null;
+  let restoreSessionStorageRemoveItem: (() => void) | null = null;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -272,6 +275,8 @@ describe("ChatRoute AgentKit surface", () => {
     locationReplace.mockRestore();
     restoreSessionStorageSetItem?.();
     restoreSessionStorageSetItem = null;
+    restoreSessionStorageRemoveItem?.();
+    restoreSessionStorageRemoveItem = null;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
@@ -1115,6 +1120,35 @@ describe("ChatRoute AgentKit surface", () => {
     ).toBe("chat.recoveryDraftUnsaved");
   });
 
+  it("does not restore an accepted handoff when session storage refuses removal", async () => {
+    routeState.threadId = "accepted-chat";
+    routeState.locationState = { initialMessage: "Send this once" };
+    const removeItemSpy = vi
+      .spyOn(window.sessionStorage, "removeItem")
+      .mockImplementation(() => {
+        throw new Error("storage remove failed");
+      });
+    restoreSessionStorageRemoveItem = () => removeItemSpy.mockRestore();
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
+    expect(readFailedChatHandoff("accepted-chat")).toEqual({
+      status: "absent",
+    });
+
+    routeState.locationState = null;
+    act(() => root.unmount());
+    root = createRoot(container);
+    routeState.sendMessage.mockClear();
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: undefined },
+    });
+  });
+
   it("warns when edits to a recovery draft cannot be saved", async () => {
     routeState.threadId = "chat-from-home";
     routeState.locationState = { initialMessage: "Call the hello action" };
@@ -1136,13 +1170,17 @@ describe("ChatRoute AgentKit surface", () => {
       container.querySelector('[data-testid="chat-recovery-draft-unsaved"]')
         ?.textContent,
     ).toBe("chat.recoveryDraftUnsaved");
-    expect(
-      JSON.parse(
-        window.sessionStorage.getItem(
-          "agent-native.chat.failed-handoff:chat-from-home",
-        ) ?? "null",
-      ).text,
-    ).toBe("Call the hello action");
+    expect(readFailedChatHandoff("chat-from-home")).toEqual({
+      status: "absent",
+    });
+
+    routeState.locationState = null;
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(<ChatRoute />));
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: undefined },
+    });
   });
 
   it("keeps the prompt recoverable instead of sending invalid handoff options", async () => {
