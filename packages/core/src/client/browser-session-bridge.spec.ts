@@ -454,6 +454,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
 
   it("aborts an in-flight polling claim when stopped", async () => {
     const onError = vi.fn();
+    let requestStatus: "pending" | "claimed" | "expired" = "pending";
     let claimSignal: AbortSignal | undefined;
     const fetchMock = vi.fn((url: string, init?: RequestInit) => {
       if (
@@ -461,6 +462,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
         init?.method === "POST"
       ) {
         claimSignal = init.signal ?? undefined;
+        requestStatus = "claimed";
         return new Promise<Response>((_resolve, reject) => {
           claimSignal?.addEventListener(
             "abort",
@@ -490,6 +492,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
         url === "/_agent-native/browser-sessions/tab-1" &&
         init?.method === "DELETE"
       ) {
+        if (requestStatus === "claimed") requestStatus = "expired";
         return Promise.resolve(jsonResponse({ ok: true, deleted: true }));
       }
       throw new Error(`Unexpected fetch ${init?.method} ${url}`);
@@ -506,6 +509,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
     expect(claimSignal?.aborted).toBe(true);
+    expect(requestStatus).toBe("expired");
     expect(onError).not.toHaveBeenCalled();
     expect(
       fetchMock.mock.calls.some(
@@ -514,6 +518,90 @@ describe("createAgentNativeBrowserSessionBridge", () => {
           init?.method === "DELETE",
       ),
     ).toBe(true);
+  });
+
+  it("completes a claimed action before disconnecting when stopped", async () => {
+    const operations: string[] = [];
+    let resolveAction: ((result: unknown) => void) | undefined;
+    let completionBody: unknown;
+    const runAction = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveAction = resolve;
+        }),
+    );
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (
+        url === "/_agent-native/browser-sessions" &&
+        init?.method === "POST"
+      ) {
+        const body = JSON.parse(String(init.body));
+        return jsonResponse({
+          ok: true,
+          session: {
+            sessionId: body.sessionId,
+            session: body.session,
+            active: true,
+            actions: body.actions,
+          },
+        });
+      }
+      if (url.endsWith("/requests/claim")) {
+        return jsonResponse({
+          ok: true,
+          request: {
+            id: "req-1",
+            sessionId: "tab-1",
+            type: "run-action",
+            name: "slow-action",
+            args: {},
+            status: "claimed",
+            createdAt: Date.now(),
+            expiresAt: Date.now() + 60_000,
+          },
+        });
+      }
+      if (url.endsWith("/requests/req-1/complete")) {
+        operations.push("complete");
+        completionBody = JSON.parse(String(init?.body));
+        return jsonResponse({ ok: true, request: { id: "req-1" } });
+      }
+      if (
+        url === "/_agent-native/browser-sessions/tab-1" &&
+        init?.method === "DELETE"
+      ) {
+        operations.push("disconnect");
+        return jsonResponse({ ok: true, deleted: true });
+      }
+      throw new Error(`Unexpected fetch ${init?.method} ${url}`);
+    });
+    const bridge = createAgentNativeBrowserSessionBridge({
+      sessionId: "tab-1",
+      session: { id: "tab-1" },
+      getContext: () => ({}),
+      actions: [
+        {
+          name: "slow-action",
+          description: "Wait for an in-flight action",
+          schema: { type: "object" },
+          run: runAction,
+        },
+      ],
+      pollMs: 60_000,
+      heartbeatMs: 60_000,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+
+    bridge.start();
+    await vi.waitFor(() => expect(runAction).toHaveBeenCalledOnce());
+    bridge.stop();
+
+    expect(operations).toEqual([]);
+    resolveAction?.({ completed: true });
+    await vi.waitFor(() =>
+      expect(operations).toEqual(["complete", "disconnect"]),
+    );
+    expect(completionBody).toEqual({ ok: true, result: { completed: true } });
   });
 
   it("does not let a stopped claim disconnect a restarted session", async () => {
@@ -1351,6 +1439,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     vi.useFakeTimers();
     const onError = vi.fn();
     let resolveAction: ((result: unknown) => void) | undefined;
+    let completionBody: unknown;
     const runAction = vi.fn(
       () =>
         new Promise((resolve) => {
@@ -1389,6 +1478,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
         });
       }
       if (url.endsWith("/requests/req-1/complete")) {
+        completionBody = JSON.parse(String(init?.body));
         return jsonResponse({ ok: true, request: { id: "req-1" } });
       }
       if (init?.method === "DELETE") return jsonResponse({ ok: true });
@@ -1422,6 +1512,7 @@ describe("createAgentNativeBrowserSessionBridge", () => {
     } finally {
       resolveAction?.({ completed: true });
       await vi.advanceTimersByTimeAsync(0);
+      expect(completionBody).toEqual({ ok: true, result: { completed: true } });
       bridge.stop();
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(60_000);
