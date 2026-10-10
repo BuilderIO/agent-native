@@ -5115,10 +5115,9 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
     surface.props.centerComposerWhenEmpty &&
     !surface.hasRenderedMessages &&
     surface.threadRestore.status === "ready";
-  const suggestionBar =
-    surface.props.suggestionPlacement !== "hidden" &&
-    (surface.hasRenderedMessages ||
-      surface.props.suggestionPlacement === "context-chips") &&
+  const initialContextSuggestionBar =
+    !surface.hasRenderedMessages &&
+    surface.props.suggestionPlacement === "context-chips" &&
     !showHomeSuggestions &&
     surface.showSuggestions &&
     surface.suggestions.length > 0 ? (
@@ -5384,7 +5383,7 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           />
         </div>
       ) : null}
-      {suggestionBar}
+      {initialContextSuggestionBar}
       {renderThreadSlot(
         surface.props.threadFooterSlot,
         threadId,
@@ -5866,6 +5865,28 @@ function AgentKitComposerSurface({
           onClear={onClearSelection}
         />
       ) : null}
+      {hasRenderedMessages && props.suggestionPlacement !== "hidden" ? (
+        <div
+          className="agentkit-host-suggestions-slot"
+          data-agentkit-host-suggestions-slot="true"
+        >
+          {showSuggestions && suggestions.length > 0 ? (
+            <AgentKitSuggestedPrompts
+              suggestions={suggestions}
+              disabled={
+                !canChat ||
+                props.composerDisabled ||
+                props.composerSubmissionDisabled ||
+                isSubmissionInFlight ||
+                composerSubmissionPending
+              }
+              onSelect={submitSuggestion}
+              className="agentkit-host-suggestions"
+              layout="single-line"
+            />
+          ) : null}
+        </div>
+      ) : null}
       <div className="relative">
         <AgentKitComposer
           threadId={threadId}
@@ -6090,11 +6111,13 @@ function AgentKitSuggestedPrompts({
   disabled,
   onSelect,
   className,
+  layout,
 }: {
   suggestions: AgentSuggestionInput[];
   disabled: boolean;
   onSelect: (suggestion: AgentSuggestionInput) => void;
   className: string;
+  layout?: "wrap" | "single-line";
 }) {
   const t = useT();
   return (
@@ -6114,6 +6137,7 @@ function AgentKitSuggestedPrompts({
       }))}
       onSelect={onSelect}
       className={className}
+      layout={layout}
     />
   );
 }
