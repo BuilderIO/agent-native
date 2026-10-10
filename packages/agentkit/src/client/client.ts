@@ -597,6 +597,15 @@ function isExpectedRequestCancellation(error: unknown): boolean {
   );
 }
 
+function isExpectedThreadSnapshotDeferral(error: unknown): boolean {
+  const code = errorProperty(error, "code");
+  return (
+    isExpectedRequestCancellation(error) ||
+    code === "thread_snapshot_queue_full" ||
+    code === "thread_snapshot_queue_stalled"
+  );
+}
+
 function toError(error: unknown, code = "agentkit_client_error"): AgentError {
   const errorCode = errorProperty(error, "code");
   const correlationId = errorProperty(error, "correlationId");
@@ -4428,12 +4437,12 @@ export class AgentKitClient implements AgentKitController {
         context,
       );
       if (!result) return true;
-      if (!isExpectedRequestCancellation(result.error)) {
+      if (!isExpectedThreadSnapshotDeferral(result.error)) {
         this.fail(result.error, "thread_snapshot_persist_failed");
       }
       return false;
     } catch (error) {
-      if (!isExpectedRequestCancellation(error)) {
+      if (!isExpectedThreadSnapshotDeferral(error)) {
         this.fail(error, "thread_snapshot_persist_failed");
       }
       return false;
@@ -4759,7 +4768,10 @@ export class AgentKitClient implements AgentKitController {
         this.scheduleQueuePromotion(threadId, true);
       }
     }
-    if (persistenceError) {
+    if (
+      persistenceError &&
+      !isExpectedThreadSnapshotDeferral(persistenceError.error)
+    ) {
       this.fail(persistenceError.error, "thread_snapshot_persist_failed");
     }
   }

@@ -7635,9 +7635,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
   });
 
-  it("supports legacy controllers until their snapshot save resolves", async () => {
+  it("uses the host fallback after a legacy controller save resolves", async () => {
     const createTransport = () => chatMocks.transport;
     chatMocks.omitSnapshotPersistenceResult = true;
+    chatMocks.snapshotPersistenceUnavailable = true;
     let resolveSave: (() => void) | undefined;
     chatMocks.persistThreadSnapshot.mockImplementationOnce(
       () =>
@@ -7685,6 +7686,12 @@ describe("AgentKitAssistantChat host behavior", () => {
       for (let i = 0; i < 8; i++) await Promise.resolve();
     });
     expect(onSaveThread).toHaveBeenCalledOnce();
+    expect(onSaveThread).toHaveBeenCalledWith(
+      "thread-1",
+      expect.objectContaining({ threadData: expect.any(String) }),
+      expect.anything(),
+      "host-fallback",
+    );
     expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
   });
 

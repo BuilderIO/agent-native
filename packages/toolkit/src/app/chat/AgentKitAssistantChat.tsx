@@ -469,6 +469,7 @@ function releaseThreadSnapshotQueueSlot(
 function threadSnapshotQueueFullError(): Error {
   const error = new Error("Too many chat thread snapshot writes are pending.");
   error.name = "ThreadSnapshotQueueFullError";
+  Object.assign(error, { code: "thread_snapshot_queue_full" });
   return error;
 }
 
@@ -477,6 +478,7 @@ function threadSnapshotQueueStalledError(): Error {
     "A previous chat thread snapshot write has not settled after cancellation.",
   );
   error.name = "ThreadSnapshotQueueStalledError";
+  Object.assign(error, { code: "thread_snapshot_queue_stalled" });
   return error;
 }
 
@@ -2520,6 +2522,7 @@ const AgentKitAssistantChatBody = forwardRef<
               if (persisted === false) return false;
               if (persisted === undefined) saveSource = "host-fallback";
             } else {
+              saveSource = "host-fallback";
               await controller.persistThreadSnapshot(threadId, messages);
             }
           } catch (error) {
