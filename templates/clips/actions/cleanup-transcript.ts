@@ -285,8 +285,9 @@ async function callGeminiByok({
             parts: [{ text: prompt.system }, { text: prompt.user }],
           },
         ],
+        // Gemini 3.x deprecates sampling parameters (temperature, top_p,
+        // top_k), so this request sends none.
         generationConfig: {
-          temperature: 0,
           maxOutputTokens,
           ...(wantJson ? { responseMimeType: "application/json" } : {}),
         },
