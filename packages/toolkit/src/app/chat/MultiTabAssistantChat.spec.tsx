@@ -2680,6 +2680,31 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
+  it("rewrites a shared query thread on the route-owned home to its thread path", async () => {
+    const navigate = vi.fn();
+    window.history.replaceState(null, "", "/chat?thread=thread-1");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+            navigate,
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith("/chat/thread-1", { replace: true });
+  });
+
   it("accepts a route-owned thread id for path-based chat routes", async () => {
     let headerProps: MultiTabAssistantChatHeaderProps | null = null;
     const navigate = vi.fn();

@@ -1096,6 +1096,11 @@ export function brainAskThreadPath(threadId: string | null): string {
   return threadId ? `/home/${encodeURIComponent(threadId)}` : "/home";
 }
 
+export function brainAskThreadIdFromPath(pathname: string): string | null {
+  const segment = /^\/home\/([^/]+)\/?$/.exec(pathname)?.[1];
+  return segment ? decodeURIComponent(segment) : null;
+}
+
 export function viewFromPath(pathname: string): BrainView {
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/search")) return "search";

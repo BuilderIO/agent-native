@@ -27,7 +27,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { brainAskThreadPath, isBrainAskPath, navItems } from "@/lib/brain";
+import {
+  brainAskThreadIdFromPath,
+  brainAskThreadPath,
+  isBrainAskPath,
+  navItems,
+} from "@/lib/brain";
 
 const BRAIN_CHAT_STORAGE_KEY = "brain";
 const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;
@@ -85,7 +90,6 @@ function BrainChatsSection({ open }: { open: boolean }) {
   const t = useT();
   const {
     threads,
-    activeThreadId,
     switchThread,
     pinThread,
     archiveThread,
@@ -95,6 +99,10 @@ function BrainChatsSection({ open }: { open: boolean }) {
     autoCreate: false,
     restoreActiveThread: false,
   });
+  // The URL is the source of truth for the highlighted thread: this instance is
+  // not route-controlled, so its own active id is not cleared by New chat.
+  const location = useLocation();
+  const activeThreadId = brainAskThreadIdFromPath(location.pathname);
 
   const visibleThreads = useMemo(
     () =>

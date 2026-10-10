@@ -1121,6 +1121,21 @@ export function MultiTabAssistantChat({
     ],
   );
 
+  // A shared `?thread=` link opens its thread once, then moves to the
+  // route-owned thread path, so the blank create route keeps no stale query.
+  useEffect(() => {
+    if (!threadUrlSyncEnabled || !threadRouteControlsActiveThread) return;
+    if (routeThreadId) return;
+    const sharedThreadId = readUrlThreadId(threadUrlParamName);
+    if (sharedThreadId) writeThreadUrl(sharedThreadId, { replace: true });
+  }, [
+    routeThreadId,
+    threadRouteControlsActiveThread,
+    threadUrlParamName,
+    threadUrlSyncEnabled,
+    writeThreadUrl,
+  ]);
+
   const {
     threads,
     activeThreadId,

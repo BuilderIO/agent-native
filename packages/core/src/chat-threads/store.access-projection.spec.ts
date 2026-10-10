@@ -143,6 +143,11 @@ describe("yes/no thread access never reads the conversation body", () => {
     await expect(
       callerHasThreadAccess("owner@example.com", "t1"),
     ).resolves.toBe(true);
+    // resolveAccess is mocked here, so the projection itself is only visible at
+    // this seam: the real resolver reads the body unless this option is set.
+    expect(resolveAccessMock.mock.calls[0][3]).toEqual({
+      skipResourceBody: true,
+    });
     const sqls = executeMock.mock.calls.map(([query]) =>
       typeof query === "string" ? query : query.sql,
     );
