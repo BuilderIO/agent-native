@@ -1369,7 +1369,7 @@ describe("slide object interactions", () => {
     ["s", { x: 100, y: 50, width: 200, height: 130 }],
     ["se", { x: 100, y: 50, width: 240, height: 130 }],
   ] as const)(
-    "resizes and anchors the opposite edge for the %s handle",
+    "resizes and anchors the opposite edge for the %s handle (oracle 10.1)",
     (handle, expected) => {
       expect(
         resizeSlideObject(
@@ -1401,7 +1401,7 @@ describe("slide object interactions", () => {
     },
   );
 
-  it("uses Shift aspect locking for corners and midpoint handles", () => {
+  it("uses Shift aspect locking for corners and midpoint handles (oracle 10.2, oracle G.kbd-resize-keep-aspect)", () => {
     expect(
       resizeSlideObject(
         { x: 100, y: 50, width: 200, height: 100 },
@@ -1654,7 +1654,7 @@ describe("slide object interactions", () => {
     expect(root.children).toHaveLength(0);
   });
 
-  it("sends an object in front of every peer", () => {
+  it("sends an object in front of every peer (oracle 8.5)", () => {
     const container = document.createElement("div");
     const element = createFreeformObject("front-me", { zIndex: 0 });
     const peerA = createFreeformObject("peer-a", { zIndex: 2 });
@@ -1678,7 +1678,7 @@ describe("slide object interactions", () => {
     expect(source.style.zIndex).toBe("1");
   });
 
-  it("sends an object behind every peer when there is room below", () => {
+  it("sends an object behind every peer when there is room below (oracle 8.5)", () => {
     const container = document.createElement("div");
     const element = createFreeformObject("back-me", { zIndex: 5 });
     const peerA = createFreeformObject("peer-a", { zIndex: 2 });
@@ -1691,7 +1691,7 @@ describe("slide object interactions", () => {
     });
   });
 
-  it("computes one-step freeform z-order changes while preserving peer order", () => {
+  it("computes one-step freeform z-order changes while preserving peer order (oracle 8.5)", () => {
     const container = document.createElement("div");
     const first = createFreeformObject("first", { zIndex: 0 });
     const second = createFreeformObject("second", { zIndex: 1 });
@@ -2065,7 +2065,7 @@ describe("slide object interactions", () => {
     ).toEqual([label, fixed]);
   });
 
-  it("moves every member by the same delta relative to its own captured start", () => {
+  it("moves every member by the same delta relative to its own captured start (oracle 4.8)", () => {
     const objectA = createFreeformObject("a", { left: 10, top: 20 });
     const objectB = createFreeformObject("b", { left: 30, top: 40 });
     document.body.append(objectA, objectB);
@@ -2093,7 +2093,7 @@ describe("slide object interactions", () => {
     expect(applied.get("b")).toEqual({ x: 130, y: 30, width: 50, height: 50 });
   });
 
-  it("snaps object edges and centers to nearby peer anchors and returns guides", () => {
+  it("snaps object edges and centers to nearby peer anchors and returns guides (oracle 9.2, oracle 9.3, oracle G.snap-to-guides)", () => {
     const result = snapSlideObjectMove({
       moving: { x: 100, y: 160, width: 80, height: 40 },
       deltaX: 17,
@@ -2114,7 +2114,7 @@ describe("slide object interactions", () => {
     });
   });
 
-  it("snaps both axes to slide anchors, ignores distant targets, and bypasses with Cmd/Ctrl", () => {
+  it("snaps both axes to slide anchors, ignores distant targets, and bypasses with Cmd/Ctrl (oracle 9.3, oracle 9.6, oracle G.kbd-suppress-guides)", () => {
     const snapped = snapSlideObjectMove({
       moving: { x: 4, y: 3, width: 80, height: 40 },
       deltaX: -4,
@@ -2137,7 +2137,7 @@ describe("slide object interactions", () => {
     expect(bypassed).toEqual({ deltaX: -4, deltaY: -3, guides: [] });
   });
 
-  it("aligns selected members to their shared bounds without changing size", () => {
+  it("aligns selected members to their shared bounds without changing size (oracle G.arrange-align-edges)", () => {
     const members = [
       {
         objectId: "a",
@@ -2172,7 +2172,7 @@ describe("slide object interactions", () => {
     });
   });
 
-  it("distributes three or more selected members with equal edge gaps", () => {
+  it("distributes three or more selected members with equal edge gaps (oracle G.arrange-distribute)", () => {
     const members = [
       {
         objectId: "a",
@@ -2301,7 +2301,7 @@ describe("isDeletableSlideElement", () => {
     expect(isDeletableSlideElement(rectangle)).toBe(true);
   });
 
-  it("removes the selected flow div without touching its sibling", () => {
+  it("removes the selected flow div without touching its sibling (oracle 9.10)", () => {
     const root = document.createElement("div");
     const rectangle = document.createElement("div");
     rectangle.className = "generated-rectangle";
@@ -2514,7 +2514,7 @@ describe("arrangeSlideLayerInParent", () => {
     expect(arrangeSlideLayerInParent(a, "front")).toBe(false);
   });
 
-  it("round-trips front and back across repeated presses", () => {
+  it("round-trips front and back across repeated presses (oracle 8.5)", () => {
     const slide = mountSlide(
       `<div id="a">A</div><div id="b">B</div><div id="c">C</div>`,
     );
@@ -2556,7 +2556,7 @@ describe("arrangeSlideLayerInParent", () => {
     expect(Number(zOf(a))).toBeGreaterThanOrEqual(0);
   });
 
-  it("moves a layer one step forward and backward without changing layout order", () => {
+  it("moves a layer one step forward and backward without changing layout order (oracle 8.5)", () => {
     const slide = mountSlide(
       `<div id="a">A</div><div id="b">B</div><div id="c">C</div>`,
     );
@@ -2645,7 +2645,7 @@ describe("slide object groups and rotation", () => {
     expect(resolveSelectionOwner(byId("loose"), root)).toBe(byId("loose"));
   });
 
-  it("groups absolute siblings into one durable wrapper and ungroups at its stack position", () => {
+  it("groups absolute siblings into one durable wrapper and ungroups at its stack position (oracle 7.8, oracle G.arrange-group)", () => {
     const parent = document.createElement("div");
     const first = createFreeformObject("first", { zIndex: 0 });
     const second = createFreeformObject("second", { zIndex: 0 });
@@ -3224,7 +3224,7 @@ describe("slide object groups and rotation", () => {
     expect(readSlideObjectRotation(element)).toBeCloseTo(angle + 15);
   });
 
-  it("normalizes pointer rotation across the angle boundary and snaps only with Shift", () => {
+  it("normalizes pointer rotation across the angle boundary and snaps only with Shift (oracle 10.7, oracle G.kbd-rotate-mouse-15deg-steps)", () => {
     const center = { x: 0, y: 0 };
     const pointAt = (angle: number) => ({
       x: Math.cos((angle * Math.PI) / 180),
@@ -3599,7 +3599,7 @@ describe("resolveFitTextBoxResize", () => {
     }
   });
 
-  it("2.1: the S handle changes nothing without a min-height", () => {
+  it("2.1: the S handle changes nothing without a min-height (oracle H.1)", () => {
     for (const dy of [80, -50]) {
       expect(resize("s", box, 0, dy)).toEqual({
         x: box.x,
@@ -3609,7 +3609,7 @@ describe("resolveFitTextBoxResize", () => {
     }
   });
 
-  it("2.2: the N handle translates the box and leaves its width alone", () => {
+  it("2.2: the N handle translates the box and leaves its width alone (oracle H.2)", () => {
     expect(resize("n", box, 0, 31)).toEqual({
       x: box.x,
       y: box.y + 31,
@@ -3618,7 +3618,7 @@ describe("resolveFitTextBoxResize", () => {
     expect(resize("n", box, 0, -39).y).toBeCloseTo(195.6, 5);
   });
 
-  it("2.3: E keeps the left edge fixed", () => {
+  it("2.3: E keeps the left edge fixed (oracle H.3)", () => {
     const start = { ...box, x: 100, width: 576 };
     expect(resize("e", start, -149, 25)).toEqual({
       x: 100,
@@ -3628,21 +3628,21 @@ describe("resolveFitTextBoxResize", () => {
     expect(resize("e", { ...start, width: 427 }, 201, 0).width).toBe(628);
   });
 
-  it("2.4: W keeps the right edge fixed", () => {
+  it("2.4: W keeps the right edge fixed (oracle H.4)", () => {
     const next = resize("w", box, 100, -20);
     expect(next.width).toBe(528);
     expect(next.x + next.width).toBeCloseTo(box.x + box.width, 5);
     expect(next.y).toBe(box.y);
   });
 
-  it("2.5: south corners apply the horizontal component only", () => {
+  it("2.5: south corners apply the horizontal component only (oracle H.5)", () => {
     const start = { x: 0, y: 50, width: 586, height: 332 };
     expect(resize("se", start, 63, 40)).toEqual({ x: 0, y: 50, width: 649 });
     expect(resize("se", { ...start, width: 649 }, -79, -30).width).toBe(570);
     expect(resize("se", start, 63, 40).y).toBe(50);
   });
 
-  it("2.6: NE follows dx for width and dy for the top edge", () => {
+  it("2.6: NE follows dx for width and dy for the top edge (oracle H.6)", () => {
     const start = { x: 900, y: 226.6, width: 570, height: 332 };
     const next = resize("ne", start, 51, 61);
     expect(next.x).toBe(900);
@@ -3650,7 +3650,7 @@ describe("resolveFitTextBoxResize", () => {
     expect(next.width).toBe(621);
   });
 
-  it("2.7: SW ignores dy and NW also moves the top edge", () => {
+  it("2.7: SW ignores dy and NW also moves the top edge (oracle H.7)", () => {
     const start = { x: 100, y: 200, width: 600, height: 332 };
     const southWest = resize("sw", start, 71, 50);
     expect(southWest).toEqual({ x: 171, y: 200, width: 529 });
@@ -3660,7 +3660,7 @@ describe("resolveFitTextBoxResize", () => {
     expect(northWest.x + northWest.width).toBe(start.x + start.width);
   });
 
-  it("2.8/2.9: Shift changes nothing because there is no aspect to lock", () => {
+  it("2.8/2.9: Shift changes nothing because there is no aspect to lock (oracle H.9)", () => {
     for (const handle of ["se", "nw", "e", "n"] as const) {
       expect(resize(handle, box, 40, -30, { shift: true })).toEqual(
         resize(handle, box, 40, -30),
@@ -3668,7 +3668,7 @@ describe("resolveFitTextBoxResize", () => {
     }
   });
 
-  it("2.10: Alt resizes width about the centre and moves the top edge", () => {
+  it("2.10: Alt resizes width about the centre and moves the top edge (oracle H.10, oracle 10.3, oracle G.kbd-resize-from-center)", () => {
     const start = { x: 899.1, y: 328.6, width: 530, height: 370 };
     const next = resize("se", start, 61, 41, { alt: true });
     expect(next.width).toBe(652);
@@ -3913,7 +3913,7 @@ describe("object interaction geometry hardening", () => {
     ).toBeNull();
   });
 
-  it("snaps within 4 screen px at any zoom", () => {
+  it("snaps within 4 screen px at any zoom (oracle 9.1)", () => {
     const snap = (deltaX: number, scale?: number) =>
       snapSlideObjectMove({
         moving: { x: 100, y: 0, width: 80, height: 40 },
@@ -3947,7 +3947,7 @@ describe("object interaction geometry hardening", () => {
     expect(snap(11).deltaX).toBe(11);
   });
 
-  it("snaps at 3 screen px and not at 4 (gs-truth 9.1)", () => {
+  it("snaps at 3 screen px and not at 4 (gs-truth 9.1; oracle 9.1)", () => {
     const snap = (deltaX: number) =>
       snapSlideObjectMove({
         moving: { x: 100, y: 0, width: 80, height: 40 },
@@ -3961,7 +3961,7 @@ describe("object interaction geometry hardening", () => {
     expect(snap(16).deltaX).toBe(16);
   });
 
-  it("spans an alignment guide across every object it aligns, and the slide for slide anchors (gs-truth 9.2)", () => {
+  it("spans an alignment guide across every object it aligns, and the slide for slide anchors (gs-truth 9.2; oracle 9.2, oracle 9.3)", () => {
     const canvas = { width: 1280, height: 720 };
     const result = snapSlideObjectMove({
       moving: { x: 300, y: 500, width: 80, height: 40 },
@@ -4010,7 +4010,7 @@ describe("object interaction geometry hardening", () => {
     ).toEqual([]);
   });
 
-  it("snaps to equal spacing and draws one blue guide per gap (gs-truth 9.4)", () => {
+  it("snaps to equal spacing and draws one blue guide per gap (gs-truth 9.4; oracle 9.4)", () => {
     const peers = [
       { x: 100, y: 100, width: 100, height: 60 },
       { x: 300, y: 100, width: 100, height: 60 },
@@ -4170,7 +4170,7 @@ describe("object interaction geometry hardening", () => {
     for (const guide of guides) expect(guide.position).toBe(504);
   });
 
-  it("does not snap to equal spacing when Cmd/Ctrl bypasses snapping (gs-truth 9.6)", () => {
+  it("does not snap to equal spacing when Cmd/Ctrl bypasses snapping (gs-truth 9.6; oracle 9.6, oracle G.kbd-suppress-guides)", () => {
     const result = snapSlideObjectMove({
       moving: { x: 450, y: 115, width: 100, height: 40 },
       deltaX: 51,
