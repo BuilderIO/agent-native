@@ -236,6 +236,10 @@ export function resolveMcpConnectGuideId(
   return matchingMcpConnectHosts(normalized)[0]?.guideId ?? "other";
 }
 
+export function resolveMcpConnectHostId(query: string): string | undefined {
+  return matchingMcpConnectHosts(normalizeMcpConnectQuery(query))[0]?.id;
+}
+
 export function matchesMcpConnectHost(query: string): boolean {
   const normalized = normalizeMcpConnectQuery(query);
   if (!normalized) return true;

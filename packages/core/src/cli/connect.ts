@@ -421,7 +421,7 @@ async function resolveHostedAppsFromPrompt(
 }
 
 function clientArgForDeviceFlow(clients: ClientId[]): string {
-  return clients.length === 1 ? clients[0] : "all";
+  return clients.join(",");
 }
 
 export function supportsRemoteMcpOAuth(client: ClientId): boolean {
@@ -731,7 +731,7 @@ export async function runDeviceFlow(
   appSlug: string,
   clientArg: string,
   deps: ConnectDeps = {},
-  options: { fullCatalog?: boolean } = {},
+  options: { fullCatalog?: boolean; purpose?: "agent" | "credential" } = {},
 ): Promise<{
   token?: string;
   mcpUrl: string;
@@ -754,6 +754,7 @@ export async function runDeviceFlow(
           client: clientArg,
           app: appSlug,
           ...(options.fullCatalog ? { fullCatalog: true } : {}),
+          ...(options.purpose ? { purpose: options.purpose } : {}),
         },
       );
       if (status >= 200 && status < 300 && json?.device_code) {
@@ -2120,7 +2121,9 @@ async function connectOne(
       logOut(
         `  Minting a publish token for the local Plans server (device flow)…`,
       );
-      const grant = await runDeviceFlow(baseUrl, appSlug, "codex", deps);
+      const grant = await runDeviceFlow(baseUrl, appSlug, "codex", deps, {
+        purpose: "credential",
+      });
       if (grant?.token) {
         publishToken = grant.token;
       } else {
@@ -2311,7 +2314,9 @@ export async function runServiceTokenMint(
   logOut(`  Creating org service token "${serviceName}" on ${baseUrl}`);
   logOut("  First, verify it's you (the token will belong to your org)…");
 
-  const grant = await runDeviceFlow(baseUrl, appSlug, "codex", deps);
+  const grant = await runDeviceFlow(baseUrl, appSlug, "codex", deps, {
+    purpose: "credential",
+  });
   if (!grant?.token) {
     logErr("  Could not authenticate (the server returned no bearer token).");
     logErr("  Org service tokens require a deployed app with auth configured.");

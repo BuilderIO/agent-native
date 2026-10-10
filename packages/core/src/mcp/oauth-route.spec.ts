@@ -2,6 +2,28 @@ import { createHash } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const trackMock = vi.hoisted(() => vi.fn());
+const connectionClaims = new Map<string, Record<string, unknown>>();
+vi.mock("../tracking/registry.js", () => ({
+  isTrackingSuppressed: () => false,
+  track: trackMock,
+  listTrackingProviders: () => ["test"],
+}));
+vi.mock("../settings/store.js", () => ({
+  mutateSetting: async (
+    key: string,
+    updater: (value: Record<string, unknown> | null) => Record<string, unknown>,
+  ) => {
+    const next = updater(connectionClaims.get(key) ?? null);
+    connectionClaims.set(key, next);
+    return next;
+  },
+}));
+beforeEach(() => {
+  trackMock.mockClear();
+  connectionClaims.clear();
+});
+
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../extensions/url-safety.js", () => ({
@@ -340,6 +362,120 @@ describe("MCP OAuth route", () => {
         identityId: null,
       },
     ]);
+  });
+
+  it("records one OAuth connection across registration, reconnect, code replay and token refresh", async () => {
+    const verifier = "v".repeat(50);
+    const connect = async () => {
+      const client = await (
+        await handleMcpOAuth(
+          event({
+            method: "POST",
+            body: {
+              client_name: "Claude",
+              redirect_uris: ["http://localhost:5555/callback"],
+            } as any,
+          }),
+          "/register",
+        )
+      ).json();
+      const params = {
+        response_type: "code",
+        client_id: client.client_id,
+        redirect_uri: "http://localhost:5555/callback",
+        resource: "https://mail.agent-native.com/mcp",
+        code_challenge: challenge(verifier),
+        code_challenge_method: "S256",
+      };
+      const consent = await handleMcpOAuth(
+        event({ query: params }),
+        "/authorize",
+      );
+      const consentToken = (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )![1];
+      const approved = await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            ...params,
+            decision: "approve",
+            consent_token: consentToken,
+          },
+        }),
+        "/authorize",
+      );
+      const code = new URL(approved.headers.get("location")!).searchParams.get(
+        "code",
+      )!;
+      const body = {
+        grant_type: "authorization_code",
+        client_id: client.client_id,
+        redirect_uri: params.redirect_uri,
+        code,
+        code_verifier: verifier,
+      };
+      const token = await handleMcpOAuth(
+        event({ method: "POST", body }),
+        "/token",
+        { appId: "agent-native-plan" },
+      );
+      expect(token.status).toBe(200);
+      const replay = await handleMcpOAuth(
+        event({ method: "POST", body }),
+        "/token",
+      );
+      expect(replay.status).toBe(400);
+      const tokens = await token.json();
+      for (let i = 0; i < 2; i++) {
+        const refreshed = await handleMcpOAuth(
+          event({
+            method: "POST",
+            body: {
+              grant_type: "refresh_token",
+              client_id: client.client_id,
+              refresh_token: tokens.refresh_token,
+            },
+          }),
+          "/token",
+        );
+        expect(refreshed.status).toBe(200);
+      }
+    };
+    await connect();
+    await connect();
+    expect(trackMock.mock.calls).toEqual([
+      [
+        "agent_connected",
+        {
+          email: "steve@example.com",
+          app: "plan",
+          client: "claude",
+          connection_method: "oauth",
+        },
+        { userId: "steve@example.com" },
+      ],
+    ]);
+  });
+
+  it("does not record OAuth consent, invalid grants or failed issuance", async () => {
+    await openConsent();
+    expect(trackMock).not.toHaveBeenCalled();
+    const response = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          client_id: "missing",
+          redirect_uri: "http://localhost:5555/callback",
+          code: "missing",
+          code_verifier: "v".repeat(50),
+        },
+      }),
+      "/token",
+    );
+    expect(response.status).toBe(400);
+    expect(trackMock).not.toHaveBeenCalled();
   });
 
   it("serves protected-resource and authorization-server metadata", async () => {
@@ -2445,11 +2581,13 @@ describe("MCP OAuth grant validation", () => {
       expect(codes.get(code).consumedAt).toBeNull();
       expect(refreshRows.size).toBe(0);
       if (failure === "insertion") expect(sign).not.toHaveBeenCalled();
+      expect(trackMock).not.toHaveBeenCalled();
 
       const retried = await exchange(clientId, code);
       expect(retried.status).toBe(200);
       expect((await retried.json()).access_token).toBeTruthy();
       expect(refreshRows.size).toBe(1);
+      expect(trackMock).toHaveBeenCalledTimes(1);
     },
   );
 
