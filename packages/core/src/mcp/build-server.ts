@@ -2630,14 +2630,18 @@ export function conciseToolResultText(
   options?: { preserveObjectResult?: boolean },
 ): string {
   const purged = purgeEmbedStartUrls(result);
-  if (typeof purged === "string") return truncateToolText(purged);
+  // Text-only clients need the query payload: collection metadata alone can
+  // consume a text cap before any row in an already-paginated result.
+  const maxTextLength = options?.preserveObjectResult ? Infinity : 2000;
+  if (typeof purged === "string")
+    return truncateToolText(purged, maxTextLength);
+  if (options?.preserveObjectResult) {
+    const text = JSON.stringify(purged);
+    return text === undefined ? `${name} completed.` : text;
+  }
   if (purged === true || purged == null) return `${name} completed.`;
   if (purged && typeof purged === "object" && !Array.isArray(purged)) {
     const record = purged as Record<string, unknown>;
-    if (options?.preserveObjectResult) {
-      const text = JSON.stringify(purged);
-      return text === undefined ? `${name} completed.` : truncateToolText(text);
-    }
     const link = record.url ?? record.webUrl ?? record.urlPath ?? record.path;
     const next =
       typeof record.nextRequiredAction === "string" &&
@@ -2647,7 +2651,7 @@ export function conciseToolResultText(
     const tail = `${typeof link === "string" && link.trim() ? ` ${truncateToolText(link.trim(), 500)}` : ""}${next}`;
     const message = record.message ?? record.summary;
     if (typeof message === "string" && message.trim()) {
-      return `${truncateToolText(message.trim())}${tail}`;
+      return `${truncateToolText(message.trim(), maxTextLength)}${tail}`;
     }
     const id = record.id ?? record.planId ?? record.commentId;
     const title = record.title ?? record.name;
@@ -2666,7 +2670,9 @@ export function conciseToolResultText(
     if (isSuccessOnlyResult(record)) return `${name} completed.${next}`;
   }
   const text = JSON.stringify(purged);
-  return text === undefined ? `${name} completed.` : truncateToolText(text);
+  return text === undefined
+    ? `${name} completed.`
+    : truncateToolText(text, maxTextLength);
 }
 
 export async function createMCPServerForRequest(
