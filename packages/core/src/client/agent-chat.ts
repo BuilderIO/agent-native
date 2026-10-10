@@ -78,6 +78,7 @@ export interface AgentChatContextItem {
   title: string;
   context: string;
   contextNamespace?: string;
+  /** Context is limited to one chat thread when present. */
   targetThreadId?: string;
 }
 
