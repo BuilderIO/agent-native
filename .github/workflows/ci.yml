@@ -302,7 +302,7 @@ jobs:
         working-directory: templates/design
         env:
           VITEST_CONCURRENCY: "1"
-        run: pnpm exec vitest run shared/html-integrity.perf.spec.ts --maxWorkers=1 --no-file-parallelism
+        run: pnpm run test:perf
 
   test-targeted:
     name: Fast tests targeted ${{ matrix.lane }}
@@ -428,7 +428,7 @@ jobs:
         working-directory: templates/design
         env:
           VITEST_CONCURRENCY: "1"
-        run: pnpm exec vitest run shared/html-integrity.perf.spec.ts --maxWorkers=1 --no-file-parallelism
+        run: pnpm run test:perf
 
   design-canvas-interaction-acceptance:
     name: Design canvas interaction acceptance (${{ matrix.shard }})
