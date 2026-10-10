@@ -95,87 +95,116 @@ jobs:
         id: previous-state
         if: always()
         shell: bash
+        env:
+          HEALTH_OUTCOME: ${{ steps.health.outcome }}
         run: |
           set -euo pipefail
           mkdir -p "$REPORT_DIR"
           state_path="$REPORT_DIR/state.json"
+          state_mode=known
+          unknown_reason=
+          has_state_artifact=false
           history_read='${{ steps.previous-run.outputs.history_read }}'
           previous_run_id='${{ steps.previous-run.outputs.previous_run_id }}'
           if [[ -z "$previous_run_id" && "$history_read" == "unavailable" ]]; then
-            fallback_history="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/keep-neon-warm.yml/runs?per_page=100")" || {
-              echo "::error::Cannot recover prior health reporter state because Actions run history is unavailable."
-              exit 1
-            }
-            if ! jq -e '.workflow_runs | type == "array"' <<<"$fallback_history" >/dev/null; then
-              echo "::error::Actions returned an invalid workflow run list while recovering reporter state."
-              exit 1
+            fallback_history="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/keep-neon-warm.yml/runs?per_page=100" 2>/dev/null || true)"
+            if jq -e '.workflow_runs | type == "array"' <<<"$fallback_history" >/dev/null 2>&1; then
+              previous_run_id="$(jq -r --arg current_id "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != ($current_id | tonumber) and .status == "completed")] | sort_by(.updated_at) | last // {} | .id // empty' <<<"$fallback_history")"
             fi
-            previous_run_id="$(jq -r --arg current_id "$GITHUB_RUN_ID" '[.workflow_runs[] | select(.id != ($current_id | tonumber) and .status == "completed")] | sort_by(.updated_at) | last // {} | .id // empty' <<<"$fallback_history")"
             if [[ -z "$previous_run_id" ]]; then
-              echo "::error::Actions run history is unavailable and no previous completed run could be identified safely."
-              exit 1
+              state_mode=unknown
+              unknown_reason="Actions history was unavailable, so prior reporter state could not be verified."
             fi
           fi
           if [[ -z "$previous_run_id" ]]; then
-            if [[ "$history_read" != "ok" ]]; then
-              echo "::error::Cannot initialize health reporter state without verified Actions run history."
-              exit 1
+            if [[ "$state_mode" == "unknown" ]]; then
+              echo "::warning::$unknown_reason"
+            elif [[ "$history_read" != "ok" ]]; then
+              state_mode=unknown
+              unknown_reason="Actions history was unavailable, so prior reporter state could not be verified."
+              echo "::warning::$unknown_reason"
+            else
+              printf '%s\n' '{"version":1,"incidentActive":false,"failureSignature":null,"lastScheduledHealthOutcome":null,"lastScheduledHealthAt":null,"latestHealthFailureAt":null,"pendingNotifications":[],"pendingNotificationsSinceUnknown":[],"unknownSince":null,"unknownWarningDeliveredAt":null,"cleanScheduledAuditsSinceUnknown":0}' > "$state_path"
+              echo "No completed health audit exists yet; initialized durable reporter state."
             fi
-            printf '%s\n' '{"version":1,"incidentActive":false,"failureSignature":null,"lastScheduledHealthOutcome":null,"lastScheduledHealthAt":null,"latestHealthFailureAt":null,"pendingNotifications":[]}' > "$state_path"
-            echo "No completed health audit exists yet; initialized durable reporter state."
           else
-            artifact_response="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/artifacts?per_page=100")"
-            if ! jq -e '.artifacts | type == "array"' <<<"$artifact_response" >/dev/null; then
-              echo "::error::Actions returned an invalid artifact list for previous health run ${previous_run_id}."
-              exit 1
+            if ! artifact_response="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/artifacts?per_page=100")" || \
+              ! jq -e '.artifacts | type == "array"' <<<"$artifact_response" >/dev/null; then
+              state_mode=unknown
+              unknown_reason="Actions could not verify the prior reporter-state artifact for run ${previous_run_id}."
+            else
+              has_state_artifact="$(jq -r '[.artifacts[] | select(.name == "production-health-reporter-state" and (.expired | not))] | length > 0' <<<"$artifact_response")"
             fi
-            has_state_artifact="$(jq -r '[.artifacts[] | select(.name == "production-health-reporter-state" and (.expired | not))] | length > 0' <<<"$artifact_response")"
-            if [[ "$has_state_artifact" == "true" ]]; then
+            if [[ "$state_mode" == "known" && "$has_state_artifact" == "true" ]]; then
               download_dir="$REPORT_DIR/previous"
               mkdir -p "$download_dir"
-              if ! gh run download "$previous_run_id" --repo "$GITHUB_REPOSITORY" \
+              if gh run download "$previous_run_id" --repo "$GITHUB_REPOSITORY" \
                 --name production-health-reporter-state --dir "$download_dir"; then
-                echo "::error::Could not download the previous health reporter state artifact from run ${previous_run_id}."
-                exit 1
+                state_file="$(find "$download_dir" -type f -name state.json -print -quit)"
+                if [[ -n "$state_file" ]]; then
+                  cp "$state_file" "$state_path"
+                else
+                  state_mode=unknown
+                  unknown_reason="The previous health reporter artifact did not contain state.json."
+                fi
+              else
+                state_mode=unknown
+                unknown_reason="Actions could not download the prior reporter-state artifact for run ${previous_run_id}."
               fi
-              state_file="$(find "$download_dir" -type f -name state.json -print -quit)"
-              if [[ -z "$state_file" ]]; then
-                echo "::error::The previous health reporter artifact did not contain state.json."
-                exit 1
+            elif [[ "$state_mode" == "known" ]]; then
+              previous_jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/jobs?per_page=100" 2>/dev/null || true)"
+              if jq -e '.jobs | type == "array"' <<<"$previous_jobs" >/dev/null 2>&1; then
+                previous_jobs_path="$REPORT_DIR/previous-jobs.json"
+                printf '%s\n' "$previous_jobs" > "$previous_jobs_path"
+                wrote_state="$(node --experimental-strip-types scripts/keep-warm-report.ts persistence-status --jobs "$previous_jobs_path")"
+                if [[ "$wrote_state" == "true" ]]; then
+                  unknown_reason="Previous health run ${previous_run_id} reported successful persistence, but its artifact is missing or expired."
+                else
+                  unknown_reason="Previous health run ${previous_run_id} did not persist reporter state."
+                fi
+              else
+                unknown_reason="Actions could not verify whether previous health run ${previous_run_id} persisted reporter state."
               fi
-              cp "$state_file" "$state_path"
-            else
-              previous_jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/jobs?per_page=100")"
-              if ! jq -e '.jobs | type == "array"' <<<"$previous_jobs" >/dev/null; then
-                echo "::error::Actions returned an invalid job list for previous health run ${previous_run_id}."
-                exit 1
-              fi
-              previous_jobs_path="$REPORT_DIR/previous-jobs.json"
-              printf '%s\n' "$previous_jobs" > "$previous_jobs_path"
-              wrote_state="$(node --experimental-strip-types scripts/keep-warm-report.ts persistence-status --jobs "$previous_jobs_path")"
-              if [[ "$wrote_state" == "true" ]]; then
-                echo "::error::Previous health run ${previous_run_id} was expected to upload state, but its artifact is missing or expired."
-                exit 1
-              fi
-              previous_conclusion='${{ steps.previous-run.outputs.conclusion }}'
-              previous_updated_at='${{ steps.previous-run.outputs.updated_at }}'
-              latest_failure_updated_at='${{ steps.previous-run.outputs.latest_failure_updated_at }}'
-              jq -n \
-                --arg previous_conclusion "$previous_conclusion" \
-                --arg previous_updated_at "$previous_updated_at" \
-                --arg latest_failure_updated_at "$latest_failure_updated_at" \
-                '{version: 1, incidentActive: false, failureSignature: null, lastScheduledHealthOutcome: (if $previous_conclusion == "success" or $previous_conclusion == "failure" then $previous_conclusion else null end), lastScheduledHealthAt: ($previous_updated_at | select(length > 0) // null), latestHealthFailureAt: ($latest_failure_updated_at | select(length > 0) // null), pendingNotifications: []}' \
-                > "$state_path"
-              echo "::warning::The previous run did not successfully persist reporter state; initialized reporter state from verified Actions history."
+              state_mode=unknown
             fi
           fi
 
-          node --experimental-strip-types scripts/keep-warm-report.ts validate --state "$state_path"
+          if [[ "$state_mode" == "unknown" ]]; then
+            outcome="$HEALTH_OUTCOME"
+            if [[ "$outcome" != "success" ]]; then outcome=failure; fi
+            echo "::warning::$unknown_reason Incident and notification state will remain explicitly unknown until verified runs advance it."
+            node --experimental-strip-types scripts/keep-warm-report.ts unknown-state \
+              --state "$state_path" \
+              --outcome "$outcome" \
+              --event "$GITHUB_EVENT_NAME" \
+              --observed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --failing-log /tmp/keep-warm.log
+          else
+            if ! node --experimental-strip-types scripts/keep-warm-report.ts validate --state "$state_path"; then
+              state_mode=unknown
+              unknown_reason="The previous health reporter state artifact was malformed or unreadable."
+              echo "::warning::$unknown_reason Incident and notification state will remain explicitly unknown until verified runs advance it."
+              outcome="$HEALTH_OUTCOME"
+              if [[ "$outcome" != "success" ]]; then outcome=failure; fi
+              node --experimental-strip-types scripts/keep-warm-report.ts unknown-state \
+                --state "$state_path" \
+                --outcome "$outcome" \
+                --event "$GITHUB_EVENT_NAME" \
+                --observed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                --failing-log /tmp/keep-warm.log
+            else
+              warning_status="$(node --experimental-strip-types scripts/keep-warm-report.ts unknown-warning-status --state "$state_path")"
+              if [[ "$warning_status" == "pending" ]]; then
+                state_mode=unknown-pending
+              fi
+            fi
+          fi
           echo "state_path=$state_path" >>"$GITHUB_OUTPUT"
+          echo "state_mode=$state_mode" >>"$GITHUB_OUTPUT"
 
       - name: Plan the incident report
         id: report-plan
-        if: ${{ always() && steps.previous-state.outcome == 'success' }}
+        if: ${{ always() && steps.previous-state.outcome == 'success' && steps.previous-state.outputs.state_mode == 'known' }}
         shell: bash
         env:
           HEALTH_OUTCOME: ${{ steps.health.outcome }}
@@ -202,7 +231,7 @@ jobs:
       - name: Upload the complete health report
         id: health-report-artifact
         if: >-
-          ${{ always() && ((steps.report-plan.outputs.notification_id != '') || steps.previous-state.outcome != 'success') }}
+          ${{ always() && ((steps.report-plan.outputs.notification_id != '') || steps.previous-state.outputs.state_mode == 'unknown' || steps.previous-state.outputs.state_mode == 'unknown-pending' || steps.previous-state.outcome != 'success') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-health-report-${{ github.run_id }}-${{ github.run_attempt }}
@@ -212,7 +241,7 @@ jobs:
 
       - name: Build a degraded report when prior state is unavailable
         id: degraded-report
-        if: ${{ always() && steps.previous-state.outcome != 'success' }}
+        if: ${{ always() && (steps.previous-state.outputs.state_mode == 'unknown' || steps.previous-state.outputs.state_mode == 'unknown-pending' || steps.previous-state.outcome != 'success') }}
         shell: bash
         env:
           HEALTH_OUTCOME: ${{ steps.health.outcome }}
@@ -237,7 +266,7 @@ jobs:
 
       - name: Attach the report artifact to the pending health notification
         if: >-
-          ${{ always() && steps.previous-state.outcome == 'success' && steps.report-plan.outputs.notification_id != '' && steps.health-report-artifact.outputs.artifact-url != '' }}
+          ${{ always() && steps.previous-state.outputs.state_mode == 'known' && steps.previous-state.outcome == 'success' && steps.report-plan.outputs.notification_id != '' && steps.health-report-artifact.outputs.artifact-url != '' }}
         shell: bash
         env:
           NOTIFICATION_ID: ${{ steps.report-plan.outputs.notification_id }}
@@ -251,6 +280,23 @@ jobs:
             --slack-channel "$SLACK_CHANNEL" \
             --slack-payload "$REPORT_DIR/slack-payload.json"
           jq -r .text "$REPORT_DIR/slack-payload.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record the current sample while retrying an unknown-state warning
+        id: record_unknown_sample
+        if: ${{ always() && steps.previous-state.outputs.state_mode == 'unknown-pending' }}
+        shell: bash
+        env:
+          HEALTH_OUTCOME: ${{ steps.health.outcome }}
+        run: |
+          set -euo pipefail
+          outcome="$HEALTH_OUTCOME"
+          if [[ "$outcome" != "success" ]]; then outcome=failure; fi
+          node --experimental-strip-types scripts/keep-warm-report.ts record-unknown-sample \
+            --state "$REPORT_DIR/state.json" \
+            --outcome "$outcome" \
+            --event "$GITHUB_EVENT_NAME" \
+            --observed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --failing-log /tmp/keep-warm.log
 
       - name: Trigger PagerDuty for a confirmed health failure
         id: pagerduty-trigger
@@ -332,7 +378,7 @@ jobs:
       - name: Post the incident transition or recovery to #qa-agent-native
         id: slack
         if: >-
-          ${{ always() && ((steps.report-plan.outcome == 'success' && steps.report-plan.outputs.notification_id != '') || steps.previous-state.outcome != 'success') }}
+          ${{ always() && ((steps.report-plan.outcome == 'success' && steps.report-plan.outputs.notification_id != '') || steps.previous-state.outputs.state_mode == 'unknown' || steps.previous-state.outputs.state_mode == 'unknown-pending' || steps.previous-state.outcome != 'success') }}
         continue-on-error: true
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
@@ -353,22 +399,35 @@ jobs:
             --state "$REPORT_DIR/state.json" \
             --notification-id "$NOTIFICATION_ID"
 
+      - name: Acknowledge the degraded state warning
+        id: ack_degraded_state
+        if: >-
+          ${{ always() && (steps.previous-state.outputs.state_mode == 'unknown' || steps.previous-state.outputs.state_mode == 'unknown-pending') && steps.slack.outcome == 'success' && steps.slack.outputs.ok == 'true' && (steps.previous-state.outputs.state_mode != 'unknown-pending' || steps.record_unknown_sample.outcome == 'success') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/keep-warm-report.ts ack-unknown-warning \
+            --state "$REPORT_DIR/state.json" \
+            --delivered-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
       - name: Report API delivery failures
         if: always()
         shell: bash
         env:
           REPORT_PLAN_OUTCOME: ${{ steps.report-plan.outcome }}
           STATE_READ_OUTCOME: ${{ steps.previous-state.outcome }}
+          STATE_MODE: ${{ steps.previous-state.outputs.state_mode }}
           NOTIFICATION_ID: ${{ steps.report-plan.outputs.notification_id }}
           SLACK_OUTCOME: ${{ steps.slack.outcome }}
           SLACK_OK: ${{ steps.slack.outputs.ok }}
           SLACK_RESPONSE: ${{ steps.slack.outputs.response }}
           PAGERDUTY_TRIGGER_OUTCOME: ${{ steps.pagerduty-trigger.outcome }}
           PAGERDUTY_RESOLVE_OUTCOME: ${{ steps.pagerduty-resolve.outcome }}
+          UNKNOWN_SAMPLE_OUTCOME: ${{ steps.record_unknown_sample.outcome }}
         run: |
           set -euo pipefail
           failed=0
-          if [[ ( -n "$NOTIFICATION_ID" || "$STATE_READ_OUTCOME" != "success" ) && \
+          if [[ ( -n "$NOTIFICATION_ID" || "$STATE_MODE" == "unknown" || "$STATE_MODE" == "unknown-pending" || "$STATE_READ_OUTCOME" != "success" ) && \
             ( "$SLACK_OUTCOME" != "success" || "$SLACK_OK" != "true" ) ]]; then
             reason="$(jq -r '.error // empty' <<<"${SLACK_RESPONSE:-null}" 2>/dev/null || true)"
             reason="${reason:-no Slack API error code returned; step outcome ${SLACK_OUTCOME:-unknown}}"
@@ -385,9 +444,15 @@ jobs:
             echo "::error::PagerDuty resolve failed after the health audit recovered." >&2
             failed=1
           fi
+          if [[ "$STATE_MODE" == "unknown-pending" && "$UNKNOWN_SAMPLE_OUTCOME" != "success" ]]; then
+            echo "::error::The current health sample could not be recorded while retrying the unknown-state warning." >&2
+            failed=1
+          fi
           if [[ "$STATE_READ_OUTCOME" != "success" ]]; then
             echo "::error::Prior health history/state could not be read; a degraded report was attempted with deduplication marked unknown." >&2
             failed=1
+          elif [[ "$STATE_MODE" == "unknown" || "$STATE_MODE" == "unknown-pending" ]]; then
+            echo "::warning::Prior health reporter state remains explicitly unknown; incident recovery and notification history will advance from this durable marker."
           elif [[ "$REPORT_PLAN_OUTCOME" != "success" ]]; then
             echo "::error::Health reporter state planning did not complete; no Slack report was planned." >&2
             failed=1
@@ -395,7 +460,8 @@ jobs:
           exit "$failed"
 
       - name: Persist health reporter state
-        if: ${{ always() && steps.previous-state.outcome == 'success' && steps.report-plan.outcome == 'success' }}
+        if: >-
+          ${{ always() && steps.previous-state.outcome == 'success' && ((steps.previous-state.outputs.state_mode == 'known' && steps.report-plan.outcome == 'success') || steps.previous-state.outputs.state_mode == 'unknown' || steps.previous-state.outputs.state_mode == 'unknown-pending') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-health-reporter-state

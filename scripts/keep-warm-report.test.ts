@@ -3,13 +3,17 @@ import { test } from "node:test";
 
 import {
   acknowledgeHealthNotification,
+  acknowledgeUnknownStateWarning,
   extractFailureDetails,
+  hasUndeliveredUnknownStateWarning,
   hasSuccessfulStatePersistenceStep,
   initialHealthReportState,
   parseHealthReportState,
   planHealthReport,
   renderDegradedHealthNotification,
   renderHealthNotification,
+  recordUnknownHealthSample,
+  unknownHealthReportState,
   type HealthReportInput,
   type HealthReportState,
 } from "./keep-warm-report.ts";
@@ -320,6 +324,120 @@ test("degraded state reads report findings, unknown history, and artifact fallba
   assert.match(rendered, /deduplication and incident history are unknown/i);
   assert.match(rendered, /Findings: 1 total; showing 1; 0 omitted/);
   assert.match(rendered, /90-day health report artifact/);
+});
+
+test("degraded state read keeps incident and notification history unknown", () => {
+  const rendered = renderDegradedHealthNotification({
+    healthOutcome: "success",
+    historyRead: "ok",
+    runUrl,
+    failingLog: "",
+  });
+  assert.match(rendered, /Prior reporter state could not be read/i);
+  assert.match(rendered, /Deduplication and incident history are unknown/i);
+});
+
+test("an unknown state warning is persisted only after delivery and a clean run advances it", () => {
+  const unknown = unknownHealthReportState({
+    healthOutcome: "success",
+    eventName: "schedule",
+    observedAt: "2026-10-10T10:00:00Z",
+    failingLog: "",
+  });
+  assert.equal(unknown.incidentActive, null);
+  assert.equal(unknown.pendingNotifications, null);
+  assert.equal(unknown.cleanScheduledAuditsSinceUnknown, 1);
+  assert.equal(unknown.unknownWarningDeliveredAt, null);
+  assert.equal(hasUndeliveredUnknownStateWarning(unknown), true);
+
+  const delivered = acknowledgeUnknownStateWarning(
+    unknown,
+    "2026-10-10T10:01:00Z",
+  );
+  const nextRun = plan(
+    {
+      healthOutcome: "success",
+      observedAt: "2026-10-10T10:15:00Z",
+      runId: "124",
+      failingLog: "",
+    },
+    delivered,
+  );
+
+  assert.equal(nextRun.state.incidentActive, false);
+  assert.equal(nextRun.state.pendingNotifications, null);
+  assert.equal(nextRun.state.unknownWarningDeliveredAt, "2026-10-10T10:01:00Z");
+  assert.equal(nextRun.state.cleanScheduledAuditsSinceUnknown, 2);
+  assert.equal(nextRun.notification, null);
+  assert.equal(hasUndeliveredUnknownStateWarning(nextRun.state), false);
+
+  const followingRun = plan(
+    {
+      healthOutcome: "success",
+      observedAt: "2026-10-10T10:30:00Z",
+      runId: "125",
+      failingLog: "",
+    },
+    nextRun.state,
+  );
+  assert.equal(followingRun.state.incidentActive, false);
+  assert.equal(followingRun.state.pendingNotifications, null);
+  assert.equal(followingRun.notification, null);
+});
+
+test("an unknown notification queue catches up on a failure without claiming the old queue was empty", () => {
+  const unknown = acknowledgeUnknownStateWarning(
+    unknownHealthReportState({
+      healthOutcome: "success",
+      eventName: "schedule",
+      observedAt: "2026-10-10T10:00:00Z",
+      failingLog: "",
+    }),
+    "2026-10-10T10:01:00Z",
+  );
+  const catchUp = plan(
+    {
+      observedAt: "2026-10-10T10:15:00Z",
+      runId: "124",
+    },
+    unknown,
+  );
+
+  assert.equal(catchUp.state.incidentActive, true);
+  assert.equal(catchUp.state.pendingNotifications, null);
+  assert.equal(catchUp.notification?.kind, "incident");
+  assert.equal(catchUp.state.pendingNotificationsSinceUnknown.length, 1);
+
+  const acknowledged = acknowledgeHealthNotification(
+    catchUp.state,
+    catchUp.notification!.id,
+  );
+  assert.equal(acknowledged.pendingNotifications, null);
+  assert.deepEqual(acknowledged.pendingNotificationsSinceUnknown, []);
+});
+
+test("a failed degraded delivery keeps its warning pending while recording the current sample", () => {
+  const unknown = unknownHealthReportState({
+    healthOutcome: "success",
+    eventName: "schedule",
+    observedAt: "2026-10-10T10:00:00Z",
+    failingLog: "",
+  });
+  assert.equal(hasUndeliveredUnknownStateWarning(unknown), true);
+
+  const retryState = recordUnknownHealthSample(unknown, {
+    healthOutcome: "failure",
+    eventName: "schedule",
+    observedAt: "2026-10-10T10:15:00Z",
+    failingLog: failureLog,
+  });
+  const restored = parseHealthReportState(JSON.stringify(retryState));
+
+  assert.equal(restored.incidentActive, true);
+  assert.equal(restored.pendingNotifications, null);
+  assert.equal(restored.lastScheduledHealthOutcome, "failure");
+  assert.equal(hasUndeliveredUnknownStateWarning(restored), true);
+  assert.equal(restored.pendingNotificationsSinceUnknown.length, 0);
 });
 
 test("state parsing fails loudly for absent or malformed artifact data", () => {

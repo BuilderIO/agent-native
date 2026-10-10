@@ -17,12 +17,17 @@ export type HealthNotification = {
 
 export type HealthReportState = {
   version: 1;
-  incidentActive: boolean;
+  incidentActive: boolean | null;
   failureSignature: string | null;
   lastScheduledHealthOutcome: "success" | "failure" | null;
   lastScheduledHealthAt: string | null;
   latestHealthFailureAt: string | null;
-  pendingNotifications: HealthNotification[];
+  // null preserves the lost historical queue; the second list is only post-gap work.
+  pendingNotifications: HealthNotification[] | null;
+  pendingNotificationsSinceUnknown: HealthNotification[];
+  unknownSince: string | null;
+  unknownWarningDeliveredAt: string | null;
+  cleanScheduledAuditsSinceUnknown: number;
 };
 
 export type HealthReportInput = {
@@ -91,7 +96,90 @@ export function initialHealthReportState(): HealthReportState {
     lastScheduledHealthAt: null,
     latestHealthFailureAt: null,
     pendingNotifications: [],
+    pendingNotificationsSinceUnknown: [],
+    unknownSince: null,
+    unknownWarningDeliveredAt: null,
+    cleanScheduledAuditsSinceUnknown: 0,
   };
+}
+
+export function unknownHealthReportState(input: {
+  healthOutcome: "success" | "failure";
+  eventName: string;
+  observedAt: string;
+  failingLog: string;
+}): HealthReportState {
+  const state = initialHealthReportState();
+  state.incidentActive = null;
+  state.pendingNotifications = null;
+  state.unknownSince = input.observedAt;
+  return recordUnknownHealthSample(state, input);
+}
+
+export function recordUnknownHealthSample(
+  state: HealthReportState,
+  input: {
+    healthOutcome: "success" | "failure";
+    eventName: string;
+    observedAt: string;
+    failingLog: string;
+  },
+): HealthReportState {
+  if (state.pendingNotifications !== null || state.unknownSince === null) {
+    throw new Error(
+      "health reporter state has no unknown notification history",
+    );
+  }
+  const updated = structuredClone(state);
+  const scheduled = input.eventName === "schedule";
+  if (input.healthOutcome === "failure") {
+    const details = extractFailureDetails(input.failingLog);
+    updated.incidentActive = true;
+    updated.failureSignature = details.signature;
+    updated.latestHealthFailureAt = input.observedAt;
+    updated.cleanScheduledAuditsSinceUnknown = 0;
+    if (scheduled) {
+      updated.lastScheduledHealthOutcome = "failure";
+      updated.lastScheduledHealthAt = input.observedAt;
+    }
+  } else if (scheduled) {
+    const previousOutcome = updated.lastScheduledHealthOutcome;
+    updated.lastScheduledHealthOutcome = "success";
+    updated.lastScheduledHealthAt = input.observedAt;
+    if (updated.incidentActive === null) {
+      updated.cleanScheduledAuditsSinceUnknown =
+        previousOutcome === "success"
+          ? updated.cleanScheduledAuditsSinceUnknown + 1
+          : 1;
+      if (updated.cleanScheduledAuditsSinceUnknown >= 2) {
+        updated.incidentActive = false;
+        updated.failureSignature = null;
+      }
+    }
+  }
+  return updated;
+}
+
+export function hasUndeliveredUnknownStateWarning(
+  state: HealthReportState,
+): boolean {
+  return (
+    state.pendingNotifications === null &&
+    state.unknownSince !== null &&
+    state.unknownWarningDeliveredAt === null
+  );
+}
+
+export function acknowledgeUnknownStateWarning(
+  state: HealthReportState,
+  deliveredAt: string,
+): HealthReportState {
+  if (!hasUndeliveredUnknownStateWarning(state)) {
+    throw new Error(
+      "health reporter state has no undelivered unknown-state warning",
+    );
+  }
+  return { ...state, unknownWarningDeliveredAt: deliveredAt };
 }
 
 export function parseHealthReportState(raw: string): HealthReportState {
@@ -105,7 +193,10 @@ export function parseHealthReportState(raw: string): HealthReportState {
   if (!isRecord(value) || value.version !== 1) {
     throw new Error("health reporter state has an unsupported version");
   }
-  if (typeof value.incidentActive !== "boolean") {
+  if (
+    value.incidentActive !== null &&
+    typeof value.incidentActive !== "boolean"
+  ) {
     throw new Error(
       "health reporter state has an invalid incidentActive value",
     );
@@ -139,14 +230,20 @@ export function parseHealthReportState(raw: string): HealthReportState {
       throw new Error(`health reporter state has an invalid ${field} value`);
     }
   }
-  if (!Array.isArray(value.pendingNotifications)) {
+  if (
+    value.pendingNotifications !== null &&
+    !Array.isArray(value.pendingNotifications)
+  ) {
     throw new Error(
-      "health reporter state has an invalid pendingNotifications list",
+      "health reporter state has an invalid pendingNotifications value",
     );
   }
 
-  const pendingNotifications = value.pendingNotifications.map(
-    (entry, index) => {
+  const parseNotifications = (notifications: unknown, field: string) => {
+    if (!Array.isArray(notifications)) {
+      throw new Error(`health reporter state has an invalid ${field} list`);
+    }
+    return notifications.map((entry, index) => {
       if (
         !isRecord(entry) ||
         typeof entry.id !== "string" ||
@@ -169,16 +266,51 @@ export function parseHealthReportState(raw: string): HealthReportState {
           typeof entry.reportArtifactUrl !== "string")
       ) {
         throw new Error(
-          `health reporter state has an invalid notification at index ${index}`,
+          `health reporter state has an invalid notification in ${field} at index ${index}`,
         );
       }
       return entry as HealthNotification;
-    },
-  );
+    });
+  };
+  const pendingNotifications =
+    value.pendingNotifications === null
+      ? null
+      : parseNotifications(value.pendingNotifications, "pendingNotifications");
+  const pendingNotificationsSinceUnknown =
+    value.pendingNotificationsSinceUnknown === undefined
+      ? []
+      : parseNotifications(
+          value.pendingNotificationsSinceUnknown,
+          "pendingNotificationsSinceUnknown",
+        );
 
-  if (pendingNotifications.length > MAX_PENDING_NOTIFICATIONS) {
+  if (
+    (pendingNotifications?.length ?? 0) +
+      pendingNotificationsSinceUnknown.length >
+    MAX_PENDING_NOTIFICATIONS
+  ) {
     throw new Error(
       "health reporter state has too many pending Slack notifications",
+    );
+  }
+
+  for (const field of ["unknownSince", "unknownWarningDeliveredAt"] as const) {
+    const timestamp = value[field] ?? null;
+    if (
+      timestamp !== null &&
+      (typeof timestamp !== "string" || !Number.isFinite(Date.parse(timestamp)))
+    ) {
+      throw new Error(`health reporter state has an invalid ${field} value`);
+    }
+  }
+  const cleanScheduledAuditsSinceUnknown =
+    value.cleanScheduledAuditsSinceUnknown ?? 0;
+  if (
+    !Number.isInteger(cleanScheduledAuditsSinceUnknown) ||
+    (cleanScheduledAuditsSinceUnknown as number) < 0
+  ) {
+    throw new Error(
+      "health reporter state has an invalid cleanScheduledAuditsSinceUnknown value",
     );
   }
 
@@ -190,6 +322,12 @@ export function parseHealthReportState(raw: string): HealthReportState {
     lastScheduledHealthAt: value.lastScheduledHealthAt,
     latestHealthFailureAt: value.latestHealthFailureAt,
     pendingNotifications,
+    pendingNotificationsSinceUnknown,
+    unknownSince: (value.unknownSince as string | null | undefined) ?? null,
+    unknownWarningDeliveredAt:
+      (value.unknownWarningDeliveredAt as string | null | undefined) ?? null,
+    cleanScheduledAuditsSinceUnknown:
+      cleanScheduledAuditsSinceUnknown as number,
   };
 }
 
@@ -254,7 +392,46 @@ export function planHealthReport(input: HealthReportInput): HealthReportPlan {
       Boolean(state.latestHealthFailureAt) &&
       state.lastScheduledHealthAt! > state.latestHealthFailureAt!);
 
-  if (input.healthOutcome === "failure") {
+  if (state.incidentActive === null) {
+    if (input.healthOutcome === "failure") {
+      const details = extractFailureDetails(input.failingLog);
+      failing = details.failing;
+      signature = details.signature;
+      totalFindings = details.totalFindings;
+      omittedFindings = details.omittedFindings;
+      detailsTruncated = details.detailsTruncated;
+      state.latestHealthFailureAt = input.observedAt;
+      if (scheduled) {
+        state.lastScheduledHealthOutcome = "failure";
+        state.lastScheduledHealthAt = input.observedAt;
+        state.cleanScheduledAuditsSinceUnknown = 0;
+      }
+      state.incidentActive = true;
+      state.failureSignature = details.signature;
+      enqueueNotification(state, {
+        id: `${input.runId}-${input.runAttempt}-incident-after-unknown-state`,
+        kind: "incident",
+        runUrl: input.runUrl,
+        signature: details.signature,
+        failing: details.failing,
+        totalFindings: details.totalFindings,
+        omittedFindings: details.omittedFindings,
+        detailsTruncated: details.detailsTruncated,
+      });
+    } else if (scheduled) {
+      const previousOutcome = state.lastScheduledHealthOutcome;
+      state.lastScheduledHealthOutcome = "success";
+      state.lastScheduledHealthAt = input.observedAt;
+      state.cleanScheduledAuditsSinceUnknown =
+        previousOutcome === "success"
+          ? state.cleanScheduledAuditsSinceUnknown + 1
+          : 1;
+      if (state.cleanScheduledAuditsSinceUnknown >= 2) {
+        state.incidentActive = false;
+        state.failureSignature = null;
+      }
+    }
+  } else if (input.healthOutcome === "failure") {
     const details = extractFailureDetails(input.failingLog);
     failing = details.failing;
     signature = details.signature;
@@ -313,7 +490,10 @@ export function planHealthReport(input: HealthReportInput): HealthReportPlan {
 
   return {
     state,
-    notification: state.pendingNotifications[0] ?? null,
+    notification:
+      state.pendingNotifications?.[0] ??
+      state.pendingNotificationsSinceUnknown[0] ??
+      null,
     signature,
     failing,
     totalFindings,
@@ -326,19 +506,31 @@ export function acknowledgeHealthNotification(
   state: HealthReportState,
   notificationId: string,
 ): HealthReportState {
-  const index = state.pendingNotifications.findIndex(
+  const regularIndex =
+    state.pendingNotifications?.findIndex(({ id }) => id === notificationId) ??
+    -1;
+  const unknownIndex = state.pendingNotificationsSinceUnknown.findIndex(
     ({ id }) => id === notificationId,
   );
-  if (index === -1) {
+  if (regularIndex === -1 && unknownIndex === -1) {
     throw new Error(
       `health reporter notification ${notificationId} is not pending`,
     );
   }
   return {
     ...state,
-    pendingNotifications: state.pendingNotifications.filter(
-      (_, itemIndex) => itemIndex !== index,
-    ),
+    pendingNotifications:
+      state.pendingNotifications === null
+        ? null
+        : state.pendingNotifications.filter(
+            (_, itemIndex) => itemIndex !== regularIndex,
+          ),
+    pendingNotificationsSinceUnknown:
+      unknownIndex === -1
+        ? state.pendingNotificationsSinceUnknown
+        : state.pendingNotificationsSinceUnknown.filter(
+            (_, itemIndex) => itemIndex !== unknownIndex,
+          ),
   };
 }
 
@@ -414,7 +606,7 @@ export function renderDegradedHealthNotification(input: {
     input.healthOutcome === "failure"
       ? "The current health audit failed."
       : "The current health audit passed.",
-    `${history} Deduplication and incident history are unknown; the report job will fail after delivery.`,
+    `${history} Deduplication and incident history are unknown; the workflow will preserve that uncertainty and continue recovery after this warning is delivered.`,
     `Findings: ${details.totalFindings} total; showing ${details.totalFindings - details.omittedFindings}; ${details.omittedFindings} omitted from this Slack message.`,
     "```",
     details.failing,
@@ -442,25 +634,36 @@ function enqueueNotification(
   state: HealthReportState,
   notification: HealthNotification,
 ): void {
-  if (state.pendingNotifications.some(({ id }) => id === notification.id))
-    return;
-  if (state.pendingNotifications.length >= MAX_PENDING_NOTIFICATIONS) {
+  const pending =
+    state.pendingNotifications ?? state.pendingNotificationsSinceUnknown;
+  if (pending.some(({ id }) => id === notification.id)) return;
+  if (
+    (state.pendingNotifications?.length ?? 0) +
+      state.pendingNotificationsSinceUnknown.length >=
+    MAX_PENDING_NOTIFICATIONS
+  ) {
     throw new Error(
       "health reporter state cannot queue another Slack notification",
     );
   }
-  state.pendingNotifications.push(notification);
+  if (state.pendingNotifications === null) {
+    state.pendingNotificationsSinceUnknown.push(notification);
+  } else {
+    state.pendingNotifications.push(notification);
+  }
 }
 
 function enqueueIncidentUpdate(
   state: HealthReportState,
   notification: HealthNotification,
 ): void {
-  const pendingIndex = state.pendingNotifications.findIndex(
+  const pendingNotifications =
+    state.pendingNotifications ?? state.pendingNotificationsSinceUnknown;
+  const pendingIndex = pendingNotifications.findIndex(
     ({ kind }) => kind === "incident-update",
   );
   if (pendingIndex !== -1) {
-    state.pendingNotifications[pendingIndex] = notification;
+    pendingNotifications[pendingIndex] = notification;
     return;
   }
   enqueueNotification(state, notification);
@@ -573,12 +776,73 @@ function runAcknowledge(args: CliArgs): void {
   writeState(statePath, updated);
 }
 
+function runUnknownState(args: CliArgs): void {
+  const outcome = requireArg(args, "outcome");
+  if (outcome !== "success" && outcome !== "failure") {
+    throw new Error(`unsupported health outcome: ${outcome}`);
+  }
+  writeState(
+    requireArg(args, "state"),
+    unknownHealthReportState({
+      healthOutcome: outcome,
+      eventName: requireArg(args, "event"),
+      observedAt: requireArg(args, "observed-at"),
+      failingLog: args["failing-log"]
+        ? readFileSync(args["failing-log"], "utf8")
+        : "",
+    }),
+  );
+}
+
+function runRecordUnknownSample(args: CliArgs): void {
+  const outcome = requireArg(args, "outcome");
+  if (outcome !== "success" && outcome !== "failure") {
+    throw new Error(`unsupported health outcome: ${outcome}`);
+  }
+  const statePath = requireArg(args, "state");
+  const state = parseHealthReportState(readFileSync(statePath, "utf8"));
+  writeState(
+    statePath,
+    recordUnknownHealthSample(state, {
+      healthOutcome: outcome,
+      eventName: requireArg(args, "event"),
+      observedAt: requireArg(args, "observed-at"),
+      failingLog: args["failing-log"]
+        ? readFileSync(args["failing-log"], "utf8")
+        : "",
+    }),
+  );
+}
+
+function runUnknownWarningStatus(args: CliArgs): void {
+  const state = parseHealthReportState(
+    readFileSync(requireArg(args, "state"), "utf8"),
+  );
+  process.stdout.write(
+    `${hasUndeliveredUnknownStateWarning(state) ? "pending" : "delivered"}\n`,
+  );
+}
+
+function runAcknowledgeUnknownWarning(args: CliArgs): void {
+  const statePath = requireArg(args, "state");
+  const state = parseHealthReportState(readFileSync(statePath, "utf8"));
+  if (!hasUndeliveredUnknownStateWarning(state)) {
+    throw new Error("health reporter state does not have unknown history");
+  }
+  writeState(
+    statePath,
+    acknowledgeUnknownStateWarning(state, requireArg(args, "delivered-at")),
+  );
+}
+
 function runAttachReport(args: CliArgs): void {
   const statePath = requireArg(args, "state");
   const state = parseHealthReportState(readFileSync(statePath, "utf8"));
   const notificationId = requireArg(args, "notification-id");
   const reportUrl = requireArg(args, "report-url");
-  const index = state.pendingNotifications.findIndex(
+  const pendingNotifications =
+    state.pendingNotifications ?? state.pendingNotificationsSinceUnknown;
+  const index = pendingNotifications.findIndex(
     ({ id }) => id === notificationId,
   );
   if (index === -1) {
@@ -586,12 +850,12 @@ function runAttachReport(args: CliArgs): void {
       `health reporter notification ${notificationId} is not pending`,
     );
   }
-  const current = state.pendingNotifications[index]!;
+  const current = pendingNotifications[index]!;
   const notification = {
     ...current,
     reportArtifactUrl: current.reportArtifactUrl ?? reportUrl,
   };
-  state.pendingNotifications[index] = notification;
+  pendingNotifications[index] = notification;
   writeState(statePath, state);
 
   const payload = {
@@ -639,6 +903,12 @@ function main(): void {
   const args = parseCliArgs(process.argv.slice(3));
   if (command === "plan") return runPlan(args);
   if (command === "ack") return runAcknowledge(args);
+  if (command === "unknown-state") return runUnknownState(args);
+  if (command === "record-unknown-sample") return runRecordUnknownSample(args);
+  if (command === "unknown-warning-status")
+    return runUnknownWarningStatus(args);
+  if (command === "ack-unknown-warning")
+    return runAcknowledgeUnknownWarning(args);
   if (command === "attach-report") return runAttachReport(args);
   if (command === "degraded") return runDegraded(args);
   if (command === "validate") return runValidate(args);

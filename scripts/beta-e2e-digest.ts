@@ -201,6 +201,7 @@ export interface DigestInput {
   /** Tail of each failed job's log, by job id. Absent means not fetched. */
   logs: Record<number, string>;
   previous: DigestState | null;
+  previousStateUnavailable?: boolean;
   now: string;
   slackNote?: string;
   /** Problems collecting this run's data, shown in the report so they are not silent. */
@@ -1949,14 +1950,23 @@ export function loadInput(args: Record<string, string>): DigestInput {
   }
   const notes = (args.note ?? "").split("\n").filter(Boolean);
   let previous: DigestState | null = null;
-  if (args["previous-state"] && existsSync(args["previous-state"])) {
-    try {
-      previous = extractState(readFileSync(args["previous-state"], "utf8"));
-    } catch (error) {
-      // Damaged previous state is called out, and this run starts a new comparison.
+  let previousStateUnavailable = false;
+  if (args["previous-state"]) {
+    if (!existsSync(args["previous-state"])) {
+      previousStateUnavailable = true;
       notes.push(
-        `The previous state artifact could not be read (${error instanceof Error ? error.message : String(error)}), so NEW / STILL FAILING / FIXED are not compared against it.`,
+        "The previous state artifact could not be read (the file is missing), so NEW / STILL FAILING / FIXED are not compared against it.",
       );
+    } else {
+      try {
+        previous = extractState(readFileSync(args["previous-state"], "utf8"));
+      } catch (error) {
+        previousStateUnavailable = true;
+        // Damaged previous state is called out, and this run starts a new comparison.
+        notes.push(
+          `The previous state artifact could not be read (${error instanceof Error ? error.message : String(error)}), so NEW / STILL FAILING / FIXED are not compared against it.`,
+        );
+      }
     }
   }
   return {
@@ -1973,6 +1983,7 @@ export function loadInput(args: Record<string, string>): DigestInput {
     ...collectResults(args["results-dir"] ?? "", runId),
     logs,
     previous,
+    previousStateUnavailable,
     now: args.now ?? new Date().toISOString(),
     slackNote: args["slack-note"] || undefined,
     notes,
@@ -1996,6 +2007,8 @@ export function writeOutputs(digest: Digest, outDir: string): void {
       {
         status: digest.status,
         previousStateAvailable: digest.input.previous !== null,
+        previousStateUnavailable:
+          digest.input.previousStateUnavailable ?? false,
         shouldNotify: digest.notify.shouldNotify,
         notifyReason: digest.notify.reason,
         stateChanged: digest.stateChanged,

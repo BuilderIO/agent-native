@@ -38,6 +38,19 @@ workflow's run artifacts for deduplication and recovery. If no active owner or
 canonical report can be verified, record the ownership gap and next action
 instead of opening a competing ticket.
 
+The `pnpm ci:red-report` sweep also uses `#qa-agent-native` as the discovery
+index. After matching its rows against existing channel rollups, tasks, and
+PRs at the exact run-ID and fingerprint level, post one grouped channel message
+for uncovered findings in that sweep. Group by workflow and fingerprint, and
+include every uncovered run link, attempt, run count, occurrence count, and the
+classification or next owner action. Do not post one message per finding or
+repeat unchanged occurrences already represented in a rollup. If the grouped
+message exceeds Slack's size limit, split it into workflow/fingerprint chunks
+in one thread. Keep the complete occurrence ledger in the feedback task
+transcript even when a finding is already covered. If Slack delivery fails,
+record that failure and keep the CI rows unresolved; never fall back to creating
+or updating GitHub issues.
+
 The durable cross-sweep ledger is the **CI failure ledger** section in the most
 recent `review-latest-feedback` Codex task transcript. At the start of a sweep,
 use `list_threads` to locate the latest prior feedback task; if it is archived,

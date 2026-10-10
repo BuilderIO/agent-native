@@ -69,6 +69,7 @@ jobs:
           }
 
           metadata_incomplete=false
+          current_data_incomplete=false
           if gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" --jq '.jobs[]' > "$REPORT_DIR/jobs.ndjson" 2> "$REPORT_DIR/jobs-api-error.txt" && \
             jq -s '{jobs: .}' "$REPORT_DIR/jobs.ndjson" > "$REPORT_DIR/jobs.json"; then
             :
@@ -77,6 +78,7 @@ jobs:
             note "Could not collect run job metadata; the Slack report will be degraded. ${detail:-GitHub returned unreadable job data.}"
             printf '{"jobs":[]}\n' > "$REPORT_DIR/jobs.json"
             metadata_incomplete=true
+            current_data_incomplete=true
           fi
           if gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[]' > "$REPORT_DIR/artifacts.ndjson" 2> "$REPORT_DIR/artifacts-api-error.txt" && \
             jq -s '{artifacts: .}' "$REPORT_DIR/artifacts.ndjson" > "$REPORT_DIR/artifacts.json"; then
@@ -86,16 +88,19 @@ jobs:
             note "Could not collect run artifact metadata; the Slack report will be degraded. ${detail:-GitHub returned unreadable artifact data.}"
             printf '{"artifacts":[]}\n' > "$REPORT_DIR/artifacts.json"
             metadata_incomplete=true
+            current_data_incomplete=true
           fi
           have_artifacts="$(jq '[.artifacts[] | select((.name | startswith("beta-e2e-")) and ((.name | startswith("beta-e2e-digest-")) | not) and (.expired | not))] | length' "$REPORT_DIR/artifacts.json")"
           if [ "$have_artifacts" -gt 0 ]; then
             if ! gh run download "$RUN_ID" --repo "$REPO" --pattern 'beta-e2e-*' --dir "$REPORT_DIR/results"; then
               note "Downloading the beta-e2e artifacts failed, so test results are missing from this report."
               metadata_incomplete=true
+              current_data_incomplete=true
             fi
           else
             note "No beta-e2e result artifacts were uploaded, so test findings may be incomplete."
             metadata_incomplete=true
+            current_data_incomplete=true
           fi
 
           jobs_to_read="$(jq -r '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | .id' "$REPORT_DIR/jobs.json" | head -n 30)"
@@ -106,6 +111,7 @@ jobs:
             else
               note "Could not read the log of job $job_id: $(head -c 200 "$raw.err")"
               metadata_incomplete=true
+              current_data_incomplete=true
             fi
           done
 
@@ -129,7 +135,7 @@ jobs:
           fi
 
           runs_file="$REPORT_DIR/previous/runs.txt"
-          if [ ! -f "$REPORT_DIR/previous/state.json" ] && ! gh api --paginate "repos/$REPO/actions/workflows/beta-e2e-scheduled.yml/runs?branch=main&per_page=100&status=completed" --jq '.workflow_runs[].id' > "$runs_file"; then
+          if [ ! -f "$REPORT_DIR/previous/state.json" ] && ! gh api "repos/$REPO/actions/workflows/beta-e2e-scheduled.yml/runs?branch=main&per_page=1&status=completed" --jq '.workflow_runs[].id' > "$runs_file"; then
             note "Could not list prior scheduled runs; state comparison starts without a restored artifact."
             metadata_incomplete=true
           elif [ ! -f "$REPORT_DIR/previous/state.json" ]; then
@@ -138,29 +144,33 @@ jobs:
               [ "$previous_run" != "$RUN_ID" ] || continue
               artifact_list="$REPORT_DIR/previous/artifacts-$previous_run.json"
               if ! gh api "repos/$REPO/actions/runs/$previous_run/artifacts?per_page=100" > "$artifact_list"; then
-                note "Could not inspect artifacts for prior run $previous_run; continuing state recovery."
+                note "Could not inspect artifacts for the latest prior run $previous_run; state comparison starts without restored state."
                 metadata_incomplete=true
-                continue
+                break
               fi
               if ! jq -e '.artifacts | type == "array"' "$artifact_list" >/dev/null; then
-                note "GitHub returned invalid artifact metadata for prior run $previous_run; continuing state recovery."
+                note "GitHub returned invalid artifact metadata for the latest prior run $previous_run; state comparison starts without restored state."
                 metadata_incomplete=true
-                continue
+                break
               fi
               state_artifact_prefix="beta-e2e-digest-$previous_run-"
               state_artifact="$(jq -r --arg prefix "$state_artifact_prefix" '[.artifacts[] | select(.name | startswith($prefix)) | select(.expired | not)] | sort_by(.created_at) | last | .name // empty' "$artifact_list")"
-              [ -n "$state_artifact" ] || continue
+              if [ -z "$state_artifact" ]; then
+                note "The latest prior completed run $previous_run has no unexpired state artifact; state comparison starts without restored state."
+                metadata_incomplete=true
+                break
+              fi
 
               download_dir="$REPORT_DIR/previous/download"
               mkdir -p "$download_dir"
               if ! gh run download "$previous_run" --repo "$REPO" --name "$state_artifact" --dir "$download_dir"; then
-                note "Could not download the most recent state artifact from run $previous_run; state comparison starts without it."
+                note "Could not download the state artifact from the latest prior run $previous_run; state comparison starts without restored state."
                 metadata_incomplete=true
                 break
               fi
               state_file="$(find "$download_dir" -type f -name state.json -print -quit)"
               if [ -z "$state_file" ]; then
-                note "The most recent state artifact from run $previous_run has no state.json; state comparison starts without it."
+                note "The state artifact from the latest prior run $previous_run has no state.json; state comparison starts without restored state."
                 metadata_incomplete=true
               else
                 cp "$state_file" "$REPORT_DIR/previous/state.json"
@@ -172,6 +182,7 @@ jobs:
             note "No prior beta-e2e state artifact was restored; this report starts a new comparison."
           fi
           echo "metadata_incomplete=$metadata_incomplete" >> "$GITHUB_OUTPUT"
+          echo "current_data_incomplete=$current_data_incomplete" >> "$GITHUB_OUTPUT"
       - name: Check Slack configuration
         id: slack_config
         if: ${{ always() }}
@@ -195,13 +206,16 @@ jobs:
         env:
           SLACK_NOTE: ${{ steps.slack_config.outputs.slack_note }}
           METADATA_INCOMPLETE: ${{ steps.collect.outputs.metadata_incomplete }}
+          CURRENT_DATA_INCOMPLETE: ${{ steps.collect.outputs.current_data_incomplete }}
           COLLECT_OUTCOME: ${{ steps.collect.outcome }}
         run: |
           set -euo pipefail
           mkdir -p "$REPORT_DIR/results" "$REPORT_DIR/logs" "$REPORT_DIR/out" "$REPORT_DIR/previous"
           metadata_incomplete="${METADATA_INCOMPLETE:-false}"
+          current_data_incomplete="${CURRENT_DATA_INCOMPLETE:-false}"
           if [ "$COLLECT_OUTCOME" != "success" ]; then
             metadata_incomplete=true
+            current_data_incomplete=true
             touch "$REPORT_DIR/notes.txt"
             note="The run-data collector did not complete; findings and deduplication history may be incomplete."
             echo "$note" >> "$REPORT_DIR/notes.txt"
@@ -231,6 +245,7 @@ jobs:
                 echo "should_notify=true"
                 echo "notify_reason=degraded-collection"
                 echo "metadata_incomplete=true"
+                echo "current_data_incomplete=true"
               } >> "$GITHUB_OUTPUT"
               echo "## Beta E2E report: DEGRADED" >> "$GITHUB_STEP_SUMMARY"
               echo "$note" >> "$GITHUB_STEP_SUMMARY"
@@ -251,17 +266,12 @@ jobs:
             if [ -n "$line" ]; then args+=(--note "$line"); fi
           done < "$REPORT_DIR/notes.txt"
           node --experimental-strip-types scripts/beta-e2e-digest.ts "${args[@]}"
-          if [ -s "$REPORT_DIR/previous/state.json" ]; then
-            prior_state_availability="$(jq -r '._betaE2EStateAvailability // empty' "$REPORT_DIR/previous/state.json" 2>/dev/null || true)"
-            if [ "$prior_state_availability" != "absent" ] && \
-              [ "$prior_state_availability" != "unknown" ] && \
-              [ "$(jq -r .previousStateAvailable "$REPORT_DIR/out/decision.json")" != "true" ]; then
-              metadata_incomplete=true
-            fi
+          if [ "$(jq -r '.previousStateUnavailable // false' "$REPORT_DIR/out/decision.json")" = "true" ]; then
+            metadata_incomplete=true
           fi
           if [ "$metadata_incomplete" = "true" ]; then
             jq -n --arg channel "$SLACK_CHANNEL" --rawfile digest "$REPORT_DIR/out/slack.txt" \
-              '{channel: $channel, text: ":warning: *Beta E2E report is degraded*\nSome run metadata could not be read, so findings may be incomplete. The report below includes every finding we could recover.\n\n" + $digest, unfurl_links: false, unfurl_media: false}' \
+              '{channel: $channel, text: (":warning: *Beta E2E report is degraded*\nSome run metadata could not be read, so findings may be incomplete. The report below includes every finding we could recover.\n\n" + $digest), unfurl_links: false, unfurl_media: false}' \
               > "$REPORT_DIR/out/slack-payload.json"
           else
             jq -n --arg channel "$SLACK_CHANNEL" --rawfile text "$REPORT_DIR/out/slack.txt" \
@@ -278,6 +288,7 @@ jobs:
             echo "should_notify=$should_notify"
             echo "notify_reason=$notify_reason"
             echo "metadata_incomplete=$metadata_incomplete"
+            echo "current_data_incomplete=$current_data_incomplete"
           } >> "$GITHUB_OUTPUT"
           {
             jq -r '"## Beta E2E report: " + (.status | ascii_upcase) + "\n\n- Gating findings: \(.failing)\n- New failures: \(.newFailures)\n- Notification: \(.notifyReason // "none")"' "$REPORT_DIR/out/decision.json"
@@ -333,12 +344,13 @@ jobs:
         env:
           SHOULD_NOTIFY: ${{ steps.digest.outputs.should_notify }}
           METADATA_INCOMPLETE: ${{ steps.digest.outputs.metadata_incomplete }}
+          CURRENT_DATA_INCOMPLETE: ${{ steps.digest.outputs.current_data_incomplete }}
           SLACK_CONFIGURED: ${{ steps.slack_config.outputs.configured }}
           SLACK_OUTCOME: ${{ steps.slack.outcome }}
           SLACK_OK: ${{ steps.slack.outputs.ok }}
         run: |
           set -euo pipefail
-          if [ "$SHOULD_NOTIFY" = "true" ] && { [ "$METADATA_INCOMPLETE" = "true" ] || [ "$SLACK_CONFIGURED" != "true" ] || [ "$SLACK_OUTCOME" != "success" ] || [ "$SLACK_OK" != "true" ]; }; then
+          if [ "$SHOULD_NOTIFY" = "true" ] && { [ "$CURRENT_DATA_INCOMPLETE" = "true" ] || [ "$SLACK_CONFIGURED" != "true" ] || [ "$SLACK_OUTCOME" != "success" ] || [ "$SLACK_OK" != "true" ]; }; then
             if [ "$(jq -r .previousStateAvailable "$REPORT_DIR/out/decision.json")" = "true" ]; then
               cp "$REPORT_DIR/previous/state.json" "$REPORT_DIR/out/state.json"
             elif [ -s "$REPORT_DIR/previous/state.json" ]; then
@@ -353,7 +365,7 @@ jobs:
             else
               jq -n '{_betaE2EStateAvailability: "absent"}' > "$REPORT_DIR/out/state.json"
             fi
-            if [ "$METADATA_INCOMPLETE" = "true" ]; then
+            if [ "$CURRENT_DATA_INCOMPLETE" = "true" ]; then
               message="Run metadata collection was incomplete; the prior notification state was retained to avoid a false recovery."
             else
               message="Slack delivery failed; the prior notification state was retained so the next scheduled run can retry."

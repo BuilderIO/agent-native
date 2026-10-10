@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -1599,6 +1601,306 @@ describe("full report and Slack rollup", () => {
   });
 });
 
+describe("scheduled workflow state recovery", () => {
+  it("does not fall back after the latest completed run lacks a state artifact", () => {
+    const workflowPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../.github/workflows/beta-e2e-scheduled.yml",
+    );
+    const workflow = parse(readFileSync(workflowPath, "utf8")) as {
+      jobs?: {
+        report?: { steps?: Array<{ name?: string; run?: string }> };
+      };
+    };
+    const collectStep = workflow.jobs?.report?.steps?.find(
+      (step) =>
+        step.name ===
+        "Collect run data and restore the previous state artifact",
+    );
+    assert.ok(collectStep?.run);
+    const recoveryStart = collectStep.run.indexOf("runs_file=");
+    assert.notEqual(recoveryStart, -1);
+
+    const root = mkdtempSync(path.join(tmpdir(), "beta-e2e-state-recovery-"));
+    try {
+      const reportDir = path.join(root, "report");
+      mkdirSync(path.join(reportDir, "previous"), { recursive: true });
+      writeFileSync(path.join(reportDir, "notes.txt"), "");
+      const bin = path.join(root, "bin");
+      mkdirSync(bin);
+      const callLog = path.join(root, "gh-calls.ndjson");
+      const ghPath = path.join(bin, "gh");
+      writeFileSync(
+        ghPath,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.GH_CALL_LOG, JSON.stringify(args) + "\\n");
+if (args[0] === "api") {
+  const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+  if (endpoint.includes("/workflows/beta-e2e-scheduled.yml/runs?")) {
+    process.stdout.write("1999\\n1998\\n");
+    process.exit(0);
+  }
+  if (endpoint.includes("/runs/1999/artifacts?")) {
+    process.stdout.write(JSON.stringify({ artifacts: [] }));
+    process.exit(0);
+  }
+  if (endpoint.includes("/runs/1998/artifacts?")) {
+    process.stdout.write(JSON.stringify({ artifacts: [{ name: "beta-e2e-digest-1998-1", created_at: "2026-10-01T00:00:00Z", expired: false }] }));
+    process.exit(0);
+  }
+}
+if (args[0] === "run" && args[1] === "download") {
+  const dir = args[args.indexOf("--dir") + 1];
+  const artifactDir = path.join(dir, "artifact");
+  fs.mkdirSync(artifactDir, { recursive: true });
+  fs.writeFileSync(path.join(artifactDir, "state.json"), "older state");
+  process.exit(0);
+}
+process.stderr.write("Unexpected fake gh command: " + JSON.stringify(args));
+process.exit(2);
+`,
+      );
+      chmodSync(ghPath, 0o755);
+      const outputPath = path.join(root, "github-output.txt");
+      writeFileSync(outputPath, "");
+      const shell = `metadata_incomplete=false\ncurrent_data_incomplete=false\nnote() { echo "$1" >> "$REPORT_DIR/notes.txt"; }\n${collectStep.run.slice(recoveryStart)}`;
+      const result = spawnSync("bash", ["-euo", "pipefail", "-c", shell], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+          REPORT_DIR: reportDir,
+          RUN_ID: "2000",
+          REPO: "acme/repo",
+          GITHUB_OUTPUT: outputPath,
+          GH_CALL_LOG: callLog,
+        },
+      });
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(
+        readFileSync(outputPath, "utf8"),
+        /metadata_incomplete=true/,
+      );
+      assert.match(
+        readFileSync(outputPath, "utf8"),
+        /current_data_incomplete=false/,
+      );
+      assert.equal(
+        existsSync(path.join(reportDir, "previous/state.json")),
+        false,
+      );
+      assert.match(
+        readFileSync(path.join(reportDir, "notes.txt"), "utf8"),
+        /latest prior completed run 1999 has no unexpired state artifact/,
+      );
+      assert.doesNotMatch(
+        readFileSync(callLog, "utf8"),
+        /\/runs\/1998\/artifacts/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("includes recovered current findings in the degraded Slack payload", () => {
+    const workflowPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../.github/workflows/beta-e2e-scheduled.yml",
+    );
+    const workflow = parse(readFileSync(workflowPath, "utf8")) as {
+      jobs?: {
+        report?: { steps?: Array<{ name?: string; run?: string }> };
+      };
+    };
+    const buildStep = workflow.jobs?.report?.steps?.find(
+      (step) => step.name === "Build the report",
+    );
+    assert.ok(buildStep?.run);
+
+    const root = mkdtempSync(path.join(tmpdir(), "beta-e2e-degraded-report-"));
+    try {
+      const reportDir = path.join(root, "report");
+      mkdirSync(
+        path.join(reportDir, "results/playwright-report/authed-chat-slides"),
+        {
+          recursive: true,
+        },
+      );
+      mkdirSync(path.join(reportDir, "logs"), { recursive: true });
+      mkdirSync(path.join(reportDir, "previous"), { recursive: true });
+      mkdirSync(path.join(reportDir, "out"), { recursive: true });
+      writeFileSync(path.join(reportDir, "notes.txt"), "");
+      writeFileSync(
+        path.join(reportDir, "jobs.json"),
+        JSON.stringify({ jobs: [] }),
+      );
+      writeFileSync(
+        path.join(reportDir, "artifacts.json"),
+        JSON.stringify({ artifacts: [] }),
+      );
+      writeFileSync(
+        path.join(reportDir, "previous/state.json"),
+        JSON.stringify({ _betaE2EStateAvailability: "unknown" }),
+      );
+      writeFileSync(
+        path.join(
+          reportDir,
+          "results/playwright-report/authed-chat-slides/results.json",
+        ),
+        JSON.stringify(chatFailure),
+      );
+      const outputPath = path.join(root, "github-output.txt");
+      const summaryPath = path.join(root, "step-summary.txt");
+      writeFileSync(outputPath, "");
+      writeFileSync(summaryPath, "");
+      const repoRoot = path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..",
+      );
+      const result = spawnSync(
+        "bash",
+        ["-euo", "pipefail", "-c", buildStep.run],
+        {
+          cwd: repoRoot,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            REPORT_DIR: reportDir,
+            SLACK_CHANNEL: "C0000000000",
+            SLACK_NOTE: "",
+            METADATA_INCOMPLETE: "false",
+            CURRENT_DATA_INCOMPLETE: "false",
+            COLLECT_OUTCOME: "success",
+            RUN_ID: "2000",
+            RUN_RESULT: "success",
+            REPO: "acme/repo",
+            GITHUB_SERVER_URL: "https://github.com",
+            GITHUB_SHA: "0123456789abcdef",
+            GITHUB_EVENT_NAME: "schedule",
+            GITHUB_RUN_NUMBER: "2000",
+            GITHUB_RUN_ATTEMPT: "1",
+            GITHUB_OUTPUT: outputPath,
+            GITHUB_STEP_SUMMARY: summaryPath,
+          },
+        },
+      );
+
+      assert.equal(result.status, 0, result.stderr);
+      const payload = JSON.parse(
+        readFileSync(path.join(reportDir, "out/slack-payload.json"), "utf8"),
+      );
+      assert.match(payload.text, /Beta E2E report is degraded/);
+      assert.match(payload.text, /Findings: 1 total; showing 1; 0 omitted/);
+      assert.match(payload.text, /completes and restores a turn/);
+      assert.match(
+        readFileSync(outputPath, "utf8"),
+        /metadata_incomplete=true/,
+      );
+      assert.match(
+        readFileSync(outputPath, "utf8"),
+        /current_data_incomplete=false/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  function runPreserveStep(options: {
+    slackOutcome: string;
+    slackOk: string;
+  }): { outputState: unknown; summary: string } {
+    const workflowPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../.github/workflows/beta-e2e-scheduled.yml",
+    );
+    const workflow = parse(readFileSync(workflowPath, "utf8")) as {
+      jobs?: {
+        report?: { steps?: Array<{ name?: string; run?: string }> };
+      };
+    };
+    const preserveStep = workflow.jobs?.report?.steps?.find(
+      (step) => step.name === "Preserve notification state only after delivery",
+    );
+    assert.ok(preserveStep?.run);
+
+    const root = mkdtempSync(path.join(tmpdir(), "beta-e2e-state-preserve-"));
+    try {
+      const reportDir = path.join(root, "report");
+      mkdirSync(path.join(reportDir, "out"), { recursive: true });
+      mkdirSync(path.join(reportDir, "previous"), { recursive: true });
+      const summaryPath = path.join(root, "step-summary.txt");
+      writeFileSync(summaryPath, "");
+      writeFileSync(
+        path.join(reportDir, "out/decision.json"),
+        JSON.stringify({ previousStateAvailable: false }),
+      );
+      writeFileSync(
+        path.join(reportDir, "previous/state.json"),
+        JSON.stringify({ _betaE2EStateAvailability: "unknown" }),
+      );
+      const currentState = redState({ run: 2000 });
+      writeFileSync(
+        path.join(reportDir, "out/state.json"),
+        JSON.stringify(currentState),
+      );
+      const result = spawnSync(
+        "bash",
+        ["-euo", "pipefail", "-c", preserveStep.run],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            REPORT_DIR: reportDir,
+            SHOULD_NOTIFY: "true",
+            METADATA_INCOMPLETE: "true",
+            CURRENT_DATA_INCOMPLETE: "false",
+            SLACK_CONFIGURED: "true",
+            SLACK_OUTCOME: options.slackOutcome,
+            SLACK_OK: options.slackOk,
+            GITHUB_STEP_SUMMARY: summaryPath,
+          },
+        },
+      );
+
+      assert.equal(result.status, 0, result.stderr);
+      return {
+        outputState: JSON.parse(
+          readFileSync(path.join(reportDir, "out/state.json"), "utf8"),
+        ),
+        summary: readFileSync(summaryPath, "utf8"),
+      };
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  it("seeds the current state after a complete degraded report is delivered", () => {
+    const { outputState, summary } = runPreserveStep({
+      slackOutcome: "success",
+      slackOk: "true",
+    });
+
+    assert.deepEqual(outputState, redState({ run: 2000 }));
+    assert.doesNotMatch(summary, /prior notification state was retained/);
+  });
+
+  it("retains unknown state so failed Slack delivery retries recovery", () => {
+    const { outputState, summary } = runPreserveStep({
+      slackOutcome: "failure",
+      slackOk: "false",
+    });
+
+    assert.deepEqual(outputState, {
+      _betaE2EStateAvailability: "unknown",
+    });
+    assert.match(summary, /Slack delivery failed/);
+  });
+});
+
 describe("the workflow's slots and the digest agree on names", () => {
   const repoRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -1828,11 +2130,59 @@ describe("command line", () => {
         NOW,
       ]);
       const body = readFileSync(path.join(out, "report.md"), "utf8");
+      const decision = JSON.parse(
+        readFileSync(path.join(out, "decision.json"), "utf8"),
+      );
       assert.match(body, /Report note: Downloading the artifacts failed\./);
       assert.match(body, /Report note: Job log for 12 could not be fetched\./);
       assert.match(body, /previous state artifact could not be read/);
+      assert.equal(decision.previousStateUnavailable, true);
       // Nothing explained the failed run, and that is said rather than hidden.
       assert.match(body, /no failed job or failing test/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("marks an unknown prior-state marker as unavailable metadata", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "beta-e2e-digest-"));
+    try {
+      const jobs = path.join(root, "jobs.json");
+      writeFileSync(jobs, JSON.stringify({ jobs: [] }));
+      const artifacts = path.join(root, "artifacts.json");
+      writeFileSync(artifacts, JSON.stringify({ artifacts: [] }));
+      const previous = path.join(root, "previous-state.json");
+      writeFileSync(
+        previous,
+        JSON.stringify({ _betaE2EStateAvailability: "unknown" }),
+      );
+      const out = path.join(root, "out");
+      main([
+        "--run-id",
+        "1001",
+        "--repo",
+        "acme/repo",
+        "--run-result",
+        "success",
+        "--jobs",
+        jobs,
+        "--artifacts",
+        artifacts,
+        "--previous-state",
+        previous,
+        "--out-dir",
+        out,
+        "--now",
+        NOW,
+      ]);
+
+      const decision = JSON.parse(
+        readFileSync(path.join(out, "decision.json"), "utf8"),
+      );
+      const body = readFileSync(path.join(out, "report.md"), "utf8");
+      assert.equal(decision.previousStateAvailable, false);
+      assert.equal(decision.previousStateUnavailable, true);
+      assert.match(body, /notification state was unavailable/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

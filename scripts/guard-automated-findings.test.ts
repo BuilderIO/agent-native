@@ -83,7 +83,7 @@ test("the guard scans future workflows and permits only the Visual Recap write s
   assert.match(problems, /future-health-reporter\.yml requests issues: write/);
   assert.match(
     problems,
-    /future-health-reporter\.yml contains gh issue create command/,
+    /future-health-reporter\.yml contains gh issue create\/new command/,
   );
 
   workflows[".github/workflows/future-health-reporter.yml"] =
@@ -126,6 +126,7 @@ test("Visual Recap PR-comment operations are allowlisted, but issue creation is 
 test("the guard rejects GitHub issue commands and API creation", () => {
   for (const operation of [
     "gh issue create --title finding",
+    "gh issue new --title finding",
     "gh api repos/$GITHUB_REPOSITORY/issues -f title=finding",
     "github.rest.issues.create({ title: finding })",
     'curl --request POST https://api.github.com/repos/org/repo/issues --data \'{"title":"finding"}\'',
@@ -135,7 +136,7 @@ test("the guard rejects GitHub issue commands and API creation", () => {
     workflows[reporterWorkflows[1]] += `\n${operation}\n`;
     assert.match(
       inspectAutomatedFindingWorkflows(workflows).join("\n"),
-      /(?:gh issue create command|GitHub Issues API POST request|GitHub Issues API creation call|GitHub issue creation action)/,
+      /(?:gh issue create\/new command|GitHub Issues API POST request|GitHub Issues API creation call|GitHub issue creation action)/,
     );
   }
 });
@@ -143,12 +144,14 @@ test("the guard rejects GitHub issue commands and API creation", () => {
 test("the guard recognizes implicit and equals-form GitHub API POST requests", () => {
   for (const operation of [
     "gh api --method=POST repos/org/repo/issues --field title=finding",
+    'gh api --method=POST repos/org/repo/issues --field "title=finding"',
     "gh api -XPOST /repos/org/repo/issues -F=title=finding",
     "gh api repos/$GITHUB_REPOSITORY/issues --raw-field title=finding",
     'curl --data \'{"title":"finding"}\' https://api.github.com/repos/org/repo/issues',
     'curl -d\'{"title":"finding"}\' https://api.github.com/repos/org/repo/issues',
     "curl -d=title=finding https://api.github.com/repos/org/repo/issues",
     'curl -X=POST https://api.github.com/repos/org/repo/issues --json \'{"title":"finding"}\'',
+    'curl -x https://proxy.example --data \'{"title":"finding"}\' https://api.github.com/repos/org/repo/issues',
     "wget --post-data=title=finding https://api.github.com/repos/org/repo/issues",
   ]) {
     const workflows = currentWorkflows();
@@ -162,10 +165,93 @@ test("the guard recognizes implicit and equals-form GitHub API POST requests", (
 
   const workflows = currentWorkflows();
   workflows[reporterWorkflows[1]] +=
+    "\ncurl -x https://proxy.example https://api.github.com/repos/org/repo/issues\n";
+  assert.doesNotMatch(
+    inspectAutomatedFindingWorkflows(workflows).join("\n"),
+    /keep-neon-warm\.yml contains GitHub Issues API POST request/,
+  );
+
+  workflows[reporterWorkflows[1]] = currentWorkflows()[reporterWorkflows[1]]!;
+  workflows[reporterWorkflows[1]] +=
     "\ngh api --method=GET repos/org/repo/issues --field title=search\n";
   assert.doesNotMatch(
     inspectAutomatedFindingWorkflows(workflows).join("\n"),
     /keep-neon-warm\.yml contains GitHub Issues API POST request/,
+  );
+});
+
+test("the guard recognizes multiline REST issue creation calls", () => {
+  for (const operation of [
+    `await fetch(
+      "https://api.github.com/repos/org/repo/issues",
+      {
+        method: "POST",
+        body: JSON.stringify({ title: "finding" }),
+      },
+    );`,
+    `await axios.post(
+      'https://api.github.com/repos/org/repo/issues',
+      { title: "finding" },
+    );`,
+    `await request(
+      "POST /repos/org/repo/issues",
+      { json: { title: "finding" } },
+    );`,
+  ]) {
+    const workflows = currentWorkflows();
+    workflows[reporterWorkflows[1]] += `\n${operation}\n`;
+    assert.match(
+      inspectAutomatedFindingWorkflows(workflows).join("\n"),
+      /keep-neon-warm\.yml contains GitHub Issues API POST request/,
+      operation,
+    );
+  }
+
+  const workflows = currentWorkflows();
+  workflows[reporterWorkflows[1]] += `
+await fetch(
+  "https://api.github.com/repos/org/repo/issues?state=open",
+);
+`;
+  assert.doesNotMatch(
+    inspectAutomatedFindingWorkflows(workflows).join("\n"),
+    /keep-neon-warm\.yml contains GitHub Issues API POST request/,
+  );
+});
+
+test("the guard detects GraphQL issue creation without flagging searches or PR comments", () => {
+  const workflows = currentWorkflows();
+  workflows[".github/workflows/future-health-reporter.yml"] =
+    `run: gh api graphql --field query='
+    mutation CreateIssue($repositoryId: ID!, $title: String!) {
+      createIssue(input: { repositoryId: $repositoryId, title: $title }) {
+        issue { id }
+      }
+    }'
+`;
+  assert.match(
+    inspectAutomatedFindingWorkflows(workflows).join("\n"),
+    /future-health-reporter\.yml contains GitHub GraphQL createIssue mutation/,
+  );
+
+  workflows[".github/workflows/future-health-reporter.yml"] =
+    `run: gh api graphql --field query='
+    query FindIssues($search: String!) {
+      search(query: $search, type: ISSUE) { issueCount }
+    }'
+`;
+  workflows[".github/workflows/pr-visual-recap.yml"] += `
+run: gh api graphql --field query='mutation AddComment($input: AddCommentInput!) {
+  addComment(input: $input) { commentEdge { node { id } } }
+}'
+`;
+  assert.doesNotMatch(
+    inspectAutomatedFindingWorkflows(workflows).join("\n"),
+    /future-health-reporter\.yml contains GitHub GraphQL createIssue mutation/,
+  );
+  assert.doesNotMatch(
+    inspectAutomatedFindingWorkflows(workflows).join("\n"),
+    /pr-visual-recap\.yml contains GitHub GraphQL createIssue mutation/,
   );
 });
 
