@@ -490,7 +490,7 @@ import {
 } from "./multi-screen/gradient-overlay-geometry";
 import {
   applyScreenPaintSuppression,
-  collectScreenPaintTargets,
+  observeScreenPaintTargets,
   resolveSuppressedScreenIds,
   type ScreenPaintCandidate,
   type ScreenPaintTarget,
@@ -11415,11 +11415,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [canvasFrames, canvasZoom, pan, screenCullTierById, surfaceSize],
   );
   useEffect(() => {
-    screenPaintTargetsRef.current = collectScreenPaintTargets(
+    const stopObserving = observeScreenPaintTargets(
       surfaceRef.current,
+      (targets) => {
+        screenPaintTargetsRef.current = targets;
+        syncScreenPaintSuppression();
+      },
     );
+    return () => {
+      stopObserving();
+      screenPaintTargetsRef.current = [];
+    };
+  }, [syncScreenPaintSuppression]);
+
+  useEffect(() => {
     syncScreenPaintSuppression();
-  });
+  }, [screenCullTierById, syncScreenPaintSuppression]);
 
   const topScreenId = useMemo(
     () =>
