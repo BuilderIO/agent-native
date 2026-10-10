@@ -30,9 +30,10 @@ The pipeline runs without a UI. Codex does all four steps from the terminal:
 ## The tree
 
 `get-onboarding-journey` returns `JourneyTree`; `format: "summary"` returns the
-same counts as an indented `outline` with no examples. Use it first to choose a
-window, `app`, `maxDepth`, `minNodeSessions` (small branches merge into an
-`other` node), and `maxNodes`.
+same event-derived journey and follow-up counts as an indented `outline` with no
+examples. Summaries skip replay reads, so `coverage.sessionsWithReplay` is
+`null`. Use one first to choose a window, `app`, `maxDepth`, `minNodeSessions`
+(small branches merge into an `other` node), and `maxNodes`.
 
 To include the bounded cross-session estimate from the repository root, run:
 `pnpm --filter analytics action get-onboarding-journey --dateFrom=2026-08-01 --dateTo=2026-08-31 --app=all --emailFilter=exclude_builder --followUpMode=person --format=summary`.
@@ -40,9 +41,9 @@ To include the bounded cross-session estimate from the repository root, run:
 ```ts
 type JourneyExample = { sessionId: string; recordingId: string | null; ts: string; offsetMs: number | null; viewport: { width: number; height: number } | null; viewportReason?: string; replayUrl?: string };
 type JourneyNode = { key: string; label: string; parentKey: string | null; depth: number; kind: "step" | "other"; n: number; pctOfRoot: number; pctOfParent: number; dropoffN: number; dropoffPct: number; deeperN: number; examples: JourneyExample[] };
-type JourneyFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_query_too_large" | "followup_aggregate_truncated" | "followup_aggregate_invalid" | "terminal_cohort_mismatch"; observationCutoff: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; rightCensoredAtWindowEnd: true; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { rows: number | null; queries: number; truncated: boolean }; cohortSessions: number | null }; laterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null }; noLaterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null } };
+type JourneyFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_query_too_large" | "followup_aggregate_truncated" | "followup_aggregate_invalid" | "followup_aggregate_cost_limited" | "followup_aggregate_query_timeout" | "followup_aggregate_query_failed" | "terminal_cohort_mismatch"; observationCutoff: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; rightCensoredAtWindowEnd: true; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { rows: number | null; queries: number; truncated: boolean; status?: "incomplete"; backendStatus?: number | null; backendReason?: string | null; backendOperation?: "submit" | "poll" | "job" | null }; cohortSessions: number | null }; laterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null }; noLaterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null } };
 type JourneyPersonFollowupCounts = { canonicalPeople: number; laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number; laterActivityInBothSelectedAndOutside: number; laterActivityObservedAnywhere: number; noActivityObservedWithinHorizon: number; rightCensoredHorizon: number; fullyObservedCanonicalPeople: number; noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople: number | null; identityUnavailableSessions: number; identityUnavailableSessionEvidence: { laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number } };
-type JourneyPersonFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_too_large" | "terminal_cohort_invalid" | "person_followup_aggregate_truncated" | "person_followup_query_cost_limited" | "person_followup_aggregate_invalid" | "person_followup_terminal_cohort_mismatch"; horizonDays: 30; horizonMs: number; observationWatermark: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { status: "complete" | "truncated" | "incomplete" | "not_run"; rows: number | null; queries: number; truncated: boolean }; terminalSessions: number | null; sessionsWithoutSelectedStep: number | null; identityJoin: { status: "complete" | "partial" | "unavailable" | "not_applicable" | "unknown"; terminalSessions: number | null; sessionsWithCanonicalIdentity: number | null; sessionsWithoutCanonicalIdentity: number | null; uniqueCanonicalPeople: number | null; coveragePct: number | null } }; total: JourneyPersonFollowupCounts | null; byTerminalStepKey: Record<string, JourneyPersonFollowupCounts> | null };
+type JourneyPersonFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_too_large" | "terminal_cohort_invalid" | "person_followup_aggregate_truncated" | "person_followup_query_cost_limited" | "person_followup_query_timeout" | "person_followup_query_failed" | "person_followup_aggregate_invalid" | "person_followup_terminal_cohort_mismatch"; horizonDays: 30; horizonMs: number; observationWatermark: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { status: "complete" | "truncated" | "incomplete" | "not_run"; rows: number | null; queries: number; truncated: boolean; backendStatus?: number | null; backendReason?: string | null; backendOperation?: "submit" | "poll" | "job" | null }; terminalSessions: number | null; sessionsWithoutSelectedStep: number | null; identityJoin: { status: "complete" | "partial" | "unavailable" | "not_applicable" | "unknown"; terminalSessions: number | null; sessionsWithCanonicalIdentity: number | null; sessionsWithoutCanonicalIdentity: number | null; uniqueCanonicalPeople: number | null; coveragePct: number | null } }; total: JourneyPersonFollowupCounts | null; byTerminalStepKey: Record<string, JourneyPersonFollowupCounts> | null };
 type JourneyTree = { window: { from: string; to: string }; app: string; rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[]; followUp: JourneyFollowup; personFollowUp?: JourneyPersonFollowup; standaloneSetup?: { rootN: number; coverage: { sessionsWithEvents: number; sessionsWithReplay: number; truncated: boolean }; nodes: JourneyNode[] }; notes?: string[] };
 ```
 
@@ -95,8 +96,8 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   step. `laterRecordedActivityWithinWindow` counts sessions with any later
   native Analytics event in the same session; `noLaterRecordedActivityWithinWindow`
   counts the remaining sessions. The read applies the same authenticated
-  user/org scope, date window, app, identity bridge, test exclusion, and
-  Builder.io email filter as the journey read. It uses one
+  user/org scope, date window, app, session-level email identity, test exclusion,
+  and Builder.io email filter as the journey read. It uses one
   frozen `observationCutoff` for every event page and the single aggregate
   query. `observationFollowupDurationMs`
   summarizes the time from each terminal selected step to that cutoff.
@@ -106,13 +107,22 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   session IDs or member identity keys used internally. The consistency field
   reports `may_have_shifted` when the event read uses multiple `OFFSET` pages;
   a late-arriving event can change page membership inside a historical window
-  too. If either read truncates, page boundaries may have shifted, or the
-  terminal cohort cannot be covered in one query under the 800,000-character
-  SQL limit or 50,000-token parser limit, `status` is `incomplete` and all new
-  cohort counts and follow-up duration are `null`; `incompleteReason`
+  too. The action caps event reads at two 4,000-row BigQuery pages to bound
+  total query cost. If either read truncates, page boundaries may have shifted,
+  or the terminal cohort cannot be covered in one query under the
+  800,000-character SQL limit or 50,000-token parser limit, `status` is
+  `incomplete` and all new cohort counts and follow-up duration are `null`;
+  `incompleteReason`
   identifies the limiting read. Do not report percentages from that partial
   result. Existing journey counts and denominators remain independent of this
   follow-up read.
+- A failed event read fails the action with `journey_events_read_timeout`,
+  `journey_events_read_cost_limited`, or `journey_events_read_failed`. When
+  BigQuery provides a safe failure detail, the error includes its submit, poll,
+  or job phase, HTTP status, and allowlisted reason without returning SQL or
+  rows. A failed aggregate keeps the journey tree but sets every new aggregate
+  count to `null`; it is not a zero. Read `status` and `coverage` before using
+  either follow-up mode.
 - Set `followUpMode: "person"` to add `personFollowUp` without changing the
   session tree or same-session `followUp`. Each direct `properties.auth_user_id`
   is counted once and assigned to that person's latest terminal selected step
