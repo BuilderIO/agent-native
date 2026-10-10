@@ -179,6 +179,16 @@ The player team may have its own copy of some of these. If so, consolidate on
 
 Every mutation ends with `writeAppState("refresh-signal", { ts: Date.now() })`.
 
+Chapter writes go through `actions/lib/save-chapters.ts`, which only writes
+over the list it was checked against: `set-chapters` needs `expectedChapters`
+(as `get-recording-player-data` returns them) or `expectedVersion`, plus
+`expectedCuts` when times were mapped through cuts; `update-recording
+--chaptersJson` needs `expectedChapters`. A new writer of `chaptersJson` must
+do the same, or match the row it read in its update's WHERE, as
+`apply-rewind-extension` does. Stored chapters that can't be read refuse
+every save (`chapters_unreadable`); `set-chapters --discardUnreadable` replaces
+them, and only when the user asked to.
+
 ### ffmpeg.wasm usage
 
 `app/lib/ffmpeg-export.ts` lazy-loads `@ffmpeg/ffmpeg` (only fetched on first

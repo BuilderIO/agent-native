@@ -76,6 +76,7 @@ import {
   normalizeBuilderCreditsStatus,
 } from "../shared/builder-credits.js";
 import { displayCommentMentions } from "../shared/comment-mentions.js";
+import { parseStoredChapters } from "../shared/stored-chapters.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -295,16 +296,7 @@ export default defineAction({
       );
     }
 
-    let chapters: { startMs: number; title: string }[] = [];
-    try {
-      const parsed = JSON.parse(rec.chaptersJson ?? "[]");
-      if (Array.isArray(parsed)) {
-        chapters = parsed.filter(
-          (c: any) =>
-            typeof c?.startMs === "number" && typeof c?.title === "string",
-        );
-      }
-    } catch {}
+    const chapters = parseStoredChapters(rec.chaptersJson);
 
     const transcriptSegments = normalizeTranscriptSegments({
       segments: parseTranscriptSegments(transcript?.segmentsJson),

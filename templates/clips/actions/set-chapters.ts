@@ -1,19 +1,17 @@
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-
-const ChapterSchema = z.object({
-  startMs: z.coerce.number().int().min(0),
-  title: z.string().min(1),
-});
+import {
+  ChapterSchema,
+  CutRangeSchema,
+  StoredChapterSchema,
+  parseList,
+  saveChapters,
+} from "./lib/save-chapters.js";
 
 export default defineAction({
   description:
-    "Overwrite the chapters on a recording. Chapters are {startMs,title} entries that appear as markers on the timeline and in the player.",
+    "Overwrite the chapters on a recording. Chapters are {startMs,title} entries that appear as markers on the timeline and in the player. Pass the chapters the edit started from as expectedChapters (get-recording-player-data returns them) or expectedVersion; a save over chapters changed meanwhile is refused.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     chapters: z
@@ -21,47 +19,62 @@ export default defineAction({
       .describe(
         "Array of {startMs,title} — either a JSON-encoded string (CLI) or an array (agent).",
       ),
+    expectedChapters: z
+      .union([z.string(), z.array(StoredChapterSchema)])
+      .optional()
+      .describe(
+        "The chapters this edit started from (this or expectedVersion is required); if the stored chapters differ, nothing is written and the call fails with errorCode chapters_changed.",
+      ),
+    expectedVersion: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "The chapters' version token this edit started from (regenerate-chapters gives one); if the stored chapters' version differs, nothing is written and the call fails with errorCode chapters_changed.",
+      ),
+    expectedCuts: z
+      .union([z.string(), z.array(CutRangeSchema)])
+      .optional()
+      .describe(
+        "Optional. The cut ranges ({startMs,endMs}, original-media ms) the chapter times were mapped through; if the recording's cuts differ, nothing is written and the call fails with errorCode chapters_changed.",
+      ),
+    discardUnreadable: z
+      .union([z.boolean(), z.enum(["true", "false"])])
+      .transform((value) => value === true || value === "true")
+      .optional()
+      .describe(
+        "Only after a chapters_unreadable refusal, and only when the user asked to replace the chapters: drops the stored entries that can't be read. The expected chapters are still checked.",
+      ),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
-
-    const db = getDb();
-
-    let chapters: Array<{ startMs: number; title: string }> = [];
-    if (typeof args.chapters === "string") {
-      try {
-        const parsed = JSON.parse(args.chapters);
-        chapters = z.array(ChapterSchema).parse(parsed);
-      } catch (e: any) {
-        throw new Error(`Invalid --chapters JSON: ${e.message ?? e}`);
-      }
-    } else {
-      chapters = args.chapters as any;
-    }
-
-    chapters = [...chapters]
-      .map((c) => ({ startMs: Math.max(0, c.startMs), title: c.title.trim() }))
-      .filter((c) => c.title.length > 0)
-      .sort((a, b) => a.startMs - b.startMs);
-
-    const [existing] = await db
-      .select({ id: schema.recordings.id })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId));
-    if (!existing) {
-      throw new Error(`Recording not found: ${args.recordingId}`);
-    }
-
-    await db
-      .update(schema.recordings)
-      .set({
-        chaptersJson: JSON.stringify(chapters),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(schema.recordings.id, args.recordingId));
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-    console.log(`Set ${chapters.length} chapter(s) on ${args.recordingId}`);
-    return { id: args.recordingId, chapters };
+    return saveChapters({
+      recordingId: args.recordingId,
+      chapters: parseList(
+        args.chapters,
+        "chapters",
+        ChapterSchema,
+        "invalid_chapters",
+      ),
+      expectedChapters:
+        args.expectedChapters === undefined
+          ? null
+          : parseList(
+              args.expectedChapters,
+              "expectedChapters",
+              StoredChapterSchema,
+              "invalid_chapters",
+            ),
+      expectedVersion: args.expectedVersion ?? null,
+      discardUnreadable: args.discardUnreadable ?? false,
+      expectedCuts:
+        args.expectedCuts === undefined
+          ? null
+          : parseList(
+              args.expectedCuts,
+              "expectedCuts",
+              CutRangeSchema,
+              "invalid_cuts",
+            ),
+    });
   },
 });

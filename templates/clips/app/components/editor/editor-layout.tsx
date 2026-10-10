@@ -8,6 +8,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
+import { parseStoredChapters } from "@shared/stored-chapters";
 import {
   IconArrowLeft,
   IconCheck,
@@ -378,14 +379,13 @@ export function EditorLayout({
     () => parseEdits(recording?.editsJson),
     [recording?.editsJson],
   );
-  const chapters: Array<{ startMs: number; title: string }> = useMemo(() => {
-    if (Array.isArray(playerData?.chapters)) return playerData.chapters;
-    try {
-      return recording?.chaptersJson ? JSON.parse(recording.chaptersJson) : [];
-    } catch {
-      return [];
-    }
-  }, [playerData?.chapters, recording?.chaptersJson]);
+  const chapters: Array<{ startMs: number; title: string }> = useMemo(
+    () =>
+      Array.isArray(playerData?.chapters)
+        ? playerData.chapters
+        : parseStoredChapters(recording?.chaptersJson),
+    [playerData?.chapters, recording?.chaptersJson],
+  );
 
   const savedEdits: EditsJson = useMemo(() => {
     const next = pendingTrims ? { ...edits, trims: pendingTrims } : edits;
@@ -1899,6 +1899,8 @@ export function EditorLayout({
         {chaptersOpen ? (
           <div className="flex min-h-0 min-w-0 flex-col border-l border-border">
             <ChaptersEditor
+              // Its unsaved edit and stored list belong to one recording.
+              key={recordingId}
               recordingId={recordingId}
               chapters={chapters}
               currentMs={playheadMs}

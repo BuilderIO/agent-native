@@ -1592,16 +1592,32 @@ const messages = {
     placeholder: "Clip title (ローカライズ済み)",
     editLabel: "Edit clip title (ローカライズ済み)",
   },
+  chapterList: {
+    add: "チャプターを追加",
+    editLabel: "チャプターを編集",
+    placeholder: "0:00 はじめに\n1:30 次のセクション",
+    errorLineShape:
+      "{{line}} 行目: 時間の後にタイトルを入力してください（例: 「0:48 メモの日付を保存」）。",
+    errorBadTime:
+      "{{line}} 行目: 「{{value}}」は 0:48 のような時間ではありません。",
+    errorDuplicate: "{{line}} 行目: {{value}} にはすでにチャプターがあります。",
+    errorPastEnd: "{{line}} 行目: {{value}} はクリップの終わりより後です。",
+    changedWhileEditing:
+      "編集中にチャプターが変更されました。行を確認してから、もう一度保存すると置き換わります。",
+  },
   chapters: {
-    title: "Chapters (ローカライズ済み)",
-    addHere: "Add here (ローカライズ済み)",
-    empty: "No chapters yet. (ローカライズ済み)",
-    remove: "Remove chapter (ローカライズ済み)",
-    saveFailed: "Failed to save chapters (ローカライズ済み)",
-    duplicateAtPoint:
-      "A chapter already exists at this point (ローカライズ済み)",
-    defaultTitle: "Chapter {{count}} (ローカライズ済み)",
-    seekTo: "Seek to {{time}} (ローカライズ済み)",
+    title: "チャプター",
+    addHere: "ここに追加",
+    empty: "チャプターはまだありません。",
+    remove: "チャプターを削除",
+    saveFailed: "チャプターを保存できませんでした",
+    changedElsewhere:
+      "チャプターが別の場所で変更されたため、最後の変更は保存されませんでした。",
+    unreadable:
+      "保存済みのチャプターの一部を読み取れないため、ここでは変更を保存できません。エージェントにチャプターの置き換えを依頼してください。",
+    duplicateAtPoint: "この位置にはすでにチャプターがあります",
+    defaultTitle: "チャプター {{count}}",
+    seekTo: "{{time}} に移動",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (ローカライズ済み)",

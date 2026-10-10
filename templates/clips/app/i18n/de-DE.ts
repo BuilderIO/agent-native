@@ -1618,15 +1618,32 @@ const messages = {
     placeholder: "Clip title (Lokalisiert)",
     editLabel: "Edit clip title (Lokalisiert)",
   },
+  chapterList: {
+    add: "Kapitel hinzufügen",
+    editLabel: "Kapitel bearbeiten",
+    placeholder: "0:00 Einführung\n1:30 Nächster Abschnitt",
+    errorLineShape:
+      "Zeile {{line}}: zuerst eine Zeit, dann ein Titel, z. B. „0:48 Notizdaten gespeichert“.",
+    errorBadTime: "Zeile {{line}}: „{{value}}“ ist keine Zeit wie 0:48.",
+    errorDuplicate:
+      "Zeile {{line}}: Bei {{value}} gibt es bereits ein Kapitel.",
+    errorPastEnd: "Zeile {{line}}: {{value}} liegt nach dem Ende des Clips.",
+    changedWhileEditing:
+      "Die Kapitel wurden geändert, während du sie bearbeitet hast. Prüfe deine Zeilen und speichere erneut, um sie zu ersetzen.",
+  },
   chapters: {
-    title: "Chapters (Lokalisiert)",
-    addHere: "Add here (Lokalisiert)",
-    empty: "No chapters yet. (Lokalisiert)",
-    remove: "Remove chapter (Lokalisiert)",
-    saveFailed: "Failed to save chapters (Lokalisiert)",
-    duplicateAtPoint: "A chapter already exists at this point (Lokalisiert)",
-    defaultTitle: "Chapter {{count}} (Lokalisiert)",
-    seekTo: "Seek to {{time}} (Lokalisiert)",
+    title: "Kapitel",
+    addHere: "Hier hinzufügen",
+    empty: "Noch keine Kapitel.",
+    remove: "Kapitel entfernen",
+    saveFailed: "Kapitel konnten nicht gespeichert werden",
+    changedElsewhere:
+      "Die Kapitel wurden an anderer Stelle geändert, daher wurde deine letzte Änderung nicht gespeichert.",
+    unreadable:
+      "Einige gespeicherte Kapitel können nicht gelesen werden, daher lassen sich Änderungen hier nicht speichern. Bitte den Agenten, die Kapitel zu ersetzen.",
+    duplicateAtPoint: "An dieser Stelle gibt es bereits ein Kapitel",
+    defaultTitle: "Kapitel {{count}}",
+    seekTo: "Zu {{time}} springen",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (Lokalisiert)",

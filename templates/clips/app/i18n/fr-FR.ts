@@ -1618,15 +1618,32 @@ const messages = {
     placeholder: "Clip title (Localisé)",
     editLabel: "Edit clip title (Localisé)",
   },
+  chapterList: {
+    add: "Ajouter des chapitres",
+    editLabel: "Modifier les chapitres",
+    placeholder: "0:00 Introduction\n1:30 Section suivante",
+    errorLineShape:
+      "Ligne {{line}} : indiquez un temps puis un titre, par ex. « 0:48 Dates des notes enregistrées ».",
+    errorBadTime:
+      "Ligne {{line}} : « {{value}} » n'est pas un temps comme 0:48.",
+    errorDuplicate: "Ligne {{line}} : il y a déjà un chapitre à {{value}}.",
+    errorPastEnd: "Ligne {{line}} : {{value}} se situe après la fin du clip.",
+    changedWhileEditing:
+      "Les chapitres ont changé pendant votre modification. Vérifiez vos lignes, puis enregistrez à nouveau pour les remplacer.",
+  },
   chapters: {
-    title: "Chapters (Localisé)",
-    addHere: "Add here (Localisé)",
-    empty: "No chapters yet. (Localisé)",
-    remove: "Remove chapter (Localisé)",
-    saveFailed: "Failed to save chapters (Localisé)",
-    duplicateAtPoint: "A chapter already exists at this point (Localisé)",
-    defaultTitle: "Chapter {{count}} (Localisé)",
-    seekTo: "Seek to {{time}} (Localisé)",
+    title: "Chapitres",
+    addHere: "Ajouter ici",
+    empty: "Aucun chapitre pour l'instant.",
+    remove: "Supprimer le chapitre",
+    saveFailed: "Impossible d'enregistrer les chapitres",
+    changedElsewhere:
+      "Les chapitres ont été modifiés ailleurs : votre dernière modification n'a pas été enregistrée.",
+    unreadable:
+      "Certains chapitres enregistrés sont illisibles : les modifications ne peuvent pas être enregistrées ici. Demandez à l'agent de remplacer les chapitres.",
+    duplicateAtPoint: "Un chapitre existe déjà à cet endroit",
+    defaultTitle: "Chapitre {{count}}",
+    seekTo: "Aller à {{time}}",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (Localisé)",

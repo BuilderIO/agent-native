@@ -235,11 +235,6 @@ templates/clips/app/i18n/es-ES|captureInstall.description|Use Chrome when you ne
 templates/clips/app/i18n/es-ES|captureInstall.desktopTitle|Desktop app
 templates/clips/app/i18n/es-ES|captureInstall.openDesktopApp|Open desktop app
 templates/clips/app/i18n/es-ES|captureInstall.title|Choose your recorder
-templates/clips/app/i18n/es-ES|chapters.addHere|Add here
-templates/clips/app/i18n/es-ES|chapters.duplicateAtPoint|A chapter already exists at this point
-templates/clips/app/i18n/es-ES|chapters.empty|No chapters yet.
-templates/clips/app/i18n/es-ES|chapters.remove|Remove chapter
-templates/clips/app/i18n/es-ES|chapters.saveFailed|Failed to save chapters
 templates/clips/app/i18n/es-ES|dictateRoute.browserDictationDescriptionDesktop|Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.
 templates/clips/app/i18n/es-ES|dictateRoute.browserDictation|Browser dictation
 templates/clips/app/i18n/es-ES|dictateRoute.browserUnavailableShort|Browser speech recognition is unavailable here
@@ -410,11 +405,6 @@ templates/clips/app/i18n/pt-BR|captureInstall.description|Use Chrome when you ne
 templates/clips/app/i18n/pt-BR|captureInstall.desktopTitle|Desktop app
 templates/clips/app/i18n/pt-BR|captureInstall.openDesktopApp|Open desktop app
 templates/clips/app/i18n/pt-BR|captureInstall.title|Choose your recorder
-templates/clips/app/i18n/pt-BR|chapters.addHere|Add here
-templates/clips/app/i18n/pt-BR|chapters.duplicateAtPoint|A chapter already exists at this point
-templates/clips/app/i18n/pt-BR|chapters.empty|No chapters yet.
-templates/clips/app/i18n/pt-BR|chapters.remove|Remove chapter
-templates/clips/app/i18n/pt-BR|chapters.saveFailed|Failed to save chapters
 templates/clips/app/i18n/pt-BR|dictateRoute.browserDictationDescriptionDesktop|Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.
 templates/clips/app/i18n/pt-BR|dictateRoute.browserDictation|Browser dictation
 templates/clips/app/i18n/pt-BR|dictateRoute.browserUnavailableShort|Browser speech recognition is unavailable here

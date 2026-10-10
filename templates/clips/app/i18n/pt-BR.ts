@@ -1605,15 +1605,31 @@ const messages = {
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },
+  chapterList: {
+    add: "Adicionar capítulos",
+    editLabel: "Editar capítulos",
+    placeholder: "0:00 Introdução\n1:30 Próxima seção",
+    errorLineShape:
+      'Linha {{line}}: coloque um tempo e depois um título, ex.: "0:48 Datas das notas salvas".',
+    errorBadTime: 'Linha {{line}}: "{{value}}" não é um tempo como 0:48.',
+    errorDuplicate: "Linha {{line}}: já existe um capítulo em {{value}}.",
+    errorPastEnd: "Linha {{line}}: {{value}} fica depois do fim do clipe.",
+    changedWhileEditing:
+      "Os capítulos mudaram enquanto você editava. Confira suas linhas e salve de novo para substituí-los.",
+  },
   chapters: {
-    title: "Chapters",
-    addHere: "Add here",
-    empty: "No chapters yet.",
-    remove: "Remove chapter",
-    saveFailed: "Failed to save chapters",
-    duplicateAtPoint: "A chapter already exists at this point",
-    defaultTitle: "Chapter {{count}}",
-    seekTo: "Seek to {{time}}",
+    title: "Capítulos",
+    addHere: "Adicionar aqui",
+    empty: "Ainda não há capítulos.",
+    remove: "Remover capítulo",
+    saveFailed: "Não foi possível salvar os capítulos",
+    changedElsewhere:
+      "Os capítulos foram alterados em outro lugar, então sua última alteração não foi salva.",
+    unreadable:
+      "Alguns capítulos salvos não podem ser lidos, então as alterações não podem ser salvas aqui. Peça ao agente para substituir os capítulos.",
+    duplicateAtPoint: "Já existe um capítulo neste ponto",
+    defaultTitle: "Capítulo {{count}}",
+    seekTo: "Ir para {{time}}",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z)",

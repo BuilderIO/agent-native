@@ -1506,12 +1506,28 @@ const messages = {
     placeholder: "Clip title",
     editLabel: "Edit clip title",
   },
+  chapterList: {
+    add: "Add chapters",
+    editLabel: "Edit chapters",
+    placeholder: "0:00 Introduction\n1:30 Next section",
+    errorLineShape:
+      'Line {{line}}: put a time then a title, e.g. "0:48 Saved note dates".',
+    errorBadTime: 'Line {{line}}: "{{value}}" isn\'t a time like 0:48.',
+    errorDuplicate: "Line {{line}}: there's already a chapter at {{value}}.",
+    errorPastEnd: "Line {{line}}: {{value}} is past the end of the clip.",
+    changedWhileEditing:
+      "Chapters changed while you were editing. Check your lines, then Save again to replace them.",
+  },
   chapters: {
     title: "Chapters",
     addHere: "Add here",
     empty: "No chapters yet.",
     remove: "Remove chapter",
     saveFailed: "Failed to save chapters",
+    changedElsewhere:
+      "Chapters were changed elsewhere, so your last change wasn't saved.",
+    unreadable:
+      "Some saved chapters can't be read, so changes can't be saved here. Ask the agent to replace the chapters.",
     duplicateAtPoint: "A chapter already exists at this point",
     defaultTitle: "Chapter {{count}}",
     seekTo: "Seek to {{time}}",
