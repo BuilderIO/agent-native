@@ -4,6 +4,7 @@ const testState = vi.hoisted(() => ({
   resolveAccess: vi.fn(),
   assertAccess: vi.fn(),
   nanoidValues: ["copied-design", "copied-file"],
+  templateData: null as string | null,
   insertedDesign: null as Record<string, unknown> | null,
   insertedFiles: [] as Array<Record<string, unknown>>,
   updatedDesign: null as Record<string, unknown> | null,
@@ -126,6 +127,7 @@ describe("create-design-from-template", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     testState.nanoidValues = ["copied-design", "copied-file"];
+    testState.templateData = null;
     testState.insertedDesign = null;
     testState.insertedFiles = [];
     testState.updatedDesign = null;
@@ -145,16 +147,18 @@ describe("create-design-from-template", () => {
               category: "social",
               designSystemId: "linked-system",
               updatedAt: "2026-07-14T00:00:00.000Z",
-              data: JSON.stringify({
-                canvasFrames: {
-                  "template-file": {
-                    x: 10,
-                    y: 20,
-                    width: 1080,
-                    height: 1080,
+              data:
+                testState.templateData ??
+                JSON.stringify({
+                  canvasFrames: {
+                    "template-file": {
+                      x: 10,
+                      y: 20,
+                      width: 1080,
+                      height: 1080,
+                    },
                   },
-                },
-              }),
+                }),
             },
           };
         }
@@ -214,6 +218,142 @@ describe("create-design-from-template", () => {
       'data-agent-native-locked="true"',
     );
   });
+
+  it.each([
+    { mode: "creating a design", targetDesignId: undefined },
+    { mode: "filling an empty design", targetDesignId: "existing-design" },
+  ])(
+    "removes legacy localhost bindings when $mode",
+    async ({ targetDesignId }) => {
+      testState.templateData = JSON.stringify({
+        sourceType: "dev-server",
+        sourceMode: "localhost",
+        connectionId: "foreign-root-connection",
+        bridgeUrl: "http://127.0.0.1:7331",
+        bridgeToken: "foreign-root-bridge-token",
+        previewToken: "foreign-root-preview-token",
+        localhostScreens: {
+          "template-file": {
+            connectionId: "foreign-screen-connection",
+            bridgeUrl: "http://127.0.0.1:7331",
+          },
+        },
+        url: "http://127.0.0.1:3000/",
+        previewUrl: "http://127.0.0.1:3000/preview",
+        canvasFrames: {
+          "template-file": { x: 10, y: 20, width: 1080, height: 1080 },
+        },
+        screenMetadata: {
+          "template-file": {
+            sourceType: "local-file",
+            connectionId: "foreign-screen-connection",
+            bridgeUrl: "http://127.0.0.1:7331",
+            bridgeToken: "foreign-screen-bridge-token",
+            previewToken: "foreign-screen-preview-token",
+            url: "http://127.0.0.1:3000/route",
+            previewUrl: "http://127.0.0.1:3000/preview",
+            title: "Live home screen",
+            width: 1080,
+            height: 720,
+            nested: {
+              connectionId: "nested-foreign-connection",
+              bridgeUrl: "http://127.0.0.1:7331",
+            },
+          },
+          "static-file": {
+            sourceType: "inline",
+            url: "https://example.com/static-preview.png",
+            previewUrl: "https://example.com/preview",
+            title: "Static screen",
+          },
+          "legacy-local-source-file": {
+            source: "localhost",
+            url: "http://127.0.0.1:3000/legacy-route",
+            previewUrl: "http://127.0.0.1:3000/legacy-preview",
+            title: "Legacy local screen",
+          },
+        },
+      });
+
+      if (targetDesignId) {
+        testState.targetDesignRows = [
+          {
+            data: JSON.stringify({
+              boardFileId: "existing-board",
+              editorPreference: "preserve-me",
+            }),
+          },
+        ];
+      }
+
+      await action.run({ templateId: "saved-template", targetDesignId });
+
+      const copiedData = JSON.parse(
+        String(
+          targetDesignId
+            ? testState.updatedDesign?.data
+            : testState.insertedDesign?.data,
+        ),
+      ) as Record<string, unknown>;
+      if (targetDesignId) {
+        expect(testState.assertAccess).toHaveBeenCalledWith(
+          "design",
+          "existing-design",
+          "editor",
+        );
+        expect(copiedData).toMatchObject({
+          boardFileId: "existing-board",
+          editorPreference: "preserve-me",
+        });
+      }
+      expect(copiedData).toMatchObject({
+        sourceType: "inline",
+        sourceMode: "inline",
+      });
+      expect(copiedData).not.toHaveProperty("connectionId");
+      expect(copiedData).not.toHaveProperty("localhostScreens");
+      expect(copiedData).not.toHaveProperty("bridgeUrl");
+      expect(copiedData).not.toHaveProperty("bridgeToken");
+      expect(copiedData).not.toHaveProperty("previewToken");
+      expect(copiedData).not.toHaveProperty("url");
+      expect(copiedData).not.toHaveProperty("previewUrl");
+
+      const copiedMetadata = copiedData.screenMetadata as Record<
+        string,
+        Record<string, unknown>
+      >;
+      const copiedFileId = targetDesignId ? "copied-design" : "copied-file";
+      expect(copiedMetadata[copiedFileId]).toMatchObject({
+        sourceType: "inline",
+        title: "Live home screen",
+        width: 1080,
+        height: 720,
+        nested: {},
+      });
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("connectionId");
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("bridgeUrl");
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("bridgeToken");
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("previewToken");
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("url");
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("previewUrl");
+      expect(copiedMetadata["static-file"]).toMatchObject({
+        sourceType: "inline",
+        url: "https://example.com/static-preview.png",
+        previewUrl: "https://example.com/preview",
+        title: "Static screen",
+      });
+      expect(copiedMetadata["legacy-local-source-file"]).toMatchObject({
+        source: "inline",
+        title: "Legacy local screen",
+      });
+      expect(copiedMetadata["legacy-local-source-file"]).not.toHaveProperty(
+        "url",
+      );
+      expect(copiedMetadata["legacy-local-source-file"]).not.toHaveProperty(
+        "previewUrl",
+      );
+    },
+  );
 
   it("requests adaptation only when an explicit prompt is supplied", async () => {
     const result = await action.run({

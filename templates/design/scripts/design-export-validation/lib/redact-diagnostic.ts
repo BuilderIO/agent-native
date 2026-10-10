@@ -1,8 +1,8 @@
 const URL_PATTERN = /https?:\/\/[^\s)"'<>]+/gi;
 const ASSIGNMENT_PREFIX_PATTERN =
-  /((?:\\["']|["'])?)([A-Za-z_$][A-Za-z0-9_$.-]*(?:[ _-]+[A-Za-z0-9_$.-]+)*)\1(\s*[:=]\s*)/gi;
+  /((?:\\+["']|["'])?)([A-Za-z_$][A-Za-z0-9_$.-]*(?:[ _-]+[A-Za-z0-9_$.-]+)*)\1(\s*[:=]\s*)/gi;
 const ASSIGNMENT_VALUE_PATTERN =
-  /^(?:(\\"|")((?:\\.|[^"\\])*)(\1)|(\\'|')((?:\\.|[^'\\])*)(\4)|((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/i;
+  /^(?:((?:\\+"|"))((?:\\.|[^"\\])*?)(\1)|((?:\\+'|'))((?:\\.|[^'\\])*?)(\4)|((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/i;
 const MAX_NESTED_ASSIGNMENT_DEPTH = 8;
 
 function isSensitiveAssignmentKey(key: string): boolean {
@@ -99,11 +99,7 @@ function redactAssignments(value: string, depth = 0): string {
     result += value.slice(cursor, assignment.index) + assignment.prefix;
 
     const rawValue = value.slice(assignment.end);
-    const startsQuotedValue =
-      rawValue.startsWith('"') ||
-      rawValue.startsWith("'") ||
-      rawValue.startsWith('\\"') ||
-      rawValue.startsWith("\\'");
+    const startsQuotedValue = /^(?:\\+["']|["'])/.test(rawValue);
     const startsStructuredValue = /^\s*[{[]/.test(rawValue);
     if (isSensitive && startsStructuredValue) {
       result += "[redacted]";

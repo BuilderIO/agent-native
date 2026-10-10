@@ -127,6 +127,43 @@ describe("redactExportDiagnostic nested credential regressions", () => {
     ).toBe(String.raw`config="{\"password\":\"[redacted]\"}"`);
   });
 
+  it("redacts credential keys nested through two JSON escape layers", () => {
+    const nestedCredential = String.raw`config="{\\\"password\\\":\\\"FAKE_SECRET\\\"}"`;
+    expect(redactExportDiagnostic(nestedCredential)).toBe(
+      String.raw`config="{\\\"password\\\":\\\"[redacted]\\\"}"`,
+    );
+
+    const nestedWithHarmlessField = String.raw`config="{\\\"password\\\":\\\"FAKE_SECRET\\\",\\\"title\\\":\\\"Welcome\\\"}"`;
+    expect(redactExportDiagnostic(nestedWithHarmlessField)).toBe(
+      String.raw`config="{\\\"password\\\":\\\"[redacted]\\\",\\\"title\\\":\\\"Welcome\\\"}"`,
+    );
+  });
+
+  it("redacts credentials through four JSON.stringify layers and preserves ordinary properties", () => {
+    const credentialObject = {
+      password: "FAKE_SECRET",
+      keyboard: "music",
+      userId: "demo-user",
+    };
+    const redactedObject = {
+      ...credentialObject,
+      password: "[redacted]",
+    };
+    let encodedCredential = JSON.stringify(credentialObject);
+    let encodedRedacted = JSON.stringify(redactedObject);
+
+    for (let layer = 1; layer <= 4; layer += 1) {
+      if (layer > 1) {
+        encodedCredential = JSON.stringify(encodedCredential);
+        encodedRedacted = JSON.stringify(encodedRedacted);
+      }
+
+      expect(redactExportDiagnostic(`config=${encodedCredential}`)).toBe(
+        `config=${encodedRedacted}`,
+      );
+    }
+  });
+
   it("redacts signing and encryption key spellings while preserving ordinary keys", () => {
     expect(
       redactExportDiagnostic(
@@ -158,6 +195,9 @@ describe("redactExportDiagnostic truncated values", () => {
       "password=[redacted]",
     );
     expect(redactExportDiagnostic(String.raw`password=\"FAKE_PASSWORD`)).toBe(
+      "password=[redacted]",
+    );
+    expect(redactExportDiagnostic(String.raw`password=\\\"FAKE_PASSWORD`)).toBe(
       "password=[redacted]",
     );
     expect(

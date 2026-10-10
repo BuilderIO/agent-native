@@ -47,9 +47,23 @@ describe("design template data", () => {
     });
   });
 
-  it("redacts localhost credentials before template persistence or reuse", () => {
+  it("strips local bindings before template persistence or reuse", () => {
     const redacted = redactTemplateDesignData(
       JSON.stringify({
+        sourceType: "localhost",
+        sourceMode: "localhost",
+        connectionId: "root-connection",
+        bridgeUrl: "http://127.0.0.1:7331",
+        bridgeToken: "example-private-root-bridge-token",
+        previewToken: "example-private-root-preview-token",
+        localhostScreens: {
+          screen: {
+            connectionId: "legacy-connection",
+            bridgeUrl: "http://127.0.0.1:7331",
+          },
+        },
+        url: "http://127.0.0.1:3000/",
+        previewUrl: "http://127.0.0.1:3000/preview",
         screenMetadata: {
           screen: {
             sourceType: "localhost",
@@ -57,16 +71,75 @@ describe("design template data", () => {
             bridgeUrl: "http://127.0.0.1:7331",
             bridgeToken: "example-private-bridge-token",
             previewToken: "example-private-preview-token",
-            nested: { bridgeToken: "example-nested-token" },
+            url: "http://127.0.0.1:3000/route",
+            previewUrl: "http://127.0.0.1:3000/preview",
+            title: "Live home screen",
+            width: 1080,
+            height: 720,
+            nested: {
+              connectionId: "nested-connection",
+              bridgeUrl: "http://127.0.0.1:7331",
+              bridgeToken: "example-nested-token",
+            },
+          },
+          staticScreen: {
+            sourceType: "inline",
+            url: "https://example.com/static-preview.png",
+            previewUrl: "https://example.com/preview",
+            title: "Static screen",
+            width: 320,
+          },
+          legacyLocalSourceScreen: {
+            source: "local",
+            url: "http://127.0.0.1:3000/legacy-route",
+            previewUrl: "http://127.0.0.1:3000/legacy-preview",
+            title: "Legacy local screen",
           },
         },
       }),
     );
 
-    expect(redacted).toContain("connection-example");
-    expect(redacted).toContain("bridgeUrl");
-    expect(redacted).not.toContain("bridgeToken");
-    expect(redacted).not.toContain("previewToken");
-    expect(redacted).not.toContain("example-private");
+    const data = JSON.parse(redacted) as Record<string, unknown>;
+    expect(data).toMatchObject({ sourceType: "inline", sourceMode: "inline" });
+    expect(data).not.toHaveProperty("connectionId");
+    expect(data).not.toHaveProperty("localhostScreens");
+    expect(data).not.toHaveProperty("bridgeUrl");
+    expect(data).not.toHaveProperty("bridgeToken");
+    expect(data).not.toHaveProperty("previewToken");
+    expect(data).not.toHaveProperty("url");
+    expect(data).not.toHaveProperty("previewUrl");
+
+    const screenMetadata = data.screenMetadata as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(screenMetadata.screen).toMatchObject({
+      sourceType: "inline",
+      title: "Live home screen",
+      width: 1080,
+      height: 720,
+      nested: {},
+    });
+    expect(screenMetadata.screen).not.toHaveProperty("connectionId");
+    expect(screenMetadata.screen).not.toHaveProperty("bridgeUrl");
+    expect(screenMetadata.screen).not.toHaveProperty("bridgeToken");
+    expect(screenMetadata.screen).not.toHaveProperty("previewToken");
+    expect(screenMetadata.screen).not.toHaveProperty("url");
+    expect(screenMetadata.screen).not.toHaveProperty("previewUrl");
+    expect(screenMetadata.staticScreen).toMatchObject({
+      sourceType: "inline",
+      url: "https://example.com/static-preview.png",
+      previewUrl: "https://example.com/preview",
+      title: "Static screen",
+      width: 320,
+    });
+    expect(screenMetadata.legacyLocalSourceScreen).toMatchObject({
+      source: "inline",
+      title: "Legacy local screen",
+    });
+    expect(screenMetadata.legacyLocalSourceScreen).not.toHaveProperty("url");
+    expect(screenMetadata.legacyLocalSourceScreen).not.toHaveProperty(
+      "previewUrl",
+    );
   });
 });
