@@ -169,6 +169,10 @@ test("Signup agent workflow requires explicit legacy fallback eligibility", () =
     workflow,
     /if \[ -z "\$legacy_name" \]; then\s+report_unknown_continuity "Previous Signup agent continuity is unknown because the explicitly allowed legacy report artifact was not found\.[^"]*"\s+fi/,
   );
+  assert.match(
+    workflow,
+    /if \[ -z "\$findings_file" \]; then\s+report_unknown_continuity "Previous Signup agent continuity is unknown because the legacy report artifact did not contain findings\.md\.[^"]*"\s+fi/,
+  );
   const restoreUnknownMarker =
     'if [ "$(jq -r \'.outcome // ""\' "$previous_state")" = "unknown" ]; then touch "$unknown_state_file"; fi';
   assert.equal(workflow.split(restoreUnknownMarker).length - 1, 2);
