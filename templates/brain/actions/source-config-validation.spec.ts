@@ -157,11 +157,15 @@ describe("create-source config validation", () => {
     expect(mocks.createSource).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses a Zoom meeting filter entry that is not an ID or title", async () => {
+  it("refuses a Zoom source without approved meeting series IDs", async () => {
     for (const zoom of [
+      {},
+      { meetingIds: [] },
       { meetingIds: ["GTM Weekly Sync"] },
       { meetingIds: ["123"] },
-      { meetingTopics: ["   "] },
+      { meetingTopics: ["Marketing Standup"] },
+      { meetingIds: ["123 4567 8901"], meetingTopics: ["Marketing Standup"] },
+      { lookbackDays: 7 },
     ]) {
       await expect(
         createSource.run({
@@ -192,17 +196,14 @@ describe("create-source config validation", () => {
     );
   });
 
-  it("creates a Zoom source filtered to meeting IDs and titles", async () => {
+  it("creates a Zoom source limited to approved meeting series", async () => {
     await expect(
       createSource.run({
         title: "Zoom meetings",
         provider: "zoom",
         visibility: "org",
         config: {
-          zoom: {
-            meetingIds: ["123 4567 8901", 98765432101],
-            meetingTopics: ["Marketing Standup"],
-          },
+          zoom: { meetingIds: ["123 4567 8901", 98765432101] },
         },
       }),
     ).resolves.toMatchObject({ source: { id: "source-1" } });
@@ -243,7 +244,7 @@ describe("update-source config validation", () => {
     mocks.assertAccess.mockResolvedValue({
       resource: { id: "source-1", provider: "zoom", configJson: "{}" },
     });
-    const zoom = { lookbackDays: 7, meetingTopics: ["Marketing Standup"] };
+    const zoom = { lookbackDays: 7, meetingIds: ["123 4567 8901"] };
 
     await updateSource.run({
       id: "source-1",
@@ -262,6 +263,7 @@ describe("update-source config validation", () => {
 
     for (const configJson of [
       JSON.stringify({ zoom: { meetingIds: ["Weekly Sync"] } }),
+      JSON.stringify({ zoom: { lookbackDays: 14 } }),
       "not json",
       "[1]",
     ]) {

@@ -398,18 +398,15 @@ const messages = {
     initialUpdatedAfter: "初始更新後",
     granolaDescription:
       "Granola Enterprise API 會回傳 Team-space 筆記；私人筆記不在 API 範圍內。",
-    zoomMeetingIds: "會議 ID",
+    zoomMeetingIds: "已核准的週期性會議系列",
     zoomMeetingIdsDescription:
-      "每行一個 Zoom 會議 ID，依 Zoom 中顯示的格式填寫（可包含空格）。週期性會議的 ID 保持不變。",
-    zoomMeetingTopics: "會議標題",
-    zoomMeetingTopicsDescription:
-      "每行一個完整的會議標題。標題必須完全相符（不區分大小寫），因此盡量使用 ID。",
+      "必填。每行一個 Zoom 會議 ID，對應主持人已同意加入的週期性會議系列（可包含空格）。每次會議的 ID 保持不變。",
     zoomLookbackDays: "回溯天數",
     zoomIncludeSummaries: "匯入 AI Companion 摘要",
     invalidZoomMeetingIds:
       "無效的 Zoom 會議 ID：{{entries}}。請使用會議邀請中的號碼，例如 123 4567 8901。",
     zoomDescription:
-      "Brain 每小時匯入所列會議的雲端錄製逐字稿。若未列出會議，則匯入 Zoom 帳戶中所有雲端錄製的會議。變更清單會重新掃描回溯期間。",
+      "Brain 每小時僅從已核准的系列匯入逐字稿（開啟後也匯入摘要）。Zoom 帳戶中的其他會議絕不會被下載。變更清單會重新掃描回溯期間。",
     approvedRepositories: "核准的儲存庫",
     githubRepositoriesDescription:
       "Brain 使用工作區 GitHub 憑證從這些儲存庫匯入有界問題和 pull request 脈絡。",
