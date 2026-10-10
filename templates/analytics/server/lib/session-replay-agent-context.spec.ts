@@ -510,6 +510,47 @@ describe("session replay agent context links", () => {
     });
   });
 
+  it("marks aggregate timelines incomplete when replay chunks are unavailable", async () => {
+    const event = clickEvent(1_000);
+    const response = {
+      recording: makeRecording(),
+      chunks: [
+        {
+          seq: 0,
+          checksum: "abc",
+          byteLength: 1,
+          eventCount: 1,
+          events: [event],
+        },
+      ],
+      eventCount: 1,
+      truncated: false,
+      unavailableChunks: 1,
+    };
+    mockGetSessionReplayEvents.mockResolvedValueOnce(response);
+    mockGetSessionReplayTokenizedEvents.mockResolvedValueOnce(response);
+
+    const timeline = await getSessionReplayTimeline("sr_1", {
+      userEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    const context = await buildSessionReplayAgentContext({
+      recordingId: "sr_1",
+      token: "signed-token",
+    });
+
+    expect(timeline).toMatchObject({
+      eventsTruncated: false,
+      unavailableChunks: 1,
+      truncated: true,
+    });
+    expect(context.timeline).toMatchObject({
+      eventsTruncated: false,
+      unavailableChunks: 1,
+      truncated: true,
+    });
+  });
+
   it("bounds top-level diagnostics to 50 entries and points at the diagnostics API", async () => {
     const events: unknown[] = [];
     for (let i = 0; i < 60; i += 1) {

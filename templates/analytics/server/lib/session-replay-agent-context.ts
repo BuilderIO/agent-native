@@ -643,7 +643,10 @@ export async function getSessionReplayTimeline(
     markers: timeline.markers,
     eventCount: eventsResponse.eventCount,
     eventsTruncated: eventsResponse.truncated,
-    truncated: eventsResponse.truncated || timeline.markerTruncated,
+    truncated:
+      eventsResponse.truncated ||
+      eventsResponse.unavailableChunks > 0 ||
+      timeline.markerTruncated,
     unavailableChunks: eventsResponse.unavailableChunks,
   };
 }
@@ -823,7 +826,11 @@ export async function buildSessionReplayAgentContext({
       omittedMarkerCount: timeline.omittedMarkerCount,
       markers: timeline.markers,
       eventsTruncated: Boolean(eventsResponse?.truncated),
-      truncated: Boolean(eventsResponse?.truncated || timeline.markerTruncated),
+      truncated: Boolean(
+        eventsResponse?.truncated ||
+        (eventsResponse?.unavailableChunks ?? 0) > 0 ||
+        timeline.markerTruncated,
+      ),
       unavailableChunks: eventsResponse?.unavailableChunks ?? 0,
     },
   };
