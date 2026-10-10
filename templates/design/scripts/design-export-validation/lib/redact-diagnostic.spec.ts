@@ -49,4 +49,13 @@ describe("redactExportDiagnostic", () => {
       "password=\"[redacted]\" authorization='[redacted]' authorization=[redacted] passwordCount=3 title=Welcome",
     );
   });
+  it("consumes complete escaped and compound credential values", () => {
+    expect(
+      redactExportDiagnostic(
+        String.raw`client_secret="FAKE \"QUOTED\" VALUE" access_token=Bearer FAKE_TOKEN db_password='FAKE PASSWORD' adminPassword=FAKE_PASSWORD private_key="FAKE KEY" access_key=FAKE_KEY password="FAKE \"QUOTED\" PASSWORD" document_key=home passwordCount=3`,
+      ),
+    ).toBe(
+      `client_secret="[redacted]" access_token=[redacted] db_password='[redacted]' adminPassword=[redacted] private_key="[redacted]" access_key=[redacted] password="[redacted]" document_key=home passwordCount=3`,
+    );
+  });
 });

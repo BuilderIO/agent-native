@@ -1,8 +1,6 @@
 const URL_PATTERN = /https?:\/\/[^\s)"'<>]+/gi;
 const SENSITIVE_ASSIGNMENT_PATTERN =
-  /(^|[^\w$])(["']?)([A-Za-z_$][A-Za-z0-9_$.-]*(?:[ _-]+[A-Za-z0-9_$.-]+)*)\2(\s*[:=]\s*["']?)([^&\s"'<>),;}\]]+)/g;
-const CREDENTIAL_ASSIGNMENT_PATTERN =
-  /(^|[^\w$])(["']?)(password|authorization)\2(\s*[:=]\s*)(?:"([^"]*)"|'([^']*)'|((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/gi;
+  /(^|[^\w$])(["']?)([A-Za-z_$][A-Za-z0-9_$.-]*(?:[ _-]+[A-Za-z0-9_$.-]+)*)\2(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/gi;
 
 function isSensitiveAssignmentKey(key: string): boolean {
   const words = key
@@ -17,33 +15,16 @@ function isSensitiveAssignmentKey(key: string): boolean {
     lastWord === "token" ||
     lastWord === "secret" ||
     lastWord === "signature" ||
-    (lastWord === "key" && words[words.length - 2] === "api")
+    lastWord === "password" ||
+    lastWord === "authorization" ||
+    (lastWord === "key" &&
+      ["api", "private", "access"].includes(words[words.length - 2]))
   );
 }
 
 export function redactExportDiagnostic(value: string): string {
   return value
     .replace(URL_PATTERN, "[URL]")
-    .replace(
-      CREDENTIAL_ASSIGNMENT_PATTERN,
-      (
-        _match,
-        boundary: string,
-        keyQuote: string,
-        key: string,
-        separator: string,
-        doubleQuotedValue: string | undefined,
-        singleQuotedValue: string | undefined,
-      ) => {
-        const quote =
-          doubleQuotedValue !== undefined
-            ? '"'
-            : singleQuotedValue !== undefined
-              ? "'"
-              : "";
-        return `${boundary}${keyQuote}${key}${keyQuote}${separator}${quote}[redacted]${quote}`;
-      },
-    )
     .replace(
       SENSITIVE_ASSIGNMENT_PATTERN,
       (
@@ -52,9 +33,17 @@ export function redactExportDiagnostic(value: string): string {
         keyQuote: string,
         key: string,
         separator: string,
-      ) =>
-        isSensitiveAssignmentKey(key)
-          ? `${boundary}${keyQuote}${key}${keyQuote}${separator}[redacted]`
-          : match,
+        doubleQuotedValue: string | undefined,
+        singleQuotedValue: string | undefined,
+      ) => {
+        if (!isSensitiveAssignmentKey(key)) return match;
+        const quote =
+          doubleQuotedValue !== undefined
+            ? '"'
+            : singleQuotedValue !== undefined
+              ? "'"
+              : "";
+        return `${boundary}${keyQuote}${key}${keyQuote}${separator}${quote}[redacted]${quote}`;
+      },
     );
 }
