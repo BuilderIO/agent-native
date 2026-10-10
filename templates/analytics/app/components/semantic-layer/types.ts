@@ -22,6 +22,7 @@ export interface DictionaryEntry {
   knownGotchas?: string;
   exampleUseCase?: string;
   owner?: string;
+  status?: "active" | "deprecated";
   approved?: boolean;
   aiGenerated?: boolean;
   sourceUrl?: string;
@@ -42,8 +43,16 @@ export interface DictionaryEntry {
   sourceIndexSources?: string;
 }
 
+// Read state of the generated source index that list-data-dictionary merges in.
+export type SourceIndexStatus =
+  | "not-configured"
+  | "unavailable"
+  | "invalid"
+  | "available";
+
 // list-data-dictionary result page.
 export interface DictionaryPage {
   results: DictionaryEntry[];
   nextPage: string | null;
+  sourceIndexStatus: SourceIndexStatus;
 }

@@ -1,5 +1,6 @@
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { useOrgRole } from "@agent-native/core/client/org";
 import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import {
@@ -66,6 +67,9 @@ const INDEX_STATUS = {
 } as const;
 
 function entryStatus(entry: DictionaryEntry) {
+  if (entry.status === "deprecated") {
+    return { key: "dataDictionary.deprecated", className: "text-amber-500" };
+  }
   if (entry.approved) {
     return {
       key: "semanticLayer.statusApproved",
@@ -149,6 +153,9 @@ export default function SemanticLayer() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [target, setTarget] = useState<SheetTarget>({ kind: "index" });
   const { send } = useSendToAgentChat();
+  const { org, canManageOrg, isLoading: roleLoading } = useOrgRole();
+  // canManageOrg is false until the role loads; ignore it until then so admins never see a locked sheet first.
+  const definitionsReadOnly = !roleLoading && !!org?.orgId && !canManageOrg;
 
   useEffect(() => {
     const timeout = window.setTimeout(
@@ -183,6 +190,9 @@ export default function SemanticLayer() {
     placeholderData: keepPreviousData,
     staleTime: 10_000,
   });
+  const sourceIndexStatus = dictionary.data?.pages[0]?.sourceIndexStatus;
+  const sourceIndexMissing =
+    sourceIndexStatus === "unavailable" || sourceIndexStatus === "invalid";
   const overviewData = overview.data as BrainOverview | undefined;
   // Ranking can shift between page requests, so one entry may come back twice.
   const entries = [
@@ -387,6 +397,7 @@ export default function SemanticLayer() {
           variant="outline"
           size="sm"
           className="shrink-0 gap-1.5"
+          disabled={definitionsReadOnly}
           onClick={addDefinition}
         >
           <IconPlus className="size-4" aria-hidden="true" />
@@ -409,6 +420,11 @@ export default function SemanticLayer() {
         <h2 className="text-sm font-semibold text-foreground">
           {t("semanticLayer.definitionsSection")}
         </h2>
+        {sourceIndexMissing ? (
+          <p className="text-sm text-amber-700 dark:text-amber-400">
+            {t("dataDictionary.generatedEntriesMayBeMissing")}
+          </p>
+        ) : null}
         {definitionsContent}
       </section>
 
@@ -427,7 +443,11 @@ export default function SemanticLayer() {
             {target.kind === "index" ? (
               <IndexPanel />
             ) : (
-              <DefinitionPanel entry={target.entry} onDone={closeSheet} />
+              <DefinitionPanel
+                entry={target.entry}
+                onDone={closeSheet}
+                readOnly={definitionsReadOnly}
+              />
             )}
           </div>
         </SheetContent>

@@ -97,7 +97,7 @@ function draftFrom(entry: DictionaryEntry | null): DefinitionDraft {
     source: entry?.source ?? "",
     department: entry?.department ?? "",
     owner: entry?.owner ?? "",
-    approved: entry ? entry.approved === true : true,
+    approved: entry?.approved === true,
     aiGenerated: entry?.aiGenerated === true,
     sourceUrl: entry?.sourceUrl ?? "",
     table: entry?.table ?? "",
@@ -137,9 +137,11 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 export function DefinitionPanel({
   entry,
   onDone,
+  readOnly,
 }: {
   entry: DictionaryEntry | null;
   onDone: () => void;
+  readOnly: boolean;
 }) {
   const t = useT();
   const ids = useId();
@@ -203,7 +205,7 @@ export function DefinitionPanel({
   const optional = (value: string) => (entry || value ? value : undefined);
 
   const submit = async () => {
-    if (!canSave) return;
+    if (readOnly || !canSave) return;
     setError("");
     try {
       await save.mutateAsync({
@@ -227,8 +229,11 @@ export function DefinitionPanel({
         knownGotchas: optional(draft.knownGotchas.trim()),
         commonQuestions: optional(draft.commonQuestions.trim()),
         exampleUseCase: optional(draft.exampleUseCase.trim()),
-        approved: draft.approved,
-        aiGenerated: draft.aiGenerated,
+        status: entry?.status,
+        // Omit trust flags on a same-name save: draft values would overwrite the stored entry's approval.
+        ...(sameNameEntry
+          ? {}
+          : { approved: draft.approved, aiGenerated: draft.aiGenerated }),
       });
     } catch (err) {
       setError(actionErrorMessage(err) ?? t("dataDictionary.saveFailed"));
@@ -266,120 +271,136 @@ export function DefinitionPanel({
           void submit();
         }}
       >
-        <Field id={`${ids}-metric`} label={t("dataDictionary.metric")} required>
-          <Input
-            id={`${ids}-metric`}
-            value={draft.metric}
-            onChange={(e) => set("metric", e.target.value)}
-            placeholder={t("dataDictionary.metricPlaceholder")}
-          />
-          {sameNameEntry ? (
-            <p className="text-xs text-muted-foreground">
-              {t("dataDictionary.sameNameNote")}
-            </p>
-          ) : sameNameCheckFailed ? (
-            <p className="text-xs text-muted-foreground">
-              {t("dataDictionary.sameNameCheckFailed")}
-            </p>
-          ) : null}
-        </Field>
-
-        <Field
-          id={`${ids}-definition`}
-          label={t("dataDictionary.definition")}
-          required
-        >
-          <Textarea
-            id={`${ids}-definition`}
-            value={draft.definition}
-            onChange={(e) => set("definition", e.target.value)}
-            rows={3}
-            placeholder={t("dataDictionary.definitionPlaceholder")}
-          />
-        </Field>
-
-        <Field id={`${ids}-source`} label={t("dataDictionary.sourceLabel")}>
-          <Input
-            id={`${ids}-source`}
-            list={sourceListId}
-            value={draft.source}
-            onChange={(e) => set("source", e.target.value)}
-          />
-          <datalist id={sourceListId}>
-            {KNOWN_SOURCES.map((source) => (
-              <option key={source} value={source} />
-            ))}
-          </datalist>
-        </Field>
-
-        <div className="grid grid-cols-2 gap-4">
+        {/* Disabling the fieldset locks every control inside it. The optional-fields
+            trigger stays outside so non-admins can still read those fields. */}
+        <fieldset disabled={readOnly} className="space-y-4">
           <Field
-            id={`${ids}-department`}
-            label={t("dataDictionary.department")}
+            id={`${ids}-metric`}
+            label={t("dataDictionary.metric")}
+            required
           >
             <Input
-              id={`${ids}-department`}
-              value={draft.department}
-              onChange={(e) => set("department", e.target.value)}
-              placeholder={t("dataDictionary.departmentPlaceholder")}
+              id={`${ids}-metric`}
+              value={draft.metric}
+              onChange={(e) => set("metric", e.target.value)}
+              placeholder={t("dataDictionary.metricPlaceholder")}
+            />
+            {sameNameEntry ? (
+              <p className="text-xs text-muted-foreground">
+                {t("dataDictionary.sameNameNote")}
+              </p>
+            ) : sameNameCheckFailed ? (
+              <p className="text-xs text-muted-foreground">
+                {t("dataDictionary.sameNameCheckFailed")}
+              </p>
+            ) : null}
+          </Field>
+
+          <Field
+            id={`${ids}-definition`}
+            label={t("dataDictionary.definition")}
+            required
+          >
+            <Textarea
+              id={`${ids}-definition`}
+              value={draft.definition}
+              onChange={(e) => set("definition", e.target.value)}
+              rows={3}
+              placeholder={t("dataDictionary.definitionPlaceholder")}
             />
           </Field>
-          <Field id={`${ids}-owner`} label={t("dataDictionary.owner")}>
+
+          <Field id={`${ids}-source`} label={t("dataDictionary.sourceLabel")}>
             <Input
-              id={`${ids}-owner`}
-              value={draft.owner}
-              onChange={(e) => set("owner", e.target.value)}
-              placeholder={t("dataDictionary.ownerPlaceholder")}
+              id={`${ids}-source`}
+              list={sourceListId}
+              value={draft.source}
+              onChange={(e) => set("source", e.target.value)}
             />
+            <datalist id={sourceListId}>
+              {KNOWN_SOURCES.map((source) => (
+                <option key={source} value={source} />
+              ))}
+            </datalist>
           </Field>
-        </div>
 
-        <div className="grid gap-3 rounded-md bg-muted/30 p-3">
-          <SwitchRow
-            id={`${ids}-approved`}
-            title={t("dataDictionary.approvedTitle")}
-            description={t("dataDictionary.approvedDescription")}
-            checked={draft.approved}
-            onCheckedChange={(checked) => set("approved", checked)}
-          />
-          <SwitchRow
-            id={`${ids}-ai-generated`}
-            title={t("dataDictionary.aiGeneratedTitle")}
-            description={t("dataDictionary.aiGeneratedDescription")}
-            checked={draft.aiGenerated}
-            onCheckedChange={(checked) => set("aiGenerated", checked)}
-          />
-        </div>
-
-        <Field
-          id={`${ids}-source-url`}
-          label={t("dataDictionary.sourceUrlLabel")}
-        >
-          <Input
-            id={`${ids}-source-url`}
-            type="url"
-            inputMode="url"
-            value={draft.sourceUrl}
-            aria-invalid={sourceUrlInvalid || undefined}
-            onChange={(e) => set("sourceUrl", e.target.value)}
-          />
-          {sourceUrlInvalid ? (
-            <p className="text-xs text-destructive">
-              {t("dataDictionary.sourceUrlInvalid")}
-            </p>
-          ) : null}
-          {showSourceLink ? (
-            <a
-              href={sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex w-fit items-center gap-1 text-xs text-primary hover:underline"
+          <div className="grid grid-cols-2 gap-4">
+            <Field
+              id={`${ids}-department`}
+              label={t("dataDictionary.department")}
             >
-              <IconExternalLink className="h-3 w-3" />
-              {t("dataDictionary.openSource")}
-            </a>
-          ) : null}
-        </Field>
+              <Input
+                id={`${ids}-department`}
+                value={draft.department}
+                onChange={(e) => set("department", e.target.value)}
+                placeholder={t("dataDictionary.departmentPlaceholder")}
+              />
+            </Field>
+            <Field id={`${ids}-owner`} label={t("dataDictionary.owner")}>
+              <Input
+                id={`${ids}-owner`}
+                value={draft.owner}
+                onChange={(e) => set("owner", e.target.value)}
+                placeholder={t("dataDictionary.ownerPlaceholder")}
+              />
+            </Field>
+          </div>
+
+          <div className="grid gap-3 rounded-md bg-muted/30 p-3">
+            <SwitchRow
+              id={`${ids}-approved`}
+              title={t("dataDictionary.approvedTitle")}
+              description={t("dataDictionary.approvedDescription")}
+              checked={
+                sameNameEntry ? sameNameEntry.approved === true : draft.approved
+              }
+              disabled={!!sameNameEntry}
+              onCheckedChange={(checked) => set("approved", checked)}
+            />
+            <SwitchRow
+              id={`${ids}-ai-generated`}
+              title={t("dataDictionary.aiGeneratedTitle")}
+              description={t("dataDictionary.aiGeneratedDescription")}
+              checked={
+                sameNameEntry
+                  ? sameNameEntry.aiGenerated === true
+                  : draft.aiGenerated
+              }
+              disabled={!!sameNameEntry}
+              onCheckedChange={(checked) => set("aiGenerated", checked)}
+            />
+          </div>
+
+          <Field
+            id={`${ids}-source-url`}
+            label={t("dataDictionary.sourceUrlLabel")}
+          >
+            <Input
+              id={`${ids}-source-url`}
+              type="url"
+              inputMode="url"
+              value={draft.sourceUrl}
+              aria-invalid={sourceUrlInvalid || undefined}
+              onChange={(e) => set("sourceUrl", e.target.value)}
+            />
+            {sourceUrlInvalid ? (
+              <p className="text-xs text-destructive">
+                {t("dataDictionary.sourceUrlInvalid")}
+              </p>
+            ) : null}
+            {showSourceLink ? (
+              <a
+                href={sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex w-fit items-center gap-1 text-xs text-primary hover:underline"
+              >
+                <IconExternalLink className="h-3 w-3" />
+                {t("dataDictionary.openSource")}
+              </a>
+            ) : null}
+          </Field>
+        </fieldset>
 
         <Collapsible open={moreOpen} onOpenChange={setMoreOpen}>
           <CollapsibleTrigger asChild>
@@ -392,111 +413,122 @@ export function DefinitionPanel({
               {t("dataDictionary.moreFields")}
             </Button>
           </CollapsibleTrigger>
-          <CollapsibleContent className="grid gap-4 pt-4">
-            <Field id={`${ids}-table`} label={t("dataDictionary.sourceTables")}>
-              <Input
-                id={`${ids}-table`}
-                value={draft.table}
-                onChange={(e) => set("table", e.target.value)}
-                placeholder={t("dataDictionary.sourceTablesPlaceholder")}
-              />
-            </Field>
-
-            <Field
-              id={`${ids}-columns`}
-              label={t("dataDictionary.columnsUsed")}
-            >
-              <Input
-                id={`${ids}-columns`}
-                value={draft.columnsUsed}
-                onChange={(e) => set("columnsUsed", e.target.value)}
-                placeholder={t("dataDictionary.columnsUsedPlaceholder")}
-              />
-            </Field>
-
-            <Field id={`${ids}-cuts`} label={t("dataDictionary.standardCuts")}>
-              <Input
-                id={`${ids}-cuts`}
-                value={draft.cuts}
-                onChange={(e) => set("cuts", e.target.value)}
-                placeholder={t("dataDictionary.standardCutsPlaceholder")}
-              />
-            </Field>
-
-            <Field
-              id={`${ids}-query`}
-              label={t("dataDictionary.queryTemplate")}
-            >
-              <Textarea
-                id={`${ids}-query`}
-                value={draft.queryTemplate}
-                onChange={(e) => set("queryTemplate", e.target.value)}
-                rows={5}
-                className="font-mono text-xs"
-                placeholder={t("dataDictionary.queryTemplatePlaceholder")}
-              />
-            </Field>
-
-            <div className="grid grid-cols-2 gap-4">
+          <CollapsibleContent className="pt-4">
+            <fieldset disabled={readOnly} className="grid gap-4">
               <Field
-                id={`${ids}-update-frequency`}
-                label={t("dataDictionary.updateFrequency")}
+                id={`${ids}-table`}
+                label={t("dataDictionary.sourceTables")}
               >
                 <Input
-                  id={`${ids}-update-frequency`}
-                  value={draft.updateFrequency}
-                  onChange={(e) => set("updateFrequency", e.target.value)}
-                  placeholder={t("dataDictionary.updateFrequencyPlaceholder")}
+                  id={`${ids}-table`}
+                  value={draft.table}
+                  onChange={(e) => set("table", e.target.value)}
+                  placeholder={t("dataDictionary.sourceTablesPlaceholder")}
                 />
               </Field>
-              <Field id={`${ids}-data-lag`} label={t("dataDictionary.dataLag")}>
+
+              <Field
+                id={`${ids}-columns`}
+                label={t("dataDictionary.columnsUsed")}
+              >
                 <Input
-                  id={`${ids}-data-lag`}
-                  value={draft.dataLag}
-                  onChange={(e) => set("dataLag", e.target.value)}
-                  placeholder={t("dataDictionary.dataLagPlaceholder")}
+                  id={`${ids}-columns`}
+                  value={draft.columnsUsed}
+                  onChange={(e) => set("columnsUsed", e.target.value)}
+                  placeholder={t("dataDictionary.columnsUsedPlaceholder")}
                 />
               </Field>
-            </div>
 
-            <Field
-              id={`${ids}-gotchas`}
-              label={t("dataDictionary.knownGotchas")}
-            >
-              <Textarea
+              <Field
+                id={`${ids}-cuts`}
+                label={t("dataDictionary.standardCuts")}
+              >
+                <Input
+                  id={`${ids}-cuts`}
+                  value={draft.cuts}
+                  onChange={(e) => set("cuts", e.target.value)}
+                  placeholder={t("dataDictionary.standardCutsPlaceholder")}
+                />
+              </Field>
+
+              <Field
+                id={`${ids}-query`}
+                label={t("dataDictionary.queryTemplate")}
+              >
+                <Textarea
+                  id={`${ids}-query`}
+                  value={draft.queryTemplate}
+                  onChange={(e) => set("queryTemplate", e.target.value)}
+                  rows={5}
+                  className="font-mono text-xs"
+                  placeholder={t("dataDictionary.queryTemplatePlaceholder")}
+                />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Field
+                  id={`${ids}-update-frequency`}
+                  label={t("dataDictionary.updateFrequency")}
+                >
+                  <Input
+                    id={`${ids}-update-frequency`}
+                    value={draft.updateFrequency}
+                    onChange={(e) => set("updateFrequency", e.target.value)}
+                    placeholder={t("dataDictionary.updateFrequencyPlaceholder")}
+                  />
+                </Field>
+                <Field
+                  id={`${ids}-data-lag`}
+                  label={t("dataDictionary.dataLag")}
+                >
+                  <Input
+                    id={`${ids}-data-lag`}
+                    value={draft.dataLag}
+                    onChange={(e) => set("dataLag", e.target.value)}
+                    placeholder={t("dataDictionary.dataLagPlaceholder")}
+                  />
+                </Field>
+              </div>
+
+              <Field
                 id={`${ids}-gotchas`}
-                value={draft.knownGotchas}
-                onChange={(e) => set("knownGotchas", e.target.value)}
-                rows={2}
-                placeholder={t("dataDictionary.knownGotchasPlaceholder")}
-              />
-            </Field>
+                label={t("dataDictionary.knownGotchas")}
+              >
+                <Textarea
+                  id={`${ids}-gotchas`}
+                  value={draft.knownGotchas}
+                  onChange={(e) => set("knownGotchas", e.target.value)}
+                  rows={2}
+                  placeholder={t("dataDictionary.knownGotchasPlaceholder")}
+                />
+              </Field>
 
-            <Field
-              id={`${ids}-common-questions`}
-              label={t("dataDictionary.commonQuestions")}
-            >
-              <Textarea
+              <Field
                 id={`${ids}-common-questions`}
-                value={draft.commonQuestions}
-                onChange={(e) => set("commonQuestions", e.target.value)}
-                rows={2}
-                placeholder={t("dataDictionary.commonQuestionsPlaceholder")}
-              />
-            </Field>
+                label={t("dataDictionary.commonQuestions")}
+              >
+                <Textarea
+                  id={`${ids}-common-questions`}
+                  value={draft.commonQuestions}
+                  onChange={(e) => set("commonQuestions", e.target.value)}
+                  rows={2}
+                  placeholder={t("dataDictionary.commonQuestionsPlaceholder")}
+                />
+              </Field>
 
-            <Field
-              id={`${ids}-example-use-case`}
-              label={t("dataDictionary.exampleUseCase")}
-            >
-              <Textarea
+              <Field
                 id={`${ids}-example-use-case`}
-                value={draft.exampleUseCase}
-                onChange={(e) => set("exampleUseCase", e.target.value)}
-                rows={2}
-                placeholder={t("dataDictionary.exampleUseCasePlaceholder")}
-              />
-            </Field>
+                label={t("dataDictionary.exampleUseCase")}
+              >
+                <Textarea
+                  id={`${ids}-example-use-case`}
+                  value={draft.exampleUseCase}
+                  onChange={(e) => set("exampleUseCase", e.target.value)}
+                  rows={2}
+                  placeholder={t("dataDictionary.exampleUseCasePlaceholder")}
+                />
+              </Field>
+            </fieldset>
           </CollapsibleContent>
         </Collapsible>
 
@@ -506,35 +538,41 @@ export function DefinitionPanel({
           </p>
         ) : null}
 
-        <div className="flex items-center justify-between gap-2 pt-1">
-          {canDelete ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline-destructive"
-              disabled={save.isPending}
-              onClick={() => {
-                setDeleteError("");
-                setConfirmDelete(true);
-              }}
-            >
-              <IconTrash className="me-1.5 h-3 w-3" />
-              {t("sidebar.delete")}
-            </Button>
-          ) : (
-            <span />
-          )}
-          <Button type="submit" size="sm" disabled={!canSave}>
-            {save.isPending ? (
-              <>
-                <IconLoader2 className="me-1.5 h-3 w-3 animate-spin" />
-                {t("dataDictionary.saving")}
-              </>
+        {readOnly ? (
+          <p className="pt-1 text-sm text-muted-foreground">
+            {t("semanticLayer.adminOnlyNote")}
+          </p>
+        ) : (
+          <div className="flex items-center justify-between gap-2 pt-1">
+            {canDelete ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline-destructive"
+                disabled={save.isPending}
+                onClick={() => {
+                  setDeleteError("");
+                  setConfirmDelete(true);
+                }}
+              >
+                <IconTrash className="me-1.5 h-3 w-3" />
+                {t("sidebar.delete")}
+              </Button>
             ) : (
-              t("dataDictionary.saveEntry")
+              <span />
             )}
-          </Button>
-        </div>
+            <Button type="submit" size="sm" disabled={!canSave}>
+              {save.isPending ? (
+                <>
+                  <IconLoader2 className="me-1.5 h-3 w-3 animate-spin" />
+                  {t("dataDictionary.saving")}
+                </>
+              ) : (
+                t("dataDictionary.saveEntry")
+              )}
+            </Button>
+          </div>
+        )}
       </form>
 
       <AlertDialog
@@ -584,12 +622,14 @@ function SwitchRow({
   title,
   description,
   checked,
+  disabled,
   onCheckedChange,
 }: {
   id: string;
   title: string;
   description?: string;
   checked: boolean;
+  disabled?: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
   const label = (
@@ -607,7 +647,12 @@ function SwitchRow({
       ) : (
         label
       )}
-      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} />
+      <Switch
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+      />
     </div>
   );
 }
