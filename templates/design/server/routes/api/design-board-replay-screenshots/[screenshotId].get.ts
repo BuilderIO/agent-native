@@ -22,44 +22,50 @@ import { getDb, schema } from "../../../db/index.js";
 import { isValidReplayScreenshotBlobHandle } from "../../../lib/replay-screenshot-private-blob.js";
 
 const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const DEFAULT_RESPONSE_HEADERS = {
+  "Cache-Control": "private, max-age=0, no-store",
+  Pragma: "no-cache",
+  "Referrer-Policy": "no-referrer",
+  "Cross-Origin-Resource-Policy": "same-origin",
+  "X-Content-Type-Options": "nosniff",
+};
+
+function screenshotError(statusCode: number, statusMessage: string) {
+  return createError({
+    statusCode,
+    statusMessage,
+    headers: DEFAULT_RESPONSE_HEADERS,
+  });
+}
 
 function parsePrivateBlobHandle(value: string): PrivateBlobHandle {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value) as unknown;
   } catch {
-    throw createError({
-      statusCode: 404,
-      statusMessage: "Screenshot not found",
-    });
+    throw screenshotError(404, "Screenshot not found");
   }
   if (!isValidReplayScreenshotBlobHandle(parsed)) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: "Screenshot not found",
-    });
+    throw screenshotError(404, "Screenshot not found");
   }
   return parsed;
 }
 
 export default defineEventHandler(async (event) => {
-  setResponseHeader(event, "Cross-Origin-Resource-Policy", "same-origin");
-  setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
-  setResponseHeader(event, "Pragma", "no-cache");
-  setResponseHeader(event, "Referrer-Policy", "no-referrer");
-  setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+  for (const [name, value] of Object.entries(DEFAULT_RESPONSE_HEADERS)) {
+    setResponseHeader(event, name, value);
+    // H3 builds thrown-error responses from errHeaders, not regular headers.
+    event.res.errHeaders.set(name, value);
+  }
 
   const session = await getSession(event);
   if (!session?.email) {
-    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
+    throw screenshotError(401, "Unauthorized");
   }
 
   const screenshotId = getRouterParam(event, "screenshotId");
   if (!screenshotId) {
-    throw createError({
-      statusCode: 404,
-      statusMessage: "Screenshot not found",
-    });
+    throw screenshotError(404, "Screenshot not found");
   }
 
   return runWithRequestContext(
@@ -78,10 +84,7 @@ export default defineEventHandler(async (event) => {
         .where(eq(schema.designBoardReplayScreenshots.id, screenshotId))
         .limit(1);
       if (!screenshot) {
-        throw createError({
-          statusCode: 404,
-          statusMessage: "Screenshot not found",
-        });
+        throw screenshotError(404, "Screenshot not found");
       }
 
       const requestedDesignId = getQuery(event).designId;
@@ -90,10 +93,7 @@ export default defineEventHandler(async (event) => {
         (typeof requestedDesignId !== "string" ||
           requestedDesignId !== screenshot.designId)
       ) {
-        throw createError({
-          statusCode: 404,
-          statusMessage: "Screenshot not found",
-        });
+        throw screenshotError(404, "Screenshot not found");
       }
 
       const staged = screenshot.id.startsWith(JOURNEY_STAGED_REPLAY_ROW_PREFIX);
@@ -105,10 +105,7 @@ export default defineEventHandler(async (event) => {
         );
       } catch (error) {
         if (error instanceof ForbiddenError) {
-          throw createError({
-            statusCode: 403,
-            statusMessage: "Forbidden",
-          });
+          throw screenshotError(403, "Forbidden");
         }
         throw error;
       }
@@ -120,17 +117,11 @@ export default defineEventHandler(async (event) => {
           !Number.isFinite(createdAtMs) ||
           Date.now() - createdAtMs >= JOURNEY_STAGED_REPLAY_MAX_AGE_MS
         ) {
-          throw createError({
-            statusCode: 404,
-            statusMessage: "Screenshot not found",
-          });
+          throw screenshotError(404, "Screenshot not found");
         }
       }
       if (!IMAGE_MIME_TYPES.has(screenshot.mimeType)) {
-        throw createError({
-          statusCode: 404,
-          statusMessage: "Screenshot not found",
-        });
+        throw screenshotError(404, "Screenshot not found");
       }
 
       const handle = parsePrivateBlobHandle(screenshot.blobHandle);
@@ -140,15 +131,9 @@ export default defineEventHandler(async (event) => {
       } catch (error) {
         if (isPrivateBlobError(error)) {
           if (error.kind === "not_found" || error.kind === "gone") {
-            throw createError({
-              statusCode: 404,
-              statusMessage: "Screenshot not found",
-            });
+            throw screenshotError(404, "Screenshot not found");
           }
-          throw createError({
-            statusCode: 503,
-            statusMessage: "Screenshot storage is unavailable",
-          });
+          throw screenshotError(503, "Screenshot storage is unavailable");
         }
         throw error;
       }
@@ -157,10 +142,7 @@ export default defineEventHandler(async (event) => {
         blob.data.byteLength !== screenshot.sizeBytes ||
         (blob.mimeType && blob.mimeType !== screenshot.mimeType)
       ) {
-        throw createError({
-          statusCode: 502,
-          statusMessage: "Stored screenshot failed integrity checks",
-        });
+        throw screenshotError(502, "Stored screenshot failed integrity checks");
       }
 
       setResponseHeader(event, "Content-Type", screenshot.mimeType);

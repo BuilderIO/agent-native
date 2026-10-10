@@ -41,23 +41,29 @@ describe("private replay screenshot preview bridge", () => {
 
   it("bridges private srcset-only candidates and preserves public candidates", () => {
     const route = "/api/design-board-replay-screenshots/jcs_e2e_fixture";
+    const secondRoute =
+      "/api/design-board-replay-screenshots/jcs_e2e_fixture_2";
     const publicImage = "https://images.example.test/public.png";
     const prepared = preparePrivateReplayScreenshotPreviewDocument(
-      `<img srcset="${publicImage} 1x, ${route} 2x">`,
+      `<img srcset="${publicImage} 1x, ${route} 2x, ${secondRoute} 3x">`,
       {
         designId: "design_fixture",
         parentOrigin: "https://design.example.test",
       },
     );
 
-    expect(prepared.screenshotPaths).toEqual([route]);
+    expect(prepared.screenshotPaths).toEqual([route, secondRoute]);
     expect(prepared.nonce).toBeTruthy();
     expect(prepared.html).toContain(`srcset="${publicImage} 1x"`);
     expect(prepared.html).toContain(
-      'data-agent-native-private-replay-screenshot-srcset="[{&quot;index&quot;:0,&quot;descriptor&quot;:&quot;2x&quot;}]"',
+      "data-agent-native-private-replay-screenshot-srcset=",
     );
+    expect(prepared.html).toContain("&quot;index&quot;:0");
+    expect(prepared.html).toContain("#agent-native-private-replay-0 2x");
+    expect(prepared.html).toContain("#agent-native-private-replay-1 3x");
     expect(prepared.html).not.toContain(route);
-    expect(prepared.html).toContain("image.srcset = combined");
+    expect(prepared.html).not.toContain(secondRoute);
+    expect(prepared.html).toContain("image.currentSrc");
   });
 
   it("bridges private picture sources through the opaque preview document", () => {
@@ -71,7 +77,9 @@ describe("private replay screenshot preview bridge", () => {
     );
 
     expect(prepared.screenshotPaths).toEqual([route]);
-    expect(prepared.html).toContain("source[' + srcsetMarker + ']');");
+    expect(prepared.html).toContain(
+      "picture.querySelectorAll('source[' + srcsetMarker + ']')",
+    );
     expect(prepared.html).not.toContain(route);
   });
 
@@ -85,6 +93,7 @@ describe("private replay screenshot preview bridge", () => {
     expect(prepared.screenshotPaths).toEqual([]);
     expect(prepared.nonce).toBeNull();
     expect(prepared.html).not.toContain(`src="${route}"`);
+    expect(prepared.html).not.toContain("data:image/gif;base64,");
     expect(prepared.html).not.toContain(
       "design-private-replay-screenshot:connect",
     );
@@ -101,6 +110,7 @@ describe("private replay screenshot preview bridge", () => {
     expect(prepared.screenshotPaths).toEqual([]);
     expect(prepared.nonce).toBeNull();
     expect(prepared.html).toContain(`srcset="${publicImage} 1x"`);
+    expect(prepared.html).not.toContain("data:image/gif;base64,");
     expect(prepared.html).not.toContain(route);
     expect(prepared.html).not.toContain(
       "design-private-replay-screenshot:connect",

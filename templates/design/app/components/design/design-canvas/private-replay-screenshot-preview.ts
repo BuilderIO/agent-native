@@ -3,12 +3,17 @@ import { parse, serialize, type DefaultTreeAdapterMap } from "parse5";
 
 const PRIVATE_SCREENSHOT_ATTRIBUTE =
   "data-agent-native-private-replay-screenshot-index";
+const PRIVATE_SCREENSHOT_SRC_PLACEHOLDER_ATTRIBUTE =
+  "data-agent-native-private-replay-screenshot-src-placeholder";
 const PRIVATE_SCREENSHOT_SRCSET_ATTRIBUTE =
   "data-agent-native-private-replay-screenshot-srcset";
 const PRIVATE_SCREENSHOT_PUBLIC_SRCSET_ATTRIBUTE =
   "data-agent-native-private-replay-screenshot-public-srcset";
 const PRIVATE_SCREENSHOT_PATH =
   /^\/api\/design-board-replay-screenshots\/(jcs_[A-Za-z0-9_-]+)$/;
+// Keep native srcset selection local; hydrate its chosen candidate only when visible.
+const PRIVATE_SCREENSHOT_PLACEHOLDER =
+  "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
 const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const CONNECTION_MESSAGE = "design-private-replay-screenshot:connect";
 const READY_MESSAGE = "design-private-replay-screenshot:ready";
@@ -79,50 +84,99 @@ function formatSrcsetCandidate(candidate: SrcsetCandidate): string {
     : candidate.url;
 }
 
+function privateScreenshotPlaceholder(index: number): string {
+  return `${PRIVATE_SCREENSHOT_PLACEHOLDER}#agent-native-private-replay-${index}`;
+}
+
 function previewBootstrap(nonce: string, parentOrigin: string): string {
   return `<script data-agent-native-private-replay-screenshot-bridge>
 (function() {
   var nonce = ${JSON.stringify(nonce)};
   var parentOrigin = ${JSON.stringify(parentOrigin)};
   var marker = ${JSON.stringify(PRIVATE_SCREENSHOT_ATTRIBUTE)};
+  var srcPlaceholderMarker = ${JSON.stringify(PRIVATE_SCREENSHOT_SRC_PLACEHOLDER_ATTRIBUTE)};
   var srcsetMarker = ${JSON.stringify(PRIVATE_SCREENSHOT_SRCSET_ATTRIBUTE)};
-  var publicSrcsetMarker = ${JSON.stringify(PRIVATE_SCREENSHOT_PUBLIC_SRCSET_ATTRIBUTE)};
+  var requestedIndices = Object.create(null);
+  var visibleImages = new Set();
   var port = null;
   var observer = null;
   var objectUrls = [];
-  var blobUrlsByIndex = Object.create(null);
   var announceTimer = window.setInterval(function() {
     if (port) return;
     parent.postMessage({ type: ${JSON.stringify(READY_MESSAGE)}, nonce: nonce }, parentOrigin);
   }, 100);
-  function requestImage(image) {
-    if (!port) return;
-    if (image.getAttribute('data-agent-native-private-replay-requested') === 'true') return;
-    image.setAttribute('data-agent-native-private-replay-requested', 'true');
-    var indices = [];
-    var sourceValue = image.getAttribute(marker);
-    if (sourceValue !== null && sourceValue !== '') {
+  function imagePrivateCandidates(element) {
+    var candidates = [];
+    var sourceValue = element.getAttribute(marker);
+    var sourcePlaceholder = element.getAttribute(srcPlaceholderMarker);
+    if (sourceValue !== null && sourcePlaceholder) {
       var sourceIndex = Number(sourceValue);
-      if (Number.isInteger(sourceIndex) && sourceIndex >= 0) indices.push(sourceIndex);
+      if (Number.isInteger(sourceIndex) && sourceIndex >= 0) {
+        candidates.push({ index: sourceIndex, placeholder: sourcePlaceholder });
+      }
     }
-    var candidates = JSON.parse(image.getAttribute(srcsetMarker) || '[]');
-    candidates.forEach(function(candidate) {
-      if (Number.isInteger(candidate.index) && candidate.index >= 0 && indices.indexOf(candidate.index) === -1) indices.push(candidate.index);
-    });
-    indices.forEach(function(index) {
-      port.postMessage({ type: ${JSON.stringify(REQUEST_MESSAGE)}, index: index });
-    });
+    candidates = candidates.concat(JSON.parse(element.getAttribute(srcsetMarker) || '[]'));
+    return candidates;
   }
-  function applyPrivateSrcset(image) {
-    var candidates = JSON.parse(image.getAttribute(srcsetMarker) || '[]');
-    var privateCandidates = candidates.filter(function(candidate) {
-      return typeof blobUrlsByIndex[candidate.index] === 'string';
-    }).map(function(candidate) {
-      return blobUrlsByIndex[candidate.index] + (candidate.descriptor ? ' ' + candidate.descriptor : '');
+  function privateCandidatesForImage(image) {
+    var candidates = imagePrivateCandidates(image);
+    var picture = image.closest('picture');
+    if (picture) {
+      picture.querySelectorAll('source[' + srcsetMarker + ']').forEach(function(source) {
+        candidates = candidates.concat(imagePrivateCandidates(source));
+      });
+    }
+    return candidates;
+  }
+  function requestImage(image) {
+    if (!port || !visibleImages.has(image)) return;
+    var selectedUrl = image.currentSrc;
+    if (!selectedUrl) return;
+    var selected = privateCandidatesForImage(image).find(function(candidate) {
+      return candidate.placeholder === selectedUrl;
     });
-    var publicSrcset = image.getAttribute(publicSrcsetMarker) || '';
-    var combined = [publicSrcset].concat(privateCandidates).filter(Boolean).join(', ');
-    if (combined) image.srcset = combined;
+    if (!selected || requestedIndices[selected.index]) return;
+    requestedIndices[selected.index] = true;
+    port.postMessage({ type: ${JSON.stringify(REQUEST_MESSAGE)}, index: selected.index });
+  }
+  function isInViewport(image) {
+    var bounds = image.getBoundingClientRect();
+    return bounds.width > 0 && bounds.height > 0 && bounds.bottom > 0 && bounds.right > 0 && bounds.top < window.innerHeight && bounds.left < window.innerWidth;
+  }
+  function trackVisibleImages(images) {
+    if ('IntersectionObserver' in window) {
+      observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            visibleImages.add(entry.target);
+            requestImage(entry.target);
+          } else {
+            visibleImages.delete(entry.target);
+          }
+        });
+      }, { rootMargin: '0px' });
+      images.forEach(function(image) {
+        image.addEventListener('load', function() { requestImage(image); });
+        observer.observe(image);
+      });
+      return;
+    }
+    function updateVisibleImages() {
+      images.forEach(function(image) {
+        if (isInViewport(image)) {
+          visibleImages.add(image);
+          requestImage(image);
+        } else {
+          visibleImages.delete(image);
+        }
+      });
+    }
+    images.forEach(function(image) {
+      image.addEventListener('load', function() { requestImage(image); });
+    });
+    window.addEventListener('scroll', updateVisibleImages, { passive: true });
+    window.addEventListener('resize', updateVisibleImages);
+    updateVisibleImages();
   }
   window.addEventListener('message', function(event) {
     if (event.source !== parent || event.origin !== parentOrigin) return;
@@ -134,28 +188,23 @@ function previewBootstrap(nonce: string, parentOrigin: string): string {
         if (!data || data.type !== ${JSON.stringify(RESULT_MESSAGE)} || !Number.isInteger(data.index) || !(data.blob instanceof Blob)) return;
         var objectUrl = URL.createObjectURL(data.blob);
         objectUrls.push(objectUrl);
-        blobUrlsByIndex[data.index] = objectUrl;
-        document.querySelectorAll('img[' + marker + '="' + data.index + '"]').forEach(function(image) {
-          image.src = objectUrl;
+        document.querySelectorAll('img[' + marker + ']').forEach(function(image) {
+          if (Number(image.getAttribute(marker)) === data.index) image.src = objectUrl;
         });
-        document.querySelectorAll('[' + srcsetMarker + ']').forEach(applyPrivateSrcset);
+        document.querySelectorAll('[' + srcsetMarker + ']').forEach(function(element) {
+          var candidates = JSON.parse(element.getAttribute(srcsetMarker) || '[]');
+          var srcset = element.getAttribute('srcset') || '';
+          candidates.forEach(function(candidate) {
+            if (candidate.index === data.index) srcset = srcset.split(candidate.placeholder).join(objectUrl);
+          });
+          element.setAttribute('srcset', srcset);
+        });
       };
       if (port.start) port.start();
-      var images = document.querySelectorAll('img[' + marker + '], img[' + srcsetMarker + ']');
-      var sources = document.querySelectorAll('source[' + srcsetMarker + ']');
-      sources.forEach(requestImage);
-      if (!('IntersectionObserver' in window)) {
-        images.forEach(requestImage);
-        return;
-      }
-      observer = new IntersectionObserver(function(entries) {
-        entries.forEach(function(entry) {
-          if (!entry.isIntersecting) return;
-          observer.unobserve(entry.target);
-          requestImage(entry.target);
-        });
-      }, { rootMargin: '160px' });
-      images.forEach(function(image) { observer.observe(image); });
+      var images = Array.prototype.filter.call(document.querySelectorAll('img'), function(image) {
+        return privateCandidatesForImage(image).length > 0;
+      });
+      trackVisibleImages(images);
     }
   });
   window.addEventListener('pagehide', function() {
@@ -199,6 +248,7 @@ export function preparePrivateReplayScreenshotPreviewDocument(
     element.attrs = element.attrs.filter(
       (attribute) =>
         attribute.name !== PRIVATE_SCREENSHOT_ATTRIBUTE &&
+        attribute.name !== PRIVATE_SCREENSHOT_SRC_PLACEHOLDER_ATTRIBUTE &&
         attribute.name !== PRIVATE_SCREENSHOT_SRCSET_ATTRIBUTE &&
         attribute.name !== PRIVATE_SCREENSHOT_PUBLIC_SRCSET_ATTRIBUTE &&
         attribute.name !== "data-agent-native-private-replay-requested",
@@ -224,12 +274,19 @@ export function preparePrivateReplayScreenshotPreviewDocument(
 
     const sourceIndex = source ? getIndex(source.value) : undefined;
     const publicCandidates: SrcsetCandidate[] = [];
-    const privateCandidates: Array<SrcsetCandidate & { index: number }> = [];
+    const safeCandidates: SrcsetCandidate[] = [];
+    const privateCandidates: Array<{ index: number; placeholder: string }> = [];
     if (srcset) {
       for (const candidate of parseSrcset(srcset.value)) {
         const index = getIndex(candidate.url);
-        if (index === undefined) publicCandidates.push(candidate);
-        else privateCandidates.push({ ...candidate, index });
+        if (index === undefined) {
+          publicCandidates.push(candidate);
+          safeCandidates.push(candidate);
+        } else {
+          const placeholder = privateScreenshotPlaceholder(index);
+          privateCandidates.push({ index, placeholder });
+          safeCandidates.push({ ...candidate, url: placeholder });
+        }
       }
     }
 
@@ -237,31 +294,33 @@ export function preparePrivateReplayScreenshotPreviewDocument(
       element.attrs = element.attrs.filter(
         (attribute) => attribute.name !== "src",
       );
+      const placeholder = privateScreenshotPlaceholder(sourceIndex);
+      element.attrs.push({ name: "src", value: placeholder });
       element.attrs.push({
         name: PRIVATE_SCREENSHOT_ATTRIBUTE,
         value: String(sourceIndex),
+      });
+      element.attrs.push({
+        name: PRIVATE_SCREENSHOT_SRC_PLACEHOLDER_ATTRIBUTE,
+        value: placeholder,
       });
     }
     if (privateCandidates.length > 0) {
       const publicSrcset = publicCandidates
         .map(formatSrcsetCandidate)
         .join(", ");
+      const safeSrcset = safeCandidates.map(formatSrcsetCandidate).join(", ");
       const existingSrcset = element.attrs.findIndex(
         (attribute) => attribute.name === "srcset",
       );
       if (existingSrcset >= 0) {
         element.attrs.splice(existingSrcset, 1);
-        if (publicSrcset)
-          element.attrs.push({ name: "srcset", value: publicSrcset });
+        if (safeSrcset)
+          element.attrs.push({ name: "srcset", value: safeSrcset });
       }
       element.attrs.push({
         name: PRIVATE_SCREENSHOT_SRCSET_ATTRIBUTE,
-        value: JSON.stringify(
-          privateCandidates.map(({ index, descriptor }) => ({
-            index,
-            descriptor,
-          })),
-        ),
+        value: JSON.stringify(privateCandidates),
       });
       element.attrs.push({
         name: PRIVATE_SCREENSHOT_PUBLIC_SRCSET_ATTRIBUTE,
@@ -275,9 +334,29 @@ export function preparePrivateReplayScreenshotPreviewDocument(
   }
   if (!parentOrigin || !designId) {
     visitElements(document, (element) => {
+      const sourceIndex = element.attrs.findIndex(
+        (attribute) => attribute.name === PRIVATE_SCREENSHOT_ATTRIBUTE,
+      );
+      if (sourceIndex >= 0) {
+        element.attrs = element.attrs.filter(
+          (attribute) => attribute.name !== "src",
+        );
+      }
+      const publicSrcset = element.attrs.find(
+        (attribute) =>
+          attribute.name === PRIVATE_SCREENSHOT_PUBLIC_SRCSET_ATTRIBUTE,
+      );
+      if (publicSrcset) {
+        element.attrs = element.attrs.filter(
+          (attribute) => attribute.name !== "srcset",
+        );
+        if (publicSrcset.value)
+          element.attrs.push({ name: "srcset", value: publicSrcset.value });
+      }
       element.attrs = element.attrs.filter(
         (attribute) =>
           attribute.name !== PRIVATE_SCREENSHOT_ATTRIBUTE &&
+          attribute.name !== PRIVATE_SCREENSHOT_SRC_PLACEHOLDER_ATTRIBUTE &&
           attribute.name !== PRIVATE_SCREENSHOT_SRCSET_ATTRIBUTE &&
           attribute.name !== PRIVATE_SCREENSHOT_PUBLIC_SRCSET_ATTRIBUTE,
       );

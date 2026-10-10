@@ -28,6 +28,8 @@ test("renders an authorized private replay image in the opaque presentation fram
   expect(designId).toBeTruthy();
   const nodeKey = "design::synthetic-preview";
   const exampleIndex = 0;
+  const unusedScreenshotPath =
+    "/api/design-board-replay-screenshots/jcs_e2e_unselected_candidate";
 
   const viewerContext = await browser.newContext();
   const deniedContext = await browser.newContext();
@@ -143,6 +145,7 @@ test("renders an authorized private replay image in the opaque presentation fram
           "<!doctype html><html><body>",
           `<img data-e2e-private-preview alt="" width="1" height="1" src="${screenshotPath}">`,
           `<img data-e2e-private-preview alt="" width="1" height="1" srcset="${screenshotPath} 1x">`,
+          `<picture><source media="not all" srcset="${unusedScreenshotPath} 1x"><source srcset="${screenshotPath} 1x"><img data-e2e-private-preview alt="" width="1" height="1"></picture>`,
           "</body></html>",
         ].join(""),
       },
@@ -214,8 +217,13 @@ test("renders an authorized private replay image in the opaque presentation fram
 
     let screenshotResponseHeaders: Record<string, string> | undefined;
     let screenshotResponseUrl: string | undefined;
+    const screenshotResponsePaths: string[] = [];
     viewerPage.on("response", async (response) => {
-      if (new URL(response.url()).pathname === screenshotPath) {
+      const pathname = new URL(response.url()).pathname;
+      if (pathname.startsWith("/api/design-board-replay-screenshots/")) {
+        screenshotResponsePaths.push(pathname);
+      }
+      if (pathname === screenshotPath) {
         screenshotResponseUrl = response.url();
         screenshotResponseHeaders = await response.allHeaders();
       }
@@ -227,6 +235,9 @@ test("renders an authorized private replay image in the opaque presentation fram
       .locator("iframe[data-design-preview-iframe]")
       .first();
     await expect(screen).toBeVisible({ timeout: 45_000 });
+    await viewerPage.keyboard.press("ArrowRight");
+    await viewerPage.keyboard.press("ArrowRight");
+    await expect(screen).toHaveAttribute("title", /index\.html$/);
     expect(await screen.getAttribute("sandbox")).not.toContain(
       "allow-same-origin",
     );
@@ -237,10 +248,20 @@ test("renders an authorized private replay image in the opaque presentation fram
     await expect
       .poll(() =>
         images.evaluateAll((elements) =>
-          elements.map((element) => (element as HTMLImageElement).naturalWidth),
+          elements.map((element) => {
+            const image = element as HTMLImageElement;
+            return {
+              naturalWidth: image.naturalWidth,
+              privateBlob: image.currentSrc.startsWith("blob:"),
+            };
+          }),
         ),
       )
-      .toEqual([1, 1]);
+      .toEqual([
+        { naturalWidth: 1, privateBlob: true },
+        { naturalWidth: 1, privateBlob: true },
+        { naturalWidth: 1, privateBlob: true },
+      ]);
     await expect
       .poll(() => screenshotResponseHeaders?.["cross-origin-resource-policy"])
       .toBe("same-origin");
@@ -248,6 +269,7 @@ test("renders an authorized private replay image in the opaque presentation fram
     expect(new URL(screenshotResponseUrl!).searchParams.get("designId")).toBe(
       designId,
     );
+    expect(screenshotResponsePaths).toEqual([screenshotPath]);
   } finally {
     const deletion = await page.request.post(actionUrl("delete-design"), {
       data: { id: designId },

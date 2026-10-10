@@ -48,10 +48,17 @@ vi.mock("h3", () => ({
   createError: ({
     statusCode,
     statusMessage,
+    headers,
   }: {
     statusCode: number;
     statusMessage: string;
-  }) => Object.assign(new Error(statusMessage), { statusCode, statusMessage }),
+    headers?: HeadersInit;
+  }) =>
+    Object.assign(new Error(statusMessage), {
+      statusCode,
+      statusMessage,
+      headers: headers ? new Headers(headers) : undefined,
+    }),
   defineEventHandler: (handler: unknown) => handler,
   getQuery: mocks.getQuery,
   getRouterParam: mocks.getRouterParam,
@@ -77,7 +84,10 @@ import { ForbiddenError } from "@agent-native/core/sharing";
 import handler from "./[screenshotId].get.js";
 
 function makeEvent() {
-  return { screenshotId: "screenshot-id" };
+  return {
+    screenshotId: "screenshot-id",
+    res: { errHeaders: new Headers() },
+  };
 }
 
 describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
@@ -152,11 +162,29 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
       data: new Uint8Array([...imageData, 0]),
       mimeType: "image/png",
     });
+    const event = makeEvent();
 
-    await expect(handler(makeEvent() as never)).rejects.toMatchObject({
+    const error = await handler(event as never).catch(
+      (error: unknown) => error,
+    );
+    expect(error).toMatchObject({
       statusCode: 502,
       statusMessage: "Stored screenshot failed integrity checks",
     });
+    expect(
+      (error as { headers?: Headers }).headers?.get(
+        "Cross-Origin-Resource-Policy",
+      ),
+    ).toBe("same-origin");
+    expect((error as { headers?: Headers }).headers?.get("Cache-Control")).toBe(
+      "private, max-age=0, no-store",
+    );
+    expect(event.res.errHeaders.get("Cross-Origin-Resource-Policy")).toBe(
+      "same-origin",
+    );
+    expect(event.res.errHeaders.get("Cache-Control")).toBe(
+      "private, max-age=0, no-store",
+    );
 
     expect(mocks.setResponseHeader).toHaveBeenCalledWith(
       expect.anything(),
@@ -167,18 +195,53 @@ describe("GET /api/design-board-replay-screenshots/:screenshotId", () => {
 
   it("keeps the same-origin resource policy and does not read a screenshot when viewer access is denied", async () => {
     mocks.assertAccess.mockRejectedValue(new ForbiddenError("No access"));
+    const event = makeEvent();
 
-    await expect(handler(makeEvent() as never)).rejects.toMatchObject({
+    const error = await handler(event as never).catch(
+      (error: unknown) => error,
+    );
+    expect(error).toMatchObject({
       statusCode: 403,
       statusMessage: "Forbidden",
     });
+    expect(
+      (error as { headers?: Headers }).headers?.get(
+        "Cross-Origin-Resource-Policy",
+      ),
+    ).toBe("same-origin");
+    expect((error as { headers?: Headers }).headers?.get("Cache-Control")).toBe(
+      "private, max-age=0, no-store",
+    );
 
+    expect(event.res.errHeaders.get("Cross-Origin-Resource-Policy")).toBe(
+      "same-origin",
+    );
+    expect(event.res.errHeaders.get("Cache-Control")).toBe(
+      "private, max-age=0, no-store",
+    );
     expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
     expect(mocks.setResponseHeader).toHaveBeenCalledWith(
       expect.anything(),
       "Cross-Origin-Resource-Policy",
       "same-origin",
     );
+  });
+
+  it("keeps response security headers for unexpected errors", async () => {
+    mocks.assertAccess.mockRejectedValue(new Error("Access lookup failed"));
+    const event = makeEvent();
+
+    await expect(handler(event as never)).rejects.toThrow(
+      "Access lookup failed",
+    );
+
+    expect(event.res.errHeaders.get("Cross-Origin-Resource-Policy")).toBe(
+      "same-origin",
+    );
+    expect(event.res.errHeaders.get("Cache-Control")).toBe(
+      "private, max-age=0, no-store",
+    );
+    expect(mocks.readPrivateBlob).not.toHaveBeenCalled();
   });
 
   it("rejects a parent bridge scope that does not own the screenshot", async () => {
