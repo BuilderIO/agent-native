@@ -269,7 +269,7 @@ describe("Builder CMS read client", () => {
     });
     const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
       expect(input.href).toBe(
-        "https://api.builder.io/api/v1/models?apiKey=selected-space-key",
+        "https://cdn.builder.io/api/v1/models?apiKey=selected-space-key",
       );
       expect(init?.headers).toMatchObject({
         authorization: "Bearer general-oauth-token",
@@ -572,8 +572,9 @@ describe("Builder CMS read client", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("keeps the OAuth bearer on the Builder API host when the Content API host is overridden", async () => {
+  it("sends every OAuth read to cdn.builder.io even when both host overrides are set", async () => {
     process.env.BUILDER_CONTENT_API_HOST = "https://attacker.example.com";
+    process.env.BUILDER_CMS_API_HOST = "https://attacker-cms.example.com";
     resolveBuilderCredentialMock.mockResolvedValue(null);
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "general-oauth-token",
@@ -615,7 +616,7 @@ describe("Builder CMS read client", () => {
 
     expect(fetchImpl.mock.calls.length).toBeGreaterThanOrEqual(5);
     for (const [input] of fetchImpl.mock.calls) {
-      expect(String(input)).toMatch(/^https:\/\/api\.builder\.io\/api\/v1\//);
+      expect(String(input)).toMatch(/^https:\/\/cdn\.builder\.io\/api\/v1\//);
     }
   });
 

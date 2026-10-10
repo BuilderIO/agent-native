@@ -1,7 +1,6 @@
 import { fail, isActionContractError } from "@agent-native/core/action";
 import {
   BUILDER_CONTENT_READ_SCOPE,
-  BUILDER_OAUTH_RESOURCE,
   BUILDER_PUBLISH_MCP_RESOURCE,
   resolveBuilderCredential,
   resolveBuilderRequestAuthorization,
@@ -329,14 +328,11 @@ function builderContentApiHost() {
   ).replace(/\/+$/, "");
 }
 
-// Carries the OAuth bearer, so it never falls back to the public Content API
-// host: a token issued for the Builder API resource stays on that resource.
-function builderManagementApiHost() {
-  return (process.env.BUILDER_CMS_API_HOST ?? BUILDER_OAUTH_RESOURCE).replace(
-    /\/+$/,
-    "",
-  );
-}
+// The general read routes (/api/v1/models, /api/v1/query-data) carry the
+// user's OAuth bearer, and Builder serves them on this host (api.builder.io
+// answers them with 404). It is a constant on purpose: no host override may
+// redirect the bearer.
+const BUILDER_OAUTH_READ_HOST = "https://cdn.builder.io";
 
 function entryArrayFromResponse(value: unknown) {
   if (Array.isArray(value)) return value;
@@ -648,7 +644,7 @@ async function readBuilderCmsGeneralModels(args: {
     args.expectedSourceSpace,
     args.expectedSourceConnectionId,
   );
-  const url = new URL("/api/v1/models", builderManagementApiHost());
+  const url = new URL("/api/v1/models", BUILDER_OAUTH_READ_HOST);
   url.searchParams.set("apiKey", publicKey);
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl,
@@ -1379,7 +1375,7 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
   while (entries.length < requestedLimit) {
     if (args.maxPages && pagesRead >= args.maxPages) break;
     const pageLimit = readPageLimit(requestedLimit - entries.length);
-    const url = new URL("/api/v1/query-data", builderManagementApiHost());
+    const url = new URL("/api/v1/query-data", BUILDER_OAUTH_READ_HOST);
     url.searchParams.set("apiKey", publicKey);
     url.searchParams.set("query.modelId", modelId);
     url.searchParams.set("sort.id", "1");
@@ -1487,7 +1483,7 @@ async function readBuilderCmsGeneralApiEntry(args: {
     args.expectedSourceConnectionId,
   );
   const modelId = await resolveBuilderCmsGeneralModelId(args);
-  const url = new URL("/api/v1/query-data", builderManagementApiHost());
+  const url = new URL("/api/v1/query-data", BUILDER_OAUTH_READ_HOST);
   url.searchParams.set("apiKey", publicKey);
   url.searchParams.set("query.modelId", modelId);
   url.searchParams.set("query.id", args.entryId);

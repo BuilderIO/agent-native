@@ -28,15 +28,14 @@ export const DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS = 30_000;
 type FetchLike = typeof fetch;
 
 function builderWriteApiHost(source: BuilderRequestAuthorization["source"]) {
-  // An OAuth bearer stays on its Builder API resource; only the explicit
-  // management-host override may redirect it.
-  const host =
-    source === "oauth"
-      ? (process.env.BUILDER_CMS_API_HOST ?? BUILDER_OAUTH_RESOURCE)
-      : (process.env.BUILDER_CONTENT_API_HOST ??
-        process.env.BUILDER_CMS_API_HOST ??
-        "https://builder.io");
-  return host.replace(/\/+$/, "");
+  // An OAuth bearer goes only to the Builder API resource it was issued for;
+  // the host overrides apply to private keys alone.
+  if (source === "oauth") return BUILDER_OAUTH_RESOURCE;
+  return (
+    process.env.BUILDER_CONTENT_API_HOST ??
+    process.env.BUILDER_CMS_API_HOST ??
+    "https://builder.io"
+  ).replace(/\/+$/, "");
 }
 
 const BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS = [

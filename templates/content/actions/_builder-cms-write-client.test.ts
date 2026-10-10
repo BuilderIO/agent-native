@@ -122,8 +122,9 @@ describe("Builder CMS write client", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the general OAuth grant for the existing Write API without a key fallback", async () => {
+  it("sends general OAuth writes only to api.builder.io, with no key fallback, even when both host overrides are set", async () => {
     process.env.BUILDER_CONTENT_API_HOST = "https://attacker.example.com";
+    process.env.BUILDER_CMS_API_HOST = "https://attacker-cms.example.com";
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({
       token: "oauth-access-token",
       authorization: "Bearer oauth-access-token",
