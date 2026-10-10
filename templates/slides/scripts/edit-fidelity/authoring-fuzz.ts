@@ -183,6 +183,12 @@ const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
 // Browser-session requests abort after at least ten seconds; leave timer slack.
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
 
+const browserSessionClaimRequestRule: SaveReloadRequestAbortRule = {
+  path: /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/,
+  method: "POST",
+  errorTexts: ["Load request cancelled", "cancelled", ...navigationAbortErrors],
+};
+
 const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
   {
     path: "/_agent-native/actions/get-lab-states",
@@ -201,15 +207,7 @@ const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
       ...navigationAbortErrors,
     ],
   },
-  {
-    path: /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/,
-    method: "POST",
-    errorTexts: [
-      "Load request cancelled",
-      "cancelled",
-      ...navigationAbortErrors,
-    ],
-  },
+  browserSessionClaimRequestRule,
 ];
 
 export function isExpectedSaveReloadWatchedRequestAbort(
@@ -239,6 +237,70 @@ export function isExpectedSaveReloadWatchedRequestAbort(
   );
 }
 
+type WatchedRequestNavigationCandidate = {
+  url: string;
+  pathname: string;
+  method: string;
+  ageMs: number;
+  requestWasPendingAtNavigation?: boolean;
+};
+
+export function isExpectedWatchedRequestCorsError(
+  message: string,
+  activePhase: string,
+  candidates: WatchedRequestNavigationCandidate[],
+) {
+  const rules =
+    activePhase === "save/reload"
+      ? saveReloadRequestAbortRules
+      : activePhase === "cleanup/navigation"
+        ? [browserSessionClaimRequestRule]
+        : null;
+  if (!rules) return false;
+  const match =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
+      message,
+    );
+  if (!match) return false;
+
+  return candidates.some(
+    (candidate) =>
+      candidate.url === match[1] &&
+      candidate.requestWasPendingAtNavigation === true &&
+      candidate.ageMs >= 0 &&
+      candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
+      rules.some((rule) => {
+        const matchesPath =
+          typeof rule.path === "string"
+            ? rule.path === candidate.pathname
+            : rule.path.test(candidate.pathname);
+        return (
+          matchesPath && (!rule.method || rule.method === candidate.method)
+        );
+      }),
+  );
+}
+
+export function isExpectedCleanupBrowserSessionPollConsoleError(
+  message: string,
+  candidates: WatchedRequestNavigationCandidate[],
+) {
+  if (
+    message !==
+    "[Agent-Native browser session] poll failed: TypeError: Load failed"
+  ) {
+    return false;
+  }
+
+  return candidates.some((candidate) =>
+    isExpectedWatchedRequestCorsError(
+      `Fetch API cannot load ${candidate.url} due to access control checks.`,
+      "cleanup/navigation",
+      [candidate],
+    ),
+  );
+}
+
 export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
   message: string,
   activePhase: string,
@@ -251,27 +313,14 @@ export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
   }>,
 ) {
   if (activePhase !== "save/reload") return false;
-  const match =
-    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
-      message,
-    );
-  if (!match) return false;
-
-  return candidates.some(
-    (candidate) =>
-      candidate.url === match[1] &&
-      candidate.requestWasPendingAtReloadNavigation === true &&
-      candidate.ageMs >= 0 &&
-      candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
-      saveReloadRequestAbortRules.some((rule) => {
-        const matchesPath =
-          typeof rule.path === "string"
-            ? rule.path === candidate.pathname
-            : rule.path.test(candidate.pathname);
-        return (
-          matchesPath && (!rule.method || rule.method === candidate.method)
-        );
-      }),
+  return isExpectedWatchedRequestCorsError(
+    message,
+    activePhase,
+    candidates.map((candidate) => ({
+      ...candidate,
+      requestWasPendingAtNavigation:
+        candidate.requestWasPendingAtReloadNavigation,
+    })),
   );
 }
 
@@ -501,6 +550,8 @@ export interface AuthoringFuzzOptions {
   /** Target and slide markup captured before entering edit mode. */
   originalHtml: string;
   originalSlideHtml: string;
+  /** Watched browser requests already pending when the page was created. */
+  initialPendingWatchedRequests?: ReadonlyMap<any, number>;
   /** Exit editing, wait for the save, read the stored HTML, then reload/read it. */
   finishAndReload: (
     markReloadNavigationStart: () => void,
@@ -871,7 +922,7 @@ export async function runAuthoringFuzz(
     any,
     { method: string; path: string; startedAt: number }
   >();
-  const watchedRequests = new Map<any, number>();
+  const watchedRequests = new Map(options.initialPendingWatchedRequests);
   const reloadNavigationRequests = new Map<any, number>();
   const pendingSaveConflicts: Promise<void>[] = [];
   const conflictResponsePaths: string[] = [];
@@ -900,7 +951,7 @@ export async function runAuthoringFuzz(
       return;
     }
     if (
-      isExpectedSaveReloadWatchedRequestCorsConsoleError(
+      isExpectedWatchedRequestCorsError(
         message.text(),
         activePhase,
         [...reloadNavigationRequests.entries()].map(([request, startedAt]) => ({
@@ -908,7 +959,7 @@ export async function runAuthoringFuzz(
           pathname: new URL(request.url()).pathname,
           method: request.method(),
           ageMs: Date.now() - startedAt,
-          requestWasPendingAtReloadNavigation: true,
+          requestWasPendingAtNavigation: true,
         })),
       )
     ) {
