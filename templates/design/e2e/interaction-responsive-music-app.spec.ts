@@ -2076,6 +2076,46 @@ test("a drawn empty Frame refreshes its inspector after auto layout", async ({
   });
 });
 
+test("sizing mode actions survive the selected layer route update", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const designId = await createFixtureDesign(
+    page,
+    `Sizing mode route update ${Date.now()}`,
+  );
+  await page.setViewportSize({ width: 2800, height: 1600 });
+  await gotoEditor(page, designId);
+  const screenId = (await readDesign(page, designId)).files?.find(
+    (file) => file.filename === "index.html",
+  )?.id;
+  if (!screenId) throw new Error("Fixture design has no Screen");
+
+  await drawInScreen(
+    page,
+    screenId,
+    "Frame",
+    { x: 24, y: 24, width: 320, height: 180 },
+    undefined,
+    "Route sizing frame",
+  );
+  await setFlowPosition(page, "Route sizing frame");
+  const layout = await turnIntoAutoLayout(
+    page,
+    "Route sizing frame",
+    "Horizontal",
+  );
+  const gap = layout.getByRole("textbox", { name: "Gap", exact: true });
+  await gap.fill("16");
+  await gap.press("Enter");
+
+  await setSizingMode(page, "W", "Fill container");
+  await setSizingMode(page, "H", "Hug contents");
+  await expect(page.getByRole("menuitem", { name: "Hug contents" })).toHaveCount(
+    0,
+  );
+});
+
 test("create a responsive music-app desktop shell under a Screen root", async ({
   page,
 }) => {

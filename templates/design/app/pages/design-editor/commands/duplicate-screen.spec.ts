@@ -7,7 +7,10 @@ vi.mock("sonner", () => ({
 
 import type { FrameGeometry } from "@/components/design/multi-screen/types";
 
-import { applyDesignDataOperations } from "../data-operations";
+import {
+  applyDesignDataOperations,
+  type DesignDataOperation,
+} from "../data-operations";
 import {
   applyDuplicateStackHistoryChange,
   insertFileCreationHistoryEntry,
@@ -20,6 +23,7 @@ import {
   type DuplicateScreenArgs,
 } from "./duplicate-screen";
 import { runUndo } from "./undo";
+import { runWriteFrameGeometrySnapshot } from "./write-frame-geometry-snapshot";
 
 // Keep screen copies spaced consistently across the board.
 const DESIGN_SCREEN_GAP = 56;
@@ -1011,8 +1015,12 @@ describe("runDuplicateScreen", () => {
       neighbor: { x: 376, y: 120, width: 320, height: 240, z: 1 },
       farther: { x: 1128, y: 120, width: 320, height: 240, z: 2 },
     };
-    const designDataJsonRef = ref({ canvasFrames: initialGeometry });
-    let persistedDesignData = { canvasFrames: initialGeometry };
+    const designDataJsonRef = ref<Record<string, unknown>>({
+      canvasFrames: initialGeometry,
+    });
+    let persistedDesignData: Record<string, unknown> = {
+      canvasFrames: initialGeometry,
+    };
     const updateSettlements: Array<() => void> = [];
     const recordedEntries: FileCreationHistoryEntry[] = [];
     const updateDesignAsync = vi.fn(({ dataOperations }: any) => {
@@ -1020,7 +1028,15 @@ describe("runDuplicateScreen", () => {
         persistedDesignData,
         dataOperations,
       );
-      return new Promise<void>((resolve) => updateSettlements.push(resolve));
+      return new Promise<{
+        id: string;
+        updated: true;
+        changed: true;
+      }>((resolve) =>
+        updateSettlements.push(() =>
+          resolve({ id: "design-1", updated: true, changed: true }),
+        ),
+      );
     });
     const args = duplicateArgs({
       files,
@@ -1107,6 +1123,13 @@ describe("runDuplicateScreen", () => {
       files: typeof files;
       onMutationSettled: (deleted: typeof files, failed: typeof files) => void;
     }> = [];
+    const queuedGeometrySaves: DesignDataOperation[][] = [];
+    const enqueueFrameGeometryDataSave = vi.fn(
+      (operations: DesignDataOperation[]) => {
+        queuedGeometrySaves.push(operations);
+        return true;
+      },
+    );
     const undoArgs = {
       activeEditorDragRef: ref(false),
       activeFile: null,
@@ -1132,12 +1155,22 @@ describe("runDuplicateScreen", () => {
       t: (key: string) => key,
       undoManagerRef: ref(null),
       viewModeRef: ref("overview"),
-      writeFrameGeometrySnapshot: vi.fn((geometry) => {
-        designDataJsonRef.current = {
-          ...designDataJsonRef.current,
-          canvasFrames: geometry,
-        };
-      }),
+      writeFrameGeometrySnapshot: vi.fn((geometry) =>
+        runWriteFrameGeometrySnapshot(
+          {
+            boardFileId: undefined,
+            canEditDesignRef: ref(true),
+            designDataJsonRef,
+            enqueueFrameGeometryDataSave,
+            frameGeometrySaveTimerRef: ref(null),
+            id: "design-1",
+            liveFrameGeometryRef: ref(initialGeometry),
+            pendingFrameGeometrySaveRef: ref(null),
+            queryClient: args.queryClient,
+          },
+          geometry,
+        ),
+      ),
     };
 
     runUndo(undoArgs as any);
@@ -1148,6 +1181,25 @@ describe("runDuplicateScreen", () => {
       FrameGeometry
     >;
     expect(restoredFrames).toEqual(initialGeometry);
+    expect(enqueueFrameGeometryDataSave).toHaveBeenCalledTimes(1);
+    const undoGeometryOperations = queuedGeometrySaves.flat();
+    expect(undoGeometryOperations).toContainEqual({
+      op: "set",
+      path: ["canvasFrames", "neighbor"],
+      value: initialGeometry.neighbor,
+    });
+    expect(undoGeometryOperations).toContainEqual({
+      op: "set",
+      path: ["canvasFrames", "farther"],
+      value: initialGeometry.farther,
+    });
+    for (const operations of queuedGeometrySaves) {
+      persistedDesignData = applyDesignDataOperations(
+        persistedDesignData,
+        operations,
+      );
+    }
+    expect(persistedDesignData.canvasFrames).toEqual(initialGeometry);
     expect(toast.info).not.toHaveBeenCalled();
   });
 

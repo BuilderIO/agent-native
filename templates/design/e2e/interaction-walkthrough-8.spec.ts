@@ -1149,6 +1149,84 @@ test.describe("assemble portfolio pages", () => {
 
     const filesBefore = await fileList(request, designId);
     await focusCanvas(page);
+    type GeometryWriteObservation = {
+      phase: "duplicate" | "undo" | "redo";
+      requestAt: number;
+      responseAt?: number;
+      status?: number;
+      error?: string;
+      operationSource?: unknown;
+      operationRevision?: unknown;
+      operations: Array<{
+        op?: unknown;
+        path: string[];
+        z?: unknown;
+      }>;
+    };
+    let phase: GeometryWriteObservation["phase"] = "duplicate";
+    const geometryWrites: GeometryWriteObservation[] = [];
+    const requestWrites = new Map<object, GeometryWriteObservation>();
+    page.on("request", (pageRequest) => {
+      if (
+        pageRequest.method() !== "POST" ||
+        !new URL(pageRequest.url()).pathname.endsWith(
+          "/_agent-native/actions/update-design",
+        )
+      ) {
+        return;
+      }
+      const postData = pageRequest.postData();
+      if (!postData) return;
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(postData) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      const dataOperations = Array.isArray(payload.dataOperations)
+        ? payload.dataOperations
+        : [];
+      const operations = dataOperations.flatMap((entry) => {
+        if (!entry || typeof entry !== "object") return [];
+        const operation = entry as Record<string, unknown>;
+        const rawPath = Array.isArray(operation.path) ? operation.path : [];
+        if (rawPath[0] !== "canvasFrames") return [];
+        const path = rawPath.map(String);
+        const value = operation.value;
+        const frameValue =
+          value && typeof value === "object"
+            ? (value as Record<string, unknown>)
+            : undefined;
+        const z = path[path.length - 1] === "z" ? value : frameValue?.z;
+        return [{ op: operation.op, path, ...(z === undefined ? {} : { z }) }];
+      });
+      const observation: GeometryWriteObservation = {
+        phase,
+        requestAt: Date.now(),
+        operationSource: payload.operationSource,
+        operationRevision: payload.operationRevision,
+        operations,
+      };
+      geometryWrites.push(observation);
+      requestWrites.set(pageRequest, observation);
+    });
+    page.on("response", (pageResponse) => {
+      const observation = requestWrites.get(pageResponse.request());
+      if (!observation) return;
+      observation.responseAt = Date.now();
+      observation.status = pageResponse.status();
+    });
+    page.on("requestfailed", (pageRequest) => {
+      const observation = requestWrites.get(pageRequest);
+      if (!observation) return;
+      observation.error = pageRequest.failure()?.errorText ?? "request failed";
+    });
+    const attachGeometryWriteChronology = async (name: string) => {
+      await test.info().attach(name, {
+        body: JSON.stringify(geometryWrites, null, 2),
+        contentType: "application/json",
+      });
+    };
     await page.keyboard.press(`${MOD}+d`);
     let filesAfter: string[] = [];
     await expect
@@ -1174,54 +1252,81 @@ test.describe("assemble portfolio pages", () => {
     await expect
       .poll(() => selectedScreenFilenames(request, designId))
       .toEqual(copies.slice().sort());
-    await expect
-      .poll(async () => {
-        const frames = (await designData(request, designId)).canvasFrames;
-        return {
-          sourceCopy: frames?.[sourceCopyId],
-          neighborCopy: frames?.[neighborCopyId],
-          fartherCopy: frames?.[fartherCopyId],
-          farther: frames?.[fartherId],
-        };
-      })
-      .toEqual({
-        sourceCopy: {
-          ...geometry[sourceId],
-          x:
-            geometry[neighborId].x +
-            geometry[neighborId].width +
-            DESIGN_SCREEN_GAP,
-          z: 1,
-        },
-        neighborCopy: {
-          ...geometry[neighborId],
-          x:
-            geometry[fartherId].x +
-            geometry[fartherId].width +
-            DESIGN_SCREEN_GAP,
-          z: 3,
-        },
-        fartherCopy: {
-          ...geometry[fartherId],
-          x:
-            geometry[fartherId].x +
-            2 * (geometry[fartherId].width + DESIGN_SCREEN_GAP),
-          z: 5,
-        },
-        farther: { ...geometry[fartherId], z: 4 },
-      });
 
+    try {
+      await expect
+        .poll(async () => {
+          const frames = (await designData(request, designId)).canvasFrames;
+          return {
+            sourceCopy: frames?.[sourceCopyId],
+            neighborCopy: frames?.[neighborCopyId],
+            fartherCopy: frames?.[fartherCopyId],
+            source: frames?.[sourceId],
+            neighbor: frames?.[neighborId],
+            farther: frames?.[fartherId],
+          };
+        })
+        .toEqual({
+          sourceCopy: {
+            ...geometry[sourceId],
+            x:
+              geometry[neighborId].x +
+              geometry[neighborId].width +
+              DESIGN_SCREEN_GAP,
+            z: 1,
+          },
+          neighborCopy: {
+            ...geometry[neighborId],
+            x:
+              geometry[fartherId].x +
+              geometry[fartherId].width +
+              DESIGN_SCREEN_GAP,
+            z: 3,
+          },
+          fartherCopy: {
+            ...geometry[fartherId],
+            x:
+              geometry[fartherId].x +
+              2 * (geometry[fartherId].width + DESIGN_SCREEN_GAP),
+            z: 5,
+          },
+          source: { ...geometry[sourceId], z: 0 },
+          neighbor: { ...geometry[neighborId], z: 2 },
+          farther: { ...geometry[fartherId], z: 4 },
+        });
+    } catch (error) {
+      await attachGeometryWriteChronology(
+        "cmd-d-post-duplicate-geometry-writes.json",
+      );
+      throw error;
+    }
+
+    phase = "undo";
     await page.keyboard.press(`${MOD}+z`);
     await expect
       .poll(async () => (await fileList(request, designId)).length)
       .toBe(filesBefore.length);
-    await expect
-      .poll(async () => {
-        const frames = (await designData(request, designId)).canvasFrames;
-        return [frames?.[sourceId], frames?.[neighborId], frames?.[fartherId]];
-      })
-      .toEqual([geometry[sourceId], geometry[neighborId], geometry[fartherId]]);
+    try {
+      await expect
+        .poll(async () => {
+          const frames = (await designData(request, designId)).canvasFrames;
+          return [
+            frames?.[sourceId],
+            frames?.[neighborId],
+            frames?.[fartherId],
+          ];
+        })
+        .toEqual([
+          geometry[sourceId],
+          geometry[neighborId],
+          geometry[fartherId],
+        ]);
+    } catch (error) {
+      await attachGeometryWriteChronology("cmd-d-undo-geometry-writes.json");
+      throw error;
+    }
 
+    phase = "redo";
     await page.keyboard.press(`${MOD}+Shift+z`);
     await expect
       .poll(async () => (await fileList(request, designId)).length)
