@@ -308,6 +308,24 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
         }
       }
     };
+    const collectListItemContent = (parent: Element) => {
+      for (const child of getPersistedChildren(parent)) {
+        const childTagName = child.tagName.toLowerCase();
+        if (SKIPPED_TAGS.has(childTagName)) continue;
+        if (childTagName === "p") {
+          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+        } else if (childTagName === "ul" || childTagName === "ol") {
+          collectListItems(child);
+        } else if (childTagName === "li") {
+          collectListItem(child);
+        } else if (shouldKeepAsSingleElement(child)) {
+          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+          collectNestedLists(child);
+        } else {
+          collectListItemContent(child);
+        }
+      }
+    };
     const collectListItem = (item: Element) => {
       const children = getPersistedChildren(item).filter(
         (child) => !SKIPPED_TAGS.has(child.tagName.toLowerCase()),
@@ -315,41 +333,17 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
       const hasParagraphs = children.some(
         (child) => child.tagName.toLowerCase() === "p",
       );
-      const hasUnaddressableContent =
-        hasOwnText(item) ||
-        children.some((child) => {
-          const childTagName = child.tagName.toLowerCase();
-          return (
-            childTagName !== "p" &&
-            childTagName !== "ul" &&
-            childTagName !== "ol" &&
-            hasMeaningfulContent(child)
-          );
-        });
-      if (hasParagraphs && hasUnaddressableContent) {
+      if (hasParagraphs && hasOwnText(item)) {
         nativeParagraphs.push(item);
-        for (const child of children) {
-          const childTagName = child.tagName.toLowerCase();
-          if (childTagName === "ul" || childTagName === "ol") {
-            collectListItems(child);
-          }
-        }
+        collectNestedLists(item);
         return;
       }
       if (!hasParagraphs && hasMeaningfulContent(item)) {
         nativeParagraphs.push(item);
+        collectNestedLists(item);
+        return;
       }
-
-      for (const child of children) {
-        const childTagName = child.tagName.toLowerCase();
-        if (childTagName === "p") {
-          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-        } else if (childTagName === "ul" || childTagName === "ol") {
-          collectListItems(child);
-        } else {
-          collectNestedLists(child);
-        }
-      }
+      collectListItemContent(item);
     };
     const collectListItems = (list: Element) => {
       for (const child of getPersistedChildren(list)) {
