@@ -1136,17 +1136,52 @@ function orderAppBandComponents(
 ): JourneyLayoutNode[] {
   const byKey = new Map(nodes.map((node) => [node.key, node]));
   const originalIndex = new Map(nodes.map((node, index) => [node.key, index]));
+  const rootKeyByNodeKey = new Map<string, string>();
+  const path: JourneyLayoutNode[] = [];
+  const pathIndex = new Map<string, number>();
   const rootKeyFor = (node: JourneyLayoutNode): string => {
-    const visited = new Set<string>();
+    const cached = rootKeyByNodeKey.get(node.key);
+    if (cached !== undefined) return cached;
+
+    path.length = 0;
+    pathIndex.clear();
     let current = node;
-    while (current.parentKey !== null) {
-      if (visited.has(current.key)) return current.key;
-      visited.add(current.key);
+    let rootKey: string;
+    while (true) {
+      const cachedRoot = rootKeyByNodeKey.get(current.key);
+      if (cachedRoot !== undefined) {
+        rootKey = cachedRoot;
+        break;
+      }
+      const cycleStart = pathIndex.get(current.key);
+      if (cycleStart !== undefined) {
+        rootKey = current.key;
+        for (let index = cycleStart - 1; index >= 0; index -= 1) {
+          rootKeyByNodeKey.set(path[index]!.key, rootKey);
+        }
+        path.length = 0;
+        pathIndex.clear();
+        return rootKey;
+      }
+      pathIndex.set(current.key, path.length);
+      path.push(current);
+      if (current.parentKey === null) {
+        rootKey = current.key;
+        break;
+      }
       const parent = byKey.get(current.parentKey);
-      if (!parent) return current.key;
+      if (!parent) {
+        rootKey = current.key;
+        break;
+      }
       current = parent;
     }
-    return current.key;
+    for (let index = path.length - 1; index >= 0; index -= 1) {
+      rootKeyByNodeKey.set(path[index]!.key, rootKey);
+    }
+    path.length = 0;
+    pathIndex.clear();
+    return rootKey;
   };
   const componentNodes = new Map<string, JourneyLayoutNode[]>();
   for (const node of nodes) {
