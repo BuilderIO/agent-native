@@ -207,6 +207,7 @@ type SessionReplayPlaybackResponse = {
   loadedBytes: number;
   totalBytes: number;
   isComplete: boolean;
+  streamable: boolean;
 };
 
 type AnyRecord = Record<string, any>;
@@ -508,7 +509,14 @@ function ReplayWorkbench({
   const initialSeekMs =
     initialRecordingOffsetMs === null
       ? null
-      : (offsetResolution?.playheadOffsetMs ?? 0);
+      : response.streamable && !response.isComplete
+        ? Math.max(
+            0,
+            initialRecordingOffsetMs +
+              Date.parse(response.recording.startedAt) -
+              replayStartedAt(events),
+          )
+        : (offsetResolution?.playheadOffsetMs ?? 0);
   const requestedOffsetStatus =
     response.isComplete && offsetResolution && !offsetResolution.exact
       ? {
@@ -626,6 +634,7 @@ function ReplayPlayer({
   const [status, setStatus] = useState<ReplayPlayerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [buffering, setBuffering] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [totalTime, setTotalTime] = useState(0);
   const [speed, setSpeed] = useState(DEFAULT_SPEED);
@@ -662,6 +671,18 @@ function ReplayPlayer({
   );
   const scrubbingRef = useRef(false);
   const scrubResumePlayingRef = useRef(false);
+  const streamableRef = useLiveRef(response.streamable);
+  const completeRef = useLiveRef(response.isComplete);
+  const initialSeekRef = useLiveRef(initialSeekMs);
+  const totalTimeRef = useLiveRef(totalTime);
+  const loadedEndMsRef = useRef(0);
+  const appendedEventCountRef = useRef(0);
+  const streamingPlayerRef = useRef(false);
+  const pendingSeekRef = useRef<{
+    targetMs: number;
+    autoplay: boolean;
+  } | null>(null);
+  const bufferedPlaybackTimeRef = useRef<number | null>(null);
 
   const displayDims = resolveReplayDisplayDimensions(
     streamedDims ?? initialDims,
@@ -783,12 +804,40 @@ function ReplayPlayer({
         return;
       }
       const clamped = clamp(ms, 0, Math.max(totalTime, 0));
+      if (
+        streamingPlayerRef.current &&
+        !completeRef.current &&
+        clamped > loadedEndMsRef.current
+      ) {
+        const current = Number(
+          replayer.getCurrentTime?.() ?? currentTimeRef.current,
+        );
+        try {
+          replayer.pause(current);
+        } catch (seekError) {
+          console.warn("[session-replay] buffering seek failed", seekError);
+          return;
+        }
+        pendingSeekRef.current = { targetMs: clamped, autoplay };
+        bufferedPlaybackTimeRef.current = null;
+        setBuffering(true);
+        setPlaying(autoplay);
+        updateTime(clamped);
+        return;
+      }
+      pendingSeekRef.current = null;
+      setBuffering(false);
+      bufferedPlaybackTimeRef.current = null;
       try {
+        const seekOffset =
+          completeRef.current && clamped === totalTime
+            ? replayFinalFrameOffset(clamped)
+            : clamped;
         if (autoplay) {
-          replayer.play(clamped);
+          replayer.play(seekOffset);
           setPlaying(true);
         } else {
-          replayer.pause(clamped);
+          replayer.pause(seekOffset);
           setPlaying(false);
         }
       } catch (seekError) {
@@ -814,6 +863,7 @@ function ReplayPlayer({
     [
       playingRef,
       savingScreenshotRef,
+      completeRef,
       status,
       streamedDimsRef,
       totalTime,
@@ -849,6 +899,10 @@ function ReplayPlayer({
     registerSeek(seek);
   }, [registerSeek, seek]);
 
+  const canInitializePlayer =
+    response.isComplete ||
+    (response.streamable && replayAvailabilityErrorKey(events) === null);
+
   useEffect(() => {
     if (!stageRootRef.current) return;
     let cancelled = false;
@@ -856,13 +910,14 @@ function ReplayPlayer({
     let stopCursorVisibilityObserver = () => {};
 
     async function loadReplay() {
-      const replayEvents = eventsRef.current;
-      if (!response.isComplete) {
+      if (!canInitializePlayer) {
         setStatus("loading");
         setError(null);
         setPlaying(false);
+        setBuffering(false);
         return;
       }
+      const replayEvents = eventsRef.current;
       const replayErrorKey = replayAvailabilityErrorKey(replayEvents);
       if (replayErrorKey) {
         throw new Error(
@@ -873,13 +928,17 @@ function ReplayPlayer({
       }
       setStatus("loading");
       setError(null);
+      setBuffering(false);
       await import("@rrweb/replay/dist/style.css");
       const { Replayer } = await import("@rrweb/replay");
       if (cancelled || !stageRootRef.current) return;
 
+      const currentEvents = eventsRef.current;
+      const livePlayer = streamableRef.current && !completeRef.current;
+
       stageRootRef.current.innerHTML = "";
-      setStreamedDims(replayInitialViewportDimensions(replayEvents));
-      localReplayer = new Replayer(replayEvents as any[], {
+      setStreamedDims(replayInitialViewportDimensions(currentEvents));
+      localReplayer = new Replayer(currentEvents as any[], {
         root: stageRootRef.current,
         speed: speedRef.current,
         skipInactive: false,
@@ -888,19 +947,28 @@ function ReplayPlayer({
         mouseTail: false,
         triggerFocus: true,
         insertStyleRules: REPLAY_OVERLAY_STYLE_RULES,
+        // Keep rrweb's normal play/pause state machine for scrubbing.
+        ...(livePlayer ? { liveMode: true } : {}),
       });
       localReplayer.iframe?.setAttribute?.("referrerpolicy", "no-referrer");
       stopCursorVisibilityObserver =
         hideReplayCursorUntilPosition(localReplayer);
       replayerRef.current = localReplayer;
+      streamingPlayerRef.current = livePlayer;
+      appendedEventCountRef.current = currentEvents.length;
+      loadedEndMsRef.current = replayDuration(currentEvents);
       const meta = localReplayer.getMetaData?.();
-      const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
+      const total = livePlayer
+        ? replayRecordingDuration(response.recording, currentEvents)
+        : Number(meta?.totalTime ?? replayDuration(currentEvents));
       setTotalTime(Number.isFinite(total) ? total : 0);
       const startAt = clamp(
-        initialSeekMs ?? currentTimeRef.current,
+        initialSeekRef.current ?? currentTimeRef.current,
         0,
         Number.isFinite(total) ? total : 0,
       );
+      const mustWaitForInitialSeek =
+        livePlayer && startAt > loadedEndMsRef.current;
       localReplayer.on?.("finish", () => {
         setPlaying(false);
         const finalTime = Number(localReplayer.getCurrentTime?.() ?? total);
@@ -930,11 +998,21 @@ function ReplayPlayer({
           setStreamedDims(rawDims);
         }
       });
-      updateTime(startAt);
       setStatus("ready");
       try {
-        localReplayer.play?.(startAt);
-        setPlaying(true);
+        if (mustWaitForInitialSeek) {
+          localReplayer.pause?.(0);
+          pendingSeekRef.current = { targetMs: startAt, autoplay: true };
+          setBuffering(true);
+          updateTime(startAt);
+          setPlaying(true);
+        } else {
+          pendingSeekRef.current = null;
+          setBuffering(false);
+          localReplayer.play?.(startAt);
+          updateTime(startAt);
+          setPlaying(true);
+        }
       } catch (autoplayError) {
         console.warn("[session-replay] autoplay failed", autoplayError);
         try {
@@ -943,6 +1021,7 @@ function ReplayPlayer({
           // Some rrweb versions only render after play; the first click still works.
         }
         setPlaying(false);
+        setBuffering(false);
       }
     }
 
@@ -951,6 +1030,7 @@ function ReplayPlayer({
       setError(loadError?.message || String(loadError));
       setStatus("error");
       setPlaying(false);
+      setBuffering(false);
     });
 
     return () => {
@@ -971,16 +1051,97 @@ function ReplayPlayer({
         // rrweb cleanup is best-effort across versions.
       }
       replayerRef.current = null;
+      streamingPlayerRef.current = false;
+      appendedEventCountRef.current = 0;
+      loadedEndMsRef.current = 0;
+      pendingSeekRef.current = null;
+      bufferedPlaybackTimeRef.current = null;
       if (stageRootRef.current) stageRootRef.current.innerHTML = "";
     };
   }, [
+    canInitializePlayer,
+    completeRef,
     currentTimeRef,
-    eventsIdentity,
     eventsRef,
-    initialSeekMs,
-    response.isComplete,
+    response.recording,
+    response.streamable,
+    streamableRef,
     speedRef,
     t,
+    updateTime,
+  ]);
+
+  useEffect(() => {
+    const replayer = replayerRef.current;
+    if (!replayer || !streamingPlayerRef.current) return;
+    const nextEvents = eventsRef.current;
+    const nextIndex = appendedEventCountRef.current;
+    if (nextEvents.length > nextIndex) {
+      const appended = nextEvents.slice(nextIndex);
+      for (const event of appended) replayer.addEvent(event);
+      appendedEventCountRef.current = nextEvents.length;
+      loadedEndMsRef.current = replayDuration(nextEvents);
+    }
+    if (completeRef.current) {
+      const finalTotal = replayDuration(nextEvents);
+      const nextTotal = Number.isFinite(finalTotal) ? finalTotal : 0;
+      totalTimeRef.current = nextTotal;
+      setTotalTime(nextTotal);
+    }
+
+    void Promise.resolve().then(() => {
+      if (replayerRef.current !== replayer) return;
+      const pending = pendingSeekRef.current;
+      if (
+        pending &&
+        (pending.targetMs <= loadedEndMsRef.current || completeRef.current)
+      ) {
+        const target = completeRef.current
+          ? clamp(pending.targetMs, 0, totalTimeRef.current)
+          : pending.targetMs;
+        const replayTarget =
+          completeRef.current && target === totalTimeRef.current
+            ? replayFinalFrameOffset(target)
+            : target;
+        pendingSeekRef.current = null;
+        bufferedPlaybackTimeRef.current = null;
+        setBuffering(false);
+        try {
+          if (pending.autoplay) {
+            replayer.play(replayTarget);
+            setPlaying(true);
+          } else {
+            replayer.pause(replayTarget);
+            setPlaying(false);
+          }
+          updateTime(target);
+        } catch (seekError) {
+          console.warn("[session-replay] buffered seek failed", seekError);
+          setPlaying(false);
+        }
+        return;
+      }
+      const resumeAt = bufferedPlaybackTimeRef.current;
+      if (resumeAt !== null && playingRef.current) {
+        bufferedPlaybackTimeRef.current = null;
+        setBuffering(false);
+        try {
+          replayer.play(resumeAt);
+        } catch (resumeError) {
+          console.warn("[session-replay] playback resume failed", resumeError);
+          setPlaying(false);
+        }
+      } else if (completeRef.current) {
+        setBuffering(false);
+      }
+    });
+  }, [
+    completeRef,
+    eventsIdentity,
+    eventsRef,
+    playingRef,
+    response.isComplete,
+    totalTimeRef,
     updateTime,
   ]);
 
@@ -995,13 +1156,61 @@ function ReplayPlayer({
     const tick = (frameTime: number) => {
       const replayer = replayerRef.current;
       if (replayer && !scrubbingRef.current) {
-        let nextTime = Number(
-          replayer.getCurrentTime?.() ?? currentTimeRef.current,
-        );
-        if (skipInactiveRef.current) {
+        const pendingSeek = pendingSeekRef.current;
+        let nextTime = pendingSeek
+          ? currentTimeRef.current
+          : Number(replayer.getCurrentTime?.() ?? currentTimeRef.current);
+        if (
+          !pendingSeek &&
+          streamingPlayerRef.current &&
+          !completeRef.current &&
+          nextTime >= loadedEndMsRef.current - 40
+        ) {
+          const frontier = loadedEndMsRef.current;
+          if (bufferedPlaybackTimeRef.current === null) {
+            bufferedPlaybackTimeRef.current = frontier;
+            try {
+              replayer.pause(frontier);
+            } catch (bufferError) {
+              console.warn(
+                "[session-replay] playback buffer failed",
+                bufferError,
+              );
+            }
+            setBuffering(true);
+          }
+          nextTime = frontier;
+        } else if (
+          !pendingSeek &&
+          completeRef.current &&
+          nextTime >= totalTimeRef.current - 40
+        ) {
+          nextTime = totalTimeRef.current;
+          try {
+            replayer.pause(replayFinalFrameOffset(nextTime));
+          } catch (finalFramePauseError) {
+            console.warn(
+              "[session-replay] final frame pause failed",
+              finalFramePauseError,
+            );
+          }
+          setPlaying(false);
+          setBuffering(false);
+        }
+        if (
+          !pendingSeek &&
+          skipInactiveRef.current &&
+          (!streamingPlayerRef.current ||
+            completeRef.current ||
+            bufferedPlaybackTimeRef.current === null)
+        ) {
           const range = skipRangesRef.current.find(
             (candidate) =>
-              nextTime >= candidate.startMs && nextTime < candidate.endMs - 50,
+              nextTime >= candidate.startMs &&
+              nextTime < candidate.endMs - 50 &&
+              (!streamingPlayerRef.current ||
+                completeRef.current ||
+                candidate.endMs <= loadedEndMsRef.current),
           );
           if (range) {
             try {
@@ -1037,6 +1246,7 @@ function ReplayPlayer({
       lastClockUpdateAtRef.current = null;
     };
   }, [
+    completeRef,
     currentTimeRef,
     playing,
     skipInactiveRef,
@@ -1051,12 +1261,40 @@ function ReplayPlayer({
     const replayer = replayerRef.current;
     if (!replayer) return;
     if (playing) {
+      if (pendingSeekRef.current) {
+        pendingSeekRef.current = {
+          ...pendingSeekRef.current,
+          autoplay: false,
+        };
+      }
       try {
         replayer.pause();
       } catch {
         // Ignore transient rrweb pause errors.
       }
       setPlaying(false);
+      return;
+    }
+    const pendingSeek = pendingSeekRef.current;
+    if (pendingSeek) {
+      pendingSeekRef.current = { ...pendingSeek, autoplay: true };
+      setPlaying(true);
+      return;
+    }
+    const bufferedAt = bufferedPlaybackTimeRef.current;
+    if (bufferedAt !== null) {
+      bufferedPlaybackTimeRef.current = null;
+      setBuffering(false);
+      try {
+        replayer.play(bufferedAt);
+        updateTime(bufferedAt);
+        setPlaying(true);
+      } catch (playError) {
+        setError(
+          playError instanceof Error ? playError.message : String(playError),
+        );
+        setStatus("error");
+      }
       return;
     }
     const restart = totalTime > 0 && currentTime >= totalTime - 50;
@@ -1280,6 +1518,26 @@ function ReplayPlayer({
                     </div>
                   </div>
                 ) : null}
+                {buffering && status === "ready" ? (
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center bg-background/80 px-3 py-2 text-xs text-muted-foreground">
+                    <div className="w-full max-w-sm">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary transition-[width]"
+                          style={{
+                            width: `${Math.round(loadingPercent * 100)}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="mt-1 text-center font-mono text-[11px]">
+                        {t("sessions.replayLoadingProgress", {
+                          loaded: String(response.loadedChunks),
+                          total: String(response.totalChunks),
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
                 {status === "error" && error ? (
                   <div className="absolute inset-0 z-30 grid place-items-center bg-background/85 p-6 text-center text-sm text-destructive">
                     {t("sessions.loadFailed", { message: error })}
@@ -1320,7 +1578,7 @@ function ReplayPlayer({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={disabled}
+                disabled={disabled || buffering}
                 onClick={() => void saveScreenshot()}
               >
                 <IconDownload className="me-1.5 h-4 w-4" />
@@ -1928,48 +2186,26 @@ function useSessionReplayPlayback(recordingId: string) {
         let loadedCount = 0;
         let loadedBytes = 0;
         let unavailableChunks = 0;
+        let streamable = replayManifestSupportsStreaming(manifest.chunks);
         const chunkIndexBySeq = new Map(
           manifest.chunks.map((chunk, index) => [chunk.seq, index]),
         );
 
-        const publish = (force = false) => {
+        const publish = () => {
           const complete = loadedCount >= manifest.chunks.length;
-          const chunks = loadedChunks.filter(
-            (chunk): chunk is ReplayChunkEvents => Boolean(chunk),
-          );
-          const shouldPublishEvents = force || complete;
-
-          if (shouldPublishEvents) {
-            setState({
-              data: playbackResponseFromChunks(manifest, chunks, {
-                isComplete: complete,
-                loadedChunks: loadedCount,
-                loadedBytes,
-                unavailableChunks,
-              }),
-              isLoading: false,
-              error: null,
-            });
-            return;
-          }
-
-          setState((current) => ({
-            data: current.data
-              ? {
-                  ...current.data,
-                  loadedChunks: loadedCount,
-                  loadedBytes,
-                  unavailableChunks,
-                }
-              : playbackResponseFromChunks(manifest, [], {
-                  isComplete: complete,
-                  loadedChunks: loadedCount,
-                  loadedBytes,
-                  unavailableChunks,
-                }),
+          const prefix = contiguousReplayChunkPrefix(loadedChunks);
+          const chunks = complete || streamable ? prefix : [];
+          setState({
+            data: playbackResponseFromChunks(manifest, chunks, {
+              isComplete: complete,
+              loadedChunks: loadedCount,
+              loadedBytes,
+              unavailableChunks,
+              streamable: streamable && (complete || chunks.length > 0),
+            }),
             isLoading: false,
             error: null,
-          }));
+          });
         };
 
         publish();
@@ -1985,11 +2221,18 @@ function useSessionReplayPlayback(recordingId: string) {
               loadedCount += 1;
               loadedBytes += manifest.chunks[index].byteLength;
               if (chunk.unavailable) unavailableChunks += 1;
+              if (
+                streamable &&
+                !replayChunkMatchesManifestRange(chunk, manifest.chunks[index])
+              ) {
+                streamable = false;
+              }
             }
             if (!cancelled) publish();
           },
+          { prioritizeFirstChunk: true },
         );
-        if (!cancelled) publish(true);
+        if (!cancelled) publish();
       } catch (loadError) {
         if (cancelled) return;
         cancelled = true;
@@ -2049,6 +2292,7 @@ export async function fetchSessionReplayPlayback(
       loadedChunks: chunks.length,
       loadedBytes,
       unavailableChunks,
+      streamable: false,
     });
   }
   const chunks = await fetchReplayChunks(manifest.chunks, options);
@@ -2062,6 +2306,11 @@ export async function fetchSessionReplayPlayback(
     loadedChunks: chunks.length,
     loadedBytes,
     unavailableChunks,
+    streamable:
+      replayManifestSupportsStreaming(manifest.chunks) &&
+      chunks.every((chunk, index) =>
+        replayChunkMatchesManifestRange(chunk, manifest.chunks[index]),
+      ),
   });
 }
 
@@ -2073,6 +2322,7 @@ function playbackResponseFromChunks(
     loadedChunks: number;
     loadedBytes: number;
     unavailableChunks: number;
+    streamable: boolean;
   },
 ): SessionReplayPlaybackResponse {
   const eventCount = chunks.reduce(
@@ -2094,7 +2344,65 @@ function playbackResponseFromChunks(
     loadedBytes: progress.loadedBytes,
     totalBytes,
     isComplete: progress.isComplete,
+    streamable: progress.streamable,
   };
+}
+
+export function replayManifestSupportsStreaming(
+  chunks: SessionReplayManifestResponse["chunks"],
+): boolean {
+  if (chunks.length === 0) return false;
+  let previousSequence = -1;
+  let previousEnd = Number.NEGATIVE_INFINITY;
+  for (const [index, chunk] of chunks.entries()) {
+    if (chunk.seq !== index || chunk.seq <= previousSequence) return false;
+    previousSequence = chunk.seq;
+    if (chunk.eventCount === 0) continue;
+    const startedAt = Date.parse(chunk.startedAt ?? "");
+    const endedAt = Date.parse(chunk.endedAt ?? "");
+    if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt)) return false;
+    if (startedAt > endedAt) return false;
+    if (startedAt < previousEnd) return false;
+    previousEnd = endedAt;
+  }
+  return true;
+}
+
+export function replayChunkMatchesManifestRange(
+  chunk: ReplayChunkEvents,
+  manifestChunk: SessionReplayManifestResponse["chunks"][number],
+): boolean {
+  if (chunk.unavailable) return false;
+  if (
+    chunk.events.length !== chunk.eventCount ||
+    chunk.eventCount !== manifestChunk.eventCount
+  ) {
+    return false;
+  }
+  if (chunk.events.length === 0) return manifestChunk.eventCount === 0;
+  const startedAt = Date.parse(manifestChunk.startedAt ?? "");
+  const endedAt = Date.parse(manifestChunk.endedAt ?? "");
+  if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt)) return false;
+  return chunk.events.every((event) => {
+    if (!isRecord(event) || typeof event.timestamp !== "number") return false;
+    const timestamp = event.timestamp;
+    return (
+      Number.isFinite(timestamp) &&
+      timestamp >= startedAt &&
+      timestamp <= endedAt
+    );
+  });
+}
+
+export function contiguousReplayChunkPrefix(
+  chunks: Array<ReplayChunkEvents | undefined>,
+): ReplayChunkEvents[] {
+  const prefix: ReplayChunkEvents[] = [];
+  for (const chunk of chunks) {
+    if (!chunk) break;
+    prefix.push(chunk);
+  }
+  return prefix;
 }
 
 async function fetchReplayManifest(
@@ -2378,14 +2686,15 @@ function isReplayCaptureChunkPath(
   return decodeURIComponent(match[1]!) === recordingId;
 }
 
-async function fetchReplayChunks(
+export async function fetchReplayChunks(
   chunks: SessionReplayManifestResponse["chunks"],
   options: FetchSessionReplayPlaybackOptions,
   onBatch?: (chunks: ReplayChunkEvents[]) => void,
+  behavior: { prioritizeFirstChunk?: boolean } = {},
 ): Promise<ReplayChunkEvents[]> {
   const results = new Array<ReplayChunkEvents>(chunks.length);
   const indexBySeq = new Map(chunks.map((chunk, index) => [chunk.seq, index]));
-  const batches = partitionReplayChunkBatches(chunks);
+  const batches = partitionReplayChunkBatches(chunks, behavior);
   let nextIndex = 0;
 
   async function worker() {
@@ -2414,7 +2723,14 @@ async function fetchReplayChunks(
 
 export function partitionReplayChunkBatches(
   chunks: SessionReplayManifestResponse["chunks"],
+  options: { prioritizeFirstChunk?: boolean } = {},
 ): Array<SessionReplayManifestResponse["chunks"]> {
+  if (options.prioritizeFirstChunk && chunks.length > 1) {
+    return [
+      chunks.slice(0, 1),
+      ...partitionReplayChunkBatches(chunks.slice(1)),
+    ];
+  }
   const batches: Array<SessionReplayManifestResponse["chunks"]> = [];
   let batch: SessionReplayManifestResponse["chunks"] = [];
   let declaredBytes = 0;
@@ -2593,15 +2909,33 @@ export function replayPayloadEvents(payload: unknown): unknown[] {
 function useReplayEvents(
   response: SessionReplayPlaybackResponse,
 ): AnyReplayEvent[] {
-  return useMemo(
-    () =>
-      normalizeReplayEvents(
-        response.chunks
-          .flatMap((chunk) => chunk.events)
-          .filter((event) => event && typeof event === "object"),
-      ),
-    [response.chunks],
-  );
+  return useMemo(() => {
+    if (response.streamable) {
+      return response.chunks.flatMap((chunk) =>
+        normalizeReplayChunkEvents(chunk),
+      );
+    }
+    return normalizeReplayEvents(
+      response.chunks
+        .flatMap((chunk) => chunk.events)
+        .filter((event) => event && typeof event === "object"),
+    );
+  }, [response.chunks, response.streamable]);
+}
+
+const normalizedReplayChunkCache = new WeakMap<
+  ReplayChunkEvents,
+  AnyReplayEvent[]
+>();
+
+function normalizeReplayChunkEvents(
+  chunk: ReplayChunkEvents,
+): AnyReplayEvent[] {
+  const cached = normalizedReplayChunkCache.get(chunk);
+  if (cached) return cached;
+  const normalized = normalizeReplayEvents(chunk.events);
+  normalizedReplayChunkCache.set(chunk, normalized);
+  return normalized;
 }
 
 export function buildReplayMarkers(
@@ -3115,6 +3449,23 @@ function replayDuration(events: AnyReplayEvent[]): number {
   return Math.max(0, endedAt - startedAt);
 }
 
+function replayRecordingDuration(
+  recording: SessionRecordingSummary,
+  events: AnyReplayEvent[],
+): number {
+  const endedAt = recording.endedAt
+    ? Date.parse(recording.endedAt)
+    : Number.NaN;
+  const recordedEnd = Number.isFinite(endedAt)
+    ? endedAt
+    : Date.parse(recording.startedAt) + Math.max(0, recording.durationMs ?? 0);
+  const eventStart = replayStartedAt(events);
+  return Math.max(
+    replayDuration(events),
+    Number.isFinite(recordedEnd) ? Math.max(0, recordedEnd - eventStart) : 0,
+  );
+}
+
 function replayInputValue(data: AnyRecord): string | undefined {
   if (typeof data.text === "string" && data.text) return data.text;
   if (typeof data.value === "string" && data.value) return data.value;
@@ -3298,6 +3649,11 @@ export function shouldPublishReplayClockUpdate(
     lastUpdateAt == null ||
     frameTime - lastUpdateAt >= REPLAY_CLOCK_UPDATE_INTERVAL_MS
   );
+}
+
+// rrweb queues an event at the baseline, and a same-tick pause would clear it.
+export function replayFinalFrameOffset(totalTimeMs: number): number {
+  return totalTimeMs + 1;
 }
 
 function isRecord(value: unknown): value is AnyRecord {

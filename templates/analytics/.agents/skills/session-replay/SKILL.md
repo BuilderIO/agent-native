@@ -344,9 +344,23 @@ agent answers about browser recordings in the Analytics template.
 
 ## Playback Viewer
 
-- Wait for all replay chunks (`isComplete`) before constructing the rrweb
-  `Replayer`. Progressive chunk publishes should only update the loading bar;
-  rebuilding the player mid-load desyncs the scrubber and playhead.
+- Stream only when the manifest has dense, chronological chunk ranges and each
+  available chunk's event count and timestamps match its manifest range. Start
+  with the contiguous prefix from sequence 0, which must contain both rrweb
+  Meta and FullSnapshot events. If any chunk is unavailable or any check fails,
+  discard partial playback data and wait for the complete response before
+  creating the normal player.
+- For a validated prefix, create one `Replayer` with `liveMode: true` and keep
+  that instance for the recording. Append later chunks with `addEvent`; never
+  rebuild the player as batches arrive, because that desynchronizes scrubbing
+  and the playhead. Do not call `startLive()`: retain rrweb's normal play/pause
+  state machine. Use the recording summary for the full duration while chunks
+  are still loading.
+- Keep backward and in-range seeks immediate. If playback reaches the loaded
+  horizon, or a seek targets later data, pause and show buffering; continue at
+  the exact buffered playhead after the contiguous prefix arrives. Do not skip
+  inactive ranges past the loaded horizon. When the recording completes,
+  restore normal end-of-recording behavior.
 - Pass normal events to `Replayer` untouched. rrweb rebuilds them in a sandboxed
   iframe; pre-processing DOM, stylesheet, resource, or mutation payloads makes
   playback diverge from the captured page. In particular, never rewrite `href`, `src`,
