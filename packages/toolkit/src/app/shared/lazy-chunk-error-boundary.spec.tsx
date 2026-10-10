@@ -39,6 +39,7 @@ describe("LazyChunkErrorBoundary", () => {
 
   it("handles only the tagged import rejection and preserves its error identity", async () => {
     const error = new Error("Failed to fetch dynamically imported module");
+    const onError = vi.fn();
     const errors = new Set<unknown>();
     const Panel = lazy(() =>
       Promise.reject(error).catch((error) => {
@@ -50,6 +51,7 @@ describe("LazyChunkErrorBoundary", () => {
       root.render(
         <LazyChunkErrorBoundary
           shouldHandleError={(error) => errors.has(error)}
+          onError={onError}
           fallback={<div>Import failed</div>}
         >
           <Suspense fallback={null}>
@@ -60,11 +62,28 @@ describe("LazyChunkErrorBoundary", () => {
     });
     expect(container.textContent).toBe("Import failed");
     expect(recoverFromStaleChunkError).toHaveBeenCalledWith(error);
+    expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+  });
+
+  it("does not report a rejected error from the catch lifecycle", () => {
+    const error = new Error("Panel render failed");
+    const onError = vi.fn();
+    const boundary = new LazyChunkErrorBoundary({
+      children: null,
+      fallback: null,
+      shouldHandleError: () => false,
+      onError,
+    });
+    recoverFromStaleChunkError.mockClear();
+    boundary.componentDidCatch(error, { componentStack: "Panel" });
+    expect(onError).not.toHaveBeenCalled();
+    expect(recoverFromStaleChunkError).not.toHaveBeenCalled();
   });
 
   it("lets ordinary panel render errors reach the outer boundary", async () => {
     const error = new Error("Panel render failed");
     const caught = vi.fn();
+    const onError = vi.fn();
     class OuterBoundary extends React.Component<
       { children: React.ReactNode },
       { error: unknown }
@@ -89,6 +108,7 @@ describe("LazyChunkErrorBoundary", () => {
         <OuterBoundary>
           <LazyChunkErrorBoundary
             shouldHandleError={() => false}
+            onError={onError}
             fallback={<div>Import failed</div>}
           >
             <Panel />
@@ -98,11 +118,13 @@ describe("LazyChunkErrorBoundary", () => {
     });
     expect(container.textContent).toBe("Panel failed");
     expect(caught).toHaveBeenCalledWith(error);
+    expect(onError).not.toHaveBeenCalled();
     expect(recoverFromStaleChunkError).not.toHaveBeenCalled();
   });
 
   it("keeps sibling app content mounted when a lazy loader rejects", async () => {
     const onRetry = vi.fn();
+    const onError = vi.fn();
 
     await act(async () => {
       root.render(
@@ -116,6 +138,7 @@ describe("LazyChunkErrorBoundary", () => {
             <div data-testid="app-content">App content</div>
             <LazyChunkErrorBoundary
               fallback={<LazyChunkRetryFallback onRetry={onRetry} />}
+              onError={onError}
             >
               <Suspense fallback={<div data-testid="lazy-loading" />}>
                 <FailingLazy />
@@ -134,5 +157,6 @@ describe("LazyChunkErrorBoundary", () => {
     act(() => retry?.click());
     expect(onRetry).toHaveBeenCalledOnce();
     expect(recoverFromStaleChunkError).toHaveBeenCalledWith(expect.any(Error));
+    expect(onError).toHaveBeenCalledExactlyOnceWith(expect.any(Error));
   });
 });
