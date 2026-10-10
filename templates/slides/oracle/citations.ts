@@ -35,31 +35,46 @@ export function titleCitations(source: string, fileName: string): string[] {
     syntax: "typescript",
     tsx: fileName.endsWith(".tsx"),
   });
+  // Vitest runs only the focused tests of a file that has a focused one.
+  const fileFocused = hasFocusedDeclaration(ast);
   const ids: string[] = [];
-  collectTitleCitations(ast, false, ids);
+  collectTitleCitations(
+    ast,
+    { skipped: false, focused: false },
+    fileFocused,
+    ids,
+  );
   return ids;
 }
 
+type Scope = { skipped: boolean; focused: boolean };
+
 function collectTitleCitations(
   value: unknown,
-  inSkipped: boolean,
+  scope: Scope,
+  fileFocused: boolean,
   ids: string[],
 ): void {
   if (Array.isArray(value)) {
-    for (const item of value) collectTitleCitations(item, inSkipped, ids);
+    for (const item of value) {
+      collectTitleCitations(item, scope, fileFocused, ids);
+    }
     return;
   }
   if (typeof value !== "object" || value === null) return;
   const node = value as AstNode;
-  let skipped = inSkipped;
+  let inner = scope;
   if (node.type === "CallExpression") {
     const declaration = testDeclaration(node.callee);
     if (declaration !== undefined) {
-      skipped =
-        inSkipped || declaration.modifiers.some((m) => NOT_RUNNABLE.has(m));
+      const skipped =
+        scope.skipped || declaration.modifiers.some((m) => NOT_RUNNABLE.has(m));
+      const focused = scope.focused || declaration.modifiers.includes("only");
+      inner = { skipped, focused };
       const title = titleText(firstArgument(node));
       // A suite title is not a test, so only it() and test() titles cite rows.
-      if (!skipped && declaration.base !== "describe" && title !== undefined) {
+      const runs = !skipped && (!fileFocused || focused);
+      if (runs && declaration.base !== "describe" && title !== undefined) {
         for (const match of title.matchAll(CITATION_PATTERN)) {
           ids.push(match[1]);
         }
@@ -67,8 +82,19 @@ function collectTitleCitations(
     }
   }
   for (const child of Object.values(node)) {
-    collectTitleCitations(child, skipped, ids);
+    collectTitleCitations(child, inner, fileFocused, ids);
   }
+}
+
+function hasFocusedDeclaration(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasFocusedDeclaration);
+  if (typeof value !== "object" || value === null) return false;
+  const node = value as AstNode;
+  if (node.type === "CallExpression") {
+    const declaration = testDeclaration(node.callee);
+    if (declaration?.modifiers.includes("only")) return true;
+  }
+  return Object.values(node).some(hasFocusedDeclaration);
 }
 
 function firstArgument(call: AstNode): AstNode | undefined {

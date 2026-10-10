@@ -139,12 +139,29 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual([]);
   });
 
-  it("still counts only, concurrent and fails declarations", () => {
+  it("still counts concurrent and fails declarations when nothing is focused", () => {
     const source = [
-      `it.only("moves (oracle 4.8)", () => {});`,
       `it.concurrent("snaps (oracle 4.9)", () => {});`,
       `it.fails("crops (oracle 3.6)", () => {});`,
     ].join("\n");
-    expect(titleCitations(source, "a.test.ts")).toEqual(["4.8", "4.9", "3.6"]);
+    expect(titleCitations(source, "a.test.ts")).toEqual(["4.9", "3.6"]);
+  });
+
+  it("counts only the focused test in a file that focuses one", () => {
+    const source = [
+      `it.only("moves (oracle 4.8)", () => {});`,
+      `it("snaps (oracle 4.9)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["4.8"]);
+  });
+
+  it("counts every test inside a focused suite", () => {
+    const source = [
+      `describe.only("group", () => {`,
+      `  it("moves (oracle 5.1)", () => {});`,
+      `});`,
+      `it("snaps (oracle 5.2)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["5.1"]);
   });
 });
