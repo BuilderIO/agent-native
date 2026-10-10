@@ -7584,11 +7584,24 @@ async function warmUp(page: Page, base: string) {
   // full-page reload; let that cold browser warm-up finish before retrying.
   const browserErrors: string[] = [];
   const onConsole = (message: any) => {
-    if (message.type() === "error") browserErrors.push(message.text());
+    if (message.type() === "error") {
+      browserErrors.push(
+        `${message.text()} (${JSON.stringify(message.location())})`,
+      );
+    }
   };
-  const onPageError = (error: Error) => browserErrors.push(error.message);
+  const onPageError = (error: Error) =>
+    browserErrors.push(error.stack ?? error.message);
+  const onResponse = (response: any) => {
+    if (response.status() >= 500) {
+      browserErrors.push(
+        `${response.request().method()} ${response.url()} returned ${response.status()}`,
+      );
+    }
+  };
   page.on("console", onConsole);
   page.on("pageerror", onPageError);
+  page.on("response", onResponse);
   try {
     await openSlide(page, base, deckId, 0, "warm-1", {
       canvasTimeoutMs: 120_000,
@@ -7603,6 +7616,7 @@ async function warmUp(page: Page, base: string) {
   } finally {
     page.off("console", onConsole);
     page.off("pageerror", onPageError);
+    page.off("response", onResponse);
   }
   const [target] = await listTargets(page, "warm-1");
   if (target && (await enterEdit(page, "warm-1", target.point, []))) {
@@ -7617,6 +7631,18 @@ main().then(
     console.error(
       `[edit-fidelity] could not run: ${(error as Error).stack ?? error}`,
     );
+    const serverLogPath = path.join(outRoot, "server.log");
+    if (existsSync(serverLogPath)) {
+      try {
+        console.error(
+          `[edit-fidelity] scratch server log tail:\n${readFileSync(serverLogPath, "utf8").slice(-16_000)}`,
+        );
+      } catch (logError) {
+        console.error(
+          `[edit-fidelity] could not read scratch server log: ${String(logError)}`,
+        );
+      }
+    }
     process.exit(2);
   },
 );
