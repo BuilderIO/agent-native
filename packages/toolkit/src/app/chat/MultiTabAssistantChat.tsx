@@ -153,7 +153,14 @@ async function deliverPendingPrefill(
       return;
     }
   }
-  if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
+  if (isAgentChatSubmitCancelled(send.submitMessageId)) {
+    if (send.prefillContext) {
+      await ref.removeComposerContextItem(send.prefillContext.key, {
+        threadScoped: true,
+      });
+    }
+    return;
+  }
   try {
     ref.prefillMessage(send.message);
   } catch {
@@ -166,7 +173,12 @@ async function deliverPendingPrefill(
 function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
-    void deliverPendingPrefill(ref, send);
+    void deliverPendingPrefill(ref, send).catch((error: unknown) => {
+      console.error(
+        "Could not finish a cancelled chat prefill cleanup.",
+        error,
+      );
+    });
     return;
   }
   // Every field is decided once, here; a separate "has options" condition

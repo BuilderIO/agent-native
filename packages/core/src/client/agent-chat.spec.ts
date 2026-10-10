@@ -76,7 +76,9 @@ const {
   listAgentChatContext,
   normalizeAgentComposerReference,
   parseSubmitChatMessage,
+  publishAgentChatContextItems,
   removeAgentChatContextItem,
+  removeAgentChatContextItemAndPersist,
   reportAgentChatSubmitResult,
   sendToAgentChat,
   sendToAgentChatAndConfirm,
@@ -1700,6 +1702,7 @@ describe("sendToAgentChat", () => {
       targetThreadId: "thread-1",
     });
 
+    await flushMicrotasks();
     expect(fetchSpy).toHaveBeenCalledOnce();
     expect(listAgentChatContext()).toEqual([]);
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
@@ -1717,6 +1720,86 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toContain(
       "agentNative.chatContextChanged",
     );
+  });
+
+  it("rebases concurrent persisted context updates on the latest state", async () => {
+    const firstWrite =
+      Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    const secondWrite =
+      Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy
+      .mockImplementationOnce(() => firstWrite.promise)
+      .mockImplementationOnce(() => secondWrite.promise);
+
+    const first = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "First context",
+      context: "First selection",
+      targetThreadId: "thread-1",
+    });
+    const second = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-2",
+      title: "Second context",
+      context: "Second selection",
+      targetThreadId: "thread-2",
+    });
+
+    await flushMicrotasks();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const firstState = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
+    firstWrite.resolve({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(firstState),
+    });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    const secondState = JSON.parse(fetchSpy.mock.calls[1]?.[1]?.body as string);
+    expect(secondState.items.map(({ key }: { key: string }) => key)).toEqual([
+      "prefill:thread-1",
+      "prefill:thread-2",
+    ]);
+    secondWrite.resolve({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(secondState),
+    });
+
+    await Promise.all([first, second]);
+    expect(listAgentChatContext().map(({ key }) => key)).toEqual([
+      "prefill:thread-1",
+      "prefill:thread-2",
+    ]);
+  });
+
+  it("persists removal of a staged composer context item", async () => {
+    const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy.mockImplementationOnce(() => write.promise);
+    publishAgentChatContextItems(
+      [
+        {
+          key: "prefill:thread-1",
+          title: "Active app context",
+          context: "Selected rows: a, b",
+          targetThreadId: "thread-1",
+        },
+      ],
+      { persist: false },
+    );
+    const removal = removeAgentChatContextItemAndPersist("prefill:thread-1");
+
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    const requestState = JSON.parse(
+      fetchSpy.mock.calls[0]?.[1]?.body as string,
+    );
+    expect(requestState.items).toEqual([]);
+    write.resolve({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(requestState),
+    });
+
+    await expect(removal).resolves.toBeUndefined();
+    expect(listAgentChatContext()).toEqual([]);
   });
 
   it("does not publish composer context when persistence fails", async () => {

@@ -36,6 +36,7 @@ import {
   getAgentChatContextState,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
+  removeAgentChatContextItemAndPersist,
   reportAgentChatSubmitResult,
   refreshAgentChatContext,
   setAgentChatContextItemAndPersist,
@@ -2983,9 +2984,21 @@ const AgentKitAssistantChatBody = forwardRef<
     [props.contextNamespace, requestComposerFocus, threadId],
   );
   const removeContextItem = useCallback(
-    (key: string) => {
+    (key: string, options?: { threadScoped?: boolean }) => {
+      const targetKey = options?.threadScoped ? `${key}:${threadId}` : key;
+      if (options?.threadScoped) {
+        return removeAgentChatContextItemAndPersist(targetKey).then(() => {
+          setContextItems(
+            filterAgentChatContextItems(
+              getAgentChatContextState().items,
+              props.contextNamespace,
+              threadId,
+            ),
+          );
+        });
+      }
       const next = getAgentChatContextState().items.filter(
-        (item) => item.key !== key,
+        (item) => item.key !== targetKey,
       );
       publishAgentChatContextItems(next);
       setContextItems(

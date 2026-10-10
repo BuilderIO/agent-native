@@ -40,6 +40,7 @@ export {
   publishAgentChatContextItems,
   refreshAgentChatContext,
   removeAgentChatContextItem,
+  removeAgentChatContextItemAndPersist,
   reportAgentChatSubmitResult,
   reportAgentChatSubmitTarget,
   requestAgentChatThreadOpen,

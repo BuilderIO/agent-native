@@ -710,6 +710,35 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
   });
 
+  it("removes persisted thread context when its prefill is cancelled", async () => {
+    const persisted = Promise.withResolvers<void>();
+    chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+      persisted.promise,
+    );
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        submitMessageId: "prefill-cancelled-after-persist",
+      });
+    });
+    cancelAgentChatSubmit("prefill-cancelled-after-persist");
+
+    await act(async () => {
+      persisted.resolve();
+      await persisted.promise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.removeComposerContextItem).toHaveBeenCalledWith(
+      "agent-chat-prefill-context",
+      { threadScoped: true },
+    );
+  });
+
   it("reports a failed context write without saving the draft", async () => {
     const results: unknown[] = [];
     const onResult = (event: Event) =>

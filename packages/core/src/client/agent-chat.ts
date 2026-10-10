@@ -216,8 +216,20 @@ let agentChatContextState: AgentChatContextState = {
   items: [],
   updatedAt: 0,
 };
+let pendingAgentChatContextPersistence: Promise<void> = Promise.resolve();
 const agentChatContextListeners = new Set<() => void>();
 let agentChatContextNotifyQueued = false;
+
+function queueAgentChatContextPersistence<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const mutation = pendingAgentChatContextPersistence.then(operation);
+  pendingAgentChatContextPersistence = mutation.then(
+    () => undefined,
+    () => undefined,
+  );
+  return mutation;
+}
 
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
@@ -1479,32 +1491,75 @@ export async function setAgentChatContextItemAndPersist(
     throw new Error("Agent chat context can only be persisted in a browser.");
   }
 
-  const nextState: AgentChatContextState = {
-    items: withReplacedAgentChatContextItem(agentChatContextState.items, item),
-    updatedAt: Math.max(Date.now(), agentChatContextState.updatedAt + 1),
-  };
-  const persistedState = normalizeAgentChatContextState(
-    await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
-      keepalive: true,
-    }),
-  );
-  const persistedItem = persistedState?.items.find(
-    (candidate) => candidate.key === item.key,
-  );
-  if (
-    !persistedState ||
-    !persistedItem ||
-    persistedItem.title !== item.title ||
-    persistedItem.context !== item.context ||
-    persistedItem.contextNamespace !== item.contextNamespace ||
-    persistedItem.targetThreadId !== item.targetThreadId
-  ) {
-    throw new Error("Agent chat context was not persisted.");
+  await queueAgentChatContextPersistence(async () => {
+    const nextState: AgentChatContextState = {
+      items: withReplacedAgentChatContextItem(
+        agentChatContextState.items,
+        item,
+      ),
+      updatedAt: Math.max(Date.now(), agentChatContextState.updatedAt + 1),
+    };
+    const persistedState = normalizeAgentChatContextState(
+      await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
+        keepalive: true,
+      }),
+    );
+    const persistedItem = persistedState?.items.find(
+      (candidate) => candidate.key === item.key,
+    );
+    if (
+      !persistedState ||
+      !persistedItem ||
+      persistedItem.title !== item.title ||
+      persistedItem.context !== item.context ||
+      persistedItem.contextNamespace !== item.contextNamespace ||
+      persistedItem.targetThreadId !== item.targetThreadId
+    ) {
+      throw new Error("Agent chat context was not persisted.");
+    }
+
+    publishAgentChatContextItems(persistedState.items, {
+      persist: false,
+      updatedAt: persistedState.updatedAt,
+    });
+  });
+}
+
+/** Remove a staged context item from persisted state before clearing its composer. */
+export async function removeAgentChatContextItemAndPersist(
+  key: string,
+): Promise<void> {
+  const normalizedKey = key.trim();
+  if (!normalizedKey) {
+    throw new TypeError("Agent chat context key must not be empty.");
+  }
+  if (typeof window === "undefined") {
+    throw new Error("Agent chat context can only be persisted in a browser.");
   }
 
-  publishAgentChatContextItems(persistedState.items, {
-    persist: false,
-    updatedAt: persistedState.updatedAt,
+  await queueAgentChatContextPersistence(async () => {
+    const nextState: AgentChatContextState = {
+      items: agentChatContextState.items.filter(
+        (item) => item.key !== normalizedKey,
+      ),
+      updatedAt: Math.max(Date.now(), agentChatContextState.updatedAt + 1),
+    };
+    const persistedState = normalizeAgentChatContextState(
+      await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
+        keepalive: true,
+      }),
+    );
+    if (
+      !persistedState ||
+      persistedState.items.some((item) => item.key === normalizedKey)
+    ) {
+      throw new Error("Agent chat context removal was not persisted.");
+    }
+
+    publishAgentChatContextItems(persistedState.items, {
+      persist: false,
+      updatedAt: persistedState.updatedAt,
+    });
   });
 }
 

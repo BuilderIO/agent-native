@@ -579,6 +579,10 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
       );
       chatMocks.contextItems = actual.getAgentChatContextState().items;
     },
+    removeAgentChatContextItemAndPersist: async (key: string) => {
+      await actual.removeAgentChatContextItemAndPersist(key);
+      chatMocks.contextItems = actual.getAgentChatContextState().items;
+    },
     refreshAgentChatContext: vi.fn(async () => undefined),
     subscribeAgentChatContext: vi.fn(() => () => undefined),
   };
@@ -2011,6 +2015,20 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toEqual([staged]);
     expect(chatMocks.contextItems).toEqual([staged]);
     expect(chatMocks.composerProps.contextItems).toEqual([staged]);
+
+    await act(async () =>
+      ref.current!.removeComposerContextItem("agent-chat-prefill-context", {
+        threadScoped: true,
+      }),
+    );
+    expect(
+      (
+        chatMocks.appState.get("agent-chat-context") as {
+          items: unknown[];
+        }
+      ).items,
+    ).toEqual([]);
+    expect(chatMocks.composerProps.contextItems).toEqual([]);
 
     chatMocks.threadId = "thread-2";
     await act(async () =>

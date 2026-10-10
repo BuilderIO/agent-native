@@ -75,7 +75,10 @@ export interface AssistantChatHandle {
     options?: { focus?: boolean; threadScoped?: boolean },
   ): void | Promise<void>;
   /** Remove a keyed context item from the composer. */
-  removeComposerContextItem(key: string): void;
+  removeComposerContextItem(
+    key: string,
+    options?: { threadScoped?: boolean },
+  ): void | Promise<void>;
   /** Clear all staged context items from the composer. */
   clearComposerContextItems(): void;
   /** Programmatically send a recovery prompt without replacing the original request. */
