@@ -19,7 +19,6 @@ const QA_UPLOAD_ROOT = path.resolve(
 const LEGACY_QA_UPLOAD_ROOT = path.resolve(
   "node_modules/.cache/agent-native-design/figma-qa-assets",
 );
-
 const MIME_EXTENSIONS = new Map([
   ["image/png", "png"],
   ["image/jpeg", "jpg"],
@@ -210,6 +209,8 @@ export function registerLocalImportAssetUploadProvider(): void {
   registerFileUploadProvider(createLocalImportAssetUploadProvider());
   registerPrivateBlobProvider(createLocalImportAssetPrivateBlobProvider());
   registerPrivateBlobProvider(
-    createPreviousLocalImportAssetPrivateBlobProvider(),
+    createPreviousLocalImportAssetPrivateBlobProvider({
+      enabled: () => false,
+    }),
   );
 }

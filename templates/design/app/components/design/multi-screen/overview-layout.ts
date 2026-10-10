@@ -89,6 +89,46 @@ export function getFocusedLineupFitScale(args: {
 }
 
 /**
+ * Camera that frames `bounds` (canvas px) whole and centered in the pane
+ * between the chrome insets, with the widget margin around it. `x`/`y` are the
+ * world pan and `zoom` is a percent. A pure function of the pane and the
+ * bounds, so every pane or content change maps to exactly one camera.
+ */
+export function getWidgetFitCamera(args: {
+  bounds: { left: number; top: number; width: number; height: number };
+  pane: { width: number; height: number };
+  insetLeft: number;
+  insetRight: number;
+  minScale: number;
+  maxScale: number;
+}): { x: number; y: number; zoom: number } {
+  const { bounds, pane } = args;
+  const availableWidth = Math.max(
+    0,
+    pane.width - args.insetLeft - args.insetRight,
+  );
+  const padding = getWidgetFitPaddingPx(availableWidth, pane.height);
+  const scale = getFocusedLineupFitScale({
+    frameWidth: bounds.width,
+    frameHeight: bounds.height,
+    availableWidth: Math.max(0, availableWidth - padding * 2),
+    availableHeight: Math.max(0, pane.height - padding * 2),
+    minScale: args.minScale,
+    maxScale: args.maxScale,
+  });
+  return {
+    x:
+      args.insetLeft +
+      (availableWidth - bounds.width * scale) / 2 -
+      (SURFACE_PADDING + bounds.left) * scale,
+    y:
+      (pane.height - bounds.height * scale) / 2 -
+      (SURFACE_PADDING + bounds.top) * scale,
+    zoom: scale * 100,
+  };
+}
+
+/**
  * Height a focused frame renders at so the pane below it is never empty: at
  * least the pane's viewport height at the focused scale, so the screen's own
  * layout reflows into the taller viewport the way a resized device frame does.

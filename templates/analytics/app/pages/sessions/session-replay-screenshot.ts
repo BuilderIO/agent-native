@@ -725,6 +725,7 @@ export function crossOriginImageUrls(document: Document): string[] {
 export async function assertRemoteImagesCapturable(
   document: Document,
   signal?: AbortSignal,
+  credentials: RequestCredentials = "same-origin",
 ): Promise<ReplayScreenshotAssets> {
   const documents = replayDocuments(document);
   const resources = imageResourcesInDocuments(documents);
@@ -763,7 +764,7 @@ export async function assertRemoteImagesCapturable(
           throw new ReplayScreenshotAssetError();
         }
         const response = await fetch(resource.url, {
-          credentials: "same-origin",
+          credentials,
           mode: "cors",
           signal: controller.signal,
         });
@@ -1274,6 +1275,7 @@ export async function captureReplayScreenshot(
   stageRoot: HTMLElement,
   iframe: HTMLIFrameElement,
   signal?: AbortSignal,
+  options: { assetCredentials?: RequestCredentials } = {},
 ): Promise<Blob> {
   const replayWindow = iframe.contentWindow;
   const replayDocument = iframe.contentDocument;
@@ -1311,6 +1313,7 @@ export async function captureReplayScreenshot(
     const replayAssets = await assertRemoteImagesCapturable(
       replayDocument,
       signal,
+      options.assetCredentials,
     );
     assertCaptureAvailable();
     await waitForReplayPaint(signal);

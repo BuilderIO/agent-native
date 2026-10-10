@@ -16,6 +16,7 @@ import {
 } from "h3";
 
 import { estimateMarkdownTokens } from "../../../core/src/agent-web/index";
+import { isLegacyChunkRecoveryRequest } from "../../../core/src/shared/route-chunk-recovery-bootstrap.js";
 import {
   applyCommunityAppSsrCacheHeaders,
   applyDocsSsrCacheKeyHeaders,
@@ -57,14 +58,17 @@ export default async function docsHeadHandler(event: H3Event) {
   const response = await ssrHandler(event);
   const headers = new Headers(response.headers);
   const requestUrl = getRequestURL(event);
+  const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
   appendVary(headers, ["Accept", "Accept-Encoding"]);
   applyDocsSsrCacheKeyHeaders(headers, {
     varyByQuery: isCloudGettingStartedPath(requestUrl),
+    varyByLegacyRecovery: isLegacyRecovery,
   });
   applyCommunityAppSsrCacheHeaders(
     headers,
-    getRequestURL(event).pathname,
+    requestUrl.pathname,
     response.status,
+    { isLegacyRecovery },
   );
   return new Response(response.body, {
     status: response.status,

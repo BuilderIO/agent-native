@@ -758,6 +758,11 @@ export default {
   sqlDashboard: {
     customRange: "Custom range",
     allValues: "All",
+    searchValues: "Search values",
+    noValuesFound: "No values found",
+    selectAll: "Select all",
+    selectOnly: "Only",
+    selectOnlyValue: "Only {{value}}",
     untitledDashboard: "Untitled Dashboard",
     dashboardFallback: "dashboard",
     viewOnly: "You have view-only access to this dashboard.",

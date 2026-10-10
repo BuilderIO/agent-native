@@ -236,8 +236,8 @@ describe("ci-red-report", () => {
         path: ".github/workflows/deploy-beta-sites.yml@main",
       }),
       run(34, {
-        name: "Hosted app health audit",
-        path: ".github/workflows/monitor-agent-native-sites.yml@main",
+        name: "Audit hosted app health",
+        path: ".github/workflows/keep-neon-warm.yml@main",
       }),
     ];
     const rows = buildCiRedRows(
@@ -272,7 +272,7 @@ describe("ci-red-report", () => {
     assert.equal(records.length, 4);
     assert.deepEqual(
       records.map((record) => record.workflow),
-      ["Design E2E", "Beta deploy", "Hosted app health audit", "CI"],
+      ["Design E2E", "Beta deploy", "Audit hosted app health", "CI"],
     );
     assert.equal(records[0].run_count, "2");
     assert.deepEqual(

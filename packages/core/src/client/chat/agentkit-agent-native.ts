@@ -2325,6 +2325,15 @@ export function createAgentNativeAgentKitTransport(
       threadId,
       runId: value.runId,
     });
+    if (
+      localRun?.status === "awaiting_approval" ||
+      localRun?.status === "awaiting_input"
+    ) {
+      // The Core turn can be terminal while the protocol run still owns a
+      // pending approval or input request and its resumable event stream.
+      runStatus = localRun.status;
+      error = undefined;
+    }
     return {
       id: localRun?.id ?? value.runId,
       threadId,

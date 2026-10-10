@@ -21,6 +21,7 @@ vi.mock("../server/lib/credentials", () => ({
 }));
 vi.mock("../server/lib/gcloud", () => ({
   getAccessToken: mocks.getAccessToken,
+  raceWithAbort: (value: unknown) => Promise.resolve(value),
 }));
 // The real lib answers metadata and table-list requests through the mocked
 // fetch; only the query itself is stubbed.

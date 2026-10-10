@@ -4,7 +4,7 @@ import { getRequestRunContext } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { runQuery } from "../server/lib/bigquery";
+import { BigQueryBackendError, runQuery } from "../server/lib/bigquery";
 import { recoverFromSchemaMiss } from "../server/lib/bigquery-schema-recovery";
 
 function extractBigQueryMessage(message: string): string {
@@ -27,7 +27,7 @@ function extractBigQueryMessage(message: string): string {
   }
 
   return message
-    .replace(/^BigQuery (API|poll) error \d+:\s*/i, "")
+    .replace(/^BigQuery (API|poll|job) error(?: \d+)?:\s*/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -154,6 +154,8 @@ export default defineAction({
       if (context?.signal?.aborted) stopForBigQueryCancellation();
 
       const msg = err instanceof Error ? err.message : String(err);
+      const providerDetail =
+        err instanceof BigQueryBackendError ? err.providerDetail : null;
       if (
         /GOOGLE_APPLICATION_CREDENTIALS_JSON not configured/i.test(msg) ||
         /BIGQUERY_PROJECT_ID/i.test(msg) ||
@@ -172,8 +174,8 @@ export default defineAction({
           hint: "The SQL was valid but exceeded the 60-second warehouse budget. Do NOT inspect the schema and do NOT rerun this query as-is. Make it cheaper: narrow the date range, add a LIMIT, aggregate in SQL instead of returning raw rows, or filter on a partition/cluster column. If the full scan is genuinely required, run it through run-code with background: true instead of retrying here.",
         };
       }
-      if (/BigQuery (API|poll) error/i.test(msg)) {
-        const message = extractBigQueryMessage(msg);
+      if (/BigQuery (API|poll|job) error/i.test(msg)) {
+        const message = extractBigQueryMessage(providerDetail ?? msg);
         const recovery = await recoverFromSchemaMiss(
           args.sql,
           message,

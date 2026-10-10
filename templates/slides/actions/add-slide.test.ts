@@ -189,6 +189,7 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => undefined,
   getRequestRunContext: () => undefined,
+  getRequestUserEmail: () => undefined,
 }));
 
 import { trackGenerationCompletedForRun } from "../server/lib/generation-completion";

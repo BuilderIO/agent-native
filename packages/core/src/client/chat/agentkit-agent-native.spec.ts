@@ -5817,8 +5817,9 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("normalizes a resumed runtime ID in the active-run snapshot", async () => {
+  it("preserves a paused protocol run when Core reports the turn as terminal", async () => {
     const threadId = "thread-active-runtime-alias";
+    let approvalPending = true;
     async function* approvalEvents(): AsyncIterable<AgentChatRuntimeKnownEvent> {
       yield {
         type: "approval-request",
@@ -5841,11 +5842,17 @@ describe("createAgentNativeAgentKitTransport", () => {
         });
       }
       if (url.includes(`/runs/active?threadId=${threadId}`)) {
-        return json({
-          active: true,
-          status: "running",
-          runId: "runtime-after-approval",
-        });
+        return approvalPending
+          ? json({
+              active: false,
+              status: "completed",
+              runId: "runtime-before-approval",
+            })
+          : json({
+              active: true,
+              status: "running",
+              runId: "runtime-after-approval",
+            });
       }
       return json({ error: "Not found" }, 404);
     });
@@ -5892,6 +5899,16 @@ describe("createAgentNativeAgentKitTransport", () => {
       expect(next.done).toBe(false);
       if (next.value?.type === "approval.requested") break;
     }
+    const pausedSnapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(pausedSnapshot?.runs).toContainEqual(
+      expect.objectContaining({
+        id: runId,
+        status: "awaiting_approval",
+      }),
+    );
+    expect(pausedSnapshot?.activeRunIds).toContain(runId);
+    approvalPending = false;
     const resumed = await transport.resumeRun?.({
       threadId,
       runId,

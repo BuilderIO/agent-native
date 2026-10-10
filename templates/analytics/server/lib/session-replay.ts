@@ -66,6 +66,7 @@ import {
 } from "./first-party-analytics.js";
 import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
 import type { JourneyRecording, RecordingViewport } from "./journey-tree.js";
+import { canonicalReplayLinkTimestamp } from "./replay-link-timestamp.js";
 import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
@@ -444,12 +445,14 @@ function replayIngestByteLength(
 }
 
 function replayTimestamp(value: unknown): string | null {
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "number" || typeof value === "string") {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value === "number") {
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? null : d.toISOString();
   }
-  return null;
+  return canonicalReplayLinkTimestamp(value);
 }
 
 function replayMinIso(values: Array<string | null | undefined>): string | null {
@@ -1736,6 +1739,7 @@ export async function recordSessionReplayChunks(
         id: newRecordingId,
         publicKeyId: key.id,
         clientRecordingId: clampedInput.clientRecordingId,
+        clientStartedAt: input.startedAt,
         sessionId: clampedInput.sessionId,
         userId: clampedInput.userId,
         anonymousId: clampedInput.anonymousId,
@@ -2177,9 +2181,15 @@ export async function listSessionRecordings(
 const JOURNEY_RECORDING_BATCH = 400;
 const JOURNEY_RECORDINGS_PER_SESSION = 5;
 
+export interface JourneyReplayLink {
+  sessionId: string;
+  clientRecordingId: string;
+  startedAt: string;
+}
+
 export interface JourneyRecordingsRead {
   recordings: JourneyRecording[];
-  /** False when a batch hit its row ceiling or a row had no usable start time. */
+  /** False when a read is capped or a provided link or recording is invalid, ambiguous, or unusable. */
   complete: boolean;
 }
 
@@ -2192,9 +2202,15 @@ export async function listJourneyRecordings(
   scope: SessionReplayScope,
   sessionIds: readonly string[],
   range: { fromIso: string; toIso: string },
+  replayLinks: readonly JourneyReplayLink[] = [],
 ): Promise<JourneyRecordingsRead> {
+  if (!sessionIds.length && !replayLinks.length) {
+    return { recordings: [], complete: true };
+  }
   const db = getDb() as any;
-  const associationsReady = await sessionRecordingAssociationsReady(db);
+  const associationsReady = sessionIds.length
+    ? await sessionRecordingAssociationsReady(db)
+    : false;
   const r = schema.sessionRecordings;
   const recordings: JourneyRecording[] = [];
   let complete = true;
@@ -2269,7 +2285,129 @@ export async function listJourneyRecordings(
       });
     }
   }
-  return { recordings, complete };
+
+  const linkSessionsByPair = new Map<
+    string,
+    { clientRecordingId: string; startedAt: string; sessionIds: Set<string> }
+  >();
+  for (const link of replayLinks) {
+    const startedAt = canonicalReplayLinkTimestamp(link.startedAt);
+    if (
+      !link.sessionId ||
+      !link.clientRecordingId ||
+      link.clientRecordingId.length > MAX_SESSION_ID_LENGTH ||
+      link.startedAt.length > 64 ||
+      !startedAt
+    ) {
+      complete = false;
+      continue;
+    }
+    const key = JSON.stringify([link.clientRecordingId, startedAt]);
+    const pair = linkSessionsByPair.get(key) ?? {
+      clientRecordingId: link.clientRecordingId,
+      startedAt,
+      sessionIds: new Set<string>(),
+    };
+    pair.sessionIds.add(link.sessionId);
+    linkSessionsByPair.set(key, pair);
+  }
+  const exactLinks = [...linkSessionsByPair.entries()];
+  for (let i = 0; i < exactLinks.length; i += JOURNEY_RECORDING_BATCH) {
+    const pendingBatches = [exactLinks.slice(i, i + JOURNEY_RECORDING_BATCH)];
+    while (pendingBatches.length) {
+      const batch = pendingBatches.pop();
+      if (!batch?.length) continue;
+      const exactMatch = or(
+        ...batch.map(([, link]) =>
+          and(
+            eq(r.clientRecordingId, link.clientRecordingId),
+            or(
+              eq(r.clientStartedAt, link.startedAt),
+              and(isNull(r.clientStartedAt), eq(r.startedAt, link.startedAt)),
+            ),
+          ),
+        ),
+      );
+      const read = await db
+        .select({
+          id: r.id,
+          clientRecordingId: r.clientRecordingId,
+          clientStartedAt: r.clientStartedAt,
+          startedAt: r.startedAt,
+          endedAt: r.endedAt,
+          durationMs: r.durationMs,
+          metadata: r.metadata,
+        })
+        .from(r)
+        .where(
+          and(
+            accessFilter(r, schema.sessionRecordingShares, {
+              userEmail: scope.userEmail,
+              orgId: scope.orgId ?? undefined,
+            }),
+            replayVisibleIdentityCondition(),
+            replayPlayableEventsCondition(),
+            exactMatch,
+          ),
+        )
+        .orderBy(asc(r.startedAt), asc(r.id))
+        .limit(batch.length + 1);
+      if (read.length > batch.length) {
+        complete = false;
+        if (batch.length > 1) {
+          const midpoint = Math.floor(batch.length / 2);
+          pendingBatches.push(batch.slice(midpoint), batch.slice(0, midpoint));
+        }
+        continue;
+      }
+      const rowsByPair = new Map<string, typeof read>();
+      for (const row of read) {
+        const key = JSON.stringify([
+          row.clientRecordingId,
+          row.clientStartedAt ?? row.startedAt,
+        ]);
+        const matches = rowsByPair.get(key) ?? [];
+        matches.push(row);
+        rowsByPair.set(key, matches);
+      }
+      for (const [key, link] of batch) {
+        const matches = rowsByPair.get(key) ?? [];
+        if (matches.length > 1) {
+          complete = false;
+          continue;
+        }
+        const row = matches[0];
+        if (!row) {
+          continue;
+        }
+        const startedAtMs = Date.parse(row.startedAt);
+        const endedAtMs = row.endedAt ? Date.parse(row.endedAt) : null;
+        if (!Number.isFinite(startedAtMs) || Number.isNaN(endedAtMs)) {
+          complete = false;
+          continue;
+        }
+        for (const sessionId of link.sessionIds) {
+          recordings.push({
+            id: row.id,
+            sessionId,
+            startedAtMs,
+            endedAtMs,
+            durationMs: row.durationMs ?? null,
+            viewport: readRecordingViewport(row.metadata),
+          });
+        }
+      }
+    }
+  }
+
+  const uniqueRecordings = new Map<string, JourneyRecording>();
+  for (const recording of recordings) {
+    uniqueRecordings.set(
+      JSON.stringify([recording.id, recording.sessionId]),
+      recording,
+    );
+  }
+  return { recordings: [...uniqueRecordings.values()], complete };
 }
 
 export interface SessionRecordingPage {
