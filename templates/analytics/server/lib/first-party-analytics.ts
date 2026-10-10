@@ -115,6 +115,16 @@ export class FirstPartyAnalyticsQueryTimeoutError extends Error {
   }
 }
 
+function isFirstPartyAnalyticsTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as Error & { code?: unknown }).code;
+  return (
+    error.name === "DbTimeoutError" ||
+    code === "CONNECT_TIMEOUT" ||
+    /^First-party analytics query timed out after \d+ms$/.test(error.message)
+  );
+}
+
 const MAX_EVENTS_PER_REQUEST = 100;
 const MAX_QUERY_ROWS = 5_000;
 const MAX_ANALYTICS_TIMESTAMP_AGE_MS = (3_650 - 7) * 24 * 60 * 60 * 1_000;
@@ -1486,7 +1496,10 @@ export async function queryFirstPartyAnalytics(
     ? AbortSignal.any([options.signal, timeoutController.signal])
     : timeoutController.signal;
   const normalizeFailure = (error: unknown) => {
-    if (timeoutController.signal.aborted) {
+    if (
+      timeoutController.signal.aborted ||
+      isFirstPartyAnalyticsTimeoutError(error)
+    ) {
       return new FirstPartyAnalyticsQueryTimeoutError();
     }
     if (options.signal?.aborted) {

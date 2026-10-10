@@ -1843,6 +1843,25 @@ describe("queryFirstPartyAnalytics", () => {
     expect(backendMocks.table).not.toHaveBeenCalled();
   });
 
+  it("normalizes Postgres query deadline errors for journey timeout handling", async () => {
+    healthMocks.outcome.mockReturnValueOnce("timeout");
+    backendMocks.get.mockResolvedValueOnce({ sink: "postgres", table: null });
+    execute.mockRejectedValueOnce(
+      Object.assign(
+        new Error("DB query timed out after 20ms (connection terminated)"),
+        { name: "DbTimeoutError", code: "CONNECT_TIMEOUT" },
+      ),
+    );
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "alice@example.com", orgId: null },
+        { cache: false, timeoutMs: 20_000 },
+      ),
+    ).rejects.toBeInstanceOf(FirstPartyAnalyticsQueryTimeoutError);
+  });
+
   it("does not materialize the scoped raw event CTE on Postgres execution", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
 
