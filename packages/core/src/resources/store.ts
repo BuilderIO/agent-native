@@ -330,6 +330,7 @@ export interface ResourceConditionalWrite {
   expectedUpdatedAt: number;
   expectedContent: string;
   mimeType?: string;
+  metadata?: ResourceWriteOptions["metadata"];
 }
 
 export interface ResourceSnapshotWrite {
@@ -1920,13 +1921,15 @@ export async function resourcePutIfCurrent(
   const now = Math.max(Date.now(), input.expectedUpdatedAt + 1);
   const size = Buffer.byteLength(input.content, "utf8");
   const mime = input.mimeType || "text/markdown";
+  const metadata = serializeMetadata(input.metadata);
   const result = await client.execute({
-    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ? WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
+    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?${metadata !== undefined ? ", metadata = ?" : ""} WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
     args: [
       input.content,
       mime,
       size,
       now,
+      ...(metadata !== undefined ? [metadata] : []),
       input.owner,
       input.path,
       input.expectedId,

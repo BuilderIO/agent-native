@@ -1333,7 +1333,9 @@ describe("resourceEffectiveContext", () => {
     } = await import("./store.js");
     const path = `context/conditional-${Date.now()}-${Math.random()}.md`;
 
-    const initial = await resourcePut(SHARED_OWNER, path, "before");
+    const initial = await resourcePut(SHARED_OWNER, path, "before", undefined, {
+      metadata: { revision: 1 },
+    });
     const updated = await resourcePutIfCurrent({
       owner: SHARED_OWNER,
       path,
@@ -1341,8 +1343,10 @@ describe("resourceEffectiveContext", () => {
       expectedId: initial.id,
       expectedUpdatedAt: initial.updatedAt,
       expectedContent: initial.content,
+      metadata: { revision: 2 },
     });
     expect(updated?.content).toBe("after");
+    expect(updated?.metadata).toBe(JSON.stringify({ revision: 2 }));
 
     await expect(
       resourcePutIfCurrent({
