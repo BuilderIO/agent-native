@@ -399,6 +399,46 @@ describe("slide animation element parsing", () => {
     ]);
   });
 
+  it.each([
+    {
+      description: "bare text",
+      mixedContent: "A direct text label",
+    },
+    {
+      description: "inline elements",
+      mixedContent: "<strong>Inline label</strong>",
+    },
+  ])(
+    "keeps list items with paragraphs and $description together",
+    ({ mixedContent }) => {
+      const doc = new DOMParser().parseFromString(
+        `<div class="fmd-slide"><div><ul>
+          <li><p>First paragraph</p>${mixedContent}<p>Second paragraph</p></li>
+          <li>Following item</li>
+        </ul></div></div>`,
+        "text/html",
+      );
+      const root = doc.querySelector<HTMLElement>(".fmd-slide");
+      expect(root).not.toBeNull();
+      if (!root) return;
+
+      const expanded = expandByParagraphAnimations(root, [
+        {
+          id: "animation-1",
+          elementIndex: 0,
+          elementPath: [0, 0, 0],
+          byParagraph: true,
+          type: "slide-up",
+        },
+      ]);
+
+      expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+        [0, 0, 0],
+        [0, 0, 1],
+      ]);
+    },
+  );
+
   it.each([{ elementPath: [0, 0, 0, 0] }, { elementPath: [0, 0, 1, 0] }])(
     "expands a selected paragraph inside its containing list",
     ({ elementPath }) => {

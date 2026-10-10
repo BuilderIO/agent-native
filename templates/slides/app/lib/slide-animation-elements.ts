@@ -315,6 +315,21 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
       const hasParagraphs = children.some(
         (child) => child.tagName.toLowerCase() === "p",
       );
+      const hasUnaddressableContent =
+        hasOwnText(item) ||
+        children.some((child) => {
+          const childTagName = child.tagName.toLowerCase();
+          return (
+            childTagName !== "p" &&
+            childTagName !== "ul" &&
+            childTagName !== "ol" &&
+            hasMeaningfulContent(child)
+          );
+        });
+      if (hasParagraphs && hasUnaddressableContent) {
+        nativeParagraphs.push(item);
+        return;
+      }
       if (!hasParagraphs && hasMeaningfulContent(item)) {
         nativeParagraphs.push(item);
       }
