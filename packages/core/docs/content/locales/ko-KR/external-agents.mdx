@@ -125,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 호스팅된 모든 앱에는 다음 위치에 도우미 페이지도 있습니다.
 복사 가능한 URL가 있는 `https://&lt;app&gt;/mcp/connect` 및
-Claude, ChatGPT, 커서, Claude 코드, Codex, Grok 및 기타에 대한 호스트별 탭.
+Claude, ChatGPT, Cursor, VS Code, Claude Code, Codex, Grok, 기타용 호스트별 탭이 있습니다.
 
 ## 비공개 Content 링크 {#private-content-links}
 
@@ -172,9 +172,34 @@ OAuth 토큰. ChatGPT는 검토 또는 게시된 커넥터 도구를 유지할 �
 스냅샷. `mcp:read` / `mcp:write` / `mcp:apps` / `offline_access` 범위는 아래의
 [표준 원격 MCP OAuth](#standard-oauth)에서 설명하는 범위와 같습니다.
 
-Cursor, Goose, Postman, MCPJam 및 VS Code GitHub Copilot은 동일한 리모컨을 사용합니다.
-빌드가 원격 OAuth를 지원하는 경우 자체 MCP 서버 UI를 통해 MCP URL
-MCP 서버.
+### Cursor, VS Code, Codex {#install-links}
+
+**Settings → MCP server**와 `/mcp/connect`의 **Cursor** 및 **VS Code** 탭에는
+설치 버튼이 있습니다. **Cursor에 추가**는 Cursor의 **Install MCP server?** 확인
+창을 엽니다. **VS Code에 추가**와 **VS Code Insiders에 추가**는 **Install** 버튼이
+있는 서버 페이지를 엽니다. 링크에는 서버 이름, 전송 방식, MCP URL만 들어 있으며
+토큰, 헤더, 계정 정보는 절대 들어 있지 않습니다. 클라이언트는 처음 연결할 때 자체
+OAuth 로그인을 진행합니다. VS Code에서는 이후 도구가 Agent 모드의 Chat 보기에 표시됩니다.
+
+Codex에서는 `codex mcp add <server-name> --url <mcp-url>`을 실행한 다음
+`codex mcp login <server-name>`을 실행해 OAuth로 로그인합니다. **Codex** 탭에
+두 값이 모두 채워져 있습니다.
+
+Goose, Postman, MCPJam 및 기타 클라이언트는 빌드가 OAuth를 사용하는 원격 MCP 서버를
+지원하면 자체 MCP 서버 화면에서 같은 원격 MCP URL을 사용합니다.
+
+### 서버 이름 {#server-names}
+
+앱이 자신의 MCP 서버 이름을 정하고, 모든 화면이 그 이름을 사용합니다. 설치 링크,
+복사용 명령, `npx @agent-native/core@latest connect`도 마찬가지입니다.
+프로덕션은 `agent-native-mail`처럼 접두사 없는 이름을 사용합니다. 베타, 미리
+보기, 로컬 배포에는 `beta-agent-native-mail`처럼 환경이 앞에 붙으므로 한
+클라이언트에 프로덕션 항목과 베타 항목을 나란히 둘 수 있습니다. 이 접두사는
+예약되어 있습니다. `mcp.serverName`은 `beta-`, `preview-`, `local-`로 시작할 수
+없으므로 베타 이름이 다른 앱의 프로덕션 이름과 같아지는 일은 없습니다. 스크립트는
+`GET /mcp/connect/identity`에서 이름을 읽을 수 있습니다. 이 엔드포인트는 로그인이
+필요 없으며 서버 이름, 앱 이름, 앱 URL, MCP URL, 환경과 함께 `mcp.connect`가
+꺼져 있으면 `false`가 되는 `connect` 플래그를 반환합니다.
 
 ### 빠른 테스트 프롬프트 {#quick-test}
 

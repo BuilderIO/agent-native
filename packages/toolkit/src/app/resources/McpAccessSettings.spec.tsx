@@ -8,6 +8,34 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { McpAccessSettings } from "./McpAccessSettings.js";
 
+const IDENTITY = {
+  serverName: "beta-agent-native-content",
+  appName: "Content",
+  appUrl: "https://beta.content.agent-native.com",
+  mcpUrl: "https://beta.content.agent-native.com/mcp",
+  environment: "beta",
+  connect: true,
+};
+
+function stubFetch(identity: { ok: boolean; body?: unknown }) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).endsWith("/mcp/connect/identity")) {
+      return identity.ok
+        ? { ok: true, status: 200, json: async () => identity.body }
+        : { ok: false, status: 500, json: async () => ({}) };
+    }
+    return { ok: false, status: 404 };
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+async function waitForGuides(container: HTMLElement) {
+  await vi.waitFor(() =>
+    expect(container.querySelector("#mcp-guide-tab-claude")).not.toBeNull(),
+  );
+}
+
 // Radix tabs activate on mousedown, not click.
 function selectTab(tab: HTMLButtonElement | null) {
   tab?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
@@ -19,7 +47,7 @@ describe("McpAccessSettings localization", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+    stubFetch({ ok: true, body: IDENTITY });
     window.history.replaceState({}, "", "/settings/mcp");
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -89,6 +117,7 @@ describe("McpAccessSettings localization", () => {
     });
 
     try {
+      await waitForGuides(container);
       const claudeTab = container.querySelector<HTMLButtonElement>(
         "#mcp-guide-tab-claude",
       );
@@ -114,6 +143,7 @@ describe("McpAccessSettings localization", () => {
         </AgentNativeI18nProvider>,
       );
     });
+    await waitForGuides(container);
 
     expect(
       container
@@ -137,6 +167,7 @@ describe("McpAccessSettings localization", () => {
         </AgentNativeI18nProvider>,
       );
     });
+    await waitForGuides(container);
 
     await act(async () => {
       window.history.pushState({}, "", "/settings/mcp?guide=cursor");
@@ -168,6 +199,7 @@ describe("McpAccessSettings localization", () => {
         </AgentNativeI18nProvider>,
       );
     });
+    await waitForGuides(container);
 
     await act(async () => {
       selectTab(
@@ -189,6 +221,134 @@ describe("McpAccessSettings localization", () => {
         .querySelector("#mcp-guide-tab-cursor")
         ?.getAttribute("aria-selected"),
     ).toBe("true");
+  });
+
+  it("names the server and builds install links from the app's connect identity", async () => {
+    window.history.replaceState({}, "", "/settings/mcp?guide=claude-code");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <McpAccessSettings appName="Content" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    await waitForGuides(container);
+
+    expect(container.textContent).toContain(
+      "claude mcp add --transport http beta-agent-native-content https://beta.content.agent-native.com/mcp",
+    );
+
+    await act(async () => {
+      selectTab(
+        container.querySelector<HTMLButtonElement>("#mcp-guide-tab-cursor"),
+      );
+    });
+    const cursorLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent?.includes("Add to Cursor"),
+    );
+    const cursorHref = new URL(cursorLink?.getAttribute("href") ?? "");
+    expect(cursorHref.origin + cursorHref.pathname).toBe(
+      "https://cursor.com/install-mcp",
+    );
+    expect(cursorHref.searchParams.get("name")).toBe(
+      "beta-agent-native-content",
+    );
+    expect(
+      JSON.parse(atob(cursorHref.searchParams.get("config") ?? "")),
+    ).toEqual({ url: "https://beta.content.agent-native.com/mcp" });
+    expect(cursorLink?.getAttribute("target")).toBe("_blank");
+
+    await act(async () => {
+      selectTab(
+        container.querySelector<HTMLButtonElement>("#mcp-guide-tab-vscode"),
+      );
+    });
+    const vscodeHrefs = Array.from(container.querySelectorAll("a"))
+      .filter((link) => link.textContent?.startsWith("Add to VS Code"))
+      .map((link) => ({
+        href: link.getAttribute("href") ?? "",
+        target: link.getAttribute("target"),
+      }));
+    expect(vscodeHrefs.map(({ href }) => href.split("?")[0])).toEqual([
+      "vscode:mcp/install",
+      "vscode-insiders:mcp/install",
+    ]);
+    expect(vscodeHrefs.every(({ target }) => target === null)).toBe(true);
+    expect(
+      JSON.parse(decodeURIComponent(vscodeHrefs[0].href.split("?")[1])),
+    ).toEqual({
+      name: "beta-agent-native-content",
+      type: "http",
+      url: "https://beta.content.agent-native.com/mcp",
+    });
+  });
+
+  it("shows only the MCP URL when the server has no connect routes", async () => {
+    stubFetch({ ok: true, body: { ...IDENTITY, connect: false } });
+    window.history.replaceState({}, "", "/settings/mcp?guide=cursor");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <McpAccessSettings appName="Content" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain(IDENTITY.mcpUrl),
+    );
+
+    expect(container.querySelector("#mcp-guide-tab-claude")).toBeNull();
+    expect(
+      Array.from(container.querySelectorAll("a")).filter(
+        (link) =>
+          link.textContent?.includes("Add to Cursor") ||
+          link.getAttribute("href")?.includes("/mcp/connect"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("shows a retryable error instead of guessing a server name when the identity fails", async () => {
+    stubFetch({ ok: false });
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <McpAccessSettings appName="Content" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await vi.waitFor(() =>
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "Couldn't load this app's connection details.",
+      ),
+    );
+    expect(container.querySelector("#mcp-guide-tab-claude")).toBeNull();
+
+    const fetchMock = stubFetch({ ok: true, body: IDENTITY });
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Try again",
+    );
+    await act(async () => retry?.click());
+    await waitForGuides(container);
+    expect(fetchMock).toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "https://beta.content.agent-native.com/mcp",
+    );
   });
 
   it("renders the default guide without a browser during SSR", () => {

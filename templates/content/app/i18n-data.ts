@@ -787,6 +787,8 @@ const editorToolbarMessages = {
   openInClaude: "Open in Claude",
   openInClaudeCode: "Open in Claude Code",
   openInCodex: "Open in Codex",
+  connectContent: "Connect Content",
+  otherAgents: "Other agents",
   agentCopyAccessNote:
     "Agents can use Content MCP with your existing permissions",
   temporaryAgentLink: "Temporary agent link",

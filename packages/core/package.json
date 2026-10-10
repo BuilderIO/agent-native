@@ -529,6 +529,7 @@
     "./client/onboarding/use-preview-mode": "./dist/client/onboarding/use-preview-mode.js",
     "./client/org/hooks": "./dist/client/org/hooks.js",
     "./client/resources/mcp-connection-resume": "./dist/client/resources/mcp-connection-resume.js",
+    "./client/mcp-connect-identity": "./dist/client/mcp-connect-identity.js",
     "./client/resources/mcp-integration-catalog": "./dist/client/resources/mcp-integration-catalog.js",
     "./client/resources/mcp-integration-logos": "./dist/client/resources/mcp-integration-logos.js",
     "./client/resources/mcp-integration-setup": "./dist/client/resources/mcp-integration-setup.js",

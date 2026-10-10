@@ -3999,7 +3999,9 @@ function createAuthGuardFn(
     // `device/poll` (exchange an approved code for the token) — both must be
     // reachable without a browser session because the CLI has none. They are
     // protected by short-TTL, single-use, crypto-random codes + a creation
-    // rate-limit, not cookies.
+    // rate-limit, not cookies. `identity` is public too: it returns only the
+    // server name and MCP URL a client config stores, and the CLI reads it
+    // before any sign-in.
     //
     // The standard remote-MCP OAuth endpoints also bypass here: metadata and
     // dynamic client registration are public by design; `/oauth/token` is
@@ -4015,12 +4017,14 @@ function createAuthGuardFn(
       p === "/_agent-native/mcp/connect" ||
       p === "/_agent-native/mcp/connect/device/start" ||
       p === "/_agent-native/mcp/connect/device/poll" ||
+      p === "/_agent-native/mcp/connect/identity" ||
       p === "/_agent-native/mcp/oauth/authorize" ||
       p === "/_agent-native/mcp/oauth/token" ||
       p === "/_agent-native/mcp/oauth/register" ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect` ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start` ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/poll` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect/identity` ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/authorize` ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/token` ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/register`

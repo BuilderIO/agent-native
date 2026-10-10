@@ -255,6 +255,7 @@ import {
 import {
   resolveCoreRoutesMcpOptions,
   type CoreRoutesMcpOptions,
+  type ResolvedCoreRoutesMcp,
 } from "./core-routes/mcp-connect-options.js";
 import {
   getAllowedCorsOrigin,
@@ -2920,6 +2921,89 @@ export function createOAuthPopupWaitingHandler() {
         : OAUTH_POPUP_COMPLETE_HTML
       : OAUTH_POPUP_WAITING_HTML;
   });
+}
+
+/**
+ * External-agent connection routes: OAuth metadata and the connect page,
+ * device flow and token subroutes when connect is on, and the public identity
+ * route either way.
+ */
+export function mountMcpConnectRoutes(
+  app: H3AppShim,
+  mcpConnect: ResolvedCoreRoutesMcp,
+): void {
+  const mcpConnectOpts = {
+    appId: mcpConnect.appId,
+    appName: mcpConnect.appName,
+    serverName: mcpConnect.serverName,
+    connect: mcpConnect.connect,
+  };
+  if (mcpConnect.connect) {
+    app.use(
+      "/.well-known/oauth-protected-resource",
+      defineEventHandler((event: H3Event) =>
+        handleMcpOAuthProtectedResourceMetadata(event),
+      ),
+    );
+    app.use(
+      "/.well-known/oauth-authorization-server",
+      defineEventHandler((event: H3Event) =>
+        handleMcpOAuthAuthorizationServerMetadata(event),
+      ),
+    );
+    app.use(
+      "/.well-known/openid-configuration",
+      defineEventHandler((event: H3Event) =>
+        handleMcpOAuthAuthorizationServerMetadata(event),
+      ),
+    );
+    for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
+      app.use(
+        `${mcpRoutePrefix}/oauth`,
+        defineEventHandler(async (event: H3Event) => {
+          const subpath = event.url?.pathname || "";
+          return handleMcpOAuth(event, subpath, {
+            appId: mcpConnect.appId,
+            appName: mcpConnect.appName,
+          });
+        }),
+      );
+    }
+
+    // Frictionless external-agent connection. A logged-in user mints a
+    // per-user, scoped, revocable MCP bearer token here — via the browser
+    // Connect page or the OAuth-style device-code flow a CLI drives — so
+    // they never copy a shared deployment secret. The handler resolves the
+    // browser session itself and serves its own login form (like /open)
+    // for the page + unauth device endpoints; the /token, /device/authorize,
+    // /tokens, /tokens/revoke subpaths require a session and 401 without it.
+    // The auth guard bypasses ONLY the page + identity + device/start +
+    // device/poll (see createAuthGuardFn in auth.ts).
+    for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
+      app.use(
+        `${mcpRoutePrefix}/connect`,
+        defineEventHandler(async (event: H3Event) => {
+          // The framework strips the mount prefix from event.url.pathname,
+          // so what remains is the subpath after `/connect` (e.g. `/token`,
+          // `/device/start`, or `` for the page itself).
+          const subpath = event.url?.pathname || "";
+          return handleMcpConnect(event, subpath, mcpConnectOpts);
+        }),
+      );
+    }
+  } else {
+    // Settings and share dialogs take the server name and MCP URL from
+    // here, and still show them when the connect page and its token flows
+    // are off.
+    for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
+      app.use(
+        `${mcpRoutePrefix}/connect/identity`,
+        defineEventHandler((event: H3Event) =>
+          handleMcpConnect(event, "/identity", mcpConnectOpts),
+        ),
+      );
+    }
+  }
 }
 
 export function mountApplicationStateRoutes(
@@ -6494,66 +6578,10 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      const mcpConnect = resolveCoreRoutesMcpOptions(options);
-      if (mcpConnect.connect) {
-        getH3App(nitroApp).use(
-          "/.well-known/oauth-protected-resource",
-          defineEventHandler((event: H3Event) =>
-            handleMcpOAuthProtectedResourceMetadata(event),
-          ),
-        );
-        getH3App(nitroApp).use(
-          "/.well-known/oauth-authorization-server",
-          defineEventHandler((event: H3Event) =>
-            handleMcpOAuthAuthorizationServerMetadata(event),
-          ),
-        );
-        getH3App(nitroApp).use(
-          "/.well-known/openid-configuration",
-          defineEventHandler((event: H3Event) =>
-            handleMcpOAuthAuthorizationServerMetadata(event),
-          ),
-        );
-        for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
-          getH3App(nitroApp).use(
-            `${mcpRoutePrefix}/oauth`,
-            defineEventHandler(async (event: H3Event) => {
-              const subpath = event.url?.pathname || "";
-              return handleMcpOAuth(event, subpath, {
-                appId: mcpConnect.appId,
-                appName: mcpConnect.appName,
-              });
-            }),
-          );
-        }
-
-        // Frictionless external-agent connection. A logged-in user mints a
-        // per-user, scoped, revocable MCP bearer token here — via the browser
-        // Connect page or the OAuth-style device-code flow a CLI drives — so
-        // they never copy a shared deployment secret. The handler resolves the
-        // browser session itself and serves its own login form (like /open)
-        // for the page + unauth device endpoints; the /token, /device/authorize,
-        // /tokens, /tokens/revoke subpaths require a session and 401 without it.
-        // The auth guard bypasses ONLY the page + device/start + device/poll
-        // (see createAuthGuardFn in auth.ts).
-        const mcpConnectOpts = {
-          appId: mcpConnect.appId,
-          appName: mcpConnect.appName,
-          serverName: mcpConnect.serverName,
-        };
-        for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
-          getH3App(nitroApp).use(
-            `${mcpRoutePrefix}/connect`,
-            defineEventHandler(async (event: H3Event) => {
-              // The framework strips the mount prefix from event.url.pathname,
-              // so what remains is the subpath after `/connect` (e.g. `/token`,
-              // `/device/start`, or `` for the page itself).
-              const subpath = event.url?.pathname || "";
-              return handleMcpConnect(event, subpath, mcpConnectOpts);
-            }),
-          );
-        }
-      }
+      mountMcpConnectRoutes(
+        getH3App(nitroApp),
+        resolveCoreRoutesMcpOptions(options),
+      );
 
       if (!options.disableOpenRoute) {
         // Stable deep-link route. External agents (MCP/A2A) surface

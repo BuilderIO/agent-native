@@ -231,6 +231,15 @@ function ev(opts: {
 
 const SECRET = "test-a2a-secret";
 
+// Vitest runs with NODE_ENV=test, which resolves to the local environment and
+// its suffixed server name; most cases here describe production.
+beforeEach(() => {
+  vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("handleMcpConnect", () => {
   beforeEach(() => {
     issuanceTransaction.execute.mockClear();
@@ -810,6 +819,28 @@ describe("handleMcpConnect", () => {
       expect(data.expires_in).toBe(600);
     });
 
+    it.each(["APP_URL", "WORKSPACE_OAUTH_ORIGIN"])(
+      "device/start uses %s behind an internal proxy host",
+      async (originSetting) => {
+        vi.stubEnv("APP_URL", undefined);
+        vi.stubEnv("WORKSPACE_OAUTH_ORIGIN", undefined);
+        vi.stubEnv(originSetting, "https://mail.example.com");
+        vi.stubEnv("APP_BASE_PATH", "/mail");
+        const res = await handleMcpConnect(
+          ev({ method: "POST", host: "mail-internal:3000" }),
+          "/device/start",
+        );
+        expect(res.status).toBe(200);
+        const data = await res.json();
+        expect(data.verification_uri).toBe(
+          "https://mail.example.com/mail/mcp/connect",
+        );
+        expect(data.verification_uri_complete).toBe(
+          `https://mail.example.com/mail/mcp/connect?user_code=${data.user_code}`,
+        );
+      },
+    );
+
     it("persists requested full catalog scope and rejects non-boolean values", async () => {
       const res = await handleMcpConnect(
         ev({ method: "POST", body: { fullCatalog: true } }),
@@ -1364,10 +1395,7 @@ describe("server name on a multi-label host", () => {
   afterEach(() => resetAppConfigForTests());
 
   async function serverNameFor(host: string): Promise<string> {
-    const res = await handleMcpConnect(
-      ev({ method: "POST", host, body: { label: "laptop", ttlDays: 30 } }),
-      "/token",
-    );
+    const res = await handleMcpConnect(ev({ host }), "/identity");
     expect(res.status).toBe(200);
     return (await res.json()).serverName;
   }
@@ -1407,15 +1435,215 @@ describe("explicit server name", () => {
   it("wins over the derived name, prefix included", async () => {
     defineAppConfig({ app: { id: "plan" } });
     const res = await handleMcpConnect(
-      ev({
-        method: "POST",
-        host: "plan.agent-native.com",
-        body: { label: "laptop", ttlDays: 30 },
-      }),
-      "/token",
+      ev({ host: "plan.agent-native.com" }),
+      "/identity",
       { serverName: "plan" },
     );
     expect(res.status).toBe(200);
     expect((await res.json()).serverName).toBe("plan");
+  });
+
+  it("is refused rather than published when it is not a plain name", async () => {
+    await expect(
+      handleMcpConnect(ev({ host: "plan.agent-native.com" }), "/identity", {
+        serverName: "plan; echo hi",
+      }),
+    ).rejects.toThrow(/not a plain name/);
+  });
+
+  it("is refused before a token is minted that no response would return", async () => {
+    const { recordMintedToken } = await import("./connect-store.js");
+    vi.mocked(recordMintedToken).mockClear();
+    await expect(
+      handleMcpConnect(
+        ev({ method: "POST", host: "plan.agent-native.com" }),
+        "/token",
+        { serverName: "plan; echo hi" },
+      ),
+    ).rejects.toThrow(/not a plain name/);
+    expect(recordMintedToken).not.toHaveBeenCalled();
+  });
+
+  it("still lets users list and revoke their tokens when it is refused", async () => {
+    const options = { serverName: "plan; echo hi" };
+    const list = await handleMcpConnect(
+      ev({ host: "plan.agent-native.com" }),
+      "/tokens",
+      options,
+    );
+    expect(list.status).toBe(200);
+    const revoke = await handleMcpConnect(
+      ev({ method: "POST", host: "plan.agent-native.com", body: { id: "x" } }),
+      "/tokens/revoke",
+      options,
+    );
+    expect(revoke.status).toBe(200);
+  });
+});
+
+describe("connect identity", () => {
+  beforeEach(() => {
+    getSessionMock.mockResolvedValue(null);
+    getConfiguredLoginHtmlMock.mockReturnValue(null);
+  });
+  afterEach(() => resetAppConfigForTests());
+
+  async function identityFor(
+    host: string,
+    options: Parameters<typeof handleMcpConnect>[2] = {},
+  ) {
+    const res = await handleMcpConnect(ev({ host }), "/identity", options);
+    expect(res.status).toBe(200);
+    return res.json();
+  }
+
+  it("answers without a session and keeps production names unsuffixed", async () => {
+    defineAppConfig({ app: { id: "content" } });
+    expect(await identityFor("content.agent-native.com")).toEqual({
+      serverName: "agent-native-content",
+      appName: "content",
+      appUrl: "https://content.agent-native.com",
+      mcpUrl: "https://content.agent-native.com/mcp",
+      environment: "production",
+      connect: true,
+    });
+  });
+
+  it("fits a long hostname-derived name instead of failing", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "preview");
+    const label = `deploy-preview-6800--${"x".repeat(42)}`;
+    const { serverName } = await identityFor(`${label}.netlify.app`);
+    expect(serverName).toMatch(
+      /^preview-agent-native-deploy-preview-6800--x+__[0-9a-z]{11}$/,
+    );
+    expect(serverName.length).toBeLessThanOrEqual(64);
+  });
+
+  it.each([
+    ["beta", "beta.content.agent-native.com", "beta-agent-native-content"],
+    [
+      "preview",
+      "preview.content.agent-native.com",
+      "preview-agent-native-content",
+    ],
+    ["local", "localhost:8080", "local-agent-native-content"],
+  ])(
+    "gives the %s environment its own name",
+    async (environment, host, serverName) => {
+      vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", environment);
+      defineAppConfig({ app: { id: "content" } });
+      const identity = await identityFor(host);
+      expect(identity.serverName).toBe(serverName);
+      expect(identity.environment).toBe(environment);
+    },
+  );
+
+  it("prefixes a declared server name outside production", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    expect(
+      (await identityFor("beta.plan.agent-native.com", { serverName: "plan" }))
+        .serverName,
+    ).toBe("beta-plan");
+  });
+
+  it("keeps beta mail apart from a production app named mail-beta", async () => {
+    defineAppConfig({ app: { id: "mail-beta" } });
+    const production = await identityFor("mail-beta.example.com");
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    defineAppConfig({ app: { id: "mail" } });
+    const beta = await identityFor("beta.mail.agent-native.com");
+    expect(production.serverName).toBe("agent-native-mail-beta");
+    expect(beta.serverName).toBe("beta-agent-native-mail");
+  });
+
+  it("targets the workspace base path", async () => {
+    vi.stubEnv("APP_BASE_PATH", "/content");
+    defineAppConfig({ app: { id: "content" } });
+    const identity = await identityFor("workspace.example.com");
+    expect(identity.appUrl).toBe("https://workspace.example.com/content");
+    expect(identity.mcpUrl).toBe("https://workspace.example.com/content/mcp");
+    expect(identity.serverName).toBe("agent-native-content");
+  });
+
+  it("advertises the base path the MCP server is mounted on when both variables are set", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/content");
+    vi.stubEnv("APP_BASE_PATH", "/legacy");
+    const identity = await identityFor("workspace.example.com");
+    expect(identity.appUrl).toBe("https://workspace.example.com/content");
+    expect(identity.mcpUrl).toBe("https://workspace.example.com/content/mcp");
+  });
+
+  it("matches the name the token payload writes", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    process.env.A2A_SECRET = SECRET;
+    try {
+      defineAppConfig({ app: { id: "mail" } });
+      const identity = await identityFor("beta.mail.agent-native.com");
+      getSessionMock.mockResolvedValue({ email: "u@example.com" });
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          host: "beta.mail.agent-native.com",
+          body: { label: "laptop", ttlDays: 30 },
+        }),
+        "/token",
+      );
+      const payload = await res.json();
+      expect(payload.serverName).toBe(identity.serverName);
+      expect(payload.mcpUrl).toBe(identity.mcpUrl);
+    } finally {
+      delete process.env.A2A_SECRET;
+    }
+  });
+
+  it("advertises the public URL OAuth discovery uses, not the request host", async () => {
+    vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+    defineAppConfig({ app: { id: "mail" } });
+    const identity = await identityFor("mail-internal:3000");
+    expect(identity.appUrl).toBe("https://mail.agent-native.com");
+    expect(identity.mcpUrl).toBe("https://mail.agent-native.com/mcp");
+    expect(identity.serverName).toBe("agent-native-mail");
+  });
+
+  it("rejects writes", async () => {
+    const res = await handleMcpConnect(ev({ method: "POST" }), "/identity");
+    expect(res.status).toBe(405);
+  });
+
+  it("renders install links that carry only the name and URL", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    defineAppConfig({ app: { id: "mail" } });
+    getSessionMock.mockResolvedValue({ email: "u@example.com" });
+    const res = await handleMcpConnect(
+      ev({ host: "beta.mail.agent-native.com" }),
+      "/",
+    );
+    const body = await res.text();
+    const hrefs = [...body.matchAll(/href="([^"]+)"/g)]
+      .map(([, href]) => href.replace(/&amp;/g, "&"))
+      .filter(
+        (href) =>
+          href.startsWith("https://cursor.com/install-mcp") ||
+          href.startsWith("vscode:") ||
+          href.startsWith("vscode-insiders:"),
+      );
+    expect(hrefs).toHaveLength(3);
+    for (const href of hrefs) {
+      const payload = href.startsWith("https://cursor.com/")
+        ? {
+            name: new URL(href).searchParams.get("name"),
+            ...JSON.parse(atob(new URL(href).searchParams.get("config")!)),
+          }
+        : JSON.parse(decodeURIComponent(href.slice(href.indexOf("?") + 1)));
+      const { type, ...rest } = payload;
+      expect(rest).toEqual({
+        name: "beta-agent-native-mail",
+        url: "https://beta.mail.agent-native.com/mcp",
+      });
+      expect(type === undefined || type === "http").toBe(true);
+    }
+    expect(body).toContain(
+      'href="https://cursor.com/install-mcp?name=beta-agent-native-mail',
+    );
   });
 });
