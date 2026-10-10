@@ -1,4 +1,3 @@
-
 use crate::capture_graph::{CaptureGraphState, CaptureSource};
 use crate::config::RewindCaptureMode;
 use crate::native_screen::{self, NativeAudioSelection, NativeMediaSlice};
@@ -573,11 +572,7 @@ pub(crate) async fn rewind_replay_moment(
         slice_overlaps_graph_gap(&app, &segment, started_ms, ended_ms),
     )?;
 
-    let preview_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| format!("local preview directory unavailable: {error}"))?
-        .join("rewind-previews");
+    let preview_dir = crate::rewind_clip::rewind_preview_directory(&app)?;
     std::fs::create_dir_all(&preview_dir)
         .map_err(|error| format!("local preview directory unavailable: {error}"))?;
     cleanup_previews(&preview_dir);

@@ -8,15 +8,23 @@ import { getDb, schema } from "../server/db/index.js";
 export const DIRECT_SHARE_REWIND_ERROR =
   "This Clip is still shared directly with other people. Remove their access in Share before adding local Rewind history.";
 
-export async function assertNoDirectRecordingShares(
+export async function hasDirectRecordingShare(
   recordingId: string,
-): Promise<void> {
+): Promise<boolean> {
   const [share] = await getDb()
     .select({ id: schema.recordingShares.id })
     .from(schema.recordingShares)
     .where(eq(schema.recordingShares.resourceId, recordingId))
     .limit(1);
-  if (share) throw new Error(DIRECT_SHARE_REWIND_ERROR);
+  return Boolean(share);
+}
+
+export async function assertNoDirectRecordingShares(
+  recordingId: string,
+): Promise<void> {
+  if (await hasDirectRecordingShare(recordingId)) {
+    throw new Error(DIRECT_SHARE_REWIND_ERROR);
+  }
 }
 
 export default defineAction({

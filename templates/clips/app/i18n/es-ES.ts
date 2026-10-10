@@ -2,6 +2,57 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "Cambiar el tamaño o cerrar las respuestas",
   },
+  lookbackContext: {
+    includeLast: "Incluir los últimos",
+    whatIsThis: "¿Qué es esto?",
+    off: "Desactivado",
+    custom: "Personalizado…",
+    customLabel: "Duración personalizada",
+    customAmount: "Duración",
+    customUnit: "Unidad",
+    unitSeconds: "segundos",
+    unitMinutes: "minutos",
+    customSave: "Usar duración",
+    customErrorEmpty: "Introduce una duración.",
+    customErrorInvalid: "Introduce un número entero de segundos o minutos.",
+    customErrorTooLong: "Usa 5 min o menos.",
+    turnOnRewind: "Activar Rewind",
+    rewindOffTitle: "Activar Rewind",
+    rewindOffBody:
+      "Rewind guarda un historial local de tu pantalla para que puedas incluir los últimos minutos antes de una grabación. El material solo se sube cuando lo incluyes o lo apruebas.",
+    requestFailed:
+      "No se pudo incluir el tiempo de pantalla anterior. La grabación continúa sin él.",
+    localOnlyUnavailable:
+      "El tiempo de pantalla anterior no se guarda en grabaciones solo locales.",
+    saving: "Guardando {{window}} antes…",
+    ready: "Con {{window}} antes",
+    failed: "No se pudo guardar el tiempo de pantalla anterior",
+    unreadable: "No se pudo comprobar el tiempo de pantalla anterior",
+    edit: "Editar",
+    editTitle: "Tiempo de pantalla anterior",
+    editSave: "Guardar",
+    editFailed: "No se pudo guardar el intervalo. Inténtalo de nuevo.",
+    previewPreparing: "Preparando la vista previa…",
+    previewFailed: "No se pudo preparar la vista previa.",
+    previewLabel: "Vista previa del tiempo de pantalla anterior",
+    retry: "Reintentar",
+    playSelection: "Reproducir selección",
+    removeFailed:
+      "No se pudo eliminar el tiempo de pantalla anterior de la grabación descartada.",
+    scrubberStart: "Empieza",
+    scrubberEnd: "Termina",
+    scrubberLength: "Duración",
+    scrubberStartHandle: "Inicio del intervalo",
+    scrubberEndHandle: "Fin del intervalo",
+    tab: "Contexto",
+    label: "Pantalla antes de grabar",
+    window: "{{start}}–{{end}} antes de la grabación",
+    savingEarlierTime: "Guardando el tiempo de pantalla anterior…",
+    loadFailed: "No se pudo cargar el tiempo de pantalla anterior.",
+    empty: "Este clip no tiene tiempo de pantalla anterior adjunto.",
+    larger: "Ampliar",
+    editHint: "Edita el intervalo en Clips Desktop.",
+  },
   agentChat: {
     setup: {
       connectBuilder: "Usar Builder.io",
@@ -840,6 +891,9 @@ const messages = {
     labWisprFlow: "Dictado por voz",
     labWisprFlowDescription:
       "Muestra u oculta el dictado por voz en Clips Desktop.",
+    labLookbackContext: "Incluir tiempo de pantalla anterior",
+    labLookbackContextDescription:
+      "Adjunta hasta cinco minutos de tiempo de pantalla anteriores a una grabación como contexto pasivo. Desactivado por defecto.",
     uploadWorkspaceTitle: "Espacio activo",
     uploadWorkspaceDescription:
       "Elige el espacio que Clips usará para las nuevas grabaciones, incluidas las cargas desde el escritorio.",

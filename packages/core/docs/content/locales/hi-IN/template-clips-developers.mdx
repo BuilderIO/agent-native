@@ -106,11 +106,18 @@ pnpm dev
 
 ### स्क्रीन मेमोरी (Rewind)
 
-| Action                                                                                                                          | यह क्या करता है                                                            |
-| ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | लोकल Rewind बफ़र पढ़ना                                                     |
-| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | किसी क्लिप में Rewind हिस्ट्री जोड़ने के लिए रिव्यू-एंड-अप्रूव फ़्लो       |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | किसी अप्रूव्ड एक्सटेंशन को अप्लाई करना; पहले क्लिप को ज़बरदस्ती निजी बनाना |
+| Action                                                                                                                          | यह क्या करता है                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | लोकल Rewind बफ़र पढ़ना                                                                                       |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | किसी क्लिप में Rewind हिस्ट्री जोड़ने के लिए रिव्यू-एंड-अप्रूव फ़्लो                                         |
+| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | किसी अप्रूव्ड एक्सटेंशन को अप्लाई करना; पहले क्लिप को ज़बरदस्ती निजी बनाना                                   |
+| `request-recording-context`                                                                                                     | केवल ओनर। क्लिप शुरू होने से पहले का स्क्रीन टाइम माँगना; क्लिप निजी हो जाती है                              |
+| `list-recording-context`                                                                                                        | क्लिप का सक्रिय पहले का स्क्रीन टाइम आइटम: उसकी विंडो और स्टेटस (viewer एक्सेस)                              |
+| `list-pending-recording-context`                                                                                                | आपकी क्लिप्स पर पेंडिंग आइटम, डेस्कटॉप एक्सपोर्ट वर्कर के लिए                                                |
+| `update-recording-context`                                                                                                      | डेस्कटॉप वर्कर आइटम को `processing`, `ready`, या `failed` के रूप में रिपोर्ट करता है                         |
+| `set-recording-context-window`                                                                                                  | आइटम को उसकी 5 मिनट की मूल विंडो के अंदर ट्रिम करना; यह `pending` पर लौटता है और दोबारा एक्सपोर्ट होता है    |
+| `remove-recording-context`                                                                                                      | आइटम हटाना और उसकी फ़ुटेज रिकॉर्डिंग को Trash में डालना                                                      |
+| `rewind_preview_window`, `rewind_preview_discard`                                                                               | केवल डेस्कटॉप ऐप (Tauri कमांड, action नहीं)। किसी विंडो का लोकल प्रीव्यू बनाना या हटाना। कभी अपलोड नहीं होता |
 
 ### क्रॉस-ऐप और इनसाइट्स
 
