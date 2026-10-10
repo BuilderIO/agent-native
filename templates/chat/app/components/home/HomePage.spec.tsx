@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   rootProps: null as Record<string, unknown> | null,
   navigateWithTransition: vi.fn(),
   navigate: vi.fn(),
+  uploadFiles: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -28,6 +29,9 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/components", () => ({
     state.composerProps = props;
     return null;
   },
+}));
+vi.mock("@agent-native/toolkit/app/agentkit/react/context", () => ({
+  useAgentKitControl: () => ({ uploadFiles: state.uploadFiles }),
 }));
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/composer", () => ({
   CoreComposerRuntimeProvider: ({
@@ -70,6 +74,8 @@ describe("HomePage", () => {
     state.composerProps = null;
     state.rootProps = null;
     state.navigateWithTransition.mockReset();
+    state.uploadFiles.mockReset();
+    state.uploadFiles.mockResolvedValue([]);
     window.sessionStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -94,11 +100,33 @@ describe("HomePage", () => {
     expect(state.composerProps?.threadId).toBe(state.rootProps?.threadId);
   });
 
-  it("hands the submitted prompt to the full chat page for the same thread", () => {
+  it("hands the full supported composer payload to the full chat page", async () => {
     act(() => root.render(<HomePage />));
     const threadId = state.rootProps?.threadId as string;
 
     const onLocalSubmit = vi.fn();
+    const uploadedAttachment = {
+      type: "file",
+      name: "notes.txt",
+      mediaType: "text/plain",
+      url: "https://uploads.example/notes.txt",
+    };
+    state.uploadFiles.mockResolvedValue([uploadedAttachment]);
+    const references = [
+      {
+        type: "file",
+        path: "actions/hello.ts",
+        name: "hello.ts",
+        source: "workspace",
+      },
+    ];
+    const contextItems = [
+      { key: "project", title: "Project", context: "Use project defaults." },
+    ];
+    const composerProps = state.composerProps;
+    act(() =>
+      (composerProps?.onModeChange as (mode: "act" | "plan") => void)("plan"),
+    );
     const onSubmit = state.composerProps?.onSubmit as (
       text: string,
       files: File[],
@@ -107,18 +135,35 @@ describe("HomePage", () => {
         engine: string;
         model: string;
         effort: string;
+        intent: "queued";
+        steer: true;
+        contextItems: typeof contextItems;
+        composerModeContext: string;
         onLocalSubmit: () => void;
       },
-    ) => void;
-    act(() =>
-      onSubmit("Call the hello action for Sam", [], [], {
+    ) => Promise<void>;
+    const file = new File(["notes"], "notes.txt", { type: "text/plain" });
+    await act(async () =>
+      onSubmit("Call the hello action for Sam", [file], references, {
         engine: "anthropic",
         model: "claude-example",
         effort: "high",
+        intent: "queued",
+        steer: true,
+        contextItems,
+        composerModeContext: "Use the selected action.",
         onLocalSubmit,
       }),
     );
 
+    expect(state.uploadFiles).toHaveBeenCalledWith([
+      {
+        name: "notes.txt",
+        mediaType: "text/plain",
+        size: file.size,
+        body: file,
+      },
+    ]);
     expect(state.navigateWithTransition).toHaveBeenCalledWith(
       state.navigate,
       `/chat/${threadId}`,
@@ -126,9 +171,16 @@ describe("HomePage", () => {
         state: {
           initialMessage: "Call the hello action for Sam",
           initialComposerOptions: {
+            intent: "queued",
+            steer: true,
             engine: "anthropic",
             model: "claude-example",
             effort: "high",
+            contextItems,
+            composerModeContext: "Use the selected action.",
+            mode: "plan",
+            references,
+            uploadedAttachments: [uploadedAttachment],
           },
         },
       },

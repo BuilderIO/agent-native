@@ -2,6 +2,7 @@
 
 import { readFileSync } from "node:fs";
 
+import type { PromptComposerProps } from "@agent-native/toolkit/composer";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -44,6 +45,7 @@ const routeState = vi.hoisted(() => ({
   resumeProps: null as Record<string, unknown> | null,
   resolveConnectionRequest: vi.fn(),
   sendMessage: vi.fn(),
+  uploadFiles: vi.fn(),
   showHomePage: false,
   send: vi.fn(),
   locationState: null as unknown,
@@ -170,8 +172,12 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/context", () => ({
   useAgentKitControl: () => ({
     resolveConnectionRequest: routeState.resolveConnectionRequest,
     send: routeState.send,
+    sendMessage: routeState.sendMessage,
+    uploadFiles: routeState.uploadFiles,
   }),
   useAgentThread: () => ({
+    activeRunIds: [],
+    events: [],
     messages: routeState.messages,
     thread: routeState.title ? { title: routeState.title } : undefined,
   }),
@@ -230,6 +236,10 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.showHomePage = false;
     routeState.send.mockReset();
     routeState.send.mockResolvedValue(undefined);
+    routeState.sendMessage.mockReset();
+    routeState.sendMessage.mockResolvedValue(undefined);
+    routeState.uploadFiles.mockReset();
+    routeState.uploadFiles.mockResolvedValue([]);
     routeState.locationState = null;
     routeState.threadId = undefined;
     routeState.messages = [];
@@ -242,7 +252,6 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.connectionRequestProps = null;
     routeState.resumeProps = null;
     routeState.resolveConnectionRequest.mockReset();
-    routeState.sendMessage.mockReset();
     createTransport.mockClear();
     markHandoff.mockClear();
     captureException.mockReset();
@@ -690,14 +699,38 @@ describe("ChatRoute AgentKit surface", () => {
     });
   });
 
-  it("sends a prompt and selected model from Home once, then clears it", async () => {
+  it("sends the full Home composer payload once, then clears it", async () => {
     routeState.threadId = "chat-from-home";
+    const references = [
+      {
+        type: "file",
+        path: "actions/hello.ts",
+        name: "hello.ts",
+        source: "workspace",
+      },
+    ];
+    const contextItems = [
+      { key: "project", title: "Project", context: "Use project defaults." },
+    ];
+    const uploadedAttachment = {
+      type: "file",
+      name: "notes.txt",
+      mediaType: "text/plain",
+      url: "https://uploads.example/notes.txt",
+    };
     routeState.locationState = {
       initialMessage: "Call the hello action",
       initialComposerOptions: {
+        intent: "queued",
+        steer: true,
         engine: "anthropic",
         model: "claude-example",
         effort: "high",
+        mode: "plan",
+        references,
+        contextItems,
+        composerModeContext: "Use the selected action.",
+        uploadedAttachments: [uploadedAttachment],
       },
     };
 
@@ -709,17 +742,29 @@ describe("ChatRoute AgentKit surface", () => {
       ),
     );
 
-    expect(routeState.send).toHaveBeenCalledTimes(1);
-    expect(routeState.send).toHaveBeenCalledWith("Call the hello action", {
+    const expectedMetadata = {
+      engine: "anthropic",
       model: "claude-example",
-      reasoningEffort: "high",
-      metadata: {
-        engine: "anthropic",
+      effort: "high",
+      references,
+      contextItems,
+      mode: "plan",
+      requestMode: "plan",
+    };
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
+    expect(routeState.sendMessage).toHaveBeenCalledWith({
+      text: 'Call the hello action\n\n<context data-agentkit-context-encoding="entities-v1">\nUse the selected action.\n\nUse project defaults.\n</context>',
+      attachments: [uploadedAttachment],
+      options: {
         model: "claude-example",
-        effort: "high",
-        mode: "act",
-        requestMode: "act",
+        mode: "plan",
+        reasoningEffort: "high",
+        metadata: expectedMetadata,
       },
+      metadata: expectedMetadata,
+      queueWhileRunning: true,
+      queuedWhileRunActive: false,
+      interruptActiveRun: true,
     });
     expect(routeState.navigate).toHaveBeenCalledWith(
       { pathname: "/chat/chat-from-home", search: "" },
@@ -727,10 +772,108 @@ describe("ChatRoute AgentKit surface", () => {
     );
   });
 
+  it("restores failed handoff settings and clears recovery after a successful retry", async () => {
+    routeState.threadId = "chat-from-home";
+    const references = [
+      {
+        type: "file",
+        path: "actions/hello.ts",
+        name: "hello.ts",
+        source: "workspace",
+      },
+    ];
+    const contextItems = [
+      { key: "project", title: "Project", context: "Use project defaults." },
+    ];
+    const uploadedAttachment = {
+      type: "file",
+      name: "notes.txt",
+      mediaType: "text/plain",
+      url: "https://uploads.example/notes.txt",
+    };
+    routeState.locationState = {
+      initialMessage: "Call the hello action",
+      initialComposerOptions: {
+        engine: "anthropic",
+        model: "claude-example",
+        effort: "high",
+        mode: "plan",
+        references,
+        contextItems,
+        composerModeContext: "Use the selected action.",
+        uploadedAttachments: [uploadedAttachment],
+      },
+    };
+    routeState.sendMessage.mockRejectedValueOnce(
+      new Error("No model connected"),
+    );
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: {
+        initialText: "Call the hello action",
+        selectedEngine: "anthropic",
+        selectedModel: "claude-example",
+        selectedEffort: "high",
+        mode: "plan",
+        contextItems,
+      },
+    });
+    const retry = (
+      routeState.chatProps?.composerProps as {
+        onSubmit: PromptComposerProps["onSubmit"];
+      }
+    ).onSubmit;
+    const onLocalSubmit = vi.fn();
+    await act(async () =>
+      retry("Call the hello action", [], [], {
+        engine: "anthropic",
+        model: "claude-example",
+        effort: "high",
+        onLocalSubmit,
+      }),
+    );
+
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(2);
+    expect(routeState.sendMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Use the selected action."),
+        attachments: [uploadedAttachment],
+        options: expect.objectContaining({
+          model: "claude-example",
+          mode: "plan",
+          reasoningEffort: "high",
+        }),
+        metadata: expect.objectContaining({
+          engine: "anthropic",
+          model: "claude-example",
+          effort: "high",
+          references,
+          contextItems,
+          mode: "plan",
+          requestMode: "plan",
+        }),
+        onLocalSubmit,
+      }),
+    );
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: undefined },
+    });
+
+    routeState.threadId = "another-thread";
+    act(() => root.render(<ChatRoute />));
+    routeState.threadId = "chat-from-home";
+    act(() => root.render(<ChatRoute />));
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: undefined },
+    });
+  });
+
   it("reports a handed-over prompt that fails to send", async () => {
     routeState.threadId = "chat-from-home";
     routeState.locationState = { initialMessage: "Call the hello action" };
-    routeState.send.mockRejectedValue(new Error("No model connected"));
+    routeState.sendMessage.mockRejectedValue(new Error("No model connected"));
 
     await act(async () => root.render(<ChatRoute />));
 

@@ -921,6 +921,19 @@ describe("resolveBuilderCredential", () => {
       ),
     ).toBe(false);
     expect(await resolveSecret("GOOGLE_APPLICATION_CREDENTIALS")).toBeNull();
+    expect(
+      readDeployCredentialEnv("GOOGLE_APPLICATION_CREDENTIALS"),
+    ).toBeUndefined();
+  });
+
+  it("keeps Google service-account env credentials available in local development", () => {
+    process.env.NODE_ENV = "development";
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/service-account.json";
+    mockIsLocalDatabase.mockReturnValue(true);
+
+    expect(readDeployCredentialEnv("GOOGLE_APPLICATION_CREDENTIALS")).toBe(
+      "/tmp/service-account.json",
+    );
   });
 
   it("blocks deploy-level LLM keys for hosted workspace background requests", async () => {

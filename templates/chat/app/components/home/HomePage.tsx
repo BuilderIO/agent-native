@@ -2,6 +2,7 @@ import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/a
 import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
 import { useT } from "@agent-native/core/client/i18n";
 import { AgentKitComposer } from "@agent-native/toolkit/app/agentkit/react/components";
+import { useAgentKitControl } from "@agent-native/toolkit/app/agentkit/react/context";
 import { CoreComposerRuntimeProvider } from "@agent-native/toolkit/app/chat/agentkit-chat/composer";
 import { CoreAgentKitRoot } from "@agent-native/toolkit/app/chat/agentkit-chat/index";
 import { WaveBackground } from "@agent-native/toolkit/app/shared";
@@ -26,7 +27,11 @@ import {
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import { getChatHomeThreadId } from "@/lib/chat-home-thread";
-import { chatThreadPath, type ChatRouteState } from "@/lib/chat-paths";
+import {
+  chatThreadPath,
+  type ChatInitialComposerOptions,
+  type ChatRouteState,
+} from "@/lib/chat-paths";
 import { TAB_ID } from "@/lib/tab-id";
 
 const DOCS_URL = "https://www.agent-native.com/docs";
@@ -93,6 +98,7 @@ function HomeAgentComposer() {
   const t = useT();
   const navigate = useNavigate();
   const [threadId] = useState(getChatHomeThreadId);
+  const [mode, setMode] = useState<"act" | "plan">("act");
   const [transport] = useState(() =>
     createAgentNativeAgentKitTransport({
       browserTabId: TAB_ID,
@@ -103,7 +109,7 @@ function HomeAgentComposer() {
 
   function openChat(
     message: string,
-    options: { engine?: string; model?: string; effort?: string },
+    options: ChatInitialComposerOptions,
     onLocalSubmit?: () => void,
   ) {
     const state: ChatRouteState = {
@@ -131,29 +137,75 @@ function HomeAgentComposer() {
             clientOptions={{ transportOwnership: "owned" }}
             threadId={threadId}
           >
-            <AgentKitComposer
+            <HomeAgentComposerInput
               threadId={threadId}
-              requireAgentEngine
-              placeholder={t("home.composerPlaceholder")}
-              plusMenuMode="hidden"
-              attachmentsEnabled={false}
-              voiceEnabled
-              onSubmit={(text, _files, _references, options) => {
-                openChat(
-                  text,
-                  {
-                    engine: options.engine,
-                    model: options.model,
-                    effort: options.effort,
-                  },
-                  options.onLocalSubmit,
-                );
-              }}
+              mode={mode}
+              onModeChange={setMode}
+              onSubmit={openChat}
             />
           </CoreAgentKitRoot>
         </CoreComposerRuntimeProvider>
       </div>
     </div>
+  );
+}
+
+function HomeAgentComposerInput({
+  threadId,
+  mode,
+  onModeChange,
+  onSubmit,
+}: {
+  threadId: string;
+  mode: "act" | "plan";
+  onModeChange: (mode: "act" | "plan") => void;
+  onSubmit: (
+    text: string,
+    options: ChatInitialComposerOptions,
+    onLocalSubmit?: () => void,
+  ) => void;
+}) {
+  const t = useT();
+  const control = useAgentKitControl(threadId);
+
+  return (
+    <AgentKitComposer
+      threadId={threadId}
+      requireAgentEngine
+      placeholder={t("home.composerPlaceholder")}
+      plusMenuMode="hidden"
+      attachmentsEnabled={false}
+      mode={mode}
+      onModeChange={onModeChange}
+      voiceEnabled
+      onSubmit={async (text, files, references, options) => {
+        const uploadedAttachments = files.length
+          ? await control.uploadFiles(
+              files.map((file) => ({
+                name: file.name,
+                mediaType: file.type || "application/octet-stream",
+                size: file.size,
+                body: file,
+              })),
+            )
+          : [];
+        const {
+          onLocalSubmit: clearLocalDraft,
+          attachments: _rawAttachments,
+          ...submitOptions
+        } = options;
+        onSubmit(
+          text,
+          {
+            ...submitOptions,
+            mode,
+            references,
+            ...(uploadedAttachments.length ? { uploadedAttachments } : {}),
+          },
+          clearLocalDraft,
+        );
+      }}
+    />
   );
 }
 

@@ -1,5 +1,11 @@
+import type { FilePart } from "@agent-native/agentkit";
 // Production builds compile this to `false`, so `/home` stays the chat entry
 // there and the Home page only exists under `pnpm dev`.
+import type {
+  PromptComposerSubmitOptions,
+  Reference,
+} from "@agent-native/toolkit/composer";
+
 export const SHOW_HOME_PAGE = import.meta.env.DEV;
 
 export const HOME_PATH = "/home";
@@ -30,14 +36,19 @@ export function threadIdFromPath(pathname: string): string | null {
   }
 }
 
+export type ChatInitialComposerOptions = Omit<
+  PromptComposerSubmitOptions,
+  "onLocalSubmit" | "attachments"
+> & {
+  mode?: "act" | "plan";
+  references?: readonly Reference[];
+  uploadedAttachments?: readonly FilePart[];
+};
+
 /** Router state that carries a prompt typed elsewhere into the chat it opens. */
 export interface ChatRouteState {
   initialMessage: string;
-  initialComposerOptions?: {
-    engine?: string;
-    model?: string;
-    effort?: string;
-  };
+  initialComposerOptions?: ChatInitialComposerOptions;
 }
 
 export function initialMessageFromState(state: unknown): string | null {
@@ -50,12 +61,39 @@ export function initialComposerOptionsFromState(
   state: unknown,
 ): ChatRouteState["initialComposerOptions"] {
   if (!state || typeof state !== "object") return undefined;
-  const options = (state as Partial<ChatRouteState>).initialComposerOptions;
+  const options = (state as { initialComposerOptions?: unknown })
+    .initialComposerOptions;
   if (!options || typeof options !== "object") return undefined;
 
-  return {
-    ...(typeof options.engine === "string" ? { engine: options.engine } : {}),
-    ...(typeof options.model === "string" ? { model: options.model } : {}),
-    ...(typeof options.effort === "string" ? { effort: options.effort } : {}),
+  const value = options as Record<string, unknown>;
+  const result: ChatInitialComposerOptions = {
+    mode: value.mode === "plan" ? "plan" : "act",
   };
+  if (typeof value.engine === "string") result.engine = value.engine;
+  if (typeof value.model === "string") result.model = value.model;
+  if (typeof value.effort === "string") {
+    result.effort = value.effort as NonNullable<
+      ChatInitialComposerOptions["effort"]
+    >;
+  }
+  if (value.intent === "immediate" || value.intent === "queued") {
+    result.intent = value.intent;
+  }
+  if (value.steer === true) result.steer = true;
+  if (Array.isArray(value.uploadedAttachments)) {
+    result.uploadedAttachments = value.uploadedAttachments as FilePart[];
+  }
+  if (Array.isArray(value.contextItems)) {
+    result.contextItems = value.contextItems as NonNullable<
+      ChatInitialComposerOptions["contextItems"]
+    >;
+  }
+  if (typeof value.composerModeContext === "string") {
+    result.composerModeContext = value.composerModeContext;
+  }
+  if (Array.isArray(value.references)) {
+    result.references = value.references as Reference[];
+  }
+
+  return result;
 }

@@ -164,6 +164,12 @@ export function assertCredentialStoreReadable(result: {
  */
 export function readDeployCredentialEnv(key: string): string | undefined {
   if (
+    key === "GOOGLE_APPLICATION_CREDENTIALS" &&
+    !isDeployCredentialFallbackAllowed()
+  ) {
+    return undefined;
+  }
+  if (
     (DEPLOY_LLM_PROVIDER_ENV_KEYS.has(key) ||
       BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) &&
     !canUseDeployCredentialFallbackForRequest(key)

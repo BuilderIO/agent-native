@@ -3,6 +3,10 @@ import type {
   AgentMessage,
   AgentRunOptions,
 } from "@agent-native/agentkit";
+import {
+  appendAgentChatContextToMessage,
+  hasActiveAgentRuns,
+} from "@agent-native/agentkit";
 import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
 import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
 import {
@@ -42,6 +46,11 @@ import {
   BuilderSetupCard,
   isMissingLlmProviderRunError,
 } from "@agent-native/toolkit/app/chat/chat/run-recovery";
+import type {
+  PromptComposerFile,
+  PromptComposerSubmitOptions,
+  Reference,
+} from "@agent-native/toolkit/composer";
 import { IconLayoutSidebarRight } from "@tabler/icons-react";
 import {
   useCallback,
@@ -63,6 +72,7 @@ import { APP_TITLE } from "@/lib/app-config";
 import { consumeChatHomeThreadId } from "@/lib/chat-home-thread";
 import {
   chatThreadPath,
+  type ChatInitialComposerOptions,
   initialComposerOptionsFromState,
   initialMessageFromState,
 } from "@/lib/chat-paths";
@@ -105,15 +115,17 @@ function ChatThreadRouteContent({
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [failedInitialDraft, setFailedInitialDraft] = useState<{
     text: string;
+    options: ChatInitialComposerOptions;
     attempt: number;
     threadId: string;
   } | null>(null);
   const failedInitialDraftAttemptRef = useRef(0);
   const handleInitialMessageFailure = useCallback(
-    (text: string) => {
+    (text: string, options: ChatInitialComposerOptions) => {
       failedInitialDraftAttemptRef.current += 1;
       setFailedInitialDraft({
         text,
+        options,
         attempt: failedInitialDraftAttemptRef.current,
         threadId: resolvedThreadId,
       });
@@ -186,6 +198,22 @@ function ChatThreadRouteContent({
                   ? `${resolvedThreadId}:${failedInitialDraft.attempt}`
                   : undefined
               }
+              recoveryOptions={
+                failedInitialDraft?.threadId === resolvedThreadId
+                  ? failedInitialDraft.options
+                  : undefined
+              }
+              onRecoveryOptionsChange={(options) =>
+                setFailedInitialDraft((current) =>
+                  current?.threadId === resolvedThreadId
+                    ? {
+                        ...current,
+                        options: { ...current.options, ...options },
+                      }
+                    : current,
+                )
+              }
+              onRecoverySubmitAccepted={() => setFailedInitialDraft(null)}
             />
           </CoreAgentKitRoot>
         </CoreComposerRuntimeProvider>
@@ -332,17 +360,22 @@ function ChatInitialMessage({
 }: {
   threadId: string;
   onStart: () => void;
-  onFailure: (text: string) => void;
+  onFailure: (text: string, options: ChatInitialComposerOptions) => void;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
   const control = useAgentKitControl(threadId);
+  const thread = useAgentThread(threadId);
   const sentRef = useRef(false);
   const message = initialMessageFromState(location.state);
   const composerOptions = initialComposerOptionsFromState(location.state);
   const engine = composerOptions?.engine;
   const model = composerOptions?.model;
   const effort = composerOptions?.effort;
+  const mode = composerOptions?.mode ?? "act";
+  const references = composerOptions?.references ?? [];
+  const contextItems = composerOptions?.contextItems;
+  const activeAtSubmit = hasActiveAgentRuns(thread);
 
   useEffect(() => {
     if (!message || sentRef.current) return;
@@ -354,8 +387,27 @@ function ChatInitialMessage({
       { pathname: location.pathname, search: location.search },
       { replace: true, state: null },
     );
+    const context = [
+      composerOptions?.composerModeContext,
+      contextItems?.map((item) => item.context).join("\n\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const requestText = context
+      ? appendAgentChatContextToMessage(message, context)
+      : message;
+    const metadata = {
+      ...(engine ? { engine } : {}),
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+      ...(references.length ? { references } : {}),
+      ...(contextItems === undefined ? {} : { contextItems }),
+      mode,
+      requestMode: mode,
+    };
     const runOptions: AgentRunOptions = {
       ...(model ? { model } : {}),
+      mode,
       ...(effort && !["auto", "max"].includes(effort)
         ? {
             reasoningEffort: effort as NonNullable<
@@ -363,23 +415,28 @@ function ChatInitialMessage({
             >,
           }
         : {}),
-      metadata: {
-        ...(engine ? { engine } : {}),
-        ...(model ? { model } : {}),
-        ...(effort ? { effort } : {}),
-        mode: "act",
-        requestMode: "act",
-      },
+      metadata,
     };
-    void Promise.resolve(control.send(message, runOptions)).catch(
-      (error: unknown) => {
-        onFailure(message);
-        captureException(error, { tags: { area: "chat_initial_message" } });
-        toast.error(error instanceof Error ? error.message : String(error));
-      },
-    );
+    void Promise.resolve(
+      control.sendMessage({
+        text: requestText,
+        attachments: [...(composerOptions?.uploadedAttachments ?? [])],
+        options: runOptions,
+        metadata,
+        queueWhileRunning: true,
+        queuedWhileRunActive: activeAtSubmit,
+        ...(composerOptions?.steer ? { interruptActiveRun: true } : {}),
+      }),
+    ).catch((error: unknown) => {
+      onFailure(message, composerOptions ?? {});
+      captureException(error, { tags: { area: "chat_initial_message" } });
+      toast.error(error instanceof Error ? error.message : String(error));
+    });
   }, [
+    composerOptions,
     control,
+    contextItems,
+    activeAtSubmit,
     engine,
     effort,
     location.pathname,
@@ -625,19 +682,115 @@ function ChatCanvas({
   setWorkspaceOpen,
   initialText,
   initialTextKey,
+  recoveryOptions,
+  onRecoveryOptionsChange,
+  onRecoverySubmitAccepted,
 }: {
   workspaceOpen: boolean;
   setWorkspaceOpen: (value: boolean | ((current: boolean) => boolean)) => void;
   initialText?: string;
   initialTextKey?: string;
+  recoveryOptions?: ChatInitialComposerOptions;
+  onRecoveryOptionsChange: (
+    options: Partial<ChatInitialComposerOptions>,
+  ) => void;
+  onRecoverySubmitAccepted: () => void;
 }) {
   const t = useT();
   const thread = useAgentThread();
+  const control = useAgentKitControl();
   const stopButton = useAgentKitStopButton({
     label: t("agentChat.composer.stopResponse"), // i18n-key-ignore shared framework catalog
     onError: (error) => toast.error(error.message),
   });
   const hasConversation = thread.messages.length > 0;
+  const activeAtSubmit = hasActiveAgentRuns(thread);
+
+  const retryInitialDraft = useCallback(
+    async (
+      text: string,
+      files: PromptComposerFile[],
+      references: Reference[],
+      options: PromptComposerSubmitOptions,
+    ) => {
+      if (!recoveryOptions) return;
+      const contextItems = options.contextItems ?? recoveryOptions.contextItems;
+      const composerModeContext =
+        options.composerModeContext ?? recoveryOptions.composerModeContext;
+      const context = [
+        composerModeContext,
+        contextItems?.map((item) => item.context).join("\n\n"),
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      const requestText = context
+        ? appendAgentChatContextToMessage(text, context)
+        : text;
+      const runMode = recoveryOptions.mode ?? "act";
+      const model = options.model ?? recoveryOptions.model;
+      const engine = options.engine ?? recoveryOptions.engine;
+      const effort = options.effort ?? recoveryOptions.effort;
+      const mergedReferences = [
+        ...(recoveryOptions.references ?? []),
+        ...references,
+      ].filter(
+        (reference, index, all) =>
+          all.findIndex(
+            (candidate) =>
+              candidate.type === reference.type &&
+              candidate.source === reference.source &&
+              candidate.path === reference.path &&
+              candidate.refId === reference.refId,
+          ) === index,
+      );
+      const uploadedAttachments = files.length
+        ? await control.uploadFiles(
+            files.map((file) => ({
+              name: file.name,
+              mediaType: file.type || "application/octet-stream",
+              size: file.size,
+              body: file,
+            })),
+          )
+        : [];
+      const metadata = {
+        ...(engine ? { engine } : {}),
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+        ...(mergedReferences.length ? { references: mergedReferences } : {}),
+        ...(contextItems === undefined ? {} : { contextItems }),
+        mode: runMode,
+        requestMode: runMode,
+      };
+      const runOptions: AgentRunOptions = {
+        ...(model ? { model } : {}),
+        mode: runMode,
+        ...(effort && !["auto", "max"].includes(effort)
+          ? {
+              reasoningEffort: effort as NonNullable<
+                AgentRunOptions["reasoningEffort"]
+              >,
+            }
+          : {}),
+        metadata,
+      };
+      await control.sendMessage({
+        text: requestText,
+        attachments: [
+          ...(recoveryOptions.uploadedAttachments ?? []),
+          ...uploadedAttachments,
+        ],
+        options: runOptions,
+        metadata,
+        queueWhileRunning: true,
+        queuedWhileRunActive: activeAtSubmit,
+        ...(options.steer ? { interruptActiveRun: true } : {}),
+        onLocalSubmit: options.onLocalSubmit,
+      });
+      onRecoverySubmitAccepted();
+    },
+    [activeAtSubmit, control, onRecoverySubmitAccepted, recoveryOptions],
+  );
 
   useEffect(() => {
     if (!hasConversation) setWorkspaceOpen(false);
@@ -672,6 +825,29 @@ function ChatCanvas({
         requireAgentEngine: true,
         initialText,
         initialTextKey,
+        ...(recoveryOptions
+          ? {
+              mode: recoveryOptions.mode ?? "act",
+              selectedModel: recoveryOptions.model,
+              selectedEngine: recoveryOptions.engine,
+              selectedEffort: recoveryOptions.effort,
+              contextItems: recoveryOptions.contextItems,
+              onModeChange: (mode: "act" | "plan") =>
+                onRecoveryOptionsChange({ mode }),
+              onModelChange: (model: string, engine: string) =>
+                onRecoveryOptionsChange({ model, engine }),
+              onEffortChange: (
+                effort: NonNullable<ChatInitialComposerOptions["effort"]>,
+              ) => onRecoveryOptionsChange({ effort }),
+              onRemoveContextItem: (key: string) =>
+                onRecoveryOptionsChange({
+                  contextItems: recoveryOptions.contextItems?.filter(
+                    (item) => item.key !== key,
+                  ),
+                }),
+              onSubmit: retryInitialDraft,
+            }
+          : {}),
         stopButton,
         queueWhileRunning: true,
         autoFocus: true,
