@@ -8053,6 +8053,70 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
+  it("keeps canceled queued transport writes within the per-thread limit", async () => {
+    let resolveFirstWrite: (() => void) | undefined;
+    let writeCount = 0;
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(() => {
+      writeCount += 1;
+      if (writeCount === 1) {
+        return new Promise<void>((resolve) => {
+          resolveFirstWrite = resolve;
+        });
+      }
+      return Promise.resolve();
+    });
+    await mount(baseProps({ createTransport: () => chatMocks.transport }));
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 404 }));
+    const persistThreadSnapshot = chatMocks.rootProps.transport
+      .persistThreadSnapshot as (
+      input: unknown,
+      context?: { signal?: AbortSignal },
+    ) => Promise<void>;
+    const input = {
+      threadId: "canceled-snapshot-queue-thread",
+      snapshot: { messages: [] },
+    };
+    const first = persistThreadSnapshot(input);
+    const abortControllers = Array.from(
+      { length: 7 },
+      () => new AbortController(),
+    );
+    const queuedWrites = abortControllers.map((abortController) =>
+      persistThreadSnapshot(input, { signal: abortController.signal }),
+    );
+
+    try {
+      await vi.waitFor(() =>
+        expect(
+          chatMocks.transport.persistThreadSnapshot,
+        ).toHaveBeenCalledOnce(),
+      );
+      abortControllers.forEach((abortController) => abortController.abort());
+      const canceledResults = await Promise.allSettled(queuedWrites);
+      expect(
+        canceledResults.every((result) => result.status === "rejected"),
+      ).toBe(true);
+      await expect(persistThreadSnapshot(input)).rejects.toMatchObject({
+        name: "ThreadSnapshotQueueFullError",
+      });
+      expect(writeCount).toBe(1);
+
+      await act(async () => {
+        resolveFirstWrite?.();
+        for (let i = 0; i < 64; i++) await Promise.resolve();
+      });
+      await expect(first).resolves.toBeUndefined();
+      await expect(persistThreadSnapshot(input)).resolves.toBeUndefined();
+      expect(writeCount).toBe(2);
+    } finally {
+      resolveFirstWrite?.();
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("times out transport snapshot writes while waiting behind a stalled write", async () => {
     let resolveFirstWrite: (() => void) | undefined;
     let writeCount = 0;
@@ -8104,6 +8168,81 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(writeCount).toBe(1);
     } finally {
       resolveFirstWrite?.();
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives transport snapshot writes a full timeout after queue wait", async () => {
+    let resolveFirstWrite: (() => void) | undefined;
+    let resolveSecondWrite: (() => void) | undefined;
+    let secondSignal: AbortSignal | undefined;
+    let writeCount = 0;
+    chatMocks.transport.persistThreadSnapshot.mockImplementation(
+      (_input: unknown, context?: { signal?: AbortSignal }) => {
+        writeCount += 1;
+        if (writeCount === 1) {
+          return new Promise<void>((resolve) => {
+            resolveFirstWrite = resolve;
+          });
+        }
+        secondSignal = context?.signal;
+        return new Promise<void>((resolve) => {
+          resolveSecondWrite = resolve;
+        });
+      },
+    );
+    await mount(baseProps({ createTransport: () => chatMocks.transport }));
+
+    vi.useFakeTimers();
+    try {
+      const persistThreadSnapshot = chatMocks.rootProps.transport
+        .persistThreadSnapshot as (input: unknown) => Promise<void>;
+      const input = {
+        threadId: "snapshot-queue-timeout-thread",
+        snapshot: { messages: [] },
+      };
+      const first = persistThreadSnapshot(input);
+      const firstResult = first.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await act(async () => {
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      const second = persistThreadSnapshot(input);
+      const secondResult = second.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+        resolveFirstWrite?.();
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      expect(writeCount).toBe(2);
+      expect(secondSignal?.aborted).toBe(false);
+      expect(await firstResult).toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(secondSignal?.aborted).toBe(false);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(secondSignal?.aborted).toBe(true);
+      expect(await secondResult).toMatchObject({ name: "TimeoutError" });
+
+      await act(async () => {
+        resolveSecondWrite?.();
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+    } finally {
+      resolveFirstWrite?.();
+      resolveSecondWrite?.();
       await act(async () => root.render(null));
       vi.useRealTimers();
     }
@@ -8473,6 +8612,101 @@ describe("AgentKitAssistantChat host behavior", () => {
       ]);
       expect(onThreadSnapshotPersisted).toHaveBeenCalledWith("thread-1", 2);
     } finally {
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives queued host snapshot saves a full timeout after queue wait", async () => {
+    const createTransport = () => chatMocks.transport;
+    let resolveFirstSave: ((saved: boolean) => void) | undefined;
+    let resolveSecondSave: ((saved: boolean) => void) | undefined;
+    let secondSignal: AbortSignal | undefined;
+    const firstSave = new Promise<boolean>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const secondSave = new Promise<boolean>((resolve) => {
+      resolveSecondSave = resolve;
+    });
+    const onSaveThread = vi.fn(
+      (
+        _threadId: string,
+        data: { preview: string },
+        context?: { signal?: AbortSignal },
+      ) => {
+        if (data.preview === "Older snapshot") return firstSave;
+        secondSignal = context?.signal;
+        return secondSave;
+      },
+    );
+    chatMocks.persistThreadSnapshot.mockResolvedValue(undefined);
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    vi.useFakeTimers();
+    try {
+      const firstMessage = {
+        id: "queue-timeout-first-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Older snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = { ...chatMocks.thread, messages: [firstMessage] };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      const secondMessage = {
+        id: "queue-timeout-second-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:01:00.000Z",
+        parts: [{ type: "text", text: "Latest snapshot" }],
+      } as AgentMessage;
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        messages: [firstMessage, secondMessage],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        for (let i = 0; i < 8; i++) await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+        resolveFirstSave?.(true);
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      expect(onSaveThread).toHaveBeenCalledTimes(2);
+      expect(secondSignal?.aborted).toBe(false);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(secondSignal?.aborted).toBe(false);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(secondSignal?.aborted).toBe(true);
+
+      await act(async () => {
+        resolveSecondSave?.(true);
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+      });
+    } finally {
+      resolveFirstSave?.(true);
+      resolveSecondSave?.(true);
       await act(async () => root.render(null));
       vi.useRealTimers();
     }

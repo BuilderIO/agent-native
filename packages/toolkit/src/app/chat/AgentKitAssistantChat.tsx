@@ -296,8 +296,6 @@ function enqueueThreadSnapshotPersistence<T>(
   const onAbort = () => {
     if (operationStarted && !operationSettled) {
       stalledThreadSnapshotPersistenceQueues.add(key);
-    } else if (!operationStarted) {
-      releaseSlot();
     }
   };
   controller.signal.addEventListener("abort", onAbort, { once: true });
@@ -307,19 +305,27 @@ function enqueueThreadSnapshotPersistence<T>(
     context?.signal?.addEventListener("abort", abortFromCaller, {
       once: true,
     });
-  const timeout = window.setTimeout(() => {
+  let writeTimeout: number | undefined;
+  const queueWaitTimeout = window.setTimeout(() => {
     const error = new Error("Chat thread snapshot persistence timed out.");
     error.name = "TimeoutError";
     controller.abort(error);
   }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
   const cleanup = () => {
-    window.clearTimeout(timeout);
+    window.clearTimeout(queueWaitTimeout);
+    if (writeTimeout !== undefined) window.clearTimeout(writeTimeout);
     context?.signal?.removeEventListener("abort", abortFromCaller);
     controller.signal.removeEventListener("abort", onAbort);
   };
   const operation = previous.then(() => {
     if (controller.signal.aborted) throw abortError(controller.signal);
     operationStarted = true;
+    window.clearTimeout(queueWaitTimeout);
+    writeTimeout = window.setTimeout(() => {
+      const error = new Error("Chat thread snapshot persistence timed out.");
+      error.name = "TimeoutError";
+      controller.abort(error);
+    }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
     return persist({ ...context, signal: controller.signal });
   });
   const settled = operation
@@ -371,23 +377,29 @@ function enqueueThreadSnapshotSave<T>(
   const onAbort = () => {
     if (operationStarted && !operationSettled) {
       stalledThreadSnapshotSaveQueues.add(key);
-    } else if (!operationStarted) {
-      releaseSlot();
     }
   };
   controller.signal.addEventListener("abort", onAbort, { once: true });
-  const timeout = window.setTimeout(() => {
+  let writeTimeout: number | undefined;
+  const queueWaitTimeout = window.setTimeout(() => {
     const error = new Error("Chat thread snapshot persistence timed out.");
     error.name = "TimeoutError";
     controller.abort(error);
   }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
   const cleanup = () => {
-    window.clearTimeout(timeout);
+    window.clearTimeout(queueWaitTimeout);
+    if (writeTimeout !== undefined) window.clearTimeout(writeTimeout);
     controller.signal.removeEventListener("abort", onAbort);
   };
   const operation = previous.then(() => {
     if (controller.signal.aborted) throw abortError(controller.signal);
     operationStarted = true;
+    window.clearTimeout(queueWaitTimeout);
+    writeTimeout = window.setTimeout(() => {
+      const error = new Error("Chat thread snapshot persistence timed out.");
+      error.name = "TimeoutError";
+      controller.abort(error);
+    }, THREAD_SNAPSHOT_SAVE_TIMEOUT_MS);
     return save({ signal: controller.signal });
   });
   const settled = operation
