@@ -659,7 +659,13 @@ export function AgentSidebar({
     queueMicrotask(() => {
       try {
         while (panelReadyRef.current) {
-          const conversation = pendingPanelEvents.current[0];
+          const navigation =
+            activeNavigations.current.size > 0
+              ? pendingPanelEvents.current.find((pending) =>
+                  isPanelNavigationEvent(pending.event),
+                )
+              : undefined;
+          const conversation = navigation ?? pendingPanelEvents.current[0];
           const control = pendingPanelControls.current[0];
           if (
             conversation?.referenceTargetId === null &&
@@ -669,7 +675,8 @@ export function AgentSidebar({
           }
           const conversationReady =
             conversation &&
-            activeNavigations.current.size === 0 &&
+            (isPanelNavigationEvent(conversation.event) ||
+              activeNavigations.current.size === 0) &&
             (!isComposerReferenceEvent(conversation.event) ||
               isReferenceTargetReady(conversation.referenceTargetId ?? null));
           const queue =
@@ -680,11 +687,15 @@ export function AgentSidebar({
                 ? pendingPanelEvents.current
                 : null;
           if (!queue) break;
-          const { event } = queue[0];
+          const pending =
+            queue === pendingPanelControls.current ? control : conversation;
+          if (!pending) break;
+          const { event } = pending;
           replayingPanelEvent.current = event;
           // Reference insertion must commit before a following submission reads its context.
           flushSync(() => window.dispatchEvent(event));
-          if (queue[0]?.event === event) queue.shift();
+          const index = queue.indexOf(pending);
+          if (index >= 0) queue.splice(index, 1);
         }
       } finally {
         replayingPanelEvent.current = null;
@@ -1050,7 +1061,7 @@ export function AgentSidebar({
       if (
         !shouldRetainEvent(
           event,
-          panelReadyRef.current && activeNavigations.current.size === 0,
+          panelReadyRef.current,
           pendingPanelEvents.current,
         )
       )

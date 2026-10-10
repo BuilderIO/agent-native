@@ -2693,6 +2693,197 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     },
   );
 
+  it.each([
+    [false, "agent-chat:open-thread"],
+    [false, "agent-task-open"],
+    [true, "agent-chat:open-thread"],
+    [true, "agent-task-open"],
+  ] as const)(
+    "lets sidebar navigation supersede a held lookup (cold=%s, replacement=%s)",
+    async (cold, replacement) => {
+      assistantChatMockState.referenceProbe = true;
+      assistantChatMockState.referenceDisabled = false;
+      threadMocks.threads.push(
+        { ...threadMocks.threads[0], id: "thread-2" },
+        { ...threadMocks.threads[0], id: "thread-3" },
+      );
+      let finishLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          }),
+      );
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const sidebar = () => (
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <AgentSidebar
+              defaultOpen={!cold}
+              storageKey="bridge-test"
+              showMissingApiKeySetup={false}
+            >
+              <div>Content</div>
+            </AgentSidebar>
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(sidebar());
+      });
+      const results: Array<{
+        submitMessageId: string;
+        delivered: boolean;
+        reason?: string;
+      }> = [];
+      const record = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      const dependentId = `held-dependent-${cold}-${replacement}`;
+      const openOriginal = () =>
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:open-thread", {
+            detail: {
+              threadId: "thread-2",
+              openRequestId: `held-${cold}-${replacement}`,
+            },
+          }),
+        );
+      try {
+        await act(async () => root.render(sidebar()));
+        if (!cold) await act(async () => openOriginal());
+        await act(async () => {
+          if (cold) openOriginal();
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Original reference",
+                refType: "file",
+                refId: "/original.md",
+                slotKey: "document",
+                insertMessageId: `old-${cold}-${replacement}`,
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Original dependent draft",
+            submit: false,
+            openSidebar: false,
+            submitMessageId: dependentId,
+          });
+          window.dispatchEvent(
+            new CustomEvent(replacement, {
+              detail: {
+                threadId: "thread-3",
+                openRequestId: `replacement-${cold}-${replacement}`,
+              },
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: {
+                label: "Replacement reference",
+                refType: "file",
+                refId: "/replacement.md",
+                slotKey: "document",
+                insertMessageId: `new-${cold}-${replacement}`,
+              },
+            }),
+          );
+          dispatchSubmitChat({
+            message: "Replacement dependent draft",
+            submit: false,
+            openSidebar: false,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 75));
+        });
+        expect(threadMocks.activeThreadId).toBe("thread-3");
+        expect(
+          results.filter((result) => result.submitMessageId === dependentId),
+        ).toEqual([
+          {
+            submitMessageId: dependentId,
+            delivered: false,
+            reason: "navigation-superseded",
+          },
+        ]);
+        expect(assistantChatMockState.referenceDeliveries).toEqual([
+          {
+            threadId: "thread-3",
+            context: expect.stringContaining("Replacement reference"),
+          },
+        ]);
+        expect(
+          assistantChatMockState.referenceDeliveries[0].context,
+        ).not.toContain("Original reference");
+        await act(async () => finishLookup("opened"));
+        expect(threadMocks.activeThreadId).toBe("thread-3");
+        expect(assistantChatMockState.referenceDeliveries).toHaveLength(1);
+        expect(
+          results.filter((result) => result.submitMessageId === dependentId),
+        ).toHaveLength(1);
+      } finally {
+        window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "rejects queued sends when the panel unmounts (scheduled=%s)",
+    async (scheduled) => {
+      assistantChatMockState.deferredHandleThread = "thread-2";
+      const chat = () => <MultiTabAssistantChat storageKey="bridge-test" />;
+      const pendingId = `unmount-pending-${scheduled}`;
+      const results: unknown[] = [];
+      const record = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      await act(async () => root.render(chat()));
+      await act(async () =>
+        dispatchSubmitChat({
+          message: "Queued before unmount",
+          submit: false,
+          targetTabId: "thread-2",
+          submitMessageId: pendingId,
+        }),
+      );
+      vi.useFakeTimers();
+      try {
+        if (scheduled) {
+          assistantChatMockState.deferredHandleThread = null;
+          await act(async () => root.render(chat()));
+        }
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Already handed off",
+            submit: false,
+            targetTabId: "thread-1",
+            submitMessageId: `unmount-delivered-${scheduled}`,
+          }),
+        );
+        await act(async () => root.render(null));
+        expect(results).toEqual([
+          {
+            submitMessageId: pendingId,
+            delivered: false,
+            reason: "panel-unmounted",
+          },
+        ]);
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
+          "Already handed off",
+        );
+        expect(results).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+        window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      }
+    },
+  );
+
   it("starts cold thread navigation without a ready composer and preserves explicit targets", async () => {
     assistantChatMockState.referenceProbe = true;
     const queryClient = new QueryClient({

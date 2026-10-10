@@ -2604,10 +2604,21 @@ export function MultiTabAssistantChat({
     return () => {
       mountedRef.current = false;
       const pending = [...pendingNavigations.current.values()];
+      const deliveries = pendingDeliveries.current;
       pendingNavigations.current.clear();
       awaitingNavigationHandles.current.clear();
+      pendingDeliveries.current = [];
+      deliveryLanes.current.clear();
       for (const closed of [...pendingTabClosures.current])
         publishTabClosure(closed);
+      for (const delivery of deliveries) {
+        reportAgentChatSubmitResult(
+          delivery.send.submitMessageId,
+          false,
+          "panel-unmounted",
+        );
+        cancelAgentChatSubmit(delivery.send.submitMessageId);
+      }
       for (const navigation of pending)
         navigationChangeRef.current?.(navigation.event, "unavailable");
     };
