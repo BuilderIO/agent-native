@@ -1,5 +1,8 @@
 import type { A2AArtifactIdentity } from "../a2a/artifact-response.js";
-import { assertA2APersistablePayload } from "../a2a/persistence-safety.js";
+import {
+  A2APersistencePayloadError,
+  assertA2APersistablePayload,
+} from "../a2a/persistence-safety.js";
 import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
@@ -23,6 +26,33 @@ const TERMINAL_HISTORY_OMISSION_NOTE =
   "Delivered output omitted from retained history because it exceeded storage limits or contained inline file data.";
 const CONTINUATION_ERROR_OMISSION_NOTE =
   "Continuation failure details omitted because they contained inline file data.";
+
+type PersistabilityCheck =
+  | { safe: true }
+  | { safe: false; reason: "inline_file_bytes" | "invalid_payload" };
+
+type BoundedStringResult =
+  | { kind: "value"; value: string }
+  | { kind: "absent" }
+  | { kind: "omitted"; reason: "inline_file_bytes" | "invalid_payload" };
+
+function checkA2APersistability(
+  value: unknown,
+  label: string,
+): PersistabilityCheck {
+  try {
+    assertA2APersistablePayload(value, label);
+    return { safe: true };
+  } catch (error) {
+    return {
+      safe: false,
+      reason:
+        error instanceof A2APersistencePayloadError
+          ? "inline_file_bytes"
+          : "invalid_payload",
+    };
+  }
+}
 
 function buildCreateSql(): string {
   return `
@@ -341,9 +371,8 @@ function parseTerminalHistoryPayload(
 
 function sanitizeTerminalHistoryText(value: unknown): string {
   if (typeof value !== "string") return "";
-  try {
-    assertA2APersistablePayload(value, "A2A terminal history text");
-  } catch {
+  const check = checkA2APersistability(value, "A2A terminal history text");
+  if (!check.safe) {
     return TERMINAL_HISTORY_OMISSION_NOTE;
   }
   if (value.length <= MAX_TERMINAL_HISTORY_TEXT_CHARS) return value;
@@ -354,22 +383,23 @@ function sanitizeTerminalHistoryText(value: unknown): string {
 function boundedPersistableString(
   value: unknown,
   maxChars: number,
-): string | null {
-  if (typeof value !== "string") return null;
-  try {
-    assertA2APersistablePayload(value, "A2A terminal history field");
-  } catch {
-    return null;
+): BoundedStringResult {
+  if (typeof value !== "string") return { kind: "absent" };
+  const check = checkA2APersistability(value, "A2A terminal history field");
+  if (!check.safe) {
+    return { kind: "omitted", reason: check.reason };
   }
-  return value.slice(0, maxChars);
+  return { kind: "value", value: value.slice(0, maxChars) };
 }
 
 function sanitizeTerminalHistoryPayload(
   input: A2ATerminalHistoryPayload,
 ): A2ATerminalHistoryPayload {
+  const deliveredAtResult = boundedPersistableString(input?.deliveredAt, 128);
   const deliveredAt =
-    boundedPersistableString(input?.deliveredAt, 128) ??
-    new Date().toISOString();
+    deliveredAtResult.kind === "value"
+      ? deliveredAtResult.value
+      : new Date().toISOString();
   const messageRefs = Array.isArray(input?.messageRefs)
     ? input.messageRefs
         .slice(0, MAX_TERMINAL_HISTORY_MESSAGE_REFS)
@@ -378,7 +408,7 @@ function sanitizeTerminalHistoryPayload(
             ref,
             MAX_TERMINAL_HISTORY_FIELD_CHARS,
           );
-          return safe == null ? [] : [safe];
+          return safe.kind === "value" ? [safe.value] : [];
         })
     : [];
   const artifacts = Array.isArray(input?.artifacts)
@@ -386,12 +416,11 @@ function sanitizeTerminalHistoryPayload(
         .slice(0, MAX_TERMINAL_HISTORY_ARTIFACTS)
         .flatMap((artifact): A2AArtifactIdentity[] => {
           if (!artifact || typeof artifact !== "object") return [];
-          try {
-            assertA2APersistablePayload(
-              artifact,
-              "A2A terminal history artifact",
-            );
-          } catch {
+          const artifactCheck = checkA2APersistability(
+            artifact,
+            "A2A terminal history artifact",
+          );
+          if (!artifactCheck.safe) {
             return [];
           }
           const candidate = artifact as A2AArtifactIdentity;
@@ -407,27 +436,34 @@ function sanitizeTerminalHistoryPayload(
             candidate.resourceType,
             MAX_TERMINAL_HISTORY_FIELD_CHARS,
           );
-          if (!id || !sourceAction || !resourceType) return [];
+          if (
+            id.kind !== "value" ||
+            sourceAction.kind !== "value" ||
+            resourceType.kind !== "value"
+          ) {
+            return [];
+          }
           const safe: A2AArtifactIdentity = {
-            id,
-            resourceType: resourceType as A2AArtifactIdentity["resourceType"],
-            sourceAction,
+            id: id.value,
+            resourceType:
+              resourceType.value as A2AArtifactIdentity["resourceType"],
+            sourceAction: sourceAction.value,
           };
           if (candidate.titleAtAction != null) {
             const titleAtAction = boundedPersistableString(
               candidate.titleAtAction,
               MAX_TERMINAL_HISTORY_FIELD_CHARS,
             );
-            if (titleAtAction == null) return [];
-            safe.titleAtAction = titleAtAction;
+            if (titleAtAction.kind !== "value") return [];
+            safe.titleAtAction = titleAtAction.value;
           }
           if (candidate.url != null) {
             const url = boundedPersistableString(
               candidate.url,
               MAX_TERMINAL_HISTORY_FIELD_CHARS,
             );
-            if (url == null) return [];
-            safe.url = url;
+            if (url.kind !== "value") return [];
+            safe.url = url.value;
           }
           return [safe];
         })
@@ -1021,9 +1057,11 @@ export async function recordA2ATerminalDeliveryReceipt(
   const safeHistoryPayload = sanitizeTerminalHistoryPayload(historyPayload);
   let safeErrorMessage = errorMessage?.slice(0, 2000) ?? null;
   if (safeErrorMessage) {
-    try {
-      assertA2APersistablePayload(safeErrorMessage, "A2A terminal error");
-    } catch {
+    const errorCheck = checkA2APersistability(
+      safeErrorMessage,
+      "A2A terminal error",
+    );
+    if (!errorCheck.safe) {
       safeErrorMessage = "The remote agent reported a delivery failure.";
     }
   }
