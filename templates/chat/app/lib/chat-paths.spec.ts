@@ -4,9 +4,36 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearFailedChatHandoff,
+  initialComposerOptionsFromState,
   readFailedChatHandoff,
   writeFailedChatHandoff,
 } from "./chat-paths";
+
+describe("initial Chat composer options", () => {
+  it("distinguishes absent, valid, and invalid route state", () => {
+    expect(initialComposerOptionsFromState(null)).toEqual({
+      status: "absent",
+    });
+    expect(
+      initialComposerOptionsFromState({
+        initialComposerOptions: { mode: "plan", model: "model-a" },
+      }),
+    ).toEqual({
+      status: "valid",
+      options: { mode: "plan", model: "model-a" },
+    });
+    expect(
+      initialComposerOptionsFromState({
+        initialComposerOptions: { mode: "execute" },
+      }),
+    ).toEqual({ status: "invalid" });
+    expect(
+      initialComposerOptionsFromState({
+        initialComposerOptions: { futureOption: "must-not-be-dropped" },
+      }),
+    ).toEqual({ status: "invalid" });
+  });
+});
 
 describe("failed Chat handoff storage", () => {
   beforeEach(() => window.sessionStorage.clear());

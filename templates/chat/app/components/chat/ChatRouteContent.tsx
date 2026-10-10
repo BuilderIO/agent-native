@@ -474,10 +474,13 @@ function ChatRunFailure({
     !Array.isArray(originalRequest.metadata)
       ? (originalRequest.metadata as Record<string, unknown>)
       : {};
+  const originalComposerOptions = initialComposerOptionsFromState({
+    initialComposerOptions: { references: originalMetadata.references },
+  });
   const originalReferences =
-    initialComposerOptionsFromState({
-      initialComposerOptions: { references: originalMetadata.references },
-    })?.references ?? [];
+    originalComposerOptions.status === "valid"
+      ? (originalComposerOptions.options.references ?? [])
+      : [];
   const originalAttachments =
     originalRequest?.parts?.filter((part) => part.type === "file") ?? [];
   const [retryItems, setRetryItems] = useState<{
@@ -613,11 +616,17 @@ function ChatInitialMessage({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const t = useT();
   const control = useAgentKitControl(threadId);
   const thread = useAgentThread(threadId);
   const sentRef = useRef(false);
   const message = initialMessageFromState(location.state);
-  const composerOptions = initialComposerOptionsFromState(location.state);
+  const composerOptionsResult = initialComposerOptionsFromState(location.state);
+  const invalidComposerOptions = composerOptionsResult.status === "invalid";
+  const composerOptions =
+    composerOptionsResult.status === "valid"
+      ? composerOptionsResult.options
+      : undefined;
   const engine = composerOptions?.engine;
   const model = composerOptions?.model;
   const effort = composerOptions?.effort;
@@ -633,6 +642,18 @@ function ChatInitialMessage({
       return;
     }
     sentRef.current = true;
+    if (invalidComposerOptions) {
+      onFailure(message, {});
+      navigate(
+        { pathname: location.pathname, search: location.search },
+        { replace: true, state: null },
+      );
+      toast.error(t("chat.invalidHandoffOptions"));
+      captureException(new Error("Invalid options in initial Chat handoff"), {
+        tags: { area: "chat_initial_message" },
+      });
+      return;
+    }
     const options = composerOptions ?? {};
     const persistence = writeFailedChatHandoff(threadId, message, options);
     if (persistence.status !== "stored") {
@@ -709,6 +730,7 @@ function ChatInitialMessage({
     contextItems,
     activeAtSubmit,
     hasRestoredDraft,
+    invalidComposerOptions,
     engine,
     effort,
     location.pathname,
@@ -718,6 +740,7 @@ function ChatInitialMessage({
     navigate,
     onAccepted,
     onFailure,
+    t,
     threadId,
   ]);
 

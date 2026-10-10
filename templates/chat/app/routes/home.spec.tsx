@@ -65,6 +65,7 @@ const createTransport = vi.hoisted(() =>
 const markHandoff = vi.hoisted(() => vi.fn());
 const captureException = vi.hoisted(() => vi.fn());
 const trackEvent = vi.hoisted(() => vi.fn());
+const toastError = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/rail", () => ({
   markAgentChatHomeHandoff: markHandoff,
@@ -191,6 +192,7 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/context", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
 
 vi.mock("react-router", () => ({
   useNavigate: () => routeState.navigate,
@@ -252,6 +254,7 @@ describe("ChatRoute AgentKit surface", () => {
     createTransport.mockClear();
     markHandoff.mockClear();
     captureException.mockReset();
+    toastError.mockReset();
     trackEvent.mockClear();
     window.sessionStorage.clear();
     locationReplace = vi
@@ -1078,6 +1081,34 @@ describe("ChatRoute AgentKit surface", () => {
     });
     expect(routeState.chatProps).toMatchObject({
       composerProps: { initialText: "Call the hello action" },
+    });
+  });
+
+  it("keeps the prompt recoverable instead of sending invalid handoff options", async () => {
+    routeState.threadId = "invalid-chat";
+    routeState.locationState = {
+      initialMessage: "Use the selected references",
+      initialComposerOptions: { futureOption: "unsupported" },
+    };
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
+    expect(routeState.navigate).toHaveBeenCalledWith(
+      { pathname: "/chat/invalid-chat", search: "" },
+      { replace: true, state: null },
+    );
+    expect(toastError).toHaveBeenCalledWith("chat.invalidHandoffOptions");
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: "Use the selected references" },
+    });
+    expect(
+      window.sessionStorage.getItem(
+        "agent-native.chat.failed-handoff:invalid-chat",
+      ),
+    ).toContain("Use the selected references");
+    expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+      tags: { area: "chat_initial_message" },
     });
   });
 

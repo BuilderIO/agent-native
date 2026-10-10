@@ -77,10 +77,11 @@ Self-hosted apps use this as a deployment-wide fallback, so users do not need
 to add a key in the UI. Hosted-workspace production runtimes block deployment
 provider-key sharing. Scoped user or organization keys take precedence.
 
-Any signed-in user without a scoped key can use the deployment provider account
-across all organizations in the app, and usage is billed to that account. Add a
-key to the environment only when app-wide access and billing are intended; use
-scoped keys when tenants need separate credentials or billing.
+Setting this provider key is the operator's opt-in to app-wide access and
+billing; no separate shared-key flag is needed. Any signed-in user without a
+scoped key can use the deployment provider account across all organizations in
+the app, and usage is billed to that account. Use scoped keys when tenants need
+separate credentials or billing.
 
 With PostgreSQL, users can also save a key through **Custom keys**. Choose
 Personal scope to keep it to your account; admins can choose Organization scope

@@ -1,4 +1,7 @@
-import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
+import {
+  markAgentChatHomeHandoff,
+  navigateWithAgentChatViewTransition,
+} from "@agent-native/core/client/agent-chat";
 import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
 import { useT } from "@agent-native/core/client/i18n";
 import { AgentKitComposer } from "@agent-native/toolkit/app/agentkit/react/components";
@@ -110,6 +113,7 @@ function HomeAgentComposer() {
       initialMessage: message,
       initialComposerOptions: options,
     };
+    markAgentChatHomeHandoff("chat");
     navigateWithAgentChatViewTransition(navigate, chatThreadPath(threadId), {
       state,
     });

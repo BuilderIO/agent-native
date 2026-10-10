@@ -13,6 +13,18 @@ const MAX_HANDOFF_TEXT_LENGTH = 24 * 1024;
 const MAX_HANDOFF_FIELD_LENGTH = 8 * 1024;
 const MAX_HANDOFF_ITEMS = 20;
 const INVALID_JSON_VALUE = Symbol("invalid-json-value");
+const HANDOFF_COMPOSER_OPTION_KEYS = new Set([
+  "mode",
+  "engine",
+  "model",
+  "effort",
+  "intent",
+  "steer",
+  "composerModeContext",
+  "references",
+  "uploadedAttachments",
+  "contextItems",
+]);
 
 export function chatThreadPath(threadId: string | null | undefined): string {
   return threadId
@@ -218,6 +230,14 @@ function normalizeComposerOptions(
   value: unknown,
 ): ChatInitialComposerOptions | null {
   if (!isRecord(value)) return null;
+  if (
+    Object.keys(value).some((key) => !HANDOFF_COMPOSER_OPTION_KEYS.has(key))
+  ) {
+    return null;
+  }
+  if ("mode" in value && value.mode !== "act" && value.mode !== "plan") {
+    return null;
+  }
   const result: Record<string, unknown> = {
     mode: value.mode === "plan" ? "plan" : "act",
   };
@@ -399,9 +419,16 @@ export function initialMessageFromState(state: unknown): string | null {
 
 export function initialComposerOptionsFromState(
   state: unknown,
-): ChatRouteState["initialComposerOptions"] {
-  if (!state || typeof state !== "object") return undefined;
-  const options = (state as { initialComposerOptions?: unknown })
-    .initialComposerOptions;
-  return normalizeComposerOptions(options) ?? undefined;
+): InitialComposerOptionsReadResult {
+  if (!isRecord(state) || !("initialComposerOptions" in state)) {
+    return { status: "absent" };
+  }
+  if (state.initialComposerOptions === undefined) return { status: "absent" };
+  const options = normalizeComposerOptions(state.initialComposerOptions);
+  return options ? { status: "valid", options } : { status: "invalid" };
 }
+
+export type InitialComposerOptionsReadResult =
+  | { status: "absent" }
+  | { status: "valid"; options: ChatInitialComposerOptions }
+  | { status: "invalid" };

@@ -35,6 +35,8 @@ const messages = {
     recents: "Recientes",
     retryPreviousRequest:
       "Reintenta mi solicitud anterior ahora que el proveedor del modelo está conectado.",
+    invalidHandoffOptions:
+      "El mensaje se guardó como borrador, pero no se pudieron restaurar sus ajustes de chat. Revisa el mensaje, el contexto y el modelo antes de volver a enviarlo.",
     retryAttachmentUnavailable:
       "Chat no puede volver a abrir este archivo adjunto para reintentarlo. Añade una URL de archivo accesible y vuelve a intentarlo.",
     renameChat: "Renombrar chat",

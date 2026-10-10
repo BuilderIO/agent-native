@@ -72,7 +72,7 @@ ANTHROPIC_API_KEY=replace-with-your-key
 
 Les apps auto-hébergées utilisent la clé d’environnement comme solution de repli pour toute l’app. Les utilisateurs n’ont donc pas à ajouter leur propre clé dans l’interface. Les environnements Hosted workspace en production bloquent les clés fournisseur du déploiement. Les clés enregistrées pour un utilisateur ou une organisation restent prioritaires.
 
-Tout utilisateur connecté sans clé à portée propre peut utiliser le compte fournisseur du déploiement dans toutes les organisations de l’app ; l’usage est facturé sur ce compte. Ajoutez une clé dans l’environnement uniquement si vous souhaitez partager l’accès et la facturation dans toute l’app. Utilisez des clés à portée distincte lorsque les tenants ont besoin d’identifiants ou d’une facturation séparés.
+Configurer cette clé fournisseur constitue le consentement de l’opérateur au partage de l’accès et de la facturation dans toute l’app ; aucun indicateur supplémentaire n’est nécessaire. Tout utilisateur connecté sans clé à portée propre peut utiliser le compte fournisseur du déploiement dans toutes les organisations de l’app ; l’usage est facturé sur ce compte. Utilisez des clés à portée distincte lorsque les tenants ont besoin d’identifiants ou d’une facturation séparés.
 
 Avec PostgreSQL, les utilisateurs peuvent aussi enregistrer une clé via **Custom keys**. Choisissez la portée personnelle pour la limiter à votre compte ; les administrateurs peuvent choisir la portée organisation pour la partager dans l’espace de travail. L’app conserve les clés enregistrées dans son coffre chiffré adossé à la base de données.
 

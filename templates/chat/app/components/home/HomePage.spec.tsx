@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   rootProps: null as Record<string, unknown> | null,
   navigateWithTransition: vi.fn(),
   navigate: vi.fn(),
+  markHomeHandoff: vi.fn(),
   uploadFiles: vi.fn(),
 }));
 
@@ -19,6 +20,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       params ? `${key}|${Object.values(params).join("|")}|${key}:end` : key,
 }));
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  markAgentChatHomeHandoff: state.markHomeHandoff,
   navigateWithAgentChatViewTransition: state.navigateWithTransition,
 }));
 vi.mock("@agent-native/core/client/agentkit-chat/transport", () => ({
@@ -74,6 +76,7 @@ describe("HomePage", () => {
     state.composerProps = null;
     state.rootProps = null;
     state.navigateWithTransition.mockReset();
+    state.markHomeHandoff.mockReset();
     state.uploadFiles.mockReset();
     state.uploadFiles.mockResolvedValue([]);
     window.sessionStorage.clear();
@@ -184,6 +187,10 @@ describe("HomePage", () => {
           },
         },
       },
+    );
+    expect(state.markHomeHandoff).toHaveBeenCalledWith("chat");
+    expect(state.markHomeHandoff.mock.invocationCallOrder[0]).toBeLessThan(
+      state.navigateWithTransition.mock.invocationCallOrder[0],
     );
     expect(onLocalSubmit).toHaveBeenCalledOnce();
   });

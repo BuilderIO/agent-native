@@ -35,6 +35,8 @@ const messages = {
     recents: "Récents",
     retryPreviousRequest:
       "Réessaie ma demande précédente maintenant que le fournisseur du modèle est connecté.",
+    invalidHandoffOptions:
+      "Le prompt a été enregistré comme brouillon, mais ses paramètres de chat n'ont pas pu être restaurés. Vérifiez le prompt, le contexte et le modèle avant de le renvoyer.",
     retryAttachmentUnavailable:
       "Chat ne peut pas rouvrir cette pièce jointe pour réessayer. Ajoutez une URL de fichier accessible, puis réessayez.",
     renameChat: "Renommer le chat",

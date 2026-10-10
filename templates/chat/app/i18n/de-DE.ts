@@ -35,6 +35,8 @@ const messages = {
     recents: "Kürzlich",
     retryPreviousRequest:
       "Wiederhole meine vorherige Anfrage, jetzt wo der KI-Anbieter verbunden ist.",
+    invalidHandoffOptions:
+      "Die Eingabe wurde als Entwurf gespeichert, aber ihre Chateinstellungen konnten nicht wiederhergestellt werden. Prüfe Eingabe, Kontext und Modell, bevor du sie erneut sendest.",
     retryAttachmentUnavailable:
       "Chat kann diesen Anhang für einen erneuten Versuch nicht öffnen. Füge eine zugängliche Datei-URL hinzu und versuche es erneut.",
     renameChat: "Chat umbenennen",

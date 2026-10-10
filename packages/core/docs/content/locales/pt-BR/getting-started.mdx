@@ -62,7 +62,7 @@ ANTHROPIC_API_KEY=replace-with-your-key
 
 Apps auto-hospedados usam a chave do ambiente como fallback para todo o app, então os usuários não precisam adicionar uma chave na interface. Ambientes de produção do Hosted workspace bloqueiam as chaves de provedor da implantação. Chaves salvas de usuário ou organização têm prioridade.
 
-Qualquer usuário conectado sem uma chave com escopo próprio pode usar a conta do provedor da implantação em todas as organizações do app; o uso é cobrado nessa conta. Adicione uma chave ao ambiente somente quando quiser compartilhar acesso e cobrança em todo o app. Use chaves com escopo quando cada tenant precisar de credenciais ou cobrança separadas.
+Definir essa chave do provedor é a autorização do operador para compartilhar acesso e cobrança em todo o app; não é necessária outra variável. Qualquer usuário conectado sem uma chave com escopo próprio pode usar a conta do provedor da implantação em todas as organizações do app; o uso é cobrado nessa conta. Use chaves com escopo quando cada tenant precisar de credenciais ou cobrança separadas.
 
 Com PostgreSQL, os usuários também podem salvar uma chave em **Custom keys**. Escolha o escopo pessoal para limitar a chave à sua conta; administradores podem escolher o escopo da organização para compartilhá-la no workspace. O app armazena as chaves salvas no repositório criptografado de credenciais conectado ao banco de dados.
 

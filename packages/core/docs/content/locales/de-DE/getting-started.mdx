@@ -72,7 +72,7 @@ ANTHROPIC_API_KEY=replace-with-your-key
 
 Selbst gehostete Apps verwenden den Schlüssel aus der Umgebungsvariable als appweiten Fallback. Nutzer müssen daher keinen eigenen Schlüssel in der UI hinzufügen. Produktionsumgebungen von Hosted workspace blockieren Deployment-Provider-Schlüssel. Gespeicherte Benutzer- oder Organisationsschlüssel haben Vorrang.
 
-Angemeldete Nutzer ohne scoped Schlüssel können das Provider-Konto des Deployments organisationsübergreifend verwenden; die Nutzung wird diesem Konto berechnet. Lege einen Schlüssel in der Umgebung nur fest, wenn Zugriff und Abrechnung appweit geteilt werden sollen. Nutze scoped Schlüssel, wenn Tenants getrennte Zugangsdaten oder Abrechnung benötigen.
+Mit diesem Provider-Schlüssel stimmt der Betreiber der appweiten Freigabe und Abrechnung zu; ein zusätzliches Flag ist nicht erforderlich. Angemeldete Nutzer ohne scoped Schlüssel können das Provider-Konto des Deployments organisationsübergreifend verwenden; die Nutzung wird diesem Konto berechnet. Nutze scoped Schlüssel, wenn Tenants getrennte Zugangsdaten oder Abrechnung benötigen.
 
 Mit PostgreSQL können Nutzer außerdem über **Custom keys** einen Schlüssel speichern. Mit dem persönlichen Geltungsbereich bleibt er auf das eigene Konto beschränkt; Admins können den Organisationsbereich wählen, um ihn im Workspace zu teilen. Gespeicherte Schlüssel liegen im verschlüsselten, datenbankgestützten Anmeldedatenspeicher.
 
