@@ -1,7 +1,6 @@
 # Design: Durable / Checkpointed Agent Runs
 
-Status: Phase 1 + Phase 2 implemented (default-on for deployed Netlify apps,
-explicit opt-in on other hosted platforms); Phase 0 shipped;
+Status: Phase 1 + Phase 2 implemented (flagged, off by default); Phase 0 shipped;
 internal per-step checkpointing (Option A core) still recommended-not-built.
 Owner: core / run-manager + deploy
 Related code: `packages/core/src/agent/run-manager.ts`,
@@ -227,8 +226,7 @@ itself checkpoint).
    core background infrastructure, have the durable worker run them to completion
    (checkpointing internally per Phase 1), and stream truthful progress back to
    the foreground run and UI. _(Implemented: host-agnostic worker baseline +
-    Netlify 15-min `-background` per-host optimization, default-on for deployed
-    Netlify apps with an explicit opt-out; other hosted platforms require opt-in.)_
+   Netlify 15-min `-background` per-host optimization, flagged off by default.)_
 
 ## Tie-in: cheaper near-term mitigations reduce, but do not replace, the fix
 
@@ -652,15 +650,16 @@ Already strong; make the new claim match:
 
 ## Phased implementation plan (smallest working slice first)
 
-> Status: **Slices 0–1 implemented and the Slice-3 background-aware stale window
-> and background→background continuation chaining are implemented**, default-on
-> for deployed Netlify apps with `AGENT_CHAT_DURABLE_BACKGROUND=false` as the
-> opt-out. The host-agnostic baseline (Layer 1) carries the run on any host; the
-> Netlify `-background` emit (Layer 2) is the deploy-time optimization. Slice 2's
-> richer reconnect-first client UX and the internal per-step checkpointing
-> (Option A) remain follow-ups; Slice 4 (raising the per-call gateway cap) is
-> intentionally out of scope (see
-> [Per-model-call gateway cap](#per-model-call-gateway-cap)).
+> Status: \*\*Slices 0–1 implemented and the Slice-3 background-aware stale window
+>
+> - background→background continuation chaining are implemented\*\*, default-on
+>   for deployed Netlify apps with `AGENT_CHAT_DURABLE_BACKGROUND=false` as the
+>   opt-out. The host-agnostic baseline
+>   (Layer 1) carries the run on any host; the Netlify `-background` emit (Layer 2)
+>   is the deploy-time optimization. Slice 2's richer reconnect-first client UX and
+>   the internal per-step checkpointing (Option A) remain follow-ups; Slice 4
+>   (raising the per-call gateway cap) is intentionally out of scope (see
+>   [Per-model-call gateway cap](#per-model-call-gateway-cap)).
 
 **Slice 0 — prove async dispatch on Netlify (no chat yet).**
 Emit one extra `-background` function in the deploy build that re-exports the
@@ -695,8 +694,9 @@ resumes the live stream with no lost or duplicated events.
 **Slice 3 — robustness.**
 Background-aware stale window (cold-start tolerance), reconcile/re-fire for lost
 dispatches, and background→background `auto_continue` chaining for the rare
-\>13-min turn (mirror `agent-teams.ts:1886`). Internal checkpointing (Option A)
-for monotonic progress across any continuation.
+
+> 13-min turn (mirror `agent-teams.ts:1886`). Internal checkpointing (Option A)
+> for monotonic progress across any continuation.
 
 **Slice 4 — foreground remains capped.**
 Do not raise the hosted foreground per-call gateway cap. Any future tuning
