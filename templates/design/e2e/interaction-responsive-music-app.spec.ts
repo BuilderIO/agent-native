@@ -1,4 +1,5 @@
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
@@ -2213,14 +2214,15 @@ test("sizing mode actions survive the selected layer route update", async ({
   ).toHaveCount(0);
 });
 
-// The tablet test reopens the design the desktop test built. Shared state is
-// valid only because CI runs this file with --workers=1, so both tests share
-// one worker process and the desktop test runs first.
+// The tablet test depends on module state from the desktop test. Keep them in
+// one serial group so retries rerun the prerequisite in the tablet's worker.
 let musicAppDesktopShell: {
   designId: string;
   screenId: string;
   mobileScreenId: string;
 } | null = null;
+const MUSIC_APP_WORKFLOW_BUDGET_MS = 21 * 60_000;
+let musicAppWorkflowStartedAt: number | null = null;
 
 function trackChatThread404s(page: Page) {
   const responses: Array<{ method: string; path: string; status: number }> = [];
@@ -2241,2008 +2243,2069 @@ function trackChatThread404s(page: Page) {
   return responses;
 }
 
-test("create a responsive music-app desktop shell under a Screen root", async ({
-  page,
-}) => {
-  test.setTimeout(20 * 60_000);
-  musicAppDesktopShell = null;
-  const designId = await createFixtureDesign(
+test.describe("responsive music-app workflow", () => {
+  test.describe.configure({ mode: "serial" });
+
+  test("create a responsive music-app desktop shell under a Screen root", async ({
     page,
-    `Responsive music app desktop ${Date.now()}`,
-  );
-  const chatThread404s = trackChatThread404s(page);
-  await test.info().attach("workflow-identities-design", {
-    body: JSON.stringify({ designId, screenIds: [] }, null, 2),
-    contentType: "application/json",
-  });
-  await page.setViewportSize({ width: 2800, height: 1600 });
-  await gotoEditor(page, designId);
-  const zoom = page
-    .getByRole("button")
-    .filter({ hasText: /^\s*\d+%\s*$/ })
-    .first();
-  await expect(zoom).toBeVisible();
-  await zoom.click();
-  await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
-  await expect(zoom).toHaveText(/100%/);
-  let screenId = "";
-  let shell: Locator;
-  const before = await readDesign(page, designId);
-  const existingFiles = new Set(before.files?.map((file) => file.id));
-
-  const geometryRequests: Array<{
-    at: number;
-    body: string | null;
-  }> = [];
-  const geometryResponses: Array<{
-    at: number;
-    status: number;
-    body: string | null;
-  }> = [];
-  page.on("request", (request) => {
-    if (
-      request.url().includes("/_agent-native/actions/create-file") ||
-      request.url().includes("/_agent-native/actions/update-design")
-    ) {
-      geometryRequests.push({ at: Date.now(), body: request.postData() });
-    }
-  });
-  page.on("response", (response) => {
-    if (
-      response.url().includes("/_agent-native/actions/create-file") ||
-      response.url().includes("/_agent-native/actions/update-design")
-    ) {
-      geometryResponses.push({
-        at: Date.now(),
-        status: response.status(),
-        body: response.request().postData(),
-      });
-    }
-  });
-
-  await pickFrameMode(page, "Screen");
-  const start = await emptyBoardPoint(page);
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down();
-  await page.mouse.move(start.x + 190, start.y + 150, { steps: 16 });
-  await page.mouse.up();
-
-  await expect
-    .poll(async () => {
-      const record = await readDesign(page, designId);
-      const added = record.files?.find(
-        (file) =>
-          !existingFiles.has(file.id) && file.filename !== "__board__.html",
-      );
-      if (!added) return null;
-      screenId = added.id;
-      return added.id;
-    })
-    .not.toBeNull();
-  shell = page.locator(`[data-screen-shell][data-frame-id="${screenId}"]`);
-  const createdRecord = await readDesign(page, designId);
-  const createdData = designData(createdRecord);
-  const createdGeometry = createdData.canvasFrames?.[screenId];
-  const createdMetadata = createdData.screenMetadata?.[screenId];
-  const selectedScreenRow = page
-    .getByRole("tree", { name: "Layers" })
-    .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
-  await expect(selectedScreenRow).toHaveCount(1);
-  const selectedState = () =>
-    selectedScreenRow.evaluate((button) =>
-      button.closest('[role="treeitem"]')?.getAttribute("aria-selected"),
+  }) => {
+    test.setTimeout(MUSIC_APP_WORKFLOW_BUDGET_MS);
+    musicAppWorkflowStartedAt = performance.now();
+    musicAppDesktopShell = null;
+    const designId = await createFixtureDesign(
+      page,
+      `Responsive music app desktop ${Date.now()}`,
     );
-  if ((await selectedState()) !== "true") {
-    await selectedScreenRow.click();
-  }
-  await expect.poll(selectedState).toBe("true");
-  await expect
-    .poll(() => page.evaluate(() => (window as any).__designSelection ?? null))
-    .toMatchObject({
-      designId,
-      selectedScreenIds: expect.arrayContaining([screenId]),
+    const chatThread404s = trackChatThread404s(page);
+    await test.info().attach("workflow-identities-design", {
+      body: JSON.stringify({ designId, screenIds: [] }, null, 2),
+      contentType: "application/json",
     });
-  const screenIframe = page.locator(
-    `iframe[data-screen-iframe-id="${screenId}"]`,
-  );
-  await expect(screenIframe).toHaveCount(1);
-  const bodyIdentity = await screenIframe
-    .contentFrame()
-    .locator("body")
-    .evaluate((body) => ({
-      nodeId: body.getAttribute("data-agent-native-node-id"),
-      layerName: body.getAttribute("data-agent-native-layer-name"),
-    }));
-  const screenSelection = await page.evaluate(
-    () => (window as any).__designSelection ?? null,
-  );
-  const width = page.getByRole("textbox", {
-    name: /^W(?: size in pixels)?$/,
-  });
-  const height = page.getByRole("textbox", {
-    name: /^H(?: size in pixels)?$/,
-  });
-  const inspectorBeforeBurst = {
-    width: await width.inputValue(),
-    height: await height.inputValue(),
-  };
-  const shellFrameId = await shell.getAttribute("data-frame-id");
-  const layerNodeId =
-    await selectedScreenRow.getAttribute("data-layer-node-id");
-  const screenIframeId = await screenIframe.getAttribute(
-    "data-screen-iframe-id",
-  );
-  expect(shellFrameId).toBe(screenId);
-  expect(layerNodeId).toBe(screenId);
-  expect(screenIframeId).toBe(screenId);
-  expect(screenSelection?.designId).toBe(designId);
-  expect(screenSelection?.selectedScreenIds).toContain(screenId);
-  await test.info().attach("workflow-identities-desktop", {
-    body: JSON.stringify(
-      {
-        designId,
-        screenIds: [screenId],
-        geometryAtCreation: createdGeometry,
-        metadataAtCreation: createdMetadata,
-        screenSelection,
-        screenShellId: shellFrameId,
-        layerNodeId,
-        screenIframeId,
-        bodyIdentity,
-        inspectorBeforeBurst,
-      },
-      null,
-      2,
-    ),
-    contentType: "application/json",
-  });
-  await width.fill("1440");
-  await width.press("Enter");
-  await height.fill("1024");
-  await height.press("Enter");
-  try {
+    await page.setViewportSize({ width: 2800, height: 1600 });
+    await gotoEditor(page, designId);
+    const zoom = page
+      .getByRole("button")
+      .filter({ hasText: /^\s*\d+%\s*$/ })
+      .first();
+    await expect(zoom).toBeVisible();
+    await zoom.click();
+    await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
+    await expect(zoom).toHaveText(/100%/);
+    let screenId = "";
+    let shell: Locator;
+    const before = await readDesign(page, designId);
+    const existingFiles = new Set(before.files?.map((file) => file.id));
+
+    const geometryRequests: Array<{
+      at: number;
+      body: string | null;
+    }> = [];
+    const geometryResponses: Array<{
+      at: number;
+      status: number;
+      body: string | null;
+    }> = [];
+    page.on("request", (request) => {
+      if (
+        request.url().includes("/_agent-native/actions/create-file") ||
+        request.url().includes("/_agent-native/actions/update-design")
+      ) {
+        geometryRequests.push({ at: Date.now(), body: request.postData() });
+      }
+    });
+    page.on("response", (response) => {
+      if (
+        response.url().includes("/_agent-native/actions/create-file") ||
+        response.url().includes("/_agent-native/actions/update-design")
+      ) {
+        geometryResponses.push({
+          at: Date.now(),
+          status: response.status(),
+          body: response.request().postData(),
+        });
+      }
+    });
+
+    await pickFrameMode(page, "Screen");
+    const start = await emptyBoardPoint(page);
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 190, start.y + 150, { steps: 16 });
+    await page.mouse.up();
+
     await expect
       .poll(async () => {
-        const data = designData(await readDesign(page, designId));
-        const frame = data.canvasFrames?.[screenId];
-        const metadata = data.screenMetadata?.[screenId];
-        return [frame?.width, frame?.height, metadata?.width, metadata?.height];
+        const record = await readDesign(page, designId);
+        const added = record.files?.find(
+          (file) =>
+            !existingFiles.has(file.id) && file.filename !== "__board__.html",
+        );
+        if (!added) return null;
+        screenId = added.id;
+        return added.id;
       })
-      .toEqual([1440, 1024, 1440, 1024]);
-  } finally {
-    let finalGeometry: unknown = null;
-    try {
-      const finalRecord = await readDesign(page, designId);
-      const finalData = designData(finalRecord);
-      finalGeometry = {
-        canvasFrame: finalData.canvasFrames?.[screenId],
-        screenMetadata: finalData.screenMetadata?.[screenId],
-        screenSource: finalRecord.files?.find((file) => file.id === screenId)
-          ?.content,
-      };
-    } catch (error) {
-      finalGeometry = { readError: String(error) };
+      .not.toBeNull();
+    shell = page.locator(`[data-screen-shell][data-frame-id="${screenId}"]`);
+    const createdRecord = await readDesign(page, designId);
+    const createdData = designData(createdRecord);
+    const createdGeometry = createdData.canvasFrames?.[screenId];
+    const createdMetadata = createdData.screenMetadata?.[screenId];
+    const selectedScreenRow = page
+      .getByRole("tree", { name: "Layers" })
+      .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`);
+    await expect(selectedScreenRow).toHaveCount(1);
+    const selectedState = () =>
+      selectedScreenRow.evaluate((button) =>
+        button.closest('[role="treeitem"]')?.getAttribute("aria-selected"),
+      );
+    if ((await selectedState()) !== "true") {
+      await selectedScreenRow.click();
     }
-    await test.info().attach("screen-geometry-commit-trace", {
+    await expect.poll(selectedState).toBe("true");
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as any).__designSelection ?? null),
+      )
+      .toMatchObject({
+        designId,
+        selectedScreenIds: expect.arrayContaining([screenId]),
+      });
+    const screenIframe = page.locator(
+      `iframe[data-screen-iframe-id="${screenId}"]`,
+    );
+    await expect(screenIframe).toHaveCount(1);
+    const bodyIdentity = await screenIframe
+      .contentFrame()
+      .locator("body")
+      .evaluate((body) => ({
+        nodeId: body.getAttribute("data-agent-native-node-id"),
+        layerName: body.getAttribute("data-agent-native-layer-name"),
+      }));
+    const screenSelection = await page.evaluate(
+      () => (window as any).__designSelection ?? null,
+    );
+    const width = page.getByRole("textbox", {
+      name: /^W(?: size in pixels)?$/,
+    });
+    const height = page.getByRole("textbox", {
+      name: /^H(?: size in pixels)?$/,
+    });
+    const inspectorBeforeBurst = {
+      width: await width.inputValue(),
+      height: await height.inputValue(),
+    };
+    const shellFrameId = await shell.getAttribute("data-frame-id");
+    const layerNodeId =
+      await selectedScreenRow.getAttribute("data-layer-node-id");
+    const screenIframeId = await screenIframe.getAttribute(
+      "data-screen-iframe-id",
+    );
+    expect(shellFrameId).toBe(screenId);
+    expect(layerNodeId).toBe(screenId);
+    expect(screenIframeId).toBe(screenId);
+    expect(screenSelection?.designId).toBe(designId);
+    expect(screenSelection?.selectedScreenIds).toContain(screenId);
+    await test.info().attach("workflow-identities-desktop", {
+      body: JSON.stringify(
+        {
+          designId,
+          screenIds: [screenId],
+          geometryAtCreation: createdGeometry,
+          metadataAtCreation: createdMetadata,
+          screenSelection,
+          screenShellId: shellFrameId,
+          layerNodeId,
+          screenIframeId,
+          bodyIdentity,
+          inspectorBeforeBurst,
+        },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+    await width.fill("1440");
+    await width.press("Enter");
+    await height.fill("1024");
+    await height.press("Enter");
+    try {
+      await expect
+        .poll(async () => {
+          const data = designData(await readDesign(page, designId));
+          const frame = data.canvasFrames?.[screenId];
+          const metadata = data.screenMetadata?.[screenId];
+          return [
+            frame?.width,
+            frame?.height,
+            metadata?.width,
+            metadata?.height,
+          ];
+        })
+        .toEqual([1440, 1024, 1440, 1024]);
+    } finally {
+      let finalGeometry: unknown = null;
+      try {
+        const finalRecord = await readDesign(page, designId);
+        const finalData = designData(finalRecord);
+        finalGeometry = {
+          canvasFrame: finalData.canvasFrames?.[screenId],
+          screenMetadata: finalData.screenMetadata?.[screenId],
+          screenSource: finalRecord.files?.find((file) => file.id === screenId)
+            ?.content,
+        };
+      } catch (error) {
+        finalGeometry = { readError: String(error) };
+      }
+      await test.info().attach("screen-geometry-commit-trace", {
+        body: JSON.stringify(
+          {
+            designId,
+            screenId,
+            screenSelection,
+            shellFrameId: await shell.getAttribute("data-frame-id"),
+            layerNodeId:
+              await selectedScreenRow.getAttribute("data-layer-node-id"),
+            screenIframeId: await screenIframe.getAttribute(
+              "data-screen-iframe-id",
+            ),
+            bodyIdentity,
+            inspectorBeforeBurst,
+            initialGeometry: createdGeometry,
+            initialMetadata: createdMetadata,
+            geometryRequests,
+            geometryResponses,
+            finalGeometry,
+          },
+          null,
+          2,
+        ),
+        contentType: "application/json",
+      });
+    }
+
+    await page.keyboard.press("Shift+a");
+    const rootLayoutHeading = page.getByRole("heading", {
+      name: "Auto layout",
+      exact: true,
+    });
+    await expect(rootLayoutHeading).toBeVisible();
+    const rootLayout = rootLayoutHeading.locator("xpath=ancestor::section");
+    await rootLayout
+      .getByRole("button", { name: "Vertical", exact: true })
+      .click();
+    const rootGap = rootLayout.getByRole("textbox", {
+      name: "Gap",
+      exact: true,
+    });
+    await rootGap.fill("10");
+    await rootGap.press("Enter");
+    const horizontalPadding = rootLayout.getByRole("textbox", {
+      name: "Left / Right",
+      exact: true,
+    });
+    await horizontalPadding.fill("10");
+    await horizontalPadding.press("Enter");
+    const verticalPadding = rootLayout.getByRole("textbox", {
+      name: "Top / Bottom",
+      exact: true,
+    });
+    await verticalPadding.fill("10");
+    await verticalPadding.press("Enter");
+    await setFillHex(page, "0C101A", "desktop-screen-fill");
+
+    await drawInScreen(page, screenId, "Frame", {
+      x: 10,
+      y: 10,
+      width: 1420,
+      height: 850,
+    });
+    await expect
+      .poll(
+        async () =>
+          (await readDesign(page, designId)).files?.find(
+            (file) => file.id === screenId,
+          )?.content,
+      )
+      .toContain('data-an-primitive="frame"');
+    await renameLayer(page, "Frame", "Workspace");
+    await setFlowPosition(page, "Workspace");
+    const workspaceLayout = await turnIntoAutoLayout(
+      page,
+      "Workspace",
+      "Horizontal",
+    );
+    const workspaceGap = workspaceLayout.getByRole("textbox", {
+      name: "Gap",
+      exact: true,
+    });
+    await workspaceGap.fill("10");
+    await workspaceGap.press("Enter");
+    await workspaceLayout
+      .getByRole("textbox", { name: "Left / Right", exact: true })
+      .fill("10");
+    await workspaceLayout
+      .getByRole("textbox", { name: "Left / Right", exact: true })
+      .press("Enter");
+    await workspaceLayout
+      .getByRole("textbox", { name: "Top / Bottom", exact: true })
+      .fill("10");
+    await workspaceLayout
+      .getByRole("textbox", { name: "Top / Bottom", exact: true })
+      .press("Enter");
+    await setDimension(page, "H", 850);
+    await setSizingMode(page, "W", "Fill container");
+    const workspaceFillBadge = page.getByRole("button", {
+      name: /^W \d+ Fill$/,
+    });
+    await expect(workspaceFillBadge).toBeVisible();
+    await removeFill(page, "Workspace");
+
+    await drawInScreen(
+      page,
+      screenId,
+      "Text",
+      { x: 20, y: 20, width: 96, height: 120 },
+      "Home\nBrowse\nYour Library\nPlaylists",
+      "Navigation",
+    );
+    await reparentLayer(page, "Navigation", "Workspace");
+    await setTextStyle(
+      page,
+      "Navigation",
+      "Inter",
+      "Bold",
+      16,
+      "FFFFFF",
+      "30",
+      "desktop-navigation-text",
+    );
+    await setSizingMode(page, "W", "Fixed");
+    await setSizingMode(page, "H", "Fixed");
+    await setDimension(page, "W", 96);
+    await setDimension(page, "H", 120);
+
+    await drawInScreen(page, screenId, "Frame", {
+      x: 116,
+      y: 10,
+      width: 145,
+      height: 69,
+    });
+    await renameLayer(page, "Frame", "Sidebar");
+    await reparentLayer(page, "Sidebar", "Workspace");
+    await setFlowPosition(page, "Sidebar");
+    const sidebarLayout = await turnIntoAutoLayout(page, "Sidebar", "Vertical");
+    await sidebarLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .fill("0");
+    await sidebarLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .press("Enter");
+    await sidebarLayout
+      .getByRole("textbox", { name: "Left / Right", exact: true })
+      .fill("20");
+    await sidebarLayout
+      .getByRole("textbox", { name: "Left / Right", exact: true })
+      .press("Enter");
+    await sidebarLayout
+      .getByRole("textbox", { name: "Top / Bottom", exact: true })
+      .fill("20");
+    await sidebarLayout
+      .getByRole("textbox", { name: "Top / Bottom", exact: true })
+      .press("Enter");
+    await setFillHex(page, "141A24");
+    await drawInScreen(page, screenId, "Text", { x: 136, y: 30 }, "SONORA");
+    await reparentLayer(page, "SONORA", "Sidebar");
+    await setTextStyle(page, "SONORA", "Inter", "Bold", 24, "FFFFFF");
+    await layerButton(page, "Sidebar").click();
+    await setSizingMode(page, "W", "Hug contents");
+    await setSizingMode(page, "H", "Hug contents");
+    await logNodeStage(
+      page,
+      designId,
+      screenId,
+      "Sidebar",
+      "desktop-sidebar-hug-hug",
+    );
+
+    await drawInScreen(page, screenId, "Frame", {
+      x: 271,
+      y: 10,
+      width: 1139,
+      height: 776,
+    });
+    await renameLayer(page, "Frame", "Main Content");
+    await reparentLayer(page, "Main Content", "Workspace");
+    await setFlowPosition(page, "Main Content");
+    const contentLayout = await turnIntoAutoLayout(
+      page,
+      "Main Content",
+      "Vertical",
+    );
+    const contentGap = contentLayout.getByRole("textbox", {
+      name: "Gap",
+      exact: true,
+    });
+    await contentGap.fill("24");
+    await contentGap.press("Enter");
+    for (const [name, value] of [
+      ["Left / Right", "24"],
+      ["Top / Bottom", "24"],
+    ] as const) {
+      const field = contentLayout.getByRole("textbox", { name, exact: true });
+      await field.fill(value);
+      await field.press("Enter");
+    }
+    await setSizingMode(page, "W", "Fill container");
+    await setSizingMode(page, "H", "Hug contents");
+    await removeFill(page, "Main Content");
+
+    await drawInScreen(
+      page,
+      screenId,
+      "Frame",
+      { x: 295, y: 34, width: 285, height: 50 },
+      undefined,
+      "Top Bar",
+    );
+    await reparentLayer(page, "Top Bar", "Main Content");
+    await setFlowPosition(page, "Top Bar");
+    const topBarLayout = await turnIntoAutoLayout(page, "Top Bar", "Vertical");
+    await topBarLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .fill("0");
+    await topBarLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .press("Enter");
+    await topBarLayout
+      .getByRole("textbox", { name: "Left / Right", exact: true })
+      .fill("10");
+    await topBarLayout
+      .getByRole("textbox", { name: "Left / Right", exact: true })
+      .press("Enter");
+    await topBarLayout
+      .getByRole("textbox", { name: "Top / Bottom", exact: true })
+      .fill("10");
+    await topBarLayout
+      .getByRole("textbox", { name: "Top / Bottom", exact: true })
+      .press("Enter");
+    await removeFill(page, "Top Bar");
+    await layerButton(page, "Main Content").click();
+    await drawInScreen(
+      page,
+      screenId,
+      "Text",
+      { x: 305, y: 44 },
+      "Good evening, Alex",
+      "Desktop greeting",
+    );
+    await reparentLayer(page, "Desktop greeting", "Top Bar");
+    await setTextStyle(
+      page,
+      "Desktop greeting",
+      "Inter",
+      "Bold",
+      28,
+      "FFFFFF",
+      "30",
+    );
+    await layerButton(page, "Top Bar").click();
+    await setSizingMode(page, "W", "Hug contents");
+    await setSizingMode(page, "H", "Hug contents");
+    await logNodeStage(
+      page,
+      designId,
+      screenId,
+      "Top Bar",
+      "desktop-topbar-hug-hug",
+    );
+
+    await createPodcastRow(page, screenId, "Main Content", "Podcast row", 108, [
+      {
+        name: "Podcast card A",
+        title: "Tasty Bites: Exploring Culinary Delights",
+        creator: "FoodieFiends",
+      },
+      {
+        name: "Podcast card B",
+        title: "Tasty Bites: Exploring Culinary Delights",
+        creator: "FoodieFiends",
+      },
+    ]);
+
+    await test.step("reorder flow cards, undo, redo, and restore source order", async () => {
+      const cardNames = ["Podcast card A", "Podcast card B"];
+      const reorderedNames = ["Podcast card B", "Podcast card A"];
+      const savedSource = async () =>
+        (await readDesign(page, designId)).files?.find(
+          (file) => file.id === screenId,
+        )?.content ?? "";
+      const savedCardOrder = async () =>
+        sourceLayerOrder(await savedSource(), cardNames);
+      await expect.poll(savedCardOrder).toEqual(cardNames);
+      const sourceBefore = await savedSource();
+      const cardANodeId = sourceNodeId(sourceBefore, "Podcast card A");
+      const cardBNodeId = sourceNodeId(sourceBefore, "Podcast card B");
+      const rowNodeId = sourceNodeId(sourceBefore, "Podcast row");
+      if (!cardANodeId || !cardBNodeId || !rowNodeId) {
+        throw new Error("Podcast row source is missing stable node ids");
+      }
+
+      const cardA = layerRow(page, "Podcast card A");
+      const cardB = layerRow(page, "Podcast card B");
+      await cardA.scrollIntoViewIfNeeded();
+      await cardB.scrollIntoViewIfNeeded();
+      const [cardABounds, cardBInitialBounds] = await Promise.all([
+        cardA.boundingBox(),
+        cardB.boundingBox(),
+      ]);
+      if (!cardABounds || !cardBInitialBounds) {
+        throw new Error("Podcast card rows are not measurable");
+      }
+      expect(cardBInitialBounds.y).toBeLessThan(cardABounds.y);
+      const liveRow = designFrame(page, screenId).locator(
+        `[data-agent-native-node-id="${rowNodeId}"]`,
+      );
+      const liveSiblingNodes = async () =>
+        liveRow.evaluate((row) =>
+          Array.from(row.children).map((child) => ({
+            id: child.getAttribute("data-agent-native-node-id"),
+            name: child.getAttribute("data-agent-native-layer-name"),
+          })),
+        );
+      const liveSiblingOrder = async () =>
+        (await liveSiblingNodes()).map(({ name }) => name);
+      const liveCardPositions = async () => {
+        const [cardAState, cardBState] = await Promise.all([
+          measureSourceLayer(page, screenId, sourceBefore, "Podcast card A"),
+          measureSourceLayer(page, screenId, sourceBefore, "Podcast card B"),
+        ]);
+        return {
+          cardA: { id: cardAState.id, x: cardAState.x },
+          cardB: { id: cardBState.id, x: cardBState.x },
+        };
+      };
+      await expect.poll(liveSiblingOrder).toEqual(cardNames);
+      const beforePositions = await liveCardPositions();
+      expect(beforePositions.cardA.x).toBeLessThan(beforePositions.cardB.x);
+      await layerButton(page, "Podcast card A").click();
+      await expect(cardA).toHaveAttribute("aria-selected", "true");
+      const selectedPanelNodeId = await cardA
+        .locator("[data-layer-row-button]")
+        .getAttribute("data-layer-node-id");
+      expect(selectedPanelNodeId).not.toBeNull();
+
+      const previewSelector = `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`;
+      const previewIframe = page.locator(previewSelector);
+      const previewIframeHandle = await previewIframe.elementHandle();
+      if (!previewIframeHandle)
+        throw new Error("Screen preview iframe is missing");
+      const previewFrame = await previewIframeHandle.contentFrame();
+      if (!previewFrame)
+        throw new Error("Screen preview document is unavailable");
+      const previewDocument = designFrame(page, screenId).locator("html");
+      const previewDocumentToken = await previewDocument.evaluate(() => {
+        const token = crypto.randomUUID();
+        (window as any).__musicWorkflowLayerMoveDocumentToken = token;
+        return token;
+      });
+      await previewIframeHandle.evaluate((iframe) => {
+        const host = window as any;
+        host.__musicWorkflowLayerMoveLoadCount = 0;
+        iframe.addEventListener("load", () => {
+          host.__musicWorkflowLayerMoveLoadCount += 1;
+        });
+      });
+      const consoleMessages: Array<{ type: string; text: string }> = [];
+      const pageErrors: string[] = [];
+      const networkRequests: Array<{
+        method: string;
+        path: string;
+        resourceType: string;
+      }> = [];
+      const networkResponses: Array<{
+        method: string;
+        path: string;
+        status: number;
+      }> = [];
+      const frameNavigations: string[] = [];
+      const onConsole = (
+        message: import("@playwright/test").ConsoleMessage,
+      ) => {
+        consoleMessages.push({ type: message.type(), text: message.text() });
+      };
+      const onPageError = (error: Error) => pageErrors.push(error.message);
+      const onRequest = (request: import("@playwright/test").Request) => {
+        const url = new URL(request.url());
+        if (
+          url.origin === new URL(page.url()).origin &&
+          url.pathname.startsWith("/_agent-native/")
+        ) {
+          networkRequests.push({
+            method: request.method(),
+            path: url.pathname,
+            resourceType: request.resourceType(),
+          });
+        }
+      };
+      const onResponse = (response: import("@playwright/test").Response) => {
+        const url = new URL(response.url());
+        if (
+          url.origin === new URL(page.url()).origin &&
+          url.pathname.startsWith("/_agent-native/")
+        ) {
+          networkResponses.push({
+            method: response.request().method(),
+            path: url.pathname,
+            status: response.status(),
+          });
+        }
+      };
+      const onFrameNavigated = (frame: import("@playwright/test").Frame) => {
+        if (frame === previewFrame) frameNavigations.push(frame.url());
+      };
+      page.on("console", onConsole);
+      page.on("pageerror", onPageError);
+      page.on("request", onRequest);
+      page.on("response", onResponse);
+      page.on("framenavigated", onFrameNavigated);
+      const proof: Record<string, unknown> = {
+        workflowStep:
+          "Auto Layout > Work with objects > Arrange or reorder objects (horizontal flow)",
+        designId,
+        screenId,
+        nodeIds: { row: rowNodeId, cardA: cardANodeId, cardB: cardBNodeId },
+        sourceOrderBefore: sourceLayerOrder(sourceBefore, cardNames),
+        liveSiblingNodesBefore: await liveSiblingNodes(),
+        liveCardPositionsBefore: beforePositions,
+      };
+      try {
+        await cardA.dragTo(cardB, { targetPosition: { x: 24, y: 2 } });
+        await expect.poll(savedCardOrder).toEqual(reorderedNames);
+        proof.sourceOrderAfterMove = await savedCardOrder();
+        await expect.poll(liveSiblingOrder).toEqual(reorderedNames);
+        const movedPositions = await liveCardPositions();
+        expect(movedPositions.cardB.x).toBeLessThan(movedPositions.cardA.x);
+        proof.liveAfterMove = {
+          siblingNodes: await liveSiblingNodes(),
+          positions: movedPositions,
+          selectedNodeId: await cardA
+            .locator("[data-layer-row-button]")
+            .getAttribute("data-layer-node-id"),
+        };
+
+        await expect(cardA).toHaveAttribute("aria-selected", "true");
+        await expect(cardA.locator("[data-layer-row-button]")).toHaveAttribute(
+          "data-layer-node-id",
+          selectedPanelNodeId ?? "",
+        );
+        expect(
+          await previewDocument.evaluate(
+            () => (window as any).__musicWorkflowLayerMoveDocumentToken ?? null,
+          ),
+        ).toBe(previewDocumentToken);
+        expect(
+          await page.evaluate(
+            () => (window as any).__musicWorkflowLayerMoveLoadCount ?? -1,
+          ),
+        ).toBe(0);
+        expect(frameNavigations).toEqual([]);
+
+        await page.keyboard.press("ControlOrMeta+z");
+        await expect.poll(savedCardOrder).toEqual(cardNames);
+        await expect.poll(liveSiblingOrder).toEqual(cardNames);
+        const undoPositions = await liveCardPositions();
+        expect(undoPositions.cardA.x).toBeLessThan(undoPositions.cardB.x);
+        await expect(cardA).toHaveAttribute("aria-selected", "true");
+        await expect(cardA.locator("[data-layer-row-button]")).toHaveAttribute(
+          "data-layer-node-id",
+          selectedPanelNodeId ?? "",
+        );
+        proof.sourceOrderAfterUndo = await savedCardOrder();
+        proof.liveAfterUndo = {
+          siblingNodes: await liveSiblingNodes(),
+          positions: undoPositions,
+          selectedNodeId: await cardA
+            .locator("[data-layer-row-button]")
+            .getAttribute("data-layer-node-id"),
+        };
+
+        await page.keyboard.press("ControlOrMeta+Shift+z");
+        await expect.poll(savedCardOrder).toEqual(reorderedNames);
+        await expect.poll(liveSiblingOrder).toEqual(reorderedNames);
+        const redoPositions = await liveCardPositions();
+        expect(redoPositions.cardB.x).toBeLessThan(redoPositions.cardA.x);
+        await expect(cardA).toHaveAttribute("aria-selected", "true");
+        await expect(cardA.locator("[data-layer-row-button]")).toHaveAttribute(
+          "data-layer-node-id",
+          selectedPanelNodeId ?? "",
+        );
+        proof.sourceOrderAfterRedo = await savedCardOrder();
+        proof.liveAfterRedo = {
+          siblingNodes: await liveSiblingNodes(),
+          positions: redoPositions,
+          selectedNodeId: await cardA
+            .locator("[data-layer-row-button]")
+            .getAttribute("data-layer-node-id"),
+        };
+        expect(
+          await previewDocument.evaluate(
+            () => (window as any).__musicWorkflowLayerMoveDocumentToken ?? null,
+          ),
+        ).toBe(previewDocumentToken);
+        expect(
+          await page.evaluate(
+            () => (window as any).__musicWorkflowLayerMoveLoadCount ?? -1,
+          ),
+        ).toBe(0);
+        expect(frameNavigations).toEqual([]);
+        expect(await previewIframe.count()).toBe(1);
+        proof.sourceOrderBeforeRestore = await savedCardOrder();
+        await test.info().attach("music-app-layer-reorder-live-proof", {
+          body: JSON.stringify(proof, null, 2),
+          contentType: "application/json",
+        });
+      } finally {
+        page.off("console", onConsole);
+        page.off("pageerror", onPageError);
+        page.off("request", onRequest);
+        page.off("response", onResponse);
+        page.off("framenavigated", onFrameNavigated);
+        proof.console = consoleMessages;
+        proof.pageErrors = pageErrors;
+        proof.networkRequests = networkRequests;
+        proof.networkResponses = networkResponses;
+        proof.previewFrameNavigations = frameNavigations;
+        proof.previewDocumentTokenPreserved =
+          (await previewDocument
+            .evaluate(
+              () =>
+                (window as any).__musicWorkflowLayerMoveDocumentToken ?? null,
+            )
+            .catch(() => null)) === previewDocumentToken;
+        proof.previewLoadEvents = await page
+          .evaluate(
+            () => (window as any).__musicWorkflowLayerMoveLoadCount ?? -1,
+          )
+          .catch(() => -1);
+      }
+
+      await cardB.dragTo(cardA, { targetPosition: { x: 24, y: 2 } });
+      await expect.poll(savedCardOrder).toEqual(cardNames);
+      const restoredSource = await savedSource();
+      const [restoredCardA, restoredCardB] = await Promise.all([
+        measureSourceLayer(page, screenId, restoredSource, "Podcast card A"),
+        measureSourceLayer(page, screenId, restoredSource, "Podcast card B"),
+      ]);
+      expect(restoredCardA.x).toBeLessThan(restoredCardB.x);
+      await expect.poll(liveSiblingOrder).toEqual(cardNames);
+      const [cardABoundsRestored, cardBBoundsRestored] = await Promise.all([
+        cardA.boundingBox(),
+        cardB.boundingBox(),
+      ]);
+      if (!cardABoundsRestored || !cardBBoundsRestored) {
+        throw new Error("Restored podcast card rows are not measurable");
+      }
+      expect(cardBBoundsRestored.y).toBeLessThan(cardABoundsRestored.y);
+      await test.info().attach("music-app-layer-reorder-restored", {
+        body: JSON.stringify(
+          {
+            sourceOrder: sourceLayerOrder(restoredSource, cardNames),
+            liveSiblingNodes: await liveSiblingNodes(),
+            savedCardA: restoredCardA,
+            savedCardB: restoredCardB,
+            layersCardA: cardABoundsRestored,
+            layersCardB: cardBBoundsRestored,
+          },
+          null,
+          2,
+        ),
+        contentType: "application/json",
+      });
+    });
+    await createPodcastRow(
+      page,
+      screenId,
+      "Main Content",
+      "Recently played",
+      447,
+      [
+        {
+          name: "Recent card A",
+          title: "Tasty Bites: Exploring Culinary Delights",
+          creator: "FoodieFiends",
+        },
+        {
+          name: "Recent card B",
+          title: "Tasty Bites: Exploring Culinary Delights",
+          creator: "FoodieFiends",
+        },
+      ],
+    );
+
+    await panOverviewCanvas(page, -480);
+    await drawInScreen(page, screenId, "Frame", {
+      x: 10,
+      y: 954,
+      width: 1420,
+      height: 60,
+      assertUnobstructed: true,
+    });
+    await renameLayer(page, "Frame", "Now Playing");
+    await setFlowPosition(page, "Now Playing");
+    const playerLayout = await turnIntoAutoLayout(
+      page,
+      "Now Playing",
+      "Horizontal",
+    );
+    const playerGap = playerLayout.getByRole("textbox", {
+      name: "Gap",
+      exact: true,
+    });
+    await playerGap.fill("10");
+    await playerGap.press("Enter");
+    await playerLayout
+      .getByRole("textbox", { name: "Left / Right", exact: true })
+      .fill("10");
+    await playerLayout
+      .getByRole("textbox", { name: "Left / Right", exact: true })
+      .press("Enter");
+    await playerLayout
+      .getByRole("textbox", { name: "Top / Bottom", exact: true })
+      .fill("10");
+    await playerLayout
+      .getByRole("textbox", { name: "Top / Bottom", exact: true })
+      .press("Enter");
+    await setSizingMode(page, "W", "Fill container");
+    await setSizingMode(page, "H", "Hug contents");
+    await removeFill(page, "Now Playing");
+    await drawInScreen(
+      page,
+      screenId,
+      "Rectangle",
+      { x: 40, y: 816, width: 40, height: 40 },
+      undefined,
+      "Player artwork",
+    );
+    await reparentLayer(page, "Player artwork", "Now Playing");
+    await setFlowPosition(page, "Player artwork");
+    await setFillHex(page, "2F74F5");
+    await setCornerRadius(page, 6);
+    await setSizingMode(page, "W", "Fixed");
+    await setSizingMode(page, "H", "Fixed");
+    await setDimension(page, "W", 40);
+    await setDimension(page, "H", 40);
+    await logNodeStage(
+      page,
+      designId,
+      screenId,
+      "Player artwork",
+      "desktop-player-art-fixed-40x40",
+    );
+    await drawInScreen(
+      page,
+      screenId,
+      "Text",
+      { x: 112, y: 828 },
+      "North Star  /  Aster Vale",
+      "Track metadata",
+    );
+    await reparentLayer(page, "Track metadata", "Now Playing");
+    await setTextStyle(
+      page,
+      "Track metadata",
+      "Inter",
+      "Regular",
+      12,
+      "FFFFFF",
+    );
+    await drawInScreen(
+      page,
+      screenId,
+      "Text",
+      { x: 620, y: 828 },
+      "‹   ▶   ›",
+      "Transport controls",
+    );
+    await reparentLayer(page, "Transport controls", "Now Playing");
+    await setTextStyle(
+      page,
+      "Transport controls",
+      "Inter",
+      "Regular",
+      12,
+      "FFFFFF",
+    );
+    await drawInScreen(
+      page,
+      screenId,
+      "Text",
+      { x: 620, y: 828 },
+      "00:24  ━━━━━━━━━  03:42",
+      "Progress and duration",
+    );
+    await reparentLayer(page, "Progress and duration", "Now Playing");
+    await setTextStyle(
+      page,
+      "Progress and duration",
+      "Inter",
+      "Regular",
+      12,
+      "FFFFFF",
+    );
+
+    const saved = await readDesign(page, designId);
+    const content =
+      saved.files?.find((file) => file.id === screenId)?.content ?? "";
+    for (const label of [
+      "Workspace",
+      "Sidebar",
+      "Main Content",
+      "SONORA",
+      "Good evening, Alex",
+      "Recently played",
+      "Tasty Bites",
+      "Now Playing",
+      "North Star",
+      "00:24",
+    ]) {
+      expect(content, `saved Screen source is missing ${label}`).toContain(
+        label,
+      );
+    }
+    const desktopMainMetrics = await measureSourceLayer(
+      page,
+      screenId,
+      content,
+      "Main Content",
+    );
+    const desktopPlayerMetrics = await measureSourceLayer(
+      page,
+      screenId,
+      content,
+      "Now Playing",
+    );
+    const desktopWorkspaceMetrics = await measureSourceLayer(
+      page,
+      screenId,
+      content,
+      "Workspace",
+    );
+    const desktopNavigationMetrics = await measureSourceLayer(
+      page,
+      screenId,
+      content,
+      "Navigation",
+    );
+    const desktopSidebarMetrics = await measureSourceLayer(
+      page,
+      screenId,
+      content,
+      "Sidebar",
+    );
+    const desktopLogoMetrics = await measureSourceLayer(
+      page,
+      screenId,
+      content,
+      "SONORA",
+    );
+    const desktopPodcastRowMetrics = await measureSourceLayer(
+      page,
+      screenId,
+      content,
+      "Podcast row",
+    );
+    const desktopTopBarMetrics = await measureSourceLayer(
+      page,
+      screenId,
+      content,
+      "Top Bar",
+    );
+    const desktopRecentlyPlayedMetrics = await measureSourceLayer(
+      page,
+      screenId,
+      content,
+      "Recently played",
+    );
+    const mainContentTag = sourceLayerTag(content, "Main Content");
+    const desktopSidebarTag = sourceLayerTag(content, "Sidebar");
+    const desktopPodcastRowTag = sourceLayerTag(content, "Podcast row");
+    expect(mainContentTag).toBeTruthy();
+    expect(desktopSidebarTag).toBeTruthy();
+    expect(desktopPodcastRowTag).toBeTruthy();
+    expect(sourceStyleValue(mainContentTag!, "height")).toBe("fit-content");
+    expect(sourceStyleValue(mainContentTag!, "width")).toBe("auto");
+    expect(sourceStyleValue(mainContentTag!, "flex-grow")).toBe("1");
+    expect(sourceStyleValue(mainContentTag!, "flex-shrink")).toBe("0");
+    expect(sourceStyleValue(mainContentTag!, "flex-basis")).toMatch(
+      /^0(?:px)?$/,
+    );
+    expect(mainContentTag).toMatch(/display:\s*flex/i);
+    expect(mainContentTag).toMatch(/flex-direction:\s*column/i);
+    expect(sourceStyleValue(desktopSidebarTag!, "width")).toBe("fit-content");
+    expect(sourceStyleValue(desktopSidebarTag!, "flex-grow")).toBe("0");
+    expect(sourceStyleValue(desktopSidebarTag!, "flex-shrink")).toBe("0");
+    expect(sourceStyleValue(desktopSidebarTag!, "flex-basis")).toBe("auto");
+    expect(sourceStyleValue(desktopPodcastRowTag!, "width")).toBe("auto");
+    expect(sourceStyleValue(desktopPodcastRowTag!, "align-self")).toBe(
+      "stretch",
+    );
+    expect(desktopWorkspaceMetrics.columnGap).toBe("10px");
+    expect(desktopSidebarMetrics.paddingLeft).toBe("20px");
+    expect(desktopSidebarMetrics.paddingRight).toBe("20px");
+    expect(desktopMainMetrics.paddingLeft).toBe("24px");
+    expect(desktopMainMetrics.paddingRight).toBe("24px");
+    const mainContentNaturalHeight =
+      desktopTopBarMetrics.height +
+      desktopPodcastRowMetrics.height +
+      desktopRecentlyPlayedMetrics.height +
+      parseFloat(desktopMainMetrics.rowGap) * 2 +
+      parseFloat(desktopMainMetrics.paddingTop) +
+      parseFloat(desktopMainMetrics.paddingBottom);
+    const workspaceTag = sourceLayerTag(content, "Workspace");
+    expect(workspaceTag).toBeTruthy();
+    expect(workspaceTag).toMatch(/width:\s*auto/i);
+    expect(workspaceTag).toMatch(/align-self:\s*stretch/i);
+    if (!bodyIdentity.layerName) {
+      throw new Error("Screen root source is missing its layer name");
+    }
+    const screenRootTag = sourceLayerTag(content, bodyIdentity.layerName);
+    expect(screenRootTag).toBeTruthy();
+    const [screenRootSpacing, workspaceSpacing] = await Promise.all([
+      savedBoxSpacing(page, screenRootTag!),
+      savedBoxSpacing(page, workspaceTag!),
+    ]);
+    for (const spacing of [screenRootSpacing, workspaceSpacing]) {
+      expect(spacing).toEqual({
+        paddingTop: "10px",
+        paddingRight: "10px",
+        paddingBottom: "10px",
+        paddingLeft: "10px",
+        marginTop: "0px",
+        marginRight: "0px",
+        marginBottom: "0px",
+        marginLeft: "0px",
+      });
+    }
+    const desktopCardA = await measureSourceLayer(
+      page,
+      screenId,
+      content,
+      "Podcast card A",
+    );
+    const desktopCardB = await measureSourceLayer(
+      page,
+      screenId,
+      content,
+      "Podcast card B",
+    );
+    await test.info().attach("workflow-measurements-desktop", {
       body: JSON.stringify(
         {
           designId,
           screenId,
-          screenSelection,
-          shellFrameId: await shell.getAttribute("data-frame-id"),
-          layerNodeId:
-            await selectedScreenRow.getAttribute("data-layer-node-id"),
-          screenIframeId: await screenIframe.getAttribute(
-            "data-screen-iframe-id",
-          ),
-          bodyIdentity,
-          inspectorBeforeBurst,
-          initialGeometry: createdGeometry,
-          initialMetadata: createdMetadata,
-          geometryRequests,
-          geometryResponses,
-          finalGeometry,
+          geometry: designData(saved).canvasFrames?.[screenId],
+          workspace: desktopWorkspaceMetrics,
+          navigation: desktopNavigationMetrics,
+          sidebar: desktopSidebarMetrics,
+          logo: desktopLogoMetrics,
+          mainContent: desktopMainMetrics,
+          mainContentNaturalHeight,
+          topBar: desktopTopBarMetrics,
+          podcastRow: desktopPodcastRowMetrics,
+          recentlyPlayed: desktopRecentlyPlayedMetrics,
+          cardA: desktopCardA,
+          cardB: desktopCardB,
+          player: desktopPlayerMetrics,
         },
         null,
         2,
       ),
       contentType: "application/json",
     });
-  }
-
-  await page.keyboard.press("Shift+a");
-  const rootLayoutHeading = page.getByRole("heading", {
-    name: "Auto layout",
-    exact: true,
-  });
-  await expect(rootLayoutHeading).toBeVisible();
-  const rootLayout = rootLayoutHeading.locator("xpath=ancestor::section");
-  await rootLayout
-    .getByRole("button", { name: "Vertical", exact: true })
-    .click();
-  const rootGap = rootLayout.getByRole("textbox", {
-    name: "Gap",
-    exact: true,
-  });
-  await rootGap.fill("10");
-  await rootGap.press("Enter");
-  const horizontalPadding = rootLayout.getByRole("textbox", {
-    name: "Left / Right",
-    exact: true,
-  });
-  await horizontalPadding.fill("10");
-  await horizontalPadding.press("Enter");
-  const verticalPadding = rootLayout.getByRole("textbox", {
-    name: "Top / Bottom",
-    exact: true,
-  });
-  await verticalPadding.fill("10");
-  await verticalPadding.press("Enter");
-  await setFillHex(page, "0C101A", "desktop-screen-fill");
-
-  await drawInScreen(page, screenId, "Frame", {
-    x: 10,
-    y: 10,
-    width: 1420,
-    height: 850,
-  });
-  await expect
-    .poll(
-      async () =>
-        (await readDesign(page, designId)).files?.find(
-          (file) => file.id === screenId,
-        )?.content,
-    )
-    .toContain('data-an-primitive="frame"');
-  await renameLayer(page, "Frame", "Workspace");
-  await setFlowPosition(page, "Workspace");
-  const workspaceLayout = await turnIntoAutoLayout(
-    page,
-    "Workspace",
-    "Horizontal",
-  );
-  const workspaceGap = workspaceLayout.getByRole("textbox", {
-    name: "Gap",
-    exact: true,
-  });
-  await workspaceGap.fill("10");
-  await workspaceGap.press("Enter");
-  await workspaceLayout
-    .getByRole("textbox", { name: "Left / Right", exact: true })
-    .fill("10");
-  await workspaceLayout
-    .getByRole("textbox", { name: "Left / Right", exact: true })
-    .press("Enter");
-  await workspaceLayout
-    .getByRole("textbox", { name: "Top / Bottom", exact: true })
-    .fill("10");
-  await workspaceLayout
-    .getByRole("textbox", { name: "Top / Bottom", exact: true })
-    .press("Enter");
-  await setDimension(page, "H", 850);
-  await setSizingMode(page, "W", "Fill container");
-  const workspaceFillBadge = page.getByRole("button", {
-    name: /^W \d+ Fill$/,
-  });
-  await expect(workspaceFillBadge).toBeVisible();
-  await removeFill(page, "Workspace");
-
-  await drawInScreen(
-    page,
-    screenId,
-    "Text",
-    { x: 20, y: 20, width: 96, height: 120 },
-    "Home\nBrowse\nYour Library\nPlaylists",
-    "Navigation",
-  );
-  await reparentLayer(page, "Navigation", "Workspace");
-  await setTextStyle(
-    page,
-    "Navigation",
-    "Inter",
-    "Bold",
-    16,
-    "FFFFFF",
-    "30",
-    "desktop-navigation-text",
-  );
-  await setSizingMode(page, "W", "Fixed");
-  await setSizingMode(page, "H", "Fixed");
-  await setDimension(page, "W", 96);
-  await setDimension(page, "H", 120);
-
-  await drawInScreen(page, screenId, "Frame", {
-    x: 116,
-    y: 10,
-    width: 145,
-    height: 69,
-  });
-  await renameLayer(page, "Frame", "Sidebar");
-  await reparentLayer(page, "Sidebar", "Workspace");
-  await setFlowPosition(page, "Sidebar");
-  const sidebarLayout = await turnIntoAutoLayout(page, "Sidebar", "Vertical");
-  await sidebarLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .fill("0");
-  await sidebarLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .press("Enter");
-  await sidebarLayout
-    .getByRole("textbox", { name: "Left / Right", exact: true })
-    .fill("20");
-  await sidebarLayout
-    .getByRole("textbox", { name: "Left / Right", exact: true })
-    .press("Enter");
-  await sidebarLayout
-    .getByRole("textbox", { name: "Top / Bottom", exact: true })
-    .fill("20");
-  await sidebarLayout
-    .getByRole("textbox", { name: "Top / Bottom", exact: true })
-    .press("Enter");
-  await setFillHex(page, "141A24");
-  await drawInScreen(page, screenId, "Text", { x: 136, y: 30 }, "SONORA");
-  await reparentLayer(page, "SONORA", "Sidebar");
-  await setTextStyle(page, "SONORA", "Inter", "Bold", 24, "FFFFFF");
-  await layerButton(page, "Sidebar").click();
-  await setSizingMode(page, "W", "Hug contents");
-  await setSizingMode(page, "H", "Hug contents");
-  await logNodeStage(
-    page,
-    designId,
-    screenId,
-    "Sidebar",
-    "desktop-sidebar-hug-hug",
-  );
-
-  await drawInScreen(page, screenId, "Frame", {
-    x: 271,
-    y: 10,
-    width: 1139,
-    height: 776,
-  });
-  await renameLayer(page, "Frame", "Main Content");
-  await reparentLayer(page, "Main Content", "Workspace");
-  await setFlowPosition(page, "Main Content");
-  const contentLayout = await turnIntoAutoLayout(
-    page,
-    "Main Content",
-    "Vertical",
-  );
-  const contentGap = contentLayout.getByRole("textbox", {
-    name: "Gap",
-    exact: true,
-  });
-  await contentGap.fill("24");
-  await contentGap.press("Enter");
-  for (const [name, value] of [
-    ["Left / Right", "24"],
-    ["Top / Bottom", "24"],
-  ] as const) {
-    const field = contentLayout.getByRole("textbox", { name, exact: true });
-    await field.fill(value);
-    await field.press("Enter");
-  }
-  await setSizingMode(page, "W", "Fill container");
-  await setSizingMode(page, "H", "Hug contents");
-  await removeFill(page, "Main Content");
-
-  await drawInScreen(
-    page,
-    screenId,
-    "Frame",
-    { x: 295, y: 34, width: 285, height: 50 },
-    undefined,
-    "Top Bar",
-  );
-  await reparentLayer(page, "Top Bar", "Main Content");
-  await setFlowPosition(page, "Top Bar");
-  const topBarLayout = await turnIntoAutoLayout(page, "Top Bar", "Vertical");
-  await topBarLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .fill("0");
-  await topBarLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .press("Enter");
-  await topBarLayout
-    .getByRole("textbox", { name: "Left / Right", exact: true })
-    .fill("10");
-  await topBarLayout
-    .getByRole("textbox", { name: "Left / Right", exact: true })
-    .press("Enter");
-  await topBarLayout
-    .getByRole("textbox", { name: "Top / Bottom", exact: true })
-    .fill("10");
-  await topBarLayout
-    .getByRole("textbox", { name: "Top / Bottom", exact: true })
-    .press("Enter");
-  await removeFill(page, "Top Bar");
-  await layerButton(page, "Main Content").click();
-  await drawInScreen(
-    page,
-    screenId,
-    "Text",
-    { x: 305, y: 44 },
-    "Good evening, Alex",
-    "Desktop greeting",
-  );
-  await reparentLayer(page, "Desktop greeting", "Top Bar");
-  await setTextStyle(
-    page,
-    "Desktop greeting",
-    "Inter",
-    "Bold",
-    28,
-    "FFFFFF",
-    "30",
-  );
-  await layerButton(page, "Top Bar").click();
-  await setSizingMode(page, "W", "Hug contents");
-  await setSizingMode(page, "H", "Hug contents");
-  await logNodeStage(
-    page,
-    designId,
-    screenId,
-    "Top Bar",
-    "desktop-topbar-hug-hug",
-  );
-
-  await createPodcastRow(page, screenId, "Main Content", "Podcast row", 108, [
-    {
-      name: "Podcast card A",
-      title: "Tasty Bites: Exploring Culinary Delights",
-      creator: "FoodieFiends",
-    },
-    {
-      name: "Podcast card B",
-      title: "Tasty Bites: Exploring Culinary Delights",
-      creator: "FoodieFiends",
-    },
-  ]);
-
-  await test.step("reorder flow cards, undo, redo, and restore source order", async () => {
-    const cardNames = ["Podcast card A", "Podcast card B"];
-    const reorderedNames = ["Podcast card B", "Podcast card A"];
-    const savedSource = async () =>
-      (await readDesign(page, designId)).files?.find(
-        (file) => file.id === screenId,
-      )?.content ?? "";
-    const savedCardOrder = async () =>
-      sourceLayerOrder(await savedSource(), cardNames);
-    await expect.poll(savedCardOrder).toEqual(cardNames);
-    const sourceBefore = await savedSource();
-    const cardANodeId = sourceNodeId(sourceBefore, "Podcast card A");
-    const cardBNodeId = sourceNodeId(sourceBefore, "Podcast card B");
-    const rowNodeId = sourceNodeId(sourceBefore, "Podcast row");
-    if (!cardANodeId || !cardBNodeId || !rowNodeId) {
-      throw new Error("Podcast row source is missing stable node ids");
-    }
-
-    const cardA = layerRow(page, "Podcast card A");
-    const cardB = layerRow(page, "Podcast card B");
-    await cardA.scrollIntoViewIfNeeded();
-    await cardB.scrollIntoViewIfNeeded();
-    const [cardABounds, cardBInitialBounds] = await Promise.all([
-      cardA.boundingBox(),
-      cardB.boundingBox(),
-    ]);
-    if (!cardABounds || !cardBInitialBounds) {
-      throw new Error("Podcast card rows are not measurable");
-    }
-    expect(cardBInitialBounds.y).toBeLessThan(cardABounds.y);
-    const liveRow = designFrame(page, screenId).locator(
-      `[data-agent-native-node-id="${rowNodeId}"]`,
-    );
-    const liveSiblingNodes = async () =>
-      liveRow.evaluate((row) =>
-        Array.from(row.children).map((child) => ({
-          id: child.getAttribute("data-agent-native-node-id"),
-          name: child.getAttribute("data-agent-native-layer-name"),
-        })),
-      );
-    const liveSiblingOrder = async () =>
-      (await liveSiblingNodes()).map(({ name }) => name);
-    const liveCardPositions = async () => {
-      const [cardAState, cardBState] = await Promise.all([
-        measureSourceLayer(page, screenId, sourceBefore, "Podcast card A"),
-        measureSourceLayer(page, screenId, sourceBefore, "Podcast card B"),
-      ]);
-      return {
-        cardA: { id: cardAState.id, x: cardAState.x },
-        cardB: { id: cardBState.id, x: cardBState.x },
-      };
-    };
-    await expect.poll(liveSiblingOrder).toEqual(cardNames);
-    const beforePositions = await liveCardPositions();
-    expect(beforePositions.cardA.x).toBeLessThan(beforePositions.cardB.x);
-    await layerButton(page, "Podcast card A").click();
-    await expect(cardA).toHaveAttribute("aria-selected", "true");
-    const selectedPanelNodeId = await cardA
-      .locator("[data-layer-row-button]")
-      .getAttribute("data-layer-node-id");
-    expect(selectedPanelNodeId).not.toBeNull();
-
-    const previewSelector = `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`;
-    const previewIframe = page.locator(previewSelector);
-    const previewIframeHandle = await previewIframe.elementHandle();
-    if (!previewIframeHandle)
-      throw new Error("Screen preview iframe is missing");
-    const previewFrame = await previewIframeHandle.contentFrame();
-    if (!previewFrame)
-      throw new Error("Screen preview document is unavailable");
-    const previewDocument = designFrame(page, screenId).locator("html");
-    const previewDocumentToken = await previewDocument.evaluate(() => {
-      const token = crypto.randomUUID();
-      (window as any).__musicWorkflowLayerMoveDocumentToken = token;
-      return token;
-    });
-    await previewIframeHandle.evaluate((iframe) => {
-      const host = window as any;
-      host.__musicWorkflowLayerMoveLoadCount = 0;
-      iframe.addEventListener("load", () => {
-        host.__musicWorkflowLayerMoveLoadCount += 1;
-      });
-    });
-    const consoleMessages: Array<{ type: string; text: string }> = [];
-    const pageErrors: string[] = [];
-    const networkRequests: Array<{
-      method: string;
-      path: string;
-      resourceType: string;
-    }> = [];
-    const networkResponses: Array<{
-      method: string;
-      path: string;
-      status: number;
-    }> = [];
-    const frameNavigations: string[] = [];
-    const onConsole = (message: import("@playwright/test").ConsoleMessage) => {
-      consoleMessages.push({ type: message.type(), text: message.text() });
-    };
-    const onPageError = (error: Error) => pageErrors.push(error.message);
-    const onRequest = (request: import("@playwright/test").Request) => {
-      const url = new URL(request.url());
-      if (
-        url.origin === new URL(page.url()).origin &&
-        url.pathname.startsWith("/_agent-native/")
-      ) {
-        networkRequests.push({
-          method: request.method(),
-          path: url.pathname,
-          resourceType: request.resourceType(),
-        });
-      }
-    };
-    const onResponse = (response: import("@playwright/test").Response) => {
-      const url = new URL(response.url());
-      if (
-        url.origin === new URL(page.url()).origin &&
-        url.pathname.startsWith("/_agent-native/")
-      ) {
-        networkResponses.push({
-          method: response.request().method(),
-          path: url.pathname,
-          status: response.status(),
-        });
-      }
-    };
-    const onFrameNavigated = (frame: import("@playwright/test").Frame) => {
-      if (frame === previewFrame) frameNavigations.push(frame.url());
-    };
-    page.on("console", onConsole);
-    page.on("pageerror", onPageError);
-    page.on("request", onRequest);
-    page.on("response", onResponse);
-    page.on("framenavigated", onFrameNavigated);
-    const proof: Record<string, unknown> = {
-      workflowStep:
-        "Auto Layout > Work with objects > Arrange or reorder objects (horizontal flow)",
-      designId,
-      screenId,
-      nodeIds: { row: rowNodeId, cardA: cardANodeId, cardB: cardBNodeId },
-      sourceOrderBefore: sourceLayerOrder(sourceBefore, cardNames),
-      liveSiblingNodesBefore: await liveSiblingNodes(),
-      liveCardPositionsBefore: beforePositions,
-    };
-    try {
-      await cardA.dragTo(cardB, { targetPosition: { x: 24, y: 2 } });
-      await expect.poll(savedCardOrder).toEqual(reorderedNames);
-      proof.sourceOrderAfterMove = await savedCardOrder();
-      await expect.poll(liveSiblingOrder).toEqual(reorderedNames);
-      const movedPositions = await liveCardPositions();
-      expect(movedPositions.cardB.x).toBeLessThan(movedPositions.cardA.x);
-      proof.liveAfterMove = {
-        siblingNodes: await liveSiblingNodes(),
-        positions: movedPositions,
-        selectedNodeId: await cardA
-          .locator("[data-layer-row-button]")
-          .getAttribute("data-layer-node-id"),
-      };
-
-      await expect(cardA).toHaveAttribute("aria-selected", "true");
-      await expect(cardA.locator("[data-layer-row-button]")).toHaveAttribute(
-        "data-layer-node-id",
-        selectedPanelNodeId ?? "",
-      );
-      expect(
-        await previewDocument.evaluate(
-          () => (window as any).__musicWorkflowLayerMoveDocumentToken ?? null,
-        ),
-      ).toBe(previewDocumentToken);
-      expect(
-        await page.evaluate(
-          () => (window as any).__musicWorkflowLayerMoveLoadCount ?? -1,
-        ),
-      ).toBe(0);
-      expect(frameNavigations).toEqual([]);
-
-      await page.keyboard.press("ControlOrMeta+z");
-      await expect.poll(savedCardOrder).toEqual(cardNames);
-      await expect.poll(liveSiblingOrder).toEqual(cardNames);
-      const undoPositions = await liveCardPositions();
-      expect(undoPositions.cardA.x).toBeLessThan(undoPositions.cardB.x);
-      await expect(cardA).toHaveAttribute("aria-selected", "true");
-      await expect(cardA.locator("[data-layer-row-button]")).toHaveAttribute(
-        "data-layer-node-id",
-        selectedPanelNodeId ?? "",
-      );
-      proof.sourceOrderAfterUndo = await savedCardOrder();
-      proof.liveAfterUndo = {
-        siblingNodes: await liveSiblingNodes(),
-        positions: undoPositions,
-        selectedNodeId: await cardA
-          .locator("[data-layer-row-button]")
-          .getAttribute("data-layer-node-id"),
-      };
-
-      await page.keyboard.press("ControlOrMeta+Shift+z");
-      await expect.poll(savedCardOrder).toEqual(reorderedNames);
-      await expect.poll(liveSiblingOrder).toEqual(reorderedNames);
-      const redoPositions = await liveCardPositions();
-      expect(redoPositions.cardB.x).toBeLessThan(redoPositions.cardA.x);
-      await expect(cardA).toHaveAttribute("aria-selected", "true");
-      await expect(cardA.locator("[data-layer-row-button]")).toHaveAttribute(
-        "data-layer-node-id",
-        selectedPanelNodeId ?? "",
-      );
-      proof.sourceOrderAfterRedo = await savedCardOrder();
-      proof.liveAfterRedo = {
-        siblingNodes: await liveSiblingNodes(),
-        positions: redoPositions,
-        selectedNodeId: await cardA
-          .locator("[data-layer-row-button]")
-          .getAttribute("data-layer-node-id"),
-      };
-      expect(
-        await previewDocument.evaluate(
-          () => (window as any).__musicWorkflowLayerMoveDocumentToken ?? null,
-        ),
-      ).toBe(previewDocumentToken);
-      expect(
-        await page.evaluate(
-          () => (window as any).__musicWorkflowLayerMoveLoadCount ?? -1,
-        ),
-      ).toBe(0);
-      expect(frameNavigations).toEqual([]);
-      expect(await previewIframe.count()).toBe(1);
-      proof.sourceOrderBeforeRestore = await savedCardOrder();
-      await test.info().attach("music-app-layer-reorder-live-proof", {
-        body: JSON.stringify(proof, null, 2),
-        contentType: "application/json",
-      });
-    } finally {
-      page.off("console", onConsole);
-      page.off("pageerror", onPageError);
-      page.off("request", onRequest);
-      page.off("response", onResponse);
-      page.off("framenavigated", onFrameNavigated);
-      proof.console = consoleMessages;
-      proof.pageErrors = pageErrors;
-      proof.networkRequests = networkRequests;
-      proof.networkResponses = networkResponses;
-      proof.previewFrameNavigations = frameNavigations;
-      proof.previewDocumentTokenPreserved =
-        (await previewDocument
-          .evaluate(
-            () => (window as any).__musicWorkflowLayerMoveDocumentToken ?? null,
-          )
-          .catch(() => null)) === previewDocumentToken;
-      proof.previewLoadEvents = await page
-        .evaluate(() => (window as any).__musicWorkflowLayerMoveLoadCount ?? -1)
-        .catch(() => -1);
-    }
-
-    await cardB.dragTo(cardA, { targetPosition: { x: 24, y: 2 } });
-    await expect.poll(savedCardOrder).toEqual(cardNames);
-    const restoredSource = await savedSource();
-    const [restoredCardA, restoredCardB] = await Promise.all([
-      measureSourceLayer(page, screenId, restoredSource, "Podcast card A"),
-      measureSourceLayer(page, screenId, restoredSource, "Podcast card B"),
-    ]);
-    expect(restoredCardA.x).toBeLessThan(restoredCardB.x);
-    await expect.poll(liveSiblingOrder).toEqual(cardNames);
-    const [cardABoundsRestored, cardBBoundsRestored] = await Promise.all([
-      cardA.boundingBox(),
-      cardB.boundingBox(),
-    ]);
-    if (!cardABoundsRestored || !cardBBoundsRestored) {
-      throw new Error("Restored podcast card rows are not measurable");
-    }
-    expect(cardBBoundsRestored.y).toBeLessThan(cardABoundsRestored.y);
-    await test.info().attach("music-app-layer-reorder-restored", {
-      body: JSON.stringify(
-        {
-          sourceOrder: sourceLayerOrder(restoredSource, cardNames),
-          liveSiblingNodes: await liveSiblingNodes(),
-          savedCardA: restoredCardA,
-          savedCardB: restoredCardB,
-          layersCardA: cardABoundsRestored,
-          layersCardB: cardBBoundsRestored,
-        },
-        null,
+    const desktopWorkspaceContentWidth =
+      desktopWorkspaceMetrics.width -
+      parseFloat(desktopWorkspaceMetrics.paddingLeft) -
+      parseFloat(desktopWorkspaceMetrics.paddingRight);
+    expect
+      .soft(desktopSidebarMetrics.width)
+      .toBeCloseTo(
+        desktopLogoMetrics.width +
+          parseFloat(desktopSidebarMetrics.paddingLeft) +
+          parseFloat(desktopSidebarMetrics.paddingRight),
         2,
-      ),
-      contentType: "application/json",
-    });
-  });
-  await createPodcastRow(
-    page,
-    screenId,
-    "Main Content",
-    "Recently played",
-    447,
-    [
-      {
-        name: "Recent card A",
-        title: "Tasty Bites: Exploring Culinary Delights",
-        creator: "FoodieFiends",
-      },
-      {
-        name: "Recent card B",
-        title: "Tasty Bites: Exploring Culinary Delights",
-        creator: "FoodieFiends",
-      },
-    ],
-  );
-
-  await panOverviewCanvas(page, -480);
-  await drawInScreen(page, screenId, "Frame", {
-    x: 10,
-    y: 954,
-    width: 1420,
-    height: 60,
-    assertUnobstructed: true,
-  });
-  await renameLayer(page, "Frame", "Now Playing");
-  await setFlowPosition(page, "Now Playing");
-  const playerLayout = await turnIntoAutoLayout(
-    page,
-    "Now Playing",
-    "Horizontal",
-  );
-  const playerGap = playerLayout.getByRole("textbox", {
-    name: "Gap",
-    exact: true,
-  });
-  await playerGap.fill("10");
-  await playerGap.press("Enter");
-  await playerLayout
-    .getByRole("textbox", { name: "Left / Right", exact: true })
-    .fill("10");
-  await playerLayout
-    .getByRole("textbox", { name: "Left / Right", exact: true })
-    .press("Enter");
-  await playerLayout
-    .getByRole("textbox", { name: "Top / Bottom", exact: true })
-    .fill("10");
-  await playerLayout
-    .getByRole("textbox", { name: "Top / Bottom", exact: true })
-    .press("Enter");
-  await setSizingMode(page, "W", "Fill container");
-  await setSizingMode(page, "H", "Hug contents");
-  await removeFill(page, "Now Playing");
-  await drawInScreen(
-    page,
-    screenId,
-    "Rectangle",
-    { x: 40, y: 816, width: 40, height: 40 },
-    undefined,
-    "Player artwork",
-  );
-  await reparentLayer(page, "Player artwork", "Now Playing");
-  await setFlowPosition(page, "Player artwork");
-  await setFillHex(page, "2F74F5");
-  await setCornerRadius(page, 6);
-  await setSizingMode(page, "W", "Fixed");
-  await setSizingMode(page, "H", "Fixed");
-  await setDimension(page, "W", 40);
-  await setDimension(page, "H", 40);
-  await logNodeStage(
-    page,
-    designId,
-    screenId,
-    "Player artwork",
-    "desktop-player-art-fixed-40x40",
-  );
-  await drawInScreen(
-    page,
-    screenId,
-    "Text",
-    { x: 112, y: 828 },
-    "North Star  /  Aster Vale",
-    "Track metadata",
-  );
-  await reparentLayer(page, "Track metadata", "Now Playing");
-  await setTextStyle(page, "Track metadata", "Inter", "Regular", 12, "FFFFFF");
-  await drawInScreen(
-    page,
-    screenId,
-    "Text",
-    { x: 620, y: 828 },
-    "‹   ▶   ›",
-    "Transport controls",
-  );
-  await reparentLayer(page, "Transport controls", "Now Playing");
-  await setTextStyle(
-    page,
-    "Transport controls",
-    "Inter",
-    "Regular",
-    12,
-    "FFFFFF",
-  );
-  await drawInScreen(
-    page,
-    screenId,
-    "Text",
-    { x: 620, y: 828 },
-    "00:24  ━━━━━━━━━  03:42",
-    "Progress and duration",
-  );
-  await reparentLayer(page, "Progress and duration", "Now Playing");
-  await setTextStyle(
-    page,
-    "Progress and duration",
-    "Inter",
-    "Regular",
-    12,
-    "FFFFFF",
-  );
-
-  const saved = await readDesign(page, designId);
-  const content =
-    saved.files?.find((file) => file.id === screenId)?.content ?? "";
-  for (const label of [
-    "Workspace",
-    "Sidebar",
-    "Main Content",
-    "SONORA",
-    "Good evening, Alex",
-    "Recently played",
-    "Tasty Bites",
-    "Now Playing",
-    "North Star",
-    "00:24",
-  ]) {
-    expect(content, `saved Screen source is missing ${label}`).toContain(label);
-  }
-  const desktopMainMetrics = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "Main Content",
-  );
-  const desktopPlayerMetrics = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "Now Playing",
-  );
-  const desktopWorkspaceMetrics = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "Workspace",
-  );
-  const desktopNavigationMetrics = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "Navigation",
-  );
-  const desktopSidebarMetrics = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "Sidebar",
-  );
-  const desktopLogoMetrics = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "SONORA",
-  );
-  const desktopPodcastRowMetrics = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "Podcast row",
-  );
-  const desktopTopBarMetrics = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "Top Bar",
-  );
-  const desktopRecentlyPlayedMetrics = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "Recently played",
-  );
-  const mainContentTag = sourceLayerTag(content, "Main Content");
-  const desktopSidebarTag = sourceLayerTag(content, "Sidebar");
-  const desktopPodcastRowTag = sourceLayerTag(content, "Podcast row");
-  expect(mainContentTag).toBeTruthy();
-  expect(desktopSidebarTag).toBeTruthy();
-  expect(desktopPodcastRowTag).toBeTruthy();
-  expect(sourceStyleValue(mainContentTag!, "height")).toBe("fit-content");
-  expect(sourceStyleValue(mainContentTag!, "width")).toBe("auto");
-  expect(sourceStyleValue(mainContentTag!, "flex-grow")).toBe("1");
-  expect(sourceStyleValue(mainContentTag!, "flex-shrink")).toBe("0");
-  expect(sourceStyleValue(mainContentTag!, "flex-basis")).toMatch(/^0(?:px)?$/);
-  expect(mainContentTag).toMatch(/display:\s*flex/i);
-  expect(mainContentTag).toMatch(/flex-direction:\s*column/i);
-  expect(sourceStyleValue(desktopSidebarTag!, "width")).toBe("fit-content");
-  expect(sourceStyleValue(desktopSidebarTag!, "flex-grow")).toBe("0");
-  expect(sourceStyleValue(desktopSidebarTag!, "flex-shrink")).toBe("0");
-  expect(sourceStyleValue(desktopSidebarTag!, "flex-basis")).toBe("auto");
-  expect(sourceStyleValue(desktopPodcastRowTag!, "width")).toBe("auto");
-  expect(sourceStyleValue(desktopPodcastRowTag!, "align-self")).toBe("stretch");
-  expect(desktopWorkspaceMetrics.columnGap).toBe("10px");
-  expect(desktopSidebarMetrics.paddingLeft).toBe("20px");
-  expect(desktopSidebarMetrics.paddingRight).toBe("20px");
-  expect(desktopMainMetrics.paddingLeft).toBe("24px");
-  expect(desktopMainMetrics.paddingRight).toBe("24px");
-  const mainContentNaturalHeight =
-    desktopTopBarMetrics.height +
-    desktopPodcastRowMetrics.height +
-    desktopRecentlyPlayedMetrics.height +
-    parseFloat(desktopMainMetrics.rowGap) * 2 +
-    parseFloat(desktopMainMetrics.paddingTop) +
-    parseFloat(desktopMainMetrics.paddingBottom);
-  const workspaceTag = sourceLayerTag(content, "Workspace");
-  expect(workspaceTag).toBeTruthy();
-  expect(workspaceTag).toMatch(/width:\s*auto/i);
-  expect(workspaceTag).toMatch(/align-self:\s*stretch/i);
-  if (!bodyIdentity.layerName) {
-    throw new Error("Screen root source is missing its layer name");
-  }
-  const screenRootTag = sourceLayerTag(content, bodyIdentity.layerName);
-  expect(screenRootTag).toBeTruthy();
-  const [screenRootSpacing, workspaceSpacing] = await Promise.all([
-    savedBoxSpacing(page, screenRootTag!),
-    savedBoxSpacing(page, workspaceTag!),
-  ]);
-  for (const spacing of [screenRootSpacing, workspaceSpacing]) {
-    expect(spacing).toEqual({
-      paddingTop: "10px",
-      paddingRight: "10px",
-      paddingBottom: "10px",
-      paddingLeft: "10px",
-      marginTop: "0px",
-      marginRight: "0px",
-      marginBottom: "0px",
-      marginLeft: "0px",
-    });
-  }
-  const desktopCardA = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "Podcast card A",
-  );
-  const desktopCardB = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "Podcast card B",
-  );
-  await test.info().attach("workflow-measurements-desktop", {
-    body: JSON.stringify(
-      {
-        designId,
-        screenId,
-        geometry: designData(saved).canvasFrames?.[screenId],
-        workspace: desktopWorkspaceMetrics,
-        navigation: desktopNavigationMetrics,
-        sidebar: desktopSidebarMetrics,
-        logo: desktopLogoMetrics,
-        mainContent: desktopMainMetrics,
-        mainContentNaturalHeight,
-        topBar: desktopTopBarMetrics,
-        podcastRow: desktopPodcastRowMetrics,
-        recentlyPlayed: desktopRecentlyPlayedMetrics,
-        cardA: desktopCardA,
-        cardB: desktopCardB,
-        player: desktopPlayerMetrics,
-      },
-      null,
-      2,
-    ),
-    contentType: "application/json",
-  });
-  const desktopWorkspaceContentWidth =
-    desktopWorkspaceMetrics.width -
-    parseFloat(desktopWorkspaceMetrics.paddingLeft) -
-    parseFloat(desktopWorkspaceMetrics.paddingRight);
-  expect
-    .soft(desktopSidebarMetrics.width)
-    .toBeCloseTo(
-      desktopLogoMetrics.width +
-        parseFloat(desktopSidebarMetrics.paddingLeft) +
-        parseFloat(desktopSidebarMetrics.paddingRight),
-      2,
-    );
-  expect
-    .soft(desktopMainMetrics.width)
-    .toBeCloseTo(
-      desktopWorkspaceContentWidth -
-        desktopNavigationMetrics.width -
-        desktopSidebarMetrics.width -
-        parseFloat(desktopWorkspaceMetrics.columnGap) * 2,
-      2,
-    );
-  expect
-    .soft(desktopPodcastRowMetrics.width)
-    .toBeCloseTo(
-      desktopMainMetrics.width -
-        parseFloat(desktopMainMetrics.paddingLeft) -
-        parseFloat(desktopMainMetrics.paddingRight),
-      2,
-    );
-  expect
-    .soft(desktopMainMetrics.height)
-    .toBeCloseTo(mainContentNaturalHeight, 0);
-  expect.soft(desktopTopBarMetrics.parentId).toBe(desktopMainMetrics.id);
-  expect.soft(desktopPodcastRowMetrics.parentId).toBe(desktopMainMetrics.id);
-  expect
-    .soft(desktopRecentlyPlayedMetrics.parentId)
-    .toBe(desktopMainMetrics.id);
-  expect.soft(desktopWorkspaceMetrics.width).toBeCloseTo(1420, 0);
-  expect.soft(desktopNavigationMetrics.width).toBeCloseTo(96, 0);
-  expect.soft(desktopPlayerMetrics.width).toBeCloseTo(1420, 0);
-  expect.soft(desktopPlayerMetrics.height).toBeCloseTo(60, 0);
-  expect.soft(desktopCardA.width).toBeCloseTo(360, 0);
-  expect.soft(desktopCardB.width).toBeCloseTo(360, 0);
-  expect.soft(desktopCardA.y).toBeCloseTo(desktopCardB.y, 0);
-  expect.soft(desktopCardB.x).toBeGreaterThan(desktopCardA.x);
-  const shellBounds = await shell
-    .locator("[data-screen-card]")
-    .evaluate((el) => {
-      const rect = el.getBoundingClientRect();
-      return { width: rect.width, height: rect.height };
-    });
-  expect(shellBounds.width).toBeGreaterThan(0);
-  const desktopScreenCapture = await captureScreenCard(
-    page,
-    screenId,
-    "music-app-desktop-screen.png",
-  );
-  await test.info().attach("workflow-screen-screenshot-desktop", {
-    body: JSON.stringify(desktopScreenCapture, null, 2),
-    contentType: "application/json",
-  });
-  await captureEditorScreenshot(page, "music-app-desktop-editor.png");
-
-  const beforeMobile = await readDesign(page, designId);
-  const existingMobileIds = new Set(beforeMobile.files?.map((file) => file.id));
-  await pickFrameMode(page, "Screen");
-  const mobileStart = await emptyBoardPoint(page);
-  await page.mouse.move(mobileStart.x, mobileStart.y);
-  await page.mouse.down();
-  await page.mouse.move(mobileStart.x + 160, mobileStart.y + 220, {
-    steps: 14,
-  });
-  await page.mouse.up();
-
-  let mobileScreenId = "";
-  await expect
-    .poll(async () => {
-      const record = await readDesign(page, designId);
-      const added = record.files?.find(
-        (file) =>
-          !existingMobileIds.has(file.id) && file.filename !== "__board__.html",
       );
-      if (!added) return null;
-      mobileScreenId = added.id;
-      return added.id;
-    })
-    .not.toBeNull();
-  await test.info().attach("workflow-identities-desktop-mobile", {
-    body: JSON.stringify(
-      { designId, screenIds: [screenId, mobileScreenId] },
-      null,
-      2,
-    ),
-    contentType: "application/json",
-  });
-
-  await selectScreenLayer(page, mobileScreenId);
-  await page
-    .getByRole("textbox", { name: /^W(?: size in pixels)?$/ })
-    .fill("390");
-  await page
-    .getByRole("textbox", { name: /^W(?: size in pixels)?$/ })
-    .press("Enter");
-  await page
-    .getByRole("textbox", { name: /^H(?: size in pixels)?$/ })
-    .fill("844");
-  await page
-    .getByRole("textbox", { name: /^H(?: size in pixels)?$/ })
-    .press("Enter");
-  await expect
-    .poll(async () => {
-      const data = designData(await readDesign(page, designId));
-      const frame = data.canvasFrames?.[mobileScreenId];
-      const metadata = data.screenMetadata?.[mobileScreenId];
-      return [frame?.width, frame?.height, metadata?.width, metadata?.height];
-    })
-    .toEqual([390, 844, 390, 844]);
-  await page.keyboard.press("Shift+a");
-  const mobileRootHeading = page.getByRole("heading", {
-    name: "Auto layout",
-    exact: true,
-  });
-  await expect(mobileRootHeading).toBeVisible();
-  const mobileRootLayout = mobileRootHeading.locator("xpath=ancestor::section");
-  await mobileRootLayout
-    .getByRole("button", { name: "Vertical", exact: true })
-    .click();
-  await mobileRootLayout
-    .getByRole("textbox", { name: "Left / Right", exact: true })
-    .fill("10");
-  await mobileRootLayout
-    .getByRole("textbox", { name: "Left / Right", exact: true })
-    .press("Enter");
-  await mobileRootLayout
-    .getByRole("textbox", { name: "Top / Bottom", exact: true })
-    .fill("10");
-  await mobileRootLayout
-    .getByRole("textbox", { name: "Top / Bottom", exact: true })
-    .press("Enter");
-  await mobileRootLayout.getByRole("button", { name: "Gap mode" }).click();
-  await page.getByRole("menuitemcheckbox", { name: "Auto" }).click();
-  await setFillHex(page, "0C101A");
-
-  await drawInScreen(
-    page,
-    mobileScreenId,
-    "Frame",
-    { x: 10, y: 10, width: 370, height: 536 },
-    undefined,
-    "Mobile Workspace",
-  );
-  await reparentLayer(
-    page,
-    "Mobile Workspace",
-    screenLayerRow(page, mobileScreenId),
-  );
-  await setFlowPosition(page, "Mobile Workspace");
-  const mobileWorkspaceLayout = await turnIntoAutoLayout(
-    page,
-    "Mobile Workspace",
-    "Vertical",
-  );
-  await mobileWorkspaceLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .fill("10");
-  await mobileWorkspaceLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .press("Enter");
-  for (const [name, value] of [
-    ["Left / Right", "10"],
-    ["Top / Bottom", "10"],
-  ] as const) {
-    const field = mobileWorkspaceLayout.getByRole("textbox", {
-      name,
-      exact: true,
-    });
-    await field.fill(value);
-    await field.press("Enter");
-  }
-  await setSizingMode(page, "W", "Fill container");
-  await setSizingMode(page, "H", "Hug contents");
-  await removeFill(page, "Mobile Workspace");
-
-  await drawInScreen(
-    page,
-    mobileScreenId,
-    "Frame",
-    { x: 20, y: 20, width: 323, height: 69 },
-    undefined,
-    "Mobile Sidebar",
-  );
-  await reparentLayer(page, "Mobile Sidebar", "Mobile Workspace");
-  await setFlowPosition(page, "Mobile Sidebar");
-  const mobileSidebarLayout = await turnIntoAutoLayout(
-    page,
-    "Mobile Sidebar",
-    "Horizontal",
-  );
-  await mobileSidebarLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .fill("8");
-  await mobileSidebarLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .press("Enter");
-  for (const [name, value] of [
-    ["Left / Right", "12"],
-    ["Top / Bottom", "20"],
-  ] as const) {
-    const field = mobileSidebarLayout.getByRole("textbox", {
-      name,
-      exact: true,
-    });
-    await field.fill(value);
-    await field.press("Enter");
-  }
-  await setSizingMode(page, "W", "Hug contents");
-  await setSizingMode(page, "H", "Hug contents");
-  await setFillHex(page, "141A24");
-
-  await drawInScreen(
-    page,
-    mobileScreenId,
-    "Text",
-    { x: 32, y: 32 },
-    "Home  Browse  Library  Playlists",
-    "Mobile navigation",
-  );
-  await reparentLayer(page, "Mobile navigation", "Mobile Sidebar");
-  await setTextStyle(
-    page,
-    "Mobile navigation",
-    "Inter",
-    "Bold",
-    12,
-    "FFFFFF",
-    "16",
-  );
-  await setSizingMode(page, "W", "Fixed");
-  await setSizingMode(page, "H", "Fixed");
-  await setDimension(page, "W", 186);
-  await setDimension(page, "H", 16);
-  await drawInScreen(
-    page,
-    mobileScreenId,
-    "Text",
-    { x: 230, y: 30 },
-    "SONORA",
-    "Mobile SONORA",
-  );
-  await reparentLayer(page, "Mobile SONORA", "Mobile Sidebar");
-  await setTextStyle(page, "Mobile SONORA", "Inter", "Bold", 24, "FFFFFF");
-
-  await drawInScreen(
-    page,
-    mobileScreenId,
-    "Frame",
-    { x: 20, y: 89, width: 350, height: 437 },
-    undefined,
-    "Mobile Main Content",
-  );
-  await reparentLayer(page, "Mobile Main Content", "Mobile Workspace");
-  await setFlowPosition(page, "Mobile Main Content");
-  const mobileContentLayout = await turnIntoAutoLayout(
-    page,
-    "Mobile Main Content",
-    "Vertical",
-  );
-  await mobileContentLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .fill("24");
-  await mobileContentLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .press("Enter");
-  for (const [name, value] of [
-    ["Left / Right", "24"],
-    ["Top / Bottom", "24"],
-  ] as const) {
-    const field = mobileContentLayout.getByRole("textbox", {
-      name,
-      exact: true,
-    });
-    await field.fill(value);
-    await field.press("Enter");
-  }
-  await setSizingMode(page, "W", "Fill container");
-  await setSizingMode(page, "H", "Hug contents");
-  await removeFill(page, "Mobile Main Content");
-
-  await drawInScreen(
-    page,
-    mobileScreenId,
-    "Frame",
-    { x: 44, y: 113, width: 285, height: 50 },
-    undefined,
-    "Mobile Top Bar",
-  );
-  await reparentLayer(page, "Mobile Top Bar", "Mobile Main Content");
-  await setFlowPosition(page, "Mobile Top Bar");
-  const mobileTopBarLayout = await turnIntoAutoLayout(
-    page,
-    "Mobile Top Bar",
-    "Horizontal",
-  );
-  await mobileTopBarLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .fill("10");
-  await mobileTopBarLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .press("Enter");
-  for (const [name, value] of [
-    ["Left / Right", "10"],
-    ["Top / Bottom", "10"],
-  ] as const) {
-    const field = mobileTopBarLayout.getByRole("textbox", {
-      name,
-      exact: true,
-    });
-    await field.fill(value);
-    await field.press("Enter");
-  }
-  await removeFill(page, "Mobile Top Bar");
-  await drawInScreen(
-    page,
-    mobileScreenId,
-    "Text",
-    { x: 54, y: 123 },
-    "Good evening, Alex",
-    "Mobile greeting",
-  );
-  await reparentLayer(page, "Mobile greeting", "Mobile Top Bar");
-  await setTextStyle(
-    page,
-    "Mobile greeting",
-    "Inter",
-    "Bold",
-    28,
-    "FFFFFF",
-    "30",
-  );
-  await layerButton(page, "Mobile Top Bar").click();
-  await setSizingMode(page, "W", "Hug contents");
-  await setSizingMode(page, "H", "Hug contents");
-
-  await createPodcastRow(
-    page,
-    mobileScreenId,
-    "Mobile Main Content",
-    "Mobile Podcast row",
-    187,
-    [
-      {
-        name: "Mobile Podcast card",
-        title: "Tasty Bites: Exploring Culinary Delights",
-        creator: "FoodieFiends",
-      },
-    ],
-    { direction: "Vertical", cardWidth: 302, width: 302, x: 44 },
-  );
-
-  const mobileCardAuthoring = await readDesign(page, designId);
-  const mobileCardFile = mobileCardAuthoring.files?.find(
-    (file) => file.id === mobileScreenId,
-  );
-  const mobileBoardFile = mobileCardAuthoring.files?.find(
-    (file) => file.filename === "__board__.html",
-  );
-  const mobilePlayButtonTag =
-    mobileCardFile?.content?.match(
-      /<[^>]*data-agent-native-layer-name=["']Mobile Podcast card play button["'][^>]*>/,
-    )?.[0] ?? "";
-  expect(
-    mobilePlayButtonTag,
-    "mobile play-button Frame should be authored in the Mobile Screen file",
-  ).toContain('data-an-primitive="frame"');
-  expect(mobileBoardFile?.content ?? "").not.toContain(
-    'data-agent-native-layer-name="Mobile Podcast card play button"',
-  );
-  expect(mobilePlayButtonTag).toMatch(/right:\s*10px/i);
-  expect(mobilePlayButtonTag).toMatch(/bottom:\s*13px/i);
-
-  await panOverviewCanvas(page, -480);
-  await drawInScreen(
-    page,
-    mobileScreenId,
-    "Frame",
-    {
-      x: 10,
-      y: 774,
-      width: 370,
-      height: 60,
-      assertUnobstructed: true,
-    },
-    undefined,
-    "Mobile Now Playing",
-  );
-  await reparentLayer(
-    page,
-    "Mobile Now Playing",
-    screenLayerRow(page, mobileScreenId),
-  );
-  await setFlowPosition(page, "Mobile Now Playing");
-  const mobilePlayerLayout = await turnIntoAutoLayout(
-    page,
-    "Mobile Now Playing",
-    "Horizontal",
-  );
-  await mobilePlayerLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .fill("10");
-  await mobilePlayerLayout
-    .getByRole("textbox", { name: "Gap", exact: true })
-    .press("Enter");
-  for (const [name, value] of [
-    ["Left / Right", "10"],
-    ["Top / Bottom", "10"],
-  ] as const) {
-    const field = mobilePlayerLayout.getByRole("textbox", {
-      name,
-      exact: true,
-    });
-    await field.fill(value);
-    await field.press("Enter");
-  }
-  await setSizingMode(page, "W", "Fill container");
-  await setSizingMode(page, "H", "Hug contents");
-  await removeFill(page, "Mobile Now Playing");
-  await drawInScreen(
-    page,
-    mobileScreenId,
-    "Rectangle",
-    { x: 20, y: 784, width: 40, height: 40 },
-    undefined,
-    "Mobile Album art",
-  );
-  await reparentLayer(page, "Mobile Album art", "Mobile Now Playing");
-  await setFlowPosition(page, "Mobile Album art");
-  await setSizingMode(page, "W", "Fixed");
-  await setSizingMode(page, "H", "Fixed");
-  await setDimension(page, "W", 40);
-  await setDimension(page, "H", 40);
-  await setFillHex(page, "2F74F5");
-  await setCornerRadius(page, 6);
-  await drawInScreen(
-    page,
-    mobileScreenId,
-    "Text",
-    { x: 70, y: 795 },
-    "North Star  /  Aster Vale",
-    "Mobile Track metadata",
-  );
-  await reparentLayer(page, "Mobile Track metadata", "Mobile Now Playing");
-  await setTextStyle(
-    page,
-    "Mobile Track metadata",
-    "Inter",
-    "Regular",
-    12,
-    "FFFFFF",
-  );
-  await drawInScreen(
-    page,
-    mobileScreenId,
-    "Text",
-    { x: 280, y: 795 },
-    "‹   ▶   ›",
-    "Mobile Transport controls",
-  );
-  await reparentLayer(page, "Mobile Transport controls", "Mobile Now Playing");
-  await setTextStyle(
-    page,
-    "Mobile Transport controls",
-    "Inter",
-    "Regular",
-    12,
-    "FFFFFF",
-  );
-
-  const mobileSaved = await readDesign(page, designId);
-  const mobileSource =
-    mobileSaved.files?.find((file) => file.id === mobileScreenId)?.content ??
-    "";
-  for (const label of [
-    "Mobile Workspace",
-    "Mobile Sidebar",
-    "Mobile Main Content",
-    "Mobile Podcast row",
-    "Mobile Podcast card",
-    "Tasty Bites",
-    "Now Playing",
-    "North Star",
-  ]) {
-    expect(mobileSource, `mobile Screen source is missing ${label}`).toContain(
-      label,
-    );
-  }
-  expect(mobileSource).not.toContain("Progress and duration");
-  expect(mobileSource).toMatch(/min-width:\s*200px/i);
-  expect(mobileSource).toMatch(/max-width:\s*400px/i);
-  const mobileGeometry = designData(mobileSaved).canvasFrames?.[mobileScreenId];
-  expect(mobileGeometry).toMatchObject({ width: 390, height: 844 });
-  const mobileMainMetrics = await measureSourceLayer(
-    page,
-    mobileScreenId,
-    mobileSource,
-    "Mobile Main Content",
-  );
-  const mobileCardMetrics = await measureSourceLayer(
-    page,
-    mobileScreenId,
-    mobileSource,
-    "Mobile Podcast card",
-  );
-  const mobilePlayerMetrics = await measureSourceLayer(
-    page,
-    mobileScreenId,
-    mobileSource,
-    "Mobile Now Playing",
-  );
-  const mobileWorkspaceMetrics = await measureSourceLayer(
-    page,
-    mobileScreenId,
-    mobileSource,
-    "Mobile Workspace",
-  );
-  const mobileSidebarMetrics = await measureSourceLayer(
-    page,
-    mobileScreenId,
-    mobileSource,
-    "Mobile Sidebar",
-  );
-  const mobileNavigationMetrics = await measureSourceLayer(
-    page,
-    mobileScreenId,
-    mobileSource,
-    "Mobile navigation",
-  );
-  const mobileLogoMetrics = await measureSourceLayer(
-    page,
-    mobileScreenId,
-    mobileSource,
-    "Mobile SONORA",
-  );
-  const mobilePodcastRowMetrics = await measureSourceLayer(
-    page,
-    mobileScreenId,
-    mobileSource,
-    "Mobile Podcast row",
-  );
-  const mobileArtworkMetrics = await measureSourceLayer(
-    page,
-    mobileScreenId,
-    mobileSource,
-    "Mobile Podcast card artwork",
-  );
-  const mobilePlayButtonMetrics = await measureSourceLayer(
-    page,
-    mobileScreenId,
-    mobileSource,
-    "Mobile Podcast card play button",
-  );
-  const mobileImageSource = sourceLayerTag(
-    mobileSource,
-    "Mobile Podcast card artwork",
-  );
-  await test.info().attach("workflow-measurements-mobile", {
-    body: JSON.stringify(
-      {
-        designId,
-        screenId: mobileScreenId,
-        geometry: mobileGeometry,
-        workspace: mobileWorkspaceMetrics,
-        sidebar: mobileSidebarMetrics,
-        navigation: mobileNavigationMetrics,
-        logo: mobileLogoMetrics,
-        mainContent: mobileMainMetrics,
-        podcastRow: mobilePodcastRowMetrics,
-        card: mobileCardMetrics,
-        artwork: mobileArtworkMetrics,
-        playButton: mobilePlayButtonMetrics,
-        player: mobilePlayerMetrics,
-        playButtonAdaptation:
-          "Frame with the bundled play-button asset; the local design uses a component instance",
-      },
-      null,
-      2,
-    ),
-    contentType: "application/json",
-  });
-  expect(mobileImageSource).toContain("/api/qa-import-assets/");
-  expect.soft(mobileMainMetrics.width).toBeCloseTo(350, 0);
-  expect.soft(mobileMainMetrics.height).toBeCloseTo(438, 0);
-  expect.soft(mobileCardMetrics.width).toBeCloseTo(302, 0);
-  expect.soft(mobileCardMetrics.height).toBeCloseTo(316, 0);
-  expect.soft(mobileWorkspaceMetrics.width).toBeCloseTo(370, 0);
-  expect.soft(mobileWorkspaceMetrics.height).toBeCloseTo(537, 0);
-  const mobileSidebarTag = sourceLayerTag(mobileSource, "Mobile Sidebar");
-  const mobileMainContentTag = sourceLayerTag(
-    mobileSource,
-    "Mobile Main Content",
-  );
-  const mobilePodcastRowTag = sourceLayerTag(
-    mobileSource,
-    "Mobile Podcast row",
-  );
-  expect(mobileSidebarTag).toBeTruthy();
-  expect(mobileMainContentTag).toBeTruthy();
-  expect(mobilePodcastRowTag).toBeTruthy();
-  expect(sourceStyleValue(mobileSidebarTag!, "width")).toBe("fit-content");
-  expect(sourceStyleValue(mobileMainContentTag!, "width")).toBe("auto");
-  expect(sourceStyleValue(mobileMainContentTag!, "align-self")).toBe("stretch");
-  expect(sourceStyleValue(mobilePodcastRowTag!, "width")).toBe("auto");
-  expect(sourceStyleValue(mobilePodcastRowTag!, "align-self")).toBe("stretch");
-  expect(mobileSidebarMetrics.columnGap).toBe("8px");
-  expect(mobileSidebarMetrics.paddingLeft).toBe("12px");
-  expect(mobileSidebarMetrics.paddingRight).toBe("12px");
-  expect(mobileMainMetrics.paddingLeft).toBe("24px");
-  expect(mobileMainMetrics.paddingRight).toBe("24px");
-  expect
-    .soft(mobileSidebarMetrics.width)
-    .toBeCloseTo(
-      mobileNavigationMetrics.width +
-        mobileLogoMetrics.width +
-        parseFloat(mobileSidebarMetrics.columnGap) +
-        parseFloat(mobileSidebarMetrics.paddingLeft) +
-        parseFloat(mobileSidebarMetrics.paddingRight),
-      2,
-    );
-  expect
-    .soft(mobilePodcastRowMetrics.width)
-    .toBeCloseTo(
-      mobileMainMetrics.width -
-        parseFloat(mobileMainMetrics.paddingLeft) -
-        parseFloat(mobileMainMetrics.paddingRight),
-      2,
-    );
-  expect.soft(mobileSidebarMetrics.height).toBeCloseTo(69, 0);
-  expect.soft(mobilePodcastRowMetrics.width).toBeCloseTo(302, 0);
-  expect.soft(mobilePodcastRowMetrics.height).toBeCloseTo(316, 0);
-  expect.soft(mobileArtworkMetrics.width).toBeCloseTo(278, 0);
-  expect.soft(mobileArtworkMetrics.height).toBeCloseTo(242, 0);
-  expect.soft(mobilePlayerMetrics.width).toBeCloseTo(370, 0);
-  expect.soft(mobilePlayerMetrics.height).toBeCloseTo(60, 0);
-  const mobileScreenCapture = await captureScreenCard(
-    page,
-    mobileScreenId,
-    "music-app-mobile-screen.png",
-  );
-  await test.info().attach("workflow-screen-screenshot-mobile", {
-    body: JSON.stringify(mobileScreenCapture, null, 2),
-    contentType: "application/json",
-  });
-  await captureEditorScreenshot(page, "music-app-mobile-editor.png");
-  musicAppDesktopShell = { designId, screenId, mobileScreenId };
-  await test.info().attach("workflow-chat-thread-404s", {
-    body: JSON.stringify(
-      { count: chatThread404s.length, responses: chatThread404s },
-      null,
-      2,
-    ),
-    contentType: "application/json",
-  });
-});
-
-test("create a responsive music-app tablet Screen from the desktop shell", async ({
-  page,
-}) => {
-  test.setTimeout(20 * 60_000);
-  if (!musicAppDesktopShell) {
-    throw new Error(
-      "The desktop music-app test did not record its shell; run both music-app tests in one worker",
-    );
-  }
-  const { designId, screenId, mobileScreenId } = musicAppDesktopShell;
-  const chatThread404s = trackChatThread404s(page);
-  await page.setViewportSize({ width: 2800, height: 1600 });
-  await gotoEditor(page, designId);
-  const zoom = page
-    .getByRole("button")
-    .filter({ hasText: /^\s*\d+%\s*$/ })
-    .first();
-  await expect(zoom).toBeVisible();
-  await zoom.click();
-  await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
-  await expect(zoom).toHaveText(/100%/);
-  const desktopSaved = await readDesign(page, designId);
-  const content =
-    desktopSaved.files?.find((file) => file.id === screenId)?.content ?? "";
-  const filesBeforeTablet = new Set(
-    (await readDesign(page, designId)).files?.map((file) => file.id),
-  );
-  await selectScreenLayer(page, screenId);
-  await page.keyboard.press("ControlOrMeta+d");
-  let tabletScreenId = "";
-  await expect
-    .poll(async () => {
-      const record = await readDesign(page, designId);
-      const duplicate = record.files?.find(
-        (file) =>
-          !filesBeforeTablet.has(file.id) && file.filename !== "__board__.html",
+    expect
+      .soft(desktopMainMetrics.width)
+      .toBeCloseTo(
+        desktopWorkspaceContentWidth -
+          desktopNavigationMetrics.width -
+          desktopSidebarMetrics.width -
+          parseFloat(desktopWorkspaceMetrics.columnGap) * 2,
+        2,
       );
-      if (!duplicate) return null;
-      tabletScreenId = duplicate.id;
-      return duplicate.id;
-    })
-    .not.toBeNull();
-  await test.info().attach("workflow-identities-all-screens", {
-    body: JSON.stringify(
-      { designId, screenIds: [screenId, mobileScreenId, tabletScreenId] },
-      null,
-      2,
-    ),
-    contentType: "application/json",
-  });
-
-  const tabletShell = page.locator(
-    `[data-screen-shell][data-frame-id="${tabletScreenId}"]`,
-  );
-  await selectScreenLayer(page, tabletScreenId);
-  await expandAllLayers(page);
-  await renameSelectedLayer(page, "Tablet - 1", "Tablet 1");
-  const renamedTablet = await readDesign(page, designId);
-  expect(
-    renamedTablet.files?.find((file) => file.id === tabletScreenId)?.filename,
-  ).toBe("Tablet - 1.html");
-  await setDimension(page, "W", 768);
-  await setDimension(page, "H", 1366);
-  await expect
-    .poll(async () => {
-      const data = designData(await readDesign(page, designId));
-      const frame = data.canvasFrames?.[tabletScreenId];
-      const metadata = data.screenMetadata?.[tabletScreenId];
-      return [frame?.width, frame?.height, metadata?.width, metadata?.height];
-    })
-    .toEqual([768, 1366, 768, 1366]);
-
-  await selectLayerInScreen(page, tabletScreenId, "Workspace");
-  await setSizingMode(page, "W", "Fill container");
-  await setSizingMode(page, "H", "Fill container");
-  for (const cardName of [
-    "Podcast card A",
-    "Podcast card B",
-    "Recent card A",
-    "Recent card B",
-  ]) {
-    await selectLayerInScreen(page, tabletScreenId, cardName);
-    await setSizingMode(page, "W", "Fill container");
-  }
-
-  const tabletSaved = await readDesign(page, designId);
-  const tabletSource =
-    tabletSaved.files?.find((file) => file.id === tabletScreenId)?.content ??
-    "";
-  for (const layerName of [
-    "Workspace",
-    "Sidebar",
-    "Main Content",
-    "Podcast row",
-    "Podcast card A",
-    "Podcast card B",
-    "Recently played",
-    "Recent card A",
-    "Recent card B",
-    "Now Playing",
-  ]) {
-    expect(tabletSource, `tablet source is missing ${layerName}`).toContain(
-      layerName,
-    );
-  }
-  expect(tabletSource).toMatch(/min-width:\s*200px/i);
-  expect(tabletSource).toMatch(/max-width:\s*400px/i);
-  expect(tabletSource).toMatch(/flex-wrap:\s*wrap/i);
-
-  const tabletMainMetrics = await measureSourceLayer(
-    page,
-    tabletScreenId,
-    tabletSource,
-    "Main Content",
-  );
-  const tabletWorkspaceMetrics = await measureSourceLayer(
-    page,
-    tabletScreenId,
-    tabletSource,
-    "Workspace",
-  );
-  const tabletSidebarMetrics = await measureSourceLayer(
-    page,
-    tabletScreenId,
-    tabletSource,
-    "Sidebar",
-  );
-  const tabletNavigationMetrics = await measureSourceLayer(
-    page,
-    tabletScreenId,
-    tabletSource,
-    "Navigation",
-  );
-  const desktopPodcastRow = await measureSourceLayer(
-    page,
-    screenId,
-    content,
-    "Podcast row",
-  );
-  const tabletPodcastRow = await measureSourceLayer(
-    page,
-    tabletScreenId,
-    tabletSource,
-    "Podcast row",
-  );
-  const tabletCardA = await measureSourceLayer(
-    page,
-    tabletScreenId,
-    tabletSource,
-    "Podcast card A",
-  );
-  const tabletCardB = await measureSourceLayer(
-    page,
-    tabletScreenId,
-    tabletSource,
-    "Podcast card B",
-  );
-  const tabletRecentlyA = await measureSourceLayer(
-    page,
-    tabletScreenId,
-    tabletSource,
-    "Recent card A",
-  );
-  const tabletRecentlyB = await measureSourceLayer(
-    page,
-    tabletScreenId,
-    tabletSource,
-    "Recent card B",
-  );
-  const tabletGeometry = designData(tabletSaved).canvasFrames?.[tabletScreenId];
-  await test.info().attach("workflow-measurements-tablet", {
-    body: JSON.stringify(
-      {
-        designId,
-        screenId: tabletScreenId,
-        geometry: tabletGeometry,
-        mainContent: tabletMainMetrics,
-        workspace: tabletWorkspaceMetrics,
-        sidebar: tabletSidebarMetrics,
-        navigation: tabletNavigationMetrics,
-        podcastRow: tabletPodcastRow,
-        cardA: tabletCardA,
-        cardB: tabletCardB,
-        recentlyPlayedA: tabletRecentlyA,
-        recentlyPlayedB: tabletRecentlyB,
-      },
-      null,
-      2,
-    ),
-    contentType: "application/json",
-  });
-  expect
-    .soft(tabletMainMetrics.width)
-    .toBeCloseTo(
-      tabletWorkspaceMetrics.width -
-        parseFloat(tabletWorkspaceMetrics.paddingLeft) -
-        parseFloat(tabletWorkspaceMetrics.paddingRight) -
-        tabletNavigationMetrics.width -
-        tabletSidebarMetrics.width -
-        parseFloat(tabletWorkspaceMetrics.columnGap) * 2,
-      2,
-    );
-  expect.soft(tabletMainMetrics.height).toBeCloseTo(1458, 0);
-  expect.soft(tabletWorkspaceMetrics.width).toBeCloseTo(748, 0);
-  expect.soft(tabletWorkspaceMetrics.height).toBeCloseTo(1276, 0);
-  expect.soft(tabletCardA.width).toBeCloseTo(400, 0);
-  expect.soft(tabletCardB.width).toBeCloseTo(400, 0);
-  expect.soft(tabletCardA.height).toBeCloseTo(316, 0);
-  expect.soft(tabletCardB.height).toBeCloseTo(316, 0);
-  expect.soft(tabletCardA.x).toBeCloseTo(tabletCardB.x, 0);
-  expect.soft(tabletCardB.y).toBeGreaterThan(tabletCardA.y);
-  expect.soft(tabletRecentlyA.x).toBeCloseTo(tabletRecentlyB.x, 0);
-  expect.soft(tabletRecentlyB.y).toBeGreaterThan(tabletRecentlyA.y);
-  expect.soft(tabletPodcastRow.flexWrap).toBe("wrap");
-  expect.soft(desktopPodcastRow.flexWrap).toBe("wrap");
-  const tabletCard = await tabletShell
-    .locator("[data-screen-card]")
-    .boundingBox();
-  if (!tabletCard) throw new Error("tablet Screen card is not visible");
-  expect.soft(tabletMainMetrics.bottom).toBeGreaterThan(1366);
-  const tabletScreenCapture = await captureScreenCard(
-    page,
-    tabletScreenId,
-    "music-app-tablet-screen.png",
-  );
-  await test.info().attach("workflow-screen-screenshot-tablet", {
-    body: JSON.stringify(tabletScreenCapture, null, 2),
-    contentType: "application/json",
-  });
-  await captureEditorScreenshot(page, "music-app-tablet-editor.png");
-  const screenIds = [screenId, mobileScreenId, tabletScreenId];
-  const savedBeforeReload = await readDesign(page, designId);
-  const sourceBeforeReload = new Map(
-    screenIds.map((id) => [
-      id,
-      savedBeforeReload.files?.find((file) => file.id === id)?.content ?? "",
-    ]),
-  );
-  for (const [id, source] of sourceBeforeReload) {
-    expect(source, `Screen ${id} source is empty before reload`).not.toBe("");
-  }
-
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
-  const savedAfterReload = await readDesign(page, designId);
-  const persistence = screenIds.map((id) => {
-    const file = savedAfterReload.files?.find(
-      (candidate) => candidate.id === id,
-    );
-    const source = file?.content ?? "";
-    const unchanged = source !== "" && source === sourceBeforeReload.get(id);
-    expect(
-      unchanged,
-      `Screen ${id} source changed or vanished after reload`,
-    ).toBe(true);
-    return {
-      id,
-      filename: file?.filename,
-      characters: source.length,
-      unchanged,
-    };
-  });
-
-  const afterReloadMetrics = {
-    desktopArtwork: await measureSourceLayer(
+    expect
+      .soft(desktopPodcastRowMetrics.width)
+      .toBeCloseTo(
+        desktopMainMetrics.width -
+          parseFloat(desktopMainMetrics.paddingLeft) -
+          parseFloat(desktopMainMetrics.paddingRight),
+        2,
+      );
+    expect
+      .soft(desktopMainMetrics.height)
+      .toBeCloseTo(mainContentNaturalHeight, 0);
+    expect.soft(desktopTopBarMetrics.parentId).toBe(desktopMainMetrics.id);
+    expect.soft(desktopPodcastRowMetrics.parentId).toBe(desktopMainMetrics.id);
+    expect
+      .soft(desktopRecentlyPlayedMetrics.parentId)
+      .toBe(desktopMainMetrics.id);
+    expect.soft(desktopWorkspaceMetrics.width).toBeCloseTo(1420, 0);
+    expect.soft(desktopNavigationMetrics.width).toBeCloseTo(96, 0);
+    expect.soft(desktopPlayerMetrics.width).toBeCloseTo(1420, 0);
+    expect.soft(desktopPlayerMetrics.height).toBeCloseTo(60, 0);
+    expect.soft(desktopCardA.width).toBeCloseTo(360, 0);
+    expect.soft(desktopCardB.width).toBeCloseTo(360, 0);
+    expect.soft(desktopCardA.y).toBeCloseTo(desktopCardB.y, 0);
+    expect.soft(desktopCardB.x).toBeGreaterThan(desktopCardA.x);
+    const shellBounds = await shell
+      .locator("[data-screen-card]")
+      .evaluate((el) => {
+        const rect = el.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      });
+    expect(shellBounds.width).toBeGreaterThan(0);
+    const desktopScreenCapture = await captureScreenCard(
       page,
       screenId,
-      sourceBeforeReload.get(screenId) ?? "",
-      "Podcast card A artwork",
-    ),
-    mobileArtwork: await measureSourceLayer(
+      "music-app-desktop-screen.png",
+    );
+    await test.info().attach("workflow-screen-screenshot-desktop", {
+      body: JSON.stringify(desktopScreenCapture, null, 2),
+      contentType: "application/json",
+    });
+    await captureEditorScreenshot(page, "music-app-desktop-editor.png");
+
+    const beforeMobile = await readDesign(page, designId);
+    const existingMobileIds = new Set(
+      beforeMobile.files?.map((file) => file.id),
+    );
+    await pickFrameMode(page, "Screen");
+    const mobileStart = await emptyBoardPoint(page);
+    await page.mouse.move(mobileStart.x, mobileStart.y);
+    await page.mouse.down();
+    await page.mouse.move(mobileStart.x + 160, mobileStart.y + 220, {
+      steps: 14,
+    });
+    await page.mouse.up();
+
+    let mobileScreenId = "";
+    await expect
+      .poll(async () => {
+        const record = await readDesign(page, designId);
+        const added = record.files?.find(
+          (file) =>
+            !existingMobileIds.has(file.id) &&
+            file.filename !== "__board__.html",
+        );
+        if (!added) return null;
+        mobileScreenId = added.id;
+        return added.id;
+      })
+      .not.toBeNull();
+    await test.info().attach("workflow-identities-desktop-mobile", {
+      body: JSON.stringify(
+        { designId, screenIds: [screenId, mobileScreenId] },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+
+    await selectScreenLayer(page, mobileScreenId);
+    await page
+      .getByRole("textbox", { name: /^W(?: size in pixels)?$/ })
+      .fill("390");
+    await page
+      .getByRole("textbox", { name: /^W(?: size in pixels)?$/ })
+      .press("Enter");
+    await page
+      .getByRole("textbox", { name: /^H(?: size in pixels)?$/ })
+      .fill("844");
+    await page
+      .getByRole("textbox", { name: /^H(?: size in pixels)?$/ })
+      .press("Enter");
+    await expect
+      .poll(async () => {
+        const data = designData(await readDesign(page, designId));
+        const frame = data.canvasFrames?.[mobileScreenId];
+        const metadata = data.screenMetadata?.[mobileScreenId];
+        return [frame?.width, frame?.height, metadata?.width, metadata?.height];
+      })
+      .toEqual([390, 844, 390, 844]);
+    await page.keyboard.press("Shift+a");
+    const mobileRootHeading = page.getByRole("heading", {
+      name: "Auto layout",
+      exact: true,
+    });
+    await expect(mobileRootHeading).toBeVisible();
+    const mobileRootLayout = mobileRootHeading.locator(
+      "xpath=ancestor::section",
+    );
+    await mobileRootLayout
+      .getByRole("button", { name: "Vertical", exact: true })
+      .click();
+    await mobileRootLayout
+      .getByRole("textbox", { name: "Left / Right", exact: true })
+      .fill("10");
+    await mobileRootLayout
+      .getByRole("textbox", { name: "Left / Right", exact: true })
+      .press("Enter");
+    await mobileRootLayout
+      .getByRole("textbox", { name: "Top / Bottom", exact: true })
+      .fill("10");
+    await mobileRootLayout
+      .getByRole("textbox", { name: "Top / Bottom", exact: true })
+      .press("Enter");
+    await mobileRootLayout.getByRole("button", { name: "Gap mode" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Auto" }).click();
+    await setFillHex(page, "0C101A");
+
+    await drawInScreen(
       page,
       mobileScreenId,
-      sourceBeforeReload.get(mobileScreenId) ?? "",
+      "Frame",
+      { x: 10, y: 10, width: 370, height: 536 },
+      undefined,
+      "Mobile Workspace",
+    );
+    await reparentLayer(
+      page,
+      "Mobile Workspace",
+      screenLayerRow(page, mobileScreenId),
+    );
+    await setFlowPosition(page, "Mobile Workspace");
+    const mobileWorkspaceLayout = await turnIntoAutoLayout(
+      page,
+      "Mobile Workspace",
+      "Vertical",
+    );
+    await mobileWorkspaceLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .fill("10");
+    await mobileWorkspaceLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .press("Enter");
+    for (const [name, value] of [
+      ["Left / Right", "10"],
+      ["Top / Bottom", "10"],
+    ] as const) {
+      const field = mobileWorkspaceLayout.getByRole("textbox", {
+        name,
+        exact: true,
+      });
+      await field.fill(value);
+      await field.press("Enter");
+    }
+    await setSizingMode(page, "W", "Fill container");
+    await setSizingMode(page, "H", "Hug contents");
+    await removeFill(page, "Mobile Workspace");
+
+    await drawInScreen(
+      page,
+      mobileScreenId,
+      "Frame",
+      { x: 20, y: 20, width: 323, height: 69 },
+      undefined,
+      "Mobile Sidebar",
+    );
+    await reparentLayer(page, "Mobile Sidebar", "Mobile Workspace");
+    await setFlowPosition(page, "Mobile Sidebar");
+    const mobileSidebarLayout = await turnIntoAutoLayout(
+      page,
+      "Mobile Sidebar",
+      "Horizontal",
+    );
+    await mobileSidebarLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .fill("8");
+    await mobileSidebarLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .press("Enter");
+    for (const [name, value] of [
+      ["Left / Right", "12"],
+      ["Top / Bottom", "20"],
+    ] as const) {
+      const field = mobileSidebarLayout.getByRole("textbox", {
+        name,
+        exact: true,
+      });
+      await field.fill(value);
+      await field.press("Enter");
+    }
+    await setSizingMode(page, "W", "Hug contents");
+    await setSizingMode(page, "H", "Hug contents");
+    await setFillHex(page, "141A24");
+
+    await drawInScreen(
+      page,
+      mobileScreenId,
+      "Text",
+      { x: 32, y: 32 },
+      "Home  Browse  Library  Playlists",
+      "Mobile navigation",
+    );
+    await reparentLayer(page, "Mobile navigation", "Mobile Sidebar");
+    await setTextStyle(
+      page,
+      "Mobile navigation",
+      "Inter",
+      "Bold",
+      12,
+      "FFFFFF",
+      "16",
+    );
+    await setSizingMode(page, "W", "Fixed");
+    await setSizingMode(page, "H", "Fixed");
+    await setDimension(page, "W", 186);
+    await setDimension(page, "H", 16);
+    await drawInScreen(
+      page,
+      mobileScreenId,
+      "Text",
+      { x: 230, y: 30 },
+      "SONORA",
+      "Mobile SONORA",
+    );
+    await reparentLayer(page, "Mobile SONORA", "Mobile Sidebar");
+    await setTextStyle(page, "Mobile SONORA", "Inter", "Bold", 24, "FFFFFF");
+
+    await drawInScreen(
+      page,
+      mobileScreenId,
+      "Frame",
+      { x: 20, y: 89, width: 350, height: 437 },
+      undefined,
+      "Mobile Main Content",
+    );
+    await reparentLayer(page, "Mobile Main Content", "Mobile Workspace");
+    await setFlowPosition(page, "Mobile Main Content");
+    const mobileContentLayout = await turnIntoAutoLayout(
+      page,
+      "Mobile Main Content",
+      "Vertical",
+    );
+    await mobileContentLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .fill("24");
+    await mobileContentLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .press("Enter");
+    for (const [name, value] of [
+      ["Left / Right", "24"],
+      ["Top / Bottom", "24"],
+    ] as const) {
+      const field = mobileContentLayout.getByRole("textbox", {
+        name,
+        exact: true,
+      });
+      await field.fill(value);
+      await field.press("Enter");
+    }
+    await setSizingMode(page, "W", "Fill container");
+    await setSizingMode(page, "H", "Hug contents");
+    await removeFill(page, "Mobile Main Content");
+
+    await drawInScreen(
+      page,
+      mobileScreenId,
+      "Frame",
+      { x: 44, y: 113, width: 285, height: 50 },
+      undefined,
+      "Mobile Top Bar",
+    );
+    await reparentLayer(page, "Mobile Top Bar", "Mobile Main Content");
+    await setFlowPosition(page, "Mobile Top Bar");
+    const mobileTopBarLayout = await turnIntoAutoLayout(
+      page,
+      "Mobile Top Bar",
+      "Horizontal",
+    );
+    await mobileTopBarLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .fill("10");
+    await mobileTopBarLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .press("Enter");
+    for (const [name, value] of [
+      ["Left / Right", "10"],
+      ["Top / Bottom", "10"],
+    ] as const) {
+      const field = mobileTopBarLayout.getByRole("textbox", {
+        name,
+        exact: true,
+      });
+      await field.fill(value);
+      await field.press("Enter");
+    }
+    await removeFill(page, "Mobile Top Bar");
+    await drawInScreen(
+      page,
+      mobileScreenId,
+      "Text",
+      { x: 54, y: 123 },
+      "Good evening, Alex",
+      "Mobile greeting",
+    );
+    await reparentLayer(page, "Mobile greeting", "Mobile Top Bar");
+    await setTextStyle(
+      page,
+      "Mobile greeting",
+      "Inter",
+      "Bold",
+      28,
+      "FFFFFF",
+      "30",
+    );
+    await layerButton(page, "Mobile Top Bar").click();
+    await setSizingMode(page, "W", "Hug contents");
+    await setSizingMode(page, "H", "Hug contents");
+
+    await createPodcastRow(
+      page,
+      mobileScreenId,
+      "Mobile Main Content",
+      "Mobile Podcast row",
+      187,
+      [
+        {
+          name: "Mobile Podcast card",
+          title: "Tasty Bites: Exploring Culinary Delights",
+          creator: "FoodieFiends",
+        },
+      ],
+      { direction: "Vertical", cardWidth: 302, width: 302, x: 44 },
+    );
+
+    const mobileCardAuthoring = await readDesign(page, designId);
+    const mobileCardFile = mobileCardAuthoring.files?.find(
+      (file) => file.id === mobileScreenId,
+    );
+    const mobileBoardFile = mobileCardAuthoring.files?.find(
+      (file) => file.filename === "__board__.html",
+    );
+    const mobilePlayButtonTag =
+      mobileCardFile?.content?.match(
+        /<[^>]*data-agent-native-layer-name=["']Mobile Podcast card play button["'][^>]*>/,
+      )?.[0] ?? "";
+    expect(
+      mobilePlayButtonTag,
+      "mobile play-button Frame should be authored in the Mobile Screen file",
+    ).toContain('data-an-primitive="frame"');
+    expect(mobileBoardFile?.content ?? "").not.toContain(
+      'data-agent-native-layer-name="Mobile Podcast card play button"',
+    );
+    expect(mobilePlayButtonTag).toMatch(/right:\s*10px/i);
+    expect(mobilePlayButtonTag).toMatch(/bottom:\s*13px/i);
+
+    await panOverviewCanvas(page, -480);
+    await drawInScreen(
+      page,
+      mobileScreenId,
+      "Frame",
+      {
+        x: 10,
+        y: 774,
+        width: 370,
+        height: 60,
+        assertUnobstructed: true,
+      },
+      undefined,
+      "Mobile Now Playing",
+    );
+    await reparentLayer(
+      page,
+      "Mobile Now Playing",
+      screenLayerRow(page, mobileScreenId),
+    );
+    await setFlowPosition(page, "Mobile Now Playing");
+    const mobilePlayerLayout = await turnIntoAutoLayout(
+      page,
+      "Mobile Now Playing",
+      "Horizontal",
+    );
+    await mobilePlayerLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .fill("10");
+    await mobilePlayerLayout
+      .getByRole("textbox", { name: "Gap", exact: true })
+      .press("Enter");
+    for (const [name, value] of [
+      ["Left / Right", "10"],
+      ["Top / Bottom", "10"],
+    ] as const) {
+      const field = mobilePlayerLayout.getByRole("textbox", {
+        name,
+        exact: true,
+      });
+      await field.fill(value);
+      await field.press("Enter");
+    }
+    await setSizingMode(page, "W", "Fill container");
+    await setSizingMode(page, "H", "Hug contents");
+    await removeFill(page, "Mobile Now Playing");
+    await drawInScreen(
+      page,
+      mobileScreenId,
+      "Rectangle",
+      { x: 20, y: 784, width: 40, height: 40 },
+      undefined,
+      "Mobile Album art",
+    );
+    await reparentLayer(page, "Mobile Album art", "Mobile Now Playing");
+    await setFlowPosition(page, "Mobile Album art");
+    await setSizingMode(page, "W", "Fixed");
+    await setSizingMode(page, "H", "Fixed");
+    await setDimension(page, "W", 40);
+    await setDimension(page, "H", 40);
+    await setFillHex(page, "2F74F5");
+    await setCornerRadius(page, 6);
+    await drawInScreen(
+      page,
+      mobileScreenId,
+      "Text",
+      { x: 70, y: 795 },
+      "North Star  /  Aster Vale",
+      "Mobile Track metadata",
+    );
+    await reparentLayer(page, "Mobile Track metadata", "Mobile Now Playing");
+    await setTextStyle(
+      page,
+      "Mobile Track metadata",
+      "Inter",
+      "Regular",
+      12,
+      "FFFFFF",
+    );
+    await drawInScreen(
+      page,
+      mobileScreenId,
+      "Text",
+      { x: 280, y: 795 },
+      "‹   ▶   ›",
+      "Mobile Transport controls",
+    );
+    await reparentLayer(
+      page,
+      "Mobile Transport controls",
+      "Mobile Now Playing",
+    );
+    await setTextStyle(
+      page,
+      "Mobile Transport controls",
+      "Inter",
+      "Regular",
+      12,
+      "FFFFFF",
+    );
+
+    const mobileSaved = await readDesign(page, designId);
+    const mobileSource =
+      mobileSaved.files?.find((file) => file.id === mobileScreenId)?.content ??
+      "";
+    for (const label of [
+      "Mobile Workspace",
+      "Mobile Sidebar",
+      "Mobile Main Content",
+      "Mobile Podcast row",
+      "Mobile Podcast card",
+      "Tasty Bites",
+      "Now Playing",
+      "North Star",
+    ]) {
+      expect(
+        mobileSource,
+        `mobile Screen source is missing ${label}`,
+      ).toContain(label);
+    }
+    expect(mobileSource).not.toContain("Progress and duration");
+    expect(mobileSource).toMatch(/min-width:\s*200px/i);
+    expect(mobileSource).toMatch(/max-width:\s*400px/i);
+    const mobileGeometry =
+      designData(mobileSaved).canvasFrames?.[mobileScreenId];
+    expect(mobileGeometry).toMatchObject({ width: 390, height: 844 });
+    const mobileMainMetrics = await measureSourceLayer(
+      page,
+      mobileScreenId,
+      mobileSource,
+      "Mobile Main Content",
+    );
+    const mobileCardMetrics = await measureSourceLayer(
+      page,
+      mobileScreenId,
+      mobileSource,
+      "Mobile Podcast card",
+    );
+    const mobilePlayerMetrics = await measureSourceLayer(
+      page,
+      mobileScreenId,
+      mobileSource,
+      "Mobile Now Playing",
+    );
+    const mobileWorkspaceMetrics = await measureSourceLayer(
+      page,
+      mobileScreenId,
+      mobileSource,
+      "Mobile Workspace",
+    );
+    const mobileSidebarMetrics = await measureSourceLayer(
+      page,
+      mobileScreenId,
+      mobileSource,
+      "Mobile Sidebar",
+    );
+    const mobileNavigationMetrics = await measureSourceLayer(
+      page,
+      mobileScreenId,
+      mobileSource,
+      "Mobile navigation",
+    );
+    const mobileLogoMetrics = await measureSourceLayer(
+      page,
+      mobileScreenId,
+      mobileSource,
+      "Mobile SONORA",
+    );
+    const mobilePodcastRowMetrics = await measureSourceLayer(
+      page,
+      mobileScreenId,
+      mobileSource,
+      "Mobile Podcast row",
+    );
+    const mobileArtworkMetrics = await measureSourceLayer(
+      page,
+      mobileScreenId,
+      mobileSource,
       "Mobile Podcast card artwork",
-    ),
-    tabletPodcastRow: await measureSourceLayer(
+    );
+    const mobilePlayButtonMetrics = await measureSourceLayer(
+      page,
+      mobileScreenId,
+      mobileSource,
+      "Mobile Podcast card play button",
+    );
+    const mobileImageSource = sourceLayerTag(
+      mobileSource,
+      "Mobile Podcast card artwork",
+    );
+    await test.info().attach("workflow-measurements-mobile", {
+      body: JSON.stringify(
+        {
+          designId,
+          screenId: mobileScreenId,
+          geometry: mobileGeometry,
+          workspace: mobileWorkspaceMetrics,
+          sidebar: mobileSidebarMetrics,
+          navigation: mobileNavigationMetrics,
+          logo: mobileLogoMetrics,
+          mainContent: mobileMainMetrics,
+          podcastRow: mobilePodcastRowMetrics,
+          card: mobileCardMetrics,
+          artwork: mobileArtworkMetrics,
+          playButton: mobilePlayButtonMetrics,
+          player: mobilePlayerMetrics,
+          playButtonAdaptation:
+            "Frame with the bundled play-button asset; the local design uses a component instance",
+        },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+    expect(mobileImageSource).toContain("/api/qa-import-assets/");
+    expect.soft(mobileMainMetrics.width).toBeCloseTo(350, 0);
+    expect.soft(mobileMainMetrics.height).toBeCloseTo(438, 0);
+    expect.soft(mobileCardMetrics.width).toBeCloseTo(302, 0);
+    expect.soft(mobileCardMetrics.height).toBeCloseTo(316, 0);
+    expect.soft(mobileWorkspaceMetrics.width).toBeCloseTo(370, 0);
+    expect.soft(mobileWorkspaceMetrics.height).toBeCloseTo(537, 0);
+    const mobileSidebarTag = sourceLayerTag(mobileSource, "Mobile Sidebar");
+    const mobileMainContentTag = sourceLayerTag(
+      mobileSource,
+      "Mobile Main Content",
+    );
+    const mobilePodcastRowTag = sourceLayerTag(
+      mobileSource,
+      "Mobile Podcast row",
+    );
+    expect(mobileSidebarTag).toBeTruthy();
+    expect(mobileMainContentTag).toBeTruthy();
+    expect(mobilePodcastRowTag).toBeTruthy();
+    expect(sourceStyleValue(mobileSidebarTag!, "width")).toBe("fit-content");
+    expect(sourceStyleValue(mobileMainContentTag!, "width")).toBe("auto");
+    expect(sourceStyleValue(mobileMainContentTag!, "align-self")).toBe(
+      "stretch",
+    );
+    expect(sourceStyleValue(mobilePodcastRowTag!, "width")).toBe("auto");
+    expect(sourceStyleValue(mobilePodcastRowTag!, "align-self")).toBe(
+      "stretch",
+    );
+    expect(mobileSidebarMetrics.columnGap).toBe("8px");
+    expect(mobileSidebarMetrics.paddingLeft).toBe("12px");
+    expect(mobileSidebarMetrics.paddingRight).toBe("12px");
+    expect(mobileMainMetrics.paddingLeft).toBe("24px");
+    expect(mobileMainMetrics.paddingRight).toBe("24px");
+    expect
+      .soft(mobileSidebarMetrics.width)
+      .toBeCloseTo(
+        mobileNavigationMetrics.width +
+          mobileLogoMetrics.width +
+          parseFloat(mobileSidebarMetrics.columnGap) +
+          parseFloat(mobileSidebarMetrics.paddingLeft) +
+          parseFloat(mobileSidebarMetrics.paddingRight),
+        2,
+      );
+    expect
+      .soft(mobilePodcastRowMetrics.width)
+      .toBeCloseTo(
+        mobileMainMetrics.width -
+          parseFloat(mobileMainMetrics.paddingLeft) -
+          parseFloat(mobileMainMetrics.paddingRight),
+        2,
+      );
+    expect.soft(mobileSidebarMetrics.height).toBeCloseTo(69, 0);
+    expect.soft(mobilePodcastRowMetrics.width).toBeCloseTo(302, 0);
+    expect.soft(mobilePodcastRowMetrics.height).toBeCloseTo(316, 0);
+    expect.soft(mobileArtworkMetrics.width).toBeCloseTo(278, 0);
+    expect.soft(mobileArtworkMetrics.height).toBeCloseTo(242, 0);
+    expect.soft(mobilePlayerMetrics.width).toBeCloseTo(370, 0);
+    expect.soft(mobilePlayerMetrics.height).toBeCloseTo(60, 0);
+    const mobileScreenCapture = await captureScreenCard(
+      page,
+      mobileScreenId,
+      "music-app-mobile-screen.png",
+    );
+    await test.info().attach("workflow-screen-screenshot-mobile", {
+      body: JSON.stringify(mobileScreenCapture, null, 2),
+      contentType: "application/json",
+    });
+    await captureEditorScreenshot(page, "music-app-mobile-editor.png");
+    musicAppDesktopShell = { designId, screenId, mobileScreenId };
+    await test.info().attach("workflow-chat-thread-404s", {
+      body: JSON.stringify(
+        { count: chatThread404s.length, responses: chatThread404s },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+  });
+
+  test("create a responsive music-app tablet Screen from the desktop shell", async ({
+    page,
+  }) => {
+    if (!musicAppDesktopShell) {
+      throw new Error(
+        "The desktop music-app test did not record its shell; run both music-app tests in one worker",
+      );
+    }
+    if (musicAppWorkflowStartedAt === null) {
+      throw new Error(
+        "The desktop music-app test did not start the shared workflow budget",
+      );
+    }
+    const remainingBudgetMs = Math.floor(
+      MUSIC_APP_WORKFLOW_BUDGET_MS -
+        (performance.now() - musicAppWorkflowStartedAt),
+    );
+    if (remainingBudgetMs <= 0) {
+      throw new Error(
+        "The desktop music-app phase exhausted the shared 21-minute workflow budget before the tablet phase could start",
+      );
+    }
+    test.setTimeout(remainingBudgetMs);
+    const { designId, screenId, mobileScreenId } = musicAppDesktopShell;
+    const chatThread404s = trackChatThread404s(page);
+    await page.setViewportSize({ width: 2800, height: 1600 });
+    await gotoEditor(page, designId);
+    const zoom = page
+      .getByRole("button")
+      .filter({ hasText: /^\s*\d+%\s*$/ })
+      .first();
+    await expect(zoom).toBeVisible();
+    await zoom.click();
+    await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
+    await expect(zoom).toHaveText(/100%/);
+    const desktopSaved = await readDesign(page, designId);
+    const content =
+      desktopSaved.files?.find((file) => file.id === screenId)?.content ?? "";
+    const filesBeforeTablet = new Set(
+      (await readDesign(page, designId)).files?.map((file) => file.id),
+    );
+    await selectScreenLayer(page, screenId);
+    await page.keyboard.press("ControlOrMeta+d");
+    let tabletScreenId = "";
+    await expect
+      .poll(async () => {
+        const record = await readDesign(page, designId);
+        const duplicate = record.files?.find(
+          (file) =>
+            !filesBeforeTablet.has(file.id) &&
+            file.filename !== "__board__.html",
+        );
+        if (!duplicate) return null;
+        tabletScreenId = duplicate.id;
+        return duplicate.id;
+      })
+      .not.toBeNull();
+    await test.info().attach("workflow-identities-all-screens", {
+      body: JSON.stringify(
+        { designId, screenIds: [screenId, mobileScreenId, tabletScreenId] },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+
+    const tabletShell = page.locator(
+      `[data-screen-shell][data-frame-id="${tabletScreenId}"]`,
+    );
+    await selectScreenLayer(page, tabletScreenId);
+    await expandAllLayers(page);
+    await renameSelectedLayer(page, "Tablet - 1", "Tablet 1");
+    const renamedTablet = await readDesign(page, designId);
+    expect(
+      renamedTablet.files?.find((file) => file.id === tabletScreenId)?.filename,
+    ).toBe("Tablet - 1.html");
+    await setDimension(page, "W", 768);
+    await setDimension(page, "H", 1366);
+    await expect
+      .poll(async () => {
+        const data = designData(await readDesign(page, designId));
+        const frame = data.canvasFrames?.[tabletScreenId];
+        const metadata = data.screenMetadata?.[tabletScreenId];
+        return [frame?.width, frame?.height, metadata?.width, metadata?.height];
+      })
+      .toEqual([768, 1366, 768, 1366]);
+
+    await selectLayerInScreen(page, tabletScreenId, "Workspace");
+    await setSizingMode(page, "W", "Fill container");
+    await setSizingMode(page, "H", "Fill container");
+    for (const cardName of [
+      "Podcast card A",
+      "Podcast card B",
+      "Recent card A",
+      "Recent card B",
+    ]) {
+      await selectLayerInScreen(page, tabletScreenId, cardName);
+      await setSizingMode(page, "W", "Fill container");
+    }
+
+    const tabletSaved = await readDesign(page, designId);
+    const tabletSource =
+      tabletSaved.files?.find((file) => file.id === tabletScreenId)?.content ??
+      "";
+    for (const layerName of [
+      "Workspace",
+      "Sidebar",
+      "Main Content",
+      "Podcast row",
+      "Podcast card A",
+      "Podcast card B",
+      "Recently played",
+      "Recent card A",
+      "Recent card B",
+      "Now Playing",
+    ]) {
+      expect(tabletSource, `tablet source is missing ${layerName}`).toContain(
+        layerName,
+      );
+    }
+    expect(tabletSource).toMatch(/min-width:\s*200px/i);
+    expect(tabletSource).toMatch(/max-width:\s*400px/i);
+    expect(tabletSource).toMatch(/flex-wrap:\s*wrap/i);
+
+    const tabletMainMetrics = await measureSourceLayer(
       page,
       tabletScreenId,
-      sourceBeforeReload.get(tabletScreenId) ?? "",
+      tabletSource,
+      "Main Content",
+    );
+    const tabletWorkspaceMetrics = await measureSourceLayer(
+      page,
+      tabletScreenId,
+      tabletSource,
+      "Workspace",
+    );
+    const tabletSidebarMetrics = await measureSourceLayer(
+      page,
+      tabletScreenId,
+      tabletSource,
+      "Sidebar",
+    );
+    const tabletNavigationMetrics = await measureSourceLayer(
+      page,
+      tabletScreenId,
+      tabletSource,
+      "Navigation",
+    );
+    const desktopPodcastRow = await measureSourceLayer(
+      page,
+      screenId,
+      content,
       "Podcast row",
-    ),
-  };
-  const desktopArtworkTag = sourceLayerTag(
-    sourceBeforeReload.get(screenId) ?? "",
-    "Podcast card A artwork",
-  );
-  expect(desktopArtworkTag).not.toBeNull();
-  const desktopArtworkImageUrl = savedImageUrl(desktopArtworkTag!);
-  expect(desktopArtworkImageUrl).toContain("/api/qa-import-assets/");
-  expect(afterReloadMetrics.desktopArtwork.backgroundImage).toContain(
-    "linear-gradient",
-  );
-  expect(afterReloadMetrics.desktopArtwork.backgroundImage).toContain(
-    desktopArtworkImageUrl!,
-  );
-  expect(afterReloadMetrics.mobileArtwork.backgroundImage).toContain(
-    "linear-gradient",
-  );
-  await test.info().attach("workflow-source-and-render-after-reload", {
-    body: JSON.stringify({ persistence, afterReloadMetrics }, null, 2),
-    contentType: "application/json",
-  });
-  await test.info().attach("workflow-chat-thread-404s", {
-    body: JSON.stringify(
-      { count: chatThread404s.length, responses: chatThread404s },
-      null,
-      2,
-    ),
-    contentType: "application/json",
+    );
+    const tabletPodcastRow = await measureSourceLayer(
+      page,
+      tabletScreenId,
+      tabletSource,
+      "Podcast row",
+    );
+    const tabletCardA = await measureSourceLayer(
+      page,
+      tabletScreenId,
+      tabletSource,
+      "Podcast card A",
+    );
+    const tabletCardB = await measureSourceLayer(
+      page,
+      tabletScreenId,
+      tabletSource,
+      "Podcast card B",
+    );
+    const tabletRecentlyA = await measureSourceLayer(
+      page,
+      tabletScreenId,
+      tabletSource,
+      "Recent card A",
+    );
+    const tabletRecentlyB = await measureSourceLayer(
+      page,
+      tabletScreenId,
+      tabletSource,
+      "Recent card B",
+    );
+    const tabletGeometry =
+      designData(tabletSaved).canvasFrames?.[tabletScreenId];
+    await test.info().attach("workflow-measurements-tablet", {
+      body: JSON.stringify(
+        {
+          designId,
+          screenId: tabletScreenId,
+          geometry: tabletGeometry,
+          mainContent: tabletMainMetrics,
+          workspace: tabletWorkspaceMetrics,
+          sidebar: tabletSidebarMetrics,
+          navigation: tabletNavigationMetrics,
+          podcastRow: tabletPodcastRow,
+          cardA: tabletCardA,
+          cardB: tabletCardB,
+          recentlyPlayedA: tabletRecentlyA,
+          recentlyPlayedB: tabletRecentlyB,
+        },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+    expect
+      .soft(tabletMainMetrics.width)
+      .toBeCloseTo(
+        tabletWorkspaceMetrics.width -
+          parseFloat(tabletWorkspaceMetrics.paddingLeft) -
+          parseFloat(tabletWorkspaceMetrics.paddingRight) -
+          tabletNavigationMetrics.width -
+          tabletSidebarMetrics.width -
+          parseFloat(tabletWorkspaceMetrics.columnGap) * 2,
+        2,
+      );
+    expect.soft(tabletMainMetrics.height).toBeCloseTo(1458, 0);
+    expect.soft(tabletWorkspaceMetrics.width).toBeCloseTo(748, 0);
+    expect.soft(tabletWorkspaceMetrics.height).toBeCloseTo(1276, 0);
+    expect.soft(tabletCardA.width).toBeCloseTo(400, 0);
+    expect.soft(tabletCardB.width).toBeCloseTo(400, 0);
+    expect.soft(tabletCardA.height).toBeCloseTo(316, 0);
+    expect.soft(tabletCardB.height).toBeCloseTo(316, 0);
+    expect.soft(tabletCardA.x).toBeCloseTo(tabletCardB.x, 0);
+    expect.soft(tabletCardB.y).toBeGreaterThan(tabletCardA.y);
+    expect.soft(tabletRecentlyA.x).toBeCloseTo(tabletRecentlyB.x, 0);
+    expect.soft(tabletRecentlyB.y).toBeGreaterThan(tabletRecentlyA.y);
+    expect.soft(tabletPodcastRow.flexWrap).toBe("wrap");
+    expect.soft(desktopPodcastRow.flexWrap).toBe("wrap");
+    const tabletCard = await tabletShell
+      .locator("[data-screen-card]")
+      .boundingBox();
+    if (!tabletCard) throw new Error("tablet Screen card is not visible");
+    expect.soft(tabletMainMetrics.bottom).toBeGreaterThan(1366);
+    const tabletScreenCapture = await captureScreenCard(
+      page,
+      tabletScreenId,
+      "music-app-tablet-screen.png",
+    );
+    await test.info().attach("workflow-screen-screenshot-tablet", {
+      body: JSON.stringify(tabletScreenCapture, null, 2),
+      contentType: "application/json",
+    });
+    await captureEditorScreenshot(page, "music-app-tablet-editor.png");
+    const screenIds = [screenId, mobileScreenId, tabletScreenId];
+    const savedBeforeReload = await readDesign(page, designId);
+    const sourceBeforeReload = new Map(
+      screenIds.map((id) => [
+        id,
+        savedBeforeReload.files?.find((file) => file.id === id)?.content ?? "",
+      ]),
+    );
+    for (const [id, source] of sourceBeforeReload) {
+      expect(source, `Screen ${id} source is empty before reload`).not.toBe("");
+    }
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
+    const savedAfterReload = await readDesign(page, designId);
+    const persistence = screenIds.map((id) => {
+      const file = savedAfterReload.files?.find(
+        (candidate) => candidate.id === id,
+      );
+      const source = file?.content ?? "";
+      const unchanged = source !== "" && source === sourceBeforeReload.get(id);
+      expect(
+        unchanged,
+        `Screen ${id} source changed or vanished after reload`,
+      ).toBe(true);
+      return {
+        id,
+        filename: file?.filename,
+        characters: source.length,
+        unchanged,
+      };
+    });
+
+    const afterReloadMetrics = {
+      desktopArtwork: await measureSourceLayer(
+        page,
+        screenId,
+        sourceBeforeReload.get(screenId) ?? "",
+        "Podcast card A artwork",
+      ),
+      mobileArtwork: await measureSourceLayer(
+        page,
+        mobileScreenId,
+        sourceBeforeReload.get(mobileScreenId) ?? "",
+        "Mobile Podcast card artwork",
+      ),
+      tabletPodcastRow: await measureSourceLayer(
+        page,
+        tabletScreenId,
+        sourceBeforeReload.get(tabletScreenId) ?? "",
+        "Podcast row",
+      ),
+    };
+    const desktopArtworkTag = sourceLayerTag(
+      sourceBeforeReload.get(screenId) ?? "",
+      "Podcast card A artwork",
+    );
+    expect(desktopArtworkTag).not.toBeNull();
+    const desktopArtworkImageUrl = savedImageUrl(desktopArtworkTag!);
+    expect(desktopArtworkImageUrl).toContain("/api/qa-import-assets/");
+    expect(afterReloadMetrics.desktopArtwork.backgroundImage).toContain(
+      "linear-gradient",
+    );
+    expect(afterReloadMetrics.desktopArtwork.backgroundImage).toContain(
+      desktopArtworkImageUrl!,
+    );
+    expect(afterReloadMetrics.mobileArtwork.backgroundImage).toContain(
+      "linear-gradient",
+    );
+    await test.info().attach("workflow-source-and-render-after-reload", {
+      body: JSON.stringify({ persistence, afterReloadMetrics }, null, 2),
+      contentType: "application/json",
+    });
+    await test.info().attach("workflow-chat-thread-404s", {
+      body: JSON.stringify(
+        { count: chatThread404s.length, responses: chatThread404s },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
   });
 });
