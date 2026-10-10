@@ -8766,7 +8766,19 @@ describe("AgentKitAssistantChat host behavior", () => {
       });
       await flush();
 
-      expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledTimes(saveCount);
+      expect(chatMocks.persistThreadSnapshot.mock.calls.length).toBeGreaterThan(
+        saveCount,
+      );
+      expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledWith(
+        chatMocks.threadId,
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: "default-transport-checkpoint-assistant",
+            parts: [{ type: "text", text: "Still working" }],
+            status: "streaming",
+          }),
+        ]),
+      );
       expect(onSaveThread.mock.calls.length).toBeGreaterThan(metadataSaveCount);
       expect(onMessageCountChange).toHaveBeenCalledWith(2);
       expect(onSaveThread).toHaveBeenCalledWith(
@@ -8775,7 +8787,7 @@ describe("AgentKitAssistantChat host behavior", () => {
           threadData: expect.stringContaining('"lastSequence":2'),
         }),
         expect.anything(),
-        "metadata",
+        "transport",
       );
     } finally {
       chatMocks.thread = { ...chatMocks.thread, messages: [] };

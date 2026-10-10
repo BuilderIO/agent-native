@@ -3249,13 +3249,9 @@ const AgentKitAssistantChatBody = forwardRef<
 
   useEffect(() => {
     if (!isRunning) return;
-    const metadataOnly = !props.createTransport;
-    const interval = window.setInterval(
-      () => saveSnapshotRef.current(metadataOnly),
-      5000,
-    );
+    const interval = window.setInterval(() => saveSnapshotRef.current(), 5000);
     return () => window.clearInterval(interval);
-  }, [isRunning, props.createTransport]);
+  }, [isRunning]);
 
   const acquireSubmission = useCallback(async () => {
     if (
