@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildTitleSearchIndex,
@@ -220,6 +220,33 @@ describe("rankTitlesByQuery performance", () => {
     // idle and up to 1.2x under load, so the margin is wider than the
     // shared-tier test's. Twice a rebuild still means a several-fold slowdown.
     expect(fastestMeasuredMs).toBeLessThan(fastestBaselineMs * 2);
+  });
+
+  it("does no per-title normalizing or word splitting while ranking", () => {
+    // Timing can't separate this regression from runner load on the typo
+    // tier, so count the work instead: ranking a prebuilt index may normalize
+    // and split the query, but never once per title.
+    function stringWorkWhileRanking(count: number, query: string) {
+      const index = buildTitleSearchIndex(
+        Array.from({ length: count }, (_, i) =>
+          candidate(`doc-${i}`, `Quarterly planning roadmap ${i}`),
+        ),
+      );
+      const normalize = vi.spyOn(String.prototype, "normalize");
+      const split = vi.spyOn(String.prototype, "split");
+      try {
+        rankTitlesByQuery(index, query);
+        return normalize.mock.calls.length + split.mock.calls.length;
+      } finally {
+        normalize.mockRestore();
+        split.mockRestore();
+      }
+    }
+    for (const query of ["road", "plnaning"]) {
+      expect(stringWorkWhileRanking(1_000, query)).toBe(
+        stringWorkWhileRanking(1, query),
+      );
+    }
   });
 
   it("skips typo matching when shared-tier matches already fill the limit", () => {
