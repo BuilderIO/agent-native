@@ -11,7 +11,6 @@ import {
   readAssistantChatHiddenContext,
   writeAssistantChatComposerContextDraft,
   writeAssistantChatHiddenContext,
-  COMPOSER_ONLY_CONTEXT_TTL_MS,
 } from "./composer-draft.js";
 
 describe("assistant chat composer drafts", () => {
@@ -148,20 +147,6 @@ describe("hidden composer context", () => {
 
     writeAssistantChatHiddenContext("thread-a", []);
     expect(readAssistantChatHiddenContext("thread-a")).toEqual([]);
-  });
-});
-
-describe("hidden composer context expiry", () => {
-  it("drops context staged longer ago than the expiry window", () => {
-    const expired = {
-      key: "prefill-context-old",
-      title: "prefill-context-old",
-      context: "Stale cast",
-      stagedAt: Date.now() - COMPOSER_ONLY_CONTEXT_TTL_MS - 1000,
-    };
-    writeAssistantChatHiddenContext("thread-e", [expired]);
-
-    expect(readAssistantChatHiddenContext("thread-e")).toEqual([]);
   });
 });
 

@@ -153,19 +153,6 @@ export interface AssistantChatHiddenContextItem {
   stagedAt?: number;
 }
 
-// Composer-only context whose prompt was abandoned must not attach to a later
-// prompt. Unstamped entries have no age to check, so they are dropped too.
-export const COMPOSER_ONLY_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000;
-
-export function isComposerOnlyContextExpired(
-  stagedAt: number | undefined,
-  now: number = Date.now(),
-): boolean {
-  return (
-    stagedAt === undefined || now - stagedAt > COMPOSER_ONLY_CONTEXT_TTL_MS
-  );
-}
-
 function assistantChatHiddenContextKey(scope?: string | null): string | null {
   const normalizedScope = scope?.trim();
   return normalizedScope
@@ -191,9 +178,7 @@ export function readAssistantChatHiddenContext(
   if (stored === null) return [];
   const items = parseHiddenContextEnvelope(stored);
   if (items)
-    return items
-      .filter((item) => !isComposerOnlyContextExpired(item.stagedAt))
-      .map((item) => ({ ...item, composerOnly: true as const }));
+    return items.map((item) => ({ ...item, composerOnly: true as const }));
   // Discard the unreadable entry so it cannot fail every later mount. The draft text is stored separately and still restores.
   try {
     storage.removeItem(key);

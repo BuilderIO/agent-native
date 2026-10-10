@@ -45,7 +45,6 @@ import type { CreateAgentNativeAgentKitTransportOptions } from "@agent-native/co
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "@agent-native/core/client/agent-chat";
 import {
   readAssistantChatComposerDraft,
-  isComposerOnlyContextExpired,
   readAssistantChatHiddenContext,
   writeAssistantChatComposerDraft,
   writeAssistantChatHiddenContext,
@@ -1874,6 +1873,22 @@ const AgentKitAssistantChatBody = forwardRef<
     return subscribeAgentChatContext(apply);
   }, [props.contextNamespace, props.isActiveComposer]);
 
+  // Clearing the draft abandons the prompt its composer-only context was staged
+  // with, so the context goes too. A switch between chats also empties the draft,
+  // which is not an abandonment, so only a clear within the same chat counts.
+  const draftRef = useRef({ scope: hiddenContextScope, text: composerText });
+  useEffect(() => {
+    const previous = draftRef.current;
+    draftRef.current = { scope: hiddenContextScope, text: composerText };
+    if (previous.scope !== hiddenContextScope) return;
+    if (previous.text.trim() === "" || composerText.trim() !== "") return;
+    setContextItems((items) =>
+      items.some((item) => item.composerOnly)
+        ? items.filter((item) => !item.composerOnly)
+        : items,
+    );
+  }, [composerText, hiddenContextScope]);
+
   useEffect(() => {
     const saved = writeAssistantChatHiddenContext(
       hiddenContextScope,
@@ -2152,9 +2167,7 @@ const AgentKitAssistantChatBody = forwardRef<
           : [
               composerOptions.composerModeContext,
               formatAgentChatContextItemsForPrompt(
-                unexpiredComposerContext(
-                  composerOptions.contextItems ?? contextItems,
-                ),
+                composerOptions.contextItems ?? contextItems,
               ),
               pendingSelectionPromptContext(currentPendingSelection),
             ]
@@ -2467,9 +2480,7 @@ const AgentKitAssistantChatBody = forwardRef<
               : [
                   submittedComposerOptions.composerModeContext,
                   formatAgentChatContextItemsForPrompt(
-                    unexpiredComposerContext(
-                      submittedComposerOptions.contextItems ?? contextItems,
-                    ),
+                    submittedComposerOptions.contextItems ?? contextItems,
                   ),
                   pendingSelectionPromptContext(currentPendingSelection),
                 ]
@@ -3098,9 +3109,7 @@ const AgentKitAssistantChatBody = forwardRef<
         setContextItem(item, options?.focus !== false),
       canStageComposerContextItem: (item) =>
         composerContextFits([
-          ...unexpiredComposerContext(contextItems).filter(
-            (candidate) => candidate.key !== item.key,
-          ),
+          ...contextItems.filter((candidate) => candidate.key !== item.key),
           item,
         ]),
       removeComposerContextItem: removeContextItem,
@@ -3868,17 +3877,6 @@ function resolveAgentKitSuggestionInputs(
   return prompts.map((prompt) => byPrompt.get(prompt) ?? prompt);
 }
 
-// Expiry is checked where a submission is captured, not only at render: an idle
-// composer can hold a snapshot from before the expiry window passed.
-function unexpiredComposerContext<T extends AgentChatContextItem>(
-  items: readonly T[],
-): T[] {
-  return items.filter(
-    (item) =>
-      !item.composerOnly || !isComposerOnlyContextExpired(item.stagedAt),
-  );
-}
-
 function pendingSelectionPromptContext(
   selection: PendingSelectionContext | null,
 ): string {
@@ -4011,14 +4009,9 @@ function AgentKitComposerSurface({
   const providerContextKeys = new Set(
     composerContext?.contextItems.map((item) => item.key),
   );
-  // Composer-only context whose prompt was abandoned past its expiry stays out of the next submission.
-  const liveContextItems = contextItems.filter(
-    (item) =>
-      !item.composerOnly || !isComposerOnlyContextExpired(item.stagedAt),
-  );
   const visibleContextItems = composerContext
-    ? [...liveContextItems, ...composerContext.contextItems]
-    : liveContextItems;
+    ? [...contextItems, ...composerContext.contextItems]
+    : contextItems;
   const submissionScope = JSON.stringify([
     threadId,
     props.tabId,
@@ -4076,7 +4069,7 @@ function AgentKitComposerSurface({
       validateSubmissionScope: assertSubmissionScope,
     };
     const captured = snapshotComposerContextItems(
-      unexpiredComposerContext(options.contextItems ?? visibleContextItems),
+      options.contextItems ?? visibleContextItems,
     );
     let prepared: AssistantChatComposerContext["contextItems"] | undefined;
     await onSubmit(message, files, references, options, async () => {

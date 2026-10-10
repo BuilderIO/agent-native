@@ -1991,25 +1991,28 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBe(false);
   });
 
-  it("keeps composer-only context past its expiry out of the composer", async () => {
+  it("clearing the draft in this chat drops its composer-only context", async () => {
     const ref = createRef<AssistantChatHandle>();
     await mount(baseProps(), ref);
+    await act(async () => chatMocks.composerProps.onTextChange("Tell me more"));
     await act(async () =>
       ref.current!.setComposerContextItem(
         {
-          key: "prefill-context-stale",
-          title: "prefill-context-stale",
-          context: "Stale cast",
+          key: "agent-chat-prefill-context",
+          title: "Active app context",
+          context: "Cast: Tom Holland",
           composerOnly: true,
           hidden: true,
-          stagedAt: Date.now() - 25 * 60 * 60 * 1000,
+          stagedAt: Date.now(),
         },
         { focus: false },
       ),
     );
+    expect(chatMocks.composerProps.contextItems).toHaveLength(1);
+
+    await act(async () => chatMocks.composerProps.onTextChange(""));
 
     expect(chatMocks.composerProps.contextItems).toEqual([]);
-    writeAssistantChatHiddenContext(chatMocks.threadId, []);
   });
 
   it("keeps hidden prefill context out of the shared context store", async () => {
