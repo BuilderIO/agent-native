@@ -327,18 +327,15 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
       }
     };
     const collectListItem = (item: Element) => {
-      const children = getPersistedChildren(item).filter(
-        (child) => !SKIPPED_TAGS.has(child.tagName.toLowerCase()),
+      const itemHasParagraphs = Array.from(item.querySelectorAll("p")).some(
+        (paragraph) => paragraph.closest("li") === item,
       );
-      const hasParagraphs = children.some(
-        (child) => child.tagName.toLowerCase() === "p",
-      );
-      if (hasParagraphs && hasOwnText(item)) {
+      if (itemHasParagraphs && hasOwnText(item)) {
         nativeParagraphs.push(item);
         collectNestedLists(item);
         return;
       }
-      if (!hasParagraphs && hasMeaningfulContent(item)) {
+      if (!itemHasParagraphs && hasMeaningfulContent(item)) {
         nativeParagraphs.push(item);
         collectNestedLists(item);
         return;

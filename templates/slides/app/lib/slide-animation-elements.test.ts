@@ -538,6 +538,33 @@ describe("slide animation element parsing", () => {
     },
   );
 
+  it("expands paragraphs wrapped inside a list item independently", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><ul>
+        <li><div><p>First</p><p>Second</p></div></li>
+      </ul></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 1],
+    ]);
+  });
+
   it("does not expand into unrelated nested text blocks", () => {
     const doc = new DOMParser().parseFromString(
       `<div class="fmd-slide"><div>

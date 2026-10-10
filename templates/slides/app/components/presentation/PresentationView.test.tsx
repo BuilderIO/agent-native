@@ -19,7 +19,10 @@ vi.mock("@/components/deck/SlideRenderer", () => ({
     slide.id === "video-slide" ? (
       <video data-testid="presentation-video" controls />
     ) : (
-      <div data-testid={`rendered-${slide.id}`} />
+      <div
+        data-testid={`rendered-${slide.id}`}
+        dangerouslySetInnerHTML={{ __html: slide.content }}
+      />
     ),
 }));
 
@@ -142,5 +145,52 @@ describe("PresentationView keyboard shortcuts", () => {
         Reflect.deleteProperty(document.documentElement, "requestFullscreen");
       }
     }
+  });
+});
+
+describe("PresentationView paragraph animations", () => {
+  it("reveals wrapped list-item paragraphs in separate presentation steps", () => {
+    const slide = {
+      id: "wrapped-list-slide",
+      content: `<div class="fmd-slide"><div><ul>
+        <li><div><p>First</p><p>Second</p></div></li>
+      </ul></div></div>`,
+      layout: "content",
+      animations: [
+        {
+          id: "animation-1",
+          elementIndex: 0,
+          elementPath: [0, 0, 0],
+          byParagraph: true,
+          type: "slide-up",
+        },
+      ],
+    } as unknown as Slide;
+    render(
+      <MemoryRouter>
+        <PresentationView slides={[slide]} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    const rendered = screen.getByTestId("rendered-wrapped-list-slide");
+    const steps = rendered.querySelectorAll("[data-pstep]");
+    expect(Array.from(steps).map((step) => step.textContent)).toEqual([
+      "First",
+      "Second",
+    ]);
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="0"] { opacity: 0; pointer-events: none; }',
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "presentation.nextSlide" }),
+    );
+
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="0"] { opacity: 1; pointer-events: auto; animation: elem-slide-up 300ms',
+    );
+    expect(rendered.querySelector("style")?.textContent).toContain(
+      '[data-pstep="1"] { opacity: 0; pointer-events: none; }',
+    );
   });
 });
