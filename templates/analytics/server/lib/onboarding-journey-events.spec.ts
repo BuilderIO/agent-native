@@ -1231,10 +1231,24 @@ describe("onboarding journey events SQL", () => {
       properties: { step_id: "role" },
     });
     await insert("response-property-employee", "http.response", 3, {
-      properties: { auth_user_id: "dev@builder.io" },
+      template: "",
+      properties: {
+        agent_native_template: "clips",
+        auth_user_id: "dev@builder.io",
+      },
+    });
+    await insert("response-top-level-test", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-top-level-test", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-top-level-test", "http.response", 3, {
+      email: "qa+autoz@builder.io",
     });
     const sql = buildOnboardingJourneyEventsSql(
-      filters(),
+      filters({ app: "clips" }),
       { limit: 100, offset: 0 },
       observation(),
     );
@@ -1256,6 +1270,11 @@ describe("onboarding journey events SQL", () => {
     )) as { rows: Array<Record<string, unknown>> };
 
     expect(projectedResult.rows).toEqual(fullResult.rows);
+    expect(
+      projectedResult.rows.some(
+        (row) => row.session_id === "response-top-level-test",
+      ),
+    ).toBe(true);
   });
 
   it("selects attempt ids only as an internal journey field", async () => {

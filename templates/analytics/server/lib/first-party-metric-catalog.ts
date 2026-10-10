@@ -1427,6 +1427,12 @@ function buildOnboardingJourneyEventCtes(
   const receivedAtCutoffFilter = options.receivedAtCutoffSql
     ? `\n    AND r.received_at::timestamptz < ${options.receivedAtCutoffSql}`
     : "";
+  const responseTemplateExpr = TEMPLATE_EXPR.replace(
+    /\btemplate\b/g,
+    "r.template",
+  )
+    .replace(/\bproperties\b/g, "r.properties")
+    .replace(/\bapp\b/g, "r.app");
   return `, response_identity_events AS (
   SELECT r.session_id, r.event_name,
     COALESCE(
@@ -1436,8 +1442,8 @@ function buildOnboardingJourneyEventCtes(
     ) AS funnel_user_email
   FROM analytics_events r
   WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}
-    AND ('{{appFilter}}' IN ('', 'all') OR lower(COALESCE(NULLIF(r.template, ''), NULLIF(r.app, ''), 'unknown')) = lower('{{appFilter}}'))
-    AND lower(COALESCE(NULLIF(r.template, ''), NULLIF(r.app, ''), 'unknown')) IN (${FIRST_PARTY_TEMPLATE_SQL_LIST})
+    AND ('{{appFilter}}' IN ('', 'all') OR lower(${responseTemplateExpr}) = lower('{{appFilter}}'))
+    AND ${firstPartyTemplateFilter(responseTemplateExpr)}
     AND r.event_name = 'http.response'
 ), onboarding_journey_identity_events AS (
   SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path, e.properties,

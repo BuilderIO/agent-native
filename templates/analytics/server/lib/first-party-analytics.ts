@@ -1376,8 +1376,7 @@ export function scopedAnalyticsSql(
         scope,
         today,
         args.length,
-        includeTestIdentities ||
-          projection === "onboarding_journey_response_identity",
+        includeTestIdentities,
         sourcePredicates[index] ?? [],
         scopedEventsSingleScan,
         projection,
