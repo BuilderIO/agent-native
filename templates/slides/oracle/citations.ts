@@ -21,12 +21,6 @@ const TEST_MODIFIERS = new Set([
 // evidence that a row is covered. Its descendants are excluded too.
 const NOT_RUNNABLE = new Set(["skip", "todo", "skipIf", "runIf"]);
 
-const FUNCTION_TYPES = new Set([
-  "ArrowFunctionExpression",
-  "FunctionExpression",
-  "FunctionDeclaration",
-]);
-
 type AstNode = Record<string, unknown>;
 
 type Registration = {
@@ -37,7 +31,7 @@ type Registration = {
   focused: boolean;
 };
 
-type Scope = { skipped: boolean; focused: boolean; callback: boolean };
+type Scope = { skipped: boolean; focused: boolean };
 
 /**
  * Row ids cited from the title argument of test calls that can run, in one
@@ -53,8 +47,8 @@ export function titleCitations(source: string, fileName: string): string[] {
   });
   const registrations: Registration[] = [];
   collectRegistrations(
-    ast,
-    { skipped: false, focused: false, callback: false },
+    ast.body,
+    { skipped: false, focused: false },
     registrations,
   );
   // Vitest runs only the focused tests of a file that has a focused one.
@@ -74,56 +68,75 @@ export function titleCitations(source: string, fileName: string): string[] {
 }
 
 /**
- * Every test declaration the file registers. A function body is entered only
- * when it is the callback of a declaration, so a helper that defines tests
- * without being called, or a function that is never invoked, registers nothing
- * and cannot satisfy coverage. A function that is called later is also left
- * out, which fails closed: its rows stay uncited until a visible test names them.
+ * The tests Vitest registers. Only a plain expression statement at the top of
+ * the file, or at the top of a suite callback, runs unconditionally, so only
+ * those are read. Statements that may not run (if, loops, switch, try) and
+ * functions that are merely defined or called later are not entered. Their
+ * tests stay uncited until a visible test names the row, which fails closed.
  */
 function collectRegistrations(
+  statements: unknown,
+  scope: Scope,
+  out: Registration[],
+): void {
+  if (!Array.isArray(statements)) return;
+  for (const statement of statements as AstNode[]) {
+    if (statement.type === "ExpressionStatement") {
+      collectExpression(statement.expression, scope, out);
+    }
+  }
+}
+
+function collectExpression(
   value: unknown,
   scope: Scope,
   out: Registration[],
 ): void {
-  if (Array.isArray(value)) {
-    for (const item of value) collectRegistrations(item, scope, out);
-    return;
-  }
-  if (typeof value !== "object" || value === null) return;
   const node = value as AstNode;
-  if (typeof node.type === "string" && FUNCTION_TYPES.has(node.type)) {
-    if (!scope.callback) return;
-  }
-  const inner: Scope = { ...scope, callback: false };
-  if (node.type === "CallExpression") {
-    const declaration = testDeclaration(node.callee);
-    if (declaration !== undefined) {
-      const skipped =
-        scope.skipped || declaration.modifiers.some((m) => NOT_RUNNABLE.has(m));
-      const hasOnly = declaration.modifiers.includes("only");
-      const focused = scope.focused || hasOnly;
-      out.push({
-        base: declaration.base,
-        title: titleText(firstArgument(node)),
-        hasOnly,
+  if (node.type !== "CallExpression") return;
+  const declaration = testDeclaration(node.callee);
+  if (declaration === undefined) return;
+  const skipped =
+    scope.skipped || declaration.modifiers.some((m) => NOT_RUNNABLE.has(m));
+  const hasOnly = declaration.modifiers.includes("only");
+  const focused = scope.focused || hasOnly;
+  out.push({
+    base: declaration.base,
+    title: titleText(firstArgument(node)),
+    hasOnly,
+    skipped,
+    focused,
+  });
+  // A suite's callback runs its own statements, and only they are read.
+  for (const argument of argumentsOf(node)) {
+    collectCallback(
+      argument.expression as AstNode | undefined,
+      {
         skipped,
         focused,
-      });
-      const body: Scope = { skipped, focused, callback: false };
-      // The arguments of a declaration are its title and its callback.
-      for (const argument of argumentsOf(node)) {
-        collectRegistrations(
-          argument.expression,
-          { ...body, callback: true },
-          out,
-        );
-      }
-      collectRegistrations(node.callee, body, out);
-      return;
-    }
+      },
+      out,
+    );
   }
-  for (const child of Object.values(node)) {
-    collectRegistrations(child, inner, out);
+}
+
+function collectCallback(
+  node: AstNode | undefined,
+  scope: Scope,
+  out: Registration[],
+): void {
+  if (node === undefined) return;
+  if (
+    node.type !== "ArrowFunctionExpression" &&
+    node.type !== "FunctionExpression"
+  ) {
+    return;
+  }
+  const body = node.body as AstNode;
+  if (body.type === "BlockStatement") {
+    collectRegistrations(body.stmts, scope, out);
+  } else {
+    collectExpression(body, scope, out);
   }
 }
 

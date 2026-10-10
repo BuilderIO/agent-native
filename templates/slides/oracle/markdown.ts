@@ -121,14 +121,38 @@ const HIT_WORDING: Record<NonNullable<OracleExpect["hit"]>, RegExp> = {
   sibling: /\bsibling\b|\bneighbou?r\b/i,
 };
 
-const OUTLINE_PRESENT = /\boutline\b/i;
-const OUTLINE_ABSENT = /\bno\b[^;,.]*\boutline\b/i;
+const OUTLINE = /\boutline\b/i;
+const NEGATION = /\b(?:no|not|never|nor|without|neither|none)\b/i;
+const CLAUSE_BREAK = [";", ",", ".", "(", ")"];
 
 /**
- * Each JSON expect must agree with the ledger result it mirrors. A cursor is
- * checked by name, a hit by its wording, and outlineVisible by whether the
- * result describes an outline or says there is none. A row whose id is not in
- * the markdown is left to the id-coverage test.
+ * Whether the text states the pattern in the given polarity. The text is split
+ * into clauses at punctuation, and a match is negated when its own clause says
+ * no, not, never or without before it. So "`move`, not default" affirms move
+ * and negates default, and "no hover outline" negates outline.
+ */
+function statesPattern(
+  text: string,
+  pattern: RegExp,
+  polarity: "affirmed" | "negated",
+): boolean {
+  const global = new RegExp(pattern.source, "gi");
+  for (const match of text.matchAll(global)) {
+    const index = match.index ?? 0;
+    const clauseStart = Math.max(
+      ...CLAUSE_BREAK.map((mark) => text.lastIndexOf(mark, index) + 1),
+    );
+    const negated = NEGATION.test(text.slice(clauseStart, index));
+    if (negated === (polarity === "negated")) return true;
+  }
+  return false;
+}
+
+/**
+ * Each JSON expect must agree with the ledger result it mirrors, in polarity as
+ * well as in wording: a cursor, hit or outline the expect asserts must be stated
+ * affirmatively, and an outlineVisible false must be stated as a negation. A row
+ * whose id is not in the markdown is left to the id-coverage test.
  */
 export function diffLedgerExpectations(
   markdownRows: MarkdownLedgerRow[],
@@ -143,20 +167,27 @@ export function diffLedgerExpectations(
     if (md === undefined) continue;
     if (
       expect.cursor !== undefined &&
-      !new RegExp(`\\b${expect.cursor}\\b`, "i").test(md.result)
+      !statesPattern(
+        md.result,
+        new RegExp(`\\b${expect.cursor}\\b`),
+        "affirmed",
+      )
     ) {
       problems.push(
         `${json.id}: cursor "${expect.cursor}" is not named in the result`,
       );
     }
-    if (expect.hit !== undefined && !HIT_WORDING[expect.hit].test(md.result)) {
+    if (
+      expect.hit !== undefined &&
+      !statesPattern(md.result, HIT_WORDING[expect.hit], "affirmed")
+    ) {
       problems.push(
         `${json.id}: hit "${expect.hit}" is not described in the result`,
       );
     }
     if (expect.outlineVisible !== undefined) {
-      const wording = expect.outlineVisible ? OUTLINE_PRESENT : OUTLINE_ABSENT;
-      if (!wording.test(md.result)) {
+      const polarity = expect.outlineVisible ? "affirmed" : "negated";
+      if (!statesPattern(md.result, OUTLINE, polarity)) {
         problems.push(
           `${json.id}: outlineVisible ${expect.outlineVisible} is not described in the result`,
         );

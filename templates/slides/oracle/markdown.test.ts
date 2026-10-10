@@ -241,6 +241,38 @@ describe("diffLedgerExpectations", () => {
     expect(problems).toEqual([]);
   });
 
+  it("rejects an outlineVisible true expectation whose only outline is negated", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("1.10", "no hover outline at any distance")],
+      [jsonRow({ id: "1.10", expect: { outlineVisible: true } })],
+    );
+    expect(problems).toHaveLength(1);
+  });
+
+  it("rejects a hit expectation whose keyword is only negated", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("2.3", "select only, no caret")],
+      [jsonRow({ id: "2.3", expect: { hit: "text" } })],
+    );
+    expect(problems).toHaveLength(1);
+  });
+
+  it("rejects a cursor expectation whose name is only negated", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("1.1", "not default, a hover cursor")],
+      [jsonRow({ id: "1.1", expect: { cursor: "default" } })],
+    );
+    expect(problems).toHaveLength(1);
+  });
+
+  it("accepts a cursor expectation affirmed in its own clause next to a negated value", () => {
+    const problems = diffLedgerExpectations(
+      [markdownResult("1.4", "`move`, not default")],
+      [jsonRow({ id: "1.4", expect: { cursor: "move" } })],
+    );
+    expect(problems).toEqual([]);
+  });
+
   it("ignores rows that carry no expect", () => {
     expect(
       diffLedgerExpectations([markdownResult("1.5", "anything")], [jsonRow()]),

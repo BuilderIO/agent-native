@@ -193,4 +193,22 @@ describe("titleCitations counts only test titles", () => {
     ].join("\n");
     expect(titleCitations(source, "a.test.ts")).toEqual(["1.3"]);
   });
+
+  it("ignores a test inside an if branch, which may never register", () => {
+    const source = [
+      `if (false) {`,
+      `  it("moves (oracle 1.4)", () => {});`,
+      `}`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("ignores a test inside a loop, which registers only for some inputs", () => {
+    const source = [
+      `for (const name of ["a"]) {`,
+      `  it("snaps (oracle 1.5)", () => {});`,
+      `}`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
 });
