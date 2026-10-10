@@ -1421,6 +1421,16 @@ describe("server name on a multi-label host", () => {
       "agent-native-mail",
     );
   });
+
+  it("names a beta lane after its app when nothing declares an identity", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    expect(await serverNameFor("beta.mail.agent-native.com")).toBe(
+      "beta-agent-native-mail",
+    );
+    expect(await serverNameFor("beta.content.agent-native.com")).toBe(
+      "beta-agent-native-content",
+    );
+  });
 });
 
 describe("explicit server name", () => {

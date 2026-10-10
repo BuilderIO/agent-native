@@ -151,8 +151,11 @@ function appLabel(origin: string, options: McpConnectRouteOptions): string {
   const app = getAppConfig().app;
   const declared = options.appId ?? app.id ?? app.template ?? app.slug;
   if (declared) return declared;
+  // Deployed functions run without npm's `npm_package_name`, so first-party
+  // apps usually land here. A beta lane is `beta.<app>.agent-native.com`: its
+  // leading label names the lane, and every beta app would share it.
   try {
-    const h = new URL(origin).hostname;
+    const h = new URL(origin).hostname.replace(/^beta\./, "");
     return h.split(".")[0] || h;
   } catch {
     return options.appName || "app";
