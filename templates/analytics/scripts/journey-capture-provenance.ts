@@ -22,16 +22,18 @@ const JWT_VALUE = /\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g;
 const SLACK_INCOMING_WEBHOOK_URL =
   /\bhttps?:\/\/hooks\.slack(?:-gov)?\.com\/services\/[a-z0-9_-]+\/[a-z0-9_-]+\/[a-z0-9_-]+(?:\?[^\s]*)?/gi;
 const DISCORD_INCOMING_WEBHOOK_URL =
-  /\bhttps?:\/\/discord(?:app)?\.com\/api\/webhooks\/[a-z0-9_-]+\/[a-z0-9._-]+(?:\?[^\s]*)?/gi;
+  /\bhttps?:\/\/(?:[a-z0-9-]+\.)*discord(?:app)?\.com\/api\/webhooks\/[a-z0-9_-]+\/[a-z0-9._-]+(?:\?[^\s]*)?/gi;
 const NATURAL_LANGUAGE_CREDENTIAL_KEY = String.raw`[a-z][a-z0-9_.-]*(?:[ \t]+(?:keys?|tokens?|secrets?|passwords?|passwd|passphrase|credentials?|authorization|authentication|auth|cookies?|session(?:[ \t]+(?:id|token))?|ids?|signatures?|sigs?|jwts?|otps?|pins?|pws?|pwd))?`;
 const NATURAL_LANGUAGE_CREDENTIAL_COPULA = new RegExp(
   String.raw`((?:^|[\r\n;])[ \t]*(?:(?:my|our|your|the)[ \t]+)?)(${NATURAL_LANGUAGE_CREDENTIAL_KEY})([ \t]+(?:is|equals|was)[ \t]+)([^;\r\n]+)`,
   "gim",
 );
 const NATURAL_LANGUAGE_CREDENTIAL_VALUE = new RegExp(
-  String.raw`((?:^|[\r\n;])[ \t]*(?:(?:my|our|your|the)[ \t]+)?)(${NATURAL_LANGUAGE_CREDENTIAL_KEY})([ \t]+)(?![:=])(\S+)`,
+  String.raw`((?:^|[\r\n;])[ \t]*(?:(?:my|our|your|the)[ \t]+)?)(${NATURAL_LANGUAGE_CREDENTIAL_KEY})([ \t]+)(?![:=])([^;\r\n]+)`,
   "gim",
 );
+const NATURAL_LANGUAGE_CONTINUATION =
+  /^(?:can|could|should|will|would|may|might|must|be|been|being|is|are|was|were|has|have|had|looks?|seems?|means?|refers?|describes?|explains?|contains?|includes?|uses?|used|exists?|remains?|stays?|changes?|resets?|expires?|rotates?|rates?|counts?|numbers?|lengths?|values?|fields?|parameters?|headers?|settings?)\b/i;
 const PROVIDER_TOKEN =
   /\b(?:github_pat_[a-z0-9_]{20,}|gh[pousr]_[a-z0-9_]{20,}|AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16}|sk-proj-[a-z0-9_-]{20,}|sk-ant-[a-z0-9_-]{20,}|(?:sk|rk)_(?:live|test)_[a-z0-9]{16,}|AIza[a-z0-9_-]{35}|xox[baprs]-[a-z0-9-]{10,}|npm_[a-z0-9]{30,})\b/gi;
 const SQL_CODE_BLOCK = /```(?:sql|postgres(?:ql)?)\b[\s\S]*?```/gi;
@@ -167,35 +169,66 @@ function hasSpaceSeparatedCredential(text: string): boolean {
   return false;
 }
 
-function urlQueryValueEnd(text: string, valueStart: number): number | null {
+function urlParameterValueEnd(text: string, valueStart: number): number | null {
   const prefix = text.slice(0, valueStart);
   const queryStart = prefix.lastIndexOf("?");
-  if (
-    queryStart <= prefix.lastIndexOf("://") ||
-    queryStart <= prefix.lastIndexOf("#")
-  ) {
+  const fragmentStart = prefix.lastIndexOf("#");
+  const parameterStart = Math.max(queryStart, fragmentStart);
+  if (parameterStart <= prefix.lastIndexOf("://")) {
     return null;
   }
   const delimiter = /[&#\s]/.exec(text.slice(valueStart));
   return delimiter ? valueStart + delimiter.index : text.length;
 }
 
-function isOAuthCallbackUrl(text: string, valueStart: number): boolean {
+function isOAuthCallbackParameter(
+  text: string,
+  valueStart: number,
+  key: string,
+): boolean {
   const prefix = text.slice(0, valueStart);
-  const queryStart = prefix.lastIndexOf("?");
-  const schemeStart = prefix.lastIndexOf("://");
-  if (queryStart <= schemeStart || queryStart <= prefix.lastIndexOf("#")) {
+  const urlStart = Math.max(
+    prefix.lastIndexOf("https://"),
+    prefix.lastIndexOf("http://"),
+  );
+  if (urlStart === -1) {
     return false;
   }
-  const pathStart = text.indexOf("/", schemeStart + 3);
-  if (pathStart === -1 || pathStart > queryStart) return false;
-  return /\/(?:oauth2?|auth(?:entication)?|callback|redirect)(?:\/|$)/i.test(
-    text.slice(pathStart, queryStart),
-  );
-}
+  const urlEndMatch = /\s/.exec(text.slice(urlStart));
+  const urlEnd = urlEndMatch ? urlStart + urlEndMatch.index : text.length;
+  let url: URL;
+  try {
+    url = new URL(text.slice(urlStart, urlEnd));
+  } catch {
+    return false;
+  }
 
-function looksLikeCredentialValue(value: string): boolean {
-  return /[0-9_-]/.test(value) || value.length >= 24;
+  const queryStart = text.indexOf("?", urlStart);
+  const fragmentStart = text.indexOf("#", urlStart);
+  const inQuery =
+    queryStart !== -1 &&
+    valueStart > queryStart &&
+    (fragmentStart === -1 || valueStart < fragmentStart);
+  const inFragment = fragmentStart !== -1 && valueStart > fragmentStart;
+  if (!inQuery && !inFragment) return false;
+
+  const parameters = inFragment
+    ? new URLSearchParams(url.hash.slice(1))
+    : url.searchParams;
+  const parameterNames = new Set(
+    [...parameters.keys()].map((name) => name.toLowerCase()),
+  );
+  if (!parameterNames.has(key.toLowerCase())) return false;
+
+  const callbackPath =
+    /\/(?:oauth2?|auth(?:entication)?|callback|redirect)(?:\/|$)/i.test(
+      url.pathname,
+    );
+  const rootCallback =
+    url.pathname === "/" &&
+    parameterNames.has("code") &&
+    parameterNames.has("state");
+  return callbackPath || rootCallback;
 }
 
 function redactNaturalLanguageCredentials(text: string): string {
@@ -206,10 +239,13 @@ function redactNaturalLanguageCredentials(text: string): string {
   );
   return withCopulaValues.replace(
     NATURAL_LANGUAGE_CREDENTIAL_VALUE,
-    (match, prefix, key, separator, value) =>
-      isCredentialKey(key) && looksLikeCredentialValue(value)
+    (match, prefix, key, separator, value) => {
+      const firstWord = value.trimStart().split(/[ \t]+/, 1)[0] ?? "";
+      return isCredentialKey(key) &&
+        !NATURAL_LANGUAGE_CONTINUATION.test(firstWord)
         ? `${prefix}${key}${separator}[REDACTED]`
-        : match,
+        : match;
+    },
   );
 }
 
@@ -223,11 +259,15 @@ function redactCredentialAssignments(text: string): string {
   for (const match of text.matchAll(ASSIGNMENT_KEY)) {
     const valueStart = (match.index ?? 0) + match[0].length;
     const key = match[2] ?? "";
-    const queryValueEnd = urlQueryValueEnd(text, valueStart);
-    const isOAuthCallbackParameter =
-      ["code", "state", "nonce"].includes(key.toLowerCase()) &&
-      isOAuthCallbackUrl(text, valueStart);
-    if (!isCredentialKey(key) && !isOAuthCallbackParameter) continue;
+    const credentialKey = isCredentialKey(key);
+    const oauthCandidate = ["code", "state", "nonce"].includes(
+      key.toLowerCase(),
+    );
+    // Keep ordinary assignments off the full-text URL parsing path.
+    if (!credentialKey && !oauthCandidate) continue;
+    const oauthCallbackParameter =
+      oauthCandidate && isOAuthCallbackParameter(text, valueStart, key);
+    if (!credentialKey && !oauthCallbackParameter) continue;
     if (valueStart < coveredValueEnd) continue;
 
     const quote = text[valueStart];
@@ -256,13 +296,14 @@ function redactCredentialAssignments(text: string): string {
       continue;
     }
 
-    if (queryValueEnd !== null) {
+    const parameterValueEnd = urlParameterValueEnd(text, valueStart);
+    if (parameterValueEnd !== null) {
       assignments.push({
         redactStart: valueStart,
-        redactEnd: queryValueEnd,
-        valueEnd: queryValueEnd,
+        redactEnd: parameterValueEnd,
+        valueEnd: parameterValueEnd,
       });
-      coveredValueEnd = queryValueEnd;
+      coveredValueEnd = parameterValueEnd;
       continue;
     }
 

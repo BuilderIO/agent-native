@@ -184,15 +184,17 @@ describe("sanitizePromptProvenanceCandidates", () => {
     }
   });
 
-  it("redacts Discord webhook paths and OAuth callback query values", () => {
+  it("redacts Discord subdomain webhooks and OAuth callback values", () => {
     const discordWebhookUrl =
-      "https://discord.com/api/webhooks/fake-webhook-id/fake.discord.webhook.token-123456";
+      "https://canary.discord.com/api/webhooks/fake-webhook-id/fake.discord.webhook.token-123456";
     const result = sanitizePromptProvenanceCandidates([
       {
         role: "user",
         text: [
           discordWebhookUrl,
           "https://app.example/callback?code=fake-oauth-code&state=fake-oauth-state",
+          "https://app.example/?code=fake-root-oauth-code&state=fake-root-oauth-state",
+          "https://app.example/callback#code=fake-fragment-oauth-code&state=fake-fragment-oauth-state",
           "https://docs.example/reference?code=example-code&state=example-state",
           "Use code to explain the state machine.",
         ].join("\n"),
@@ -204,6 +206,8 @@ describe("sanitizePromptProvenanceCandidates", () => {
       [
         "[REDACTED]",
         "https://app.example/callback?code=[REDACTED]&state=[REDACTED]",
+        "https://app.example/?code=[REDACTED]&state=[REDACTED]",
+        "https://app.example/callback#code=[REDACTED]&state=[REDACTED]",
         "https://docs.example/reference?code=example-code&state=example-state",
         "Use code to explain the state machine.",
       ].join("\n"),
@@ -212,6 +216,10 @@ describe("sanitizePromptProvenanceCandidates", () => {
       discordWebhookUrl,
       "fake-oauth-code",
       "fake-oauth-state",
+      "fake-root-oauth-code",
+      "fake-root-oauth-state",
+      "fake-fragment-oauth-code",
+      "fake-fragment-oauth-state",
     ]) {
       expect(text).not.toContain(value);
     }
@@ -220,6 +228,11 @@ describe("sanitizePromptProvenanceCandidates", () => {
   it("redacts plain credential lines and past-tense credential phrasings", () => {
     const result = sanitizePromptProvenanceCandidates([
       { role: "user", text: "password fake-standalone-password-value" },
+      { role: "user", text: "token fakealphabeticplaceholder" },
+      {
+        role: "user",
+        text: "password fake-first-part fake-second-part fake-third-part",
+      },
       {
         role: "user",
         text: "the API key was fake-past-tense-api-key-value",
@@ -234,6 +247,8 @@ describe("sanitizePromptProvenanceCandidates", () => {
 
     expect(result.messages.map(({ text }) => text)).toEqual([
       "password [REDACTED]",
+      "token [REDACTED]",
+      "password [REDACTED]",
       "the API key was [REDACTED]",
       "I changed my password yesterday; no value is included.",
       "Pass rate is 40 percent this week.",
@@ -242,6 +257,10 @@ describe("sanitizePromptProvenanceCandidates", () => {
     expect(JSON.stringify(result)).not.toContain(
       "fake-standalone-password-value",
     );
+    expect(JSON.stringify(result)).not.toContain("fakealphabeticplaceholder");
+    expect(JSON.stringify(result)).not.toContain("fake-first-part");
+    expect(JSON.stringify(result)).not.toContain("fake-second-part");
+    expect(JSON.stringify(result)).not.toContain("fake-third-part");
     expect(JSON.stringify(result)).not.toContain(
       "fake-past-tense-api-key-value",
     );
