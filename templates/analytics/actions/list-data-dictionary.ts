@@ -20,6 +20,7 @@ import {
 import {
   readSourceIndex,
   sourceIndexDictionaryEntries,
+  type SourceIndexRead,
 } from "../server/lib/source-index-store.js";
 
 const KEY_PREFIX = "data-dict-";
@@ -57,6 +58,7 @@ export default defineAction({
 
     const entries: Record<string, unknown>[] = [];
     const seen = new Set<string>();
+    let sourceIndexStatus: SourceIndexRead["status"] = "not-configured";
 
     const collect = (raw: unknown) => {
       const e = raw as Record<string, unknown> | null;
@@ -71,27 +73,34 @@ export default defineAction({
       const orgEntries = await listOrgSettings(orgId, KEY_PREFIX);
       for (const value of Object.values(orgEntries)) collect(value);
       const sourceIndex = await readSourceIndex(orgId);
-      if (sourceIndex.status === "unavailable") {
-        fail(
-          "The organization's source index is unreadable. Re-import a valid source index before browsing it.",
-          {
-            errorCode: "source_index_unavailable",
-            statusCode: 500,
-          },
-        );
-      }
-      if (sourceIndex.status === "invalid") {
-        fail(
-          "The organization's source index is invalid. Re-import a valid source index before browsing it.",
-          {
-            errorCode: "source_index_invalid",
-            statusCode: 500,
-          },
-        );
-      }
+      sourceIndexStatus = sourceIndex.status;
       if (sourceIndex.status === "available") {
         for (const entry of sourceIndexDictionaryEntries(sourceIndex.bundle)) {
-          collect(entry);
+          const existingIndex = entries.findIndex(
+            (existing) => existing.id === entry.id,
+          );
+          if (existingIndex < 0) {
+            collect(entry);
+            continue;
+          }
+          entries[existingIndex] = {
+            ...entry,
+            ...entries[existingIndex],
+            status: entry.status,
+            sourceIndex: true,
+            ...(typeof entry.sourcePath === "string"
+              ? { sourcePath: entry.sourcePath }
+              : {}),
+            ...(typeof entry.sourceRevision === "string"
+              ? { sourceRevision: entry.sourceRevision }
+              : {}),
+            ...(typeof entry.sourceIndexGeneratedAt === "string"
+              ? { sourceIndexGeneratedAt: entry.sourceIndexGeneratedAt }
+              : {}),
+            ...(typeof entry.sourceIndexSources === "string"
+              ? { sourceIndexSources: entry.sourceIndexSources }
+              : {}),
+          };
         }
       }
     }
@@ -177,6 +186,6 @@ export default defineAction({
       offset: decodeSearchCursor(cursorSearch, args.nextPage),
     });
 
-    return page;
+    return { ...page, sourceIndexStatus };
   },
 });

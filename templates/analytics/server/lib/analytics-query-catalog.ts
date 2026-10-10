@@ -461,8 +461,8 @@ function dictionaryCandidates(
         ? Math.min(unrelatedNameTerms(search, text(entry.metric)).length, 4) *
           12
         : 0;
-    const score = rawScore - metricNamePenalty;
-    if (score <= 0) return [];
+    if (rawScore <= 0) return [];
+    const score = Math.max(1, rawScore - metricNamePenalty);
     const isSourceIndex = entry.sourceIndex === true;
     const declaredScope = text(entry.semanticScope);
     const semanticScope =

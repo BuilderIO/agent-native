@@ -1,3 +1,7 @@
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import type { AgentEngine } from "../agent/engine/types.js";
@@ -663,6 +667,50 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     );
   });
 
+  it("distinguishes failed agent runs from missing adapter usage", async () => {
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async ({ identity }) => ({
+      output: {
+        text: "",
+        toolCalls: [],
+        ok: false,
+        error: "provider failure details",
+        runId: "run-without-usage",
+        durationMs: 1,
+      },
+      receipt: {
+        productionAgentLoopInvoked: true,
+        requestPreparationInvoked: true,
+        systemPromptBuilt: true,
+        finalResponseGuardInstalled: true,
+        finalResponseGuardApplied: false,
+        usageCaptured: false,
+        prefetchStatus: "ok",
+        ownerEmail: identity.ownerEmail,
+        orgId: identity.orgId,
+        initialToolNames: ["search"],
+        availableActionNames: ["search"],
+        readOnlyActionNames: ["search"],
+      },
+    });
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      engine: { defaultModel: "fake-model" } as unknown as AgentEngine,
+      model: "fake-model",
+    });
+
+    const output = await runner.runAgent({ prompt: "find active users" });
+
+    expect(output.ok).toBe(false);
+    expect(output.error).toBe(
+      "Production agent run failed before usage was captured.",
+    );
+    expect(output.error).not.toContain("provider failure details");
+  });
+
   it("accepts an empty production prefetch result", async () => {
     const runner = await createAgentRunner({
       productionContext: {
@@ -1061,6 +1109,43 @@ describe("runEvalSuite runner creation", () => {
         persist: false,
       }),
     ).rejects.toThrow("Production eval adapter is missing");
+  });
+
+  it("loads TypeScript production adapters with JavaScript module specifiers", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "agent-native-eval-adapter-"));
+    const evalDir = join(cwd, "evals");
+    try {
+      await mkdir(evalDir);
+      await writeFile(
+        join(evalDir, "context-value.ts"),
+        'export const contextValue = "loaded-through-tsx";\n',
+      );
+      await writeFile(
+        join(evalDir, "production-context.ts"),
+        [
+          'import { contextValue } from "./context-value.js";',
+          "export function resolveProductionEvalContext(identity) {",
+          "  return {",
+          "    actions: {},",
+          "    systemPrompt: contextValue,",
+          "    finalResponseGuard: null,",
+          "    ownerEmail: identity.ownerEmail,",
+          "    orgId: identity.orgId,",
+          "    productionChatPath: { run: async () => ({}) },",
+          "  };",
+          "}",
+        ].join("\n"),
+      );
+
+      const context = await loadProductionEvalContext(cwd, {
+        ownerEmail: "eval@example.com",
+        orgId: "org-eval",
+      });
+
+      expect(context.systemPrompt).toBe("loaded-through-tsx");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it("rejects empty and skipped production suites after adapter validation", async () => {

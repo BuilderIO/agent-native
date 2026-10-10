@@ -110,18 +110,39 @@ const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 function hasRelationGrainClaim(
   lines: string[],
   claim: RelationGrainClaim,
-  allRelations: string[],
+  allClaims: RelationGrainClaim[],
 ): boolean {
   const relation = claim.relation.toLowerCase();
   const matchingLines = lines.filter((line) => line.includes(relation));
   return matchingLines.some((line) => {
-    const relationsOnLine = allRelations.filter((name) =>
-      line.includes(name.toLowerCase()),
+    const relationsOnLine = allClaims.filter((candidate) =>
+      line.includes(candidate.relation.toLowerCase()),
     );
-    return (
-      relationsOnLine.length === 1 &&
-      claim.grains.some((grain) => line.includes(grain.toLowerCase()))
+    if (relationsOnLine.length !== 1) return false;
+
+    const expectedGrain = claim.grains[0]?.toLowerCase();
+    if (!expectedGrain) return false;
+    const competingGrain = allClaims.some(
+      (candidate) =>
+        candidate.grains[0]?.toLowerCase() !== expectedGrain &&
+        candidate.grains.some((grain) => line.includes(grain.toLowerCase())),
     );
+    if (competingGrain) return false;
+
+    return claim.grains.some((grain) => {
+      const phrase = grain.toLowerCase();
+      const index = line.indexOf(phrase);
+      if (index < 0) return false;
+      const clauseStart = Math.max(
+        line.lastIndexOf(";", index),
+        line.lastIndexOf(",", index),
+        line.lastIndexOf(".", index),
+      );
+      const precedingClause = line.slice(clauseStart + 1, index);
+      return !/\b(?:not|never|no|isn't|isn’t|wasn't|wasn’t|cannot|can't)\b/.test(
+        precedingClause,
+      );
+    });
   });
 }
 
@@ -140,9 +161,8 @@ function sourceContractScorer(
           (group) => group.alternatives,
         ),
       ];
-      const allRelations = allClaims.map((claim) => claim.relation);
       for (const claim of contract.relationGrains) {
-        if (!hasRelationGrainClaim(lines, claim, allRelations)) {
+        if (!hasRelationGrainClaim(lines, claim, allClaims)) {
           reasons.push(
             `${claim.relation} did not declare its expected ${claim.grains[0]}`,
           );
@@ -152,7 +172,7 @@ function sourceContractScorer(
       for (const group of contract.relationGrainAlternatives) {
         if (
           !group.alternatives.some((claim) =>
-            hasRelationGrainClaim(lines, claim, allRelations),
+            hasRelationGrainClaim(lines, claim, allClaims),
           )
         ) {
           reasons.push(`missing ${group.label} with its expected grain`);

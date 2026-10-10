@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Add per-eval action allowlists that restrict available actions before the model and tool search run.
+Add per-eval action allowlists, load production TypeScript adapters in the CLI, and distinguish failed runs from missing usage.

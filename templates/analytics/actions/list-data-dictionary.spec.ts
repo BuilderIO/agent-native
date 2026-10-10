@@ -100,16 +100,59 @@ describe("list-data-dictionary", () => {
     expect(result.results).toContainEqual(
       expect.objectContaining({ id: "index-generated" }),
     );
+    expect(result.sourceIndexStatus).toBe("available");
     expect(result.nextPage).toBe("2");
   });
 
-  it("fails visibly when the generated index cannot be read", async () => {
+  it("keeps saved entries browsable and reports an unreadable source index", async () => {
     mocks.readSourceIndex.mockResolvedValue({ status: "unavailable" });
 
-    await expect(action.run({ limit: 50 }, {} as never)).rejects.toMatchObject({
-      message: expect.stringContaining("source index is unreadable"),
-      errorCode: "source_index_unavailable",
-      statusCode: 500,
+    const result = await action.run({ limit: 50 }, {} as never);
+
+    expect(result).toMatchObject({
+      sourceIndexStatus: "unavailable",
+      results: expect.arrayContaining([
+        expect.objectContaining({ id: "curated" }),
+        expect.objectContaining({ id: "user" }),
+      ]),
+    });
+    expect(result.results).not.toContainEqual(
+      expect.objectContaining({ id: "index-generated" }),
+    );
+  });
+
+  it("keeps live generated lifecycle status ahead of a saved overlay", async () => {
+    mocks.listOrgSettings.mockResolvedValue({
+      "saved-index-copy": {
+        id: "index-generated",
+        metric: "Saved copy",
+        definition: "Reviewed overlay",
+        status: "active",
+        approved: true,
+      },
+    });
+    mocks.sourceIndexDictionaryEntries.mockReturnValue([
+      {
+        id: "index-generated",
+        metric: "Generated index entry",
+        status: "deprecated",
+        sourceIndex: true,
+        sourceIndexGeneratedAt: "2026-10-10T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await action.run({ limit: 50 }, {} as never);
+    const entry = result.results.find(
+      (candidate: Record<string, unknown>) =>
+        candidate.id === "index-generated",
+    );
+
+    expect(entry).toMatchObject({
+      metric: "Saved copy",
+      definition: "Reviewed overlay",
+      approved: true,
+      status: "deprecated",
+      sourceIndexGeneratedAt: "2026-10-10T00:00:00.000Z",
     });
   });
 });

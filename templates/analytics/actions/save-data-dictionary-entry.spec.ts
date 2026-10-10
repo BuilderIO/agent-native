@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   ),
   putOrgSetting: vi.fn(async () => undefined),
   putUserSetting: vi.fn(async () => undefined),
+  readSourceIndex: vi.fn(async () => ({ status: "not-configured" })),
+  sourceIndexDictionaryEntries: vi.fn(() => []),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -35,6 +37,11 @@ vi.mock("@agent-native/core/settings", () => ({
   putUserSetting: mocks.putUserSetting,
 }));
 
+vi.mock("../server/lib/source-index-store.js", () => ({
+  readSourceIndex: mocks.readSourceIndex,
+  sourceIndexDictionaryEntries: mocks.sourceIndexDictionaryEntries,
+}));
+
 const { default: action } = await import("./save-data-dictionary-entry");
 
 describe("save-data-dictionary-entry schema", () => {
@@ -42,6 +49,8 @@ describe("save-data-dictionary-entry schema", () => {
     vi.clearAllMocks();
     mocks.getOrgSetting.mockResolvedValue(null);
     mocks.getUserSetting.mockResolvedValue(null);
+    mocks.readSourceIndex.mockResolvedValue({ status: "not-configured" });
+    mocks.sourceIndexDictionaryEntries.mockReturnValue([]);
   });
 
   it("parses CLI boolean strings explicitly", async () => {
@@ -138,6 +147,33 @@ describe("save-data-dictionary-entry schema", () => {
         id: "index-model-deprecated",
         metric: "Legacy model",
         definition: "A retired model.",
+      },
+      {} as never,
+    );
+
+    expect(mocks.putOrgSetting).toHaveBeenCalledWith(
+      "org_test",
+      "data-dict-index-model-deprecated",
+      expect.objectContaining({ status: "deprecated" }),
+    );
+  });
+
+  it("uses the live source lifecycle over saved and submitted status", async () => {
+    mocks.getOrgSetting.mockResolvedValue({ status: "active" });
+    mocks.readSourceIndex.mockResolvedValue({
+      status: "available",
+      bundle: { generatedAt: "2026-10-10T00:00:00.000Z" },
+    });
+    mocks.sourceIndexDictionaryEntries.mockReturnValue([
+      { id: "index-model-deprecated", status: "deprecated" },
+    ]);
+
+    await action.run(
+      {
+        id: "index-model-deprecated",
+        metric: "Legacy model",
+        definition: "A retired model.",
+        status: "active",
       },
       {} as never,
     );

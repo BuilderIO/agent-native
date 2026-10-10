@@ -389,6 +389,29 @@ describe("analytics query catalog", () => {
     );
   });
 
+  it("keeps a positive partial dictionary match visible after a large name penalty", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly churn",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "customer-retention-churn",
+          metric: "Customer Retention Churn Region Segment",
+          definition: "Monthly subscription churn by customer segment.",
+        },
+      ],
+    });
+
+    expect(results).toContainEqual(
+      expect.objectContaining({
+        kind: "data-dictionary",
+        id: "customer-retention-churn",
+      }),
+    );
+    expect(results[0]?.score).toBeGreaterThan(0);
+  });
+
   it("keeps a relevant AI generated definition when human entries are unrelated", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "monthly active users",

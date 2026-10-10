@@ -441,7 +441,9 @@ async function runProductionChatPath(args: {
     if (!usage) {
       return failedProductionPathOutput(
         output,
-        "Production chat eval adapter did not return or report usage.",
+        output.ok
+          ? "Production chat eval adapter did not return or report usage."
+          : "Production agent run failed before usage was captured.",
         Date.now() - started,
       );
     }

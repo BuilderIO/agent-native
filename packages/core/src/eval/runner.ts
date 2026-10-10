@@ -349,6 +349,23 @@ function guardProductionEvalOutput(
   };
 }
 
+let productionEvalTypeScriptLoader: Promise<void> | undefined;
+
+async function ensureProductionEvalTypeScriptLoader(): Promise<void> {
+  productionEvalTypeScriptLoader ??= import("tsx/esm/api")
+    .then(({ register }) => {
+      register();
+    })
+    .catch((cause) => {
+      productionEvalTypeScriptLoader = undefined;
+      throw new Error(
+        "Production eval adapters require the app's TypeScript loader `tsx`.",
+        { cause },
+      );
+    });
+  await productionEvalTypeScriptLoader;
+}
+
 export async function loadProductionEvalContext(
   cwd: string,
   identity?: EvalProductionIdentity,
@@ -369,6 +386,8 @@ export async function loadProductionEvalContext(
       `Production eval adapter is missing at ${adapterPath}. Add evals/production-context.ts exporting resolveProductionEvalContext(identity).`,
     );
   }
+
+  await ensureProductionEvalTypeScriptLoader();
 
   const module = (await import(pathToFileURL(adapterPath).href)) as Record<
     string,

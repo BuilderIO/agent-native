@@ -11,6 +11,10 @@ import {
 } from "@agent-native/core/settings";
 import { z } from "zod";
 
+import {
+  readSourceIndex,
+  sourceIndexDictionaryEntries,
+} from "../server/lib/source-index-store.js";
 import { resolveDictionaryTrustDefaults } from "./data-dictionary-trust.js";
 import { cliBoolean } from "./schema-helpers.js";
 
@@ -122,7 +126,7 @@ export default defineAction({
       .enum(["active", "deprecated"])
       .optional()
       .describe(
-        "Lifecycle status from list-data-dictionary. Preserve it when updating an entry; new entries default to active.",
+        "Lifecycle status from list-data-dictionary. Generated index entries use the current source index status; other updates preserve existing status and new entries default to active.",
       ),
     sourceUrl: z
       .string()
@@ -149,6 +153,22 @@ export default defineAction({
         : await getUserSetting(email, key);
     } catch {
       // not found
+    }
+
+    let sourceStatus: "active" | "deprecated" | undefined;
+    if (orgId && id.startsWith("index-")) {
+      const sourceIndex = await readSourceIndex(orgId);
+      if (sourceIndex.status === "available") {
+        const sourceEntry = sourceIndexDictionaryEntries(
+          sourceIndex.bundle,
+        ).find((entry) => entry.id === id);
+        if (
+          sourceEntry?.status === "active" ||
+          sourceEntry?.status === "deprecated"
+        ) {
+          sourceStatus = sourceEntry.status;
+        }
+      }
     }
 
     const { approved, aiGenerated } = resolveDictionaryTrustDefaults(
@@ -186,6 +206,7 @@ export default defineAction({
       approved,
       aiGenerated,
       status:
+        sourceStatus ??
         args.status ??
         ((existing as { status?: unknown } | null)?.status === "deprecated"
           ? "deprecated"

@@ -151,6 +151,44 @@ describe("Analytics synthetic production source evals", () => {
     );
   });
 
+  it("rejects a grain phrase that is negated or contradicted", async () => {
+    const contract = sourceContracts.builderUsersByOrganization;
+    const run = (userGrainLine: string) =>
+      runEvals(
+        [cases[0]!],
+        runnerFor({
+          text: [
+            userGrainLine,
+            "dbt_mart.dim_organizations: organization grain",
+            "dbt_intermediate.user_organization_role: membership grain",
+            "user organization membership",
+          ].join("\n"),
+          toolCalls: ["search-bigquery-schema"],
+          ok: true,
+          runId: "eval:contradictory-grain-fixture",
+          durationMs: 0,
+        }),
+        { persist: false },
+      );
+
+    const negated = await run(
+      "dbt_mart.dim_users_core: not user grain; organization grain",
+    );
+    const contradictory = await run(
+      "dbt_mart.dim_users_core: user grain and organization grain",
+    );
+
+    expect(negated).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(contradictory).toMatchObject({ total: 1, passed: 0, failed: 1 });
+    expect(negated.results[0]?.scores[0]?.reason).toContain(
+      "dbt_mart.dim_users_core did not declare its expected user grain",
+    );
+    expect(contradictory.results[0]?.scores[0]?.reason).toContain(
+      "dbt_mart.dim_users_core did not declare its expected user grain",
+    );
+    expect(contract.relationGrains).toHaveLength(2);
+  });
+
   it("rejects outdated activity and account grain labels", async () => {
     const activityReport = await runEvals(
       [cases[1]!],
