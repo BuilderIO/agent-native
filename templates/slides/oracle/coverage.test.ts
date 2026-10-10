@@ -5,12 +5,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { titleCitations } from "./citations";
 import { loadOracleRows } from "./load";
-
-// Letter families (T, H, V, P, E, O, F, K) must match as well as digits; a
-// digit-only pattern would drop their citations without any failure.
-const CITATION_PATTERN =
-  /\boracle ((?:\d+|[A-Z])\.\d+[a-z]?|G\.[a-z0-9][a-z0-9.-]*)\b/g;
 
 const SLIDES_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const BASELINE_PATH = fileURLToPath(
@@ -49,16 +45,10 @@ function collectCitations(): Map<string, string[]> {
   for (const root of SCAN_ROOTS) {
     for (const file of listFiles(root.dir, root.accept)) {
       const relative = path.relative(SLIDES_ROOT, file);
-      for (const line of readFileSync(file, "utf8").split("\n")) {
-        // Whole-line comments are skipped, so a note that names a row cannot
-        // satisfy the ratchet.
-        if (/^\s*(\/\/|\/\*|\*)/.test(line)) continue;
-        for (const match of line.matchAll(CITATION_PATTERN)) {
-          const id = match[1];
-          const files = cited.get(id) ?? [];
-          if (!files.includes(relative)) files.push(relative);
-          cited.set(id, files);
-        }
+      for (const id of titleCitations(readFileSync(file, "utf8"), relative)) {
+        const files = cited.get(id) ?? [];
+        if (!files.includes(relative)) files.push(relative);
+        cited.set(id, files);
       }
     }
   }

@@ -161,6 +161,11 @@ const INCOMPLETE_CASES: Array<{
     rowExpect: FULL_EXPECT,
     observed: { hit: "group" },
   },
+  {
+    name: "an expected value inherited from the prototype, not reported by the probe",
+    rowExpect: { hit: "object" },
+    observed: Object.create({ hit: "object" }) as ObservedOutcome,
+  },
 ];
 
 const MALFORMED_OBSERVATIONS: Array<[string, unknown]> = [

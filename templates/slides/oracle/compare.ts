@@ -101,7 +101,12 @@ export function compareOracleRow(
 
   const keys: Partial<Record<OracleExpectKey, OracleVerdict>> = {};
   const verdicts = expectedKeys.map((key) => {
-    const verdict = verdictFor(rowId, key, observed[key], expect[key]);
+    // Own properties only: a value inherited from a prototype was not reported
+    // by this probe, so it must read as missing, never as a result.
+    const reported = Object.prototype.hasOwnProperty.call(observed, key)
+      ? observed[key]
+      : undefined;
+    const verdict = verdictFor(rowId, key, reported, expect[key]);
     keys[key] = verdict;
     return verdict;
   });
