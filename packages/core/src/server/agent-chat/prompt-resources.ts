@@ -781,6 +781,8 @@ async function loadResourceSkillPromptEntries(
                 ? 3
                 : 4);
       if (ownerOrder !== 0) return ownerOrder;
+      const updatedOrder = b.updatedAt - a.updatedAt;
+      if (updatedOrder !== 0) return updatedOrder;
       return a.path.localeCompare(b.path);
     });
     const skillCandidates = sorted.slice(0, PROMPT_SKILL_METADATA_READ_LIMIT);

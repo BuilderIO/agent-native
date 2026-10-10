@@ -709,6 +709,60 @@ describe("agent chat thread save route", () => {
 });
 
 describe("agent chat resource route organization scopes", () => {
+  it("prefers the most recently updated resource skill when names repeat", async () => {
+    const h3App = await mountResourceRoutes();
+    const candidates = [
+      {
+        id: "repeat_slash_skill_2",
+        path: "skills/repeat-skill-2/SKILL.md",
+        owner: "user@example.test",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content: "---\nname: repeat-skill\ndescription: Older\n---\n# Older",
+      },
+      {
+        id: "repeat_slash_skill_3",
+        path: "skills/repeat-skill-3/SKILL.md",
+        owner: "user@example.test",
+        mimeType: "text/markdown",
+        updatedAt: 2000,
+        content: "---\nname: repeat-skill\ndescription: Newest\n---\n# Newest",
+      },
+    ];
+    for (const candidate of candidates) {
+      resourcesById.set(candidate.id, candidate);
+    }
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" } as any);
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      "/_agent-native/agent-chat/skills",
+      { userEmail: "user@example.test" },
+    );
+    const result = (await response.json()) as {
+      skills: Array<{
+        name: string;
+        description?: string;
+        path: string;
+        source: string;
+      }>;
+    };
+
+    expect(
+      result.skills.filter((skill) => skill.name === "repeat-skill"),
+    ).toEqual([
+      {
+        name: "repeat-skill",
+        description: "Newest",
+        path: "skills/repeat-skill-3/SKILL.md",
+        source: "resource",
+      },
+    ]);
+  });
+
   it("keeps Lab-gated bundled skills out of the slash picker for disabled users", async () => {
     const h3App = await mountResourceRoutes();
     const creativeSkill = {

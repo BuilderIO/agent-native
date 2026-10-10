@@ -1214,6 +1214,45 @@ describe("preloadJevContextForPrompt", () => {
     expect(prompt).not.toContain("ambient.md");
   });
 
+  it("prefers the most recently updated resource skill when names repeat", async () => {
+    const owner = "user@example.test";
+    const candidates = [
+      {
+        id: "repeat-skill-2",
+        owner,
+        path: "skills/repeat-skill-2/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: repeat-skill\ndescription: Older version.\n---\n# Older",
+      },
+      {
+        id: "repeat-skill-3",
+        owner,
+        path: "skills/repeat-skill-3/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 2000,
+        content:
+          "---\nname: repeat-skill\ndescription: Newest version.\n---\n# Newest",
+      },
+    ];
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+    mocks.resourceGet.mockImplementation(
+      async (id: string) =>
+        candidates.find((candidate) => candidate.id === id) ?? null,
+    );
+
+    const prompt = await loadResourcesForPrompt(owner, false, undefined, null);
+
+    expect(prompt).toContain(
+      "`repeat-skill` at resource `skills/repeat-skill-3/SKILL.md`",
+    );
+    expect(prompt).toContain("Newest version.");
+    expect(prompt).not.toContain("skills/repeat-skill-2/SKILL.md");
+  });
+
   it.each([false, true])(
     "loads personal memory instructions in %s compact context",
     async (compact) => {

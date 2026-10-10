@@ -5954,6 +5954,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               (a.path.endsWith("/SKILL.md") ? 0 : 1) -
               (b.path.endsWith("/SKILL.md") ? 0 : 1);
             if (pathOrder !== 0) return pathOrder;
+            const updatedOrder = b.updatedAt - a.updatedAt;
+            if (updatedOrder !== 0) return updatedOrder;
             return a.path.localeCompare(b.path);
           });
           for (const r of resourceSkills) {
