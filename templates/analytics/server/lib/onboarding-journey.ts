@@ -547,6 +547,7 @@ async function readJourneyEvents(
         maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
         eventDateRange: request.eventDateRange,
         scopedEventsSingleScan: true,
+        scopedEventsProjection: "onboarding_journey",
         signal,
       });
     } catch (error) {

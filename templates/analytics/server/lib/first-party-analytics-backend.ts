@@ -297,6 +297,25 @@ const FIRST_PARTY_ANALYTICS_RAW_SCHEMA = [
   ["org_id", "STRING"],
 ] as const;
 
+export const ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS = [
+  "id",
+  "org_id",
+  "received_at",
+  "event_date",
+  "event_name",
+  "user_id",
+  "user_key",
+  "session_id",
+  "timestamp",
+  "path",
+  "app",
+  "template",
+  "properties",
+  "owner_email",
+] as const;
+
+export type FirstPartyAnalyticsEventsProjection = "onboarding_journey";
+
 export const FIRST_PARTY_ANALYTICS_BACKFILL_COLUMNS = [
   "id",
   "public_key_id",
@@ -1301,11 +1320,25 @@ function addPartitionPrunedEventDeduplication(
   options: {
     eventDateRange?: { startDate: string; endDate: string };
     scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
   } = {},
 ): string {
   const quote = String.fromCharCode(96);
   const rawSource = `${quote}${firstPartyAnalyticsRawTable(table)}${quote}`;
-  const sourcePattern = /\bSELECT\s+\*\s+FROM\s+(`[^`]+`)\s+WHERE\b/gi;
+  const projectedColumnsPattern =
+    ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join("\\s*,\\s*");
+  const selectedColumnsPattern =
+    options.scopedEventsProjection === "onboarding_journey"
+      ? `(?:\\*|${projectedColumnsPattern})`
+      : "\\*";
+  const sourcePattern = new RegExp(
+    `\\bSELECT\\s+${selectedColumnsPattern}\\s+FROM\\s+(${quote}[^${quote}]+${quote})\\s+WHERE\\b`,
+    "gi",
+  );
+  const sourceSelectPattern = new RegExp(
+    `^SELECT\\s+${selectedColumnsPattern}\\s+FROM\\b`,
+    "i",
+  );
   let result = "";
   let cursor = 0;
   let searchStart = 0;
@@ -1318,7 +1351,7 @@ function addPartitionPrunedEventDeduplication(
     searchStart = sourcePattern.lastIndex;
     if (
       sourceMatch[1] !== rawSource ||
-      !/^SELECT\s+\*\s+FROM\b/i.test(code.slice(sourceIndex))
+      !sourceSelectPattern.test(code.slice(sourceIndex))
     ) {
       continue;
     }
@@ -1379,6 +1412,7 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   options: {
     eventDateRange?: { startDate: string; endDate: string };
     scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
   } = {},
 ): string {
   // The Postgres scope builder uses a text fallback for nullable event
@@ -1413,6 +1447,7 @@ export function renderFirstPartyAnalyticsBigQueryRequestSql(
   options: {
     eventDateRange?: { startDate: string; endDate: string };
     scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
   } = {},
 ): string {
   return `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, options)}) AS first_party_analytics_query LIMIT 5000`;
@@ -1425,6 +1460,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   options: {
     eventDateRange?: { startDate: string; endDate: string };
     scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
     maxBytesBilled?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
@@ -1455,6 +1491,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
       renderFirstPartyAnalyticsBigQueryRequestSql(scopedSql, args, table, {
         eventDateRange: options.eventDateRange,
         scopedEventsSingleScan: options.scopedEventsSingleScan,
+        scopedEventsProjection: options.scopedEventsProjection,
       }),
       {
         maxBytesBilled: options.maxBytesBilled,

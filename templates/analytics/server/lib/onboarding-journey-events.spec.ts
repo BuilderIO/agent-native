@@ -1212,6 +1212,30 @@ describe("onboarding journey events SQL", () => {
     expect(normal[3]).toMatchObject({ step_id: "role", method_id: null });
   });
 
+  it("preserves journey results with the explicit event source projection", async () => {
+    await setup();
+    await seedSessions();
+    const sql = buildOnboardingJourneyEventsSql(
+      filters(),
+      { limit: 100, offset: 0 },
+      observation(),
+    );
+    const fullScope = scopedAnalyticsSql(sql, SCOPE);
+    const projectedScope = scopedAnalyticsSql(sql, SCOPE, undefined, {
+      scopedEventsSingleScan: true,
+      scopedEventsProjection: "onboarding_journey",
+    });
+    const fullResult = (await client.query(fullScope.sql, fullScope.args)) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    const projectedResult = (await client.query(
+      projectedScope.sql,
+      projectedScope.args,
+    )) as { rows: Array<Record<string, unknown>> };
+
+    expect(projectedResult.rows).toEqual(fullResult.rows);
+  });
+
   it("selects attempt ids only as an internal journey field", async () => {
     await setup();
     await insert("slides", "signup", 1, {
