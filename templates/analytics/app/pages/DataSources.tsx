@@ -1621,6 +1621,10 @@ function useFirstPartyAnalyticsData() {
   };
 }
 
+// Keep captureException() and captureMessage() verbatim in every translation:
+// the split below renders them as inline code.
+const SDK_CAPTURE_CALL_PATTERN = /(captureException\(\)|captureMessage\(\))/;
+
 /** First-party analytics setup sheet body: backend health, SDK env, keys, and replay origins. */
 function FirstPartyAnalyticsDetail() {
   const t = useT();
@@ -1816,20 +1820,25 @@ function FirstPartyAnalyticsDetail() {
       </div>
 
       {/* Error capture note — the analytics SDK also captures uncaught
-          exceptions and links them to session replays. Static English
-          copy because shared i18n is owned elsewhere. */}
+          exceptions and links them to session replays. The heading and
+          docs link stay static English because shared i18n is owned
+          elsewhere. */}
       <div className="rounded-md bg-muted/30 p-3 text-xs">
         <div className="font-medium text-foreground">
           Error capture{/* i18n-ignore static SDK docs label */}
         </div>
         <p className="mt-1 text-muted-foreground">
-          Once a public key is set, the browser SDK automatically captures
-          uncaught exceptions and unhandled promise rejections, and exposes a
-          Sentry-style <code className="font-mono">captureException()</code> /{" "}
-          <code className="font-mono">captureMessage()</code> API. Errors
-          {/* i18n-ignore static SDK docs copy */} are grouped into issues under
-          Monitoring → Errors and linked to the session replay where each one
-          happened.
+          {t("dataSources.firstPartySdkAutoCapture")
+            .split(SDK_CAPTURE_CALL_PATTERN)
+            .map((part, index) =>
+              index % 2 === 1 ? (
+                <code key={index} className="font-mono">
+                  {part}
+                </code>
+              ) : (
+                part
+              ),
+            )}
         </p>
         <a
           href={docsUrl("tracking", { hash: "posthog-error-tracking" })}
