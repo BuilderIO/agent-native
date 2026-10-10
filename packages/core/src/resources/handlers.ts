@@ -501,6 +501,9 @@ export async function handleCreateResource(event: any) {
     const writeOptions =
       body.metadata !== undefined ? { metadata: body.metadata } : undefined;
     const organizationId = organizationIdFromResourceOwner(owner);
+    const uploaderEmail = organizationId
+      ? (await getOrgContext(event)).email
+      : undefined;
     const content = body.content ?? "";
     const skillName = parseSkillMetadata(content, body.path)?.name.trim();
     for (let suffix = 1; suffix <= 1000; suffix += 1) {
@@ -509,6 +512,18 @@ export async function handleCreateResource(event: any) {
       const legacySharedResource = organizationId
         ? await resourceGetByPath(SHARED_OWNER, path, { orgId: organizationId })
         : null;
+      const personalResource = uploaderEmail
+        ? await resourceGetByPath(uploaderEmail, path, {
+            orgId: organizationId,
+          })
+        : null;
+      if (
+        personalResource &&
+        parseSkillMetadata(personalResource.content, path)?.name.trim() !==
+          skillName
+      ) {
+        continue;
+      }
       if (
         legacySharedResource &&
         !(await resourceGetByPath(owner, path, { orgId: organizationId }))

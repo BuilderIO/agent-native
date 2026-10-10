@@ -958,6 +958,138 @@ Legacy webhook.`,
       });
     });
 
+    it("skips personal skill paths with a different name for organization uploads", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      const requestedPath = "skills/release-notes/SKILL.md";
+      const personalByPath = new Map([
+        [
+          requestedPath,
+          {
+            id: "personal-release-notes",
+            owner: "test@test.com",
+            path: requestedPath,
+            content: "---\nname: Release Notes Archive\n---\nPersonal",
+          },
+        ],
+        [
+          "skills/release-notes-2/SKILL.md",
+          {
+            id: "personal-other-release-notes",
+            owner: "test@test.com",
+            path: "skills/release-notes-2/SKILL.md",
+            content: "---\nname: Other Release Notes\n---\nPersonal",
+          },
+        ],
+      ]);
+      mockResourceGetByPath.mockImplementation(async (owner, path, options) => {
+        if (owner === "__shared__") return null;
+        if (owner === "test@test.com") return personalByPath.get(path) ?? null;
+        if (
+          owner === "__organization__:org-1" &&
+          path === requestedPath &&
+          options?.orgId === "org-1"
+        ) {
+          return {
+            id: "hidden-organization-skill",
+            owner,
+            path,
+            content: "---\nname: Release Notes\n---\nOld org skill",
+            updatedAt: 1000,
+          };
+        }
+        return null;
+      });
+      const content = "---\nname: Release Notes\n---\nNew org skill";
+      const created = {
+        id: "organization-release-notes",
+        owner: "__organization__:org-1",
+        path: "skills/release-notes-3/SKILL.md",
+        content,
+      };
+      mockResourcePutIfAbsent.mockResolvedValueOnce(created);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: requestedPath,
+          content,
+          mimeType: "text/markdown",
+          shared: true,
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourceGetByPath).toHaveBeenCalledWith(
+        "test@test.com",
+        requestedPath,
+        { orgId: "org-1" },
+      );
+      expect(mockResourceGetByPath).toHaveBeenCalledWith(
+        "test@test.com",
+        "skills/release-notes-2/SKILL.md",
+        { orgId: "org-1" },
+      );
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "__organization__:org-1",
+        created.path,
+        content,
+        "text/markdown",
+        undefined,
+      );
+      expect(mockResourcePutIfCurrent).not.toHaveBeenCalled();
+    });
+
+    it("keeps the canonical path when a personal skill has the same name", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      const path = "skills/release-notes/SKILL.md";
+      mockResourceGetByPath.mockImplementation(async (owner, candidatePath) =>
+        owner === "test@test.com" && candidatePath === path
+          ? {
+              id: "personal-release-notes",
+              owner,
+              path,
+              content: "---\nname: Release Notes\n---\nPersonal",
+            }
+          : null,
+      );
+      const content = "---\nname: Release Notes\n---\nOrganization";
+      const created = {
+        id: "organization-release-notes",
+        owner: "__organization__:org-1",
+        path,
+        content,
+      };
+      mockResourcePutIfAbsent.mockResolvedValueOnce(created);
+
+      await handleCreateResource({
+        _body: {
+          path,
+          content,
+          shared: true,
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "__organization__:org-1",
+        path,
+        content,
+        undefined,
+        undefined,
+      );
+    });
+
     it("creates shared resource when shared flag is set", async () => {
       mockResourcePut.mockResolvedValue({ id: "s1" });
 

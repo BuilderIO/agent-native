@@ -44,6 +44,7 @@ import {
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
+  sortResourceSkills,
 } from "./skill-frontmatter.js";
 
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
@@ -752,7 +753,6 @@ async function loadResourceSkillPromptEntries(
   metadataRead: number;
 }> {
   try {
-    const organizationOwner = sharedResourceOwner(orgId);
     const resources =
       owner === SHARED_OWNER
         ? [
@@ -760,31 +760,7 @@ async function loadResourceSkillPromptEntries(
             ...(await resourceList(WORKSPACE_OWNER, "skills/", { orgId })),
           ]
         : await resourceListAccessible(owner, "skills/", { orgId });
-    const sorted = resources.sort((a, b) => {
-      const ownerOrder =
-        (a.owner === owner
-          ? 0
-          : a.owner === organizationOwner
-            ? 1
-            : a.owner === SHARED_OWNER
-              ? 2
-              : isWorkspaceResourceOwner(a.owner)
-                ? 3
-                : 4) -
-        (b.owner === owner
-          ? 0
-          : b.owner === organizationOwner
-            ? 1
-            : b.owner === SHARED_OWNER
-              ? 2
-              : isWorkspaceResourceOwner(b.owner)
-                ? 3
-                : 4);
-      if (ownerOrder !== 0) return ownerOrder;
-      const updatedOrder = b.updatedAt - a.updatedAt;
-      if (updatedOrder !== 0) return updatedOrder;
-      return a.path.localeCompare(b.path);
-    });
+    const sorted = sortResourceSkills(resources, { owner, orgId });
     const skillCandidates = sorted.slice(0, PROMPT_SKILL_METADATA_READ_LIMIT);
     const loaded = await Promise.all(
       skillCandidates.map(async (resource) => ({

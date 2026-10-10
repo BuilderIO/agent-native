@@ -1263,6 +1263,96 @@ describe("preloadJevContextForPrompt", () => {
     expect(prompt).not.toContain("skills/legacy-repeat-skill.md");
   });
 
+  it("prefers the same personal skill across canonical, suffixed, org, and shared paths", async () => {
+    const owner = "user@example.test";
+    const candidates = [
+      {
+        id: "resource-priority-canonical",
+        owner,
+        path: "skills/resource-priority/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: resource-priority\ndescription: Older canonical version.\n---\n# Older",
+      },
+      {
+        id: "resource-priority-suffixed",
+        owner,
+        path: "skills/resource-priority-2/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 2000,
+        content:
+          "---\nname: resource-priority\ndescription: Newer personal version.\n---\n# Newer personal",
+      },
+      {
+        id: "resource-priority-organization",
+        owner: "__organization__:org-1",
+        path: "skills/organization-copy/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 3000,
+        content:
+          "---\nname: resource-priority\ndescription: Newer organization version.\n---\n# Organization",
+      },
+      {
+        id: "resource-priority-shared",
+        owner: "__shared__",
+        path: "skills/shared-copy/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 4000,
+        content:
+          "---\nname: resource-priority\ndescription: Newer shared version.\n---\n# Shared",
+      },
+      {
+        id: "organization-priority-organization",
+        owner: "__organization__:org-1",
+        path: "skills/organization-priority/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 1000,
+        content:
+          "---\nname: organization-priority\ndescription: Organization version.\n---\n# Organization",
+      },
+      {
+        id: "organization-priority-shared",
+        owner: "__shared__",
+        path: "skills/organization-priority-shared/SKILL.md",
+        mimeType: "text/markdown",
+        updatedAt: 4000,
+        content:
+          "---\nname: organization-priority\ndescription: Newer shared version.\n---\n# Shared",
+      },
+    ];
+    mocks.resourceListAccessible.mockResolvedValue(
+      candidates.map(({ content: _content, ...resource }) => resource),
+    );
+    mocks.resourceGet.mockImplementation(
+      async (id: string) =>
+        candidates.find((candidate) => candidate.id === id) ?? null,
+    );
+
+    const prompt = await loadResourcesForPrompt(
+      owner,
+      false,
+      undefined,
+      "org-1",
+    );
+
+    expect(prompt).toContain(
+      "`resource-priority` at resource `skills/resource-priority-2/SKILL.md`",
+    );
+    expect(prompt).toContain("Newer personal version.");
+    expect(prompt).not.toContain(
+      "`resource-priority` at resource `skills/organization-copy/SKILL.md`",
+    );
+    expect(prompt).not.toContain(
+      "`resource-priority` at resource `skills/shared-copy/SKILL.md`",
+    );
+    expect(prompt).toContain(
+      "`organization-priority` at resource `skills/organization-priority/SKILL.md`",
+    );
+    expect(prompt).toContain("Organization version.");
+    expect(prompt).not.toContain("Newer shared version.");
+  });
+
   it.each([false, true])(
     "loads personal memory instructions in %s compact context",
     async (compact) => {
