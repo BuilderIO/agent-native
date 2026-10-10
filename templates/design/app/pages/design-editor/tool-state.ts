@@ -192,3 +192,24 @@ export function getSingleScreenCreationTool(args: {
       return null;
   }
 }
+
+/**
+ * The keyboard entries into annotate mode. Drawing needs both edit rights and
+ * the comment capability that shows the comment and annotate tools.
+ */
+export function annotationHotkeyHandlers<Handler>({
+  canEditDesign,
+  canCommentDesign,
+  onComment,
+  onDraw,
+}: {
+  canEditDesign: boolean;
+  canCommentDesign: boolean;
+  onComment: Handler;
+  onDraw: Handler;
+}): { onCommentTool: Handler | undefined; onDrawTool: Handler | undefined } {
+  return {
+    onCommentTool: canCommentDesign ? onComment : undefined,
+    onDrawTool: canEditDesign && canCommentDesign ? onDraw : undefined,
+  };
+}
