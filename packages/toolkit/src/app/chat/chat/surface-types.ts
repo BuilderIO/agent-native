@@ -72,7 +72,7 @@ export interface AssistantChatHandle {
    */
   setComposerContextItem(
     item: AgentChatContextItem,
-    options?: { focus?: boolean },
+    options?: { focus?: boolean; threadScoped?: boolean },
   ): void;
   /** Remove a keyed context item from the composer. */
   removeComposerContextItem(key: string): void;

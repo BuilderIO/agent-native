@@ -1845,13 +1845,14 @@ const AgentKitAssistantChatBody = forwardRef<
         filterAgentChatContextItems(
           getAgentChatContextState().items,
           props.contextNamespace,
+          threadId,
         ),
       );
     };
     apply();
     void refreshAgentChatContext().then(apply);
     return subscribeAgentChatContext(apply);
-  }, [props.contextNamespace, props.isActiveComposer]);
+  }, [props.contextNamespace, props.isActiveComposer, threadId]);
 
   useEffect(() => {
     if (seenEventsRef.current.threadId !== threadId) {
@@ -2974,7 +2975,7 @@ const AgentKitAssistantChatBody = forwardRef<
         .concat(item);
       publishAgentChatContextItems(next);
       setContextItems(
-        filterAgentChatContextItems(next, props.contextNamespace),
+        filterAgentChatContextItems(next, props.contextNamespace, threadId),
       );
       if (focus) requestComposerFocus(threadId);
     },
@@ -2987,10 +2988,10 @@ const AgentKitAssistantChatBody = forwardRef<
       );
       publishAgentChatContextItems(next);
       setContextItems(
-        filterAgentChatContextItems(next, props.contextNamespace),
+        filterAgentChatContextItems(next, props.contextNamespace, threadId),
       );
     },
-    [props.contextNamespace],
+    [props.contextNamespace, threadId],
   );
   const implementPlan = useCallback(() => {
     const canImplement =
@@ -3013,7 +3014,16 @@ const AgentKitAssistantChatBody = forwardRef<
         setPrefillRevision((revision) => revision + 1);
       },
       setComposerContextItem: (item, options) =>
-        setContextItem(item, options?.focus !== false),
+        setContextItem(
+          options?.threadScoped
+            ? {
+                ...item,
+                key: `${item.key}:${threadId}`,
+                targetThreadId: threadId,
+              }
+            : item,
+          options?.focus !== false,
+        ),
       removeComposerContextItem: removeContextItem,
       clearComposerContextItems: () => {
         for (const item of contextItems) removeContextItem(item.key);

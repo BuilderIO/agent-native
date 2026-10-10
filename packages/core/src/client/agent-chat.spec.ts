@@ -1788,4 +1788,32 @@ describe("filterAgentChatContextItems", () => {
       items[2],
     ]);
   });
+
+  it("keeps thread-targeted context in its chat thread", () => {
+    const items = [
+      { key: "shared", title: "Shared", context: "Available everywhere" },
+      {
+        key: "prefill:thread-1",
+        title: "Prefill",
+        context: "First thread only",
+        targetThreadId: "thread-1",
+      },
+      {
+        key: "prefill:thread-2",
+        title: "Prefill",
+        context: "Second thread only",
+        targetThreadId: "thread-2",
+      },
+    ];
+
+    expect(filterAgentChatContextItems(items, undefined, "thread-1")).toEqual([
+      items[0],
+      items[1],
+    ]);
+    expect(filterAgentChatContextItems(items, undefined, "thread-2")).toEqual([
+      items[0],
+      items[2],
+    ]);
+    expect(filterAgentChatContextItems(items)).toEqual([items[0]]);
+  });
 });

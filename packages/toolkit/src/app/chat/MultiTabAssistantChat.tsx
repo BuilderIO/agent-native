@@ -135,7 +135,10 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
     if (send.prefillContext) {
-      ref.setComposerContextItem(send.prefillContext, { focus: false });
+      ref.setComposerContextItem(send.prefillContext, {
+        focus: false,
+        threadScoped: true,
+      });
     }
     ref.prefillMessage(send.message);
     return;
@@ -1237,7 +1240,10 @@ export function MultiTabAssistantChat({
       item: AgentChatContextItem,
       options?: { focus?: boolean },
     ) => {
-      if (filterAgentChatContextItems([item], contextNamespace).length === 0) {
+      if (
+        filterAgentChatContextItems([item], contextNamespace, threadId)
+          .length === 0
+      ) {
         return;
       }
       const ref = chatRefs.current.get(threadId);

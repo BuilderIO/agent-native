@@ -78,6 +78,7 @@ export interface AgentChatContextItem {
   title: string;
   context: string;
   contextNamespace?: string;
+  targetThreadId?: string;
 }
 
 export interface AgentChatContextSetOptions extends AgentChatContextItem {
@@ -376,23 +377,31 @@ export function normalizeAgentChatContextItem(
     typeof candidate.contextNamespace === "string"
       ? candidate.contextNamespace.trim()
       : "";
+  const targetThreadId =
+    typeof candidate.targetThreadId === "string"
+      ? candidate.targetThreadId.trim()
+      : "";
   return {
     key,
     title: candidate.title.trim() || key,
     context,
     ...(contextNamespace ? { contextNamespace } : {}),
+    ...(targetThreadId ? { targetThreadId } : {}),
   };
 }
 
 export function filterAgentChatContextItems(
   items: readonly AgentChatContextItem[],
   contextNamespace?: string | null,
+  threadId?: string | null,
 ): AgentChatContextItem[] {
   const namespace = contextNamespace?.trim();
-  if (!namespace) return [...items];
   return items.filter(
     (item) =>
-      !item.contextNamespace || item.contextNamespace.trim() === namespace,
+      (!item.targetThreadId || item.targetThreadId === threadId?.trim()) &&
+      (!namespace ||
+        !item.contextNamespace ||
+        item.contextNamespace.trim() === namespace),
   );
 }
 

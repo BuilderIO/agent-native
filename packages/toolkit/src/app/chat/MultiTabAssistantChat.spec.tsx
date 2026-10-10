@@ -671,7 +671,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         title: "Active app context",
         context: "Selected rows: a, b",
       }),
-      { focus: false },
+      { focus: false, threadScoped: true },
     );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
@@ -699,6 +699,8 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(calls[0]?.[0].key).toBe("agent-chat-prefill-context");
     expect(calls[1]?.[0].key).toBe(calls[0]?.[0].key);
     expect(calls[1]?.[0].context).toBe("Selected rows: c, d");
+    expect(calls[0]?.[1]).toEqual({ focus: false, threadScoped: true });
+    expect(calls[1]?.[1]).toEqual({ focus: false, threadScoped: true });
   });
 
   it("uses the current context namespace for a prefilled context", async () => {
@@ -743,7 +745,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         context: "Selected message: hello",
         contextNamespace: "desktop-app:mail",
       }),
-      { focus: false },
+      { focus: false, threadScoped: true },
     );
   });
 
