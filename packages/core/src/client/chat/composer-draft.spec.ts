@@ -11,6 +11,7 @@ import {
   readAssistantChatHiddenContext,
   writeAssistantChatComposerContextDraft,
   writeAssistantChatHiddenContext,
+  canWriteAssistantChatHiddenContext,
 } from "./composer-draft.js";
 
 describe("assistant chat composer drafts", () => {
@@ -202,6 +203,36 @@ describe("hidden composer context persistence", () => {
 
       expect(saved).toBe(false);
       expect(window.localStorage.getItem(key)).toBeNull();
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+});
+
+describe("hidden composer context capacity", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("refuses context the storage cannot take, and leaves no probe behind", () => {
+    const item = {
+      key: "prefill-context-probe",
+      title: "prefill-context-probe",
+      context: "Cast: Tom Holland",
+      stagedAt: Date.now(),
+    };
+    expect(canWriteAssistantChatHiddenContext("thread-p", [item])).toBe(true);
+    expect(window.localStorage.length).toBe(0);
+
+    const setItem = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+    try {
+      expect(canWriteAssistantChatHiddenContext("thread-p", [item])).toBe(
+        false,
+      );
     } finally {
       setItem.mockRestore();
     }

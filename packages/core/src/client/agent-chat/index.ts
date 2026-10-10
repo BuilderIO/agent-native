@@ -334,6 +334,7 @@ export {
   writeAssistantChatComposerContextDraft,
   writeAssistantChatComposerDraft,
   writeAssistantChatHiddenContext,
+  canWriteAssistantChatHiddenContext,
   type AssistantChatComposerContextDraft,
   type AssistantChatHiddenContextItem,
 } from "../chat/composer-draft.js";

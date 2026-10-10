@@ -45,6 +45,7 @@ import type { CreateAgentNativeAgentKitTransportOptions } from "@agent-native/co
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "@agent-native/core/client/agent-chat";
 import {
   readAssistantChatComposerDraft,
+  canWriteAssistantChatHiddenContext,
   readAssistantChatHiddenContext,
   writeAssistantChatComposerDraft,
   writeAssistantChatHiddenContext,
@@ -1883,9 +1884,13 @@ const AgentKitAssistantChatBody = forwardRef<
   useEffect(() => {
     const previous = draftRef.current;
     draftRef.current = { scope: hiddenContextScope, text: composerText };
+    // The first text change after a submit is the composer's own clear, so it ends
+    // that submit's marker. A later deliberate clear of the same text is not skipped.
+    const submittedText = submittedDraftRef.current;
+    submittedDraftRef.current = null;
     if (previous.scope !== hiddenContextScope) return;
     if (previous.text.trim() === "" || composerText.trim() !== "") return;
-    if (previous.text.trim() === submittedDraftRef.current?.trim()) return;
+    if (previous.text.trim() === submittedText?.trim()) return;
     setContextItems((items) =>
       items.some((item) => item.composerOnly)
         ? items.filter((item) => !item.composerOnly)
@@ -3113,11 +3118,21 @@ const AgentKitAssistantChatBody = forwardRef<
       },
       setComposerContextItem: (item, options) =>
         setContextItem(item, options?.focus !== false),
-      canStageComposerContextItem: (item) =>
-        composerContextFits([
+      canStageComposerContextItem: (item) => {
+        const combined = [
           ...contextItems.filter((candidate) => candidate.key !== item.key),
           item,
-        ]),
+        ];
+        // The draft text is stored beside this context, so a context the storage would
+        // refuse is refused here, before the draft changes.
+        return (
+          composerContextFits(combined) &&
+          canWriteAssistantChatHiddenContext(
+            hiddenContextScope,
+            combined.filter((candidate) => candidate.composerOnly),
+          )
+        );
+      },
       removeComposerContextItem: removeContextItem,
       clearComposerContextItems: () => {
         for (const item of contextItems) removeContextItem(item.key);

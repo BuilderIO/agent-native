@@ -2022,6 +2022,65 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.composerProps.contextItems).toHaveLength(1);
   });
 
+  it("refuses a composer-only prefill the storage cannot keep, before any draft changes", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const setItem = vi
+      .spyOn(window.localStorage, "setItem")
+      .mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+    try {
+      expect(
+        ref.current!.canStageComposerContextItem({
+          key: "agent-chat-prefill-context",
+          title: "Active app context",
+          context: "Cast: Tom Holland",
+          composerOnly: true,
+          hidden: true,
+          stagedAt: Date.now(),
+        }),
+      ).toBe(false);
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+
+  it("a later deliberate clear of restored text drops the context staged with it", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () => chatMocks.composerProps.onTextChange("Tell me more"));
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "agent-chat-prefill-context",
+          title: "Active app context",
+          context: "Cast: Tom Holland",
+          composerOnly: true,
+          hidden: true,
+          stagedAt: Date.now(),
+        },
+        { focus: false },
+      ),
+    );
+    chatMocks.control.sendMessage.mockImplementationOnce(() =>
+      Promise.reject(new Error("send failed")),
+    );
+    await act(async () => {
+      void chatMocks.composerProps
+        .onSubmit("Tell me more", [], [], { intent: "immediate" })
+        .catch(() => undefined);
+    });
+    // The composer empties its draft as it submits, then restores it after the failure.
+    await act(async () => chatMocks.composerProps.onTextChange(""));
+    await act(async () => chatMocks.composerProps.onTextChange("Tell me more"));
+    expect(chatMocks.composerProps.contextItems).toHaveLength(1);
+
+    await act(async () => chatMocks.composerProps.onTextChange(""));
+
+    expect(chatMocks.composerProps.contextItems).toEqual([]);
+  });
+
   it("clearing the draft in this chat drops its composer-only context", async () => {
     const ref = createRef<AssistantChatHandle>();
     await mount(baseProps(), ref);

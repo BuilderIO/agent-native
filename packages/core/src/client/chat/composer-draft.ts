@@ -153,11 +153,34 @@ export interface AssistantChatHiddenContextItem {
   stagedAt?: number;
 }
 
+type HiddenContextWrite = {
+  key: string;
+  title: string;
+  context: string;
+  hidden?: boolean;
+  stagedAt?: number;
+};
+
 function assistantChatHiddenContextKey(scope?: string | null): string | null {
   const normalizedScope = scope?.trim();
   return normalizedScope
     ? `${ASSISTANT_CHAT_HIDDEN_CONTEXT_PREFIX}${encodeURIComponent(normalizedScope)}`
     : null;
+}
+
+function serializeAssistantChatHiddenContext(
+  items: readonly HiddenContextWrite[],
+): string {
+  return JSON.stringify({
+    version: 1,
+    items: items.map(({ key, title, context, hidden, stagedAt }) => ({
+      key,
+      title,
+      context,
+      ...(hidden ? { hidden } : {}),
+      ...(stagedAt !== undefined ? { stagedAt } : {}),
+    })),
+  });
 }
 
 // Hidden prefill context is kept per composer scope, with the draft text, and
@@ -172,7 +195,10 @@ export function readAssistantChatHiddenContext(
   try {
     stored = storage.getItem(key);
   } catch {
-    // coercion-ok: browser storage may be unavailable; treat it as absent.
+    // coercion-ok: browser storage could not be read. Logged, so it is not mistaken for an empty scope.
+    console.error(
+      "Prefill context could not be read from browser storage; it is not restored.",
+    );
     return [];
   }
   if (stored === null) return [];
@@ -180,6 +206,9 @@ export function readAssistantChatHiddenContext(
   if (items)
     return items.map((item) => ({ ...item, composerOnly: true as const }));
   // Discard the unreadable entry so it cannot fail every later mount. The draft text is stored separately and still restores.
+  console.error(
+    "Stored prefill context was unreadable and has been discarded; the restored draft has no context.",
+  );
   try {
     storage.removeItem(key);
   } catch {
@@ -206,13 +235,7 @@ function parseHiddenContextEnvelope(
 // draft text is stored separately, so the caller must not treat the prefill as persisted.
 export function writeAssistantChatHiddenContext(
   scope: string | null | undefined,
-  items: readonly {
-    key: string;
-    title: string;
-    context: string;
-    hidden?: boolean;
-    stagedAt?: number;
-  }[],
+  items: readonly HiddenContextWrite[],
 ): boolean {
   const key = assistantChatHiddenContextKey(scope);
   const storage = getComposerDraftStorage();
@@ -221,19 +244,7 @@ export function writeAssistantChatHiddenContext(
     if (items.length === 0) {
       storage.removeItem(key);
     } else {
-      storage.setItem(
-        key,
-        JSON.stringify({
-          version: 1,
-          items: items.map(({ key, title, context, hidden, stagedAt }) => ({
-            key,
-            title,
-            context,
-            ...(hidden ? { hidden } : {}),
-            ...(stagedAt !== undefined ? { stagedAt } : {}),
-          })),
-        }),
-      );
+      storage.setItem(key, serializeAssistantChatHiddenContext(items));
     }
     return true;
   } catch {
@@ -244,6 +255,27 @@ export function writeAssistantChatHiddenContext(
     } catch {
       // coercion-ok: storage is already unusable; there is nothing more to drop.
     }
+    return false;
+  }
+}
+
+// Whether these items can be saved now. A probe write of the same payload finds a
+// full quota before a prefill changes the draft. The probe key holds a space, which
+// no encoded scope can produce, so it never collides with saved context.
+export function canWriteAssistantChatHiddenContext(
+  scope: string | null | undefined,
+  items: readonly HiddenContextWrite[],
+): boolean {
+  if (items.length === 0) return true;
+  const storage = getComposerDraftStorage();
+  if (!assistantChatHiddenContextKey(scope) || !storage) return false;
+  const probeKey = `${ASSISTANT_CHAT_HIDDEN_CONTEXT_PREFIX}capacity probe`;
+  try {
+    storage.setItem(probeKey, serializeAssistantChatHiddenContext(items));
+    storage.removeItem(probeKey);
+    return true;
+  } catch {
+    // coercion-ok: storage refused the probe; the caller refuses the prefill.
     return false;
   }
 }
