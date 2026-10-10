@@ -17,6 +17,7 @@ import {
   seedRecording,
   type RecordingContextTestClient,
 } from "../server/lib/recording-context-test-db.js";
+import { SCREEN_HISTORY_FOOTAGE_SOURCE_APP_NAME } from "../server/lib/recording-context.js";
 
 const mocks = vi.hoisted(() => ({
   db: undefined as unknown,
@@ -70,7 +71,10 @@ beforeEach(async () => {
   await resetRecordingContextTestDb(client);
   mocks.roles = { rec_1: "owner", media_1: "owner" };
   await seedRecording(client, { id: "rec_1" });
-  await seedRecording(client, { id: "media_1" });
+  await seedRecording(client, {
+    id: "media_1",
+    sourceAppName: SCREEN_HISTORY_FOOTAGE_SOURCE_APP_NAME,
+  });
 });
 
 afterAll(async () => {
@@ -89,6 +93,14 @@ async function setUpdatedAt(id: string, updatedAt: string) {
   );
 }
 
+async function seedFootage(id: string) {
+  await seedRecording(client, {
+    id,
+    sourceAppName: SCREEN_HISTORY_FOOTAGE_SOURCE_APP_NAME,
+  });
+  mocks.roles = { ...mocks.roles, [id]: "owner" };
+}
+
 describe("update-recording-context", () => {
   it("claims a pending item as processing", async () => {
     await seedContextItem(client, { id: "item", status: "pending" });
@@ -99,8 +111,28 @@ describe("update-recording-context", () => {
     expect(await statusOf("item")).toBe("processing");
   });
 
+  it("reserves the footage a claim names", async () => {
+    await seedContextItem(client, { id: "item", status: "pending" });
+
+    await expect(
+      action.run({
+        id: "item",
+        status: "processing",
+        mediaRecordingId: "media_1",
+      }),
+    ).resolves.toMatchObject({
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+  });
+
   it("stores the private footage recording on ready, from processing", async () => {
-    await seedContextItem(client, { id: "item", status: "processing" });
+    await seedContextItem(client, { id: "item", status: "pending" });
+    await action.run({
+      id: "item",
+      status: "processing",
+      mediaRecordingId: "media_1",
+    });
 
     await expect(
       action.run({
@@ -114,6 +146,7 @@ describe("update-recording-context", () => {
     ).resolves.toMatchObject({
       status: "ready",
       mediaRecordingId: "media_1",
+      pendingMediaRecordingId: null,
       durationMs: 30_000,
       width: 1280,
       height: 720,
@@ -122,7 +155,11 @@ describe("update-recording-context", () => {
   });
 
   it("clears stored dimensions when a ready update omits them", async () => {
-    await seedContextItem(client, { id: "item", status: "processing" });
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
     await client.query(
       `UPDATE recording_context_items SET width = 640, height = 480 WHERE id = 'item'`,
     );
@@ -137,14 +174,23 @@ describe("update-recording-context", () => {
     expect(ready).toMatchObject({ width: null, height: null });
   });
 
-  it("records the error on failed, from processing", async () => {
-    await seedContextItem(client, { id: "item", status: "processing" });
+  it("records the error on failed and releases the reservation", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
 
     await expect(
       action.run({ id: "item", status: "failed", error: "Export timed out." }),
-    ).resolves.toMatchObject({ status: "failed", error: "Export timed out." });
+    ).resolves.toMatchObject({
+      status: "failed",
+      error: "Export timed out.",
+      pendingMediaRecordingId: null,
+    });
     expect(await readContextItemRow(client, "item")).toMatchObject({
       media_recording_id: null,
+      pending_media_recording_id: null,
     });
   });
 
@@ -180,10 +226,15 @@ describe("update-recording-context", () => {
   });
 
   it("rejects a late worker result after the window was reset to pending", async () => {
-    await seedContextItem(client, { id: "item", status: "processing" });
-    // What set-recording-context-window does while an export is running.
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    // What set-recording-context-window does while an export is running: it
+    // returns the item to pending and releases the reservation.
     await client.query(
-      `UPDATE recording_context_items SET status = 'pending' WHERE id = 'item'`,
+      `UPDATE recording_context_items SET status = 'pending', pending_media_recording_id = NULL WHERE id = 'item'`,
     );
 
     await expect(
@@ -193,12 +244,19 @@ describe("update-recording-context", () => {
         mediaRecordingId: "media_1",
         durationMs: 30_000,
       }),
-    ).rejects.toMatchObject({ statusCode: 409 });
+    ).rejects.toMatchObject({
+      errorCode: "recording_context_invalid_transition",
+      statusCode: 409,
+    });
     expect(await statusOf("item")).toBe("pending");
   });
 
   it("requires mediaRecordingId and durationMs for ready", async () => {
-    await seedContextItem(client, { id: "item", status: "processing" });
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
 
     await expect(
       action.run({ id: "item", status: "ready", durationMs: 30_000 }),
@@ -232,6 +290,7 @@ describe("update-recording-context", () => {
         mediaRecordingId: "media_1",
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
+    expect(await statusOf("item")).toBe("pending");
   });
 
   it("rejects footage the caller cannot access as the owner", async () => {
@@ -239,6 +298,7 @@ describe("update-recording-context", () => {
     await seedRecording(client, {
       id: "media_other",
       ownerEmail: "other@example.com",
+      sourceAppName: SCREEN_HISTORY_FOOTAGE_SOURCE_APP_NAME,
     });
     mocks.roles = { rec_1: "owner" };
 
@@ -254,32 +314,134 @@ describe("update-recording-context", () => {
   });
 
   it("rejects footage that is not a private recording", async () => {
-    await seedContextItem(client, { id: "item", status: "processing" });
-    await seedRecording(client, { id: "media_org", visibility: "org" });
+    await seedContextItem(client, { id: "item", status: "pending" });
+    await seedRecording(client, {
+      id: "media_org",
+      visibility: "org",
+      sourceAppName: SCREEN_HISTORY_FOOTAGE_SOURCE_APP_NAME,
+    });
     mocks.roles = { rec_1: "owner", media_org: "owner" };
 
     await expect(
       action.run({
         id: "item",
-        status: "ready",
+        status: "processing",
         mediaRecordingId: "media_org",
-        durationMs: 30_000,
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
+    expect(await statusOf("item")).toBe("pending");
+  });
+
+  it("rejects a private recording that is not Rewind footage", async () => {
+    await seedContextItem(client, { id: "item", status: "pending" });
+    // An ordinary Clip: private, owned, but not made by the Rewind export.
+    await seedRecording(client, { id: "media_plain" });
+    mocks.roles = { rec_1: "owner", media_plain: "owner" };
+
+    await expect(
+      action.run({
+        id: "item",
+        status: "processing",
+        mediaRecordingId: "media_plain",
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "pending",
+      pending_media_recording_id: null,
+    });
   });
 
   it("rejects the Clip itself as its own footage", async () => {
-    await seedContextItem(client, { id: "item", status: "processing" });
+    await seedContextItem(client, { id: "item", status: "pending" });
+
+    await expect(
+      action.run({
+        id: "item",
+        status: "processing",
+        mediaRecordingId: "rec_1",
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(await statusOf("item")).toBe("pending");
+  });
+
+  it("refuses a ready whose footage is not the reserved footage", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    await seedFootage("media_2");
 
     await expect(
       action.run({
         id: "item",
         status: "ready",
-        mediaRecordingId: "rec_1",
+        mediaRecordingId: "media_2",
         durationMs: 30_000,
       }),
-    ).rejects.toMatchObject({ statusCode: 400 });
-    expect(await statusOf("item")).toBe("processing");
+    ).rejects.toMatchObject({
+      errorCode: "recording_context_footage_mismatch",
+      statusCode: 409,
+    });
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "processing",
+      media_recording_id: null,
+      pending_media_recording_id: "media_1",
+    });
+  });
+
+  it("refuses a stale worker's ready after another claim replaced its footage", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    await setUpdatedAt("item", STALE_CLAIM);
+    await seedFootage("media_2");
+
+    // A second worker re-claims the stale item with its own footage.
+    await expect(
+      action.run({
+        id: "item",
+        status: "processing",
+        mediaRecordingId: "media_2",
+      }),
+    ).resolves.toMatchObject({
+      status: "processing",
+      pendingMediaRecordingId: "media_2",
+    });
+
+    // The first worker finishes late with the footage it made.
+    await expect(
+      action.run({
+        id: "item",
+        status: "ready",
+        mediaRecordingId: "media_1",
+        durationMs: 30_000,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "recording_context_footage_mismatch",
+      statusCode: 409,
+    });
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "processing",
+      media_recording_id: null,
+      pending_media_recording_id: "media_2",
+    });
+
+    // The current claim's worker lands its footage.
+    await expect(
+      action.run({
+        id: "item",
+        status: "ready",
+        mediaRecordingId: "media_2",
+        durationMs: 30_000,
+      }),
+    ).resolves.toMatchObject({
+      status: "ready",
+      mediaRecordingId: "media_2",
+      pendingMediaRecordingId: null,
+    });
   });
 
   it("requires owner access to the item's Clip", async () => {
@@ -302,11 +464,19 @@ describe("update-recording-context", () => {
   });
 
   it("re-claims a stale processing item, refreshes its claim, and lets the new worker finish", async () => {
-    await seedContextItem(client, { id: "item", status: "processing" });
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
     await setUpdatedAt("item", STALE_CLAIM);
 
     await expect(
-      action.run({ id: "item", status: "processing" }),
+      action.run({
+        id: "item",
+        status: "processing",
+        mediaRecordingId: "media_1",
+      }),
     ).resolves.toMatchObject({ id: "item", status: "processing", error: null });
     expect(await readContextItemRow(client, "item")).toMatchObject({
       updated_at: NOW,

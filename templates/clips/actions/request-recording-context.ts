@@ -15,7 +15,14 @@ import {
 } from "../shared/screen-history-context.js";
 import makeRecordingPrivateForRewind, {
   assertNoDirectRecordingShares,
+  DIRECT_SHARE_REWIND_ERROR,
+  hasDirectRecordingShare,
 } from "./make-recording-private-for-rewind.js";
+import { trashRecordingContextFootage } from "./remove-recording-context.js";
+
+// The Clip row is created as its recording starts, so the window must end
+// within this of that row. It covers the desktop's start time and the row write.
+const ENDED_AT_TOLERANCE_MS = 120 * 1000;
 
 export default defineAction({
   description:
@@ -30,19 +37,36 @@ export default defineAction({
     endedAt: z
       .string()
       .datetime({ offset: true })
-      .describe("When the recording started, as an ISO timestamp."),
+      .describe(
+        "When the recording started, as an ISO timestamp. Must be within 120 seconds of the Clip's start.",
+      ),
   }),
   run: async ({ recordingId, seconds, endedAt }) => {
     await assertAccess("recording", recordingId, "owner");
 
     const [recording] = await getDb()
-      .select({ visibility: schema.recordings.visibility })
+      .select({
+        visibility: schema.recordings.visibility,
+        createdAt: schema.recordings.createdAt,
+      })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, recordingId));
     if (!recording) {
       fail("This Clip is unavailable.", {
         errorCode: "recording_unavailable",
         statusCode: 404,
+      });
+    }
+    // Written as a negated <= so an unparseable time is refused, not passed.
+    if (
+      !(
+        Math.abs(Date.parse(endedAt) - Date.parse(recording.createdAt)) <=
+        ENDED_AT_TOLERANCE_MS
+      )
+    ) {
+      fail("The screen history must end when this Clip started.", {
+        errorCode: "recording_context_invalid_window",
+        statusCode: 400,
       });
     }
     if (isPrivateClip(recording.visibility)) {
@@ -79,7 +103,30 @@ export default defineAction({
       })
       .onConflictDoNothing()
       .returning();
-    if (inserted) return inserted;
+    if (inserted) {
+      // The sharing hook runs before the grant write, so a grant that commits
+      // between its check and this one is not caught here. Closing that needs
+      // the grant path in core to re-check after its own write.
+      if (await hasDirectRecordingShare(recordingId)) {
+        const removed = await getDb()
+          .update(schema.recordingContextItems)
+          .set({ status: "removed", updatedAt: new Date().toISOString() })
+          .where(eq(schema.recordingContextItems.id, inserted.id))
+          .returning({
+            mediaRecordingId: schema.recordingContextItems.mediaRecordingId,
+            pendingMediaRecordingId:
+              schema.recordingContextItems.pendingMediaRecordingId,
+          });
+        await trashRecordingContextFootage(
+          removed.flatMap((item) => [
+            item.mediaRecordingId,
+            item.pendingMediaRecordingId,
+          ]),
+        );
+        throw new Error(DIRECT_SHARE_REWIND_ERROR);
+      }
+      return inserted;
+    }
 
     // A conflict here can only come from the partial unique index, so the
     // winner is already committed and visible to this read.

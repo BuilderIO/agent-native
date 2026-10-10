@@ -23,10 +23,11 @@ import {
   screenshotLeftoverUrls,
   withDeleteClaim,
 } from "../server/lib/screenshot-edits.js";
+import { trashRecordingContextFootage } from "./remove-recording-context.js";
 
 export default defineAction({
   description:
-    "Permanently delete a recording and every related row (comments, reactions, viewers, events, transcript, tags, CTAs, shares, diagnostics, bug reports). This cannot be undone.",
+    "Permanently delete a recording and every related row (comments, reactions, viewers, events, transcript, tags, CTAs, shares, diagnostics, bug reports, screen history context). The context's footage is trashed. This cannot be undone.",
   schema: z.object({
     id: z.string().describe("Recording ID"),
   }),
@@ -166,6 +167,23 @@ export default defineAction({
       }
     }
 
+    // Footage is trashed before the context rows that name it are deleted, so a
+    // failed trash leaves the Clip and its context in place for a retry.
+    const contextItems = await db
+      .select({
+        mediaRecordingId: schema.recordingContextItems.mediaRecordingId,
+        pendingMediaRecordingId:
+          schema.recordingContextItems.pendingMediaRecordingId,
+      })
+      .from(schema.recordingContextItems)
+      .where(eq(schema.recordingContextItems.recordingId, args.id));
+    await trashRecordingContextFootage(
+      contextItems.flatMap((item) => [
+        item.mediaRecordingId,
+        item.pendingMediaRecordingId,
+      ]),
+    );
+
     await db.transaction(async (tx) => {
       // The claim is what keeps saves out; a row without it was changed by
       // something that does not honour it, and is left for the next try.
@@ -225,6 +243,9 @@ export default defineAction({
       await tx
         .delete(schema.recordingShares)
         .where(eq(schema.recordingShares.resourceId, args.id));
+      await tx
+        .delete(schema.recordingContextItems)
+        .where(eq(schema.recordingContextItems.recordingId, args.id));
       await tx
         .delete(schema.recordings)
         .where(eq(schema.recordings.id, args.id));

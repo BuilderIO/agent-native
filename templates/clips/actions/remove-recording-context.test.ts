@@ -97,6 +97,20 @@ describe("remove-recording-context", () => {
     });
   });
 
+  it("trashes a footage reservation as well as the footage", async () => {
+    await seedRecording(client, { id: "media_2" });
+    await client.query(
+      `UPDATE recording_context_items SET status = 'processing', pending_media_recording_id = 'media_2' WHERE id = 'item'`,
+    );
+
+    await action.run({ id: "item" });
+
+    expect(mocks.trash.mock.calls).toEqual([
+      [{ id: "media_1" }],
+      [{ id: "media_2" }],
+    ]);
+  });
+
   it("removes an item that has no footage without trashing anything", async () => {
     await client.query(
       `UPDATE recording_context_items SET media_recording_id = NULL WHERE id = 'item'`,

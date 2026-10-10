@@ -646,6 +646,9 @@ export const recordingContextItems = table(
       enum: ["pending", "processing", "ready", "failed", "removed"],
     }).notNull(),
     mediaRecordingId: text("media_recording_id"),
+    // The footage the current 'processing' claim reserved. 'ready' must name
+    // it, so a worker whose claim was replaced cannot land its footage.
+    pendingMediaRecordingId: text("pending_media_recording_id"),
     durationMs: integer("duration_ms"),
     width: integer("width"),
     height: integer("height"),

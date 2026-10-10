@@ -56,6 +56,9 @@ export default defineAction({
         requestedSeconds,
         status: "pending",
         error: null,
+        // A reservation names the window it was claimed for. A new window
+        // releases it, so the export that held it cannot land.
+        pendingMediaRecordingId: null,
         updatedAt: new Date().toISOString(),
       })
       .where(

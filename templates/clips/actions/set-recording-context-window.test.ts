@@ -167,6 +167,24 @@ describe("set-recording-context-window", () => {
     ).resolves.toMatchObject({ status: "pending", requestedSeconds: 10 });
   });
 
+  it("releases the footage reservation, so a late ready for that footage is refused", async () => {
+    await client.query(
+      `UPDATE recording_context_items SET status = 'processing', pending_media_recording_id = 'media_2' WHERE id = 'item'`,
+    );
+
+    await action.run({
+      id: "item",
+      startedAt: "2026-10-01T11:59:50.000Z",
+      endedAt: ORIGINAL_END,
+    });
+
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "pending",
+      media_recording_id: "media_1",
+      pending_media_recording_id: null,
+    });
+  });
+
   it("refuses a removed item", async () => {
     await client.query(
       `UPDATE recording_context_items SET status = 'removed' WHERE id = 'item'`,

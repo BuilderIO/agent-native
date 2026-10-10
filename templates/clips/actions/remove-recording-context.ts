@@ -10,9 +10,35 @@ import {
 } from "../server/lib/recordings.js";
 import trashRecording from "./trash-recording.js";
 
+// Trashes each footage recording the owner can still see. Footage that
+// retention already deleted is no longer visible to the owner, so there is
+// nothing left to trash.
+export async function trashRecordingContextFootage(
+  mediaRecordingIds: ReadonlyArray<string | null>,
+): Promise<void> {
+  const ids = new Set(
+    mediaRecordingIds.filter((id): id is string => id !== null),
+  );
+  for (const id of ids) {
+    const [media] = await getDb()
+      .select({ id: schema.recordings.id })
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, id),
+          ownerEmailMatches(
+            schema.recordings.ownerEmail,
+            getCurrentOwnerEmail(),
+          ),
+        ),
+      );
+    if (media) await trashRecording.run({ id: media.id });
+  }
+}
+
 export default defineAction({
   description:
-    "Remove an owned screen history item and trash its footage recording. Removing an item that is already removed returns it unchanged.",
+    "Remove an owned screen history item and trash its footage recordings, including footage an export is still reserving. Removing an item that is already removed returns it unchanged.",
   schema: z.object({ id: z.string() }),
   run: async ({ id }) => {
     const item = await loadOwnedRecordingContextItem(id);
@@ -20,22 +46,10 @@ export default defineAction({
 
     // Trash the footage first. If that throws, the item stays active and the
     // same call can be retried; marking it removed first would strand footage.
-    if (item.mediaRecordingId) {
-      const [media] = await getDb()
-        .select({ id: schema.recordings.id })
-        .from(schema.recordings)
-        .where(
-          and(
-            eq(schema.recordings.id, item.mediaRecordingId),
-            ownerEmailMatches(
-              schema.recordings.ownerEmail,
-              getCurrentOwnerEmail(),
-            ),
-          ),
-        );
-      // Footage that retention already deleted is no longer visible to the owner, so there is nothing left to trash.
-      if (media) await trashRecording.run({ id: media.id });
-    }
+    await trashRecordingContextFootage([
+      item.mediaRecordingId,
+      item.pendingMediaRecordingId,
+    ]);
 
     const [removed] = await getDb()
       .update(schema.recordingContextItems)

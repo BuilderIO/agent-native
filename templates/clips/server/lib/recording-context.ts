@@ -4,6 +4,12 @@ import { and, eq, ne } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
+// The desktop names its private Rewind footage recordings with this source app
+// name when it creates them (desktop/src/lib/recorder.ts). Nothing else in the
+// app sets it, and ordinary captures carry the captured app's name, so this is
+// what tells footage apart from an ordinary Clip. Keep the two literals in step.
+export const SCREEN_HISTORY_FOOTAGE_SOURCE_APP_NAME = "Clips Rewind";
+
 // A 'processing' claim is abandoned when its worker quit mid-export. A 5-minute
 // window should export well inside 10 minutes, so an older claim is presumed
 // dead and another worker may re-claim it.

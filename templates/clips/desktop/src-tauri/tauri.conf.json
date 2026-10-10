@@ -17,7 +17,7 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/screen-memory/previews/**"]
+        "scope": ["$APPLOCALDATA/rewind-previews/**"]
       }
     }
   },

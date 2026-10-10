@@ -1214,6 +1214,9 @@ export function App({
     item: Promise<RecordingContextItem | null>;
   } | null>(null);
   const processingLookbackIdsRef = useRef<Set<string>>(new Set());
+  // Pending items whose footage was captured on another device. Session-scoped,
+  // so a restart checks them against local origins again.
+  const skippedLookbackIdsRef = useRef<Set<string>>(new Set());
   const [serverReachable, setServerReachable] = useState(true);
   const serverHostForSignIn = serverUrl
     .replace(/^https?:\/\//, "")
@@ -1990,8 +1993,7 @@ export function App({
             includeMic: input.includeMic,
             includeSystemAudio: input.includeSystemAudio,
           }),
-        trashRecording: (id) =>
-          callClipsAction("trash-recording", { id, skipIfReady: true }),
+        trashRecording: (id) => callClipsAction("trash-recording", { id }),
       });
     },
     [callClipsAction, serverUrl],
@@ -2005,13 +2007,23 @@ export function App({
       if (inFlight) return;
       inFlight = true;
       try {
-        const items = await listPendingRecordingContext({
-          serverUrl,
-          authToken: loadDesktopAuthToken(serverUrl),
-        });
+        const items = await listPendingRecordingContext(
+          { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
+          {
+            // The server accepts at most 100 excludeIds; any beyond that stay
+            // in the oldest-first batch.
+            excludeIds: [...skippedLookbackIdsRef.current].slice(0, 100),
+          },
+        );
         if (cancelled) return;
         for (const item of items) {
           if (processingLookbackIdsRef.current.has(item.id)) continue;
+          if (!getRewindClipOrigin(item.recordingId)) {
+            // Not this device's footage. Excluding it keeps the batch from
+            // refilling with items this device will never export.
+            skippedLookbackIdsRef.current.add(item.id);
+            continue;
+          }
           processingLookbackIdsRef.current.add(item.id);
           void processLookbackItem(item)
             .catch((error: unknown) => {

@@ -7,6 +7,7 @@ import {
   it,
   vi,
 } from "vitest";
+import type { ZodType } from "zod";
 
 import {
   openRecordingContextTestDb,
@@ -161,6 +162,34 @@ describe("list-pending-recording-context", () => {
 
     expect(items).toHaveLength(25);
     expect(items[0]?.id).toBe("batch_0");
+  });
+
+  it("leaves excluded items out so they do not hold up the batch", async () => {
+    for (let index = 0; index < 26; index += 1) {
+      const recordingId = `rec_skip_${index}`;
+      await seedRecording(client, { id: recordingId });
+      await seedContextItem(client, {
+        id: `skip_${index}`,
+        recordingId,
+        createdAt: `2026-10-01T12:${String(index).padStart(2, "0")}:00.000Z`,
+      });
+    }
+    const excludeIds = Array.from(
+      { length: 25 },
+      (_, index) => `skip_${index}`,
+    );
+
+    const { items } = await action.run({ excludeIds });
+
+    expect(items.map((item) => item.id)).toEqual(["skip_25"]);
+  });
+
+  it("accepts at most 100 excluded ids", () => {
+    const schema = (action as unknown as { schema: ZodType }).schema;
+    const ids = (count: number) =>
+      Array.from({ length: count }, (_, index) => `id_${index}`);
+    expect(schema.safeParse({ excludeIds: ids(100) }).success).toBe(true);
+    expect(schema.safeParse({ excludeIds: ids(101) }).success).toBe(false);
   });
 
   it("returns an empty list when nothing is pending", async () => {

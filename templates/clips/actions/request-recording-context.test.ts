@@ -11,6 +11,7 @@ import type { ZodType } from "zod";
 
 import {
   openRecordingContextTestDb,
+  RECORDING_CREATED_AT,
   resetRecordingContextTestDb,
   seedContextItem,
   seedDirectShare,
@@ -55,6 +56,10 @@ vi.mock("../server/lib/recordings.js", async () => {
       sql`lower(${column as never}) = ${email}`,
   };
 });
+
+vi.mock("./trash-recording.js", () => ({
+  default: { run: async (args: { id: string }) => ({ id: args.id }) },
+}));
 
 import { DIRECT_SHARE_REWIND_ERROR } from "./make-recording-private-for-rewind";
 import action from "./request-recording-context";
@@ -203,7 +208,7 @@ describe("request-recording-context", () => {
     const second = await action.run({
       recordingId: "rec_1",
       seconds: 300,
-      endedAt: "2026-10-01T13:00:00.000Z",
+      endedAt: ENDED_AT,
     });
 
     expect(second.id).toBe(first.id);
@@ -244,6 +249,71 @@ describe("request-recording-context", () => {
     await expect(
       seedContextItem(client, { id: "active_3", status: "ready" }),
     ).rejects.toThrow(/unique/i);
+  });
+
+  it("refuses an endedAt far from the Clip's start, before it changes the Clip", async () => {
+    await seedRecording(client, { id: "rec_org", visibility: "org" });
+    mocks.roles = { rec_org: "owner" };
+
+    await expect(
+      action.run({
+        recordingId: "rec_org",
+        seconds: 30,
+        endedAt: "2026-10-01T11:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "recording_context_invalid_window",
+      statusCode: 400,
+    });
+    expect(await visibilityOf("rec_org")).toBe("org");
+    expect(await countItems("rec_org", true)).toBe(0);
+  });
+
+  it("accepts an endedAt 120 s either side of the Clip's start and refuses 121 s", async () => {
+    const at = (ms: number) =>
+      new Date(Date.parse(RECORDING_CREATED_AT) + ms).toISOString();
+
+    for (const ms of [121_000, -121_000]) {
+      await expect(
+        action.run({ recordingId: "rec_1", seconds: 30, endedAt: at(ms) }),
+      ).rejects.toMatchObject({
+        errorCode: "recording_context_invalid_window",
+        statusCode: 400,
+      });
+    }
+    expect(await countItems("rec_1", true)).toBe(0);
+
+    await expect(
+      action.run({ recordingId: "rec_1", seconds: 30, endedAt: at(-120_000) }),
+    ).resolves.toMatchObject({ endedAt: at(-120_000), status: "pending" });
+  });
+
+  it("removes the new item when a direct share lands after it was inserted", async () => {
+    // Stands in for a grant that commits after the first share check: the
+    // trigger writes a share the moment the item is inserted.
+    await client.exec(`
+      CREATE FUNCTION share_on_context_insert() RETURNS trigger AS $$
+      BEGIN
+        INSERT INTO recording_shares (id, resource_id) VALUES ('race_share', NEW.recording_id);
+        RETURN NEW;
+      END
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER share_on_context_insert AFTER INSERT ON recording_context_items
+        FOR EACH ROW EXECUTE FUNCTION share_on_context_insert();
+    `);
+    try {
+      await expect(
+        action.run({ recordingId: "rec_1", seconds: 30, endedAt: ENDED_AT }),
+      ).rejects.toThrow(DIRECT_SHARE_REWIND_ERROR);
+    } finally {
+      await client.exec(`
+        DROP TRIGGER share_on_context_insert ON recording_context_items;
+        DROP FUNCTION share_on_context_insert();
+      `);
+    }
+
+    expect(await countItems("rec_1")).toBe(0);
+    expect(await countItems("rec_1", true)).toBe(1);
   });
 
   it("validates seconds within 1 to 300 and an ISO end time", () => {

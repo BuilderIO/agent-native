@@ -58,12 +58,19 @@ It is private with its clip. Requesting it makes the clip private, and it is
 refused while the clip still has direct shares. While an item is active, sharing
 the clip is refused: making it public or visible to the organization, or
 granting access, fails until the item is removed. Never describe it as
-shareable.
+shareable. The request's `endedAt` must be within 120 seconds of the clip's
+start, or it fails with `recording_context_invalid_window`.
 
 The footage is a separate private recording, uploaded from this device through
-the Rewind handoff. Changing the window returns the item to `pending`, and the
-desktop re-exports and uploads only the new window. Removing the item trashes
-that footage recording.
+the Rewind handoff. Its source app name is `Clips Rewind`; the footage check
+refuses any other recording. The export handshake goes through
+`update-recording-context`: `processing` claims the item and may name the
+footage recording it created (`mediaRecordingId`); `ready` must name that same
+recording, or it fails with `recording_context_footage_mismatch`; `failed`
+releases the claim's footage. Changing the window returns the item to `pending`
+and releases any reservation, and the desktop re-exports and uploads only the
+new window. Removing the item trashes that footage recording and any footage an
+export is still reserving.
 
 The desktop editor builds a local preview of the original window with the
 `rewind_preview_window` Tauri command, and deletes it with
@@ -80,7 +87,8 @@ Read it with:
   error. Removed items are excluded. Only a `ready` item has footage.
 - `list-pending-recording-context` is for the desktop export worker, not for
   answering questions. It lists pending requests on clips the signed-in user
-  owns.
+  owns. Pass `excludeIds[]` for items this device cannot process, so they do
+  not hold up the batch.
 
 Writes are owner-only: `request-recording-context`,
 `update-recording-context`, `set-recording-context-window`, and

@@ -1209,6 +1209,12 @@ export const migrations = runMigrations(
         ON recording_context_items (created_at)
         WHERE status = 'pending'`,
     },
+    {
+      version: 82,
+      name: "recording-context-pending-footage",
+      // Additive. Mirrors `pendingMediaRecordingId` in server/db/schema.ts.
+      sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS pending_media_recording_id TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

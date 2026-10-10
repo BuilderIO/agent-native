@@ -1066,11 +1066,7 @@ pub(crate) async fn rewind_agent_handoff_preview(
     if safe_request_id != request_id || !safe_request_id.starts_with("handoff-") {
         return Err("Invalid Rewind handoff request ID.".into());
     }
-    let output_dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| format!("local preview directory unavailable: {error}"))?
-        .join("rewind-previews");
+    let output_dir = rewind_preview_directory(&app)?;
     cleanup_expired_preview_artifacts(&output_dir, std::time::Duration::from_secs(15 * 60))?;
     std::fs::create_dir_all(&output_dir)
         .map_err(|error| format!("local preview directory unavailable: {error}"))?;
@@ -1132,12 +1128,11 @@ fn cleanup_expired_preview_artifacts(
 }
 
 pub(crate) fn clear_preview_artifacts(app: &AppHandle) -> Result<(), String> {
-    let directory = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| format!("local preview directory unavailable: {error}"))?
-        .join("rewind-previews");
-    match std::fs::remove_dir_all(&directory) {
+    remove_preview_directory(&rewind_preview_directory(app)?)
+}
+
+fn remove_preview_directory(directory: &std::path::Path) -> Result<(), String> {
+    match std::fs::remove_dir_all(directory) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(format!("could not clear local Rewind previews: {error}")),
@@ -1155,13 +1150,18 @@ pub(crate) struct RewindPreviewWindow {
     height: Option<u32>,
 }
 
-fn rewind_preview_directory(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app
+// Every preview writer and sweeper goes through this helper: the launch and delete sweeps clear
+// this exact folder, so a second spelling of the path would leave footage behind.
+pub(crate) fn rewind_preview_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    let local_data = app
         .path()
-        .app_data_dir()
-        .map_err(|error| format!("app data directory unavailable: {error}"))?
-        .join("screen-memory")
-        .join("previews"))
+        .app_local_data_dir()
+        .map_err(|error| format!("local preview directory unavailable: {error}"))?;
+    Ok(rewind_preview_directory_in(&local_data))
+}
+
+fn rewind_preview_directory_in(local_data_dir: &std::path::Path) -> PathBuf {
+    local_data_dir.join("rewind-previews")
 }
 
 fn validate_preview_window(started_at: &str, ended_at: &str) -> Result<(), String> {
@@ -2057,19 +2057,37 @@ mod tests {
 
     #[test]
     fn rewind_preview_inside_check_is_component_based() {
-        let directory = std::path::Path::new("/data/screen-memory/previews");
+        let directory = std::path::Path::new("/data/rewind-previews");
         assert!(is_path_inside_directory(
-            std::path::Path::new("/data/screen-memory/previews/preview-1.mp4"),
+            std::path::Path::new("/data/rewind-previews/preview-1.mp4"),
             directory
         ));
         assert!(!is_path_inside_directory(
-            std::path::Path::new("/data/screen-memory/previews-old/preview-1.mp4"),
+            std::path::Path::new("/data/rewind-previews-old/preview-1.mp4"),
             directory
         ));
         assert!(!is_path_inside_directory(
             std::path::Path::new("/data/screen-memory/segments/a.mp4"),
             directory
         ));
+    }
+
+    #[test]
+    fn rewind_preview_directory_is_the_one_the_sweeps_clear() {
+        let local = std::env::temp_dir().join(format!(
+            "clips-rewind-preview-dir-test-{}",
+            Utc::now().timestamp_micros()
+        ));
+        let directory = rewind_preview_directory_in(&local);
+        assert_eq!(directory, local.join("rewind-previews"));
+        std::fs::create_dir_all(&directory).unwrap();
+        let preview = directory.join("preview.mp4");
+        std::fs::write(&preview, b"preview").unwrap();
+        remove_preview_directory(&directory).unwrap();
+        assert!(!preview.exists());
+        assert!(!directory.exists());
+        remove_preview_directory(&directory).unwrap();
+        let _ = std::fs::remove_dir_all(local);
     }
 
     #[test]

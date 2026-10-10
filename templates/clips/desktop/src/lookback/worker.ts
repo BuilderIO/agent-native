@@ -1,3 +1,4 @@
+import { ClipsActionError } from "../lib/clips-action";
 import type { createPrivateAgentRewindRecording } from "../lib/recorder";
 import type {
   RecordingContextItem,
@@ -52,15 +53,36 @@ export async function processRecordingContextItem(
   // stays pending for that device's worker.
   if (!origin) return "skipped";
 
-  await deps.update({ id: item.id, status: "processing" });
-
-  let mediaRecordingId: string | null = null;
+  // The footage recording exists before the claim so the claim can name it.
+  // The server keeps that id as the reservation and rejects a ready write for
+  // any other recording, which binds the result to this claim.
+  let recording: { id: string; uploadMode: UploadMode };
   try {
-    const recording = await deps.createRecording({
+    recording = await deps.createRecording({
       hasAudio: origin.includeMicrophone || origin.includeSystemAudio,
       startedAt: item.startedAt,
     });
-    mediaRecordingId = recording.id;
+  } catch (error) {
+    return markFailed(item, error, deps);
+  }
+
+  try {
+    await deps.update({
+      id: item.id,
+      status: "processing",
+      mediaRecordingId: recording.id,
+    });
+  } catch (error) {
+    await trashUnusedRecording(recording.id, deps);
+    // A 409 means another claim or a trim owns the item now. Marking it failed
+    // from here would overwrite that owner's state.
+    if (error instanceof ClipsActionError && error.status === 409) {
+      return "skipped";
+    }
+    return markFailed(item, error, deps);
+  }
+
+  try {
     const upload = await deps.uploadWindow({
       requestId: `handoff-lookback-${item.id}`,
       startedAt: item.startedAt,
@@ -79,23 +101,13 @@ export async function processRecordingContextItem(
       ...(upload.height && upload.height > 0 ? { height: upload.height } : {}),
     });
   } catch (error) {
-    const message =
-      error instanceof Error && error.message ? error.message : FALLBACK_ERROR;
-    if (mediaRecordingId) {
-      await deps.trashRecording(mediaRecordingId).catch((cleanupError) => {
-        console.warn(
-          "[lookback] trashing the unused window recording failed:",
-          cleanupError,
-        );
-      });
-    }
-    await deps.update({ id: item.id, status: "failed", error: message });
-    return "failed";
+    await trashUnusedRecording(recording.id, deps);
+    return markFailed(item, error, deps);
   }
 
   // A re-export replaces the footage, so the previous private recording is
   // no longer linked from the item and can be removed.
-  if (item.mediaRecordingId && item.mediaRecordingId !== mediaRecordingId) {
+  if (item.mediaRecordingId && item.mediaRecordingId !== recording.id) {
     await deps.trashRecording(item.mediaRecordingId).catch((cleanupError) => {
       console.warn(
         "[lookback] trashing the replaced window recording failed:",
@@ -104,4 +116,27 @@ export async function processRecordingContextItem(
     });
   }
   return "ready";
+}
+
+async function markFailed(
+  item: RecordingContextItem,
+  error: unknown,
+  deps: LookbackWorkerDeps,
+): Promise<"failed"> {
+  const message =
+    error instanceof Error && error.message ? error.message : FALLBACK_ERROR;
+  await deps.update({ id: item.id, status: "failed", error: message });
+  return "failed";
+}
+
+async function trashUnusedRecording(
+  id: string,
+  deps: LookbackWorkerDeps,
+): Promise<void> {
+  await deps.trashRecording(id).catch((cleanupError) => {
+    console.warn(
+      "[lookback] trashing the unused window recording failed:",
+      cleanupError,
+    );
+  });
 }

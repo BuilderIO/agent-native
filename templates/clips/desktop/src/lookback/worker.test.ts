@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { ClipsActionError } from "../lib/clips-action";
 import type {
   RecordingContextItem,
   RecordingContextUpdate,
@@ -89,7 +90,7 @@ describe("processRecordingContextItem", () => {
       "ready",
     );
     expect(deps.updates).toEqual([
-      { id: "ctx1", status: "processing" },
+      { id: "ctx1", status: "processing", mediaRecordingId: "media-1" },
       {
         id: "ctx1",
         status: "ready",
@@ -102,6 +103,10 @@ describe("processRecordingContextItem", () => {
     expect(deps.created).toEqual([
       { hasAudio: true, startedAt: "2026-10-09T09:59:30.000Z" },
     ]);
+    // The claim names the recording, so the recording must exist before it.
+    const [created] = vi.mocked(deps.createRecording).mock.invocationCallOrder;
+    const [claimed] = vi.mocked(deps.update).mock.invocationCallOrder;
+    expect(created).toBeLessThan(claimed ?? 0);
     expect(deps.uploadWindow).toHaveBeenCalledWith({
       requestId: "handoff-lookback-ctx1",
       startedAt: "2026-10-09T09:59:30.000Z",
@@ -156,6 +161,49 @@ describe("processRecordingContextItem", () => {
       id: "ctx1",
       status: "failed",
       error: "disk full",
+    });
+  });
+
+  it("trashes the new footage and does not upload when another claim owns the item", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "processing") {
+          throw new ClipsActionError("Already claimed.", 409);
+        }
+        return input;
+      }),
+    });
+
+    await expect(
+      processRecordingContextItem(
+        item({ mediaRecordingId: "media-old" }),
+        deps,
+      ),
+    ).resolves.toBe("skipped");
+    expect(deps.uploadWindow).not.toHaveBeenCalled();
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks the item failed without uploading when the claim fails for another reason", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "processing") {
+          throw new ClipsActionError("Server unavailable.", 503);
+        }
+        return input;
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.uploadWindow).not.toHaveBeenCalled();
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.update).toHaveBeenLastCalledWith({
+      id: "ctx1",
+      status: "failed",
+      error: "Server unavailable.",
     });
   });
 

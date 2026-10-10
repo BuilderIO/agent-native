@@ -16,8 +16,8 @@ export type Role = "viewer" | "editor" | "owner";
 
 const ROLE_RANK: Record<Role, number> = { viewer: 1, editor: 2, owner: 3 };
 
-// Mirrors recording_context_items in server/plugins/db.ts (migration v81). Keep
-// the columns and the partial unique index predicate identical to it.
+// Mirrors recording_context_items in server/plugins/db.ts (migrations v81 and
+// v82). Keep the columns and the partial unique index predicate identical to it.
 const CONTEXT_ITEMS_DDL = `
   CREATE TABLE recording_context_items (
     id TEXT PRIMARY KEY,
@@ -31,6 +31,7 @@ const CONTEXT_ITEMS_DDL = `
     ended_at TEXT NOT NULL,
     status TEXT NOT NULL,
     media_recording_id TEXT,
+    pending_media_recording_id TEXT,
     duration_ms INTEGER,
     width INTEGER,
     height INTEGER,
@@ -50,6 +51,8 @@ const RECORDINGS_DDL = `
     id TEXT PRIMARY KEY,
     owner_email TEXT NOT NULL,
     visibility TEXT NOT NULL DEFAULT 'private',
+    source_app_name TEXT,
+    created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT ''
   );
   CREATE TABLE recording_shares (
@@ -74,16 +77,29 @@ export async function resetRecordingContextTestDb(
   );
 }
 
+// The Clip's recording start. Context windows in these tests end here.
+export const RECORDING_CREATED_AT = "2026-10-01T12:00:00.000Z";
+
+export interface SeedRecordingOptions {
+  id: string;
+  ownerEmail?: string;
+  visibility?: string;
+  sourceAppName?: string | null;
+  createdAt?: string;
+}
+
 export async function seedRecording(
   client: RecordingContextTestClient,
-  options: { id: string; ownerEmail?: string; visibility?: string },
+  options: SeedRecordingOptions,
 ): Promise<void> {
   await client.query(
-    `INSERT INTO recordings (id, owner_email, visibility) VALUES ($1, $2, $3)`,
+    `INSERT INTO recordings (id, owner_email, visibility, source_app_name, created_at) VALUES ($1, $2, $3, $4, $5)`,
     [
       options.id,
       options.ownerEmail ?? "owner@example.com",
       options.visibility ?? "private",
+      options.sourceAppName ?? null,
+      options.createdAt ?? RECORDING_CREATED_AT,
     ],
   );
 }
@@ -108,6 +124,7 @@ export interface SeedContextItemOptions {
   startedAt?: string;
   endedAt?: string;
   mediaRecordingId?: string | null;
+  pendingMediaRecordingId?: string | null;
   createdAt?: string;
 }
 
@@ -122,8 +139,9 @@ export async function seedContextItem(
   await client.query(
     `INSERT INTO recording_context_items (
        id, recording_id, requested_seconds, original_started_at, original_ended_at,
-       started_at, ended_at, status, media_recording_id, created_at, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)`,
+       started_at, ended_at, status, media_recording_id, pending_media_recording_id,
+       created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)`,
     [
       options.id,
       options.recordingId ?? "rec_1",
@@ -134,6 +152,7 @@ export async function seedContextItem(
       options.endedAt ?? originalEndedAt,
       options.status ?? "pending",
       options.mediaRecordingId ?? null,
+      options.pendingMediaRecordingId ?? null,
       options.createdAt ?? "2026-10-01T12:00:01.000Z",
     ],
   );

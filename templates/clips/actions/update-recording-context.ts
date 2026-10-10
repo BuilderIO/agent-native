@@ -8,6 +8,7 @@ import { getDb, schema } from "../server/db/index.js";
 import {
   findRecordingContextItem,
   loadOwnedRecordingContextItem,
+  SCREEN_HISTORY_FOOTAGE_SOURCE_APP_NAME,
   staleProcessingCutoff,
 } from "../server/lib/recording-context.js";
 
@@ -26,6 +27,11 @@ const INVALID_INPUT = {
   statusCode: 400,
 } as const;
 
+const FOOTAGE_MISMATCH = {
+  errorCode: "recording_context_footage_mismatch",
+  statusCode: 409,
+} as const;
+
 async function assertPrivateFootageRecording(
   recordingId: string,
   mediaRecordingId: string,
@@ -38,12 +44,19 @@ async function assertPrivateFootageRecording(
   }
   await assertAccess("recording", mediaRecordingId, "owner");
   const [media] = await getDb()
-    .select({ visibility: schema.recordings.visibility })
+    .select({
+      visibility: schema.recordings.visibility,
+      sourceAppName: schema.recordings.sourceAppName,
+    })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, mediaRecordingId));
-  if (!media || !isPrivateClip(media.visibility)) {
+  if (
+    !media ||
+    !isPrivateClip(media.visibility) ||
+    media.sourceAppName !== SCREEN_HISTORY_FOOTAGE_SOURCE_APP_NAME
+  ) {
     fail(
-      "The screen history footage must be a private recording.",
+      "The screen history footage must be a private Rewind recording.",
       INVALID_INPUT,
     );
   }
@@ -51,7 +64,7 @@ async function assertPrivateFootageRecording(
 
 export default defineAction({
   description:
-    "Record the desktop export result for an owned screen history item. 'processing' claims a pending item, 'ready' stores the private footage recording with its duration, and 'failed' stores the error.",
+    "Record the desktop export for an owned screen history item. 'processing' claims a pending item and may name the footage recording it reserves; 'ready' stores that footage with its duration and must name the same recording; 'failed' stores the error and releases the reservation.",
   schema: z.object({
     id: z.string(),
     status: z.enum(["processing", "ready", "failed"]),
@@ -63,33 +76,33 @@ export default defineAction({
   }),
   run: async (args) => {
     const item = await loadOwnedRecordingContextItem(args.id);
-    const { status } = args;
+    const { status, mediaRecordingId } = args;
 
-    const hasFootage =
-      args.mediaRecordingId !== undefined ||
-      args.durationMs !== undefined ||
-      args.width !== undefined ||
-      args.height !== undefined;
-    if (status !== "ready" && hasFootage) {
-      fail("Only a ready update can carry footage fields.", INVALID_INPUT);
+    if (
+      status !== "ready" &&
+      (args.durationMs !== undefined ||
+        args.width !== undefined ||
+        args.height !== undefined)
+    ) {
+      fail("Only a ready update can carry duration or size.", INVALID_INPUT);
+    }
+    if (status === "failed" && mediaRecordingId !== undefined) {
+      fail("A failed update cannot carry footage.", INVALID_INPUT);
     }
     if (status !== "failed" && args.error !== undefined) {
       fail("Only a failed update can carry an error.", INVALID_INPUT);
     }
-    if (status === "ready") {
-      if (
-        args.mediaRecordingId === undefined ||
-        args.durationMs === undefined
-      ) {
-        fail(
-          "A ready update needs mediaRecordingId and durationMs.",
-          INVALID_INPUT,
-        );
-      }
-      await assertPrivateFootageRecording(
-        item.recordingId,
-        args.mediaRecordingId,
+    if (
+      status === "ready" &&
+      (mediaRecordingId === undefined || args.durationMs === undefined)
+    ) {
+      fail(
+        "A ready update needs mediaRecordingId and durationMs.",
+        INVALID_INPUT,
       );
+    }
+    if (mediaRecordingId !== undefined && status !== "failed") {
+      await assertPrivateFootageRecording(item.recordingId, mediaRecordingId);
     }
     if (status === "failed" && args.error === undefined) {
       fail("A failed update needs an error.", INVALID_INPUT);
@@ -98,18 +111,29 @@ export default defineAction({
     const now = new Date().toISOString();
     const fields =
       status === "processing"
-        ? { status, error: null, updatedAt: now }
+        ? {
+            status,
+            error: null,
+            pendingMediaRecordingId: mediaRecordingId ?? null,
+            updatedAt: now,
+          }
         : status === "ready"
           ? {
               status,
-              mediaRecordingId: args.mediaRecordingId,
+              mediaRecordingId,
+              pendingMediaRecordingId: null,
               durationMs: args.durationMs,
               width: args.width ?? null,
               height: args.height ?? null,
               error: null,
               updatedAt: now,
             }
-          : { status, error: args.error, updatedAt: now };
+          : {
+              status,
+              error: args.error,
+              pendingMediaRecordingId: null,
+              updatedAt: now,
+            };
 
     const fromState =
       status === "processing"
@@ -124,15 +148,34 @@ export default defineAction({
             ),
           )
         : eq(schema.recordingContextItems.status, REQUIRED_FROM[status]);
+    const reservedFootage =
+      status === "ready" && mediaRecordingId !== undefined
+        ? eq(
+            schema.recordingContextItems.pendingMediaRecordingId,
+            mediaRecordingId,
+          )
+        : undefined;
 
     const [updated] = await getDb()
       .update(schema.recordingContextItems)
       .set(fields)
-      .where(and(eq(schema.recordingContextItems.id, item.id), fromState))
+      .where(
+        and(
+          eq(schema.recordingContextItems.id, item.id),
+          fromState,
+          reservedFootage,
+        ),
+      )
       .returning();
     if (updated) return updated;
 
     const current = await findRecordingContextItem(item.id);
+    if (status === "ready" && current?.status === "processing") {
+      fail(
+        "This footage is not the footage reserved for this screen history export.",
+        FOOTAGE_MISMATCH,
+      );
+    }
     fail(
       `Screen history cannot move from ${current?.status ?? "missing"} to ${status}.`,
       {

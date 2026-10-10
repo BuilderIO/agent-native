@@ -74,11 +74,12 @@ export async function listRecordingContext(
 
 export async function listPendingRecordingContext(
   target: ClipsActionTarget,
+  input: { excludeIds?: string[] } = {},
 ): Promise<RecordingContextItem[]> {
   const result = await callClipsActionFor<{ items: RecordingContextItem[] }>(
     target,
     "list-pending-recording-context",
-    {},
+    { excludeIds: input.excludeIds },
     { method: "GET" },
   );
   return result.items;

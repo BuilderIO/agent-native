@@ -368,6 +368,11 @@ pub fn run() {
         .manage(silence_detector::DetectorState::default())
         .setup(|app| {
             logfile::init(app.handle());
+            // Single-instance means nothing in this process can hold a preview yet, so anything
+            // here is leftover from a quit or crash. Clear it before the editor can write more.
+            if let Err(err) = rewind_clip::clear_preview_artifacts(app.handle()) {
+                eprintln!("[clips-tray] launch preview cleanup failed: {err}");
+            }
 
             #[cfg(target_os = "macos")]
             {
