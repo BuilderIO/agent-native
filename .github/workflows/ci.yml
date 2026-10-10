@@ -46,6 +46,7 @@ jobs:
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
+      slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
       changeset: ${{ steps.scope.outputs.changeset }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
       lanes_matrix: ${{ steps.lanes.outputs.matrix }}
@@ -1638,6 +1639,7 @@ jobs:
         run: pnpm guards
 
       - name: Check the Slides interaction oracle against one full test run
+        if: ${{ !cancelled() && needs.change-scope.outputs.slides_oracle == 'true' }}
         working-directory: templates/slides
         env:
           VITEST_CONCURRENCY: 100%

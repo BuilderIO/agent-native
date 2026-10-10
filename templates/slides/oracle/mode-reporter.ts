@@ -1,4 +1,5 @@
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
 import type { Reporter, TestModule } from "vitest/node";
 
@@ -12,6 +13,8 @@ const MODES_PATH = process.env.ORACLE_MODES_PATH ?? ".tmp/oracle/modes.jsonl";
  */
 export default class ModeReporter implements Reporter {
   onInit() {
+    // A fresh checkout has no .tmp/oracle, so create it before the first write.
+    mkdirSync(path.dirname(MODES_PATH), { recursive: true });
     writeFileSync(MODES_PATH, "");
   }
 
