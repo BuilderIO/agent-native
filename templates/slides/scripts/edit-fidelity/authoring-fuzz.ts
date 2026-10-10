@@ -882,7 +882,7 @@ export async function runAuthoringFuzz(
     if (message.type() !== "error") return;
     if (traceEnabled) {
       console.log(
-        `[edit-fidelity] console error phase=${activePhase}: ${message.text()}`,
+        `[edit-fidelity] console error phase=${activePhase} location=${JSON.stringify(message.location())}: ${message.text()}`,
       );
     }
     if (isConflictResourceConsoleError(message.text())) {
@@ -906,8 +906,14 @@ export async function runAuthoringFuzz(
     }
     pageErrors.push(message.text());
   };
-  const onPageError = (error: Error) =>
+  const onPageError = (error: Error) => {
+    if (traceEnabled) {
+      console.log(
+        `[edit-fidelity] page error phase=${activePhase}: ${error.stack ?? error.message}`,
+      );
+    }
     pageErrors.push(error.stack ?? error.message);
+  };
   const onRequestFailed = (request: any) => {
     const requestStartedAt = watchedRequests.get(request);
     const requestPendingAtReloadNavigation =
