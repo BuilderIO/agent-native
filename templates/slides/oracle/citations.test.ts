@@ -546,6 +546,22 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual([]);
   });
 
+  it("counts ordinary tests when a focus sits inside a hook, which runs at test time", () => {
+    const source = [
+      `beforeEach(() => { it.only("never runs", () => {}); });`,
+      `it("moves (oracle 9.1)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.1"]);
+  });
+
+  it("keeps a focus inside a call that may run at collection", () => {
+    const source = [
+      `withSetup(() => { it.only("focused", () => {}); });`,
+      `it("moves (oracle 9.2)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
   it("counts ordinary tests when a focus sits inside a test body, which runs after focus is decided", () => {
     const source = [
       `it("outer", () => { it.only("never registers (oracle 8.8)", () => {}); });`,

@@ -30,6 +30,8 @@ const VALUE_WRAPPERS = new Set([
   "TsSatisfiesExpression",
   "ParenthesisExpression",
 ]);
+// A hook's callback runs when a test runs, after the file's focus is decided.
+const HOOKS = new Set(["beforeAll", "afterAll", "beforeEach", "afterEach"]);
 // A declaration with one of these modifiers never runs, so it cannot be
 // evidence that a row is covered. Its descendants are excluded too.
 const NEVER_RUNS = new Set(["skip", "todo"]);
@@ -488,7 +490,10 @@ function containsFocus(value: unknown, context: Context): boolean {
     // A handler runs after Vitest has decided the file's focus, so a focus inside
     // one changes nothing. The title, table and condition are evaluated while the
     // file is collected, so they are read.
-    if (declaration !== undefined && declaration.base !== "describe") {
+    const deferred =
+      (declaration !== undefined && declaration.base !== "describe") ||
+      isHook(node.callee, context);
+    if (deferred) {
       const parts = [
         node.callee,
         ...argumentsOf(node).map((argument) => argument.expression),
@@ -500,6 +505,18 @@ function containsFocus(value: unknown, context: Context): boolean {
   }
   const inner = enterScope(node, context);
   return Object.values(node).some((child) => containsFocus(child, inner));
+}
+
+/** Whether a call is one of Vitest's hooks, by the name it resolves to. */
+function isHook(callee: unknown, context: Context): boolean {
+  const chain = memberChain(callee);
+  if (chain === undefined || chain.length === 0) return false;
+  const resolved = resolveFunction(chain, context);
+  return (
+    resolved !== undefined &&
+    HOOKS.has(resolved.name) &&
+    resolved.modifiers.length === 0
+  );
 }
 
 /** A function literal passed as a test's handler, which runs after collection. */
