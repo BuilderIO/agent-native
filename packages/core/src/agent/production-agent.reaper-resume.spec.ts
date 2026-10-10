@@ -7,6 +7,7 @@ import {
   AgentConnectionRequiredError,
   defineAction,
 } from "../action.js";
+import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import type {
   AgentEngine,
@@ -75,6 +76,7 @@ async function recover(
     | "nested-connection"
     | "nested-cloned"
     | "nested-omitted"
+    | "nested-question"
     | "access"
     | "precondition"
     | "connection" = false,
@@ -235,13 +237,19 @@ async function recover(
         failFinalization === "nested-validation" ||
         failFinalization === "nested-connection" ||
         failFinalization === "nested-cloned" ||
-        failFinalization === "nested-omitted"
+        failFinalization === "nested-omitted" ||
+        failFinalization === "nested-question"
           ? defineAction({
               description: "Send then call another action",
               readOnly: false,
               schema: z.object({ to: z.string(), body: z.string() }),
               run: async (input, ctx) => {
                 await sendEmail(input);
+                if (failFinalization === "nested-question")
+                  return createUrlTools()["ask-question"]!.run(
+                    { question: "Which range?", options: "[]" },
+                    ctx,
+                  );
                 const child = defineAction({
                   description: "Refused child",
                   schema: z
@@ -305,7 +313,9 @@ async function recover(
     ...(isRecovery === true || isRecovery === "continuation"
       ? { internalContinuation: true }
       : {}),
-    ...(isRecovery === true || isRecovery === "client"
+    ...(isRecovery === true ||
+    isRecovery === "client" ||
+    isRecovery === "continuation"
       ? { __agentChatRecoveryOfRunId: "dead-worker" }
       : {}),
     ...(isRecovery !== "client"
@@ -478,6 +488,7 @@ describe("reaper successor resume context", () => {
     "serialization",
     "nested-authorization",
     "nested-validation",
+    "nested-question",
   ] as const)(
     "refreshes verification reads and blocks a reworded retry after a live unknown write (%s)",
     async (failure) => {
@@ -523,6 +534,17 @@ describe("reaper successor resume context", () => {
       expect(result.sendEmail).not.toHaveBeenCalled();
     },
   );
+  it("reaps an existing continuation hop with its original prompt exactly once", async () => {
+    const result = await recover([START, DONE], false, "continuation");
+    const promptText = result.seen[0]!.flatMap((message) => message.content)
+      .flatMap((part) => (part.type === "text" ? [part.text] : []))
+      .join("\n");
+    expect(
+      promptText.split("Send the refund email, then finish the refund."),
+    ).toHaveLength(2);
+    expect(result.sendEmail).not.toHaveBeenCalled();
+  });
+
   it("omits the dead worker's recoverable terminal error while retaining its completed results", async () => {
     const result = await recover([
       START,

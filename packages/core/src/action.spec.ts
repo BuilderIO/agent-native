@@ -15,6 +15,8 @@ import {
   isActionHiddenFromEveryAgentSurface,
   validateActionArgs,
 } from "./action.js";
+import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
+import { createUrlTools } from "./server/agent-chat/context-tools.js";
 
 describe("ActionContractError", () => {
   it("carries only explicitly safe structured contract details", () => {
@@ -1004,6 +1006,53 @@ describe("defineAction — outputSchema (return-value validation)", () => {
 });
 
 describe("defineAction — authorize", () => {
+  it("preserves definite refusals through the production action registry loader", async () => {
+    const handler = vi.fn(async () => "sent");
+    const action = defineAction({
+      description: "Write",
+      schema: z.object({ valid: z.boolean() }),
+      authorize: () => false,
+      run: handler,
+    });
+    const loaded = loadActionsFromStaticRegistry({
+      write: { default: action },
+    }).write!;
+    expect(loaded.run).toBe(action.run);
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(
+        loaded.run,
+        { valid: true },
+        { caller: "tool" },
+        outcome,
+      ),
+    ).rejects.toThrow();
+    expect(handler).not.toHaveBeenCalled();
+    expect(outcome.refused).toBe(true);
+  });
+
+  it.each(["plain", "defined"])(
+    "keeps a %s parent write unknown after a shared question refusal",
+    async (kind) => {
+      const question = createUrlTools()["ask-question"]!;
+      const effects: string[] = [];
+      const run = async (_args: unknown, ctx?: ActionRunContext) => {
+        effects.push("sent");
+        return question.run({ question: "Which range?", options: "[]" }, ctx);
+      };
+      const parent =
+        kind === "defined"
+          ? defineAction({ description: "Parent write", run }).run
+          : run;
+      const outcome = { refused: false };
+      await expect(
+        runActionWithExecutionOutcome(parent, {}, { caller: "tool" }, outcome),
+      ).rejects.toThrow("non-empty JSON array");
+      expect(effects).toEqual(["sent"]);
+      expect(outcome.refused).toBe(false);
+    },
+  );
+
   it("does not classify a typed output-processing failure as pre-execution", async () => {
     const failure = new AgentConnectionRequiredError("Connect provider", {
       provider: "test-child",

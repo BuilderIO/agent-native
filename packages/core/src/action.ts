@@ -1432,6 +1432,7 @@ const preValidatedForContext = new WeakMap<
   { schema: StandardSchemaV1; value: unknown }
 >();
 
+/** A definite input rejection before this action performs any side effect. */
 export class ActionInputValidationError extends Error {}
 
 type ActionExecutionRun = (args: any, ctx?: ActionRunContext) => Promise<any>;
@@ -1498,6 +1499,7 @@ function wrapRunWithExecutionBoundary(
   return boundaryRun;
 }
 
+/** @internal Observe one public action invocation without transferring child refusals. */
 export async function runActionWithExecutionOutcome(
   run: ActionExecutionRun,
   args: unknown,
@@ -1529,6 +1531,7 @@ export async function runActionWithExecutionOutcome(
         error !== null && typeof error === "object"
           ? state.failures.get(error)
           : undefined;
+      // These types promise no effects at their emitting invocation, not its ancestors.
       const typedRefusal =
         error instanceof ActionInputValidationError ||
         isAgentConnectionRequiredError(error) ||

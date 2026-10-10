@@ -38,7 +38,6 @@ import {
   isAgentConnectionRequiredError,
   type ActionAutomationContext,
   type ActionCaller,
-  type ActionRunContext,
   type WriteReceipt,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
