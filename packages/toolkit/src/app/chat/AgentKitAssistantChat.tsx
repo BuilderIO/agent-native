@@ -2475,10 +2475,10 @@ const AgentKitAssistantChatBody = forwardRef<
   }, [appendRealtimeVoiceTranscript, props.isActiveComposer, threadId]);
 
   useEffect(() => {
-    if (!isRunning) return;
+    if (!isRunning || !props.createTransport) return;
     const interval = window.setInterval(() => saveSnapshotRef.current(), 5000);
     return () => window.clearInterval(interval);
-  }, [isRunning]);
+  }, [isRunning, props.createTransport]);
 
   const acquireSubmission = useCallback(async () => {
     if (

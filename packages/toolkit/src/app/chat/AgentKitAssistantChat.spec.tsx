@@ -6566,6 +6566,49 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(coreSignal?.aborted).toBe(true);
   });
 
+  it("does not checkpoint full snapshots every five seconds for the default transport", async () => {
+    const onSaveThread = vi.fn().mockResolvedValue(true);
+    const props = baseProps({ onSaveThread });
+    await mount(props);
+    vi.useFakeTimers();
+
+    try {
+      const message = {
+        id: "default-transport-checkpoint-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Checkpoint this run" }],
+      } as AgentMessage;
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        activeRunIds: ["default-transport-checkpoint-run"],
+        messages: [message],
+      };
+      await act(async () => {
+        root.render(<AgentKitAssistantChat {...props} />);
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+      const saveCount = chatMocks.persistThreadSnapshot.mock.calls.length;
+      expect(saveCount).toBeGreaterThan(0);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+        for (let i = 0; i < 16; i++) await Promise.resolve();
+      });
+
+      expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledTimes(saveCount);
+    } finally {
+      chatMocks.thread = { ...chatMocks.thread, messages: [] };
+      await act(async () => {
+        root.render(<AgentKitAssistantChat {...props} />);
+        await Promise.resolve();
+      });
+      await act(async () => root.render(null));
+      vi.useRealTimers();
+    }
+  });
+
   it("serializes transport and metadata saves across remounts", async () => {
     let resolveFirstTransport: (() => void) | undefined;
     const firstTransportSave = new Promise<void>((resolve) => {
