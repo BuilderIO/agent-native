@@ -117,12 +117,9 @@ function hasOptionalValues(draft: DefinitionDraft): boolean {
 }
 
 function isHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
+  if (!URL.canParse(value)) return false;
+  const { protocol } = new URL(value);
+  return protocol === "http:" || protocol === "https:";
 }
 
 function useDebouncedValue<T>(value: T, delayMs: number): T {

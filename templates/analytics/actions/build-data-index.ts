@@ -33,6 +33,7 @@ function indexedSourceRevisions(
     bundle.sources.map((source): [string, string] => {
       const revision = source.revision ?? source.contentFingerprint;
       if (!revision) {
+        // guard:allow-bare-error — invariant: withRevision stamps every source before storage, so a missing revision is a builder bug.
         throw new Error(`Source ${source.id} has no indexed revision.`);
       }
       return [source.id, revision];

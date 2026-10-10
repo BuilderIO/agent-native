@@ -170,7 +170,7 @@ interface FirstPartyAnalyticsHealthResponse {
 interface SourceEntry {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   category: DataSourceCategory;
   logo: ReactNode;
   status?: string;
