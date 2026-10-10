@@ -44,6 +44,9 @@ const routeState = vi.hoisted(() => ({
   resumeProps: null as Record<string, unknown> | null,
   resolveConnectionRequest: vi.fn(),
   sendMessage: vi.fn(),
+  showHomePage: false,
+  send: vi.fn(),
+  locationState: null as unknown,
 }));
 
 const createTransport = vi.hoisted(() =>
@@ -166,6 +169,7 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/context", () => ({
   }),
   useAgentKitControl: () => ({
     resolveConnectionRequest: routeState.resolveConnectionRequest,
+    send: routeState.send,
   }),
   useAgentThread: () => ({
     messages: routeState.messages,
@@ -179,9 +183,26 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("react-router", () => ({
   useNavigate: () => routeState.navigate,
   useParams: () => ({ threadId: routeState.threadId }),
+  useLocation: () => ({
+    pathname: `/chat/${routeState.threadId ?? ""}`,
+    search: "",
+    state: routeState.locationState,
+  }),
 }));
 
 vi.mock("@/lib/app-config", () => ({ APP_TITLE: "Chat" }));
+vi.mock("@/lib/chat-paths", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/chat-paths")>();
+  return {
+    ...actual,
+    get SHOW_HOME_PAGE() {
+      return routeState.showHomePage;
+    },
+  };
+});
+vi.mock("@/components/home/HomePage", () => ({
+  default: () => <div data-testid="home-page" />,
+}));
 vi.mock("@/lib/tab-id", () => ({ TAB_ID: "chat-tab" }));
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -195,7 +216,8 @@ vi.mock("@/components/ui/tooltip", () => ({
 
 import ChatRoute from "@/components/chat/ChatRouteContent";
 
-import ChatHomeRoute from "./home";
+import ChatHomeRoute from "./chat._index";
+import HomeRoute from "./home";
 
 describe("ChatRoute AgentKit surface", () => {
   let container: HTMLDivElement;
@@ -205,6 +227,10 @@ describe("ChatRoute AgentKit surface", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     routeState.basePath = "";
+    routeState.showHomePage = false;
+    routeState.send.mockReset();
+    routeState.send.mockResolvedValue(undefined);
+    routeState.locationState = null;
     routeState.threadId = undefined;
     routeState.messages = [];
     routeState.title = undefined;
@@ -664,6 +690,38 @@ describe("ChatRoute AgentKit surface", () => {
     });
   });
 
+  it("sends a prompt handed over from Home once, then clears it", async () => {
+    routeState.threadId = "chat-from-home";
+    routeState.locationState = { initialMessage: "Call the hello action" };
+
+    await act(async () =>
+      root.render(
+        <React.StrictMode>
+          <ChatRoute />
+        </React.StrictMode>,
+      ),
+    );
+
+    expect(routeState.send).toHaveBeenCalledTimes(1);
+    expect(routeState.send).toHaveBeenCalledWith("Call the hello action");
+    expect(routeState.navigate).toHaveBeenCalledWith(
+      { pathname: "/chat/chat-from-home", search: "" },
+      { replace: true, state: null },
+    );
+  });
+
+  it("reports a handed-over prompt that fails to send", async () => {
+    routeState.threadId = "chat-from-home";
+    routeState.locationState = { initialMessage: "Call the hello action" };
+    routeState.send.mockRejectedValue(new Error("No model connected"));
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+      tags: { area: "chat_initial_message" },
+    });
+  });
+
   it("keeps one owned transport across routed threads", () => {
     routeState.threadId = "thread-one";
     act(() => root.render(<ChatRoute />));
@@ -693,6 +751,24 @@ describe("ChatRoute AgentKit surface", () => {
       expect.stringMatching(/^\/chat\/chat-/),
     );
     expect(markHandoff).toHaveBeenCalledWith("chat");
+  });
+
+  it("renders the Home page at /home in local development", async () => {
+    routeState.showHomePage = true;
+    await act(async () => root.render(<HomeRoute />));
+
+    expect(container.querySelector('[data-testid="home-page"]')).not.toBeNull();
+    expect(locationReplace).not.toHaveBeenCalled();
+    expect(markHandoff).not.toHaveBeenCalled();
+  });
+
+  it("keeps /home as the chat entry in production builds", async () => {
+    await act(async () => root.render(<HomeRoute />));
+
+    expect(container.querySelector('[data-testid="home-page"]')).toBeNull();
+    expect(locationReplace).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/chat\/chat-/),
+    );
   });
 
   it("keeps the home handoff inside the deployed app base path", async () => {

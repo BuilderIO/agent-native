@@ -25,6 +25,8 @@ const violations = roots.flatMap((root) => {
 const chatSidebarPath = "templates/chat/app/components/layout/Sidebar.tsx";
 const chatLayoutPath = "templates/chat/app/components/layout/Layout.tsx";
 const chatHomeRoutePath = "templates/chat/app/routes/home.tsx";
+const chatHomeRedirectPath =
+  "templates/chat/app/components/chat/ChatHomeRedirect.tsx";
 const chatSurfacePath =
   "templates/chat/app/components/chat/ChatRouteContent.tsx";
 const chatThreadRoutePath = "templates/chat/app/routes/chat.$threadId.tsx";
@@ -34,6 +36,7 @@ const chatToolkitProviderPath =
 let chatSidebar: string;
 let chatLayout: string;
 let chatHomeRoute: string;
+let chatHomeRedirect: string;
 let chatSurface: string;
 let chatThreadRoute: string;
 let chatRoot: string;
@@ -42,6 +45,7 @@ try {
   chatSidebar = readFileSync(chatSidebarPath, "utf8");
   chatLayout = readFileSync(chatLayoutPath, "utf8");
   chatHomeRoute = readFileSync(chatHomeRoutePath, "utf8");
+  chatHomeRedirect = readFileSync(chatHomeRedirectPath, "utf8");
   chatSurface = readFileSync(chatSurfacePath, "utf8");
   chatThreadRoute = readFileSync(chatThreadRoutePath, "utf8");
   chatRoot = readFileSync(chatRootPath, "utf8");
@@ -53,19 +57,22 @@ try {
   );
 }
 
+const chatThreadTarget = String.raw`(?:\`\/chat\/\$\{encodeURIComponent\(threadId\)\}\`|chatThreadPath\(threadId\))`;
 const chatHomeUsesDurableHandoff =
-  chatHomeRoute.includes('markAgentChatHomeHandoff("chat")') &&
-  chatHomeRoute.includes("getChatHomeThreadId") &&
-  ((/navigate\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`,\s*\{\s*replace:\s*true,?\s*\}\s*\)/s.test(
-    chatHomeRoute,
-  ) &&
-    chatHomeRoute.includes("useNavigate")) ||
+  chatHomeRedirect.includes('markAgentChatHomeHandoff("chat")') &&
+  chatHomeRedirect.includes("getChatHomeThreadId") &&
+  ((new RegExp(
+    String.raw`navigate\(\s*${chatThreadTarget},\s*\{\s*replace:\s*true,?\s*\}\s*\)`,
+    "s",
+  ).test(chatHomeRedirect) &&
+    chatHomeRedirect.includes("useNavigate")) ||
     (/import\s*\{\s*appPath\s*\}\s*from\s*["']@agent-native\/core\/client\/api-path["']/.test(
-      chatHomeRoute,
+      chatHomeRedirect,
     ) &&
-      /window\.location\.replace\(\s*appPath\(\s*`\/chat\/\$\{encodeURIComponent\(threadId\)\}`\s*\)\s*\)/s.test(
-        chatHomeRoute,
-      )));
+      new RegExp(
+        String.raw`window\.location\.replace\(\s*appPath\(\s*${chatThreadTarget}\s*\)\s*\)`,
+        "s",
+      ).test(chatHomeRedirect)));
 
 const chatRailViolations = [
   chatSidebar.includes("<SidebarFooterActions")
@@ -85,8 +92,11 @@ const chatRailViolations = [
 ].filter((violation): violation is string => Boolean(violation));
 
 const chatRouteViolations = [
-  !chatHomeUsesDurableHandoff || !chatHomeRoute.includes("return null;")
-    ? "Chat /home must route a pending thread to the shared durable Chat surface"
+  !chatHomeUsesDurableHandoff || !chatHomeRedirect.includes("return null;")
+    ? "Chat's new-chat entry must route a pending thread to the shared durable Chat surface"
+    : null,
+  !chatHomeRoute.includes("<ChatHomeRedirect />")
+    ? "Chat /home must fall back to the durable Chat handoff outside local development"
     : null,
   !(
     chatThreadRoute.includes(

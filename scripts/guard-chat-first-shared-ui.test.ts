@@ -12,7 +12,8 @@ import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
-const homePath = "templates/chat/app/routes/home.tsx";
+const homePath = "templates/chat/app/components/chat/ChatHomeRedirect.tsx";
+// source-read-ok: fixture input for a guard whose subject is the source text.
 const home = readFileSync(join(root, homePath), "utf8");
 
 function checkHome(source: string) {
@@ -26,6 +27,7 @@ function checkHome(source: string) {
     }
     for (const file of [
       homePath,
+      "templates/chat/app/routes/home.tsx",
       "templates/chat/app/components/layout/Sidebar.tsx",
       "templates/chat/app/components/layout/Layout.tsx",
       "templates/chat/app/components/chat/ChatRouteContent.tsx",
@@ -36,6 +38,7 @@ function checkHome(source: string) {
       mkdirSync(dirname(join(fixture, file)), { recursive: true });
       writeFileSync(
         join(fixture, file),
+        // source-read-ok: copies the real contract files into the guard fixture.
         file === homePath ? source : readFileSync(join(root, file), "utf8"),
       );
     }
@@ -62,8 +65,8 @@ test("accepts a basename-aware React Router replacement", () => {
   const result = checkHome(
     'import { useNavigate } from "react-router";\n' +
       home.replace(
-        "window.location.replace(appPath(`/chat/${encodeURIComponent(threadId)}`));",
-        "navigate(`/chat/${encodeURIComponent(threadId)}`, { replace: true });",
+        "window.location.replace(appPath(chatThreadPath(threadId)));",
+        "navigate(chatThreadPath(threadId), { replace: true });",
       ),
   );
   assert.equal(result.status, 0, result.stderr);
@@ -72,12 +75,12 @@ test("accepts a basename-aware React Router replacement", () => {
 test("rejects a full-page handoff that escapes the app mount", () => {
   const result = checkHome(
     home.replace(
-      "appPath(`/chat/${encodeURIComponent(threadId)}`)",
-      "`/chat/${encodeURIComponent(threadId)}`",
+      "appPath(chatThreadPath(threadId))",
+      "chatThreadPath(threadId)",
     ),
   );
   assert.equal(result.status, 1, result.stderr);
-  assert.match(result.stderr, /Chat \/home must route a pending thread/);
+  assert.match(result.stderr, /new-chat entry must route a pending thread/);
 });
 
 test("requires the shared appPath helper and durable handoff marker", () => {
@@ -87,6 +90,6 @@ test("requires the shared appPath helper and durable handoff marker", () => {
   ]) {
     const result = checkHome(home.replace(missing, ""));
     assert.equal(result.status, 1, result.stderr);
-    assert.match(result.stderr, /Chat \/home must route a pending thread/);
+    assert.match(result.stderr, /new-chat entry must route a pending thread/);
   }
 });

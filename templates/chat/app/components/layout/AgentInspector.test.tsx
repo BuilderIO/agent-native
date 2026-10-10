@@ -49,9 +49,9 @@ describe("global chat inspector fullscreen", () => {
   it.each([
     ["existing-thread", "/chat/existing-thread"],
     ["thread/with space", "/chat/thread%2Fwith%20space"],
-    [undefined, "/home"],
+    [undefined, "/chat"],
   ])(
-    "preserves thread %s, falling back to home only without a current thread",
+    "preserves thread %s, falling back to a new chat only without a current thread",
     (threadId, path) => {
       act(() =>
         root.render(

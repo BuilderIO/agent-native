@@ -17,6 +17,7 @@ import {
   IconApps,
   IconClock,
   IconEdit,
+  IconHome,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconLoader2,
@@ -39,6 +40,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
+import {
+  chatThreadPath,
+  HOME_PATH,
+  SHOW_HOME_PAGE,
+  threadIdFromPath,
+} from "@/lib/chat-paths";
 import { visibleChatThreads } from "@/lib/sidebar-thread-state";
 import { cn } from "@/lib/utils";
 
@@ -237,19 +244,40 @@ function persistActiveThreadId(threadId: string) {
   } catch {}
 }
 
-function threadIdFromPath(pathname: string) {
-  const match = pathname.match(/^\/chat\/([^/]+)/);
-  if (!match) return null;
-  try {
-    const value = decodeURIComponent(match[1]).trim();
-    return value || null;
-  } catch {
-    return null;
-  }
-}
+function HomeNavLink({ collapsed }: { collapsed: boolean }) {
+  const t = useT();
+  const location = useLocation();
+  const active = location.pathname === HOME_PATH;
+  const link = (
+    <Link
+      to={HOME_PATH}
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? t("navigation.home") : undefined}
+      className={cn(
+        "flex items-center text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+        active && "bg-sidebar-accent",
+        collapsed
+          ? "size-10 justify-center rounded-md"
+          : "h-10 w-full gap-3 rounded-lg px-3 text-sm font-medium",
+      )}
+    >
+      <IconHome className="size-4 shrink-0" strokeWidth={1.8} />
+      <span className={collapsed ? "sr-only" : "truncate"}>
+        {t("navigation.home")}
+      </span>
+    </Link>
+  );
 
-function chatThreadPath(threadId: string) {
-  return `/chat/${encodeURIComponent(threadId)}`;
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right">{t("navigation.home")}</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return <div className="px-2">{link}</div>;
 }
 
 function ChatThreadsSection({ collapsed }: { collapsed: boolean }) {
@@ -540,6 +568,7 @@ export function Sidebar({
           collapsed ? "items-center gap-1 px-1 py-2" : "pt-1",
         )}
       >
+        {SHOW_HOME_PAGE ? <HomeNavLink collapsed={collapsed} /> : null}
         <ChatThreadsSection collapsed={collapsed} />
       </nav>
 

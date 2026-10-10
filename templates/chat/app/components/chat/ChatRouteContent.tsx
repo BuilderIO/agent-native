@@ -49,7 +49,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -60,11 +60,8 @@ import {
 } from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
 import { consumeChatHomeThreadId } from "@/lib/chat-home-thread";
+import { chatThreadPath, initialMessageFromState } from "@/lib/chat-paths";
 import { TAB_ID } from "@/lib/tab-id";
-
-function chatThreadPath(threadId: string | null) {
-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/home";
-}
 
 // Module scope on purpose: CoreAgentKitRoot memoizes the client on its options, so
 // a new callback each render would rebuild the client and drop the stream.
@@ -148,6 +145,7 @@ function ChatThreadRouteContent({
             onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}
           >
             <ChatLifecycleTracking threadId={resolvedThreadId} />
+            <ChatInitialMessage threadId={resolvedThreadId} />
             <ChatMcpConnectionResume />
             <ChatCanvas
               workspaceOpen={workspaceOpen}
@@ -289,6 +287,31 @@ function ChatRunFailure({
     );
   }
   return <AgentRunFailure error={error} runId={runId} threadId={threadId} />;
+}
+
+function ChatInitialMessage({ threadId }: { threadId: string }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const control = useAgentKitControl(threadId);
+  const sentRef = useRef(false);
+  const message = initialMessageFromState(location.state);
+
+  useEffect(() => {
+    if (!message || sentRef.current) return;
+    sentRef.current = true;
+    // Router state survives a reload, so drop it before sending or a refresh
+    // would send the prompt a second time.
+    navigate(
+      { pathname: location.pathname, search: location.search },
+      { replace: true, state: null },
+    );
+    void Promise.resolve(control.send(message)).catch((error: unknown) => {
+      captureException(error, { tags: { area: "chat_initial_message" } });
+      toast.error(error instanceof Error ? error.message : String(error));
+    });
+  }, [control, location.pathname, location.search, message, navigate]);
+
+  return null;
 }
 
 function ChatLifecycleTracking({ threadId }: { threadId: string }) {

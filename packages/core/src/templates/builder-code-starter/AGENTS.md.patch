@@ -5,7 +5,7 @@
 -# Chat — Agent Guide
 +# App — Agent Guide
  
--Chat is the minimal chat-first agent-native app. `/` redirects to shared sign-in; authenticated chat starts at `/home`. Actions carry capabilities; screens exist only for durable workflows.
+-Chat is the minimal chat-first agent-native app. `/` redirects to shared sign-in, then `/home`. In production `/home` opens Chat; under `pnpm dev` it shows the Get started page (`SHOW_HOME_PAGE` in `app/lib/chat-paths.ts`). New chats start at `/chat`. Actions carry capabilities; screens exist only for durable workflows.
 +This starter ships as a blank Agent-Native app canvas — that describes its
 +initial state, not necessarily its current one. See `DEVELOPING.md` before
 +making any source code change.
@@ -30,7 +30,7 @@
  
  ## Application state
  
--- `navigation` describes the view and selected ids. Chat is `chat` at `/home`; `/` opens shared sign-in/signup.
+-- `navigation` describes the view and selected ids. Chat is `chat` at `/chat` and `/chat/<threadId>`; the dev-only Get started page is `home` at `/home`; `/` opens shared sign-in/signup.
 +- `navigation` describes the view and selected ids. The default home view is
 +  `home` at `/` (blank app canvas). No agent rail or chat is mounted by
 +  default; add one only when the user asks.
@@ -38,7 +38,7 @@
  
  ## Building a domain app
  
--Choose the primary workflow and route before editing. Add a domain route under `app/routes/` and set `app.homePath` in `server/plugins/agent-native-email-branding.ts` with `defineAppConfig`. Keep `/home` as Chat. Add a static link in `app/components/layout/Sidebar.tsx` before `ChatThreadsSection`; `Header.tsx` maps `/home` to Chat and uses `APP_TITLE` elsewhere. Shared sidebar and AgentInspector remain.
+-Choose the primary workflow and route before editing. Add a domain route under `app/routes/` and set `app.homePath` in `server/plugins/agent-native-email-branding.ts` with `defineAppConfig`. Keep `/chat` as Chat, and set `SHOW_HOME_PAGE` to `false` once the domain route replaces the Get started page. Add a static link in `app/components/layout/Sidebar.tsx` before `ChatThreadsSection`; `Header.tsx` maps `/home` to Chat and uses `APP_TITLE` elsewhere. Shared sidebar and AgentInspector remain.
 +Choose the primary workflow and route before editing. Build on the blank canvas in `app/routes/_index.tsx` or add domain routes under `app/routes/`. This starter has no Chat route, sidebar, header, or agent rail; add only the navigation the product needs. Set `app.homePath` in the existing `defineAppConfig` in `server/plugins/config.ts` as `DEVELOPING.md` describes.
  
 -Use `adding-a-feature` for functional parity and `frontend-design` for a user-facing screen. Keep feature guidance here; do not rewrite `README.md` or `DESIGN.md`. After all edits, run one typecheck, one doctor check, and one browser smoke of the primary workflow, including overlap rejection, cancellation freeing the slot, and authenticated landing. Skip production build and extra test suites.
