@@ -82,7 +82,7 @@ const REPLAY_SCREENSHOT_MARKER = "data-replay-screenshot-map";
 
 type ReplayImageResource = { document: Document; url: string };
 type ReplayScreenshotAssets = Map<Document, Map<string, string>>;
-type Html2Canvas = typeof import("html2canvas").default;
+type Html2Canvas = typeof import("html2canvas-pro").default;
 
 function readUint32BE(bytes: Uint8Array, offset: number): number {
   return new DataView(
@@ -1381,7 +1381,7 @@ export async function captureReplayScreenshot(
     assertScreenshotDimensions(width, height);
 
     iframe.setAttribute(REPLAY_SCREENSHOT_MARKER, stageFrameMarker);
-    const { default: html2canvas } = await import("html2canvas");
+    const { default: html2canvas } = await import("html2canvas-pro");
     assertCaptureAvailable();
     failureReason = "replayRender";
     const replayImageUrl = await captureReplayDocument(
