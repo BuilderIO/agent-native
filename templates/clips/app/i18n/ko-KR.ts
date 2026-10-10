@@ -879,7 +879,7 @@ const messages = {
       "Clips Desktop 음성 받아쓰기를 표시하거나 숨깁니다.",
     labLookbackContext: "이전 화면 시간 포함",
     labLookbackContextDescription:
-      "녹화 시작 전 최대 5분의 화면 시간을 자동으로 수집되는 참고 정보로 첨부합니다. 기본값은 꺼짐입니다.",
+      "녹화 시작 전 최대 5분의 화면 시간을 자동으로 수집되는 참고 정보로 첨부합니다.",
     uploadWorkspaceTitle: "활성 워크스페이스",
     uploadWorkspaceDescription:
       "데스크톱 업로드를 포함한 새 Clips 녹화에 사용할 워크스페이스를 선택하세요.",

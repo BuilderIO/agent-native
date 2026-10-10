@@ -840,7 +840,7 @@ const messages = {
     labWisprFlowDescription: "顯示或隱藏 Clips Desktop 中的語音聽寫。",
     labLookbackContext: "包含較早的螢幕時間",
     labLookbackContextDescription:
-      "將錄製前最多五分鐘的較早螢幕時間作為被動脈絡附加到錄影中。預設關閉。",
+      "將錄製前最多五分鐘的較早螢幕時間作為被動脈絡附加到錄影中。",
     uploadWorkspaceTitle: "目前工作區",
     uploadWorkspaceDescription:
       "選擇 Clips 用於新錄製內容（包括桌面上傳）的工作區。",

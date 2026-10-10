@@ -138,7 +138,7 @@ Ative o Rewind na aba Rewind em Configurações. Depois de ativado, você pode p
 
 O tempo de tela anterior adiciona até cinco minutos da sua tela, de antes de você começar uma gravação, obtidos do Rewind neste dispositivo. Ele fica anexado à gravação como contexto próprio. Ele não é unido ao vídeo da gravação.
 
-O tempo de tela anterior é um recurso experimental opcional. Ative-o em **Configurações > Labs**, "Include earlier screen time". Ele vem desativado por padrão.
+O tempo de tela anterior é um recurso experimental opcional que vem ativado por padrão. Você pode desativá-lo em **Configurações > Labs**, "Include earlier screen time", no aplicativo web do Clips ou no aplicativo de desktop.
 
 Com o recurso ativado, o pop-up do Clipes no aplicativo de desktop tem um controle **Incluir o último**. Escolha **Desligado** (o padrão), **30 s**, **5 min** ou **Personalizado…** para qualquer duração de até cinco minutos. O Rewind precisa estar ativado e em execução para que uma quantidade tenha efeito. Se o Rewind estiver desligado, escolher uma quantidade abre uma breve explicação com um botão **Ativar o Rewind**.
 
@@ -164,7 +164,17 @@ Limites: o tempo de tela anterior tem no máximo cinco minutos. O histórico é 
 
 Instale a extensão do Clipes para Chrome para obter uma gravação mais os registros do navegador e a atividade de rede da aba que você está depurando, útil para relatar bugs de produto e reproduções exclusivas do navegador.
 
-Ela só observa a aba que você está gravando ativamente, e apenas enquanto a gravação está em execução. Ela salva mensagens de console e informações básicas por solicitação (método, uma URL redigida, status, duração e se uma solicitação falhou), nunca corpos de solicitação ou resposta, cabeçalhos ou cookies. Use o aplicativo de desktop para a gravação do dia a dia, e recorra à extensão do Chrome especificamente quando precisar desses registros do navegador anexados.
+| Tópico        | Comportamento                                                                                                                                                                                                                                 |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Abas          | Até cinco: a aba em que você começou a gravação, depois as abas usadas nos últimos 10 minutos, da mais recente para a mais antiga.                                                                                                            |
+| Troca de aba  | Uma aba para a qual você muda durante a gravação também é capturada. Se mais de cinco abas estiverem anexadas, a aba menos usada recentemente, exceto a que está em foco, é desanexada, e os registros dela até então permanecem na gravação. |
+| Retrospectiva | Até 30 segundos antes do início da gravação, na medida em que a página ainda mantém o histórico do console e a lista de tempos de recursos. Essas entradas têm deslocamentos de tempo negativos.                                              |
+| Salvo         | Mensagens do console e informações básicas de solicitações fetch/XHR: método, uma URL redigida, status, duração e se a solicitação falhou. Cada entrada registra a aba de onde veio.                                                          |
+| Nunca salvo   | Corpos de solicitação ou resposta, cabeçalhos ou cookies.                                                                                                                                                                                     |
+
+Entradas de rede da retrospectiva não têm método HTTP, por isso o método delas é registrado como `UNKNOWN`. Solicitações feitas durante a gravação incluem o método. As abas só são acompanhadas enquanto a extensão está em execução, então nos primeiros 10 minutos após o início podem ser elegíveis menos de cinco abas.
+
+Use o aplicativo de desktop para a gravação do dia a dia, e recorra à extensão do Chrome especificamente quando precisar desses registros do navegador anexados.
 
 ## Transcrição e metadados de IA {#transcription-and-ai-metadata}
 
