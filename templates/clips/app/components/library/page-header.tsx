@@ -88,7 +88,10 @@ export const PageHeaderActionGroup = forwardRef<
   return (
     <ButtonGroup
       ref={ref}
-      className={cn("shrink-0 [&>*]:h-9", className)}
+      className={cn(
+        "shrink-0 [&>*]:h-9 has-[>input[data-button-group-ignore]]:[&>*:nth-last-child(2)]:!rounded-e-md [&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child)]:border-primary-foreground/20",
+        className,
+      )}
       {...props}
     />
   );
