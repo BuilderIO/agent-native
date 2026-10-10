@@ -1,8 +1,16 @@
 # ADR: Opt-In Organization Teams Built on Workspace Groups
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-09-25
+
+## Proposed stream-policy amendment: 2026-10-10
+
+The original accepted decision permits an already-open run stream to deliver until disconnect after access loss. That remains current runtime behavior.
+
+The proposed replacement is a framework-wide [bounded viewer authorization lease](durable-agent-runs.md#bounded-viewer-authorization-leases). The proposed lease lasts 10 seconds, with renewal 5 seconds after each check starts. These values require policy approval. The lease bounds new application-controlled content writes, not arrival of bytes already handed to the transport.
+
+Approval of this amendment does not establish runtime completion. V1 release requires approval, implementation, and independent proof of the bound. The target criteria below replace the original stream exception only after approval.
 
 ## Context
 
@@ -127,7 +135,9 @@ Add a chat-thread-specific policy at the action boundary for team grants and rev
 
 At grant time, validate the marked team, its match to the conversation's organization, and the owner's current organization and team membership. On every direct read and list, check the viewer's current organization and team membership. Offer all current team members, including leads, one list of explicitly shared conversations and their linked runs. This list discovers authorized shares; it does not grant access. A private conversation does not appear merely because it is bound to the team. Generic group principals alone cannot provide this list: chat group grants are not currently enabled, and chat list filtering does not yet admit group shares.
 
-Linked runs inherit their conversation's read access; V1 does not share runs separately. On each new read, list, stream connection (including reconnect and replay), or background response request, resolve the linked conversation and apply its current read rules: organization and team membership where applicable, plus owner or share access. Deny the request if the conversation is missing or inaccessible; cached results and background paths cannot bypass this check. V1 adopts the existing connection-scoped run-stream authorization used for other access rules: membership removal, team deletion, or share revocation denies subsequent requests and reconnects but does not terminate an already-open stream. That stream may continue delivering events until it disconnects. Keep the general run transport rules in `durable-agent-runs.md`, but define caller access to runs here through the linked conversation.
+Linked runs inherit their conversation's read access; V1 does not share runs separately. On each new read, list, stream connection (including reconnect and replay), or background response request, resolve the linked conversation and apply its current read rules: organization and team membership where applicable, plus owner or share access. Deny the request if the conversation is missing or inaccessible; cached results and background paths cannot bypass this check.
+
+The proposed amendment also applies that policy during an open viewer subscription through the shared [lease contract](durable-agent-runs.md#bounded-viewer-authorization-leases). Revocation closes a subscription only if the complete current read policy denies access. An unbound owner can retain access after revocation of a team share. The general transport contract covers all run access rules, not only team-linked runs. This ADR defines linked-conversation access, not new rights for standalone or public runs.
 
 If the recorded owner leaves the team recorded on the conversation, they cannot read, continue, or manage it until they rejoin. Current members can still read it if the owner shared it with the team, but they cannot continue or manage it for the owner. V1 does not make a lead a successor or transfer ownership automatically. Removing someone from the organization remains a separate flow; any deliberate successor must belong to the team recorded on the conversation. A conversation started without a team keeps its personal-owner rules even if its team share is revoked.
 
@@ -143,14 +153,24 @@ Never reuse a deleted team's ID or infer a replacement from its name. Group crea
 
 ## Current implementation seams
 
-These are existing surfaces to extend, not claims that V1 is implemented:
+### Implemented team identity and lifecycle
 
-- Workspace groups and connection allow-lists: `packages/core/src/workspace-connections/groups.ts`, `packages/core/src/workspace-connections/store.ts`
+`workspace-connections/migrations.ts` migration v15, `workspace-user-groups-team-fields`, adds `is_team` and `lead_emails_json` with false/empty defaults. `WorkspaceUserGroup` exposes `isTeam` and `leadEmails`; `member_emails_json` remains the only member list. The store normalizes email lists, rejects leads outside membership and leads on ordinary groups, and removes omitted leads when their membership is removed.
+
+`upsertWorkspaceUserGroup` generates an ID only for creation. A supplied ID updates an existing row in the same organization or fails; it never inserts a replacement. Omitted team fields retain their stored values, and an existing team cannot be converted back to an ordinary group. Direct and bulk mutations enforce current organization authority and lead/member invariants at the shared transactional write boundary. Owners and admins can manage teams and leads; a current lead can manage ordinary members only in their own team. `set-workspace-team-leads` provides the dedicated lead action. Effective changes produce audit records.
+
+Conversion preserves existing grants and connection permissions. Deletion removes connection allow-list references transactionally and deletes the group without deleting resource or grant rows. Supported group-share and connection-access lifecycle checks pass. Retained team-context and bound-conversation integration proof remains required before release. These identity changes do not implement those features or satisfy full V1 acceptance. The mutation tests use a shared PGlite client and do not prove lock blocking between independent PostgreSQL connections. Hosted request initialization does not run the migration.
+
+### Remaining integration surfaces
+
+These existing surfaces still need the remaining V1 behavior:
+
 - Shared principals, list and direct access: `packages/core/src/sharing/access.ts`, `packages/core/src/sharing/actions/share-resource.ts`
 - Agent resources and prompt assembly: `packages/core/src/resources/store.ts`, `packages/core/src/server/agent-chat/prompt-resources.ts`
 - Session application state and user/organization selection: `packages/core/src/application-state/store.ts` (currently session-keyed; extend persistence without replacing session behavior)
 - Conversation persistence and access: `packages/core/src/chat-threads/store.ts`, `packages/core/src/server/agent-chat-plugin.ts`
 - Run access through conversations and stream connections: `packages/core/src/agent/run-ownership.ts`, `packages/core/src/server/agent-chat-plugin.ts` (event streams check access when opened, not while delivering events)
+- Shared stream delivery: `packages/core/src/agent/run-manager.ts` needs the proposed lease gate across live, SQL-polled, replayed, and buffered events. A common final writer and complete renewal policy are implementation requirements, not verified existing primitives.
 
 ## Implementation and proof boundary
 
@@ -158,20 +178,20 @@ Implement group roles and team instructions, skills, and memory in Core first. T
 
 ### V1 acceptance criteria
 
-- Non-converted groups and older conversations are unchanged. Converted groups retain grants and connection permissions.
+- Non-converted groups and older conversations retain their access rights. Converted groups retain grants and connection permissions. The proposed lease changes stream enforcement framework-wide, including non-team conversations.
 - Owners/admins can manage team members even when leads exist; leads can manage ordinary members only in their own team. Both paths preserve lead/member invariants, including bulk updates.
 - Active-team selection follows the user within each organization across sessions and devices; switching organizations does not carry another organization's selection into the current session.
 - Only the selected team's context loads alongside organization and personal context when a conversation starts. On every later turn, the bound team's context loads even if the user selects another team. Personal, team, and organization instructions and skills have a deterministic order.
 - A former member, including the owner, cannot read or continue a bound conversation. Unshared work stays private.
 - Only the recorded owner can grant or revoke a chat team share, only for an allowed team, and only as `viewer`. Reject `commenter`, `editor`, and `admin` grants, and reject callers relying only on resource-admin authority.
 - Bound conversations cannot issue public share tokens, and tokens issued before binding cannot expose their transcript or linked runs after binding, membership loss, or team deletion.
-- New run reads, lists, stream connections (including reconnect and replay), and background response requests deny access after the caller loses access to the linked conversation, including on team or organization membership removal and team deletion. An already-open stream may continue until disconnection under the same connection-scoped authorization as other run streams.
+- New run reads, lists, stream connections (including reconnect and replay), and background response requests deny access after the caller loses linked-conversation access. This includes team or organization membership removal and team deletion. Under the proposed amendment, open subscriptions also enforce the approved lease bound. Denial, error, timeout, or expiry closes the viewer subscription without cancelling or completing the producing run.
 - Deletion makes bound context and conversations inaccessible without deleting unrelated resources.
 - A failed or incomplete team-context lookup must not look like empty context or successful authorization.
 
 ### Verification
 
-Test changes to group and organization membership against cached and listed access as well as direct access. After access loss, test denial for each run path above, including reconnect and replay.
+Test changes to group and organization membership against cached and listed access as well as direct access. After access loss, test denial for each run path above, including reconnect and replay. Prove the approved bound on already-open streams after membership removal, team deletion, and share revocation. Include slow authorization, late approvals, backend failure, delayed timers, replay, SQL polling, and backpressure. Prove successful renewal, retained alternative access, and continued producer operation. Require independent integrated proof before release.
 
 ## Consequences and revisit criteria
 
@@ -179,4 +199,4 @@ V1 supplies team context and a central view of explicitly shared work without ma
 
 Revisit generic team ownership and family-specific moves only when a concrete workflow needs team-owned resources or recovery after owner departure. Revisit a separate automation identity, automatic sharing, cross-team conversation sharing, all-teams prompt context, or rules that hide inherited organization resources only for demonstrated needs; none is implied by this proposal.
 
-Connection-scoped authorization does not stop an already-open run stream when access is revoked. If immediate revocation is needed, add continuous stream authorization at the framework level for all run access rules rather than a team-only exception.
+Current connection-scoped authorization has no bound on delivery after access loss. The proposed lease replaces that exception with a bounded framework-wide policy. It is not immediate revocation or a limit on disclosed bytes. Policy approval must explicitly accept the exposure window and fail-closed availability cost. Add distributed invalidation only if a concrete requirement needs faster revocation than the approved bound.
