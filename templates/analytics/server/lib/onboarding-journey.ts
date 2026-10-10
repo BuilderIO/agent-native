@@ -548,6 +548,10 @@ async function readJourneyEvents(
         eventDateRange: request.eventDateRange,
         scopedEventsSingleScan: true,
         scopedEventsProjection: "onboarding_journey",
+        scopedEventsSourceProjections: {
+          e: "onboarding_journey",
+          r: "onboarding_journey_response_identity",
+        },
         signal,
       });
     } catch (error) {
