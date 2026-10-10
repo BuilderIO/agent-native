@@ -75,7 +75,6 @@ function designData(record: { data?: unknown }): Record<string, any> {
     : ((record.data ?? {}) as Record<string, any>);
 }
 
-// oracle: none — verifies cross-document drop persistence, not measured visual parity.
 test("a layer dragged below the rendered Screen card moves to the board", async ({
   page,
 }) => {

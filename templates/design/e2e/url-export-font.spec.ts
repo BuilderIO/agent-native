@@ -202,7 +202,7 @@ async function pdfPagesPng(pdf: Buffer, desiredWidth: number) {
   }
 }
 
-// oracle: none — compares Design exports to this app rendered in the same browser, not native parity
+// Compare exports with the app rendered in the same browser.
 test("cross-origin localhost PNG and PDF preserve the live custom font pixels", async ({
   page: basePage,
   browser,
