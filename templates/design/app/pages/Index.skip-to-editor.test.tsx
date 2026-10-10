@@ -30,6 +30,8 @@ const mocks = vi.hoisted(() => ({
   writePendingGeneration: vi.fn(),
   clearPendingGeneration: vi.fn(),
   fullAppBuilding: false,
+  suggestionPending: false,
+  suggestionLabel: "Generated dashboard",
   ownCount: 0,
   ownedCount: 0,
   ownStatus: "success",
@@ -176,14 +178,27 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
       if (options?.enabled === false) {
         return { data: undefined, isLoading: false, isError: false };
       }
+      if (mocks.suggestionPending) {
+        return { data: undefined, isLoading: true, isError: false };
+      }
       return {
         data: {
           status: "ready",
           suggestions: [
             {
               id: "design-suggestion",
-              label: "Generated dashboard",
+              label: mocks.suggestionLabel,
               prompt: mocks.starterPrompt,
+            },
+            {
+              id: "design-suggestion-2",
+              label: "Generated prototype",
+              prompt: "Create a useful interactive prototype.",
+            },
+            {
+              id: "design-suggestion-3",
+              label: "Generated mobile flow",
+              prompt: "Create a responsive mobile flow.",
             },
           ],
           isLoading: false,
@@ -408,6 +423,8 @@ beforeEach(async () => {
   mocks.queryClient.invalidateQueries.mockResolvedValue(undefined);
   mocks.promptProps = null;
   mocks.fullAppBuilding = false;
+  mocks.suggestionPending = false;
+  mocks.suggestionLabel = "Generated dashboard";
   mocks.systemsEnabled = true;
   mocks.systemsLoading = false;
   mocks.systemsError = null;
@@ -712,6 +729,31 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Generated dashboard");
     expect(container.textContent).not.toContain("chat.suggestionLandingPage");
   });
+
+  it("holds the suggestion slot while loading and keeps the first result", async () => {
+    await act(async () => root.render(null));
+    mocks.suggestionPending = true;
+    await act(async () => root.render(<Index />));
+
+    const bar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(
+      bar?.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
+    ).toHaveLength(3);
+
+    mocks.suggestionPending = false;
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).toContain("Generated dashboard");
+    expect(mocks.suggestionLabel).toBe("Generated dashboard");
+
+    mocks.suggestionLabel = "Another dashboard";
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).toContain("Generated dashboard");
+    expect(container.textContent).not.toContain("Another dashboard");
+  });
+
   it.each([
     { state: "missing", missing: true, ready: false },
     { state: "unknown", missing: false, ready: false },
@@ -721,6 +763,7 @@ describe("Index skip to editor", () => {
   ])(
     "wires the shared composer gate and suggestions for $state (missing=$missing)",
     async ({ state, missing, ready }) => {
+      await act(async () => root.render(null));
       mocks.agentEngine = { state, missing, canChat: ready };
       await act(async () => root.render(<Index />));
       expect(mocks.promptProps?.disabled).not.toBe(true);
@@ -738,11 +781,14 @@ describe("Index skip to editor", () => {
         "agentChat.setup.checkingProvider",
       );
       expect(container.textContent).not.toContain("Checking AI connection");
-      expect(
-        Boolean(
-          container.querySelector('[aria-label="home.suggestedPrompts"]'),
-        ),
-      ).toBe(ready);
+      const suggestionBar = container.querySelector<HTMLElement>(
+        '[aria-label="home.suggestedPrompts"]',
+      );
+      const loading = state === "unknown" || state === "unavailable";
+      expect(Boolean(suggestionBar)).toBe(ready || loading);
+      expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBe(
+        loading ? "true" : null,
+      );
       expect(container.textContent?.includes("Generated dashboard")).toBe(
         ready,
       );

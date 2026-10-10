@@ -357,28 +357,51 @@ export default function Index() {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
+  const fallbackHomeSuggestions = useMemo(
+    () =>
+      [
+        t("chat.suggestionLandingPage"),
+        t("chat.suggestionBrandMatch"),
+        t("chat.suggestionMobile"),
+      ].map((prompt, index) => ({
+        id: `design-home-generic-${index}`,
+        label: prompt,
+        prompt,
+      })),
+    [t],
+  );
+  const [homeSuggestionsSnapshot, setHomeSuggestionsSnapshot] = useState<
+    HomeSuggestion[] | null
+  >(null);
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
     {
-      enabled: quickActionsEnabled,
+      enabled: quickActionsEnabled && homeSuggestionsSnapshot === null,
       retry: false,
-      staleTime: 5 * 60 * 1000,
+      staleTime: Infinity,
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
     },
   );
-  const homeSuggestions =
-    homeSuggestionsQuery.data?.status === "ready" &&
-    homeSuggestionsQuery.data.suggestions.length
-      ? homeSuggestionsQuery.data.suggestions
-      : [
-          t("chat.suggestionLandingPage"),
-          t("chat.suggestionBrandMatch"),
-          t("chat.suggestionMobile"),
-        ].map((prompt, index) => ({
-          id: `design-home-generic-${index}`,
-          label: prompt,
-          prompt,
-        }));
+  useEffect(() => {
+    if (homeSuggestionsSnapshot !== null) return;
+    const result = homeSuggestionsQuery.data;
+    if (result?.status === "ready" && result.suggestions.length === 3) {
+      setHomeSuggestionsSnapshot(result.suggestions);
+    } else if (result || homeSuggestionsQuery.isError) {
+      setHomeSuggestionsSnapshot(fallbackHomeSuggestions);
+    }
+  }, [
+    fallbackHomeSuggestions,
+    homeSuggestionsQuery.data,
+    homeSuggestionsQuery.isError,
+    homeSuggestionsSnapshot,
+  ]);
+  const homeSuggestions = homeSuggestionsSnapshot ?? [];
+  const homeSuggestionsLoading =
+    !agentEngineMissing && homeSuggestionsSnapshot === null;
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -1253,8 +1276,11 @@ export default function Index() {
           </div>
         }
         quickActions={
-          quickActionsEnabled ? (
+          !agentEngineMissing &&
+          (homeSuggestionsLoading || homeSuggestionsSnapshot !== null) ? (
             <AgentSuggestionBar
+              loading={homeSuggestionsLoading}
+              layout="single-line"
               suggestions={homeSuggestions.map((suggestion, index) => ({
                 ...suggestion,
                 id: suggestion.id ?? `design-home-${index}`,

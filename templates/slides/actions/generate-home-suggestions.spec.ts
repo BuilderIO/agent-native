@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   completeText: vi.fn(),
@@ -31,6 +31,10 @@ const suggestions = [
     label: "Report the quarter",
     prompt: "Create a clear quarterly business review deck.",
   },
+  ...Array.from({ length: 7 }, (_, index) => ({
+    label: `Review milestone ${index + 4}`,
+    prompt: `Create a concise presentation about milestone ${index + 4}.`,
+  })),
 ];
 
 describe("generate-home-suggestions", () => {
@@ -44,18 +48,42 @@ describe("generate-home-suggestions", () => {
     mocks.completeText.mockResolvedValue({ text: JSON.stringify(suggestions) });
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("passes generic presentation context for the other role", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.999);
     const result = await action.run({}, {
       userEmail: "user@example.test",
     } as never);
 
-    expect(result).toEqual({ status: "ready", suggestions });
+    expect(result).toEqual({
+      status: "ready",
+      suggestions: suggestions.slice(0, 3),
+    });
     expect(mocks.completeText).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: "slides",
         input: expect.stringContaining("broadly useful presentation starters"),
       }),
     );
+  });
+
+  it("samples three distinct suggestions from the role-specific bank", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const result = await action.run({}, {
+      userEmail: "user@example.test",
+    } as never);
+    const promptBank = new Set(suggestions.map(({ prompt }) => prompt));
+
+    expect(result.suggestions).toHaveLength(3);
+    expect(new Set(result.suggestions.map(({ prompt }) => prompt)).size).toBe(
+      3,
+    );
+    expect(
+      result.suggestions.every(({ prompt }) => promptBank.has(prompt)),
+    ).toBe(true);
   });
 
   it("uses the selected role when it is available", async () => {
@@ -71,7 +99,7 @@ describe("generate-home-suggestions", () => {
       "works in marketing",
     );
     expect(mocks.completeText.mock.calls[0]?.[0].systemPrompt).toContain(
-      "Tailor all three suggestions to the supplied role context",
+      "Tailor all ten bank suggestions to the supplied role context",
     );
   });
 
@@ -107,13 +135,17 @@ describe("generate-home-suggestions", () => {
   });
 
   it("parses a valid JSON array wrapped in model prose", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.999);
     mocks.completeText.mockResolvedValue({
       text: `Here are [three] ideas:\n${JSON.stringify(suggestions)}\nSee [1] for details.`,
     });
 
     await expect(
       action.run({}, { userEmail: "user@example.test" } as never),
-    ).resolves.toEqual({ status: "ready", suggestions });
+    ).resolves.toEqual({
+      status: "ready",
+      suggestions: suggestions.slice(0, 3),
+    });
   });
 
   it("rejects a JSON object containing a nested suggestions array", async () => {
@@ -218,6 +250,7 @@ describe("generate-home-suggestions", () => {
   });
 
   it("keeps a complete answer even when the model reports max_tokens", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.999);
     mocks.completeText.mockResolvedValue({
       text: JSON.stringify(suggestions),
       stopReason: "max_tokens",
@@ -225,7 +258,10 @@ describe("generate-home-suggestions", () => {
 
     await expect(
       action.run({}, { userEmail: "user@example.test" } as never),
-    ).resolves.toEqual({ status: "ready", suggestions });
+    ).resolves.toEqual({
+      status: "ready",
+      suggestions: suggestions.slice(0, 3),
+    });
   });
 
   it("reports unparseable truncated output as truncated, not invalid JSON", async () => {

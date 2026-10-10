@@ -661,34 +661,64 @@ export default function Index({ active = true }: { active?: boolean }) {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
   const quickActionsEnabled = agentEngineConfigured;
+  const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(true);
+  const fallbackHomeSuggestions = useMemo(
+    () =>
+      [
+        t("home.fallbackSuggestions.pitch"),
+        t("home.fallbackSuggestions.roadmap"),
+        t("home.fallbackSuggestions.explainer"),
+      ].map((prompt, index) => ({
+        id: `slides-home-generic-${index}`,
+        label: prompt,
+        prompt,
+      })),
+    [t],
+  );
+  const [homeSuggestionsSnapshot, setHomeSuggestionsSnapshot] = useState<
+    HomeSuggestion[] | null
+  >(null);
   const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
     "generate-home-suggestions",
     {},
     {
-      enabled: isHome && quickActionsEnabled,
+      enabled:
+        isHome &&
+        showNewDeckPrompt &&
+        quickActionsEnabled &&
+        homeSuggestionsSnapshot === null,
       retry: false,
-      staleTime: 5 * 60 * 1000,
+      staleTime: Infinity,
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
     },
   );
-  const homeSuggestions =
-    homeSuggestionsQuery.data?.status === "ready" &&
-    homeSuggestionsQuery.data.suggestions.length
-      ? homeSuggestionsQuery.data.suggestions
-      : [
-          t("home.fallbackSuggestions.pitch"),
-          t("home.fallbackSuggestions.roadmap"),
-          t("home.fallbackSuggestions.explainer"),
-        ].map((prompt, index) => ({
-          id: `slides-home-generic-${index}`,
-          label: prompt,
-          prompt,
-        }));
+  useEffect(() => {
+    if (homeSuggestionsSnapshot !== null) return;
+    const result = homeSuggestionsQuery.data;
+    if (result?.status === "ready" && result.suggestions.length === 3) {
+      setHomeSuggestionsSnapshot(result.suggestions);
+    } else if (result || homeSuggestionsQuery.isError) {
+      setHomeSuggestionsSnapshot(fallbackHomeSuggestions);
+    }
+  }, [
+    fallbackHomeSuggestions,
+    homeSuggestionsQuery.data,
+    homeSuggestionsQuery.isError,
+    homeSuggestionsSnapshot,
+  ]);
+  const homeSuggestions = homeSuggestionsSnapshot ?? [];
+  const homeSuggestionsLoading =
+    isHome &&
+    showNewDeckPrompt &&
+    !agentEngineMissing &&
+    homeSuggestionsSnapshot === null;
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
     useState<Deck | null>(null);
-  const [showNewDeckPrompt, setShowNewDeckPrompt] = useState(true);
   const homeComposerRef = useRef<PromptPopoverHandle>(null);
   const [newDeckInitialPrompt, setNewDeckInitialPrompt] = useState<{
     text: string;
@@ -2650,8 +2680,13 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       }
       quickActions={
-        isHome && showNewDeckPrompt ? (
+        isHome &&
+        showNewDeckPrompt &&
+        !agentEngineMissing &&
+        (homeSuggestionsLoading || homeSuggestionsSnapshot !== null) ? (
           <AgentSuggestionBar
+            loading={homeSuggestionsLoading}
+            layout="single-line"
             suggestions={homeSuggestions.map((suggestion, index) => ({
               ...suggestion,
               id: suggestion.id ?? `slides-home-${index}`,
