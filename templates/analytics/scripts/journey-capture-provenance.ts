@@ -103,6 +103,8 @@ function isCredentialKey(key: string): boolean {
         "passwords",
         "passwd",
         "passphrase",
+        "pin",
+        "pw",
         "pwd",
         "secret",
         "secrets",
@@ -126,7 +128,7 @@ function isCredentialKey(key: string): boolean {
     return true;
   }
   const compact = normalized.replace(/[^a-z0-9]/g, "");
-  return /(?:pass|passwords?|passwd|pwd|passphrase|secrets?|tokens?|credentials?|authorization|authentication|auth|cookies?|session|sigs?|signatures?|(?:api|access|private|secret|signing)key)$/.test(
+  return /(?:pass|passwords?|passwd|passphrase|pin|pw|pwd|secrets?|tokens?|credentials?|authorization|authentication|auth|cookies?|session|sigs?|signatures?|(?:api|access|private|secret|signing)key)$/.test(
     compact,
   );
 }

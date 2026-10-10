@@ -145,6 +145,8 @@ describe("sanitizePromptProvenanceCandidates", () => {
         role: "user",
         text: [
           "DB_PASS=fake-db-pass-value",
+          "pw=fake-short-credential-value",
+          "pin=fake-pin-value",
           "pwd=fake-short-password-value",
           "passwords=fake-password-list-value",
           "tokens=fake-token-list-value",
@@ -158,6 +160,8 @@ describe("sanitizePromptProvenanceCandidates", () => {
     expect(text).toBe(
       [
         "DB_PASS=[REDACTED]",
+        "pw=[REDACTED]",
+        "pin=[REDACTED]",
         "pwd=[REDACTED]",
         "passwords=[REDACTED]",
         "tokens=[REDACTED]",
@@ -167,6 +171,8 @@ describe("sanitizePromptProvenanceCandidates", () => {
     );
     for (const value of [
       "fake-db-pass-value",
+      "fake-short-credential-value",
+      "fake-pin-value",
       "fake-short-password-value",
       "fake-password-list-value",
       "fake-token-list-value",
