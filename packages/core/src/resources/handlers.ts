@@ -31,8 +31,6 @@ import {
 import {
   getResourceKind,
   isRemoteAgentPath,
-  getFrontmatterValue,
-  parseFrontmatter,
   parseCustomAgentProfile,
   parseRemoteAgentManifest,
   parseSkillMetadata,
@@ -504,10 +502,7 @@ export async function handleCreateResource(event: any) {
       body.metadata !== undefined ? { metadata: body.metadata } : undefined;
     const organizationId = organizationIdFromResourceOwner(owner);
     const content = body.content ?? "";
-    const declaredName = getFrontmatterValue(
-      parseFrontmatter(content),
-      "name",
-    )?.trim();
+    const skillName = parseSkillMetadata(content, body.path)?.name.trim();
     for (let suffix = 1; suffix <= 1000; suffix += 1) {
       const path =
         suffix === 1 ? body.path : `skills/${match[1]}-${suffix}/SKILL.md`;
@@ -538,11 +533,8 @@ export async function handleCreateResource(event: any) {
         });
         if (!existing) continue;
 
-        const existingName = getFrontmatterValue(
-          parseFrontmatter(existing.content),
-          "name",
-        )?.trim();
-        if (!declaredName || existingName !== declaredName) {
+        const existingName = parseSkillMetadata(existing.content, path)?.name;
+        if (!skillName || existingName !== skillName) {
           nextPath = true;
           break;
         }
@@ -555,6 +547,7 @@ export async function handleCreateResource(event: any) {
           expectedUpdatedAt: existing.updatedAt,
           expectedContent: existing.content,
           mimeType: body.mimeType,
+          ...(body.metadata !== undefined ? { metadata: body.metadata } : {}),
         });
         if (updated) {
           setResponseStatus(event, 200);

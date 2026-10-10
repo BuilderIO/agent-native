@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Uploaded skills use a unique path so an existing skill is never overwritten.
+Uploaded skills use stable names and unique paths. Re-uploads update their matching skill while distinct names with the same slug stay separate.

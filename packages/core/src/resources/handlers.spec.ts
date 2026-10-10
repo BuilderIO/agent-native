@@ -600,7 +600,7 @@ Legacy webhook.`,
     it("creates an uploaded skill at the next path when the requested one exists", async () => {
       mockResourceGetByPath.mockResolvedValue({
         id: "existing-skill",
-        content: "different skill",
+        content: "---\nname: different-skill\n---\nDifferent skill",
         updatedAt: 1000,
       });
       const created = {
@@ -686,6 +686,40 @@ Legacy webhook.`,
       );
     });
 
+    it("updates a name-less uploaded skill using its path-derived name", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/uploaded-skill/SKILL.md",
+        content: "# Old uploaded skill",
+        updatedAt: 123,
+      };
+      const updated = { ...existing, content: "# New uploaded skill" };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfCurrent.mockResolvedValue(updated);
+
+      const result = await handleCreateResource({
+        _body: {
+          path: existing.path,
+          content: updated.content,
+          mimeType: "text/markdown",
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual(updated);
+      expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
+        owner: "test@test.com",
+        path: existing.path,
+        content: updated.content,
+        expectedId: existing.id,
+        expectedUpdatedAt: existing.updatedAt,
+        expectedContent: existing.content,
+        mimeType: "text/markdown",
+      });
+    });
+
     it("retries a same-name upload after a concurrent update wins", async () => {
       const existing = {
         id: "existing-skill",
@@ -733,6 +767,36 @@ Legacy webhook.`,
         expectedContent: concurrentlyUpdated.content,
         mimeType: "text/markdown",
       });
+    });
+
+    it("preserves upload metadata when updating an existing named skill", async () => {
+      const existing = {
+        id: "existing-skill",
+        owner: "test@test.com",
+        path: "skills/review-feedback/SKILL.md",
+        content: "---\nname: review-feedback\n---\nOld",
+        updatedAt: 123,
+      };
+      const updated = {
+        ...existing,
+        content: "---\nname: review-feedback\n---\nNew",
+      };
+      const metadata = { source: "upload" };
+      mockResourceGetByPath.mockResolvedValue(existing);
+      mockResourcePutIfCurrent.mockResolvedValue(updated);
+
+      await handleCreateResource({
+        _body: {
+          path: existing.path,
+          content: updated.content,
+          metadata,
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(mockResourcePutIfCurrent).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata }),
+      );
     });
 
     it("keeps different declared names at the same slug in separate paths", async () => {
