@@ -10,7 +10,7 @@ description: "使公共路线可爬行、可读、可引用，并可选择由代
 文档站点是参考实现。今天发货：
 
 - `/robots.txt` 的爬虫策略默认允许检索但不允许训练。
-- `/sitemap.xml` 作为站点地图索引，为每个语言区域指向一个 `/sitemaps/<locale>.xml`；当源文件公开它时，具有绝对规范的 URL 和 `lastmod`。
+- `/sitemap.xml` 作为站点地图索引，为每个语言区域指向一个 `/sitemap-<locale>.xml`；当源文件公开它时，具有绝对规范的 URL 和 `lastmod`。
 - `/llms.txt` 和 `/llms-full.txt` 用于代理友好的内容发现。
 - Markdown 镜像，例如 `/docs/getting-started.md`。
 - 生产构建后公共文档页面的 `Accept: text/markdown` 响应。
@@ -188,7 +188,7 @@ const files = buildAgentWebStaticFiles({
 
 Vite 应用可以在生产构建期间使用 `@agent-native/core/vite` 中的 `createAgentWebVitePlugin` 将这些文件写入 `public`、`dist`、`dist/client`、`dist/server/public` 或 `build/client`。
 
-向 `buildAgentWebStaticFiles` 或 `createAgentWebVitePlugin` 传入 `sitemapGroup` 即可拆分大型站点地图。它将每个页面映射到一个分组键（例如语言区域），`sitemap.xml` 随即成为站点地图索引，每个分组对应一个 `sitemaps/<group>.xml`。
+向 `buildAgentWebStaticFiles` 或 `createAgentWebVitePlugin` 传入 `sitemapGroup` 即可拆分大型站点地图。它将每个页面映射到一个分组键（例如语言区域），`sitemap.xml` 随即成为站点地图索引，每个分组对应一个 `sitemap-<group>.xml`。
 
 ## 审核网站 {#audit}
 

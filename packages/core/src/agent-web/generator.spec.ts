@@ -93,9 +93,9 @@ describe("agent web generators", () => {
     expect(files.map((file) => file.path)).toEqual([
       "robots.txt",
       "sitemap.xml",
-      "sitemaps/en-us.xml",
-      "sitemaps/de-de.xml",
-      "sitemaps/es-es.xml",
+      "sitemap-en-us.xml",
+      "sitemap-de-de.xml",
+      "sitemap-es-es.xml",
       "llms.txt",
       "llms-full.txt",
     ]);
@@ -103,66 +103,44 @@ describe("agent web generators", () => {
       .toBe(`<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <sitemap>
-    <loc>https://www.agent-native.com/sitemaps/en-us.xml</loc>
-    <lastmod>2026-05-03</lastmod>
+    <loc>https://www.agent-native.com/sitemap-en-us.xml</loc>
   </sitemap>
   <sitemap>
-    <loc>https://www.agent-native.com/sitemaps/de-de.xml</loc>
+    <loc>https://www.agent-native.com/sitemap-de-de.xml</loc>
   </sitemap>
   <sitemap>
-    <loc>https://www.agent-native.com/sitemaps/es-es.xml</loc>
-    <lastmod>2026-04-20</lastmod>
+    <loc>https://www.agent-native.com/sitemap-es-es.xml</loc>
   </sitemap>
 </sitemapindex>
 `);
-    expect(byPath.get("sitemaps/en-us.xml")).toBe(
+    expect(byPath.get("sitemap-en-us.xml")).toBe(
       buildSitemapXml(pages.slice(0, 2), "https://www.agent-native.com/"),
     );
-    expect(byPath.get("sitemaps/es-es.xml")).toBe(
+    expect(byPath.get("sitemap-es-es.xml")).toBe(
       buildSitemapXml([pages[2]!], "https://www.agent-native.com/"),
     );
-    expect(byPath.get("sitemaps/de-de.xml")).toBe(
+    expect(byPath.get("sitemap-de-de.xml")).toBe(
       buildSitemapXml([pages[3]!], "https://www.agent-native.com/"),
     );
-  });
-
-  it("uses the newest parseable page lastmod for each sitemap index entry", () => {
-    const index = buildAgentWebStaticFiles({
-      siteName: "Agent-Native",
-      siteUrl: "https://www.agent-native.com",
-      config,
-      pages: [
-        { path: "/a", title: "A", lastmod: new Date("2026-03-10T23:00:00Z") },
-        { path: "/b", title: "B", lastmod: "not a date" },
-        { path: "/c", title: "C", lastmod: "2026-03-09" },
-        { path: "/d", title: "D" },
-      ],
-      sitemapGroup: () => "all",
-    }).find((file) => file.path === "sitemap.xml")?.content;
-
-    expect(index).toContain(
-      "<loc>https://www.agent-native.com/sitemaps/all.xml</loc>\n    <lastmod>2026-03-10</lastmod>",
-    );
-    expect(index?.match(/<lastmod>/g)).toHaveLength(1);
   });
 
   it("builds a sitemap index with escaped absolute locations", () => {
     expect(
       buildSitemapIndexXml(
         [
-          { path: "/sitemaps/a&b.xml", lastmod: "2026-01-02" },
-          { path: "/sitemaps/c.xml" },
+          { path: "/sitemap-a&b.xml", lastmod: "2026-01-02" },
+          { path: "/sitemap-c.xml" },
         ],
         "https://example.com/",
       ),
     ).toBe(`<?xml version="1.0" encoding="UTF-8"?>
 <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <sitemap>
-    <loc>https://example.com/sitemaps/a&amp;b.xml</loc>
+    <loc>https://example.com/sitemap-a&amp;b.xml</loc>
     <lastmod>2026-01-02</lastmod>
   </sitemap>
   <sitemap>
-    <loc>https://example.com/sitemaps/c.xml</loc>
+    <loc>https://example.com/sitemap-c.xml</loc>
   </sitemap>
 </sitemapindex>
 `);

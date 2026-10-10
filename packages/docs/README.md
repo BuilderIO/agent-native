@@ -12,7 +12,7 @@ This package builds the public docs site for Agent-Native.
   raw `public/docs-source-index.json` used by server-side documentation actions
   before production builds.
 - `app/vite-sitemap-plugin.ts` generates the `sitemap.xml` index and one
-  `sitemaps/<locale>.xml` per locale during `pnpm build`.
+  `sitemap-<locale>.xml` per locale during `pnpm build`.
 
 Search is built at runtime from the loaded docs. Public `.md` mirrors are generated from the MDX source for crawlers, agents, and copy-as-markdown. There is no generated `searchIndex.ts` source file.
 
@@ -39,4 +39,4 @@ The template-list guard enforces that public template surfaces only include allo
 pnpm --filter @agent-native/docs build
 ```
 
-Build output goes to the docs package `dist/` directory. The build also refreshes `public/source-index.json`, `sitemap.xml`, and the per-locale `sitemaps/*.xml`.
+Build output goes to the docs package `dist/` directory. The build also refreshes `public/source-index.json`, `sitemap.xml`, and the per-locale `sitemap-*.xml`.

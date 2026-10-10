@@ -10,7 +10,7 @@ description: "اجعل المسارات العامة قابلة للزحف، و�
 موقع المستندات هو التنفيذ المرجعي. واليوم يتم شحنه:
 
 - `/robots.txt` مع سياسة الزاحف التي تسمح بالاسترداد ولكنها لا تسمح بالتدريب بشكل افتراضي.
-- `/sitemap.xml` كفهرس لخرائط الموقع يشير إلى ملف `/sitemaps/<locale>.xml` واحد لكل لغة، مع URLs الأساسية المطلقة و`lastmod` عندما يعرضها الملف المصدر.
+- `/sitemap.xml` كفهرس لخرائط الموقع يشير إلى ملف `/sitemap-<locale>.xml` واحد لكل لغة، مع URLs الأساسية المطلقة و`lastmod` عندما يعرضها الملف المصدر.
 - `/llms.txt` و`/llms-full.txt` لاكتشاف المحتوى المناسب للوكلاء.
 - مرايا Markdown مثل `/docs/getting-started.md`.
 - استجابات `Accept: text/markdown` لصفحات المستندات العامة بعد إنشاء الإنتاج.
@@ -186,7 +186,7 @@ const files = buildAgentWebStaticFiles({
 
 يمكن لتطبيقات Vite استخدام `createAgentWebVitePlugin` من `@agent-native/core/vite` لكتابة هذه الملفات إلى `public` أو `dist` أو `dist/client` أو `dist/server/public` أو `build/client` أثناء إنشاءات الإنتاج.
 
-مرِّر `sitemapGroup` إلى `buildAgentWebStaticFiles` أو `createAgentWebVitePlugin` لتقسيم خريطة موقع كبيرة. يربط الخيار كل صفحة بمفتاح مجموعة، مثل لغتها، فيصبح `sitemap.xml` فهرسًا لخرائط الموقع يضم ملف `sitemaps/<group>.xml` واحدًا لكل مجموعة.
+مرِّر `sitemapGroup` إلى `buildAgentWebStaticFiles` أو `createAgentWebVitePlugin` لتقسيم خريطة موقع كبيرة. يربط الخيار كل صفحة بمفتاح مجموعة، مثل لغتها، فيصبح `sitemap.xml` فهرسًا لخرائط الموقع يضم ملف `sitemap-<group>.xml` واحدًا لكل مجموعة.
 
 ## تدقيق الموقع {#audit}
 

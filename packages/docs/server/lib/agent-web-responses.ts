@@ -7,7 +7,7 @@ const AGENT_WEB_ASSET_CONTENT_TYPES: Record<string, string> = {
   "/sitemap.xml": "application/xml; charset=utf-8",
   "/openapi.json": "application/json; charset=utf-8",
 };
-const CHILD_SITEMAP_PATH = /^\/sitemaps\/[a-z0-9][a-z0-9-]*\.xml$/;
+const CHILD_SITEMAP_PATH = /^\/sitemap-[a-z0-9][a-z0-9-]*\.xml$/;
 
 export function agentWebAssetContentType(pathname: string): string | undefined {
   if (CHILD_SITEMAP_PATH.test(pathname)) {

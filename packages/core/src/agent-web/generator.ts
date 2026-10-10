@@ -51,7 +51,7 @@ export interface BuildAgentWebStaticFilesOptions {
   organization?: AgentWebOrganization;
   /**
    * Splits the sitemap by the returned key: `sitemap.xml` becomes a sitemap
-   * index pointing at one `sitemaps/{key}.xml` per key. Keys are lowercased
+   * index pointing at one `sitemap-{key}.xml` per key. Keys are lowercased
    * and must then match `/^[a-z0-9][a-z0-9-]*$/`.
    */
   sitemapGroup?: (page: AgentWebPage) => string;
@@ -239,16 +239,17 @@ function buildSitemapFiles(
     if (b === rootGroup) return 1;
     return a < b ? -1 : 1;
   });
-  const childPath = (group: string) => `sitemaps/${group}.xml`;
+  // A sitemap may only list URLs under its own directory, so child sitemaps
+  // live at the site root.
+  const childPath = (group: string) => `sitemap-${group}.xml`;
 
   return [
     {
       path: "sitemap.xml",
+      // No index lastmod: the newest page date stays put when a child sitemap
+      // changes because an older page was added or a page was removed.
       content: buildSitemapIndexXml(
-        keys.map((group) => ({
-          path: `/${childPath(group)}`,
-          lastmod: newestLastmod(groups.get(group)!),
-        })),
+        keys.map((group) => ({ path: `/${childPath(group)}` })),
         siteUrl,
       ),
     },
@@ -268,18 +269,6 @@ function sitemapGroupKey(value: unknown, pagePath: string): string {
     );
   }
   return key;
-}
-
-function newestLastmod(pages: AgentWebPage[]): string | undefined {
-  let newest: number | undefined;
-  for (const page of pages) {
-    const lastmod = normalizeLastmod(page.lastmod);
-    // An unparseable lastmod is published verbatim but cannot be ordered.
-    const time = lastmod ? Date.parse(lastmod) : Number.NaN;
-    if (Number.isNaN(time)) continue;
-    if (newest === undefined || time > newest) newest = time;
-  }
-  return newest === undefined ? undefined : normalizeLastmod(new Date(newest));
 }
 
 export function buildLlmsTxt(

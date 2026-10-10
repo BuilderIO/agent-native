@@ -58,8 +58,8 @@ describe("runAuditAgentWeb", () => {
       );
       const body =
         parsed.pathname === "/sitemap.xml"
-          ? `<?xml version="1.0" encoding="UTF-8"?><sitemapindex><sitemap><loc>https://www.example.com/sitemaps/en-us.xml</loc></sitemap><sitemap><loc>https://www.example.com/sitemaps/es-es.xml</loc></sitemap></sitemapindex>`
-          : parsed.pathname === "/sitemaps/en-us.xml"
+          ? `<?xml version="1.0" encoding="UTF-8"?><sitemapindex><sitemap><loc>https://www.example.com/sitemap-en-us.xml</loc></sitemap><sitemap><loc>https://www.example.com/sitemap-es-es.xml</loc></sitemap></sitemapindex>`
+          : parsed.pathname === "/sitemap-en-us.xml"
             ? `<?xml version="1.0" encoding="UTF-8"?><urlset><url><loc>https://www.example.com/docs</loc></url></urlset>`
             : responseBody(parsed.pathname, accept);
       return new Response(body, { status: 200 });
@@ -70,7 +70,7 @@ describe("runAuditAgentWeb", () => {
 
     const output = logSpy.mock.calls.flat().join("\n");
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://example.com/sitemaps/en-us.xml",
+      "https://example.com/sitemap-en-us.xml",
       expect.anything(),
     );
     expect(output).toContain("PASS sitemap.xml");

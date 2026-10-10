@@ -29,8 +29,8 @@ describe("agent web response helpers", () => {
   it("serves the sitemap index and per-locale sitemaps as XML", () => {
     for (const pathname of [
       "/sitemap.xml",
-      "/sitemaps/en-us.xml",
-      "/sitemaps/zh-cn.xml",
+      "/sitemap-en-us.xml",
+      "/sitemap-zh-cn.xml",
     ]) {
       expect(agentWebAssetContentType(pathname)).toBe(
         "application/xml; charset=utf-8",
@@ -43,14 +43,15 @@ describe("agent web response helpers", () => {
 
   it("does not resolve unsafe or unknown sitemap paths", () => {
     for (const pathname of [
-      "/sitemaps/../package.json",
-      "/sitemaps/..%2fpackage.xml",
-      "/sitemaps/nested/en-us.xml",
-      "/sitemaps/EN-US.xml",
-      "/sitemaps/.xml",
-      "/sitemaps/-en.xml",
-      "/sitemaps/en-us.xml.bak",
-      "/sitemaps",
+      "/sitemap-../package.json",
+      "/sitemap-..%2fpackage.xml",
+      "/nested/sitemap-en-us.xml",
+      "/sitemaps/en-us.xml",
+      "/sitemap-EN-US.xml",
+      "/sitemap-.xml",
+      "/sitemap--en.xml",
+      "/sitemap-en-us.xml.bak",
+      "/sitemap-",
       "/docs/",
     ]) {
       expect(agentWebAssetContentType(pathname)).toBeUndefined();

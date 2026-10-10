@@ -131,15 +131,18 @@ describe("docs agent web generation", () => {
         '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
       );
       expect(locsIn(index)).toEqual([
-        `${SITE_URL}/sitemaps/en-us.xml`,
+        `${SITE_URL}/sitemap-en-us.xml`,
         ...locales
           .filter((locale) => locale !== "en-us")
           .sort()
-          .map((locale) => `${SITE_URL}/sitemaps/${locale}.xml`),
+          .map((locale) => `${SITE_URL}/sitemap-${locale}.xml`),
       ]);
-      expect(fs.readdirSync(path.join(clientDir, "sitemaps")).sort()).toEqual(
-        locales.map((locale) => `${locale}.xml`).sort(),
-      );
+      expect(
+        fs
+          .readdirSync(clientDir)
+          .filter((file) => /^sitemap-.+\.xml$/.test(file))
+          .sort(),
+      ).toEqual(locales.map((locale) => `sitemap-${locale}.xml`).sort());
     });
 
     it("lists every page in exactly one per-locale sitemap", () => {
@@ -149,7 +152,7 @@ describe("docs agent web generation", () => {
           locale,
           locsIn(
             fs.readFileSync(
-              path.join(clientDir, "sitemaps", `${locale}.xml`),
+              path.join(clientDir, `sitemap-${locale}.xml`),
               "utf8",
             ),
           ),
