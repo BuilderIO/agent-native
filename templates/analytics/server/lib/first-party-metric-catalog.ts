@@ -1439,21 +1439,14 @@ function buildOnboardingJourneyEventCtes(
     AND ('{{appFilter}}' IN ('', 'all') OR lower(COALESCE(NULLIF(r.template, ''), NULLIF(r.app, ''), 'unknown')) = lower('{{appFilter}}'))
     AND lower(COALESCE(NULLIF(r.template, ''), NULLIF(r.app, ''), 'unknown')) IN (${FIRST_PARTY_TEMPLATE_SQL_LIST})
     AND r.event_name = 'http.response'
-), onboarding_session_flags AS (
-  SELECT session_id,
-    MAX(CASE WHEN coalesce(${testIdentityEmailSql("funnel_user_email")}, FALSE) THEN 1 ELSE 0 END) AS has_test,
-    MAX(CASE WHEN lower(coalesce(funnel_user_email, '')) LIKE '%@builder.io' THEN 1 ELSE 0 END) AS has_builder,
-    MAX(CASE WHEN event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)}) THEN 1 ELSE 0 END) AS has_cohort,
-    MAX(CASE WHEN event_name IN (${sqlNameList(JOURNEY_INTEGRATION_EVENT_NAMES)}) THEN 1 ELSE 0 END) AS has_standalone_setup
-  FROM (
-    SELECT session_id, event_name, funnel_user_email
-    FROM scoped_onboarding_events
-    UNION ALL
-    SELECT session_id, event_name, funnel_user_email
-    FROM response_identity_events
-  ) AS session_identity_events
-  WHERE NULLIF(session_id, '') IS NOT NULL
-  GROUP BY session_id
+), onboarding_journey_identity_events AS (
+  SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path, e.properties,
+    e.template, e.app, e.funnel_user_email, TRUE AS is_journey_event
+  FROM scoped_onboarding_events e
+  UNION ALL
+  SELECT NULL, r.session_id, NULL, r.event_name, NULL, NULL, NULL, NULL,
+    r.funnel_user_email, FALSE
+  FROM response_identity_events r
 ), classified_onboarding_events AS (
   SELECT e.*,
     lower(${TEMPLATE_EXPR}) AS template_name,
@@ -1464,12 +1457,23 @@ function buildOnboardingJourneyEventCtes(
       WHEN lower(${TEMPLATE_EXPR}) IN ('slides', 'design')
         THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
     END AS output_attempt_id,
-    COALESCE(flags.has_test, 0) AS has_test,
-    COALESCE(flags.has_builder, 0) AS has_builder,
-    COALESCE(flags.has_cohort, 0) AS has_cohort,
-    COALESCE(flags.has_standalone_setup, 0) AS has_standalone_setup
-  FROM scoped_onboarding_events e
-  LEFT JOIN onboarding_session_flags flags ON flags.session_id = e.session_id
+    CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN
+      MAX(CASE WHEN coalesce(${testIdentityEmailSql("e.funnel_user_email")}, FALSE) THEN 1 ELSE 0 END)
+        OVER (PARTITION BY e.session_id)
+      ELSE 0 END AS has_test,
+    CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN
+      MAX(CASE WHEN lower(coalesce(e.funnel_user_email, '')) LIKE '%@builder.io' THEN 1 ELSE 0 END)
+        OVER (PARTITION BY e.session_id)
+      ELSE 0 END AS has_builder,
+    CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN
+      MAX(CASE WHEN e.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)}) THEN 1 ELSE 0 END)
+        OVER (PARTITION BY e.session_id)
+      ELSE 0 END AS has_cohort,
+    CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN
+      MAX(CASE WHEN e.event_name IN (${sqlNameList(JOURNEY_INTEGRATION_EVENT_NAMES)}) THEN 1 ELSE 0 END)
+        OVER (PARTITION BY e.session_id)
+      ELSE 0 END AS has_standalone_setup
+  FROM onboarding_journey_identity_events e
 ), candidate_onboarding_events AS (
   SELECT e.*,
     CASE
@@ -1485,6 +1489,7 @@ function buildOnboardingJourneyEventCtes(
         THEN CASE WHEN e.has_cohort = 1 THEN 'onboarding' ELSE 'standalone_setup' END
     END AS candidate_journey_kind
   FROM classified_onboarding_events e
+  WHERE e.is_journey_event
 ), linked_onboarding_events AS (
   SELECT e.*,
     MIN(e.candidate_session_id) OVER (

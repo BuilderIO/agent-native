@@ -284,6 +284,12 @@ describe("onboarding journey events SQL", () => {
     expect(sql.match(/\bFROM\s+scoped_onboarding_events\s+e\b/gi)).toHaveLength(
       1,
     );
+    expect(sql).toContain("FROM onboarding_journey_identity_events e");
+    expect(sql).toContain("UNION ALL");
+    expect(sql).toContain("OVER (PARTITION BY e.session_id)");
+    expect(sql).toContain(
+      "CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN",
+    );
     expect(sql).toContain(
       "PARTITION BY e.template_name, e.output_id, e.output_attempt_id",
     );
