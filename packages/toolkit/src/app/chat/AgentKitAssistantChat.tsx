@@ -187,6 +187,7 @@ import type {
   AssistantChatComposerContext,
   AssistantChatHandle,
   AssistantChatProps,
+  AssistantChatSnapshotSaveSource,
   AssistantChatSendOptions,
   AssistantChatSubmitResult,
 } from "./chat/surface-types.js";
@@ -2448,26 +2449,27 @@ const AgentKitAssistantChatBody = forwardRef<
           }
 
           const messages = agentKitMessagesFromThreadSnapshot(snapshot);
-          let transportSaved = false;
+          let saveSource: AssistantChatSnapshotSaveSource = "transport";
           try {
             if (controller.persistThreadSnapshotWithResult) {
-              transportSaved =
-                (await controller.persistThreadSnapshotWithResult(
+              const persisted =
+                await controller.persistThreadSnapshotWithResult(
                   threadId,
                   messages,
                   requestContext,
-                )) !== false;
+                );
+              if (persisted === false) return false;
+              if (persisted === undefined) saveSource = "host-fallback";
             } else {
               await controller.persistThreadSnapshot(threadId, messages);
-              transportSaved = true;
             }
           } catch (error) {
             console.error(
               "Failed to persist the chat transport snapshot.",
               error,
             );
+            return false;
           }
-          if (!transportSaved) return false;
           if (
             latestThreadSnapshotGenerations.get(persistenceKey) !==
               generation ||
@@ -2478,7 +2480,12 @@ const AgentKitAssistantChatBody = forwardRef<
 
           try {
             return (
-              (await onSaveThread(threadId, snapshot, requestContext)) !== false
+              (await onSaveThread(
+                threadId,
+                snapshot,
+                requestContext,
+                saveSource,
+              )) !== false
             );
           } catch (error) {
             console.error("Failed to save the chat thread snapshot.", error);
@@ -2547,7 +2554,10 @@ const AgentKitAssistantChatBody = forwardRef<
           return false;
         }
         try {
-          return (await onSaveThread(threadId, snapshot, context)) !== false;
+          return (
+            (await onSaveThread(threadId, snapshot, context, "metadata")) !==
+            false
+          );
         } catch (error) {
           console.error("Failed to save chat thread metadata.", error);
           return false;

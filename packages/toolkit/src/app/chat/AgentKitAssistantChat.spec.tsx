@@ -1113,6 +1113,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         preview: "Summarize @[the sprint|resource:123] <context>",
       }),
       expect.objectContaining({ signal: expect.anything() }),
+      "transport",
     );
   });
 
@@ -1182,6 +1183,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         preview: "Summarize sprint  visible continuation",
       }),
       expect.objectContaining({ signal: expect.anything() }),
+      "transport",
     );
     expect(savedSnapshots.mock.calls[0]?.[1].preview).not.toContain(
       "ambiguous private",
@@ -6094,6 +6096,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         titleSource: "fallback",
       }),
       expect.objectContaining({ signal: expect.anything() }),
+      "transport",
     );
     const fetch = vi.fn(async () => new Response(null, { status: 404 }));
     const runtime = {
@@ -7622,6 +7625,12 @@ describe("AgentKitAssistantChat host behavior", () => {
     await flush();
 
     expect(onSaveThread).toHaveBeenCalledOnce();
+    expect(onSaveThread).toHaveBeenCalledWith(
+      "thread-1",
+      expect.objectContaining({ threadData: expect.any(String) }),
+      expect.anything(),
+      "host-fallback",
+    );
     expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
   });
 
@@ -8118,6 +8127,7 @@ describe("AgentKitAssistantChat host behavior", () => {
           threadData: expect.stringContaining('"lastSequence":2'),
         }),
         expect.anything(),
+        "metadata",
       );
     } finally {
       chatMocks.thread = { ...chatMocks.thread, messages: [] };

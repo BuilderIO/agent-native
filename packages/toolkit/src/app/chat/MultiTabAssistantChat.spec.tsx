@@ -103,6 +103,8 @@ const assistantChatMockState = vi.hoisted(() => ({
           messageCount: number;
           titleSource?: "fallback";
         },
+        context?: { signal?: AbortSignal },
+        source?: "transport" | "metadata" | "host-fallback",
       ) => boolean | void | Promise<boolean | void>)
     | undefined,
   onThreadSnapshotPersisted: undefined as
@@ -662,6 +664,29 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       assistantChatMockState.onThreadSnapshotPersisted?.("thread-1", 1);
     });
     expect(window.location.search).toBe("?thread=thread-1");
+  });
+
+  it("persists full thread data through the host fallback", async () => {
+    const snapshot = {
+      threadData: JSON.stringify({ messages: [{ id: "fallback-message" }] }),
+      title: "Fallback chat",
+      preview: "Fallback request",
+      messageCount: 1,
+    };
+
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.(
+        "thread-1",
+        snapshot,
+        undefined,
+        "host-fallback",
+      );
+    });
+
+    expect(threadMocks.saveThreadData).toHaveBeenLastCalledWith(
+      "thread-1",
+      snapshot,
+    );
   });
 
   it("publishes a thread URL only after its first save succeeds", async () => {

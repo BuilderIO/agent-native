@@ -85,6 +85,7 @@ import {
 import type {
   AssistantChatProps,
   AssistantChatHandle,
+  AssistantChatSnapshotSaveSource,
   AssistantChatSendOptions,
 } from "./chat/surface-types.js";
 import { fallbackChatTitle } from "./fallback-chat-title.js";
@@ -2914,12 +2915,13 @@ export function MultiTabAssistantChat({
         titleSource?: "fallback";
       },
       context?: { signal?: AbortSignal },
+      source: AssistantChatSnapshotSaveSource = "transport",
     ): Promise<boolean> => {
       return saveThreadDataForTab(
         threadId,
         {
           ...data,
-          threadData: "",
+          threadData: source === "host-fallback" ? data.threadData : "",
         },
         context,
       );

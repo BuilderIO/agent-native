@@ -35,6 +35,11 @@ export type AgentRecoveryAction = "continue" | "retry";
 
 export type AgentChatSurfaceKind = "app" | "dev-frame" | "desktop";
 
+export type AssistantChatSnapshotSaveSource =
+  | "transport"
+  | "metadata"
+  | "host-fallback";
+
 export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
   requestMode?: AgentRequestMode;
@@ -241,8 +246,9 @@ export interface AssistantChatProps {
       titleSource?: "fallback";
     },
     context?: AgentRequestContext,
+    source?: AssistantChatSnapshotSaveSource,
   ) => unknown;
-  /** Called after both the thread record and its full transport snapshot save. */
+  /** Called after the thread record and its transcript snapshot both save. */
   onThreadSnapshotPersisted?: (threadId: string, messageCount: number) => void;
   /** Callback to generate a title from the first user message, on the model it was sent with */
   onGenerateTitle?: (
