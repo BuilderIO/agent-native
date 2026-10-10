@@ -1553,12 +1553,10 @@ describe("queryFirstPartyAnalytics", () => {
         signal: expect.any(AbortSignal),
       }),
     );
-    expect(backendMocks.query.mock.calls.at(-1)?.[3].timeoutMs).toBeGreaterThan(
-      0,
-    );
-    expect(
-      backendMocks.query.mock.calls.at(-1)?.[3].timeoutMs,
-    ).toBeLessThanOrEqual(options.timeoutMs);
+    const lastQueryCall =
+      backendMocks.query.mock.calls[backendMocks.query.mock.calls.length - 1];
+    expect(lastQueryCall?.[3].timeoutMs).toBeGreaterThan(0);
+    expect(lastQueryCall?.[3].timeoutMs).toBeLessThanOrEqual(options.timeoutMs);
 
     const backendFailure = new Error("private SQL and provider details");
     healthMocks.record.mockClear();
@@ -2014,7 +2012,7 @@ describe("queryFirstPartyAnalytics", () => {
           { userEmail: "expired-deadline@example.com", orgId: null },
           { cache: true, timeoutMs: 500 },
         ),
-      ).rejects.toThrow("First-party analytics query timed out after 500ms");
+      ).rejects.toBeInstanceOf(FirstPartyAnalyticsQueryTimeoutError);
     } finally {
       dateNow.mockRestore();
     }
