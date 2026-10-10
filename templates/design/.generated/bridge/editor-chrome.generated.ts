@@ -3936,16 +3936,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       var yAttribute = offsetStyle.getAttribute(
         "data-agent-native-content-offset-y"
       );
-      var x = xAttribute === null ? NaN : Number(xAttribute);
-      var y = yAttribute === null ? NaN : Number(yAttribute);
+      var x = xAttribute === null || !xAttribute.trim() ? NaN : Number(xAttribute);
+      var y = yAttribute === null || !yAttribute.trim() ? NaN : Number(yAttribute);
       var cssOffset = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : (function() {
         var match = /translate:\\s*(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))px\\s+(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))px/.exec(
           offsetStyle.textContent || ""
         );
-        return match ? { x: Number(match[1]), y: Number(match[2]) } : { x: 0, y: 0 };
+        return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
       })();
+      if (!cssOffset) return null;
       var body = document.body;
-      if (!body) return cssOffset;
+      if (!body) return null;
       var ancestorTransform = { a: 1, b: 0, c: 0, d: 1 };
       for (var ancestor = body; ancestor; ancestor = ancestor.parentElement) {
         ancestorTransform = multiplyPositionTransforms(
@@ -3953,10 +3954,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           ancestorTransform
         );
       }
-      return {
+      var offset = {
         x: ancestorTransform.a * cssOffset.x + ancestorTransform.c * cssOffset.y,
         y: ancestorTransform.b * cssOffset.x + ancestorTransform.d * cssOffset.y
       };
+      return Number.isFinite(offset.x) && Number.isFinite(offset.y) ? offset : null;
     }
     function boardContentOffsetRootForElement(el, offset) {
       if (offset.x === 0 && offset.y === 0) return null;
@@ -5704,16 +5706,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (designParent && parentStyles) {
         positionComputedStylesCache.set(designParent, parentStyles);
       }
-      var positionCoordinateContext = positionContainingBlockForElement(
+      var positionCoordinateContext = positionRenderOffset ? positionContainingBlockForElement(
         el,
         positionComputedStylesCache,
         positionRenderOffset
-      );
-      var positionReferenceRect = positionReferenceRectForElement(
+      ) : null;
+      var positionReferenceRect = positionCoordinateContext ? positionReferenceRectForElement(
         el,
         cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
         positionRenderOffset
-      );
+      ) : void 0;
       var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var runtimeOnlyClone = isRuntimeOnlyClone(el);
@@ -5806,9 +5808,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         styleSnapshotCaptureFailed: portableStyleSnapshot === null ? true : void 0,
         boundingRect,
         parentBoundingRect: designParent ? rectInfoForElement(designParent) : void 0,
-        positionReferenceRect,
-        positionContainingBlockOrigin: positionCoordinateContext.origin,
-        positionContainingBlockTransform: positionCoordinateContext.transform,
+        ...positionCoordinateContext && positionReferenceRect ? {
+          positionReferenceRect,
+          positionContainingBlockOrigin: positionCoordinateContext.origin,
+          positionContainingBlockTransform: positionCoordinateContext.transform
+        } : {},
         textContent: el.textContent ? el.textContent.slice(0, 200) : void 0,
         textContentTruncated: el.textContent ? el.textContent.length > 200 : void 0,
         htmlContent: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.slice(0, 4e3) : void 0,

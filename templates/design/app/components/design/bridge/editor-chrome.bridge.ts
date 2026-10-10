@@ -4204,7 +4204,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return el.parentElement;
   }
 
-  function appliedContentOffset() {
+  function appliedContentOffset(): { x: number; y: number } | null {
     var offsetStyle = document.querySelector(
       "style[data-agent-native-content-offset]",
     );
@@ -4215,8 +4215,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var yAttribute = offsetStyle.getAttribute(
       "data-agent-native-content-offset-y",
     );
-    var x = xAttribute === null ? NaN : Number(xAttribute);
-    var y = yAttribute === null ? NaN : Number(yAttribute);
+    var x =
+      xAttribute === null || !xAttribute.trim() ? NaN : Number(xAttribute);
+    var y =
+      yAttribute === null || !yAttribute.trim() ? NaN : Number(yAttribute);
     var cssOffset =
       Number.isFinite(x) && Number.isFinite(y)
         ? { x: x, y: y }
@@ -4225,12 +4227,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
               /translate:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))px\s+(-?(?:\d+(?:\.\d*)?|\.\d+))px/.exec(
                 offsetStyle.textContent || "",
               );
-            return match
-              ? { x: Number(match[1]), y: Number(match[2]) }
-              : { x: 0, y: 0 };
+            return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
           })();
+    if (!cssOffset) return null;
     var body = document.body;
-    if (!body) return cssOffset;
+    if (!body) return null;
     var ancestorTransform = { a: 1, b: 0, c: 0, d: 1 };
     for (
       var ancestor: Element | null = body;
@@ -4242,10 +4243,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ancestorTransform,
       );
     }
-    return {
+    var offset = {
       x: ancestorTransform.a * cssOffset.x + ancestorTransform.c * cssOffset.y,
       y: ancestorTransform.b * cssOffset.x + ancestorTransform.d * cssOffset.y,
     };
+    return Number.isFinite(offset.x) && Number.isFinite(offset.y)
+      ? offset
+      : null;
   }
 
   function boardContentOffsetRootForElement(
@@ -6595,16 +6599,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (designParent && parentStyles) {
       positionComputedStylesCache.set(designParent, parentStyles);
     }
-    var positionCoordinateContext = positionContainingBlockForElement(
-      el,
-      positionComputedStylesCache,
-      positionRenderOffset,
-    );
-    var positionReferenceRect = positionReferenceRectForElement(
-      el,
-      cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
-      positionRenderOffset,
-    );
+    var positionCoordinateContext = positionRenderOffset
+      ? positionContainingBlockForElement(
+          el,
+          positionComputedStylesCache,
+          positionRenderOffset,
+        )
+      : null;
+    var positionReferenceRect = positionCoordinateContext
+      ? positionReferenceRectForElement(
+          el,
+          cs.position === "fixed" &&
+            !positionCoordinateContext.hasContainingBlock,
+          positionRenderOffset,
+        )
+      : undefined;
     var authoredSizeStyles = collectAuthoredSizeStyles(el);
     var parentDisplay = parentStyles ? parentStyles.display : undefined;
     var runtimeOnlyClone = isRuntimeOnlyClone(el);
@@ -6718,9 +6727,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       parentBoundingRect: designParent
         ? rectInfoForElement(designParent)
         : undefined,
-      positionReferenceRect: positionReferenceRect,
-      positionContainingBlockOrigin: positionCoordinateContext.origin,
-      positionContainingBlockTransform: positionCoordinateContext.transform,
+      ...(positionCoordinateContext && positionReferenceRect
+        ? {
+            positionReferenceRect: positionReferenceRect,
+            positionContainingBlockOrigin: positionCoordinateContext.origin,
+            positionContainingBlockTransform:
+              positionCoordinateContext.transform,
+          }
+        : {}),
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
       textContentTruncated: el.textContent
         ? el.textContent.length > 200

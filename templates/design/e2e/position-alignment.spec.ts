@@ -179,6 +179,27 @@ const ALIGN_LABELS = [
   "Align bottom",
 ] as const;
 
+type PositionHydrationProbeWindow = Window & {
+  __positionHydrationRequests?: string[];
+  __positionHydrationResponses?: {
+    sourceId?: string;
+    boundingRect?: { x: number; y: number; width: number; height: number };
+    positionReferenceRect?: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    };
+    positionContainingBlockOrigin?: { x: number; y: number };
+    positionContainingBlockTransform?: {
+      a: number;
+      b: number;
+      c: number;
+      d: number;
+    };
+  }[];
+};
+
 async function postAction(
   request: APIRequestContext,
   baseURL: string,
@@ -487,6 +508,142 @@ test("board Position reads authored origin and persists edits after reload", asy
   await selectLayer(page, "Origin probe");
   await expect(x).toHaveValue("24px");
   await expect(y).toHaveValue("24px");
+});
+
+test("layer hydration requests a complete measurement when board offset metadata is unreadable", async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  const actionBaseURL = requireBaseURL(baseURL);
+  const created = await postAction(request, actionBaseURL, "create-design", {
+    title: `Board offset hydration ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId: string | undefined =
+    created?.id ?? created?.data?.id ?? created?.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+  const board = await postAction(request, actionBaseURL, "create-file", {
+    designId,
+    filename: "__board__.html",
+    content: BOARD_ORIGIN_POSITION_HTML,
+    fileType: "html",
+  });
+  const boardFileId: string | undefined = board?.id ?? board?.data?.id;
+  if (!boardFileId) throw new Error("create-file returned no board id");
+  await postAction(request, actionBaseURL, "update-design", {
+    id: designId,
+    dataOperations: [{ op: "set", path: ["boardFileId"], value: boardFileId }],
+  });
+
+  await gotoEditor(page, designId);
+  await expect(boardPreviewFrame(page)).toBeVisible();
+  await expandAllLayers(page);
+  const boardFrame = boardPreviewFrame(page).contentFrame();
+  const offsetStyle = boardFrame.locator(
+    "style[data-agent-native-content-offset]",
+  );
+  await expect(offsetStyle).toBeAttached();
+  await offsetStyle.evaluate((style) => {
+    style.setAttribute("data-agent-native-content-offset-x", "unreadable");
+    style.textContent =
+      "body > [data-agent-native-node-id]{translate:calc(20px + 13px) 17px;}";
+  });
+
+  await page.evaluate(() => {
+    const iframe = document.querySelector<HTMLIFrameElement>(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]:not([data-screen-iframe-id])",
+    );
+    const childWindow = iframe?.contentWindow;
+    if (!iframe || !childWindow) {
+      throw new Error("Board preview frame is unavailable");
+    }
+    const originalPostMessage = childWindow.postMessage.bind(childWindow);
+    const probeWindow = window as PositionHydrationProbeWindow;
+    probeWindow.__positionHydrationRequests = [];
+    probeWindow.__positionHydrationResponses = [];
+    window.addEventListener("message", (event) => {
+      if (
+        event.source === childWindow &&
+        event.data?.type === "agent-native:selection-measured" &&
+        event.data.payload?.sourceId === "board-origin-probe"
+      ) {
+        probeWindow.__positionHydrationResponses?.push(event.data.payload);
+      }
+    });
+    Object.defineProperty(childWindow, "postMessage", {
+      configurable: true,
+      value: (
+        message: unknown,
+        targetOrigin: string | WindowPostMessageOptions = "*",
+        transfer?: Transferable[],
+      ) => {
+        const data =
+          message && typeof message === "object"
+            ? (message as { type?: unknown; selector?: unknown })
+            : {};
+        if (
+          data.type === "agent-native:measure-selection" &&
+          typeof data.selector === "string" &&
+          data.selector.includes("board-origin-probe")
+        ) {
+          probeWindow.__positionHydrationRequests?.push(data.selector);
+          const marker = iframe.contentDocument?.querySelector(
+            "style[data-agent-native-content-offset]",
+          );
+          if (!marker) throw new Error("Board offset marker is unavailable");
+          marker.setAttribute("data-agent-native-content-offset-x", "33");
+          marker.setAttribute("data-agent-native-content-offset-y", "17");
+          marker.textContent =
+            "body > [data-agent-native-node-id]{translate:33px 17px;}";
+        }
+        if (typeof targetOrigin === "string") {
+          originalPostMessage(message, targetOrigin, transfer);
+        } else {
+          originalPostMessage(message, targetOrigin);
+        }
+      },
+    });
+  });
+
+  await selectLayer(page, "Origin probe");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as PositionHydrationProbeWindow).__positionHydrationRequests
+            ?.length ?? 0,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const responses = (window as PositionHydrationProbeWindow)
+          .__positionHydrationResponses;
+        const measured = responses?.[responses.length - 1];
+        return (
+          measured?.boundingRect?.x === 33 &&
+          measured.boundingRect.y === 17 &&
+          measured.positionReferenceRect?.x === 33 &&
+          measured.positionReferenceRect.y === 17 &&
+          measured.positionContainingBlockOrigin?.x === 33 &&
+          measured.positionContainingBlockOrigin.y === 17 &&
+          measured.positionContainingBlockTransform?.a === 1 &&
+          measured.positionContainingBlockTransform.b === 0 &&
+          measured.positionContainingBlockTransform.c === 0 &&
+          measured.positionContainingBlockTransform.d === 1
+        );
+      }),
+    )
+    .toBe(true);
+
+  await expect(page.getByRole("textbox", { name: "X-position" })).toHaveValue(
+    "0px",
+  );
+  await expect(page.getByRole("textbox", { name: "Y-position" })).toHaveValue(
+    "0px",
+  );
 });
 
 test("Left and Right alignment controls move to their named edges", async ({
