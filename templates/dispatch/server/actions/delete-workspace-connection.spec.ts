@@ -11,7 +11,7 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
   getWorkspaceConnection: mocks.getConnection,
 }));
 vi.mock("../../actions/connection-permissions.js", () => ({
-  assertWorkspaceConnectionDeleteManager: mocks.assertDeleteManager,
+  assertWorkspaceConnectionManager: mocks.assertDeleteManager,
 }));
 
 import { ACTION_CHAT_UI_RECORD_CHANGE_RENDERER } from "@agent-native/core/action-ui";
@@ -63,6 +63,18 @@ describe("delete-workspace-connection action cards", () => {
     });
     expect(action.chatUI?.renderer).toBe(ACTION_CHAT_UI_RECORD_CHANGE_RENDERER);
     expect(action.chatUI?.when?.({}, result)).toBe(true);
+    expect(mocks.assertDeleteManager).toHaveBeenCalledWith({ caller: "tool" });
+  });
+
+  it("does not delete a connection when administration is denied", async () => {
+    mocks.assertDeleteManager.mockRejectedValue(
+      new Error("Administration denied"),
+    );
+
+    await expect(
+      action.run({ id: connection.id }, { caller: "tool" }),
+    ).rejects.toThrow("Administration denied");
+    expect(mocks.deleteConnection).not.toHaveBeenCalled();
   });
 
   it("does not return a card when the deletion did not happen", async () => {

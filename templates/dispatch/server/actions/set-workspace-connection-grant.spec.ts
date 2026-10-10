@@ -17,7 +17,7 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
   upsertWorkspaceConnectionGrant: mocks.upsertGrant,
 }));
 vi.mock("../../actions/connection-permissions.js", () => ({
-  assertWorkspaceConnectionGrantManager: mocks.assertGrantManager,
+  assertWorkspaceConnectionManager: mocks.assertGrantManager,
 }));
 
 import { ACTION_CHAT_UI_RECORD_CHANGE_RENDERER } from "@agent-native/core/action-ui";
@@ -86,6 +86,23 @@ describe("set-workspace-connection-grant action cards", () => {
     });
     expect(action.chatUI?.renderer).toBe(ACTION_CHAT_UI_RECORD_CHANGE_RENDERER);
     expect(action.chatUI?.when?.({}, result)).toBe(true);
+    expect(mocks.assertGrantManager).toHaveBeenCalledWith({ caller: "tool" });
+  });
+
+  it("does not change all-app access when administration is denied", async () => {
+    mocks.assertGrantManager.mockRejectedValue(
+      new Error("Administration denied"),
+    );
+
+    await expect(
+      action.run(
+        { connectionId: connection.id, accessMode: "all-apps" },
+        { caller: "tool" },
+      ),
+    ).rejects.toThrow("Administration denied");
+    expect(mocks.upsertConnection).not.toHaveBeenCalled();
+    expect(mocks.upsertGrant).not.toHaveBeenCalled();
+    expect(mocks.revokeGrant).not.toHaveBeenCalled();
   });
 
   it("keeps unchanged all-app access as an ordinary action result", async () => {

@@ -155,7 +155,7 @@ export default defineAction({
 
     const allowedApps =
       args.grantMode === "all-apps" ? [] : uniqueStrings(args.selectedApps);
-    await assertWorkspaceConnectionManager(ctx, allowedApps);
+    await assertWorkspaceConnectionManager(ctx);
     if (args.grantMode === "selected-apps" && allowedApps.length === 0) {
       throw new Error("Choose at least one app or switch access to all apps.");
     }
