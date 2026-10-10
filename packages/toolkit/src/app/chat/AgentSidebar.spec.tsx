@@ -872,6 +872,37 @@ describe("AgentSidebar panel", () => {
     }
   });
 
+  it.each(["control", "conversation"])(
+    "retains ready events behind an older buffered %s event",
+    async (first) => {
+      mockPanel.resolveImport();
+      const control = () =>
+        new CustomEvent("agent-panel:set-mode", {
+          detail: { mode: "resources" },
+        });
+      const conversation = () =>
+        new MessageEvent("message", {
+          data: {
+            type: "agentNative.submitChat",
+            data: { message: "Queued draft", submit: false },
+          },
+          origin: window.location.origin,
+        });
+      mockPanel.onReady = () => {
+        window.dispatchEvent(first === "control" ? conversation() : control());
+      };
+      renderSidebar(false);
+      await act(async () => {
+        window.dispatchEvent(first === "control" ? control() : conversation());
+      });
+      expect(mockPanel.events.map((event) => event.type)).toEqual(
+        first === "control"
+          ? ["agent-panel:set-mode", "message"]
+          : ["message", "agent-panel:set-mode"],
+      );
+    },
+  );
+
   it("delivers panel controls while a reference and submission wait for the composer", async () => {
     renderSidebar(false);
     await act(async () =>

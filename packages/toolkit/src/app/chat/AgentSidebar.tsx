@@ -1090,20 +1090,13 @@ export function AgentSidebar({
       setBackgroundPanelActive(true);
       onReferenceTargetChange();
     };
-    const shouldRetainEvent = (
-      event: Event,
-      ready: boolean,
-      queue: PendingPanelEvent[],
-    ) => event !== replayingPanelEvent.current && (!ready || queue.length > 0);
+    const shouldRetainEvent = (event: Event, ready: boolean) =>
+      event !== replayingPanelEvent.current &&
+      (!ready ||
+        pendingPanelEvents.current.length > 0 ||
+        pendingPanelControls.current.length > 0);
     const replayAfterMount = (type: string, event: Event) => {
-      if (
-        !shouldRetainEvent(
-          event,
-          panelReadyRef.current,
-          pendingPanelControls.current,
-        )
-      )
-        return;
+      if (!shouldRetainEvent(event, panelReadyRef.current)) return;
       retainEvent(event, pendingPanelControls.current);
       if (type === AGENT_PANEL_OPEN_SETTINGS_EVENT) {
         setOpenPersisted(true);
@@ -1131,14 +1124,7 @@ export function AgentSidebar({
         event.stopImmediatePropagation();
         return;
       }
-      if (
-        !shouldRetainEvent(
-          event,
-          panelReadyRef.current,
-          pendingPanelEvents.current,
-        )
-      )
-        return;
+      if (!shouldRetainEvent(event, panelReadyRef.current)) return;
       retainEvent(event, pendingPanelEvents.current);
     };
     const handleReference = (event: Event) => {
@@ -1147,7 +1133,6 @@ export function AgentSidebar({
           event,
           activeNavigations.current.size === 0 &&
             isReferenceTargetReady(getReferenceTargetId()),
-          pendingPanelEvents.current,
         )
       ) {
         if (event !== replayingPanelEvent.current && composerElementRef.current)
@@ -1185,7 +1170,6 @@ export function AgentSidebar({
             ? activeNavigations.current.size === 0 &&
                 isReferenceTargetReady(getReferenceTargetId())
             : panelReadyRef.current && activeNavigations.current.size === 0,
-          pendingPanelEvents.current,
         )
       ) {
         if (
