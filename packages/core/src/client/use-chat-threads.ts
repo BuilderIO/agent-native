@@ -696,9 +696,202 @@ export function useChatThreads(
     threads,
   ]);
 
+  const completeInitialThreadRestore = useCallback(
+    async (
+      loadedThreads: ChatThreadSummary[] | undefined,
+      requestId: number,
+    ) => {
+      const isCurrentRequest = () =>
+        requestId === latestFetchRequestRef.current &&
+        initialLoadRequestIdRef.current === requestId;
+      if (!isCurrentRequest()) return;
+
+      const restoredId = activeThreadIdRef.current;
+      if (loadedThreads === undefined) {
+        initialLoadRequestIdRef.current = null;
+        loadingRequestIdRef.current = null;
+        initialRouteConfirmationPendingRef.current = null;
+        if (
+          restoredId &&
+          autoCreate &&
+          !routeControlsActiveThread &&
+          !newlyCreatedRef.current.has(restoredId) &&
+          !hasClientDraftThreadMarker(restoredId)
+        ) {
+          setRestoredThreadIdOnListFailure(restoredId);
+        }
+        setIsLoading(false);
+        return;
+      }
+      setRestoredThreadIdOnListFailure(null);
+      const lookupRestored = Boolean(
+        restoredId &&
+        (!routeControlsActiveThread || routeThreadId === restoredId) &&
+        !newlyCreatedRef.current.has(restoredId) &&
+        !hasClientDraftThreadMarker(restoredId),
+      );
+      const restoredOnPage = restoredId
+        ? loadedThreads.find((t) => t.id === restoredId)
+        : undefined;
+      const restoredThread =
+        lookupRestored && (!restoredOnPage || routeControlsActiveThread)
+          ? await fetchThreadById(apiUrl, restoredId!, historyScope)
+          : restoredOnPage;
+      if (!isCurrentRequest()) return;
+      if (
+        routeControlsActiveThread &&
+        routeThreadLookupKeyRef.current !== routeThreadLookupKey
+      ) {
+        initialLoadRequestIdRef.current = null;
+        loadingRequestIdRef.current = null;
+        setIsLoading(false);
+        return;
+      }
+      if (
+        restoredThread === undefined &&
+        routeControlsActiveThread &&
+        lookupRestored
+      ) {
+        initialRouteConfirmationPendingRef.current = null;
+      }
+      if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
+        initialLoadRequestIdRef.current = null;
+        loadingRequestIdRef.current = null;
+        initialRouteConfirmationPendingRef.current = null;
+        setIsLoading(false);
+        return;
+      }
+      const restoredIsMissing =
+        (restoredThread === null || restoredThread === "forbidden") &&
+        lookupRestored &&
+        !restoredOnPage;
+      const restoredBelongsElsewhere = Boolean(
+        restoredThread &&
+        restoredThread !== "forbidden" &&
+        !threadCanStayVisibleInHistory(
+          restoredThread.scope ?? null,
+          scopeRef.current,
+          isolateHistory,
+        ),
+      );
+      if (
+        restoredThread &&
+        restoredThread !== "forbidden" &&
+        !restoredThread.archivedAt &&
+        !restoredBelongsElsewhere &&
+        !isUnconfirmedClientDraftThread(
+          restoredThread.id,
+          newlyCreatedRef.current,
+        ) &&
+        (!routeControlsActiveThread ||
+          (restoredThread.id === restoredId &&
+            persistedThreadTranscriptStatus(restoredThread, restoredId!) ===
+              "verified"))
+      ) {
+        serverConfirmedThreadIdsRef.current.add(
+          serverConfirmedThreadKey(apiUrl, historyScopeKey, restoredThread.id),
+        );
+        knownThreadScopesRef.current.set(
+          restoredThread.id,
+          restoredThread.scope ?? null,
+        );
+        clearClientDraftThreadMarker(restoredThread.id);
+        newlyCreatedRef.current.delete(restoredThread.id);
+      }
+      const restoredIdIsRouteThread =
+        routeControlsActiveThread && routeThreadId === restoredId;
+      const restoredNeedsReplacement =
+        (restoredBelongsElsewhere && !restoredIdIsRouteThread) ||
+        (restoredIsMissing && autoCreate && !routeControlsActiveThread);
+      if (restoredNeedsReplacement) setActiveThreadId(null);
+      const savedId = restoredNeedsReplacement ? null : restoredId;
+      const loadedHasSavedId = Boolean(
+        savedId &&
+        ((restoredThread &&
+          restoredThread !== "forbidden" &&
+          !restoredBelongsElsewhere) ||
+          loadedThreads.some((t) => t.id === savedId)),
+      );
+      const savedIdCameFromRoute =
+        Boolean(savedId) &&
+        routeControlsActiveThread &&
+        routeThreadId === savedId;
+
+      if (
+        savedId &&
+        newlyCreatedRef.current.has(savedId) &&
+        !loadedHasSavedId
+      ) {
+        addOptimisticThread(savedId, scopeRef.current ?? null);
+      } else if (savedId && savedIdCameFromRoute && !loadedHasSavedId) {
+        if (hasClientDraftThreadMarker(savedId)) {
+          newlyCreatedRef.current.add(savedId);
+          addOptimisticThread(savedId, scopeRef.current ?? null);
+        }
+        setActiveThreadId(savedId);
+      } else if (
+        savedId &&
+        !newlyCreatedRef.current.has(savedId) &&
+        !loadedHasSavedId &&
+        !restoredIsMissing
+      ) {
+        newlyCreatedRef.current.add(savedId);
+        let seenAt =
+          initialActiveThreadRef.current?.id === savedId
+            ? initialActiveThreadRef.current.seenAt
+            : undefined;
+        if (seenAt === undefined) {
+          try {
+            const raw = localStorage.getItem(activeThreadSeenKey);
+            const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+            if (Number.isFinite(parsed)) seenAt = parsed;
+          } catch {
+            // coercion-ok: without a readable age, retaining the tab with a fresh timestamp avoids discarding its draft.
+          }
+        }
+        addOptimisticThread(savedId, scopeRef.current ?? null, seenAt);
+        // activeThreadId already === savedId from the localStorage
+        // initializer; nothing else to set.
+      } else if (
+        !savedId &&
+        autoCreate &&
+        (!routeControlsActiveThread || !routeThreadId)
+      ) {
+        const id = createLocalThreadId();
+        newlyCreatedRef.current.add(id);
+        markClientDraftThread(id);
+        addOptimisticThread(id, scopeRef.current ?? null);
+        setActiveThreadId(id);
+      }
+      initialLoadRequestIdRef.current = null;
+      loadingRequestIdRef.current = null;
+      setIsLoading(false);
+    },
+    [
+      activeThreadSeenKey,
+      addOptimisticThread,
+      apiUrl,
+      autoCreate,
+      historyScope,
+      historyScopeKey,
+      isolateHistory,
+      routeControlsActiveThread,
+      routeThreadId,
+      routeThreadLookupKey,
+    ],
+  );
+
   const fetchThreads = useCallback(
     async (options?: { append?: boolean }) => {
       const requestId = ++latestFetchRequestRef.current;
+      const initialRequestId = initialLoadRequestIdRef.current;
+      const isInitialLoadTakeover =
+        initialRequestId !== null && requestId > initialRequestId;
+      if (isInitialLoadTakeover) {
+        initialLoadRequestIdRef.current = requestId;
+        loadingRequestIdRef.current = requestId;
+      }
+      let loadedThreads: ChatThreadSummary[] | undefined;
       try {
         const offset = options?.append ? nextThreadsOffsetRef.current : 0;
         const loaded = await fetchThreadListPage(
@@ -918,6 +1111,7 @@ export function useChatThreads(
           }
           return [...locallyRetained, ...merged];
         });
+        loadedThreads = visibleWithExplicit;
         return visibleWithExplicit;
       } catch {
         if (requestId !== latestFetchRequestRef.current) return undefined;
@@ -929,19 +1123,11 @@ export function useChatThreads(
         if (requestId === latestFetchRequestRef.current) {
           setThreadListFetchRevision((revision) => revision + 1);
 
-          const initialRequestId = initialLoadRequestIdRef.current;
-          if (initialRequestId !== null && requestId > initialRequestId) {
-            initialLoadRequestIdRef.current = null;
-            loadingRequestIdRef.current = null;
-            initialRouteConfirmationPendingRef.current = null;
-            setIsLoading(false);
-          } else {
+          if (isInitialLoadTakeover) {
+            await completeInitialThreadRestore(loadedThreads, requestId);
+          } else if (initialLoadRequestIdRef.current === null) {
             const loadingRequestId = loadingRequestIdRef.current;
-            if (
-              initialRequestId === null &&
-              loadingRequestId !== null &&
-              requestId >= loadingRequestId
-            ) {
+            if (loadingRequestId !== null && requestId >= loadingRequestId) {
               loadingRequestIdRef.current = null;
               setIsLoading(false);
             }
@@ -957,6 +1143,9 @@ export function useChatThreads(
       historyScopeKey,
       includeExternal,
       isolateHistory,
+      routeControlsActiveThread,
+      routeThreadId,
+      completeInitialThreadRestore,
     ],
   );
 
@@ -1012,178 +1201,10 @@ export function useChatThreads(
       initialLoadRequestIdRef.current = initialFetchRequestId;
       loadingRequestIdRef.current = initialFetchRequestId;
       const loadedThreads = await fetchThreads();
-      if (latestFetchRequestRef.current !== initialFetchRequestId) return;
-      const restoredId = activeThreadIdRef.current;
-      if (loadedThreads === undefined) {
-        initialLoadRequestIdRef.current = null;
-        loadingRequestIdRef.current = null;
-        initialRouteConfirmationPendingRef.current = null;
-        if (
-          restoredId &&
-          autoCreate &&
-          !routeControlsActiveThread &&
-          !newlyCreatedRef.current.has(restoredId)
-        ) {
-          setRestoredThreadIdOnListFailure(restoredId);
-        }
-        setIsLoading(false);
-        return;
-      }
-      setRestoredThreadIdOnListFailure(null);
-      const lookupRestored = Boolean(
-        restoredId &&
-        (!routeControlsActiveThread || routeThreadId === restoredId) &&
-        !newlyCreatedRef.current.has(restoredId) &&
-        !hasClientDraftThreadMarker(restoredId),
-      );
-      const restoredOnPage = restoredId
-        ? loadedThreads.find((t) => t.id === restoredId)
-        : undefined;
-      const restoredThread =
-        lookupRestored && (!restoredOnPage || routeControlsActiveThread)
-          ? await fetchThreadById(apiUrl, restoredId!, historyScope)
-          : restoredOnPage;
-      if (latestFetchRequestRef.current !== initialFetchRequestId) return;
-      if (
-        routeControlsActiveThread &&
-        routeThreadLookupKeyRef.current !== routeThreadLookupKey
-      ) {
-        initialLoadRequestIdRef.current = null;
-        loadingRequestIdRef.current = null;
-        setIsLoading(false);
-        return;
-      }
-      if (
-        restoredThread === undefined &&
-        routeControlsActiveThread &&
-        lookupRestored
-      ) {
-        initialRouteConfirmationPendingRef.current = null;
-      }
-      if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
-        initialLoadRequestIdRef.current = null;
-        loadingRequestIdRef.current = null;
-        initialRouteConfirmationPendingRef.current = null;
-        setIsLoading(false);
-        return;
-      }
-      const restoredIsMissing =
-        (restoredThread === null || restoredThread === "forbidden") &&
-        lookupRestored &&
-        !restoredOnPage;
-      const restoredBelongsElsewhere = Boolean(
-        restoredThread &&
-        restoredThread !== "forbidden" &&
-        !threadCanStayVisibleInHistory(
-          restoredThread.scope ?? null,
-          scopeRef.current,
-          isolateHistory,
-        ),
-      );
-      if (
-        restoredThread &&
-        restoredThread !== "forbidden" &&
-        !restoredThread.archivedAt &&
-        !restoredBelongsElsewhere &&
-        !isUnconfirmedClientDraftThread(
-          restoredThread.id,
-          newlyCreatedRef.current,
-        ) &&
-        (!routeControlsActiveThread ||
-          (restoredThread.id === restoredId &&
-            persistedThreadTranscriptStatus(restoredThread, restoredId!) ===
-              "verified"))
-      ) {
-        serverConfirmedThreadIdsRef.current.add(
-          serverConfirmedThreadKey(apiUrl, historyScopeKey, restoredThread.id),
-        );
-        knownThreadScopesRef.current.set(
-          restoredThread.id,
-          restoredThread.scope ?? null,
-        );
-        clearClientDraftThreadMarker(restoredThread.id);
-        newlyCreatedRef.current.delete(restoredThread.id);
-      }
-      const restoredIdIsRouteThread =
-        routeControlsActiveThread && routeThreadId === restoredId;
-      const restoredNeedsReplacement =
-        (restoredBelongsElsewhere && !restoredIdIsRouteThread) ||
-        (restoredIsMissing && autoCreate && !routeControlsActiveThread);
-      if (restoredNeedsReplacement) setActiveThreadId(null);
-      const savedId = restoredNeedsReplacement ? null : restoredId;
-      const loadedHasSavedId = Boolean(
-        savedId &&
-        ((restoredThread &&
-          restoredThread !== "forbidden" &&
-          !restoredBelongsElsewhere) ||
-          loadedThreads.some((t) => t.id === savedId)),
-      );
-      const savedIdCameFromRoute =
-        Boolean(savedId) &&
-        routeControlsActiveThread &&
-        routeThreadId === savedId;
-
-      if (
-        savedId &&
-        newlyCreatedRef.current.has(savedId) &&
-        !loadedHasSavedId
-      ) {
-        addOptimisticThread(savedId, scopeRef.current ?? null);
-      } else if (savedId && savedIdCameFromRoute && !loadedHasSavedId) {
-        if (hasClientDraftThreadMarker(savedId)) {
-          newlyCreatedRef.current.add(savedId);
-          addOptimisticThread(savedId, scopeRef.current ?? null);
-        }
-        setActiveThreadId(savedId);
-      } else if (
-        savedId &&
-        !newlyCreatedRef.current.has(savedId) &&
-        !loadedHasSavedId &&
-        !restoredIsMissing
-      ) {
-        newlyCreatedRef.current.add(savedId);
-        let seenAt =
-          initialActiveThreadRef.current?.id === savedId
-            ? initialActiveThreadRef.current.seenAt
-            : undefined;
-        if (seenAt === undefined) {
-          try {
-            const raw = localStorage.getItem(activeThreadSeenKey);
-            const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-            if (Number.isFinite(parsed)) seenAt = parsed;
-          } catch {
-            // coercion-ok: without a readable age, retaining the tab with a fresh timestamp avoids discarding its draft.
-          }
-        }
-        addOptimisticThread(savedId, scopeRef.current ?? null, seenAt);
-        // activeThreadId already === savedId from the localStorage
-        // initializer; nothing else to set.
-      } else if (
-        !savedId &&
-        autoCreate &&
-        (!routeControlsActiveThread || !routeThreadId)
-      ) {
-        const id = createLocalThreadId();
-        newlyCreatedRef.current.add(id);
-        markClientDraftThread(id);
-        addOptimisticThread(id, scopeRef.current ?? null);
-        setActiveThreadId(id);
-      }
-      initialLoadRequestIdRef.current = null;
-      loadingRequestIdRef.current = null;
-      setIsLoading(false);
+      if (initialLoadRequestIdRef.current !== initialFetchRequestId) return;
+      await completeInitialThreadRestore(loadedThreads, initialFetchRequestId);
     })();
-  }, [
-    apiUrl,
-    fetchThreads,
-    addOptimisticThread,
-    autoCreate,
-    historyScope,
-    historyScopeKey,
-    isolateHistory,
-    routeControlsActiveThread,
-    routeThreadId,
-  ]);
+  }, [fetchThreads, completeInitialThreadRestore]);
 
   useEffect(() => {
     if (!routeControlsActiveThread) return;
