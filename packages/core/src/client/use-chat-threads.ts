@@ -85,8 +85,8 @@ const THREADS_UPDATED_EVENT = "agent-chat:threads-updated";
 const THREADS_PAGE_SIZE = 50;
 const CLIENT_DRAFT_THREAD_PREFIX = "agent-chat-client-draft-thread:";
 const MAX_THREAD_SAVE_RETRIES = 3;
-const MAX_ROUTE_THREAD_CONFIRMATION_RETRIES = 2;
-const ROUTE_THREAD_CONFIRMATION_RETRY_DELAY_MS = 500;
+const MAX_THREAD_CONFIRMATION_RETRIES = 2;
+const THREAD_CONFIRMATION_RETRY_DELAY_MS = 500;
 const THREAD_SAVE_RETRYABLE_STATUSES = new Set([408, 409, 429]);
 
 function shouldRetryThreadSave(status: number): boolean {
@@ -735,12 +735,36 @@ export function useChatThreads(
             newlyCreatedRef.current,
           )
         ) {
-          const persistedThread = await fetchThreadById(
-            apiUrl,
-            activeThreadId,
-            historyScope,
-          );
-          if (requestId !== latestFetchRequestRef.current) return undefined;
+          let persistedThread:
+            | ChatThreadSummary
+            | null
+            | undefined
+            | "forbidden";
+          for (
+            let attempt = 0;
+            attempt <= MAX_THREAD_CONFIRMATION_RETRIES;
+            attempt++
+          ) {
+            persistedThread = await fetchThreadById(
+              apiUrl,
+              activeThreadId,
+              historyScope,
+            );
+            if (requestId !== latestFetchRequestRef.current) return undefined;
+            if (
+              persistedThread !== undefined ||
+              attempt === MAX_THREAD_CONFIRMATION_RETRIES
+            ) {
+              break;
+            }
+            await new Promise<void>((resolve) => {
+              window.setTimeout(
+                resolve,
+                THREAD_CONFIRMATION_RETRY_DELAY_MS * 2 ** attempt,
+              );
+            });
+            if (requestId !== latestFetchRequestRef.current) return undefined;
+          }
           if (
             persistedThread &&
             persistedThread !== "forbidden" &&
@@ -1139,14 +1163,14 @@ export function useChatThreads(
         return;
       }
       if (thread === undefined) {
-        if (retries < MAX_ROUTE_THREAD_CONFIRMATION_RETRIES) {
+        if (retries < MAX_THREAD_CONFIRMATION_RETRIES) {
           retries += 1;
           retryTimer = window.setTimeout(
             () => {
               retryTimer = null;
               void confirmRouteThread();
             },
-            ROUTE_THREAD_CONFIRMATION_RETRY_DELAY_MS * 2 ** (retries - 1),
+            THREAD_CONFIRMATION_RETRY_DELAY_MS * 2 ** (retries - 1),
           );
         }
         return;

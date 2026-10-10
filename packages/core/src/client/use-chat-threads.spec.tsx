@@ -1168,6 +1168,63 @@ describe("useChatThreads", () => {
     expect(window.localStorage.getItem(draftMarker)).toBe("1");
   });
 
+  it("retries a transient failure while verifying a marked thread transcript", async () => {
+    const threadId = "transient-draft-restore";
+    const draftMarker = `agent-chat-client-draft-thread:${encodeURIComponent(threadId)}`;
+    const summary: ChatThreadSummary = {
+      id: threadId,
+      title: "Saved thread",
+      preview: "Saved preview",
+      messageCount: 1,
+      createdAt: Date.now() - 60_000,
+      updatedAt: Date.now(),
+      scope: null,
+    };
+    window.localStorage.setItem(draftMarker, "1");
+    window.localStorage.setItem(
+      "agent-chat-active-thread:transient-draft-restore:tab:transient-tab",
+      threadId,
+    );
+    let transcriptLookups = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [summary] });
+      }
+      if (url === `/chat/threads/${threadId}` && !init) {
+        transcriptLookups++;
+        if (transcriptLookups === 1) {
+          return new Response(null, { status: 503 });
+        }
+        return jsonResponse({
+          ...summary,
+          threadData: JSON.stringify({ messages: [{ id: "message-1" }] }),
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "transient-draft-restore", undefined, {
+        browserTabId: "transient-tab",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await new Promise((resolve) => window.setTimeout(resolve, 550));
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+
+    expect(transcriptLookups).toBe(2);
+    expect(hook!.activeThreadId).toBe(threadId);
+    expect(hook!.isNewThread(threadId)).toBe(false);
+    expect(hook!.isThreadPersisted(threadId)).toBe(true);
+    expect(window.localStorage.getItem(draftMarker)).toBeNull();
+  });
+
   it("starts a fresh chat when a saved home thread no longer exists", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:forms",
