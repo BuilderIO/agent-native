@@ -332,7 +332,7 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
       );
       if (itemHasParagraphs && hasOwnText(item)) {
         nativeParagraphs.push(item);
-        collectNestedLists(item);
+        collectListItemContent(item);
         return;
       }
       if (!itemHasParagraphs && hasMeaningfulContent(item)) {
