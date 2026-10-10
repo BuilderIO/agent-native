@@ -9063,6 +9063,69 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("tells a text-only host a tools/call result was cut, naming paging inputs only on read-only actions", async () => {
+    const payload = { rows: "x".repeat(5000) };
+    const fullLength = JSON.stringify(payload).length;
+    const incomplete = `[Truncated: showing the first 2000 of ${fullLength} characters. This result is incomplete.`;
+    const truncationConfig = {
+      ...config,
+      actions: {
+        "paged-rows": defineAction({
+          description: "List rows.",
+          schema: z.object({
+            cursor: z.string().optional(),
+            limit: z.number().optional(),
+          }),
+          readOnly: true,
+          run: async () => payload,
+        }),
+        "search-rows": defineAction({
+          description: "Search rows.",
+          schema: z.object({
+            query: z.string().optional(),
+            filter: z.string().optional(),
+          }),
+          readOnly: true,
+          run: async () => payload,
+        }),
+        "replace-rows": defineAction({
+          description: "Replace rows.",
+          schema: z.object({
+            fields: z.array(z.string()).optional(),
+            cursor: z.string().optional(),
+          }),
+          run: async () => payload,
+        }),
+      },
+    };
+    const callText = async (name: string, id: number) => {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: truncationConfig,
+        },
+      );
+      return out.result.content[0].text as string;
+    };
+
+    const paged = await callText("paged-rows", 301);
+    expect(paged).toContain(`${incomplete} This tool pages with cursor.]`);
+    const searched = await callText("search-rows", 302);
+    expect(searched).toContain(`${incomplete}]`);
+    const mutating = await callText("replace-rows", 303);
+    expect(mutating).toContain(`${incomplete}]`);
+    for (const text of [paged, searched, mutating]) {
+      expect(text).not.toContain("structuredContent");
+      expect(text).not.toContain("get the rest");
+    }
+  });
+
   it("falls through (undefined) for sub-routes so management routes handle them", async () => {
     const event = makeWebEvent({ method: "POST", path: "/connect" });
     const res = await handleMcpRequest(event, config as any);
