@@ -21426,7 +21426,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       function onKeyDown(ev) {
         if (ev.isComposing || ev.keyCode === 229) return;
         var metaOrCtrl = isPlatformPrimaryChord(ev);
-        if (ev.key === "Escape" || ev.key === "Enter" && metaOrCtrl && !ev.altKey && !ev.shiftKey) {
+        var hasTextCommitModifier = ev.metaKey || ev.ctrlKey;
+        if (ev.key === "Escape" || ev.key === "Enter" && hasTextCommitModifier && !ev.altKey && !ev.shiftKey) {
           ev.preventDefault();
           ev.stopPropagation();
           finish(true);
