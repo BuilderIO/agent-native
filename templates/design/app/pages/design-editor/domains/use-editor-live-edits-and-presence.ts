@@ -656,7 +656,10 @@ export function useEditorLiveEditsAndPresence({
     (
       nextContent: string,
       selector?: string | null,
-      options: { forceFullDocument?: boolean } = {},
+      options: {
+        forceFullDocument?: boolean;
+        allowSourceNodeSwap?: boolean;
+      } = {},
     ): PreviewContentReplaceResult => {
       if (isStandaloneHttpUrl(nextContent)) {
         return "skipped-live-route";
@@ -669,6 +672,7 @@ export function useEditorLiveEditsAndPresence({
         selectedCanvasSelectorCandidates,
         {
           forceFullDocument: options.forceFullDocument === true,
+          allowSourceNodeSwap: options.allowSourceNodeSwap === true,
         },
       );
       if (replaced && activeFile?.id) {

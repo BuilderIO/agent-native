@@ -79,18 +79,22 @@ describe("portable style snapshots in a frame the editor can call into", () => {
           captured: bridge.collectPortableStyleSnapshot(
             "live-screen",
             '[data-agent-native-node-id="card"]',
+            1,
           ),
           otherScreen: bridge.collectPortableStyleSnapshot(
             "other-screen",
             '[data-agent-native-node-id="card"]',
+            1,
           ),
           missing: bridge.collectPortableStyleSnapshot(
             "live-screen",
             '[data-agent-native-node-id="gone"]',
+            1,
           ),
           unreadable: bridge.collectPortableStyleSnapshot(
             "live-screen",
             "[data-agent-native-node-id=]",
+            1,
           ),
         };
       });
@@ -124,14 +128,17 @@ describe("portable style snapshots in a frame the editor can call into", () => {
           card: bridge.collectSubtreeColorStyles(
             "live-screen",
             '[data-agent-native-node-id="card"]',
+            1,
           ),
           unreadable: bridge.collectSubtreeColorStyles(
             "live-screen",
             "[data-agent-native-node-id=]",
+            1,
           ),
           otherScreen: bridge.collectSubtreeColorStyles(
             "other-screen",
             '[data-agent-native-node-id="card"]',
+            1,
           ),
         };
       });
@@ -151,7 +158,7 @@ describe("portable style snapshots in a frame the editor can call into", () => {
     }
   }, 30_000);
 
-  it("fails a subtree color read past the node cap instead of truncating it", async () => {
+  it("returns the colors of the first nodes past the node cap, marked truncated", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage();
@@ -166,9 +173,108 @@ describe("portable style snapshots in a frame the editor can call into", () => {
         return frame.__anEditorChromeBridgeInstance.collectSubtreeColorStyles(
           "live-screen",
           '[data-agent-native-node-id="card"]',
+          1,
         );
       });
-      expect(read).toEqual({ status: "failed" });
+      expect(read.status).toBe("truncated");
+      expect(read.nodes).toHaveLength(5000);
+      expect(read.nodes[0]).toEqual({ "background-color": "rgb(17, 24, 39)" });
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
+
+  it("leaves a color-like token the canvas rejects as it was instead of reading a stale color", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await openScreen(page);
+
+      const read = await page.evaluate(() => {
+        const frame = document.querySelector("iframe")!.contentWindow as any;
+        const title = frame.document.querySelector(
+          '[data-agent-native-node-id="title"]',
+        );
+        title.style.color = "oklch(0.21 0.034 264.665)";
+        title.style.backgroundImage =
+          'url("https://example.test/color(1).png")';
+        return frame.__anEditorChromeBridgeInstance.collectSubtreeColorStyles(
+          "live-screen",
+          '[data-agent-native-node-id="title"]',
+          1,
+        );
+      });
+      expect(read.status).toBe("captured");
+      expect(read.nodes[0]["background-image"]).toBe(
+        'url("https://example.test/color(1).png")',
+      );
+      expect(read.nodes[0].color).toMatch(/^#[0-9a-f]{6}ff$/);
+    } finally {
+      await browser.close();
+    }
+  }, 30_000);
+
+  it("reads the repeated instance a selection names, not the first with its id", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(
+        '<iframe data-design-preview-iframe style="width:400px;height:300px;border:0"></iframe>',
+      );
+      await page.evaluate(() => {
+        (window as any).__selections = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selections.push(event.data.payload);
+          }
+        });
+        document.querySelector<HTMLIFrameElement>("iframe")!.srcdoc =
+          '<!doctype html><html><body style="margin:0"><ul data-agent-native-node-id="list" style="margin:0;padding:0;list-style:none">' +
+          '<template x-for="item in items"><li data-agent-native-node-id="row"></li></template>' +
+          '<li data-agent-native-node-id="row" style="height:40px;color:rgb(0, 0, 0)">One</li>' +
+          '<li data-agent-native-node-id="row" style="height:40px;color:rgb(0, 0, 0)">Two</li>' +
+          '<li data-agent-native-node-id="row" style="height:40px;color:rgb(220, 38, 38)">Three</li>' +
+          "</ul></body></html>";
+      });
+      const frame = await (await page
+        .locator("iframe")
+        .elementHandle())!.contentFrame();
+      if (!frame) throw new Error("screen iframe did not attach");
+      await frame.waitForSelector("li:nth-of-type(3)");
+      await frame.evaluate(() => {
+        const template = document.querySelector("template")!;
+        const rows = [...document.querySelectorAll("li")];
+        (template as any)._x_lookup = new Map(
+          rows.map((row, index) => [index, row]),
+        );
+      });
+      await frame.addScriptTag({ content: hydratedBridge() });
+      await page.waitForTimeout(50);
+
+      await page.mouse.click(40, 100);
+      await page.waitForFunction(() => (window as any).__selections.length > 0);
+      const read = await page.evaluate(() => {
+        const selected = (window as any).__selections.at(-1);
+        const bridge = (document.querySelector("iframe")!.contentWindow as any)
+          .__anEditorChromeBridgeInstance;
+        return {
+          repeat: selected.repeat,
+          snapshot: bridge.collectPortableStyleSnapshot(
+            "live-screen",
+            selected.repeat.sourceSelector,
+            selected.repeat.instanceIndex,
+          ),
+        };
+      });
+
+      expect(read.repeat).toMatchObject({
+        sourceSelector: '[data-agent-native-node-id="row"]',
+        instanceIndex: 3,
+      });
+      expect(read.snapshot.status).toBe("captured");
+      expect(read.snapshot.snapshot.nodes[0].styles.color).toBe(
+        "rgb(220, 38, 38)",
+      );
     } finally {
       await browser.close();
     }

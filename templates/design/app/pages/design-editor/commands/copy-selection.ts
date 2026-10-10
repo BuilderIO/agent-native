@@ -2,7 +2,11 @@ import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
-import type { PortableStyleSnapshotRead } from "@/components/design/multi-screen/read-portable-style-snapshot";
+import {
+  type FrameElementTarget,
+  frameElementTarget,
+  type PortableStyleSnapshotRead,
+} from "@/components/design/multi-screen/read-portable-style-snapshot";
 import {
   getDesignClipboardTrustToken,
   plainTextFromDesignHtml,
@@ -43,7 +47,7 @@ export interface CopySelectionArgs {
   pasteCascadeRef: RefObject<number>;
   readPortableStyleSnapshot: (
     screenId: string,
-    selector: string,
+    target: FrameElementTarget,
   ) => PortableStyleSnapshotRead;
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
   setHasCanvasClipboard: Dispatch<SetStateAction<boolean>>;
@@ -66,12 +70,14 @@ function portableStylesForClipboard(
   }
   const read = readPortableStyleSnapshot(
     snapshot.sourceFileId,
-    preferredCodeLayerSelector(snapshot.node),
+    frameElementTarget(preferredCodeLayerSelector(snapshot.node), snapshot),
   );
   if (read.status === "captured") {
     return { portableStyleSnapshot: read.snapshot };
   }
-  if (read.status === "failed") return { styleSnapshotCaptureFailed: true };
+  if (read.status === "failed" || snapshot.styleSnapshotReadOnDemand) {
+    return { styleSnapshotCaptureFailed: true };
+  }
   return {};
 }
 

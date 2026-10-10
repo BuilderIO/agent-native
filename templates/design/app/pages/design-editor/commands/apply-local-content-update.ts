@@ -75,7 +75,7 @@ export interface ApplyLocalContentUpdateArgs {
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
-    options?: { forceFullDocument?: boolean },
+    options?: { forceFullDocument?: boolean; allowSourceNodeSwap?: boolean },
   ) => PreviewContentReplaceResult;
   setCollabContent: Dispatch<SetStateAction<string | null>>;
   setCollabContentFileId: Dispatch<SetStateAction<string | null>>;
@@ -130,6 +130,7 @@ export function runApplyLocalContentUpdate(
     refreshPreview?: boolean;
     skipPreview?: boolean;
     forcePreviewFullDocument?: boolean;
+    allowPreviewNodeSwap?: boolean;
     immediateSave?: boolean;
     persist?: boolean;
     recordHistory?: boolean;
@@ -276,13 +277,10 @@ export function runApplyLocalContentUpdate(
     ? "skipped-caller-owns-preview"
     : forceRefresh
       ? "unavailable"
-      : replacePreviewContent(
-          nextContent,
-          null,
-          options.forcePreviewFullDocument
-            ? { forceFullDocument: true }
-            : undefined,
-        );
+      : replacePreviewContent(nextContent, null, {
+          forceFullDocument: options.forcePreviewFullDocument === true,
+          allowSourceNodeSwap: options.allowPreviewNodeSwap === true,
+        });
   const renderFallback =
     forceRefresh || previewContentReplaceNeedsRenderFallback(replacedPreview);
   trace("persist", "preview", {

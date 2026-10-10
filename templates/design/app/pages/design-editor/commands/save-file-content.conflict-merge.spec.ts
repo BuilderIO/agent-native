@@ -304,4 +304,58 @@ describe("runSaveFileContent request body", () => {
 
     expect(mutateAsync.mock.calls[0]![0]).toMatchObject({ content: MINE });
   });
+
+  it("resends the whole document once when a server that predates patches saves nothing", async () => {
+    const { args, pending, mutateAsync } = setup({
+      mutate: async (input) =>
+        input.content === undefined
+          ? { updated: true, versionHash: sourceContentHash(BASE) }
+          : { updated: true, versionHash: sourceContentHash(input.content) },
+    });
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("persisted");
+
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+    expect(mutateAsync.mock.calls[0]![0].contentPatch).toBeDefined();
+    expect(mutateAsync.mock.calls[1]![0]).toMatchObject({ content: MINE });
+    expect(mutateAsync.mock.calls[1]![0].contentPatch).toBeUndefined();
+    expect(args.rollbackPendingLocalFileContent).not.toHaveBeenCalled();
+  });
+
+  it("resends the whole document once when the server rejects the patch with a 422", async () => {
+    const { args, pending, mutateAsync } = setup({
+      mutate: async (input) => {
+        if (input.content === undefined) {
+          throw Object.assign(
+            new Error("The content patch did not produce its result hash."),
+            { status: 422 },
+          );
+        }
+        return { updated: true, versionHash: sourceContentHash(input.content) };
+      },
+    });
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("persisted");
+
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+    expect(mutateAsync.mock.calls[1]![0]).toMatchObject({ content: MINE });
+    expect(args.rollbackPendingLocalFileContent).not.toHaveBeenCalled();
+  });
+
+  it("treats the save as a conflict when the resent document is not persisted either", async () => {
+    const { args, pending, mutateAsync } = setup({
+      mutate: async () => ({
+        updated: true,
+        versionHash: sourceContentHash(BASE),
+      }),
+    });
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("conflict");
+
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+    expect(args.rollbackPendingLocalFileContent).toHaveBeenCalledWith(
+      pending.id,
+      MINE,
+    );
+  });
 });

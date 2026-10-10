@@ -20,6 +20,7 @@ import {
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
+  isContentPatchRejection,
   isDesignSaveSuccessConflict,
   patchProofStatusAfterPersistedSave,
 } from "@/pages/design-editor/save-failure";
@@ -419,11 +420,8 @@ export function runSaveFileContent(
           ? knownBaseContent(pending)
           : undefined;
       rememberSaveContent(pending.id, pending.content);
-      const result = await updateFileMutation.mutateAsync({
+      const request = {
         id: pending.id,
-        ...(patchBase !== undefined
-          ? { contentPatch: sourceContentPatch(patchBase, pending.content) }
-          : { content: pending.content }),
         syncCollab: pending.syncCollab,
         operationSource: pending.operationSource,
         operationRevision: pending.operationRevision,
@@ -431,7 +429,31 @@ export function runSaveFileContent(
         ...(pending.identityMigrationSourceContent !== undefined
           ? { identityOnly: true }
           : {}),
-      } as any);
+      };
+      const contentPatch =
+        patchBase !== undefined
+          ? sourceContentPatch(patchBase, pending.content)
+          : undefined;
+      // A server without contentPatch drops it and saves nothing, and a base
+      // matched by a colliding hash gets a 422, so neither result is final.
+      let result: unknown = contentPatch
+        ? await updateFileMutation
+            .mutateAsync({ ...request, contentPatch } as any)
+            .catch((error: unknown) => {
+              if (isContentPatchRejection(error)) return undefined;
+              throw error;
+            })
+        : undefined;
+      if (
+        contentPatch === undefined ||
+        (result as { versionHash?: unknown } | undefined)?.versionHash !==
+          contentPatch.resultHash
+      ) {
+        result = await updateFileMutation.mutateAsync({
+          ...request,
+          content: pending.content,
+        } as any);
+      }
       if (
         pending.identityMigrationSourceContent !== undefined &&
         latestFileSaveForUnloadRef.current[pending.id] !== pending

@@ -63,10 +63,7 @@ import {
   optimisticRemoveBreakpointData,
 } from "../commands/optimistic-breakpoint-mutation";
 import { runPersistFrameGeometrySave } from "../commands/persist-frame-geometry-save";
-import {
-  refetchDesignAfterGeometrySaves,
-  runWriteFrameGeometrySnapshot,
-} from "../commands/write-frame-geometry-snapshot";
+import { runWriteFrameGeometrySnapshot } from "../commands/write-frame-geometry-snapshot";
 import {
   applyDesignDataOperations,
   buildFrameGeometryDataOperations,
@@ -442,19 +439,6 @@ export function useEditorActiveScreenAndGeometry({
   const frameGeometryMutationChainRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
-  const frameGeometrySavesInFlightRef = useRef(0);
-  const designRefetchCancelledRef = useRef(false);
-  const refetchDesignCancelledByGeometryWrite = useCallback(
-    () =>
-      refetchDesignAfterGeometrySaves({
-        designRefetchCancelledRef,
-        frameGeometrySavesInFlightRef,
-        id,
-        pendingFrameGeometrySaveRef,
-        queryClient,
-      }),
-    [id, queryClient],
-  );
   const [localhostWriteConsentOpen, setLocalhostWriteConsentOpen] =
     useState(false);
   const [localhostWriteConsentPayload, setLocalhostWriteConsentPayload] =
@@ -614,7 +598,6 @@ export function useEditorActiveScreenAndGeometry({
       );
       if (operationsForRevision.length === 0) return false;
       const operationSource = designSaveOperationSourceRef.current;
-      frameGeometrySavesInFlightRef.current += 1;
       const previous = frameGeometryMutationChainRef.current;
       const current = previous
         .catch(() => {})
@@ -764,11 +747,9 @@ export function useEditorActiveScreenAndGeometry({
         });
       frameGeometryMutationChainRef.current = current;
       void current.finally(() => {
-        frameGeometrySavesInFlightRef.current -= 1;
         if (frameGeometryMutationChainRef.current === current) {
           frameGeometryMutationChainRef.current = Promise.resolve();
         }
-        refetchDesignCancelledByGeometryWrite();
       });
       return true;
     },
@@ -778,7 +759,6 @@ export function useEditorActiveScreenAndGeometry({
       id,
       journalOutboxEntry,
       queryClient,
-      refetchDesignCancelledByGeometryWrite,
       saveDesignDataAsync,
       shellMode,
       reportSaveFailure,
@@ -920,10 +900,9 @@ export function useEditorActiveScreenAndGeometry({
       if (!pending) return;
       if (persistFrameGeometrySave(pending, keepalive)) {
         pendingFrameGeometrySaveRef.current = null;
-        refetchDesignCancelledByGeometryWrite();
       }
     },
-    [persistFrameGeometrySave, refetchDesignCancelledByGeometryWrite],
+    [persistFrameGeometrySave],
   );
 
   const queueFrameGeometrySave = useCallback(
@@ -997,7 +976,6 @@ export function useEditorActiveScreenAndGeometry({
           boardFileId,
           canEditDesignRef,
           designDataJsonRef,
-          designRefetchCancelledRef,
           enqueueFrameGeometryDataSave,
           frameGeometrySaveTimerRef,
           id,
@@ -1156,7 +1134,6 @@ export function useEditorActiveScreenAndGeometry({
           captureCurrentSelection,
           clearRedoStacks,
           designDataJsonRef,
-          designRefetchCancelledRef,
           geometryUndoStackRef,
           historyOrderRef: historyOrderRef as React.RefObject<
             UndoRedoOrderKind[]
@@ -1295,7 +1272,7 @@ export function useEditorActiveScreenAndGeometry({
         );
         if (!attempt.accepted) return;
         void attempt.completion
-          .then(() => acknowledgeOutboxEntry(entry))
+          .then(() => acknowledgeFrameGeometryOutboxEntry(entry))
           .catch(reportSaveFailure);
         return;
       }

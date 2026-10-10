@@ -426,10 +426,10 @@ export function useEditorClipboard({
         overviewScreens,
         overviewSelectedScreenIds,
         pasteCascadeRef,
-        readPortableStyleSnapshot: (screenId, selector) =>
+        readPortableStyleSnapshot: (screenId, target) =>
           readPortableStyleSnapshot(
             screenId,
-            selector,
+            target,
             viewModeRef.current === "overview"
               ? activeBreakpointWidthStateRef.current
               : undefined,

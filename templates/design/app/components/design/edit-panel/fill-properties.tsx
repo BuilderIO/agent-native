@@ -26,6 +26,7 @@ import {
   type DesignPaintType,
 } from "../inspector";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
+import type { SubtreeColorStylesRead } from "../multi-screen/read-portable-style-snapshot";
 import type { ElementInfo } from "../types";
 import { selectionColorValues } from "./document-colors";
 import { isTextElement } from "./element-classification";
@@ -180,9 +181,7 @@ export function FillProperties({
   cancelOpacityGestureOnHistoryUndo?: boolean;
   onAddFill?: () => "base" | "layer" | null;
   capturedStyleTargets?: CapturedStyleTarget[];
-  readSubtreeColorStyles?: (
-    element: ElementInfo,
-  ) => Array<Record<string, string>>;
+  readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead;
 }) {
   const t = useT();
   const commitImageFillPatch = (
@@ -363,20 +362,35 @@ export function FillProperties({
     reorderFillLayers,
   );
 
-  const fillPickerOpen = openFillPickerKey !== null;
+  // The picker keeps the swatches it opened with, so the subtree is read once
+  // per opening instead of on every selection update while it is open.
+  const subtreeColorsAtOpenRef = useRef<{
+    pickerKey: string | null;
+    read?: SubtreeColorStylesRead;
+  }>({ pickerKey: null });
+  if (subtreeColorsAtOpenRef.current.pickerKey !== openFillPickerKey) {
+    subtreeColorsAtOpenRef.current = {
+      pickerKey: openFillPickerKey,
+      read:
+        openFillPickerKey === null
+          ? undefined
+          : readSubtreeColorStyles?.(element),
+    };
+  }
+  const subtreeColorsAtOpen = subtreeColorsAtOpenRef.current.read;
   const selectionHexes = useMemo(
     () =>
       selectionColorValues(
         element,
         [],
-        fillPickerOpen ? readSubtreeColorStyles : undefined,
+        subtreeColorsAtOpen ? () => subtreeColorsAtOpen : undefined,
       )
         .map((c) => {
           const parsed = parseCssColor(c.value);
           return parsed ? rgbaToHex(parsed) : null;
         })
         .filter((h): h is string => Boolean(h)),
-    [element, fillPickerOpen, readSubtreeColorStyles],
+    [element, subtreeColorsAtOpen],
   );
   const seenHex = new Set<string>();
   const documentColors = [...selectionHexes, ...documentColorPalette].filter(

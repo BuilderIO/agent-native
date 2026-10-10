@@ -22,7 +22,6 @@ import {
   readLiveSourceFile,
   readPreparedSourceText,
   SourceWorkspaceEditConflictError,
-  type SourceWorkspaceFile,
   withDesignSourceMutationTransaction,
   withPreparedSourceFileMutation,
   withSourceFileWriteLock,
@@ -55,17 +54,15 @@ function contentChangedConflict(): Error & { statusCode?: number } {
   return conflict;
 }
 
-// Resolved before the write lock: the full content it yields goes through the
-// same expectedVersionHash check under the lock as a client-sent document.
-async function contentFromPatch(
-  file: SourceWorkspaceFile,
+function contentFromPatch(
+  liveContent: string,
   expectedVersionHash: string,
   patch: SourceContentPatch,
-): Promise<string> {
-  const live = await readLiveSourceFile(file);
-  if (live.versionHash === patch.resultHash) return live.content;
-  if (live.versionHash !== expectedVersionHash) throw contentChangedConflict();
-  const content = applySourceContentPatch(live.content, patch);
+): string {
+  const liveHash = sourceContentHash(liveContent);
+  if (liveHash === patch.resultHash) return liveContent;
+  if (liveHash !== expectedVersionHash) throw contentChangedConflict();
+  const content = applySourceContentPatch(liveContent, patch);
   if (sourceContentHash(content) !== patch.resultHash) {
     fail("The content patch did not produce its result hash.", {
       errorCode: "content_patch_mismatch",
@@ -306,14 +303,12 @@ export default defineAction({
       { allowCheckpointFailureSkip: true },
     );
     const checkpointField = checkpointSkippedResultField(checkpoint);
-    const content =
-      contentPatch && expectedVersionHash
-        ? await contentFromPatch(file, expectedVersionHash, contentPatch)
-        : requestedContent;
+    const writesContent =
+      requestedContent !== undefined || contentPatch !== undefined;
 
     if (identityOnly === true) {
       if (
-        content === undefined ||
+        requestedContent === undefined ||
         !expectedVersionHash ||
         filename !== undefined ||
         fileType !== undefined ||
@@ -329,7 +324,7 @@ export default defineAction({
       const write = await writeInlineSourceFile({
         designId: file.designId,
         file,
-        content,
+        content: requestedContent,
         expectedVersionHash,
         identityOnly: true,
         operationSource,
@@ -417,7 +412,7 @@ export default defineAction({
               );
             }
             liveContent = readPreparedSourceText(lease);
-          } else if (content !== undefined) {
+          } else if (writesContent) {
             collabExists = await hasCollabState(id);
             liveContent = (
               await readLiveSourceFile({
@@ -429,6 +424,10 @@ export default defineAction({
           } else {
             liveContent = persistedFile.content;
           }
+          const content =
+            contentPatch && expectedVersionHash
+              ? contentFromPatch(liveContent, expectedVersionHash, contentPatch)
+              : requestedContent;
           if (content !== undefined) {
             assertDesignHtmlEditIntegrity({
               previousContent: liveContent,
@@ -715,7 +714,7 @@ export default defineAction({
       });
 
     try {
-      await (content !== undefined
+      await (writesContent
         ? withPreparedSourceFileMutation(
             id,
             syncCollab

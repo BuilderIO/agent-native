@@ -29,6 +29,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
+import type { SubtreeColorStylesRead } from "../multi-screen/read-portable-style-snapshot";
 import type { ElementInfo } from "../types";
 import {
   baseFillLayerSourceProps,
@@ -482,23 +483,30 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-background-position="center, 0% 0%"');
   });
 
-  it("reads the subtree's colors for the picker swatches only once a fill picker opens", () => {
-    const readSubtreeColorStyles = vi.fn(() => [{ color: "#101828ff" }]);
+  it("reads the subtree's colors for the picker swatches once per opening", () => {
+    const readSubtreeColorStyles = vi.fn(
+      (): SubtreeColorStylesRead => ({
+        status: "captured",
+        nodes: [{ color: "#101828ff" }],
+      }),
+    );
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
-    act(() =>
-      root.render(
-        createElement(FillProperties, {
-          element: element({
-            computedStyles: { backgroundColor: "rgb(255, 255, 255)" },
-            styleSnapshotReadOnDemand: true,
+    const renderWith = (backgroundColor: string) =>
+      act(() =>
+        root.render(
+          createElement(FillProperties, {
+            element: element({
+              computedStyles: { backgroundColor },
+              styleSnapshotReadOnDemand: true,
+            }),
+            onStyleChange: vi.fn(),
+            readSubtreeColorStyles,
           }),
-          onStyleChange: vi.fn(),
-          readSubtreeColorStyles,
-        }),
-      ),
-    );
+        ),
+      );
+    renderWith("rgb(255, 255, 255)");
     const input = () =>
       container.querySelector<HTMLElement>(
         '[data-testid="base-fill-color-input"]',
@@ -510,6 +518,10 @@ describe("FillProperties base row — image layer prop wiring", () => {
 
     expect(readSubtreeColorStyles).toHaveBeenCalledTimes(1);
     expect(input().dataset.documentColors).toBe("#ffffff,#101828");
+
+    renderWith("rgb(250, 250, 250)");
+    renderWith("rgb(245, 245, 245)");
+    expect(readSubtreeColorStyles).toHaveBeenCalledTimes(1);
     act(() => root.unmount());
     container.remove();
   });

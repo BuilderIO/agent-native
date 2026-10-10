@@ -169,14 +169,27 @@ describe("runPublishAgentSelectionContext application state write", () => {
     expect(JSON.stringify(value).length).toBeLessThan(16_000);
   });
 
-  it("does not send the write as keepalive, whose 64 KB cap rejects a large body", () => {
+  it("sends a bounded selection as keepalive so a write just before navigating away lands", () => {
     runPublishAgentSelectionContext(
       argsFor({ selectedElement: deepScreenElement() }),
     );
 
-    for (const call of vi.mocked(setClientAppState).mock.calls) {
-      expect(call[2]?.keepalive).not.toBe(true);
-    }
+    const calls = vi.mocked(setClientAppState).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) expect(call[2]?.keepalive).toBe(true);
+  });
+
+  it("drops keepalive when the writes would exceed the browser's 64 KB keepalive budget", () => {
+    const files = Array.from({ length: 600 }, (_, index) => ({
+      id: `screen-${index}`,
+      filename: `${"long-screen-name-".repeat(4)}${index}.html`,
+      fileType: "html",
+    })) as Args["files"];
+    runPublishAgentSelectionContext(argsFor({ files }));
+
+    const calls = vi.mocked(setClientAppState).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) expect(call[2]?.keepalive).toBe(false);
   });
 
   it("reports a rejected write as a typed error and retries the same selection next time", async () => {
@@ -215,5 +228,67 @@ describe("runPublishAgentSelectionContext application state write", () => {
     expect(vi.mocked(setClientAppState).mock.calls.length).toBe(
       firstWriteCount * 2,
     );
+  });
+
+  it("retries a failed write after 1, 2 and 4 seconds, then stops", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(setClientAppState).mockImplementation(() =>
+        Promise.reject(new TypeError("Failed to fetch")),
+      );
+      const args = argsFor({ selectedElement: deepScreenElement() });
+      runPublishAgentSelectionContext(args);
+      const writesPerAttempt = vi.mocked(setClientAppState).mock.calls.length;
+      const attempts = () =>
+        vi.mocked(setClientAppState).mock.calls.length / writesPerAttempt;
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(attempts()).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(attempts()).toBe(2);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(attempts()).toBe(3);
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(attempts()).toBe(4);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(attempts()).toBe(4);
+      expect(args.persistedSelectionWriteTimerRef.current).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels the pending retry when the selection changes", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(setClientAppState).mockImplementation(() =>
+        Promise.reject(new TypeError("Failed to fetch")),
+      );
+      const args = argsFor({ selectedElement: deepScreenElement() });
+      runPublishAgentSelectionContext(args);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(args.persistedSelectionWriteTimerRef.current).not.toBeNull();
+
+      vi.mocked(setClientAppState).mockClear();
+      vi.mocked(setClientAppState).mockImplementation(() =>
+        Promise.resolve(null),
+      );
+      runPublishAgentSelectionContext({ ...args, selectedElement: null });
+      const writesForNewSelection =
+        vi.mocked(setClientAppState).mock.calls.length;
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      const calls = vi.mocked(setClientAppState).mock.calls;
+      expect(calls.length).toBe(writesForNewSelection);
+      for (const call of calls) {
+        expect((call[1] as { selectedElement: unknown }).selectedElement).toBe(
+          null,
+        );
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

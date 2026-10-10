@@ -60,6 +60,8 @@
  *   • No references to outer/module scope (the code runs inside an iframe).
  *   • Wrap everything in a self-executing IIFE.
  */
+import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
+
 (function () {
   type HitTestRect = {
     left: number;
@@ -153,38 +155,6 @@
     "label",
     "li",
   ];
-
-  // Only inline runs keep a parent one block of text; a heading or paragraph
-  // child makes it a stack of layers, as the layer tree in code-layer.ts does.
-  var BRIDGE_INLINE_TEXT_TAGS = [
-    "a",
-    "abbr",
-    "b",
-    "bdi",
-    "bdo",
-    "cite",
-    "code",
-    "data",
-    "dfn",
-    "em",
-    "i",
-    "kbd",
-    "label",
-    "mark",
-    "q",
-    "s",
-    "samp",
-    "small",
-    "span",
-    "strong",
-    "sub",
-    "sup",
-    "time",
-    "u",
-    "var",
-    "wbr",
-  ];
-
   var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
 
   function isOverlayElement(el: Element | null): boolean {
@@ -213,7 +183,7 @@
       var childTag = (child.tagName || "").toLowerCase();
       if (
         BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
-        BRIDGE_INLINE_TEXT_TAGS.indexOf(childTag) === -1 &&
+        !INLINE_TEXT_TAGS.has(childTag) &&
         BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
       ) {
         return false;

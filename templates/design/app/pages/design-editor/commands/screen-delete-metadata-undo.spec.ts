@@ -78,7 +78,6 @@ describe("screen deletion metadata history", () => {
     const queryClient = {
       cancelQueries,
       invalidateQueries: vi.fn(),
-      isFetching: vi.fn(() => 0),
       setQueryData: vi.fn(),
     } as unknown as QueryClient;
     const designDataJsonRef = ref<Record<string, unknown>>({
@@ -113,7 +112,6 @@ describe("screen deletion metadata history", () => {
           boardFileId: undefined,
           canEditDesignRef: ref(true),
           designDataJsonRef,
-          designRefetchCancelledRef: ref(false),
           enqueueFrameGeometryDataSave: vi.fn(() => true),
           frameGeometrySaveTimerRef: ref(null),
           id: "design",
@@ -474,7 +472,6 @@ describe("screen deletion metadata history", () => {
       const queryClient = {
         cancelQueries: vi.fn(async () => {}),
         invalidateQueries: vi.fn(),
-        isFetching: vi.fn(() => 0),
         setQueryData: vi.fn(),
       } as unknown as QueryClient;
       const designDataJsonRef = ref<Record<string, unknown>>({
@@ -541,7 +538,6 @@ describe("screen deletion metadata history", () => {
             boardFileId: undefined,
             canEditDesignRef: ref(true),
             designDataJsonRef,
-            designRefetchCancelledRef: ref(false),
             enqueueFrameGeometryDataSave: vi.fn(() => true),
             frameGeometrySaveTimerRef: ref(null),
             id: "design",

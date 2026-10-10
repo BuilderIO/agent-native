@@ -584,7 +584,9 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
     "@agent-native/toolkit/canvas-interactions",
     "@jridgewell/trace-mapping",
+    "../../../../shared/text-layer-rule",
   ],
+  "hit-test.bridge.ts": ["../../../../shared/text-layer-rule"],
 };
 
 function getBridgeFiles(): string[] {

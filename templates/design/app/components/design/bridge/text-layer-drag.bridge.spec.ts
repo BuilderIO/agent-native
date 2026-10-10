@@ -42,6 +42,17 @@ const TEXT_STACK_FIXTURE = `<!doctype html><html><body style="margin:0;font-fami
   </main>
 </body></html>`;
 
+const OWN_LAYERS_FIXTURE = `<!doctype html><html><body style="margin:0;font-family:sans-serif">
+  <main data-agent-native-node-id="page"
+        style="display:flex;flex-direction:column;align-items:flex-start;gap:24px;padding:24px;width:800px">
+    <div data-agent-native-node-id="field" style="font-size:24px"><label data-agent-native-node-id="field-label">Email</label> <input data-agent-native-node-id="field-input" style="width:160px;height:32px"></div>
+    <p data-agent-native-node-id="link-copy" style="margin:0;font-size:24px">Read <a data-agent-native-node-id="link" href="#"><span data-agent-native-node-id="link-text">the docs</span></a> today</p>
+    <p data-agent-native-node-id="icon-copy" style="margin:0;font-size:24px"><svg data-agent-native-node-id="icon" width="32" height="32" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="#6366f1"/></svg> Saved</p>
+    <div data-agent-native-node-id="badge" style="background:#eef2ff;padding:6px 12px;font-size:24px"><span data-agent-native-node-id="badge-text">New</span></div>
+    <p data-agent-native-node-id="tail" style="margin:0;font-size:24px">Tail</p>
+  </main>
+</body></html>`;
+
 async function openFixture(page: Page, html: string) {
   await page.setContent(html);
   await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
@@ -141,6 +152,84 @@ describe("dragging an inline text run on the canvas", () => {
       expect(await lastSelectedId(page)).toBe("rich");
     });
   });
+});
+
+describe("dragging a layer of its own inside a text-bearing parent", () => {
+  const childIndex = (page: Page, nodeId: string) =>
+    page.evaluate((id) => {
+      const el = document.querySelector(`[data-agent-native-node-id="${id}"]`)!;
+      return [...el.parentElement!.children].indexOf(el);
+    }, nodeId);
+
+  async function dragDownFrom(page: Page, nodeId: string) {
+    const box = await boxOf(page, nodeId);
+    const tail = await boxOf(page, "tail");
+    const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await page.mouse.click(center.x, center.y);
+    await page.waitForTimeout(400);
+    await drag(page, center, { x: tail.x + 8, y: tail.y + tail.height + 4 });
+  }
+
+  it("moves only a label picked in the Layers panel, not the field around it", async () => {
+    await withPage(async (page) => {
+      await openFixture(page, OWN_LAYERS_FIXTURE);
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="field-label"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(50);
+      const label = await boxOf(page, "field-label");
+      const input = await boxOf(page, "field-input");
+
+      await drag(
+        page,
+        { x: label.x + label.width / 2, y: label.y + label.height / 2 },
+        { x: input.x + input.width - 4, y: input.y + input.height / 2 },
+      );
+
+      expect(await childIndex(page, "field")).toBe(0);
+      expect(await lastSelectedId(page)).toBe("field-label");
+    });
+  });
+
+  for (const { name, nodeId, layerId, parentId: blockId } of [
+    {
+      name: "a span inside a link drags the link, not the paragraph",
+      nodeId: "link-text",
+      layerId: "link",
+      parentId: "link-copy",
+    },
+    {
+      name: "an inline svg icon drags alone, not the paragraph",
+      nodeId: "icon",
+      layerId: "icon",
+      parentId: "icon-copy",
+    },
+    {
+      name: "a span inside a painted badge drags alone, not the badge",
+      nodeId: "badge-text",
+      layerId: "badge-text",
+      parentId: "badge",
+    },
+  ]) {
+    it(name, async () => {
+      await withPage(async (page) => {
+        await openFixture(page, OWN_LAYERS_FIXTURE);
+        const blockIndex = await childIndex(page, blockId);
+
+        await dragDownFrom(page, nodeId);
+
+        expect(await lastSelectedId(page)).toBe(layerId);
+        expect(await parentId(page, blockId)).toBe("page");
+        expect(await childIndex(page, blockId)).toBe(blockIndex);
+      });
+    });
+  }
 });
 
 describe("dragging inside a stack of text blocks", () => {

@@ -1,5 +1,5 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
-import { QueryClient } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import type { UndoRedoOrderKind } from "../editor-state";
@@ -51,7 +51,6 @@ function runCommit(
       captureCurrentSelection: () => selection,
       clearRedoStacks: vi.fn(),
       designDataJsonRef: { current: {} },
-      designRefetchCancelledRef: { current: false },
       geometryUndoStackRef,
       historyOrderRef,
       id: "design",
@@ -63,7 +62,7 @@ function runCommit(
         current: seed?.lastGeometryCommitSource ?? null,
       },
       locallyPinnedHeightIdsRef: { current: new Set<string>() },
-      queryClient: new QueryClient(),
+      queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
       queueFrameGeometrySave: vi.fn(),
       syncUndoRedoState: vi.fn(),
       writeFrameGeometrySnapshot,
@@ -104,7 +103,6 @@ describe("runGeometryCommit", () => {
       captureCurrentSelection,
       clearRedoStacks: vi.fn(),
       designDataJsonRef: { current: {} },
-      designRefetchCancelledRef: { current: false },
       geometryUndoStackRef,
       historyOrderRef,
       id: "design",
@@ -112,7 +110,7 @@ describe("runGeometryCommit", () => {
       lastGeometryCommitSourceRef,
       liveFrameGeometryRef,
       locallyPinnedHeightIdsRef: { current: new Set<string>() },
-      queryClient: new QueryClient(),
+      queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
       queueFrameGeometrySave: vi.fn(),
       syncUndoRedoState: vi.fn(),
       writeFrameGeometrySnapshot: vi.fn(),
@@ -165,7 +163,6 @@ describe("runGeometryCommit", () => {
       captureCurrentSelection,
       clearRedoStacks: vi.fn(),
       designDataJsonRef: { current: {} },
-      designRefetchCancelledRef: { current: false },
       geometryUndoStackRef,
       historyOrderRef,
       id: "design",
@@ -173,7 +170,7 @@ describe("runGeometryCommit", () => {
       lastGeometryCommitSourceRef,
       liveFrameGeometryRef,
       locallyPinnedHeightIdsRef: { current: new Set<string>() },
-      queryClient: new QueryClient(),
+      queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
       queueFrameGeometrySave: vi.fn(),
       syncUndoRedoState: vi.fn(),
       writeFrameGeometrySnapshot: vi.fn(),

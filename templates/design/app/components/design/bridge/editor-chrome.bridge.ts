@@ -30,6 +30,13 @@
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
+import {
+  INLINE_TEXT_TAGS,
+  padsBox,
+  paintsBox,
+  TEXT_LAYER_TAGS,
+} from "../../../../shared/text-layer-rule";
+
 declare var __READ_ONLY__: boolean;
 declare var __TEXT_EDITING_ENABLED__: boolean;
 declare var __EDITOR_CHROME_SCALE_X__: string;
@@ -5792,6 +5799,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   var srgbColorContext: CanvasRenderingContext2D | null | undefined;
   var srgbColorByValue = new Map<string, string>();
+  var SRGB_COLOR_SENTINEL = "#010203"; // guard:allow-raw-color — a parse sentinel, never painted
 
   // Computed Tailwind v4 colors stay in oklch(), which the editor's color
   // parsing cannot read, so each one is painted once and read back as hex.
@@ -5804,8 +5812,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         .getContext("2d", { willReadFrequently: true });
     }
     if (!srgbColorContext) return value;
-    srgbColorContext.clearRect(0, 0, 1, 1);
+    // A value the canvas rejects leaves fillStyle unchanged, which would
+    // otherwise paint whatever color came before it.
+    srgbColorContext.fillStyle = SRGB_COLOR_SENTINEL;
     srgbColorContext.fillStyle = value;
+    if (srgbColorContext.fillStyle === SRGB_COLOR_SENTINEL) return value;
+    srgbColorContext.clearRect(0, 0, 1, 1);
     srgbColorContext.fillRect(0, 0, 1, 1);
     var hex = "#";
     srgbColorContext.getImageData(0, 0, 1, 1).data.forEach(function (channel) {
@@ -5856,17 +5868,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   // per-node work; the cap keeps a huge subtree from stalling a picker opening.
   var SUBTREE_COLOR_NODE_LIMIT = 5000;
 
-  function collectSubtreeColorStyles(
-    root: Element,
-  ): Array<Record<string, string>> | null {
+  function collectSubtreeColorStyles(root: Element): {
+    nodes: Array<Record<string, string>>;
+    truncated: boolean;
+  } {
     srgbColorByValue.clear();
     var nodes = [paintedColorStyles(root)];
     var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
     for (var node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (nodes.length >= SUBTREE_COLOR_NODE_LIMIT) return null;
+      if (nodes.length >= SUBTREE_COLOR_NODE_LIMIT) {
+        return { nodes: nodes, truncated: true };
+      }
       nodes.push(paintedColorStyles(node as Element));
     }
-    return nodes;
+    return { nodes: nodes, truncated: false };
   }
 
   // Raw authored (not computed) inline style values for the properties the
@@ -18411,37 +18426,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     "li",
   ];
 
-  // Only inline runs keep a parent one block of text; a heading or paragraph
-  // child makes it a stack of layers, as the layer tree in code-layer.ts does.
-  var BRIDGE_INLINE_TEXT_TAGS = [
-    "a",
-    "abbr",
-    "b",
-    "bdi",
-    "bdo",
-    "cite",
-    "code",
-    "data",
-    "dfn",
-    "em",
-    "i",
-    "kbd",
-    "label",
-    "mark",
-    "q",
-    "s",
-    "samp",
-    "small",
-    "span",
-    "strong",
-    "sub",
-    "sup",
-    "time",
-    "u",
-    "var",
-    "wbr",
-  ];
-
   var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
 
   function hasOnlyLeafContent(el: Element): boolean {
@@ -18452,7 +18436,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var childTag = (child.tagName || "").toLowerCase();
       if (
         BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 &&
-        BRIDGE_INLINE_TEXT_TAGS.indexOf(childTag) === -1 &&
+        !INLINE_TEXT_TAGS.has(childTag) &&
         BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1
       ) {
         return false;
@@ -25966,20 +25950,46 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return hitEl;
   }
 
-  // An inline run sits in its text block's lines and takes the block's type,
-  // so a drag moves the block: dropping the run elsewhere strips its styling.
-  function textBlockOwningRun(el: Element | null): Element | null {
-    var block = el;
-    while (
-      block &&
-      block.parentElement &&
-      !isDocumentRootElement(block.parentElement) &&
-      window.getComputedStyle(block).display === "inline" &&
-      isTextBearingLeaf(block.parentElement)
-    ) {
-      block = block.parentElement;
+  // The "text" branch of treeTypeForNode in shared/code-layer.ts: the layer
+  // tree folds this block's inline runs into it instead of listing them.
+  function isCodeLayerTextBlock(el: Element): boolean {
+    if (el.getAttribute("data-agent-native-group") === "true") return false;
+    var primitive = el.getAttribute("data-an-primitive");
+    if (primitive) return primitive === "text";
+    if ((el.getAttribute("data-agent-native-component") || "").trim()) {
+      return false;
     }
-    return block;
+    if (!TEXT_LAYER_TAGS.has(el.tagName.toLowerCase())) return false;
+    var classes = Array.from(el.classList);
+    var inlineStyle = (el as HTMLElement).style;
+    var styleValue = function (property: string) {
+      return inlineStyle?.getPropertyValue(property) || undefined;
+    };
+    if (paintsBox(classes, styleValue) || padsBox(classes, styleValue)) {
+      return false;
+    }
+    for (var i = 0; i < el.children.length; i += 1) {
+      var child = el.children[i]!;
+      if (
+        !INLINE_TEXT_TAGS.has(child.tagName.toLowerCase()) ||
+        child.children.length > 0
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // A run folded into its text block is no layer of its own, so a drag moves
+  // the block; dropping the run elsewhere would strip the block's styling.
+  function textBlockOwningRun(el: Element | null): Element | null {
+    var parent = el?.parentElement;
+    return el &&
+      parent &&
+      INLINE_TEXT_TAGS.has(el.tagName.toLowerCase()) &&
+      isCodeLayerTextBlock(parent)
+      ? parent
+      : el;
   }
 
   function nextStackCandidate(candidateKeys, currentKey) {
@@ -29872,11 +29882,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     collectPortableStyleSnapshot: function (
       screenId: string,
       selector: string,
+      instanceIndex: number,
     ) {
       if (screenId !== designCanvasScreenId) return null;
       var target: Element | null;
       try {
-        target = document.querySelector(selector);
+        target = document.querySelectorAll(selector)[instanceIndex - 1] || null;
       } catch (_error) {
         return { status: "failed" };
       }
@@ -29885,19 +29896,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (snapshot === undefined) return { status: "missing" };
       return { status: "captured", snapshot: snapshot };
     },
-    collectSubtreeColorStyles: function (screenId: string, selector: string) {
+    collectSubtreeColorStyles: function (
+      screenId: string,
+      selector: string,
+      instanceIndex: number,
+    ) {
       if (screenId !== designCanvasScreenId) return null;
       var target: Element | null;
       try {
-        target = document.querySelector(selector);
+        target = document.querySelectorAll(selector)[instanceIndex - 1] || null;
       } catch (_error) {
         return { status: "failed" };
       }
       if (!target || isDocumentRootElement(target))
         return { status: "missing" };
-      var nodes = collectSubtreeColorStyles(target);
-      if (!nodes) return { status: "failed" };
-      return { status: "captured", nodes: nodes };
+      var read = collectSubtreeColorStyles(target);
+      return {
+        status: read.truncated ? "truncated" : "captured",
+        nodes: read.nodes,
+      };
     },
     updateConfig: function (next) {
       if (!next || typeof next !== "object") return;

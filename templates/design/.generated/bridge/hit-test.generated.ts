@@ -4,6 +4,36 @@
 /** Compiled IIFE string for hit-test.bridge.ts — inject into an iframe via srcdoc or a <script> tag. */
 export const hitTestBridgeScript: string = `"use strict";
 (() => {
+  // shared/text-layer-rule.ts
+  var INLINE_TEXT_TAGS = /* @__PURE__ */ new Set([
+    "a",
+    "abbr",
+    "b",
+    "bdi",
+    "bdo",
+    "br",
+    "cite",
+    "code",
+    "data",
+    "dfn",
+    "em",
+    "i",
+    "kbd",
+    "mark",
+    "q",
+    "s",
+    "samp",
+    "small",
+    "span",
+    "strong",
+    "sub",
+    "sup",
+    "time",
+    "u",
+    "var",
+    "wbr"
+  ]);
+
   // app/components/design/bridge/hit-test.bridge.ts
   (function() {
     var insertionGuide = null;
@@ -73,34 +103,6 @@ export const hitTestBridgeScript: string = `"use strict";
       "label",
       "li"
     ];
-    var BRIDGE_INLINE_TEXT_TAGS = [
-      "a",
-      "abbr",
-      "b",
-      "bdi",
-      "bdo",
-      "cite",
-      "code",
-      "data",
-      "dfn",
-      "em",
-      "i",
-      "kbd",
-      "label",
-      "mark",
-      "q",
-      "s",
-      "samp",
-      "small",
-      "span",
-      "strong",
-      "sub",
-      "sup",
-      "time",
-      "u",
-      "var",
-      "wbr"
-    ];
     var BRIDGE_INTERACTIVE_LEAF_TAGS = ["button", "summary"];
     function isOverlayElement(el) {
       return Boolean(
@@ -121,7 +123,7 @@ export const hitTestBridgeScript: string = `"use strict";
       for (var i = 0; i < children.length; i += 1) {
         var child = children[i];
         var childTag = (child.tagName || "").toLowerCase();
-        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && BRIDGE_INLINE_TEXT_TAGS.indexOf(childTag) === -1 && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
+        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag) && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
           return false;
         }
         if (child.children.length && !hasOnlyLeafContent(child)) return false;

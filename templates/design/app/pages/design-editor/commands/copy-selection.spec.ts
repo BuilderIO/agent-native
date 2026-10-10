@@ -14,13 +14,17 @@ const clipboard = vi.hoisted(() => ({
 
 vi.mock("@/lib/design-clipboard", () => clipboard);
 
-import type { PortableStyleSnapshotRead } from "@/components/design/multi-screen/read-portable-style-snapshot";
+import type {
+  FrameElementTarget,
+  PortableStyleSnapshotRead,
+} from "@/components/design/multi-screen/read-portable-style-snapshot";
 import type {
   ElementInfo,
   PortableStyleSnapshot,
 } from "@/components/design/types";
 import { parseDesignClipboardMarker } from "@/lib/design-import";
 import type { DesignClipboardScreenEntry } from "@/lib/design-import";
+import { portableStyleSnapshotForPasteTarget } from "@/pages/design-editor/clone-and-pen-edit";
 import type {
   CanvasLayerClipboardEntry,
   LiveScreenSnapshot,
@@ -342,8 +346,9 @@ describe("copying a layer whose selection carries no style snapshot", () => {
   function copyWith(
     readPortableStyleSnapshot: (
       screenId: string,
-      selector: string,
+      target: FrameElementTarget,
     ) => PortableStyleSnapshotRead,
+    selectedElement = { tagName: "div", classes: ["card"] } as ElementInfo,
   ) {
     const projection = buildCodeLayerProjection(file.content!, {
       source: { kind: "design-file", fileId: file.id },
@@ -358,7 +363,7 @@ describe("copying a layer whose selection carries no style snapshot", () => {
       liveScreenSnapshotsById: {},
       overviewScreens: [],
       runtimeLayerSnapshotsById: {},
-      selectedElement: { tagName: "div", classes: ["card"] } as ElementInfo,
+      selectedElement,
       selectedElementLayerId: node.id,
       selectedLayerIdsState: [node.id],
     });
@@ -399,10 +404,10 @@ describe("copying a layer whose selection carries no style snapshot", () => {
     );
     const { copying, copiedLayerEntriesRef } = copyWith(read);
 
-    expect(read).toHaveBeenCalledWith(
-      "screen-a",
-      '[data-agent-native-node-id="node-1"]',
-    );
+    expect(read).toHaveBeenCalledWith("screen-a", {
+      selector: '[data-agent-native-node-id="node-1"]',
+      instanceIndex: 1,
+    });
     expect(clipboard.writeDesignClipboard).toHaveBeenCalledTimes(1);
     expect(
       parseDesignClipboardMarker(
@@ -430,6 +435,19 @@ describe("copying a layer whose selection carries no style snapshot", () => {
     ).toBeUndefined();
   });
 
+  it("marks the entry failed when the frame that holds its snapshot no longer has it", async () => {
+    const { copying, copiedLayerEntriesRef } = copyWith(noFrameAnswers, {
+      tagName: "div",
+      classes: ["card"],
+      styleSnapshotReadOnDemand: true,
+    } as ElementInfo);
+    await copying;
+
+    const entry = copiedLayerEntriesRef.current[0]!;
+    expect(entry.styleSnapshotCaptureFailed).toBe(true);
+    expect(portableStyleSnapshotForPasteTarget(entry, "screen-b")).toBeNull();
+  });
+
   it("copies without a snapshot when no frame renders the layer", async () => {
     const { copying, copiedLayerEntriesRef } = copyWith(noFrameAnswers);
     await copying;
@@ -439,6 +457,100 @@ describe("copying a layer whose selection carries no style snapshot", () => {
     );
     expect(copiedLayerEntriesRef.current[0]?.styleSnapshotCaptureFailed).toBe(
       undefined,
+    );
+  });
+});
+
+describe("copying one instance of a repeated list", () => {
+  const file: DesignFile = {
+    id: "screen-a",
+    filename: "index.html",
+    fileType: "html",
+    content:
+      '<!doctype html><html><body><ul data-agent-native-node-id="list"><template x-for="item in items"><li data-agent-native-node-id="row" :class="item.tone" x-text="item.label"></li></template></ul></body></html>',
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const snapshotFor = (color: string): PortableStyleSnapshot => ({
+    version: 1,
+    rootSourceId: "row",
+    nodes: [{ sourceId: "row", path: [], styles: { color } }],
+  });
+
+  it("reads the instance the user selected, not the first one with its id", async () => {
+    const projection = buildCodeLayerProjection(file.content!, {
+      source: { kind: "design-file", fileId: file.id },
+    });
+    const row = projection.nodes.find((node) => node.tag === "li")!;
+    const thirdItem = {
+      tagName: "li",
+      classes: ["accent"],
+      styleSnapshotReadOnDemand: true,
+      repeat: {
+        sourceSelector: '[data-agent-native-node-id="row"]',
+        instanceCount: 3,
+        instanceIndex: 3,
+        xFor: "item in items",
+        itemIndex: 2,
+        textBinding: "item.label",
+        keyExpression: "",
+        itemKey: "",
+      },
+    } as ElementInfo;
+    const snapshots = runGetSelectedLayerSnapshots({
+      activeFile: file,
+      designSourceType: "inline",
+      files: [file],
+      getFreshActiveContent: () => file.content!,
+      getScreenContent: () => file.content!,
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      runtimeLayerSnapshotsById: {},
+      selectedElement: thirdItem,
+      selectedElementLayerId: row.id,
+      selectedLayerIdsState: [row.id],
+    });
+    const read = vi.fn(
+      (_screenId: string, target: FrameElementTarget) =>
+        ({
+          status: "captured",
+          snapshot: snapshotFor(
+            target.instanceIndex === 3 ? "rgb(220, 38, 38)" : "rgb(0, 0, 0)",
+          ),
+        }) as PortableStyleSnapshotRead,
+    );
+    const copiedLayerEntriesRef = ref<CanvasLayerClipboardEntry[]>([]);
+
+    await runCopySelection({
+      canvasFrameGeometryById: {},
+      copiedLayerEntriesRef,
+      copiedLayerHtmlRef: ref<string | null>(null),
+      copiedScreenEntriesRef: ref<DesignClipboardScreenEntry[] | undefined>(
+        undefined,
+      ),
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => file.content!,
+      getSelectedLayerSnapshots: () => snapshots,
+      lastWrittenClipboardMarkerRef: ref<string | null>(null),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: [],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: read,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("single"),
+    });
+
+    expect(read).toHaveBeenCalledWith("screen-a", {
+      selector: '[data-agent-native-node-id="row"]',
+      instanceIndex: 3,
+    });
+    expect(copiedLayerEntriesRef.current[0]?.portableStyleSnapshot).toEqual(
+      snapshotFor("rgb(220, 38, 38)"),
     );
   });
 });

@@ -6,6 +6,7 @@ import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench
 import type { InspectorTab } from "@/components/design/EditPanel";
 import type { ElementInfo } from "@/components/design/types";
 import type { ResponsiveEditScope } from "@/pages/design-editor/command-types";
+import { KEEPALIVE_ACTION_MAX_BYTES } from "@/pages/design-editor/data-operations";
 import { DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS } from "@/pages/design-editor/editor-constants";
 import { designSelectionStateKeys } from "@/pages/design-editor/editor-helpers";
 import type {
@@ -46,6 +47,7 @@ const AGENT_SELECTION_STYLE_KEYS = [
 const MAX_SUMMARY_CLASSES = 40;
 const MAX_SUMMARY_CLASS_LENGTH = 200;
 const MAX_SUMMARY_TEXT_LENGTH = 200;
+const SELECTION_PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 
 // The agent targets an element by these ids; its subtree style snapshot stays
 // in the frame, where copy reads it on demand.
@@ -258,22 +260,52 @@ export function runPublishAgentSelectionContext({
   const persistedKey = JSON.stringify(persistedSelection);
   const { zoom: _zoom, ...persistedContext } = persistedSelection;
   const persistedContextKey = JSON.stringify(persistedContext);
-  const writePersistedSelection = (pending: {
-    key: string;
-    contextKey: string;
-    value: Record<string, unknown>;
-  }) => {
+  const writePersistedSelection = (
+    pending: {
+      key: string;
+      contextKey: string;
+      value: Record<string, unknown>;
+    },
+    attempt = 0,
+  ) => {
     persistedSelectionStateRef.current = pending.key;
     persistedSelectionContextRef.current = pending.contextKey;
-    for (const key of designSelectionStateKeys()) {
-      setClientAppState(key, pending.value).catch((cause: unknown) => {
-        if (persistedSelectionStateRef.current === pending.key) {
-          persistedSelectionStateRef.current = null;
-          persistedSelectionContextRef.current = null;
-        }
-        console.error(new DesignSelectionPublishError(key, cause));
-      });
-    }
+    const keys = designSelectionStateKeys();
+    // Every key's write shares the browser's in-flight keepalive budget.
+    const keepalive =
+      new TextEncoder().encode(pending.key).length * keys.length <=
+      KEEPALIVE_ACTION_MAX_BYTES;
+    void Promise.all(
+      keys.map((key) =>
+        setClientAppState(key, pending.value, { keepalive }).then(
+          () => true,
+          (cause: unknown) => {
+            console.error(new DesignSelectionPublishError(key, cause));
+            return false;
+          },
+        ),
+      ),
+    ).then((written) => {
+      if (
+        written.every(Boolean) ||
+        persistedSelectionStateRef.current !== pending.key
+      ) {
+        return;
+      }
+      persistedSelectionStateRef.current = null;
+      persistedSelectionContextRef.current = null;
+      const delay = SELECTION_PUBLISH_RETRY_DELAYS_MS[attempt];
+      if (
+        delay === undefined ||
+        persistedSelectionWriteTimerRef.current !== null
+      ) {
+        return;
+      }
+      persistedSelectionWriteTimerRef.current = window.setTimeout(() => {
+        persistedSelectionWriteTimerRef.current = null;
+        writePersistedSelection(pending, attempt + 1);
+      }, delay);
+    });
   };
   if (persistedSelectionStateRef.current === persistedKey) {
     if (persistedSelectionWriteTimerRef.current !== null) {

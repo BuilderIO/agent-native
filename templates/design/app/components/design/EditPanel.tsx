@@ -206,6 +206,7 @@ import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
 import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
 import { requestDocumentColorCounts } from "./multi-screen/preview-parse-warmer";
+import type { SubtreeColorStylesRead } from "./multi-screen/read-portable-style-snapshot";
 import type { ScreenHeightMode } from "./multi-screen/screen-height";
 import {
   clampScreenDimension,
@@ -362,9 +363,7 @@ interface EditPanelProps {
   onSelectionColorTarget?: (color: string) => void;
   canSelectSelectionColorTarget?: (color: string) => boolean;
   onSelectionColorPickerOpenChange?: (from: string, open: boolean) => void;
-  readSubtreeColorStyles?: (
-    element: ElementInfo,
-  ) => Array<Record<string, string>>;
+  readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead;
   onGroupFillStylesChange?: (
     styles: Record<string, string>,
     meta?: StyleChangeMeta,
@@ -1859,9 +1858,7 @@ export function SelectionColorsProperties({
   onColorPickerOpenChange?: (from: string, open: boolean) => void;
   colors?: SelectionColorValue[];
   title?: string;
-  readSubtreeColorStyles?: (
-    element: ElementInfo,
-  ) => Array<Record<string, string>>;
+  readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead;
 }) {
   const [expanded, setExpanded] = useState(false);
   const t = useT();

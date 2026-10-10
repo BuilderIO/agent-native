@@ -14,7 +14,11 @@ import {
 } from "@/components/design/EditPanel";
 import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
-import { readSubtreeColorStyles } from "@/components/design/multi-screen/read-portable-style-snapshot";
+import {
+  frameElementTarget,
+  readSubtreeColorStyles,
+  type SubtreeColorStylesRead,
+} from "@/components/design/multi-screen/read-portable-style-snapshot";
 import {
   resolveScreenHeightMode,
   type ScreenHeightMode,
@@ -927,18 +931,17 @@ export function useEditorScreenInspector({
   ]);
 
   const readSelectionSubtreeColorStyles = useCallback(
-    (element: ElementInfo): Array<Record<string, string>> => {
+    (element: ElementInfo): SubtreeColorStylesRead => {
       const screenId = element.sourceLayerIdentity?.screenId ?? activeFile?.id;
-      if (!screenId || !element.selector) return [];
-      const read = readSubtreeColorStyles(
+      if (!screenId || !element.selector) return { status: "missing" };
+      return readSubtreeColorStyles(
         screenId,
-        element.selector,
+        frameElementTarget(element.selector, element),
         viewModeRef.current === "overview"
           ? activeBreakpointWidthStateRef.current
           : undefined,
         boardFileId,
       );
-      return read.status === "captured" ? read.nodes : [];
     },
     [activeFile?.id, boardFileId],
   );

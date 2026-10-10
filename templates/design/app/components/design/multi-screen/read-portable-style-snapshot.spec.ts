@@ -29,13 +29,16 @@ describe("readPortableStyleSnapshot", () => {
   it("reads from the breakpoint frame the selection came from, not another frame of its screen", () => {
     frameAnswering("screen-a", snapshotWithDisplay("flex"));
     frameAnswering("screen-a::bp-390", snapshotWithDisplay("none"));
-    const selector = '[data-agent-native-node-id="nav"]';
+    const target = {
+      selector: '[data-agent-native-node-id="nav"]',
+      instanceIndex: 1,
+    };
 
     expect(
-      readPortableStyleSnapshot("screen-a", selector, undefined, undefined),
+      readPortableStyleSnapshot("screen-a", target, undefined, undefined),
     ).toEqual({ status: "captured", snapshot: snapshotWithDisplay("flex") });
     expect(
-      readPortableStyleSnapshot("screen-a", selector, 390, undefined),
+      readPortableStyleSnapshot("screen-a", target, 390, undefined),
     ).toEqual({ status: "captured", snapshot: snapshotWithDisplay("none") });
   });
 
@@ -43,7 +46,28 @@ describe("readPortableStyleSnapshot", () => {
     frameAnswering("screen-a", snapshotWithDisplay("flex"));
 
     expect(
-      readPortableStyleSnapshot("screen-a", "main", 390, undefined),
+      readPortableStyleSnapshot(
+        "screen-a",
+        { selector: "main", instanceIndex: 1 },
+        390,
+        undefined,
+      ),
     ).toEqual({ status: "missing" });
+  });
+
+  it("copies the frame's snapshot instead of keeping the frame's own object", () => {
+    const frameSnapshot = snapshotWithDisplay("grid");
+    frameAnswering("screen-a", frameSnapshot);
+
+    const read = readPortableStyleSnapshot(
+      "screen-a",
+      { selector: "main", instanceIndex: 1 },
+      undefined,
+      undefined,
+    );
+
+    if (read.status !== "captured") throw new Error("not captured");
+    expect(read.snapshot).toEqual(frameSnapshot);
+    expect(read.snapshot).not.toBe(frameSnapshot);
   });
 });

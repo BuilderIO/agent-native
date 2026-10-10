@@ -1038,8 +1038,14 @@ export function useEditorFilesAndSaving({
       }
     }
   }, [serverFiles]);
+  // A get-design response can predate a geometry save still in flight, so
+  // unacknowledged local operations stay on top of whatever the server sent.
   const designDataJson = useMemo(
-    () => parseDesignDataJson(design?.data),
+    () =>
+      rebaseDesignDataWithPendingOperations(
+        parseDesignDataJson(design?.data),
+        pendingFrameGeometryOperationsForUnloadRef.current,
+      ),
     [design?.data],
   );
   const designSourceType = useMemo(
@@ -1089,10 +1095,7 @@ export function useEditorFilesAndSaving({
   }, [layoutGrids]);
   handleLayoutGridChangeRef.current = handleLayoutGridChange;
   useEffect(() => {
-    designDataJsonRef.current = rebaseDesignDataWithPendingOperations(
-      designDataJson,
-      pendingFrameGeometryOperationsForUnloadRef.current,
-    );
+    designDataJsonRef.current = designDataJson;
   }, [designDataJson]);
   const canvasFrameGeometryById = useMemo(
     () => getCanvasFrameGeometry(designDataJson),

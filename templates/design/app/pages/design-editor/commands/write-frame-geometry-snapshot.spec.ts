@@ -5,9 +5,17 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  refetchDesignAfterGeometrySaves,
-  runWriteFrameGeometrySnapshot,
-} from "./write-frame-geometry-snapshot";
+  clearAcknowledgedDesignDataOperationsThroughRevision,
+  type DesignDataOperation,
+  type PendingDesignDataOperations,
+  rebaseDesignDataWithPendingOperations,
+  stagePendingDesignDataOperations,
+} from "../data-operations";
+import {
+  getCanvasFrameGeometry,
+  parseDesignDataJson,
+} from "../design-data-geometry-utils";
+import { runWriteFrameGeometrySnapshot } from "./write-frame-geometry-snapshot";
 
 const ref = <T>(current: T) => ({ current });
 
@@ -34,13 +42,12 @@ describe("runWriteFrameGeometrySnapshot", () => {
         boardFileId: undefined,
         canEditDesignRef: ref(true),
         designDataJsonRef,
-        designRefetchCancelledRef: ref(false),
         enqueueFrameGeometryDataSave,
         frameGeometrySaveTimerRef: ref(null),
         id: "design",
         liveFrameGeometryRef,
         pendingFrameGeometrySaveRef,
-        queryClient: new QueryClient(),
+        queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
       },
       persisted,
       { replacePendingGeometrySave: true },
@@ -74,13 +81,12 @@ describe("runWriteFrameGeometrySnapshot", () => {
         boardFileId: undefined,
         canEditDesignRef: { current: true },
         designDataJsonRef,
-        designRefetchCancelledRef: ref(false),
         enqueueFrameGeometryDataSave: vi.fn(() => true),
         frameGeometrySaveTimerRef: { current: null },
         id: "design",
         liveFrameGeometryRef,
         pendingFrameGeometrySaveRef: { current: null },
-        queryClient: new QueryClient(),
+        queryClient: { setQueryData: vi.fn() } as unknown as QueryClient,
       },
       after,
     );
@@ -89,7 +95,7 @@ describe("runWriteFrameGeometrySnapshot", () => {
     expect(liveFrameGeometryRef.current).not.toBe(after);
   });
 
-  it("keeps the written geometry when a get-design response that predates it lands", async () => {
+  it("keeps unacknowledged geometry on top of a get-design response that predates it", async () => {
     const persisted: CanvasFrameGeometryById = {
       screen: { x: 0, y: 0, width: 400, height: 300 },
     };
@@ -97,18 +103,27 @@ describe("runWriteFrameGeometrySnapshot", () => {
       screen: { x: 2, y: 0, width: 400, height: 300 },
     };
     const queryKey = ["action", "get-design", { id: "design" }];
-    const persistedResponse = {
-      data: JSON.stringify({ canvasFrames: persisted }),
-    };
+    const responseWith = (canvasFrames: CanvasFrameGeometryById) => ({
+      data: JSON.stringify({ canvasFrames }),
+    });
     const queryClient = new QueryClient();
-    queryClient.setQueryData(queryKey, persistedResponse);
-    let respond: (value: typeof persistedResponse) => void = () => {};
-    const inFlight = queryClient
-      .fetchQuery({
-        queryKey,
-        queryFn: () => new Promise((resolve) => (respond = resolve)),
-      })
-      .catch(() => undefined);
+    queryClient.setQueryData(queryKey, responseWith(persisted));
+    let respond: (value: { data: string }) => void = () => {};
+    const staleFetch = queryClient.fetchQuery({
+      queryKey,
+      queryFn: () => new Promise<{ data: string }>((r) => (respond = r)),
+    });
+    let pending: PendingDesignDataOperations = {};
+    let revision = 0;
+    const displayedGeometry = () =>
+      getCanvasFrameGeometry(
+        rebaseDesignDataWithPendingOperations(
+          parseDesignDataJson(
+            queryClient.getQueryData<{ data: string }>(queryKey)!.data,
+          ),
+          pending,
+        ),
+      );
 
     runWriteFrameGeometrySnapshot(
       {
@@ -117,8 +132,15 @@ describe("runWriteFrameGeometrySnapshot", () => {
         designDataJsonRef: ref<Record<string, unknown>>({
           canvasFrames: persisted,
         }),
-        designRefetchCancelledRef: ref(false),
-        enqueueFrameGeometryDataSave: vi.fn(() => true),
+        enqueueFrameGeometryDataSave: (operations: DesignDataOperation[]) => {
+          revision += 1;
+          pending = stagePendingDesignDataOperations(
+            pending,
+            operations,
+            revision,
+          );
+          return true;
+        },
         frameGeometrySaveTimerRef: ref(null),
         id: "design",
         pendingFrameGeometrySaveRef: ref(null),
@@ -126,14 +148,20 @@ describe("runWriteFrameGeometrySnapshot", () => {
       },
       nudged,
     );
-    respond(persistedResponse);
-    await inFlight;
+    respond(responseWith(persisted));
+    await staleFetch;
 
-    const cached = queryClient.getQueryData<{ data: string }>(queryKey);
-    expect(JSON.parse(cached!.data).canvasFrames).toEqual(nudged);
+    expect(displayedGeometry()).toEqual(nudged);
+
+    pending = clearAcknowledgedDesignDataOperationsThroughRevision(
+      pending,
+      revision,
+    );
+    queryClient.setQueryData(queryKey, responseWith(nudged));
+    expect(displayedGeometry()).toEqual(nudged);
   });
 
-  it("re-runs the get-design refresh it cancelled once the geometry saves land", async () => {
+  it("lets a refetch someone awaits during a nudge resolve with the fresh response", async () => {
     const persisted: CanvasFrameGeometryById = {
       screen: { x: 0, y: 0, width: 400, height: 300 },
     };
@@ -141,18 +169,18 @@ describe("runWriteFrameGeometrySnapshot", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(queryKey, {
       data: JSON.stringify({ canvasFrames: persisted }),
+      files: [{ id: "screen" }],
     });
-    const queryFn = vi.fn(() => new Promise<never>(() => {}));
+    let respond: (value: unknown) => void = () => {};
     const unsubscribe = new QueryObserver(queryClient, {
       queryKey,
-      queryFn,
+      queryFn: () => new Promise((resolve) => (respond = resolve)),
       staleTime: Infinity,
     }).subscribe(() => {});
-    void queryClient.invalidateQueries({ queryKey, exact: true });
-    expect(queryFn).toHaveBeenCalledTimes(1);
-    const designRefetchCancelledRef = ref(false);
-    const frameGeometrySavesInFlightRef = ref(1);
-    const pendingFrameGeometrySaveRef = ref(null);
+    const awaitedRefetch = queryClient.refetchQueries({
+      queryKey,
+      exact: true,
+    });
 
     runWriteFrameGeometrySnapshot(
       {
@@ -161,29 +189,24 @@ describe("runWriteFrameGeometrySnapshot", () => {
         designDataJsonRef: ref<Record<string, unknown>>({
           canvasFrames: persisted,
         }),
-        designRefetchCancelledRef,
         enqueueFrameGeometryDataSave: vi.fn(() => true),
         frameGeometrySaveTimerRef: ref(null),
         id: "design",
-        pendingFrameGeometrySaveRef,
+        pendingFrameGeometrySaveRef: ref(null),
         queryClient,
       },
       { screen: { x: 2, y: 0, width: 400, height: 300 } },
     );
-    const refetchArgs = {
-      designRefetchCancelledRef,
-      frameGeometrySavesInFlightRef,
-      id: "design",
-      pendingFrameGeometrySaveRef,
-      queryClient,
-    };
-    refetchDesignAfterGeometrySaves(refetchArgs);
-    expect(queryFn).toHaveBeenCalledTimes(1);
+    respond({
+      data: JSON.stringify({ canvasFrames: persisted }),
+      files: [{ id: "screen" }, { id: "created-screen" }],
+    });
+    await awaitedRefetch;
 
-    frameGeometrySavesInFlightRef.current = 0;
-    refetchDesignAfterGeometrySaves(refetchArgs);
-    expect(queryFn).toHaveBeenCalledTimes(2);
-    expect(designRefetchCancelledRef.current).toBe(false);
+    expect(
+      queryClient.getQueryData<{ files: Array<{ id: string }> }>(queryKey)!
+        .files,
+    ).toEqual([{ id: "screen" }, { id: "created-screen" }]);
     unsubscribe();
   });
 });

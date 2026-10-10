@@ -1,4 +1,4 @@
-import type { PortableStyleSnapshot } from "../types";
+import type { ElementInfo, PortableStyleSnapshot } from "../types";
 import { designPreviewWindowsForScreen } from "./measure-selection";
 
 export type PortableStyleSnapshotRead =
@@ -8,18 +8,39 @@ export type PortableStyleSnapshotRead =
 
 export type SubtreeColorStylesRead =
   | { status: "captured"; nodes: Array<Record<string, string>> }
+  | { status: "truncated"; nodes: Array<Record<string, string>> }
   | { status: "failed" }
   | { status: "missing" };
+
+/** The nth (1-based) element matching `selector`; repeated instances share it. */
+export interface FrameElementTarget {
+  selector: string;
+  instanceIndex: number;
+}
+
+export function frameElementTarget(
+  selector: string,
+  selection: Pick<ElementInfo, "repeat">,
+): FrameElementTarget {
+  return selection.repeat?.sourceSelector
+    ? {
+        selector: selection.repeat.sourceSelector,
+        instanceIndex: selection.repeat.instanceIndex,
+      }
+    : { selector, instanceIndex: 1 };
+}
 
 interface EditorChromeBridgeWindow extends Window {
   __anEditorChromeBridgeInstance?: {
     collectPortableStyleSnapshot?: (
       screenId: string,
       selector: string,
+      instanceIndex: number,
     ) => PortableStyleSnapshotRead | null;
     collectSubtreeColorStyles?: (
       screenId: string,
       selector: string,
+      instanceIndex: number,
     ) => SubtreeColorStylesRead | null;
   };
 }
@@ -45,37 +66,41 @@ function selectionFrameBridge(
   }
 }
 
+// Both readers copy the result into this realm: a frame's own object kept by
+// the clipboard would pin that frame's whole realm after it is evicted.
 /** Synchronous so copy can still write the clipboard inside the user's gesture. */
 export function readPortableStyleSnapshot(
   screenId: string,
-  selector: string,
+  target: FrameElementTarget,
   breakpointWidth: number | undefined,
   boardFileId: string | undefined,
 ): PortableStyleSnapshotRead {
-  return (
-    selectionFrameBridge(
-      screenId,
-      breakpointWidth,
-      boardFileId,
-    )?.collectPortableStyleSnapshot?.(screenId, selector) ?? {
-      status: "missing",
-    }
+  const read = selectionFrameBridge(
+    screenId,
+    breakpointWidth,
+    boardFileId,
+  )?.collectPortableStyleSnapshot?.(
+    screenId,
+    target.selector,
+    target.instanceIndex,
   );
+  return read ? structuredClone(read) : { status: "missing" };
 }
 
 export function readSubtreeColorStyles(
   screenId: string,
-  selector: string,
+  target: FrameElementTarget,
   breakpointWidth: number | undefined,
   boardFileId: string | undefined,
 ): SubtreeColorStylesRead {
-  return (
-    selectionFrameBridge(
-      screenId,
-      breakpointWidth,
-      boardFileId,
-    )?.collectSubtreeColorStyles?.(screenId, selector) ?? {
-      status: "missing",
-    }
+  const read = selectionFrameBridge(
+    screenId,
+    breakpointWidth,
+    boardFileId,
+  )?.collectSubtreeColorStyles?.(
+    screenId,
+    target.selector,
+    target.instanceIndex,
   );
+  return read ? structuredClone(read) : { status: "missing" };
 }

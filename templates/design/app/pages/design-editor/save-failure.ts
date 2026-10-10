@@ -23,6 +23,10 @@ export function designSaveErrorMessage(error: unknown): string | null {
   return message.replace(/^DESIGN_HTML_INTEGRITY:\s*/, "");
 }
 
+export function isContentPatchRejection(error: unknown): boolean {
+  return errorField(error, "status") === 422;
+}
+
 export function isDesignSaveSuccessConflict(
   persistedContentMatches: boolean,
 ): boolean {

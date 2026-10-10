@@ -71,6 +71,10 @@ import {
   type RepromptDraftRequest,
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
+import {
+  isDesignHotkeyEditableTarget,
+  isNativeKeyboardActivationTarget,
+} from "@/hooks/useDesignHotkeys";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
   resolveDesktopDesignSnapshotLayer,
@@ -374,6 +378,19 @@ function clearTabFocusedLiveFrames(document: Document) {
   document
     .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
     .forEach((frame) => tabFocusedLiveFrames.delete(frame));
+}
+
+// A click inside the frame never moves host focus, so a chrome button clicked
+// before it would keep taking Enter and Space from the canvas selection.
+function releaseChromeButtonFocus(document: Document) {
+  const focused = document.activeElement;
+  if (
+    focused instanceof HTMLElement &&
+    isNativeKeyboardActivationTarget(focused) &&
+    !isDesignHotkeyEditableTarget(focused)
+  ) {
+    focused.blur();
+  }
 }
 
 const MOTION_PREVIEW_BRIDGE_SCRIPT = `
@@ -1582,6 +1599,12 @@ export function DesignCanvas({
     provenance: SourceDocumentProvenance;
   } | null>(null);
   const resendRuntimeReplacementRef = useRef<(() => void) | null>(null);
+  const hostSourceNodeSwapRef = useRef<{
+    content: string;
+    selector?: string | null;
+    candidates?: string[];
+    preserveTextEditingSession?: boolean;
+  } | null>(null);
   const pinchZoomDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const bridgeReadyRef = useRef(false);
   const editorChromeReadyRef = useRef(false);
@@ -4243,6 +4266,9 @@ export function DesignCanvas({
           );
         }
         const reportedRuntimeSourceId = reported?.runtimeSourceId?.trim();
+        if (e.data.intent?.source === "pointer") {
+          releaseChromeButtonFocus(document);
+        }
         if (e.data.intent) {
           suppressMirrorSelectorsRef.current =
             reportedCandidates.length > 0 ? reportedCandidates : null;
@@ -6582,11 +6608,13 @@ export function DesignCanvas({
       options?: {
         forceFullDocument?: boolean;
         preserveTextEditingSession?: boolean;
+        allowSourceNodeSwap?: boolean;
       },
     ) => {
       // Only a runtime-replaced canvas tracks what its document shows, which
       // the node swap diffs against.
       if (
+        options?.allowSourceNodeSwap &&
         runtimeReplacementKeyRef.current !== undefined &&
         replaceSourceNodeInPlace(
           lastRuntimeReplacementContentRef.current ??
@@ -6597,6 +6625,12 @@ export function DesignCanvas({
       ) {
         lastRuntimeReplacementContentRef.current = rawNextContent;
         runtimeReplacementSourceRef.current = rawNextContent;
+        hostSourceNodeSwapRef.current = {
+          content: rawNextContent,
+          selector,
+          candidates,
+          preserveTextEditingSession: options.preserveTextEditingSession,
+        };
         return true;
       }
       const nextContent = boardSurface
@@ -6704,6 +6738,19 @@ export function DesignCanvas({
   resendRuntimeReplacementRef.current = () => {
     const content = lastRuntimeReplacementContentRef.current;
     if (content === undefined) return;
+    const hostSwap = hostSourceNodeSwapRef.current;
+    if (hostSwap?.content === content) {
+      replacePreviewContentFromHost(
+        content,
+        hostSwap.selector,
+        hostSwap.candidates,
+        {
+          forceFullDocument: true,
+          preserveTextEditingSession: hostSwap.preserveTextEditingSession,
+        },
+      );
+      return;
+    }
     replaceRuntimeContentInPlace(
       content,
       runtimeReplacementSourceRef.current ?? content,
@@ -6951,6 +6998,7 @@ export function DesignCanvas({
       options?: {
         forceFullDocument?: boolean;
         preserveTextEditingSession?: boolean;
+        allowSourceNodeSwap?: boolean;
       },
     ) => {
       if (screenId) {
