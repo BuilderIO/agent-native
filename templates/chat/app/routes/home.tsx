@@ -1,4 +1,3 @@
-import ChatHomeRedirect from "@/components/chat/ChatHomeRedirect";
 import HomePage from "@/components/home/HomePage";
 import { APP_TITLE } from "@/lib/app-config";
 
@@ -22,5 +21,5 @@ export function meta() {
 }
 
 export default function HomeRoute() {
-  return import.meta.env.DEV ? <HomePage /> : <ChatHomeRedirect />;
+  return <HomePage />;
 }

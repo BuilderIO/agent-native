@@ -1213,15 +1213,13 @@ describe("ChatRoute AgentKit surface", () => {
     expect(markHandoff).not.toHaveBeenCalled();
   });
 
-  it("starts a new chat from /home in production", async () => {
+  it("renders the Home page at /home in production", async () => {
     vi.stubEnv("DEV", false);
     await act(async () => root.render(<HomeRoute />));
 
-    expect(container.querySelector('[data-testid="home-page"]')).toBeNull();
-    expect(locationReplace).toHaveBeenCalledWith(
-      expect.stringMatching(/^\/chat\/chat-/),
-    );
-    expect(markHandoff).toHaveBeenCalledWith("chat");
+    expect(container.querySelector('[data-testid="home-page"]')).not.toBeNull();
+    expect(locationReplace).not.toHaveBeenCalled();
+    expect(markHandoff).not.toHaveBeenCalled();
   });
 
   it("keeps the home handoff inside the deployed app base path", async () => {

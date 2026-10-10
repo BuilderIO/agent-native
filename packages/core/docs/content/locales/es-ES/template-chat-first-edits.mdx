@@ -15,7 +15,7 @@ Esta página es para desarrolladores que amplían la [plantilla Chat](/docs/temp
   a página completa en `/chat/<threadId>`. Ajusta aquí el estado vacío, el
   composer o los slots de mensajes.
 - `app/components/home/HomePage.tsx` es la página Empieza aquí editable que se
-  muestra en `/home` durante el desarrollo. En producción, `/home` inicia un chat nuevo.
+  muestra en `/home`. `/chat` inicia un chat nuevo.
 - `AGENTS.md` le indica al agente integrado cómo trabajar dentro de esta app.
 
 <FileTree
@@ -36,7 +36,7 @@ Esta página es para desarrolladores que amplían la [plantilla Chat](/docs/temp
     },
     {
       path: "app/routes/home.tsx",
-      note: "/home: la página Empieza aquí con pnpm dev; en producción inicia un chat nuevo",
+      note: "/home: página Empieza aquí; /chat inicia un chat nuevo",
     },
     {
       path: "app/routes/chat._index.tsx",

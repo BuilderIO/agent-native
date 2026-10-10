@@ -15,7 +15,7 @@ Diese Seite richtet sich an Entwickler, die die [Chat-Vorlage](/docs/template-ch
   Chat-Oberfläche unter `/chat/<threadId>`. Passen Sie hier den Empty State,
   den Composer oder die Nachrichten-Slots an.
 - `app/components/home/HomePage.tsx` ist die bearbeitbare Seite „Loslegen“ unter
-  `/home` in der Entwicklung. In der Produktion startet `/home` einen neuen Chat.
+  `/home`. Unter `/chat` startet ein neuer Chat.
 - `AGENTS.md` teilt dem integrierten Agenten mit, wie er innerhalb dieser App
   arbeiten soll.
 
@@ -37,7 +37,7 @@ Diese Seite richtet sich an Entwickler, die die [Chat-Vorlage](/docs/template-ch
     },
     {
       path: "app/routes/home.tsx",
-      note: "/home: die Seite „Loslegen“ unter pnpm dev; in Produktion startet sie einen neuen Chat",
+      note: "/home: Seite „Loslegen“; /chat startet einen neuen Chat",
     },
     {
       path: "app/routes/chat._index.tsx",

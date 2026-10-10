@@ -98,7 +98,8 @@ const chatRouteViolations = [
   !chatHomeUsesDurableHandoff || !chatHomeRedirect.includes("return null;")
     ? "Chat's new-chat entry must route a pending thread to the shared durable Chat surface"
     : null,
-  !chatHomeRoute.includes("<HomePage />")
+  !chatHomeRoute.includes("return <HomePage />;") ||
+  chatHomeRoute.includes("ChatHomeRedirect")
     ? "Chat /home must render the editable getting-started page in every build"
     : null,
   !chatNewRoute.includes("ChatHomeRedirect")
