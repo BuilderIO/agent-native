@@ -17,6 +17,11 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  MAX_PROMPT_ATTACHMENT_BYTES,
+  MAX_UPLOAD_BYTES,
+} from "@/lib/upload-limits";
+
 import PromptPopover from "./PromptDialog";
 
 interface ComposerStubProps {
@@ -357,7 +362,7 @@ describe("PromptPopover inline home", () => {
       expect(mockComposer.current!.attachmentAdapter).toBeDefined();
       expect(mockComposer.current!.inlineTextAttachments).toBe(false);
       expect(mockComposer.current!.maxDocumentAttachmentBytes).toBe(
-        4 * 1024 * 1024,
+        MAX_UPLOAD_BYTES,
       );
       expect(container!.querySelector('input[hidden][type="file"]')).toBeNull();
       const files = [
@@ -572,6 +577,39 @@ describe("PromptPopover inline home", () => {
         '[data-testid="prompt-editor"]',
       )!.value,
     ).toBe("Keep the draft");
+  });
+
+  it("allows a prompt-sized image while keeping document attachments at 4 MiB", async () => {
+    const onSubmit = vi.fn();
+    const upload = vi.fn(async (files: File[]) =>
+      files.map((file) => ({ path: `/uploads/${file.name}` })),
+    );
+    mockEagerUpload.implementation = upload;
+    await renderPopover({ inline: true, onSubmit });
+    expect(mockComposer.current!.maxDocumentAttachmentBytes).toBe(
+      MAX_UPLOAD_BYTES,
+    );
+
+    const file = new File(
+      [new Uint8Array(MAX_PROMPT_ATTACHMENT_BYTES)],
+      "reference.png",
+      { type: "image/png" },
+    );
+    await act(async () => {
+      await mockComposer.current!.onSubmit(
+        "Use this reference",
+        [file],
+        [],
+        {},
+      );
+    });
+
+    expect(upload).toHaveBeenCalledWith([file]);
+    expect(onSubmit).toHaveBeenCalledWith(
+      "Use this reference",
+      [{ path: "/uploads/reference.png" }],
+      {},
+    );
   });
 
   it("keeps rejected staged files removable without resubmitting the rejected file", async () => {

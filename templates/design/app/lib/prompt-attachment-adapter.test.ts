@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { createDesignPromptAttachmentAdapter } from "./prompt-attachment-adapter";
-import { MAX_UPLOAD_BYTES } from "./upload-limits";
+import { MAX_PROMPT_ATTACHMENT_BYTES, MAX_UPLOAD_BYTES } from "./upload-limits";
 
 describe("Design host attachment adapter", () => {
   const adapter = createDesignPromptAttachmentAdapter("Attachment limit");
@@ -61,9 +61,33 @@ describe("Design host attachment adapter", () => {
     },
   );
 
-  it("accepts supported text between the generic 3MiB limit and the existing 4MiB host limit", async () => {
+  it("accepts raster images up to the prompt image limit", async () => {
+    const file = new File(
+      [new Uint8Array(MAX_PROMPT_ATTACHMENT_BYTES)],
+      "large.png",
+      { type: "image/png" },
+    );
+    await expect(adapter.add({ file })).resolves.toMatchObject({
+      file,
+      type: "image",
+    });
+    await expect(
+      adapter.add({
+        file: new File(
+          [new Uint8Array(MAX_PROMPT_ATTACHMENT_BYTES + 1)],
+          "large.png",
+          { type: "image/png" },
+        ),
+      }),
+    ).rejects.toThrow("Attachment limit");
+  });
+
+  it("keeps documents under the existing upload limit", async () => {
     const file = new File([new Uint8Array(MAX_UPLOAD_BYTES)], "large.tsx");
-    await expect(adapter.add({ file })).resolves.toMatchObject({ file });
+    await expect(adapter.add({ file })).resolves.toMatchObject({
+      file,
+      type: "document",
+    });
     await expect(
       adapter.add({
         file: new File([new Uint8Array(MAX_UPLOAD_BYTES + 1)], "large.tsx"),

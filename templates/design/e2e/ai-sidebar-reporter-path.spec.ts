@@ -479,6 +479,7 @@ async function routeImageAsOwnedStorageUrl(
     }
     const body = request.postDataJSON() as {
       attachments?: Array<Record<string, unknown>>;
+      images?: string[];
     };
     const attachment = body.attachments?.find(
       (candidate) =>
@@ -486,7 +487,15 @@ async function routeImageAsOwnedStorageUrl(
         candidate.name === name &&
         typeof candidate.data === "string",
     );
-    if (!attachment) {
+    const imageData =
+      typeof attachment?.data === "string"
+        ? attachment.data
+        : body.images?.find(
+            (candidate) =>
+              typeof candidate === "string" &&
+              candidate.startsWith("data:image/"),
+          );
+    if (!imageData) {
       await route.continue();
       return;
     }
@@ -496,16 +505,15 @@ async function routeImageAsOwnedStorageUrl(
         candidate.name === name &&
         typeof candidate.url === "string",
     );
-    const imageData = attachment.data as string;
     const imageBase64 = imageData.includes(",")
       ? imageData.slice(imageData.indexOf(",") + 1)
       : imageData;
     const imageBytes = Buffer.from(imageBase64, "base64");
     options.onObserved?.({
-      ...(typeof attachment.url === "string"
+      ...(typeof attachment?.url === "string"
         ? { imageUrl: attachment.url }
         : {}),
-      ...(typeof attachment.referenceUrl === "string"
+      ...(typeof attachment?.referenceUrl === "string"
         ? { referenceUrl: attachment.referenceUrl }
         : {}),
       ...(typeof originalFilePart?.url === "string"
@@ -520,6 +528,9 @@ async function routeImageAsOwnedStorageUrl(
     if (options.rewriteAsOwnedStorageUrl === false) {
       await route.continue();
       return;
+    }
+    if (!attachment) {
+      throw new Error(`${name} image was not sent as an attachment.`);
     }
     const originalFile = options.useOriginalReference
       ? body.attachments?.find(
@@ -576,10 +587,9 @@ async function openSidebarComposer(
   return { heading, sidebarComposer, sidebarPrompt };
 }
 
-async function uploadImage(
+async function makeImageFixture(
   page: Page,
-  sidebarComposer: Locator,
-  targetBytes = 1_500_000,
+  targetBytes: number,
 ): Promise<{ bytes: Buffer; sha256: string; dataUrl: string }> {
   const imagePath = path.resolve(
     import.meta.dirname,
@@ -616,7 +626,15 @@ async function uploadImage(
   expect(bytes.byteLength).toBe(targetBytes);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const dataUrl = `data:image/png;base64,${bytes.toString("base64")}`;
+  return { bytes, sha256, dataUrl };
+}
 
+async function uploadImage(
+  page: Page,
+  sidebarComposer: Locator,
+  targetBytes = 1_500_000,
+): Promise<{ bytes: Buffer; sha256: string; dataUrl: string }> {
+  const image = await makeImageFixture(page, targetBytes);
   await sidebarComposer
     .getByRole("button", { name: "Add context", exact: true })
     .click();
@@ -639,15 +657,190 @@ async function uploadImage(
   await imageInput.setInputFiles({
     name: "card-art-photo.png",
     mimeType: "image/png",
-    buffer: bytes,
+    buffer: image.bytes,
   });
   await expect(
     sidebarComposer.getByRole("button", {
       name: "Remove card-art-photo.png",
     }),
   ).toBeVisible();
-  return { bytes, sha256, dataUrl };
+  return image;
 }
+
+test("Design Home sends a 6 MB uploaded image through generation", async ({
+  page,
+}) => {
+  test.skip(
+    process.env.E2E_AI_SIDEBAR_LOOPBACK !== "1",
+    "requires E2E_AI_SIDEBAR_LOOPBACK=1",
+  );
+  await page.context().addInitScript(() => {
+    if (location.origin === "null") return;
+    const selection = JSON.stringify({
+      model: "agentkit-loopback",
+      engine: "ai-sdk:openai",
+      effort: "medium",
+    });
+    localStorage.setItem(
+      "agent-native:chat-models:selection:design",
+      selection,
+    );
+    localStorage.setItem("agent-native:chat-models:selection", selection);
+  });
+
+  const sqlBefore = await scanSqlForInlineBytes(test.info());
+  let designId = "";
+  await page.route(
+    /\/_agent-native\/actions\/create-design(?:\?.*)?$/,
+    async (route) => {
+      const response = await route.fetch();
+      const body = await response.body();
+      const created = JSON.parse(body.toString("utf8")) as {
+        id?: unknown;
+        data?: { id?: unknown };
+        design?: { id?: unknown };
+      };
+      designId =
+        typeof created.id === "string"
+          ? created.id
+          : typeof created.data?.id === "string"
+            ? created.data.id
+            : typeof created.design?.id === "string"
+              ? created.design.id
+              : "";
+      if (!designId) throw new Error("Home create-design returned no id.");
+      await configureProvider(
+        page,
+        designId,
+        "home-generated-file",
+        "linkedin-ad",
+      );
+      await route.fulfill({ response, body });
+    },
+  );
+
+  await page.goto(appPath("/home"), { waitUntil: "domcontentloaded" });
+  const homeComposer = page.locator("[data-design-home-composer]");
+  await expect(homeComposer).toBeVisible({ timeout: 30_000 });
+  const homePrompt = homeComposer.locator(".ProseMirror").last();
+  await expect(homePrompt).toBeVisible();
+  const imageInput = homeComposer.locator('input[type="file"][multiple]');
+  await expect(imageInput).toHaveCount(1);
+  const original = await makeImageFixture(page, 6_000_000);
+  const homeUploadResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/uploads") &&
+      response.request().method() === "POST",
+    { timeout: 30_000 },
+  );
+  await imageInput.setInputFiles({
+    name: "card-art-photo.png",
+    mimeType: "image/png",
+    buffer: original.bytes,
+  });
+  const uploadedResponse = await homeUploadResponse;
+  expect(uploadedResponse.ok()).toBe(true);
+  const uploadedFiles = (await uploadedResponse.json()) as Array<{
+    originalName: string;
+    filename: string;
+    type: string;
+    size: number;
+  }>;
+  expect(uploadedFiles).toHaveLength(1);
+  expect(uploadedFiles[0]?.type).toBe("image/jpeg");
+  expect(uploadedFiles[0]?.size).toBeLessThan(4 * 1024 * 1024);
+  expect(uploadedFiles[0]?.filename).toMatch(/\.jpg$/i);
+  await expect(
+    homeComposer.getByRole("button", {
+      name: "Remove card-art-photo.png",
+    }),
+  ).toBeVisible({ timeout: 30_000 });
+
+  await homePrompt.fill(LINKEDIN_AD_PROMPT);
+  await homePrompt.press("Enter");
+  await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, { timeout: 45_000 });
+  expect(designId).toBeTruthy();
+
+  await expect
+    .poll(async () => (await readProviderProof(page)).callNames, {
+      timeout: 45_000,
+      intervals: [250, 500, 1_000],
+    })
+    .toContain("generate-design");
+  const providerPort = test.info().config.metadata
+    .sidebarLoopbackPort as number;
+  const providerResponse = await page.request.get(
+    `http://127.0.0.1:${providerPort}/__state`, // e2e-harness-ignore: read full model input from the separate loopback provider.
+  );
+  const provider = (await providerResponse.json()) as {
+    imageDataUrlsSeen: string[];
+    imageSha256Seen: string[];
+    requestSummaries: Array<{ userMessages: string[] }>;
+  };
+  expect(provider.imageDataUrlsSeen.length).toBeGreaterThan(0);
+  const providerImage = Buffer.from(
+    provider.imageDataUrlsSeen[0]!.split(",", 2)[1]!,
+    "base64",
+  );
+  const providerImageSha256 = createHash("sha256")
+    .update(providerImage)
+    .digest("hex");
+  expect(provider.imageSha256Seen).toContain(providerImageSha256);
+  expect(providerImageSha256).not.toBe(original.sha256);
+  const modelImageDimensions = await page.evaluate(async (dataUrl) => {
+    const blob = await (await fetch(dataUrl)).blob();
+    const bitmap = await createImageBitmap(blob);
+    const dimensions = [bitmap.width, bitmap.height];
+    bitmap.close();
+    return dimensions;
+  }, provider.imageDataUrlsSeen[0]!);
+  expect(Math.max(...modelImageDimensions)).toBe(2048);
+  const providerText = provider.requestSummaries
+    .flatMap((summary) => summary.userMessages)
+    .join("\n");
+  expect(providerText).toContain(LINKEDIN_AD_PROMPT);
+  expect(providerText).not.toContain("<chat-attachment-read-error");
+  expect(providerText).not.toContain("<chat-attachment-processing-error");
+
+  await expect
+    .poll(
+      async () => {
+        const design = await readDesign(page, designId);
+        const data = design.data ? JSON.parse(design.data) : {};
+        const generated = design.files?.find(
+          (file) => file.filename === "index.html",
+        );
+        const frame = generated ? data.canvasFrames?.[generated.id] : undefined;
+        const metadata = generated
+          ? data.screenMetadata?.[generated.id]
+          : undefined;
+        return {
+          frameSize: frame ? [frame.width, frame.height] : null,
+          screenSize: metadata ? [metadata.width, metadata.height] : null,
+          fixedHeight:
+            metadata?.heightPinned === true && metadata?.heightMode === "fixed",
+          breakpointWidths: metadata?.breakpointWidths ?? null,
+          lastPrompt: data.lastPrompt,
+        };
+      },
+      { timeout: 45_000, intervals: [250, 500, 1_000] },
+    )
+    .toEqual({
+      frameSize: [1200, 627],
+      screenSize: [1200, 627],
+      fixedHeight: true,
+      breakpointWidths: [],
+      lastPrompt: LINKEDIN_AD_PROMPT,
+    });
+  await assertNoInlineImageDataPersisted(
+    LINKEDIN_AD_PROMPT,
+    page,
+    providerImage,
+  );
+  expect(
+    newInlineBytesHits(sqlBefore, await scanSqlForInlineBytes(test.info())),
+  ).toEqual([]);
+});
 
 test("Design editor sidebar sends uploaded PNG bytes to model vision input", async ({
   page,

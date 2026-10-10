@@ -70,7 +70,12 @@ import {
   MissingVisualImagePayloadError,
 } from "@/lib/chat-image-attachments";
 import { createDesignPromptAttachmentAdapter } from "@/lib/prompt-attachment-adapter";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/lib/upload-limits";
+import {
+  MAX_PROMPT_ATTACHMENT_BYTES,
+  MAX_PROMPT_ATTACHMENT_MB,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_MB,
+} from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
 
 export interface UploadedFile {
@@ -88,8 +93,9 @@ const RAW_CHAT_IMAGE_ATTACHMENT_BYTES = 512 * 1024;
 const MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES = 3_000_000;
 const DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES = 1_250_000;
 const IMAGE_COMPRESSION_PASSES = [
-  { maxDimension: 1400, jpegQuality: 0.76 },
-  { maxDimension: 1024, jpegQuality: 0.7 },
+  { maxDimension: 2048, jpegQuality: 0.9 },
+  { maxDimension: 1536, jpegQuality: 0.85 },
+  { maxDimension: 1024, jpegQuality: 0.75 },
   { maxDimension: 768, jpegQuality: 0.65 },
 ];
 
@@ -188,6 +194,24 @@ async function readChatImageAttachment(
   return fallback && dataUrlBytes(fallback) <= maxDataUrlBytes
     ? fallback
     : null;
+}
+
+function imageFileForUpload(file: File, dataUrl: string): File {
+  const match = /^data:(image\/(?:jpeg|png|webp|gif));base64,([\s\S]+)$/i.exec(
+    dataUrl,
+  );
+  if (!match) return file;
+
+  const type = match[1]!.toLowerCase();
+  const bytes = Uint8Array.from(atob(match[2]!), (character) =>
+    character.charCodeAt(0),
+  );
+  const extension = type === "image/jpeg" ? "jpg" : type.slice("image/".length);
+  const name = file.name.replace(/\.[^./]+$/, "") || "image";
+  return new File([bytes], `${name}.${extension}`, {
+    type,
+    lastModified: file.lastModified,
+  });
 }
 
 export type PromptCreationMode = "design" | "app";
@@ -344,9 +368,16 @@ export default function PromptPopover({
   const attachmentLimitMessage = t("promptDialog.attachmentsTooLarge", {
     max: MAX_UPLOAD_MB,
   });
+  const imageAttachmentLimitMessage = t("promptDialog.attachmentsTooLarge", {
+    max: MAX_PROMPT_ATTACHMENT_MB,
+  });
   const attachmentAdapter = useMemo(
-    () => createDesignPromptAttachmentAdapter(attachmentLimitMessage),
-    [attachmentLimitMessage],
+    () =>
+      createDesignPromptAttachmentAdapter(
+        attachmentLimitMessage,
+        imageAttachmentLimitMessage,
+      ),
+    [attachmentLimitMessage, imageAttachmentLimitMessage],
   );
   const onOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -436,10 +467,19 @@ export default function PromptPopover({
     async (files: File[]): Promise<UploadedFile[]> => {
       if (files.length === 0) return [];
       const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-      if (totalBytes > MAX_UPLOAD_BYTES) {
+      const nonImageBytes = files.reduce(
+        (sum, file) => sum + (isVisualImageAttachment(file) ? 0 : file.size),
+        0,
+      );
+      if (totalBytes > MAX_PROMPT_ATTACHMENT_BYTES) {
         throw new Error(
-          t("promptDialog.attachmentsTooLarge", { max: MAX_UPLOAD_MB }),
+          t("promptDialog.attachmentsTooLarge", {
+            max: MAX_PROMPT_ATTACHMENT_MB,
+          }),
         );
+      }
+      if (nonImageBytes > MAX_UPLOAD_BYTES) {
+        throw new Error(attachmentLimitMessage);
       }
       const imageFileCount = files.filter(isVisualImageAttachment).length || 1;
       const maxImageDataUrlBytes = Math.min(
@@ -461,8 +501,27 @@ export default function PromptPopover({
       ) {
         throw new MissingVisualImagePayloadError();
       }
+      const uploadFiles =
+        totalBytes > MAX_UPLOAD_BYTES
+          ? await Promise.all(
+              files.map(async (file, index) => {
+                if (!isVisualImageAttachment(file)) return file;
+                let dataUrl = visualAttachments[index];
+                if (!dataUrl) throw new MissingVisualImagePayloadError();
+                if (dataUrlBytes(dataUrl) >= file.size) {
+                  dataUrl =
+                    (await compressImageAttachment(file, 768, 0.65)) ?? dataUrl;
+                }
+                return imageFileForUpload(file, dataUrl);
+              }),
+            )
+          : files;
+      const uploadBytes = uploadFiles.reduce((sum, file) => sum + file.size, 0);
+      if (uploadBytes > MAX_UPLOAD_BYTES) {
+        throw new Error(attachmentLimitMessage);
+      }
       const formData = new FormData();
-      files.forEach((f) => formData.append("files", f));
+      uploadFiles.forEach((file) => formData.append("files", file));
       const res = await fetch(`${appBasePath()}/api/uploads`, {
         method: "POST",
         body: formData,
@@ -477,18 +536,18 @@ export default function PromptPopover({
         );
       }
       const uploaded = (await res.json()) as UploadedFile[];
-      if (!Array.isArray(uploaded) || uploaded.length !== files.length) {
+      if (!Array.isArray(uploaded) || uploaded.length !== uploadFiles.length) {
         throw new Error(t("promptDialog.failedToUploadFile"));
       }
       return uploaded.map((uploadedFile, index) => ({
         ...uploadedFile,
-        ...(files[index]?.type ? { type: files[index].type } : {}),
+        ...(files[index]?.name ? { originalName: files[index].name } : {}),
         ...(visualAttachments[index]
           ? { dataUrl: visualAttachments[index] }
           : {}),
       }));
     },
-    [t],
+    [attachmentLimitMessage, t],
   );
   const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
     const response = await fetch(`${appBasePath()}/api/uploads`, {
@@ -561,7 +620,14 @@ export default function PromptPopover({
       let uploaded: UploadedFile[];
       let submissionOptions = options;
       try {
-        if (files.reduce((sum, file) => sum + file.size, 0) > MAX_UPLOAD_BYTES)
+        const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+        const nonImageBytes = files.reduce(
+          (sum, file) => sum + (isVisualImageAttachment(file) ? 0 : file.size),
+          0,
+        );
+        if (totalBytes > MAX_PROMPT_ATTACHMENT_BYTES)
+          throw new Error(imageAttachmentLimitMessage);
+        if (nonImageBytes > MAX_UPLOAD_BYTES)
           throw new Error(attachmentLimitMessage);
         if (beforeSubmitContext)
           submissionOptions = {
@@ -619,6 +685,7 @@ export default function PromptPopover({
       onSubmitError,
       beforeSubmitContext,
       attachmentLimitMessage,
+      imageAttachmentLimitMessage,
       recoveryScope,
       inline,
       retainFiles,

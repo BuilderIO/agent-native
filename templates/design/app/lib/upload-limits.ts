@@ -1,2 +1,5 @@
 export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 export const MAX_UPLOAD_MB = MAX_UPLOAD_BYTES / 1024 / 1024;
+
+export const MAX_PROMPT_ATTACHMENT_BYTES = 6_000_000;
+export const MAX_PROMPT_ATTACHMENT_MB = 6;
