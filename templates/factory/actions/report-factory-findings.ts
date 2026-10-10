@@ -140,7 +140,10 @@ export async function findSlackReportMessage(input: {
 }): Promise<SlackPostMessageResult | null> {
   const startedAtMs = Date.parse(input.startedAt);
   if (!Number.isFinite(startedAtMs)) {
-    throw new Error("The Slack report start time is invalid.");
+    fail("The Slack report start time is invalid.", {
+      errorCode: "slack_report_reconciliation_incomplete",
+      statusCode: 424,
+    });
   }
   const earliestRelevantTs = startedAtMs / 1_000 - 300;
   let cursor: string | undefined;
@@ -155,19 +158,26 @@ export async function findSlackReportMessage(input: {
     const oldestTs = result.messages.reduce((oldest, message) => {
       const timestamp = Number(message.ts);
       if (!Number.isFinite(timestamp)) {
-        throw new Error("Slack history contains an invalid message timestamp.");
+        fail("Slack history contains an invalid message timestamp.", {
+          errorCode: "slack_report_reconciliation_incomplete",
+          statusCode: 424,
+        });
       }
       return Math.min(oldest, timestamp);
     }, Number.POSITIVE_INFINITY);
     if (!result.has_more || oldestTs <= earliestRelevantTs) return null;
     if (!result.next_cursor || result.next_cursor === cursor) {
-      throw new Error("Slack history pagination did not advance.");
+      fail("Slack history pagination did not advance.", {
+        errorCode: "slack_report_reconciliation_incomplete",
+        statusCode: 424,
+      });
     }
     cursor = result.next_cursor;
   }
-  throw new Error(
-    "Slack history did not cover the full report attempt window.",
-  );
+  fail("Slack history did not cover the full report attempt window.", {
+    errorCode: "slack_report_reconciliation_incomplete",
+    statusCode: 424,
+  });
 }
 
 export default defineAction({
