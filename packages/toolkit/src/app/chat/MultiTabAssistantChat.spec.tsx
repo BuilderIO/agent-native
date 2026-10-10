@@ -26,6 +26,7 @@ import type {
 import { buildChatModelGroups } from "@agent-native/core/client/chat-model-groups";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { invalidateClientStatusRequests } from "@agent-native/core/client/status-requests";
+import { ComposerContextError } from "@agent-native/toolkit/composer";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -729,6 +730,37 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining("alongside the composer's existing context"),
     );
+    consoleError.mockRestore();
+  });
+
+  it("reports a prefill whose staging check cannot run yet as composer-not-ready", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.canStageComposerContextItem.mockImplementationOnce(() => {
+      throw new ComposerContextError("not-ready");
+    });
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+        submitMessageId: "pending-prefill",
+      });
+    });
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(results).toContainEqual({
+      submitMessageId: "pending-prefill",
+      delivered: false,
+      reason: "composer-not-ready",
+    });
     consoleError.mockRestore();
   });
 

@@ -50,7 +50,10 @@ import {
   resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "@agent-native/core/shared";
-import { composerContextFits } from "@agent-native/toolkit/composer";
+import {
+  ComposerContextError,
+  composerContextFits,
+} from "@agent-native/toolkit/composer";
 import {
   isClaudeCodeAgentId,
   isLunaModel,
@@ -139,7 +142,26 @@ async function deliverPendingPrefill(
   if (send.prefillContext) {
     // Checked against what the composer already holds, before the draft changes,
     // so a refused prefill leaves no draft without its context.
-    if (!ref.canStageComposerContextItem(send.prefillContext)) {
+    let fits: boolean;
+    try {
+      fits = ref.canStageComposerContextItem(send.prefillContext);
+    } catch (error) {
+      // A provider item still loading has no size yet; report a typed failure so the
+      // bridge caller does not wait for a timeout. Anything else is a bug and propagates.
+      if (error instanceof ComposerContextError && error.code === "not-ready") {
+        console.error(
+          "Composer context is still loading; the prefill was not applied.",
+        );
+        reportAgentChatSubmitResult(
+          send.submitMessageId,
+          false,
+          "composer-not-ready",
+        );
+        return;
+      }
+      throw error;
+    }
+    if (!fits) {
       console.error(
         "Prefill context does not fit alongside the composer's existing context; the prefill was not applied.",
       );
