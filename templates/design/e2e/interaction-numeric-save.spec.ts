@@ -7,7 +7,7 @@ import {
 
 import { appPath, designFrame, gotoEditor, selectByText } from "./helpers";
 
-const TARGET_ID = "tutorial-numeric-save-target";
+const TARGET_ID = "workflow-numeric-save-target";
 
 async function action(
   request: APIRequestContext,

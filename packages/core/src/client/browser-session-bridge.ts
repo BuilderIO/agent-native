@@ -651,6 +651,10 @@ export function createAgentNativeBrowserSessionBridge(
   let onVisibility: (() => void) | undefined;
   let lastWebMcpTools: AgentNativeWebMcpTool[] | undefined;
   let activeRequestCount = 0;
+  const activeClaims = new Map<
+    number,
+    { count: number; promise: Promise<void>; resolve: () => void }
+  >();
   const requestExpiryTimers = new Set<ReturnType<typeof setTimeout>>();
   const pendingRegistrationControllers = new Set<AbortController>();
   // A delayed cleanup must finish before a restart reuses its session ID.
@@ -666,6 +670,27 @@ export function createAgentNativeBrowserSessionBridge(
       () => undefined,
     );
     return result;
+  }
+
+  function trackActiveClaim(generation: number): () => void {
+    let active = activeClaims.get(generation);
+    if (!active) {
+      let resolve!: () => void;
+      const promise = new Promise<void>((resolvePromise) => {
+        resolve = resolvePromise;
+      });
+      active = { count: 0, promise, resolve };
+      activeClaims.set(generation, active);
+    }
+    active.count++;
+
+    return () => {
+      active.count--;
+      if (active.count === 0) {
+        active.resolve();
+        activeClaims.delete(generation);
+      }
+    };
   }
 
   function refreshRegistration(
@@ -757,6 +782,18 @@ export function createAgentNativeBrowserSessionBridge(
     signal?: AbortSignal,
   ): Promise<AgentNativeBrowserSessionRequest | null> {
     const claimStopGeneration = stopGeneration;
+    const finishClaim = trackActiveClaim(claimStopGeneration);
+    try {
+      return await claimOnceForGeneration(signal, claimStopGeneration);
+    } finally {
+      finishClaim();
+    }
+  }
+
+  async function claimOnceForGeneration(
+    signal: AbortSignal | undefined,
+    claimStopGeneration: number,
+  ): Promise<AgentNativeBrowserSessionRequest | null> {
     await awaitWithAbort(registrationBarrier, signal);
     await awaitWithAbort(sessionMutationQueue, signal);
     if (!currentSessionId) {
@@ -970,7 +1007,9 @@ export function createAgentNativeBrowserSessionBridge(
     stop() {
       if (!started) return;
       started = false;
+      const stoppedGeneration = stopGeneration;
       stopGeneration++;
+      const activeClaimsForStop = activeClaims.get(stoppedGeneration)?.promise;
       for (const controller of pendingRegistrationControllers) {
         controller.abort();
       }
@@ -985,6 +1024,8 @@ export function createAgentNativeBrowserSessionBridge(
       let cleanupSessionId = currentSessionId ?? undefined;
       currentSessionId = null;
       void serializeSessionMutation(async () => {
+        // Let an already-claimed request report its outcome before disconnecting.
+        await activeClaimsForStop;
         cleanupSessionId ??= currentSessionId ?? fallbackSessionId ?? undefined;
         if (!cleanupSessionId) return;
         if (currentSessionId === cleanupSessionId) currentSessionId = null;

@@ -4,7 +4,11 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, roleSatisfies } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  currentAccess,
+  roleSatisfies,
+} from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -22,6 +26,7 @@ import {
 } from "./_database-utils.js";
 import {
   accessibleDocumentIds,
+  directDocumentAccessSql,
   resolveDocumentAccess,
 } from "./_document-access.js";
 import {
@@ -33,7 +38,6 @@ import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
   getDatabaseById,
   listPropertiesForDocument,
-  resolvePropertyDatabaseForDocument,
   serializeDatabase,
 } from "./_property-utils.js";
 import {
@@ -146,8 +150,14 @@ export default defineAction({
         .select({
           databaseId: schema.contentDatabases.id,
           databaseDocumentId: schema.contentDatabases.documentId,
+          databaseTitle: schema.contentDatabases.title,
           systemRole: schema.contentDatabases.systemRole,
           primaryId: schema.documentPropertyDefinitions.id,
+          databaseDocumentDescription: schema.documents.description,
+          databaseDocumentDirectlyGranted: directDocumentAccessSql(
+            schema.documents,
+            currentAccess(),
+          ),
         })
         .from(schema.contentDatabaseItems)
         .innerJoin(
@@ -156,6 +166,10 @@ export default defineAction({
             schema.contentDatabases.id,
             schema.contentDatabaseItems.databaseId,
           ),
+        )
+        .leftJoin(
+          schema.documents,
+          eq(schema.documents.id, schema.contentDatabases.documentId),
         )
         .leftJoin(
           schema.documentPropertyDefinitions,
@@ -252,6 +266,27 @@ export default defineAction({
             (row) => row.item.databaseId === selectedDatabaseId,
           )
         : databaseItems[0]) ?? null;
+    const contextMembership = (() => {
+      const row = args.databaseId
+        ? memberships.find(
+            (membership) => membership.databaseId === args.databaseId,
+          )
+        : (memberships.find((membership) => membership.systemRole === null) ??
+          memberships[0]);
+      return row
+        ? {
+            database: {
+              id: row.databaseId,
+              documentId: row.databaseDocumentId,
+              title: row.databaseTitle,
+              systemRole: row.systemRole,
+            },
+            databaseDocumentDescription: row.databaseDocumentDescription,
+            databaseDocumentDirectlyGranted:
+              row.databaseDocumentDirectlyGranted,
+          }
+        : null;
+    })();
     // The initial read wave proves the empty case; retain the resolver's
     // existing selection behavior when memberships are present.
     const propertyDatabase = selectedDatabaseId
@@ -259,10 +294,7 @@ export default defineAction({
         (database?.id === selectedDatabaseId
           ? database
           : await getDatabaseById(selectedDatabaseId)))
-      : (database ??
-        (databaseItems.length > 0
-          ? await resolvePropertyDatabaseForDocument(doc)
-          : null));
+      : (database ?? databaseMembership?.database ?? null);
     const hasPropertyDatabaseAccess = Boolean(
       propertyDatabase && accessibleDatabases.has(propertyDatabase.documentId),
     );
@@ -287,7 +319,6 @@ export default defineAction({
     if (selectedDatabaseId && !propertyDatabase) {
       throw new Error(`Database "${selectedDatabaseId}" not found`);
     }
-    const bodyHydrationAccess = await readBodyHydrationAccess();
     const bodyHydration = bodyHydrationMembership
       ? serializeDatabaseMembership(bodyHydrationMembership).bodyHydration
       : null;
@@ -295,11 +326,19 @@ export default defineAction({
     // read only when it will be returned, and its errors surface after the
     // property checks that preceded it.
     const readContextPath =
-      databaseMembership && !hasPropertyDatabaseAccess
+      (!doc.parentId && !databaseMembership) ||
+      (databaseMembership && !hasPropertyDatabaseAccess)
         ? null
         : deferFailure(
-            getDocumentContextPath(doc, { databaseId: args.databaseId }),
+            getDocumentContextPath(doc, {
+              databaseId: args.databaseId,
+              preloaded: {
+                membership: contextMembership,
+                backingDatabaseExists: Boolean(database),
+              },
+            }),
           );
+    const bodyHydrationAccess = await readBodyHydrationAccess();
     const [properties] = await Promise.all([
       listPropertiesForDocument(doc, selectedDatabaseId, {
         // A share authorizes the exact page and its membership-local fields,

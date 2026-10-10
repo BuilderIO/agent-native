@@ -584,7 +584,7 @@ async function uploadImage(
   const imagePath = path.resolve(
     import.meta.dirname,
     "fixtures",
-    "responsive-card-art-photo.png",
+    "card-art-photo.png",
   );
   const source = await readFile(imagePath);
   const largeRasterBase64 =
@@ -637,13 +637,13 @@ async function uploadImage(
     `sidebar upload input accepts PNG images (accept=${JSON.stringify(acceptedTypes)})`,
   ).toBe(true);
   await imageInput.setInputFiles({
-    name: "responsive-card-art-photo.png",
+    name: "card-art-photo.png",
     mimeType: "image/png",
     buffer: bytes,
   });
   await expect(
     sidebarComposer.getByRole("button", {
-      name: "Remove responsive-card-art-photo.png",
+      name: "Remove card-art-photo.png",
     }),
   ).toBeVisible();
   return { bytes, sha256, dataUrl };
@@ -753,7 +753,7 @@ test("Design editor shows an error for invalid exact canvas dimensions", async (
   const imagePath = path.resolve(
     import.meta.dirname,
     "fixtures",
-    "responsive-card-art-photo.png",
+    "card-art-photo.png",
   );
   const dataUrl = `data:image/png;base64,${(await readFile(imagePath)).toString("base64")}`;
   await page.addInitScript(
@@ -847,7 +847,7 @@ test("Design chat hydrates a 2.3 MB HTTPS upload into model vision input", async
   const image = await uploadImage(page, sidebarComposer, 2_300_000);
   const rewrittenRequests = await routeImageAsOwnedStorageUrl(
     page,
-    "responsive-card-art-photo.png",
+    "card-art-photo.png",
     { useOriginalReference: true },
   );
   await sidebarPrompt.fill(IMAGE_PROMPT);
@@ -956,7 +956,7 @@ test("Design editor hydrates a 6 MB PNG's resized durable URL into model vision 
   }> = [];
   const rewrittenRequests = await routeImageAsOwnedStorageUrl(
     page,
-    "responsive-card-art-photo.png",
+    "card-art-photo.png",
     { onObserved: (attachment) => activeImageAttachments.push(attachment) },
   );
   await sidebarPrompt.fill(IMAGE_PROMPT);
@@ -1092,7 +1092,7 @@ test("Design editor downscales a 6 MB PNG for vision and retains the original up
     dataSha256?: string;
     dataBytes?: number;
   }> = [];
-  await routeImageAsOwnedStorageUrl(page, "responsive-card-art-photo.png", {
+  await routeImageAsOwnedStorageUrl(page, "card-art-photo.png", {
     rewriteAsOwnedStorageUrl: false,
     onObserved: (attachment) => activeImageAttachments.push(attachment),
   });
@@ -1182,7 +1182,7 @@ test("Design editor downscales a 6 MB PNG for vision and retains the original up
   const providerText = state.requestSummaries
     .flatMap((summary) => summary.userMessages)
     .join("\n");
-  expect(providerText).toContain("responsive-card-art-photo.png");
+  expect(providerText).toContain("card-art-photo.png");
   expect(providerText).toContain(LINKEDIN_AD_PROMPT);
   expect(state.callNames).toContain("generate-design");
   expect(
@@ -1698,7 +1698,7 @@ test("Design chat keeps uploaded image bytes out of every SQL table", async ({
   const uploaded = await uploadImage(page, sidebarComposer, 2_300_000);
   const rewrittenRequests = await routeImageAsOwnedStorageUrl(
     page,
-    "responsive-card-art-photo.png",
+    "card-art-photo.png",
     { useOriginalReference: true },
   );
   await sidebarPrompt.fill(`${IMAGE_PROMPT} ${marker} uploaded`);
