@@ -181,6 +181,17 @@ const cohortJourneyNodeSchema = journeyNodeBaseSchema
         message: "Branch summaries are only valid on other nodes.",
       });
     }
+    if (
+      node.kind === "other" &&
+      node.otherBranchCount !== undefined &&
+      node.otherBranchCount > node.n
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["otherBranchCount"],
+        message: "The branch count cannot exceed the aggregate session count.",
+      });
+    }
     if (!branches) return;
     if (node.otherBranchCount === undefined) {
       ctx.addIssue({
@@ -1502,12 +1513,13 @@ function cardHeaderHeight(
   cardWidth: number,
   messages: JourneyCanvasMessages,
   coverageNote?: string,
+  baseHeight = CARD_PROVENANCE_HEADER_HEIGHT,
 ): number {
   const coverageNoteHeight = coverageNote
     ? wrappedTextLayout(coverageNote, cardWidth - 24, 10, 12).height
     : 0;
   return (
-    CARD_PROVENANCE_HEADER_HEIGHT +
+    baseHeight +
     captionHeaderHeight(frames, cardWidth, messages) +
     coverageNoteHeight +
     (frames.length > 1 ? 20 : 0)
@@ -2114,14 +2126,15 @@ export function planJourneyCanvas(
             frame: entry.frames[0]
               ? { width: entry.frames[0].width, height: entry.frames[0].height }
               : (entry.node.examples[0]?.viewport ?? undefined),
-            headerHeight: entry.frames.length
-              ? cardHeaderHeight(
-                  entry.frames,
-                  cardWidth,
-                  messages,
-                  continuationNotes.get(entry.node.key),
-                )
-              : CARD_HEADER_HEIGHT,
+            headerHeight: cardHeaderHeight(
+              entry.frames,
+              cardWidth,
+              messages,
+              continuationNotes.get(entry.node.key),
+              entry.frames.length
+                ? CARD_PROVENANCE_HEADER_HEIGHT
+                : CARD_HEADER_HEIGHT,
+            ),
             layers: Math.max(0, entry.frames.length - 1),
             footer: false,
             ...(incomingLabelSize ? { edgeLabelSize: incomingLabelSize } : {}),
@@ -2305,14 +2318,13 @@ export function planJourneyCanvas(
         activeExampleIndex,
         placeholder: messages.screenshotMissing,
         messages,
-        headerHeight: provenance
-          ? cardHeaderHeight(
-              entry.frames,
-              cardWidth,
-              messages,
-              continuationNotes.get(entry.node.key),
-            )
-          : CARD_HEADER_HEIGHT,
+        headerHeight: cardHeaderHeight(
+          provenance ? entry.frames : [],
+          cardWidth,
+          messages,
+          continuationNotes.get(entry.node.key),
+          provenance ? CARD_PROVENANCE_HEADER_HEIGHT : CARD_HEADER_HEIGHT,
+        ),
       }),
       "html",
     );

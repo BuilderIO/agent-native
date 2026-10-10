@@ -16,6 +16,7 @@ import {
   type CreateJourneyCanvasInput,
 } from "./journey-canvas.js";
 import {
+  CARD_HEADER_HEIGHT,
   CARD_PROVENANCE_HEADER_HEIGHT,
   STUB_HEIGHT,
 } from "./journey-layout.js";
@@ -375,6 +376,26 @@ describe("create-journey-canvas input", () => {
         },
       }).join("\n"),
     ).toMatch(/otherBranches/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? {
+                  ...candidate,
+                  n: 2,
+                  otherBranchCount: 3,
+                  otherBranches: [
+                    { ...other.otherBranches[0], n: 1, pctOfParent: 50 },
+                  ],
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/branch count cannot exceed the aggregate session count/);
   });
 
   it("accepts an https imageUrl and an attachmentRef", () => {
@@ -1731,6 +1752,26 @@ describe("planJourneyCanvas", () => {
     expect(root.html).toContain(
       "header .coverage-note{font-size:10px;line-height:12px;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;white-space:normal}",
     );
+  });
+
+  it("sizes screenshotless cards for wrapped continuation notes", () => {
+    const raw = rawInput();
+    const nodes = [...raw.tree.nodes];
+    nodes[0] = node("signup", null, 1000, {
+      dropoffN: 100,
+      dropoffPct: 10,
+    });
+    const root = plan(
+      rawInput({
+        includeScreenshotless: true,
+        frames: [],
+        cardWidth: 320,
+        tree: { ...raw.tree, nodes },
+      }),
+    ).screens.find((screen) => screen.nodeKey === "signup")!;
+
+    expect(root.html).toContain("No screenshot captured");
+    expect(root.frame.height).toBe(CARD_HEADER_HEIGHT + 24 + 200);
   });
 
   it("renders a chronological reference chain without inventing cohort metrics", () => {
