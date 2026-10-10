@@ -6,6 +6,10 @@ import {
   parseSignupE2EFindings,
   type SignupE2EJobLog,
 } from "./signup-e2e-rollup.ts";
+import {
+  initialSignupE2EReportState,
+  planSignupE2EReport,
+} from "./signup-report-continuity.ts";
 
 const jobs: SignupE2EJobLog[] = [
   {
@@ -92,6 +96,40 @@ test("signup E2E reports a failed job when its log has no test titles", () => {
   assert.equal(findings.length, 1);
   assert.equal(findings[0]?.title, "Full signup flow (chat, beta)");
   assert.match(findings[0]?.summary ?? "", /Type error/);
+});
+
+test("signup E2E keeps a failed workflow with no failed-job records unclassified", () => {
+  const runUrl = "https://github.com/BuilderIO/agent-native/actions/runs/123";
+  const rollup = buildSignupE2ERollup({
+    jobs: [],
+    workflowResult: "failure",
+    apps: "all",
+    environments: "beta",
+    runUrl,
+  });
+
+  assert.equal(rollup.findingCount, 0);
+  assert.equal(rollup.unclassifiedWorkflowFailure, true);
+  assert.match(rollup.slackText, /workflow failure is unclassified/i);
+  assert.match(rollup.slackText, /0 test-specific findings confirmed/i);
+  assert.match(rollup.reportMarkdown, /Unclassified workflow failure/);
+  assert.doesNotMatch(rollup.slackText, /cleared|recovered/i);
+
+  const previous = {
+    ...initialSignupE2EReportState(),
+    outcome: "failure" as const,
+    findingCount: 2,
+    runUrl: "https://github.com/BuilderIO/agent-native/actions/runs/100",
+  };
+  const plan = planSignupE2EReport({
+    previous,
+    eventName: "schedule",
+    outcome: rollup.unclassifiedWorkflowFailure ? "inconclusive" : "failure",
+    findingCount: rollup.findingCount,
+    runUrl,
+  });
+  assert.deepEqual(plan.state, previous);
+  assert.equal(plan.recovery, null);
 });
 
 test("signup E2E recognizes test titles and annotations in timestamped logs", () => {

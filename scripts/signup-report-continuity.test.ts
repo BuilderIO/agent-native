@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   initialSignupAgentReportState,
   initialSignupE2EReportState,
+  assertLegacySignupReportFallbackAllowed,
   finalizeSignupAgentReport,
   finalizeSignupE2EReport,
   parseSignupAgentReportState,
@@ -19,6 +20,49 @@ const priorRunUrl =
   "https://github.com/BuilderIO/agent-native/actions/runs/100";
 const artifactUrl = `${runUrl}/artifacts/456`;
 const priorArtifactUrl = `${priorRunUrl}/artifacts/789`;
+
+test("legacy signup report fallback is allowed only when the persist step is absent", () => {
+  assert.doesNotThrow(() =>
+    assertLegacySignupReportFallbackAllowed(
+      JSON.stringify({
+        jobs: [{ steps: [{ name: "Build report", conclusion: "success" }] }],
+      }),
+      "Persist Signup E2E continuity state",
+    ),
+  );
+
+  for (const conclusion of [
+    "skipped",
+    "success",
+    "failure",
+    "action_required",
+  ]) {
+    assert.throws(
+      () =>
+        assertLegacySignupReportFallbackAllowed(
+          JSON.stringify({
+            jobs: [
+              {
+                steps: [
+                  {
+                    name: "Persist Signup agent continuity state",
+                    conclusion,
+                  },
+                ],
+              },
+            ],
+          }),
+          "Persist Signup agent continuity state",
+        ),
+      /continuity artifact is missing; refusing to fall back to legacy report state/,
+    );
+  }
+
+  assert.throws(
+    () => assertLegacySignupReportFallbackAllowed("{}", "Persist state"),
+    /invalid shape/,
+  );
+});
 
 test("signup E2E emits one recovery after a failed scheduled report passes", () => {
   const failed = planSignupE2EReport({

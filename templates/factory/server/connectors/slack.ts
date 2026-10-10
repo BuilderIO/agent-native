@@ -69,6 +69,7 @@ export class SlackWriteError extends Error {
   constructor(
     message: string,
     readonly delivery: "rejected" | "unknown",
+    readonly retryAfterSeconds: number | null = null,
   ) {
     super(message);
     this.name = "SlackWriteError";
@@ -143,9 +144,15 @@ async function slackWrite<T extends { ok?: boolean; error?: string }>(
       body: JSON.stringify(body),
     });
     if (!response.ok) {
+      const retryAfterHeader = response.headers.get("retry-after");
+      const retryAfterSeconds =
+        retryAfterHeader && /^\d+$/.test(retryAfterHeader)
+          ? Number(retryAfterHeader)
+          : null;
       throw new SlackWriteError(
         `Slack API error ${response.status}: ${await response.text()}`,
-        "unknown",
+        response.status === 429 ? "rejected" : "unknown",
+        response.status === 429 ? retryAfterSeconds : null,
       );
     }
     const data = (await response.json()) as T;

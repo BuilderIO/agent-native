@@ -87,6 +87,33 @@ export function initialSignupAgentReportState(): SignupAgentReportState {
   };
 }
 
+export function assertLegacySignupReportFallbackAllowed(
+  rawJobs: string,
+  persistStepName: string,
+): void {
+  const value = parseRecord(rawJobs, "previous workflow jobs");
+  if (!Array.isArray(value.jobs)) {
+    throw new Error("previous workflow jobs have an invalid shape");
+  }
+
+  const persistStepFound = value.jobs.some((job) => {
+    if (!isRecord(job) || !Array.isArray(job.steps)) {
+      throw new Error("previous workflow jobs have an invalid shape");
+    }
+    return job.steps.some((step) => {
+      if (!isRecord(step) || typeof step.name !== "string") {
+        throw new Error("previous workflow steps have an invalid shape");
+      }
+      return step.name === persistStepName;
+    });
+  });
+  if (persistStepFound) {
+    throw new Error(
+      `previous workflow contains ${persistStepName} but its continuity artifact is missing; refusing to fall back to legacy report state`,
+    );
+  }
+}
+
 export function parseSignupE2EReportState(raw: string): SignupE2EReportState {
   const value = parseRecord(raw, "signup E2E reporter state");
   if (
@@ -506,6 +533,14 @@ function runCli(): void {
     writeFileSync(
       requireArg(args, "out-file"),
       `${JSON.stringify(initialSignupAgentReportState(), null, 2)}\n`,
+    );
+    return;
+  }
+
+  if (command === "assert-legacy-fallback") {
+    assertLegacySignupReportFallbackAllowed(
+      readFileSync(requireArg(args, "jobs-file"), "utf8"),
+      requireArg(args, "persist-step-name"),
     );
     return;
   }

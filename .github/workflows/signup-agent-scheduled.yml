@@ -107,11 +107,11 @@ jobs:
             exit 0
           fi
 
-          previous_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/jobs?per_page=100")"
-          if jq -e '[.jobs[].steps[] | select(.name == "Persist Signup agent continuity state") | select(.conclusion == "success" or .conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")] | any' <<< "$previous_jobs" >/dev/null; then
-            echo "::error::The latest scheduled Signup agent run did not preserve its continuity state; refusing to assume the report was clean."
-            exit 1
-          fi
+          previous_jobs_file="$previous_dir/jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/jobs?per_page=100" > "$previous_jobs_file"
+          node --experimental-strip-types scripts/signup-report-continuity.ts assert-legacy-fallback \
+            --jobs-file "$previous_jobs_file" \
+            --persist-step-name "Persist Signup agent continuity state"
 
           legacy_name="$(jq -r --arg name "signup-agent-$previous_id" '[.artifacts[] | select(.name == $name and (.expired | not))] | last | .name // empty' <<< "$artifacts")"
           legacy_id="$(jq -r --arg name "signup-agent-$previous_id" '[.artifacts[] | select(.name == $name and (.expired | not))] | last | .id // empty' <<< "$artifacts")"

@@ -109,11 +109,11 @@ jobs:
             exit 0
           fi
 
-          previous_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/jobs?per_page=100")"
-          if jq -e '[.jobs[].steps[] | select(.name == "Persist Signup E2E continuity state") | select(.conclusion == "success" or .conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")] | any' <<< "$previous_jobs" >/dev/null; then
-            echo "::error::The latest scheduled Signup E2E run did not preserve its continuity state; refusing to assume the report was clean."
-            exit 1
-          fi
+          previous_jobs_file="$previous_dir/jobs.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/jobs?per_page=100" > "$previous_jobs_file"
+          node --experimental-strip-types scripts/signup-report-continuity.ts assert-legacy-fallback \
+            --jobs-file "$previous_jobs_file" \
+            --persist-step-name "Persist Signup E2E continuity state"
 
           previous_run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$previous_id"
           prior_report="$(jq -r --arg prefix "signup-e2e-report-$previous_id-" '[.artifacts[] | select((.name | startswith($prefix)) and (.expired | not))] | sort_by(.created_at) | last // empty' <<< "$artifacts")"
@@ -165,8 +165,8 @@ jobs:
             printf '[]\n' > "$report_dir/jobs.json"
           fi
           if [ "$(jq 'length' "$report_dir/jobs.json")" -eq 0 ]; then
-            jq -n --arg name "Signup E2E workflow" --arg url "$RUN_URL" --arg conclusion "${{ needs.signup-e2e.result }}" \
-              '[{id: null, name: $name, url: $url, conclusion: $conclusion}]' > "$report_dir/jobs.json"
+            report_incomplete=true
+            collection_errors+=("Failed job details: the workflow concluded ${{ needs.signup-e2e.result }} but GitHub returned no failed-job records; no test-specific failures can be confirmed.")
           fi
 
           artifact_name="signup-e2e-$GITHUB_RUN_ID"
@@ -270,8 +270,10 @@ jobs:
           outcome=inconclusive
           finding_count=0
           if [ "${{ needs.signup-e2e.result }}" = "failure" ] || [ "${{ needs.signup-e2e.result }}" = "cancelled" ]; then
-            outcome=failure
-            if [ -s .tmp/signup-e2e/report/signup-e2e-rollup.json ]; then finding_count="$(jq -r '.findingCount // 0' .tmp/signup-e2e/report/signup-e2e-rollup.json)"; fi
+            if [ -s .tmp/signup-e2e/report/signup-e2e-rollup.json ] && ! jq -e '.unclassifiedWorkflowFailure == true' .tmp/signup-e2e/report/signup-e2e-rollup.json >/dev/null; then
+              outcome=failure
+              finding_count="$(jq -r '.findingCount // 0' .tmp/signup-e2e/report/signup-e2e-rollup.json)"
+            fi
           elif [ "${{ needs.signup-e2e.outputs.signup_outcome }}" = "success" ]; then
             outcome=clean
           fi

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getUserInfo } from "./slack";
+import { getUserInfo, postChannelMessage, SlackWriteError } from "./slack";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -88,5 +88,47 @@ describe("getUserInfo cache", () => {
     expect(first.displayName).toBe("Same Org");
     expect(second.displayName).toBe("Same Org");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Slack message write delivery", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("classifies HTTP 429 as rejected and captures Retry-After", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("rate_limited", {
+            status: 429,
+            headers: { "Retry-After": "7" },
+          }),
+      ),
+    );
+
+    await expect(
+      postChannelMessage("primary", "C123", "report", async () => "token"),
+    ).rejects.toMatchObject({
+      name: "SlackWriteError",
+      delivery: "rejected",
+      retryAfterSeconds: 7,
+    } satisfies Partial<SlackWriteError>);
+  });
+
+  it("keeps server errors ambiguous", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 500 })),
+    );
+
+    await expect(
+      postChannelMessage("primary", "C123", "report", async () => "token"),
+    ).rejects.toMatchObject({
+      name: "SlackWriteError",
+      delivery: "unknown",
+      retryAfterSeconds: null,
+    } satisfies Partial<SlackWriteError>);
   });
 });

@@ -1,5 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like } from "drizzle-orm";
 import { z } from "zod";
 
 import type {
@@ -89,13 +89,64 @@ export function reportableFindingSource(input: {
   return null;
 }
 
+export function factoryFindingsReportKey(input: {
+  orgId: string;
+  factoryId: string;
+  source: "github_issue" | "sentry";
+  itemIds: string[];
+}): string {
+  return stableId(
+    "factory-findings-report",
+    input.orgId,
+    input.factoryId,
+    input.source,
+    ...[...input.itemIds].sort(),
+  );
+}
+
+export function isSlackReportRejectionRetryable(
+  run: { status: string; error: string | null; completedAt: string | null },
+  now = Date.now(),
+): boolean {
+  if (run.status !== "failed" || !run.error?.startsWith("slack-rejected: ")) {
+    return false;
+  }
+  const retryAfter = run.error.match(/\bretry-after=(\d+)\b/)?.[1];
+  if (retryAfter === undefined) return true;
+  const rejectedAt = run.completedAt ? Date.parse(run.completedAt) : Number.NaN;
+  return (
+    Number.isFinite(rejectedAt) &&
+    now >= rejectedAt + Number(retryAfter) * 1_000
+  );
+}
+
+function isSlackRateLimitWaiting(
+  run: { status: string; error: string | null; completedAt: string | null },
+  now: number,
+): boolean {
+  if (run.status !== "failed" || !run.error?.startsWith("slack-rejected: ")) {
+    return false;
+  }
+  const retryAfter = run.error.match(/\bretry-after=(\d+)\b/)?.[1];
+  if (retryAfter === undefined) return false;
+  const rejectedAt = run.completedAt ? Date.parse(run.completedAt) : Number.NaN;
+  return (
+    !Number.isFinite(rejectedAt) ||
+    now < rejectedAt + Number(retryAfter) * 1_000
+  );
+}
+
 function boundedSlackText(value: string, max: number): string {
   const compact = value.trim();
   const safe = compact
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/@/g, "＠");
+    .replace(/@/g, "＠")
+    .replace(
+      /[*_~`]/g,
+      (character) => ({ "*": "∗", _: "＿", "~": "～", "`": "｀" })[character]!,
+    );
   return safe.length > max ? `${safe.slice(0, max - 1)}…` : safe;
 }
 
@@ -113,13 +164,13 @@ export function factoryFindingRollupText(input: {
       finding.summary ??
       finding.title;
     return [
-      `*${index + 1}. ${boundedSlackText(finding.title, 200)}*`,
-      `Factory item: ${boundedSlackText(finding.id, 200)}`,
+      `${index + 1}. ${boundedSlackText(finding.title, 160)}`,
+      `Factory item: ${boundedSlackText(finding.id, 160)}`,
       finding.sourceUrl
-        ? `Source: ${boundedSlackText(finding.sourceUrl, 1_000)}`
+        ? `Source: ${boundedSlackText(finding.sourceUrl, 750)}`
         : "",
-      `Why it qualifies: ${boundedSlackText(finding.reason, 1_000)}`,
-      `Source evidence:\n${boundedSlackText(evidence, 2_000)}`,
+      `Why it qualifies: ${boundedSlackText(finding.reason, 500)}`,
+      `Source evidence:\n${boundedSlackText(evidence, 1_000)}`,
     ]
       .filter(Boolean)
       .join("\n");
@@ -258,7 +309,7 @@ export default defineAction({
       );
     }
     const itemById = new Map(sourceItems.map((item) => [item.id, item]));
-    const orderedFindings = findings.map((finding) => {
+    const requestedFindings = findings.map((finding) => {
       const item = itemById.get(finding.itemId);
       if (!item) {
         fail("A Factory finding was not found.", {
@@ -268,120 +319,195 @@ export default defineAction({
       }
       return { ...finding, ...item };
     });
-
     const channelId = QA_AGENT_NATIVE_SLACK_CHANNEL_ID;
     const workspace = "primary";
     const slack = createSlackReader({ ownerEmail: userEmail, orgId });
     await slack.getAgentNativeIdentity(workspace);
 
-    const reportKey = stableId(
-      "factory-findings-report",
-      orgId,
-      factoryId,
-      automationRunId,
-    );
-    const runIds = new Map(
-      findings.map(({ itemId }) => [
-        itemId,
-        stableId("factory-findings-run", reportKey, itemId),
-      ]),
-    );
-    const existingRuns = await db
-      .select()
-      .from(triageRuns)
-      .where(
-        and(
-          orgFactoryRunFilter(orgId, factoryId),
-          eq(triageRuns.dedupeKey, reportKey),
-        ),
-      );
-    if (existingRuns.length > 0) {
-      const existingItemIds = existingRuns.map(({ itemId }) => itemId).sort();
-      const requestedItemIds = [...itemIds].sort();
-      if (
-        existingItemIds.length !== requestedItemIds.length ||
-        existingItemIds.some((id, index) => id !== requestedItemIds[index])
-      ) {
+    const claim = await db.transaction(async (tx) => {
+      const currentItems = await tx
+        .select()
+        .from(triageItems)
+        .where(
+          and(
+            orgFactoryItemFilter(orgId, factoryId),
+            inArray(triageItems.id, itemIds),
+          ),
+        )
+        .orderBy(asc(triageItems.id))
+        .for("update");
+      if (currentItems.length !== requestedFindings.length) {
         fail(
-          "This automation run already started a different findings report; refusing to split it into extra Slack messages.",
-          { errorCode: "factory_report_conflict", statusCode: 409 },
+          "One or more findings changed or disappeared before the Slack report could be claimed.",
+          { errorCode: "factory_finding_not_found", statusCode: 404 },
         );
       }
-      if (existingRuns.every((run) => run.status === "acknowledged")) {
+      const currentById = new Map(currentItems.map((item) => [item.id, item]));
+      const orderedFindings = requestedFindings
+        .map((finding) => {
+          const current = currentById.get(finding.id);
+          if (!current) {
+            fail("A Factory finding disappeared before it could be reported.", {
+              errorCode: "factory_finding_not_found",
+              statusCode: 404,
+            });
+          }
+          return { ...finding, metadataJson: current.metadataJson };
+        })
+        .filter((finding) => {
+          const metadata = parseTriageMetadata(finding.metadataJson);
+          return !(
+            metadataString(metadata, "slackFindingReportedTs") &&
+            metadataString(metadata, "slackFindingReportedChannelId")
+          );
+        });
+      if (orderedFindings.length === 0) {
         return {
-          ok: true,
-          posted: false,
-          deduplicated: true,
-          count: findings.length,
-          slackMessageTs: existingRuns[0]?.providerTaskId ?? null,
+          kind: "already_reported" as const,
+          count: requestedFindings.length,
+          slackMessageTs: null,
         };
       }
-    }
 
-    let reconciledPost: SlackPostMessageResult | null = null;
-    if (existingRuns.length > 0) {
-      const safelyRetryable = existingRuns.every(
-        (run) =>
-          run.status === "failed" && run.error?.startsWith("slack-rejected: "),
-      );
-      if (!safelyRetryable) {
-        let found: SlackPostMessageResult | null;
-        try {
-          found = await findSlackReportMessage({
-            readHistory: (cursor) =>
-              slack.getChannelHistory(workspace, channelId, 100, cursor),
-            channelId,
-            marker: `Report reference: ${reportKey}`,
-            startedAt: existingRuns[0]!.startedAt,
-          });
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
+      const reportItemIds = orderedFindings.map(({ id }) => id);
+      let reportKey = factoryFindingsReportKey({
+        orgId,
+        factoryId,
+        source,
+        itemIds: reportItemIds,
+      });
+      let existingRuns = await tx
+        .select()
+        .from(triageRuns)
+        .where(
+          and(
+            orgFactoryRunFilter(orgId, factoryId),
+            eq(triageRuns.dedupeKey, reportKey),
+          ),
+        );
+      const overlappingPendingRuns = await tx
+        .select({ itemId: triageRuns.itemId, dedupeKey: triageRuns.dedupeKey })
+        .from(triageRuns)
+        .where(
+          and(
+            orgFactoryRunFilter(orgId, factoryId),
+            eq(triageRuns.provider, "slack-findings"),
+            eq(triageRuns.status, "submitted"),
+            inArray(triageRuns.itemId, reportItemIds),
+          ),
+        );
+      if (overlappingPendingRuns.some((run) => run.dedupeKey !== reportKey)) {
+        const priorKeys = [
+          ...new Set(overlappingPendingRuns.map(({ dedupeKey }) => dedupeKey)),
+        ];
+        const priorRuns =
+          priorKeys.length === 1
+            ? await tx
+                .select()
+                .from(triageRuns)
+                .where(
+                  and(
+                    orgFactoryRunFilter(orgId, factoryId),
+                    eq(triageRuns.dedupeKey, priorKeys[0]!),
+                  ),
+                )
+            : [];
+        const priorItemIds = priorRuns.map(({ itemId }) => itemId).sort();
+        const requestedItemIds = [...reportItemIds].sort();
+        if (
+          priorRuns.length === 0 ||
+          priorItemIds.length !== requestedItemIds.length ||
+          priorItemIds.some((id, index) => id !== requestedItemIds[index])
+        ) {
           fail(
-            `Could not reconcile the previous Slack delivery attempt: ${message}. The report remains pending and will not be reposted automatically.`,
-            {
-              errorCode: "slack_report_reconciliation_incomplete",
-              statusCode: 424,
-            },
-          );
-        }
-        if (!found) {
-          fail(
-            "The previous Slack delivery attempt is still unresolved; refusing to post a possible duplicate.",
+            "A different Slack findings report is unresolved for one or more of these items; refusing to post a possible duplicate.",
             { errorCode: "slack_report_pending", statusCode: 409 },
           );
         }
-        reconciledPost = found;
+        // Older reports used the automation run id as their dedupe key.
+        reportKey = priorKeys[0]!;
+        existingRuns = priorRuns;
       }
-    }
 
-    const now = new Date().toISOString();
-    await db.transaction(async (tx) => {
       if (existingRuns.length > 0) {
-        for (const item of orderedFindings) {
-          const runId = runIds.get(item.id)!;
-          await tx
-            .update(triageRuns)
-            .set({
-              status: "submitted",
-              error: null,
-              completedAt: null,
-              heartbeatAt: now,
-              dispatchAttempts:
-                (existingRuns.find((run) => run.itemId === item.id)
-                  ?.dispatchAttempts ?? 0) + 1,
-            })
-            .where(
-              and(
-                eq(triageRuns.id, runId),
-                eq(triageRuns.orgId, orgId),
-                factoryStillPresent(
-                  tx as unknown as typeof db,
-                  orgId,
-                  factoryId,
+        const existingItemIds = existingRuns.map(({ itemId }) => itemId).sort();
+        const requestedItemIds = [...reportItemIds].sort();
+        if (
+          existingItemIds.length !== requestedItemIds.length ||
+          existingItemIds.some((id, index) => id !== requestedItemIds[index])
+        ) {
+          fail(
+            "A previous Slack report contains a different findings batch; refusing to split it into extra Slack messages.",
+            { errorCode: "factory_report_conflict", statusCode: 409 },
+          );
+        }
+        if (existingRuns.every((run) => run.status === "acknowledged")) {
+          return {
+            kind: "already_reported" as const,
+            count: orderedFindings.length,
+            slackMessageTs: existingRuns[0]?.providerTaskId ?? null,
+          };
+        }
+      }
+
+      const nowMs = Date.now();
+      const rateLimitedRuns = await tx
+        .select()
+        .from(triageRuns)
+        .where(
+          and(
+            eq(triageRuns.orgId, orgId),
+            eq(triageRuns.provider, "slack-findings"),
+            eq(triageRuns.status, "failed"),
+            like(triageRuns.error, "slack-rejected: retry-after=%"),
+          ),
+        )
+        .orderBy(desc(triageRuns.completedAt))
+        .limit(100);
+      if (rateLimitedRuns.some((run) => isSlackRateLimitWaiting(run, nowMs))) {
+        fail(
+          "Slack rate limited this findings destination; the report will retry after Retry-After.",
+          { errorCode: "slack_rate_limited", statusCode: 429 },
+        );
+      }
+
+      const safelyRetryable =
+        existingRuns.length > 0 &&
+        existingRuns.every((run) => isSlackReportRejectionRetryable(run));
+      const now = new Date().toISOString();
+      const runIds = new Map(
+        reportItemIds.map((itemId) => [
+          itemId,
+          existingRuns.find((run) => run.itemId === itemId)?.id ??
+            stableId("factory-findings-run", reportKey, itemId),
+        ]),
+      );
+      if (existingRuns.length > 0) {
+        if (safelyRetryable) {
+          for (const item of orderedFindings) {
+            await tx
+              .update(triageRuns)
+              .set({
+                status: "submitted",
+                error: null,
+                completedAt: null,
+                heartbeatAt: now,
+                dispatchAttempts:
+                  (existingRuns.find((run) => run.itemId === item.id)
+                    ?.dispatchAttempts ?? 0) + 1,
+              })
+              .where(
+                and(
+                  eq(triageRuns.id, runIds.get(item.id)!),
+                  eq(triageRuns.orgId, orgId),
+                  factoryStillPresent(
+                    tx as unknown as typeof db,
+                    orgId,
+                    factoryId,
+                  ),
                 ),
-              ),
-            );
+              );
+          }
         }
       } else {
         for (const item of orderedFindings) {
@@ -418,7 +544,68 @@ export default defineAction({
         orgId,
         factoryId,
       );
+      return {
+        kind: "claimed" as const,
+        reportKey,
+        orderedFindings,
+        reportItemIds,
+        runIds,
+        existingRuns,
+        safelyRetryable,
+        startedAt: existingRuns[0]?.startedAt ?? now,
+      };
     });
+    if (claim.kind === "already_reported") {
+      return {
+        ok: true,
+        posted: false,
+        deduplicated: true,
+        count: claim.count,
+        slackMessageTs: claim.slackMessageTs,
+      };
+    }
+    const {
+      reportKey,
+      orderedFindings,
+      reportItemIds,
+      runIds,
+      existingRuns,
+      safelyRetryable,
+      startedAt,
+    } = claim;
+
+    let reconciledPost: SlackPostMessageResult | null = null;
+    if (existingRuns.length > 0) {
+      if (!safelyRetryable) {
+        let found: SlackPostMessageResult | null;
+        try {
+          found = await findSlackReportMessage({
+            readHistory: (cursor) =>
+              slack.getChannelHistory(workspace, channelId, 100, cursor),
+            channelId,
+            marker: `Report reference: ${reportKey}`,
+            startedAt: existingRuns[0]!.startedAt,
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          fail(
+            `Could not reconcile the previous Slack delivery attempt: ${message}. The report remains pending and will not be reposted automatically.`,
+            {
+              errorCode: "slack_report_reconciliation_incomplete",
+              statusCode: 424,
+            },
+          );
+        }
+        if (!found) {
+          fail(
+            "The previous Slack delivery attempt is still unresolved; refusing to post a possible duplicate.",
+            { errorCode: "slack_report_pending", statusCode: 409 },
+          );
+        }
+        reconciledPost = found;
+      }
+    }
 
     let posted: SlackPostMessageResult;
     if (reconciledPost) {
@@ -445,11 +632,19 @@ export default defineAction({
         const message = error instanceof Error ? error.message : String(error);
         const definitelyRejected =
           error instanceof SlackWriteError && error.delivery === "rejected";
+        const retryAfterSeconds =
+          definitelyRejected && error instanceof SlackWriteError
+            ? error.retryAfterSeconds
+            : null;
+        const rejectionMarker =
+          retryAfterSeconds === null
+            ? "slack-rejected:"
+            : `slack-rejected: retry-after=${retryAfterSeconds}:`;
         await db
           .update(triageRuns)
           .set({
             status: definitelyRejected ? "failed" : "submitted",
-            error: `${definitelyRejected ? "slack-rejected" : "slack-delivery-unknown"}: ${message}`,
+            error: `${definitelyRejected ? rejectionMarker : "slack-delivery-unknown:"} ${message}`,
             completedAt: definitelyRejected ? new Date().toISOString() : null,
             heartbeatAt: new Date().toISOString(),
           })
@@ -522,7 +717,7 @@ export default defineAction({
           await tx
             .update(triageItems)
             .set({
-              status: "automation_started",
+              status: "needs_manual",
               risk: "low",
               confidence: "high",
               metadataJson: serializeTriageMetadata(metadata),
@@ -541,7 +736,7 @@ export default defineAction({
               providerTaskId: posted.ts,
               progressLogJson: JSON.stringify([
                 {
-                  at: now,
+                  at: startedAt,
                   state: "submitted",
                   reason: "Preparing grouped Slack report.",
                 },
@@ -569,7 +764,7 @@ export default defineAction({
             orgId,
             item.id,
             "factory-slack-findings",
-            automationRunId,
+            reportKey,
           );
           await tx
             .insert(triageDecisions)
@@ -578,7 +773,7 @@ export default defineAction({
               itemId: item.id,
               ruleId: null,
               mode: "automation",
-              outcome: "propose_fix",
+              outcome: "needs_manual",
               reason: item.reason,
               guardResultsJson: JSON.stringify([
                 {
@@ -608,7 +803,7 @@ export default defineAction({
             .onConflictDoUpdate({
               target: triageDecisions.id,
               set: {
-                outcome: "propose_fix",
+                outcome: "needs_manual",
                 reason: item.reason,
                 createdAt: acknowledgedAt,
                 ownerEmail: userEmail,
@@ -659,10 +854,10 @@ export default defineAction({
       ok: true,
       posted: true,
       deduplicated: false,
-      count: findings.length,
+      count: reportItemIds.length,
       slackChannelId: posted.channel,
       slackMessageTs: posted.ts,
-      itemIds,
+      itemIds: reportItemIds,
     };
   },
 });
