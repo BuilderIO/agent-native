@@ -184,11 +184,13 @@ playhead for seeking, viewport, and route evaluation while preserving the
 original offset in frame metadata. If the target precedes the first replay
 event, report a frame failure instead of clamping the seek to zero. The CLI
 uses a native browser screenshot so dialogs and other top-layer content remain
-visible. The token and replay events stay in memory; the CLI writes only PNGs
-and `manifest.json` with `frames`, `failures` (explicit, with a reason), and
-`skipped`. Manifest chunk counts and ordering must be complete; the CLI reads
-bounded batches only through the requested offsets and validates every fetched
-chunk. Fix failures or report them; do not paint over a missing frame.
+visible. The token and replay events stay in memory; the CLI writes PNGs and
+`manifest.json` with `frames`, `failures` (explicit, with a reason), and
+`skipped`. With `--extract-prompts`, it also writes the private local
+`prompt-provenance.json` sidecar. Manifest chunk counts and ordering must be
+complete; the CLI reads bounded batches only through the requested offsets and
+validates every fetched chunk. Fix failures or report them; do not paint over a
+missing frame.
 
 `sourceEventAt` preserves the JourneyTree example's original event timestamp;
 `replayAt` is `startedAt + offsetMs`, and `capturedAt` is when the CLI rendered
@@ -208,17 +210,70 @@ Authenticate to the deployed app, never a local database: run
 `npx -y @agent-native/core@latest connect https://analytics.agent-native.com --client codex`
 (the CLI reads the bearer it writes to `~/.codex/config.toml`), or pass
 `--token` / set `AGENT_NATIVE_TOKEN`. `--app-url` overrides the app. Frame mode
-needs a deployment that includes `/sessions/:id?frame=1`.
+needs a deployment that includes `/sessions/:id?frame=1` and its bounded
+`capture_through_ms` query parameter.
 
-Replay fetches use the recording-scoped token without app cookies or a referrer.
-The capture browser stays offline while rendering untrusted replay DOM, so
-remote images and fonts are not fetched. The output manifest marks this as
-`remoteAssets: "not-fetched"`. Keep recorded URLs and CSS intact for rrweb
-playback; network controls belong at the capture boundary. `--upload` stores
-PNGs through the private upload action, which checks recording access again.
-Design's own sandboxed template previews opt into the cooperative iframe
-recorder, so their child DOM can be replayed without granting the parent access
-to the preview document or credentials.
+The default `--capture-mode offline` fetches replay chunks through the
+recording-scoped token without app cookies or a referrer, then renders in an
+offline browser. Remote images and fonts are not fetched; successful frames
+carry `assetStatus: "not_fetched"`, and the manifest says
+`remoteAssets: "not-fetched"`. This mode is useful when the recorded page has
+no remote media.
+
+Use `--capture-mode browser` when recorded images, posters, video frames, or
+iframes matter. The CLI opens the direct recording-scoped agent-access link in
+a fresh browser context with empty storage and no app bearer headers. The
+Analytics frame loads a recording once, maps each JourneyTree recording-start
+offset to rrweb's playhead, and loads only the ordered replay prefix through the
+largest requested offset. Browser capture caps the manifest at 4 MiB, the
+materialized prefix at 2,000 chunks, 100,000 events, 64 MiB of declared or
+received chunk data, and each chunk response at 12 MiB. It then uses the
+existing bounded screenshot asset preflight. Each successful frame says
+`assetStatus: "preflighted"`; a blocked,
+unreadable, missing, or oversized asset is an explicit frame failure with
+`assetStatus: "preflight_failed"`. Browser asset requests never receive the
+CLI's Analytics bearer or browser cookies. The manifest sets
+`remoteAssets: "browser-preflight-per-frame"` to describe the capture path;
+each frame status describes what happened for that seek.
+Before navigation, the CLI routes requests from every page in the isolated
+browser context and blocks private, loopback, and metadata destinations outside
+the exact Analytics app origin. Redirect destinations pass through the same
+check before Chromium connects. A temporary loopback SOCKS tunnel resolves each
+destination once, validates every returned address, and connects only to those
+numeric addresses; Chromium cannot bypass the tunnel for loopback hosts or do
+its own destination DNS lookup. Its resolver exception is limited to the exact
+loopback SOCKS listener. WebSockets are blocked. Cross-origin requests
+are GET/HEAD only, have authorization, proxy-authorization, and referrer
+headers removed, and are blocked if they carry cookies; `Origin` is preserved
+for CORS. Chromium performs TLS and CORS itself, and the CLI never forwards its
+Analytics bearer or cookies to a recorded origin. New output directories use
+mode 0700; existing directories must already be private and are never chmodded.
+Each output file uses mode 0600.
+
+`--extract-prompts` is available only with browser mode. It reads at most 12
+user-role message text blocks whose character geometry intersects the replay
+viewport and rectangular overflow clips at each requested seek, removes
+controls and hidden text, redacts credential assignments and cookie headers,
+omits SQL and base64 payloads, and caps the run at 200 snapshots, 12 messages
+per snapshot, 2,000 characters per message, and 8,000 characters per snapshot.
+The sidecar records how many additional snapshots
+were omitted and how many planned snapshots could not be recorded. It writes
+the result to `prompt-provenance.json` with restrictive local file permissions.
+The sidecar keeps the JourneyTree source-event
+timestamp separate from the observed seek offset, rrweb playhead, and
+extraction time. Each snapshot also says whether its frame capture or upload
+succeeded and includes the failure reason when it did not. This is visible
+user-role text at the seek, not proof of an exact source event or attempt-ID
+relationship. Unsupported transform, mask, or rounded clipping geometry fails
+the extraction explicitly. It is never uploaded, including when `--upload` stores PNGs
+through the private attachment action.
+
+Keep recorded URLs and CSS intact for rrweb playback; network controls belong
+at the capture boundary. `--upload` stores PNGs through the private upload
+action, which checks recording access again. Design's own sandboxed template
+previews opt into the cooperative iframe recorder, so their child DOM can be
+replayed without granting the parent access to the preview document or
+credentials.
 
 Viewport comes from the recording's first rrweb Meta event, stored by replay
 ingest in `session_recordings.metadata.viewport` (`first` and `last`). Older
