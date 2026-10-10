@@ -5973,14 +5973,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
       installPanHitTestShield();
 
+      // Incremental, not absolute from originPan: a wheel zoom mid-drag moves
+      // panRef, and the mouseup flush replays the last pointer position, which
+      // would otherwise snap the pan back to the drag origin.
+      let lastPanPointer = { x: e.clientX, y: e.clientY };
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
         if (!state || state.type !== "pan") return;
-        const nextPan = {
-          x: state.originPan.x + ev.clientX - state.originClient.x,
-          y: state.originPan.y + ev.clientY - state.originClient.y,
+        panRef.current = {
+          x: panRef.current.x + ev.clientX - lastPanPointer.x,
+          y: panRef.current.y + ev.clientY - lastPanPointer.y,
         };
-        panRef.current = nextPan;
+        lastPanPointer = { x: ev.clientX, y: ev.clientY };
         applyViewToDomRef.current();
         scheduleViewCommitRef.current();
       };
