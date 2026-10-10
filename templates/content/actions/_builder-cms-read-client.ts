@@ -1491,6 +1491,11 @@ async function readBuilderCmsGeneralApiEntry(args: {
   url.searchParams.set("offset", "0");
   url.searchParams.set("limit", "1");
   url.searchParams.set("fetchTotalCount", "true");
+  // This read decides whether a write may overwrite the entry, and the host is
+  // a CDN that may serve a cached copy (including stale-if-error), so each
+  // request gets its own cache key.
+  url.searchParams.set("noCache", "true");
+  url.searchParams.set("cachebust", String(Date.now()));
   return fetchBuilderContentPage({
     fetchImpl: args.fetchImpl,
     url,

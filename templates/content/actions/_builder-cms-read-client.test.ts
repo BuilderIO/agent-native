@@ -618,6 +618,14 @@ describe("Builder CMS read client", () => {
     for (const [input] of fetchImpl.mock.calls) {
       expect(String(input)).toMatch(/^https:\/\/cdn\.builder\.io\/api\/v1\//);
     }
+    const entryReads = fetchImpl.mock.calls
+      .map(([input]) => input)
+      .filter((input) => input.searchParams.get("query.id"));
+    expect(entryReads).toHaveLength(2);
+    for (const input of entryReads) {
+      expect(input.searchParams.get("noCache")).toBe("true");
+      expect(Number(input.searchParams.get("cachebust"))).toBeGreaterThan(0);
+    }
   });
 
   describe("when the general grant predates builder:content:read", () => {
@@ -2250,6 +2258,8 @@ describe("Builder CMS read client", () => {
         offset: "0",
         limit: "1",
         fetchTotalCount: "true",
+        noCache: "true",
+        cachebust: expect.stringMatching(/^\d+$/),
       });
       expect(init?.headers).toMatchObject({
         authorization: "Bearer general-oauth-token",
