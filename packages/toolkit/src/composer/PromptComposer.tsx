@@ -1087,6 +1087,7 @@ function PromptComposerRuntime(props: PromptComposerProps) {
           <StaleIndexBoundary
             resetKey={resetKey}
             componentName="PromptComposer"
+            remountOnResetKey={false}
           >
             <PromptComposerInner {...props} />
           </StaleIndexBoundary>

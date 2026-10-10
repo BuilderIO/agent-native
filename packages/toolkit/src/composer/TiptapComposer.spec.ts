@@ -16,8 +16,11 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn() },
 }));
 
+import { AssistantUiStaleIndexErrorBoundary } from "../app/chat/composer/assistant-ui-recovery.js";
 import { TooltipProvider } from "../ui/tooltip.js";
 import { getComposerDraftKey } from "./draft-key.js";
+import { PromptComposer } from "./PromptComposer.js";
+import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
 import {
   canSubmitComposerContent,
   canRemoveVoicePreview,
@@ -71,6 +74,55 @@ afterEach(() => {
 });
 
 describe("createTiptapComposerExtensions", () => {
+  it("keeps consecutive prefills in the editor through the chat recovery boundary", async () => {
+    let prefill: (text: string) => void;
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      const [text, setText] = React.useState("");
+      const [revision, setRevision] = React.useState(0);
+      prefill = (next) => {
+        setText(next);
+        setRevision((value) => value + 1);
+      };
+      return React.createElement(
+        ComposerRuntimeAdaptersProvider,
+        {
+          adapters: {
+            agentChat: {
+              StaleIndexBoundary: AssistantUiStaleIndexErrorBoundary,
+            },
+          },
+        },
+        React.createElement(
+          AssistantRuntimeProvider,
+          { runtime },
+          React.createElement(PromptComposer, {
+            initialText: text,
+            initialTextKey: revision,
+            onTextChange: setText,
+            draftScope: "consecutive-prefills",
+            includeDefaultSlashSkills: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+    await act(async () => {
+      root.render(React.createElement(Harness));
+    });
+    await act(async () => {
+      prefill!("Earlier navigation prefill");
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Earlier navigation prefill");
+    await act(async () => {
+      prefill!("Later queued draft");
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Later queued draft");
+  });
   it("refreshes the rendered placeholder after a locale change", () => {
     let placeholder = "Ask the agent...";
     const element = document.createElement("div");
