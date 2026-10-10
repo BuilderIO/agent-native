@@ -1324,13 +1324,15 @@ function addPartitionPrunedEventDeduplication(
   } = {},
 ): string {
   const quote = String.fromCharCode(96);
-  const rawSource = `${quote}${firstPartyAnalyticsRawTable(table)}${quote}`;
+  const rawTableName = firstPartyAnalyticsRawTable(table);
+  const rawSource = `${quote}${rawTableName}${quote}`;
+  const projectionRequested =
+    options.scopedEventsProjection === "onboarding_journey";
   const projectedColumnsPattern =
     ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join("\\s*,\\s*");
-  const selectedColumnsPattern =
-    options.scopedEventsProjection === "onboarding_journey"
-      ? `(?:\\*|${projectedColumnsPattern})`
-      : "\\*";
+  const selectedColumnsPattern = projectionRequested
+    ? `(?:\\*|${projectedColumnsPattern})`
+    : "\\*";
   const sourcePattern = new RegExp(
     `\\bSELECT\\s+${selectedColumnsPattern}\\s+FROM\\s+(${quote}[^${quote}]+${quote})\\s+WHERE\\b`,
     "gi",
@@ -1343,14 +1345,36 @@ function addPartitionPrunedEventDeduplication(
   let cursor = 0;
   let searchStart = 0;
   const code = maskSqlLiterals(sql, "bigquery");
+  const tokens = projectionRequested
+    ? lexAgentSql(sql, { dialect: "bigquery" })
+    : [];
+  const selectStarts = new Set(
+    tokens
+      .filter((token) => token.kind === "word" && token.value === "select")
+      .map((token) => token.start),
+  );
+  const rawSourcePositions = tokens.flatMap((token, index) => {
+    const next = tokens[index + 1];
+    return token.kind === "word" &&
+      (token.value === "from" || token.value === "join") &&
+      next?.kind === "quoted-identifier" &&
+      next.value === rawTableName
+      ? [next.start]
+      : [];
+  });
+  let rewrittenRawSources = 0;
   while (cursor < sql.length) {
     sourcePattern.lastIndex = searchStart;
     const sourceMatch = sourcePattern.exec(sql);
-    if (!sourceMatch) return result + sql.slice(cursor);
+    if (!sourceMatch) {
+      result += sql.slice(cursor);
+      break;
+    }
     const sourceIndex = sourceMatch.index;
     searchStart = sourcePattern.lastIndex;
     if (
       sourceMatch[1] !== rawSource ||
+      (projectionRequested && !selectStarts.has(sourceIndex)) ||
       !sourceSelectPattern.test(code.slice(sourceIndex))
     ) {
       continue;
@@ -1395,8 +1419,18 @@ function addPartitionPrunedEventDeduplication(
       predicates.map((predicate) => ` AND (${predicate})`).join("") +
       ` QUALIFY ROW_NUMBER() OVER (PARTITION BY ${dedupPartition} ORDER BY received_at DESC) = 1` +
       (predicateEnd < sql.length ? " " : "");
+    if (projectionRequested) rewrittenRawSources++;
     cursor = predicateEnd;
     searchStart = cursor;
+  }
+  if (
+    projectionRequested &&
+    rewrittenRawSources !== rawSourcePositions.length
+  ) {
+    throw new FirstPartyAnalyticsUnsupportedSqlError(
+      "an unsupported onboarding journey event source projection",
+      "First-party BigQuery query cannot safely apply the onboarding journey event projection and deduplication",
+    );
   }
   return result;
 }
