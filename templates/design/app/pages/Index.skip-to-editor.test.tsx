@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   fullAppBuilding: false,
   suggestionPending: false,
   suggestionRetrying: false,
+  suggestionCachedReady: false,
   suggestionLabel: "Generated dashboard",
   ownCount: 0,
   ownedCount: 0,
@@ -177,6 +178,33 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
     }
     if (name === "generate-home-suggestions") {
       if (options?.enabled === false) {
+        if (mocks.suggestionCachedReady) {
+          return {
+            data: {
+              status: "ready",
+              suggestions: [
+                {
+                  id: "cached-design-suggestion",
+                  label: "Cached dashboard",
+                  prompt: "Create a cached analytics dashboard.",
+                },
+                {
+                  id: "cached-design-suggestion-2",
+                  label: "Cached prototype",
+                  prompt: "Create a cached interactive prototype.",
+                },
+                {
+                  id: "cached-design-suggestion-3",
+                  label: "Cached mobile flow",
+                  prompt: "Create a cached responsive mobile flow.",
+                },
+              ],
+            },
+            isLoading: false,
+            isFetching: false,
+            isError: false,
+          };
+        }
         return {
           data: undefined,
           isLoading: false,
@@ -445,6 +473,7 @@ beforeEach(async () => {
   mocks.fullAppBuilding = false;
   mocks.suggestionPending = false;
   mocks.suggestionRetrying = false;
+  mocks.suggestionCachedReady = false;
   mocks.suggestionLabel = "Generated dashboard";
   mocks.systemsEnabled = true;
   mocks.systemsLoading = false;
@@ -813,6 +842,25 @@ describe("Index skip to editor", () => {
     await act(async () => root.render(<Index />));
     expect(container.textContent).toContain("Generated dashboard");
     expect(container.textContent).not.toContain("chat.suggestionLandingPage");
+  });
+
+  it("waits for readiness before snapshotting cached generated suggestions", async () => {
+    await act(async () => root.render(null));
+    mocks.agentEngine = { state: "unknown", missing: false, canChat: false };
+    mocks.suggestionCachedReady = true;
+    await act(async () => root.render(<Index />));
+
+    const bar = container.querySelector<HTMLElement>(
+      '[aria-label="home.suggestedPrompts"]',
+    );
+    expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(container.textContent).not.toContain("Cached dashboard");
+
+    mocks.agentEngine = { state: "configured", missing: false, canChat: true };
+    mocks.suggestionCachedReady = false;
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).toContain("Generated dashboard");
+    expect(container.textContent).not.toContain("Cached dashboard");
   });
 
   it.each([

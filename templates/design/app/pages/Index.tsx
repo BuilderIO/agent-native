@@ -388,16 +388,21 @@ export default function Index() {
   const homeSuggestionsUnavailable =
     !homeSuggestionsQuery.isFetching &&
     (agentEngine.state === "unavailable" ||
-      homeSuggestionsQuery.isError ||
-      homeSuggestionsQuery.data?.status === "unavailable" ||
-      (homeSuggestionsQuery.data?.status === "ready" &&
-        homeSuggestionsQuery.data.suggestions.length !== 3));
+      (quickActionsEnabled &&
+        (homeSuggestionsQuery.isError ||
+          homeSuggestionsQuery.data?.status === "unavailable" ||
+          (homeSuggestionsQuery.data?.status === "ready" &&
+            homeSuggestionsQuery.data.suggestions.length !== 3))));
   useEffect(() => {
     if (homeSuggestionsSnapshot !== null || homeSuggestionsQuery.isFetching) {
       return;
     }
     const result = homeSuggestionsQuery.data;
-    if (result?.status === "ready" && result.suggestions.length === 3) {
+    if (
+      quickActionsEnabled &&
+      result?.status === "ready" &&
+      result.suggestions.length === 3
+    ) {
       setHomeSuggestionsSnapshot(result.suggestions);
     } else if (homeSuggestionsUnavailable) {
       setHomeSuggestionsSnapshot(fallbackHomeSuggestions);
@@ -408,6 +413,7 @@ export default function Index() {
     homeSuggestionsUnavailable,
     fallbackHomeSuggestions,
     homeSuggestionsSnapshot,
+    quickActionsEnabled,
   ]);
   const homeSuggestions =
     homeSuggestionsSnapshot ??

@@ -32,6 +32,7 @@ const suggestionQuery = vi.hoisted(() => ({
   enabled: undefined as boolean | undefined,
   pending: false,
   retrying: false,
+  cachedReady: false,
 }));
 const inactiveHomeQueries = vi.hoisted(() => ({
   workspaceDefaultsEnabled: true,
@@ -261,10 +262,24 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           isError: false,
         };
       }
+      if (options?.enabled === false && !suggestionQuery.cachedReady) {
+        return {
+          data: undefined,
+          isLoading: false,
+          isFetching: false,
+          isError: false,
+        };
+      }
       return {
         data:
           options?.enabled === false
-            ? undefined
+            ? {
+                status: "ready",
+                suggestions: homeSuggestions.value.map((suggestion) => ({
+                  ...suggestion,
+                  label: `Cached ${suggestion.label}`,
+                })),
+              }
             : { status: "ready", suggestions: homeSuggestions.value },
         isLoading: false,
         isFetching: false,
@@ -508,6 +523,7 @@ beforeEach(() => {
   suggestionQuery.enabled = undefined;
   suggestionQuery.pending = false;
   suggestionQuery.retrying = false;
+  suggestionQuery.cachedReady = false;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
   inactiveHomeQueries.templateLibraryEnabled = true;
   defaultDesignSystems.systems = [];
@@ -1799,6 +1815,29 @@ describe("Slides prompt-led home", () => {
     ).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeNull();
+  });
+
+  it("waits for readiness before snapshotting cached generated suggestions", async () => {
+    agentEngine.state = "unknown";
+    suggestionQuery.cachedReady = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    const bar = screen.getByLabelText("home.suggestedPrompts");
+    expect(bar.getAttribute("aria-busy")).toBe("true");
+    expect(
+      screen.queryByRole("button", { name: "Cached Build a pitch" }),
+    ).toBeNull();
+
+    suggestionQuery.cachedReady = false;
+    agentEngine.state = "configured";
+    rerenderHome();
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Cached Build a pitch" }),
     ).toBeNull();
   });
 
