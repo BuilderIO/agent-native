@@ -1836,6 +1836,87 @@ describe("useChatThreads", () => {
     expect(hook!.isNewThread("retry-route-thread")).toBe(false);
   });
 
+  it("waits for a newer history refresh before retrying route confirmation", async () => {
+    const routeThread: ChatThreadSummary = {
+      id: "refresh-retry-route-thread",
+      title: "Refresh retry route",
+      preview: "route preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    let resolveRefreshList!: (response: Response) => void;
+    const refreshList = new Promise<Response>((resolve) => {
+      resolveRefreshList = resolve;
+    });
+    let listRequests = 0;
+    let routeLookups = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        listRequests++;
+        return listRequests === 1 ? jsonResponse({ threads: [] }) : refreshList;
+      }
+      if (url === "/chat/threads/refresh-retry-route-thread" && !init) {
+        routeLookups++;
+        return routeLookups <= 2
+          ? new Response(null, { status: 503 })
+          : jsonResponse({
+              ...routeThread,
+              threadData: JSON.stringify({
+                messages: [{ id: "route-message" }],
+              }),
+            });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "refresh-retry-route-test", null, {
+        routeThreadId: routeThread.id,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    });
+
+    expect(listRequests).toBe(1);
+    expect(routeLookups).toBe(2);
+    expect(hook!.isThreadPersisted(routeThread.id)).toBe(false);
+
+    await act(async () => {
+      hook!.refreshThreads();
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+    });
+    expect(listRequests).toBe(2);
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(routeLookups).toBe(2);
+    expect(hook!.isThreadPersisted(routeThread.id)).toBe(false);
+    expect(hook!.threads.some((thread) => thread.id === routeThread.id)).toBe(
+      false,
+    );
+
+    await act(async () => {
+      resolveRefreshList(jsonResponse({ threads: [] }));
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+
+    expect(routeLookups).toBe(3);
+    expect(hook!.isThreadPersisted(routeThread.id)).toBe(true);
+    expect(hook!.isNewThread(routeThread.id)).toBe(false);
+    expect(hook!.threads.map((thread) => thread.id)).toContain(routeThread.id);
+  });
+
   it("ignores an initial route lookup superseded by a newer history response", async () => {
     const threadId = "initial-restore-race-thread";
     const summary: ChatThreadSummary = {

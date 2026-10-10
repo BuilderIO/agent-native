@@ -455,6 +455,7 @@ export function useChatThreads(
   const [, setThreadPersistenceVersion] = useState(0);
   const nextThreadsOffsetRef = useRef(0);
   const latestFetchRequestRef = useRef(0);
+  const latestSettledFetchRequestRef = useRef(0);
   const initialLoadRequestIdRef = useRef<number | null>(null);
   const loadingRequestIdRef = useRef<number | null>(null);
   const threadsRef = useRef<ChatThreadSummary[]>(threads);
@@ -1121,6 +1122,7 @@ export function useChatThreads(
         return undefined;
       } finally {
         if (requestId === latestFetchRequestRef.current) {
+          latestSettledFetchRequestRef.current = requestId;
           setThreadListFetchRevision((revision) => revision + 1);
 
           if (isInitialLoadTakeover) {
@@ -1210,6 +1212,11 @@ export function useChatThreads(
     if (!routeControlsActiveThread) return;
     if (!routeThreadId || !routeThreadLookupKey) return;
     if (isLoading) return;
+    if (
+      latestSettledFetchRequestRef.current !== latestFetchRequestRef.current
+    ) {
+      return;
+    }
 
     if (initialRouteConfirmationPendingRef.current !== null) {
       const initialRouteKey = initialRouteConfirmationPendingRef.current;
@@ -1229,8 +1236,15 @@ export function useChatThreads(
     let cancelled = false;
     let retryTimer: number | null = null;
     let retries = 0;
+    const requestId = latestFetchRequestRef.current;
     const confirmRouteThread = async () => {
-      const requestId = latestFetchRequestRef.current;
+      if (
+        cancelled ||
+        routeThreadLookupKeyRef.current !== routeThreadLookupKey ||
+        requestId !== latestFetchRequestRef.current
+      ) {
+        return;
+      }
       const thread = await fetchThreadById(apiUrl, routeThreadId, historyScope);
       if (
         cancelled ||
