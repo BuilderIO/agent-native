@@ -157,6 +157,39 @@ describe("runScreenElementSelect — Shift+click toggles selection membership", 
     }
   });
 
+  it("preserves the live board offset when refreshing Position geometry", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    const offset = doc.createElement("style");
+    offset.setAttribute("data-agent-native-content-offset", "");
+    offset.setAttribute("data-agent-native-content-offset-x", "4096");
+    offset.setAttribute("data-agent-native-content-offset-y", "2048");
+    doc.head.appendChild(offset);
+    const target = doc.createElement("div");
+    target.id = "node-a";
+    target.setAttribute("data-agent-native-node-id", "node-a");
+    target.style.position = "absolute";
+    doc.body.appendChild(target);
+    target.getBoundingClientRect = () =>
+      ({ x: 4096, y: 2048, width: 100, height: 40 }) as DOMRect;
+    try {
+      const measured = withMeasuredGeometry(makeInfo("node-a"));
+      expect(measured.boundingRect).toMatchObject({ x: 4096, y: 2048 });
+      expect(measured.positionReferenceRect).toMatchObject({
+        x: 4096,
+        y: 2048,
+      });
+      expect(measured.positionContainingBlockOrigin).toEqual({
+        x: 4096,
+        y: 2048,
+      });
+    } finally {
+      iframe.remove();
+    }
+  });
+
   it("refreshes live element and parent geometry with the position context", () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");
