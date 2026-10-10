@@ -9,6 +9,8 @@ import {
 // that, so a long query string costs a smaller batch, not a failed one.
 const BATCH_MAX_BODY_BYTES = 192 * 1024;
 
+const INVALID_BATCH_RESPONSE = "Action batch returned an invalid response.";
+
 /**
  * Same-tick coalescing for action GETs. Calls made in one synchronous run,
  * such as a page's queries mounting together, are sent as one POST to the
@@ -187,9 +189,10 @@ async function sendBatch(items: PendingGet[]): Promise<void> {
     return;
   }
 
-  const results = parseBatchResults(text, items.length);
-  if (!results) {
-    const error = new Error("Action batch returned an invalid response.");
+  let results: ActionBatchItemResult[];
+  try {
+    results = parseBatchResults(text, items.length);
+  } catch (error) {
     for (const item of items) settle(item, () => item.reject(error));
     return;
   }
@@ -201,16 +204,16 @@ async function sendBatch(items: PendingGet[]): Promise<void> {
 function parseBatchResults(
   text: string,
   expectedCount: number,
-): ActionBatchItemResult[] | undefined {
+): ActionBatchItemResult[] {
   let parsed: Partial<ActionBatchResponse> | null;
   try {
     parsed = JSON.parse(text);
-  } catch {
-    return undefined;
+  } catch (error) {
+    throw new Error(INVALID_BATCH_RESPONSE, { cause: error });
   }
   const results = parsed?.results;
   if (!Array.isArray(results) || results.length !== expectedCount) {
-    return undefined;
+    throw new Error(INVALID_BATCH_RESPONSE);
   }
   const valid = results.every(
     (result) =>
@@ -220,7 +223,8 @@ function parseBatchResults(
       result.status >= 200 &&
       result.status <= 599,
   );
-  return valid ? results : undefined;
+  if (!valid) throw new Error(INVALID_BATCH_RESPONSE);
+  return results;
 }
 
 function itemResponse(result: ActionBatchItemResult): Response {

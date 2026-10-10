@@ -147,6 +147,30 @@ describe("action GET batching", () => {
     expect(error.actionMessage).toBe("Not allowed for this design");
   });
 
+  it("rejects every batched call when the batch body is not a valid response", async () => {
+    stubFetch((call) =>
+      call.url === BATCH_URL
+        ? new Response("<html>proxy error</html>", { status: 200 })
+        : jsonResponse({}),
+    );
+
+    const settled = await Promise.allSettled([
+      callAction("get-a", {}, { method: "GET" }),
+      callAction("get-b", {}, { method: "GET" }),
+    ]);
+
+    expect(settled.map((result) => result.status)).toEqual([
+      "rejected",
+      "rejected",
+    ]);
+    expect((settled[0] as PromiseRejectedResult).reason.message).toBe(
+      "Action get-a failed: Action batch returned an invalid response.",
+    );
+    expect((settled[1] as PromiseRejectedResult).reason.message).toBe(
+      "Action get-b failed: Action batch returned an invalid response.",
+    );
+  });
+
   it("gives each batched item response the byte length of its body", async () => {
     stubFetch((call) =>
       call.url === BATCH_URL
