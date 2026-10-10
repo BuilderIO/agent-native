@@ -46,17 +46,25 @@ function stripLocalTransportFields(value: unknown): unknown {
 }
 
 function sanitizeTemplateSourceMetadata(value: unknown): unknown {
+  const sourceMetadata = record(value);
   const stripped = stripLocalTransportFields(value);
   if (!stripped || typeof stripped !== "object" || Array.isArray(stripped)) {
     return stripped;
   }
   const metadata = { ...(stripped as Record<string, unknown>) };
-  const hasLocalSourceType = isLocalhostSourceType(metadata.sourceType);
+  const normalizedSourceType = normalizeDesignSourceType(
+    sourceMetadata.sourceType,
+  );
+  const hasLocalSourceType = normalizedSourceType === "localhost";
+  const hasLegacyBridgeSource =
+    normalizedSourceType == null &&
+    typeof sourceMetadata.bridgeUrl === "string" &&
+    Boolean(sourceMetadata.bridgeUrl);
   const hasLocalFallbackSource =
-    metadata.sourceType == null && isLocalScreenSourceAlias(metadata.source);
+    normalizedSourceType == null && isLocalScreenSourceAlias(metadata.source);
 
-  if (hasLocalSourceType || hasLocalFallbackSource) {
-    if (hasLocalSourceType) {
+  if (hasLocalSourceType || hasLegacyBridgeSource || hasLocalFallbackSource) {
+    if (hasLocalSourceType || hasLegacyBridgeSource) {
       metadata.sourceType = "inline";
     } else {
       metadata.source = "inline";

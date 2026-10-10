@@ -5398,7 +5398,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           const candidates = result.candidates;
           const target =
             mode === "pick"
-              ? resolvePickTargetAtPoint({ candidates, screenId: id, point })
+              ? resolvePickTargetAtPoint({
+                  candidates,
+                  screenId: id,
+                  point,
+                  deep: Boolean(modifierKeys?.metaKey || modifierKeys?.ctrlKey),
+                })
               : resolveDrillInTarget({
                   candidates,
                   screenId: id,

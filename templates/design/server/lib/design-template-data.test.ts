@@ -95,6 +95,20 @@ describe("design template data", () => {
             previewUrl: "http://127.0.0.1:3000/legacy-preview",
             title: "Legacy local screen",
           },
+          legacyBridgeUrlScreen: {
+            sourceType: "retired-local-source",
+            bridgeUrl: "http://127.0.0.1:7331",
+            url: "http://127.0.0.1:3000/bridge-route",
+            previewUrl: "http://127.0.0.1:3000/bridge-preview",
+            title: "Legacy bridge URL screen",
+          },
+          fusionBridgeScreen: {
+            sourceType: "fusion",
+            bridgeUrl: "http://127.0.0.1:7331",
+            url: "https://example.com/fusion-screen",
+            previewUrl: "https://example.com/fusion-preview",
+            title: "Fusion screen",
+          },
         },
       }),
     );
@@ -141,5 +155,23 @@ describe("design template data", () => {
     expect(screenMetadata.legacyLocalSourceScreen).not.toHaveProperty(
       "previewUrl",
     );
+    expect(screenMetadata.legacyBridgeUrlScreen).toMatchObject({
+      sourceType: "inline",
+      title: "Legacy bridge URL screen",
+    });
+    expect(screenMetadata.legacyBridgeUrlScreen).not.toHaveProperty(
+      "bridgeUrl",
+    );
+    expect(screenMetadata.legacyBridgeUrlScreen).not.toHaveProperty("url");
+    expect(screenMetadata.legacyBridgeUrlScreen).not.toHaveProperty(
+      "previewUrl",
+    );
+    expect(screenMetadata.fusionBridgeScreen).toMatchObject({
+      sourceType: "fusion",
+      url: "https://example.com/fusion-screen",
+      previewUrl: "https://example.com/fusion-preview",
+      title: "Fusion screen",
+    });
+    expect(screenMetadata.fusionBridgeScreen).not.toHaveProperty("bridgeUrl");
   });
 });

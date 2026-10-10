@@ -272,6 +272,20 @@ describe("create-design-from-template", () => {
             previewUrl: "http://127.0.0.1:3000/legacy-preview",
             title: "Legacy local screen",
           },
+          "legacy-bridge-url-file": {
+            sourceType: "retired-local-source",
+            bridgeUrl: "http://127.0.0.1:7331",
+            url: "http://127.0.0.1:3000/bridge-route",
+            previewUrl: "http://127.0.0.1:3000/bridge-preview",
+            title: "Legacy bridge URL screen",
+          },
+          "fusion-bridge-file": {
+            sourceType: "fusion",
+            bridgeUrl: "http://127.0.0.1:7331",
+            url: "https://example.com/fusion-screen",
+            previewUrl: "https://example.com/fusion-preview",
+            title: "Fusion screen",
+          },
         },
       });
 
@@ -351,6 +365,28 @@ describe("create-design-from-template", () => {
       );
       expect(copiedMetadata["legacy-local-source-file"]).not.toHaveProperty(
         "previewUrl",
+      );
+      expect(copiedMetadata["legacy-bridge-url-file"]).toMatchObject({
+        sourceType: "inline",
+        title: "Legacy bridge URL screen",
+      });
+      expect(copiedMetadata["legacy-bridge-url-file"]).not.toHaveProperty(
+        "bridgeUrl",
+      );
+      expect(copiedMetadata["legacy-bridge-url-file"]).not.toHaveProperty(
+        "url",
+      );
+      expect(copiedMetadata["legacy-bridge-url-file"]).not.toHaveProperty(
+        "previewUrl",
+      );
+      expect(copiedMetadata["fusion-bridge-file"]).toMatchObject({
+        sourceType: "fusion",
+        url: "https://example.com/fusion-screen",
+        previewUrl: "https://example.com/fusion-preview",
+        title: "Fusion screen",
+      });
+      expect(copiedMetadata["fusion-bridge-file"]).not.toHaveProperty(
+        "bridgeUrl",
       );
     },
   );

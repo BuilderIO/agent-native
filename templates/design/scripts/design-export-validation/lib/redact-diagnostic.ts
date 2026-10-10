@@ -1,8 +1,8 @@
 const URL_PATTERN = /https?:\/\/[^\s)"'<>]+/gi;
 const ASSIGNMENT_PREFIX_PATTERN =
   /((?:\\+["']|["'])?)([A-Za-z_$][A-Za-z0-9_$.-]*(?:[ _-]+[A-Za-z0-9_$.-]+)*)\1(\s*[:=]\s*)/gi;
-const ASSIGNMENT_VALUE_PATTERN =
-  /^(?:((?:\\+"|"))((?:\\.|[^"\\])*?)(\1)|((?:\\+'|'))((?:\\.|[^'\\])*?)(\4)|((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/i;
+const ASSIGNMENT_BARE_VALUE_PATTERN =
+  /^(?:((?:Bearer|Basic)\s+[^&\s"'<>),;}\]]+)|([^&\s"'<>),;}\]]+))/i;
 const MAX_NESTED_ASSIGNMENT_DEPTH = 8;
 
 function isSensitiveAssignmentKey(key: string): boolean {
@@ -19,6 +19,10 @@ function isSensitiveAssignmentKey(key: string): boolean {
     lastWord === "secret" ||
     lastWord === "signature" ||
     lastWord === "password" ||
+    lastWord === "apikey" ||
+    lastWord === "passwd" ||
+    lastWord === "pwd" ||
+    lastWord === "cookie" ||
     lastWord === "authorization" ||
     (lastWord === "key" &&
       ["api", "private", "access", "secret", "signing", "encryption"].includes(
@@ -41,26 +45,36 @@ function parseAssignmentValue(
   value: string,
   start: number,
 ): ParsedValue | null {
-  const match = ASSIGNMENT_VALUE_PATTERN.exec(value.slice(start));
+  let quoteStart = start;
+  while (value[quoteStart] === "\\") quoteStart += 1;
+  const quote = value[quoteStart];
+  if (quote === '"' || quote === "'") {
+    const delimiter = value.slice(start, quoteStart + 1);
+    const delimiterSlashCount = quoteStart - start;
+    for (let cursor = quoteStart + 1; cursor < value.length; cursor += 1) {
+      if (value[cursor] !== quote) continue;
+      let slashStart = cursor;
+      while (slashStart > quoteStart + 1 && value[slashStart - 1] === "\\") {
+        slashStart -= 1;
+      }
+      const slashCount = cursor - slashStart;
+      const delimiterPeriod = 2 * (delimiterSlashCount + 1);
+      if (slashCount % delimiterPeriod !== delimiterSlashCount) continue;
+      const closingStart = cursor - delimiterSlashCount;
+
+      return {
+        kind: "quoted",
+        opening: delimiter,
+        content: value.slice(quoteStart + 1, closingStart),
+        closing: value.slice(closingStart, cursor + 1),
+        end: cursor + 1,
+      };
+    }
+    return null;
+  }
+
+  const match = ASSIGNMENT_BARE_VALUE_PATTERN.exec(value.slice(start));
   if (!match) return null;
-  if (match[1] !== undefined) {
-    return {
-      kind: "quoted",
-      opening: match[1],
-      content: match[2],
-      closing: match[3],
-      end: start + match[0].length,
-    };
-  }
-  if (match[4] !== undefined) {
-    return {
-      kind: "quoted",
-      opening: match[4],
-      content: match[5],
-      closing: match[6],
-      end: start + match[0].length,
-    };
-  }
   return { kind: "bare", end: start + match[0].length };
 }
 
@@ -101,6 +115,25 @@ function redactAssignments(value: string, depth = 0): string {
     const rawValue = value.slice(assignment.end);
     const startsQuotedValue = /^(?:\\+["']|["'])/.test(rawValue);
     const startsStructuredValue = /^\s*[{[]/.test(rawValue);
+    const isCookieCredential =
+      isSensitive && /^(?:set-)?cookie$/i.test(assignment.key);
+    const isCookieHeader =
+      isCookieCredential &&
+      !/^(?:\\+["']|["'])/.test(assignment.prefix) &&
+      /:\s*$/.test(assignment.prefix);
+    const isBareCookieAssignment =
+      isCookieCredential &&
+      !/:\s*$/.test(assignment.prefix) &&
+      parsedValue?.kind !== "quoted";
+    if (isCookieHeader || isBareCookieAssignment) {
+      const lineEnd = value.indexOf("\n", assignment.end);
+      const end = lineEnd < 0 ? value.length : lineEnd;
+      result += "[redacted]";
+      cursor = end;
+      searchFrom = end;
+      continue;
+    }
+
     if (isSensitive && startsStructuredValue) {
       result += "[redacted]";
       cursor = value.length;

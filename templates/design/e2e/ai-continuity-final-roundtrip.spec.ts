@@ -64,13 +64,15 @@ function noteMarkup(content: string | null): string {
 }
 
 function titleMarkup(content: string | null): string {
-  return content?.match(/<h1 class="title"[^>]*>[^<]*<\/h1>/)?.[0] ?? "";
+  return (
+    content?.match(/<h1\b(?=[^>]*\bclass="title")[^>]*>[^<]*<\/h1>/)?.[0] ?? ""
+  );
 }
 
 function normalizeTitleSizeMarkup(content: string, baseline: string): string {
   const baselineStyle = titleMarkup(baseline).match(/\sstyle="([^"]*)"/)?.[1];
   return content.replace(
-    /(<h1 class="title"[^>]*?)\sstyle="font-size: 40px"([^>]*>Team overview<\/h1>)/,
+    /(<h1\b(?=[^>]*\bclass="title")[^>]*?)\sstyle="font-size: 40px"([^>]*>\s*Team overview\s*<\/h1>)/,
     (_match, before: string, after: string) =>
       before +
       (baselineStyle === undefined ? "" : ' style="' + baselineStyle + '"') +
@@ -83,6 +85,30 @@ function normalizeNoteMarkup(content: string): string {
     /<p class="ai-note"[^>]*>([^<]*)<\/p>/,
     '<p class="ai-note">$1</p>',
   );
+}
+
+function uniqueElementMarkup(
+  source: string,
+  tagName: string,
+  nodeId: string,
+  expectedText: string,
+): string {
+  const nodeIdAttribute = `data-agent-native-node-id="${nodeId}"`;
+  expect(source.split(nodeIdAttribute)).toHaveLength(2);
+
+  const nodeIdIndex = source.indexOf(nodeIdAttribute);
+  const start = source.lastIndexOf(`<${tagName}`, nodeIdIndex);
+  const openingTagEnd = source.indexOf(">", nodeIdIndex);
+  const closingTag = `</${tagName}>`;
+  const end = source.indexOf(closingTag, openingTagEnd);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(source.slice(start, start + tagName.length + 1)).toBe(`<${tagName}`);
+  expect(openingTagEnd).toBeGreaterThan(nodeIdIndex);
+  expect(end).toBeGreaterThan(openingTagEnd);
+
+  const markup = source.slice(start, end + closingTag.length);
+  expect(markup.split(expectedText)).toHaveLength(2);
+  return markup;
 }
 
 function captureUpdateFileTrace(page: Page) {
@@ -583,20 +609,29 @@ test("captured Luna Orbit source survives deterministic Screen-scoped and visual
     const currentAiSource = await withSourceBracket(
       "deterministic Screen B edit-design write",
       async () => {
+        const sectionSearch = uniqueElementMarkup(
+          afterFirstVisual,
+          "h2",
+          "an-wcehu3",
+          "My tasks",
+        );
+        const taskMetaSearch = uniqueElementMarkup(
+          afterFirstVisual,
+          "div",
+          "an-1j9i244",
+          "Design · Product",
+        );
         const followup = await postAction(page, "edit-design", {
           designId,
           fileId: secondScreenId,
           edits: [
             {
-              search:
-                '<h2 class="section-title" data-agent-native-node-id="an-wcehu3">My tasks</h2>',
-              replace:
-                '<h2 class="section-title" data-agent-native-node-id="an-wcehu3">Upcoming work</h2>',
+              search: sectionSearch,
+              replace: sectionSearch.replace("My tasks", "Upcoming work"),
             },
             {
-              search:
-                '<div class="task-meta" data-agent-native-node-id="an-1j9i244">Design · Product</div>',
-              replace: `<div class="task-meta" data-agent-native-node-id="an-1j9i244">Design · Product</div><p class="ai-note">${FOLLOWUP_NOTE}</p>`,
+              search: taskMetaSearch,
+              replace: `${taskMetaSearch}<p class="ai-note">${FOLLOWUP_NOTE}</p>`,
             },
           ],
         });
@@ -846,6 +881,32 @@ test("captured Luna Orbit inspector Size edit survives immediate reload after En
   const sourceB = LUNA_ORBIT_SOURCE.replace("Launch overview", "Team overview");
   const { designId, secondScreenId } = await createDesign(page, sourceB);
   const { updateFileTrace, responseTraceTasks } = captureUpdateFileTrace(page);
+  const unloadTraceKey = `design-reload-save-${Date.now()}-${testInfo.testId}`;
+  // Journal unload saves before navigation can hide their network events.
+  await page.addInitScript((storageKey) => {
+    const originalFetch = window.fetch;
+    window.fetch = function (input, init) {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (
+        init?.keepalive &&
+        url.includes("/_agent-native/actions/update-file") &&
+        typeof init.body === "string"
+      ) {
+        const entries = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+        entries.push({
+          requestedAt: new Date().toISOString(),
+          payload: init.body,
+        });
+        localStorage.setItem(storageKey, JSON.stringify(entries));
+      }
+      return originalFetch.call(window, input, init);
+    };
+  }, unloadTraceKey);
   let stage = "open Screen B";
   let sourceBeforeEdit: string | null = null;
   let sourceAfterReload: string | null = null;
@@ -908,6 +969,30 @@ test("captured Luna Orbit inspector Size edit survives immediate reload after En
       .toBe("40px");
 
     await Promise.all(responseTraceTasks);
+    const unloadWrites = await page.evaluate((storageKey) => {
+      const entries = JSON.parse(
+        localStorage.getItem(storageKey) ?? "[]",
+      ) as Array<{
+        requestedAt: string;
+        payload: string;
+      }>;
+      localStorage.removeItem(storageKey);
+      return entries;
+    }, unloadTraceKey);
+    for (const entry of unloadWrites) {
+      const payload = JSON.parse(entry.payload);
+      updateFileTrace.push({
+        requestedAt: entry.requestedAt,
+        requestUrl: appPath("/_agent-native/actions/update-file"),
+        fileId: typeof payload.id === "string" ? payload.id : null,
+        expectedVersionHash: payload.expectedVersionHash ?? null,
+        submittedHtml: payload.content ?? null,
+        submittedHtmlHash:
+          typeof payload.content === "string"
+            ? sourceContentHash(payload.content)
+            : null,
+      });
+    }
     const sizeWrites = updateFileTrace
       .slice(editTraceStart)
       .filter(
@@ -958,6 +1043,10 @@ test("captured Luna Orbit inspector Size edit survives immediate reload after En
       contentType: "application/json",
       path: evidencePath,
     });
+    await page.evaluate(
+      (storageKey) => localStorage.removeItem(storageKey),
+      unloadTraceKey,
+    );
     await actionJson(page, "delete-design", { id: designId });
   }
 });

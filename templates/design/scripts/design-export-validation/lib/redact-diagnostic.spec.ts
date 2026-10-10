@@ -207,3 +207,70 @@ describe("redactExportDiagnostic truncated values", () => {
     expect(redactExportDiagnostic("password=   ")).toBe("password=   ");
   });
 });
+
+describe("redactExportDiagnostic credential aliases and escaped quotes", () => {
+  it("redacts an entire credential value containing escaped quotes", () => {
+    const input = String.raw`config="{\"password\":\"FAKE \\\"Q\\\" SECRET\"}"`;
+    expect(redactExportDiagnostic(input)).toBe(
+      String.raw`config="{\"password\":\"[redacted]\"}"`,
+    );
+  });
+
+  it("redacts common credential aliases while preserving ordinary fields", () => {
+    const input =
+      "apikey=FAKE_API passwd=FAKE_PASS pwd=FAKE_PWD cookie=FAKE_COOKIE\nset-cookie: session=FAKE_SESSION; HttpOnly keyboard=music\nkeyboard=music document_key=home";
+    expect(redactExportDiagnostic(input)).toBe(
+      "apikey=[redacted] passwd=[redacted] pwd=[redacted] cookie=[redacted]\nset-cookie: [redacted]\nkeyboard=music document_key=home",
+    );
+  });
+
+  it("fails closed for bare cookie pairs while preserving quoted JSON fields", () => {
+    expect(
+      redactExportDiagnostic(
+        "Cookie=session=FAKE_COOKIE;csrf=FAKE_CSRF\nkeyboard=music",
+      ),
+    ).toBe("Cookie=[redacted]\nkeyboard=music");
+    expect(
+      redactExportDiagnostic(
+        '"Cookie":"session=FAKE_COOKIE;csrf=FAKE_CSRF","title":"Welcome","keyboard":"music"',
+      ),
+    ).toBe('"Cookie":"[redacted]","title":"Welcome","keyboard":"music"');
+    expect(
+      redactExportDiagnostic(
+        String.raw`Cookie="{\"session\":\"FAKE_COOKIE\",\"csrf\":\"FAKE_CSRF\"}" title=Welcome keyboard=music`,
+      ),
+    ).toBe(String.raw`Cookie="[redacted]" title=Welcome keyboard=music`);
+  });
+});
+
+describe("redactExportDiagnostic encoded field boundaries", () => {
+  it("preserves adjacent JSON fields when credentials end in backslashes at multiple depths", () => {
+    for (const trailingBackslashes of [0, 1, 2, 3]) {
+      const credential = `FAKE \"Q\" SECRET${"\\".repeat(trailingBackslashes)}`;
+      const value = {
+        password: credential,
+        title: "Welcome",
+        keyboard: "music",
+      };
+      const safe = { ...value, password: "[redacted]" };
+      let encoded = JSON.stringify(value);
+      let expected = JSON.stringify(safe);
+      for (let layer = 0; layer <= 4; layer += 1) {
+        expect(
+          redactExportDiagnostic(`config=${encoded}`),
+          `layer ${layer}, trailing ${trailingBackslashes}`,
+        ).toBe(`config=${expected}`);
+        encoded = JSON.stringify(encoded);
+        expected = JSON.stringify(expected);
+      }
+    }
+  });
+
+  it("redacts every pair on a Set-Cookie header line and preserves following lines", () => {
+    expect(
+      redactExportDiagnostic(
+        "Set-Cookie: session=FAKE_SESSION; Path=/; HttpOnly; SameSite=Lax, refresh=FAKE_REFRESH; Secure\nkeyboard=music\ndocument_key=home",
+      ),
+    ).toBe("Set-Cookie: [redacted]\nkeyboard=music\ndocument_key=home");
+  });
+});
