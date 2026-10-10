@@ -142,8 +142,8 @@ export default defineAction({
     // applied (the server stopped in between) is finished, not refused, or
     // the request stays ready and every retry fails.
     const wasApplied = (editsJson: string) =>
-      parseEdits(editsJson).rewindOriginalStartMs === args.addedMs;
-    if (preRoll.trashedAt && wasApplied(recording.editsJson)) {
+      parseEdits(editsJson).rewindPreRollId === args.preRollRecordingId;
+    if (wasApplied(recording.editsJson)) {
       return markApplied();
     }
 
@@ -196,6 +196,7 @@ export default defineAction({
         endMs: blur.endMs + args.addedMs,
       }));
       edits.rewindOriginalStartMs = args.addedMs;
+      edits.rewindPreRollId = args.preRollRecordingId;
       edits.mediaStorageLayout = "external";
 
       const outcome = await db

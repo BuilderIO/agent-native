@@ -150,6 +150,22 @@ describe("chaptersToSave", () => {
     ]);
   });
 
+  it("keeps line breaks in a title that wasn't edited", () => {
+    const before = [
+      { startMs: 0, title: "Intro" },
+      { startMs: 48_000, title: "Demo\npart two" },
+    ];
+    const parsed = [
+      { startMs: 0, title: "Opening" },
+      { startMs: 48_000, title: "Demo part two" },
+    ];
+
+    expect(chaptersToSave(parsed, before, DEFAULT_EDITS)).toEqual([
+      { startMs: 0, title: "Opening" },
+      { startMs: 48_000, title: "Demo\npart two" },
+    ]);
+  });
+
   it("maps typed times, which match the trimmed player, back to the original media", () => {
     // 0:30 on the trimmed player is 1:15 in the original recording.
     expect(

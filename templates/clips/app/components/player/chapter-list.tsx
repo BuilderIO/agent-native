@@ -220,7 +220,12 @@ export function chaptersToSave(
     const startMs = match
       ? match.chapter.startMs
       : editedToOriginal(line.startMs, edits);
-    return { startMs: storableMs(startMs), title: line.title };
+    // An untouched title keeps its line breaks, which the box can't show.
+    const title =
+      match && oneLine(match.chapter.title) === line.title
+        ? match.chapter.title
+        : line.title;
+    return { startMs: storableMs(startMs), title };
   });
   const hidden = before
     .filter((c) => Number.isFinite(c.startMs) && isExcluded(c.startMs, edits))

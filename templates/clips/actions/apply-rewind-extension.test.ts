@@ -236,7 +236,10 @@ describe("apply-rewind-extension", () => {
     mockDb.transaction = (run) => {
       stored.preRollTrashed = true;
       stored.chaptersJson = JSON.stringify([{ ...intro, startMs: 30_000 }]);
-      stored.editsJson = JSON.stringify({ rewindOriginalStartMs: 30_000 });
+      stored.editsJson = JSON.stringify({
+        rewindOriginalStartMs: 30_000,
+        rewindPreRollId: "pre_1",
+      });
       return transaction(run);
     };
     try {
@@ -271,5 +274,17 @@ describe("apply-rewind-extension", () => {
     expect(JSON.parse(stored.chaptersJson)).toEqual([
       { ...intro, startMs: 30_000 },
     ]);
+  });
+
+  it("doesn't take an earlier Rewind of the same length for this one", async () => {
+    stored.editsJson = JSON.stringify({
+      rewindOriginalStartMs: 30_000,
+      rewindPreRollId: "pre_0",
+    });
+    stored.preRollTrashed = true;
+    await expect(action.run(args)).rejects.toMatchObject({
+      errorCode: "rewind_preroll_unavailable",
+    });
+    expect(written).toEqual([]);
   });
 });

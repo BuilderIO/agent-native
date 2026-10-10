@@ -33,6 +33,8 @@ export interface EditsJson {
   stitchedFrom?: string[];
   mediaStorageLayout?: "external";
   rewindOriginalStartMs?: number;
+  /** The Rewind pre-roll whose range was prepended, so a retry knows. */
+  rewindPreRollId?: string;
   overlays?: unknown[];
   burnedRedactions?: unknown[];
 }
@@ -57,6 +59,7 @@ export function parseEdits(raw: string | null | undefined): EditsJson {
       stitchedFrom: _stitchedFrom,
       mediaStorageLayout: _mediaStorageLayout,
       rewindOriginalStartMs: _rewindOriginalStartMs,
+      rewindPreRollId: _rewindPreRollId,
       overlays: _overlays,
       burnedRedactions: _burnedRedactions,
       ...unknown
@@ -85,6 +88,9 @@ export function parseEdits(raw: string | null | undefined): EditsJson {
       Number.isFinite(j.rewindOriginalStartMs) &&
       j.rewindOriginalStartMs > 0
         ? { rewindOriginalStartMs: Math.round(j.rewindOriginalStartMs) }
+        : {}),
+      ...(typeof j.rewindPreRollId === "string" && j.rewindPreRollId
+        ? { rewindPreRollId: j.rewindPreRollId }
         : {}),
     };
   } catch {
