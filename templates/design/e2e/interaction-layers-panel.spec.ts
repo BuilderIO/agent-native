@@ -221,12 +221,12 @@ test.describe("interaction: layers panel", () => {
             shopIdx > -1 &&
             aboutIdx > -1 &&
             contactIdx === shopIdx - 1 &&
-            aboutIdx < contactIdx
+            shopIdx < aboutIdx
           );
         },
         {
           message:
-            "expected Contact to land directly between About and Shop after the drag",
+            "expected Contact to land directly above Shop, ahead of About, after the drag",
         },
       )
       .toBe(true);

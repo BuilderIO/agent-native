@@ -71,6 +71,10 @@ import {
   type RepromptDraftRequest,
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
+import {
+  isDesignHotkeyEditableTarget,
+  isNativeKeyboardActivationTarget,
+} from "@/hooks/useDesignHotkeys";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
   resolveDesktopDesignSnapshotLayer,
@@ -374,6 +378,19 @@ function clearTabFocusedLiveFrames(document: Document) {
   document
     .querySelectorAll<HTMLIFrameElement>("iframe[data-design-preview-iframe]")
     .forEach((frame) => tabFocusedLiveFrames.delete(frame));
+}
+
+// A click inside the frame never moves host focus, so a chrome button clicked
+// before it would keep taking Enter and Space from the canvas selection.
+function releaseChromeButtonFocus(document: Document) {
+  const focused = document.activeElement;
+  if (
+    focused instanceof HTMLElement &&
+    isNativeKeyboardActivationTarget(focused) &&
+    !isDesignHotkeyEditableTarget(focused)
+  ) {
+    focused.blur();
+  }
 }
 
 const MOTION_PREVIEW_BRIDGE_SCRIPT = `
@@ -1577,7 +1594,17 @@ export function DesignCanvas({
   const runtimeReplacementKeyRef = useRef(runtimeReplacementKey);
   const lastRuntimeReplacementKeyRef = useRef(runtimeReplacementKey);
   const lastRuntimeReplacementContentRef = useRef(runtimeReplacementContent);
+  const lastNodeSwapProvenanceRef = useRef<{
+    content: string;
+    provenance: SourceDocumentProvenance;
+  } | null>(null);
   const resendRuntimeReplacementRef = useRef<(() => void) | null>(null);
+  const hostSourceNodeSwapRef = useRef<{
+    content: string;
+    selector?: string | null;
+    candidates?: string[];
+    preserveTextEditingSession?: boolean;
+  } | null>(null);
   const pinchZoomDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const bridgeReadyRef = useRef(false);
   const editorChromeReadyRef = useRef(false);
@@ -4239,6 +4266,9 @@ export function DesignCanvas({
           );
         }
         const reportedRuntimeSourceId = reported?.runtimeSourceId?.trim();
+        if (e.data.intent?.source === "pointer") {
+          releaseChromeButtonFocus(document);
+        }
         if (e.data.intent) {
           suppressMirrorSelectorsRef.current =
             reportedCandidates.length > 0 ? reportedCandidates : null;
@@ -6528,6 +6558,48 @@ export function DesignCanvas({
     [postOneShotBridgeMessage],
   );
 
+  // Sends only the edited subtree when an edit keeps the document's structure;
+  // the bridge answers "replace-source-node-rejected" when it needs the full one.
+  const replaceSourceNodeInPlace = useCallback(
+    (previousContent: string, nextContent: string, sourceContent: string) => {
+      if (
+        externalPreviewUrl ||
+        boardSurface ||
+        sourceContent !== nextContent ||
+        !bridgeReadyRef.current ||
+        !editorChromeReadyRef.current
+      ) {
+        return false;
+      }
+      const node = editedStableSourceElement(previousContent, nextContent);
+      if (!node) return false;
+      // A board's screens outgrow the provenance cache, so keep the last swap's
+      // own result to derive from instead of re-parsing the whole screen.
+      const lastSwap = lastNodeSwapProvenanceRef.current;
+      if (lastSwap?.content === previousContent) {
+        createSourceDocumentProvenance.prime(
+          previousContent,
+          lastSwap.provenance,
+        );
+      }
+      const sourceProvenance = createSourceDocumentProvenance.derivedFrom(
+        previousContent,
+        sourceContent,
+      );
+      lastNodeSwapProvenanceRef.current = {
+        content: sourceContent,
+        provenance: sourceProvenance,
+      };
+      return postOneShotBridgeMessage({
+        type: "replace-source-node",
+        nodeId: node.nodeId,
+        html: node.html,
+        sourceProvenance,
+      });
+    },
+    [boardSurface, externalPreviewUrl, postOneShotBridgeMessage],
+  );
+
   const replacePreviewContentFromHost = useCallback(
     (
       rawNextContent: string,
@@ -6536,8 +6608,31 @@ export function DesignCanvas({
       options?: {
         forceFullDocument?: boolean;
         preserveTextEditingSession?: boolean;
+        allowSourceNodeSwap?: boolean;
       },
     ) => {
+      // Only a runtime-replaced canvas tracks what its document shows, which
+      // the node swap diffs against.
+      if (
+        options?.allowSourceNodeSwap &&
+        runtimeReplacementKeyRef.current !== undefined &&
+        replaceSourceNodeInPlace(
+          lastRuntimeReplacementContentRef.current ??
+            renderedContentRef.current,
+          rawNextContent,
+          rawNextContent,
+        )
+      ) {
+        lastRuntimeReplacementContentRef.current = rawNextContent;
+        runtimeReplacementSourceRef.current = rawNextContent;
+        hostSourceNodeSwapRef.current = {
+          content: rawNextContent,
+          selector,
+          candidates,
+          preserveTextEditingSession: options.preserveTextEditingSession,
+        };
+        return true;
+      }
       const nextContent = boardSurface
         ? getBoardSurfaceRenderContent(rawNextContent, resolvedTheme === "dark")
         : rawNextContent;
@@ -6569,6 +6664,7 @@ export function DesignCanvas({
       embeddedFrameBackground,
       fitRootBodyToFrame,
       replacePreviewContent,
+      replaceSourceNodeInPlace,
       resolvedTheme,
       transparentBackground,
     ],
@@ -6639,33 +6735,22 @@ export function DesignCanvas({
     ],
   );
 
-  // Sends only the edited subtree when an edit keeps the document's structure;
-  // the bridge answers "replace-source-node-rejected" when it needs the full one.
-  const replaceSourceNodeInPlace = useCallback(
-    (previousContent: string, nextContent: string, sourceContent: string) => {
-      if (
-        externalPreviewUrl ||
-        boardSurface ||
-        sourceContent !== nextContent ||
-        !bridgeReadyRef.current ||
-        !editorChromeReadyRef.current
-      ) {
-        return false;
-      }
-      const node = editedStableSourceElement(previousContent, nextContent);
-      if (!node) return false;
-      return postOneShotBridgeMessage({
-        type: "replace-source-node",
-        nodeId: node.nodeId,
-        html: node.html,
-        sourceProvenance: createSourceDocumentProvenance(sourceContent),
-      });
-    },
-    [boardSurface, externalPreviewUrl, postOneShotBridgeMessage],
-  );
   resendRuntimeReplacementRef.current = () => {
     const content = lastRuntimeReplacementContentRef.current;
     if (content === undefined) return;
+    const hostSwap = hostSourceNodeSwapRef.current;
+    if (hostSwap?.content === content) {
+      replacePreviewContentFromHost(
+        content,
+        hostSwap.selector,
+        hostSwap.candidates,
+        {
+          forceFullDocument: true,
+          preserveTextEditingSession: hostSwap.preserveTextEditingSession,
+        },
+      );
+      return;
+    }
     replaceRuntimeContentInPlace(
       content,
       runtimeReplacementSourceRef.current ?? content,
@@ -6913,6 +6998,7 @@ export function DesignCanvas({
       options?: {
         forceFullDocument?: boolean;
         preserveTextEditingSession?: boolean;
+        allowSourceNodeSwap?: boolean;
       },
     ) => {
       if (screenId) {

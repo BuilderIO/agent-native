@@ -114,8 +114,14 @@ describe("Design editor mobile layout", () => {
     expect(warn).toContain(
       'if (readOnlyWidget) return;\n    toast.error(t("visualEditor.changesDiscarded")',
     );
-    // Both toasts stay otherwise unconditional, so normal sessions still warn.
-    expect(warn.match(/if \(readOnlyWidget\) return;/g)).toHaveLength(2);
+    expect(warn).toContain(
+      'if (readOnlyWidget) return;\n          toast.error(t("designEditor.toasts.saveConflict")',
+    );
+    expect(warn).toContain(
+      'if (readOnlyWidget) return;\n          toast.error(message ?? t("common.genericError")',
+    );
+    // Every toast stays otherwise unconditional, so normal sessions still warn.
+    expect(warn.match(/if \(readOnlyWidget\) return;/g)).toHaveLength(4);
   });
 
   it("lets the compact workspace rail scroll on short screens", () => {

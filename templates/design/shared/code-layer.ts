@@ -57,6 +57,15 @@ import type { DesignSourceType } from "./source-mode";
 import { commonPrefixLength, commonSuffixLength } from "./string-diff";
 import { parseSvgPathData } from "./svg-path-data";
 import {
+  bareClassToken,
+  EMPTY_STYLE_LENGTH,
+  INLINE_TEXT_TAGS,
+  padsBox,
+  paintsBox,
+  styleValueIsPresent,
+  TEXT_LAYER_TAGS,
+} from "./text-layer-rule";
+import {
   isVectorEndpointProperty,
   isVectorEndpointStyle,
   vectorEndpointPairForPrimitive,
@@ -404,6 +413,7 @@ export interface CodeLayerTreeNode {
     | "justifyContent"
     | "isFlexContainer"
     | "isGridContainer"
+    | "parentDisplay"
   >;
   badge?: string;
   renamable: boolean;
@@ -906,23 +916,6 @@ const SEMANTIC_LABEL_ATTRIBUTE_PRIORITY = [
   "data-test-id",
 ] as const;
 
-const TEXT_LAYER_TAGS = new Set([
-  "a",
-  "button",
-  "em",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "label",
-  "li",
-  "p",
-  "span",
-  "strong",
-]);
-
 const IMAGE_LAYER_TAGS = new Set(["canvas", "figure", "img", "picture"]);
 const SHAPE_LAYER_TAGS = new Set([
   "circle",
@@ -933,35 +926,6 @@ const SHAPE_LAYER_TAGS = new Set([
   "svg",
 ]);
 const COMPONENT_LAYER_TAGS = new Set(["button", "input", "select", "textarea"]);
-
-const INLINE_TEXT_TAGS = new Set([
-  "a",
-  "abbr",
-  "b",
-  "bdi",
-  "bdo",
-  "br",
-  "cite",
-  "code",
-  "data",
-  "dfn",
-  "em",
-  "i",
-  "kbd",
-  "mark",
-  "q",
-  "s",
-  "samp",
-  "small",
-  "span",
-  "strong",
-  "sub",
-  "sup",
-  "time",
-  "u",
-  "var",
-  "wbr",
-]);
 
 const INLINE_TEXT_STYLE_ROOT_TAGS = new Set([
   "a",
@@ -1185,10 +1149,6 @@ const UTILITY_CLASS_STEMS = new Set([
   "z",
 ]);
 
-function bareClassToken(token: string): string {
-  return token.slice(token.lastIndexOf(":") + 1).replace(/^-/, "");
-}
-
 function looksLikeUtilityClass(token: string): boolean {
   const bare = bareClassToken(token);
   if (!bare) return true;
@@ -1231,42 +1191,12 @@ function isSquare(
   return Boolean(width && height && width === height);
 }
 
-function classPaints(token: string): boolean {
-  const bare = bareClassToken(token);
-  if (/^bg-/.test(bare)) {
-    return !/^bg-(transparent|none|inherit|current|clip-|origin-|fixed|local|scroll|bottom|center|left|right|top|repeat|no-repeat|auto|cover|contain|blend-)/.test(
-      bare,
-    );
-  }
-  if (/^border(-[xytrbles])?(-\d+)?$/.test(bare)) return !/-0$/.test(bare);
-  if (/^ring(-\d+)?$/.test(bare)) return bare !== "ring-0";
-  if (/^outline(-\d+)?$/.test(bare)) return bare !== "outline-0";
-  if (/^shadow(-(sm|md|lg|xl|2xl|inner))?$/.test(bare)) return true;
-  return false;
-}
-
-function classPads(token: string): boolean {
-  const match = /^(p|px|py|pt|pr|pb|pl|ps|pe)-(.+)$/.exec(
-    bareClassToken(token),
-  );
-  return Boolean(match) && match![2] !== "0";
-}
-
 function classSizes(token: string): boolean {
   const bare = bareClassToken(token);
   if (/^inset(-[xy])?-/.test(bare)) return !bare.endsWith("-auto");
   const match = /^(w|h|size|min-w|min-h)-(.+)$/.exec(bare);
   if (!match) return false;
   return !["auto", "fit", "min", "max"].includes(match[2]!);
-}
-
-function styleValueIsPresent(
-  value: string | undefined,
-  empties: RegExp,
-): boolean {
-  if (typeof value !== "string") return false;
-  const trimmed = value.trim();
-  return trimmed.length > 0 && !empties.test(trimmed);
 }
 
 function visualFactsFor(node: CodeLayerNode): NodeVisualFacts {
@@ -1285,31 +1215,13 @@ function visualFactsOf(
   rawStyle: Record<string, string | undefined> | object,
 ): NodeVisualFacts {
   const style = rawStyle as Record<string, string | undefined>;
-  const emptyPaint = /^(none|transparent|initial|inherit|unset|0|0px)$/i;
-  const emptyLength = /^(0|0px|0rem|auto|initial|inherit|unset)$/i;
-
-  const painted =
-    classes.some(classPaints) ||
-    styleValueIsPresent(style["background"], emptyPaint) ||
-    styleValueIsPresent(style["background-color"], emptyPaint) ||
-    styleValueIsPresent(style["background-image"], emptyPaint) ||
-    styleValueIsPresent(style["border"], emptyPaint) ||
-    styleValueIsPresent(style["border-width"], emptyPaint) ||
-    styleValueIsPresent(style["box-shadow"], emptyPaint) ||
-    styleValueIsPresent(style["outline"], emptyPaint);
-
-  const padded =
-    classes.some(classPads) ||
-    styleValueIsPresent(style["padding"], emptyLength) ||
-    styleValueIsPresent(style["padding-top"], emptyLength) ||
-    styleValueIsPresent(style["padding-right"], emptyLength) ||
-    styleValueIsPresent(style["padding-bottom"], emptyLength) ||
-    styleValueIsPresent(style["padding-left"], emptyLength);
-
+  const styleValue = (property: string) => style[property];
+  const painted = paintsBox(classes, styleValue);
+  const padded = padsBox(classes, styleValue);
   const sized =
     classes.some(classSizes) ||
-    styleValueIsPresent(style["width"], emptyLength) ||
-    styleValueIsPresent(style["height"], emptyLength);
+    styleValueIsPresent(style["width"], EMPTY_STYLE_LENGTH) ||
+    styleValueIsPresent(style["height"], EMPTY_STYLE_LENGTH);
 
   const roundedFull =
     classes.some((token) => bareClassToken(token) === "rounded-full") ||
@@ -2792,6 +2704,7 @@ function treeTypeForNode(
     return "element";
   }
 
+  // keep in sync: isCodeLayerTextBlock in editor-chrome.bridge.ts mirrors this.
   if (
     TEXT_LAYER_TAGS.has(node.tag) &&
     !facts.painted &&
@@ -4099,6 +4012,7 @@ function treeFieldsFor(
       justifyContent: node.layout.justifyContent,
       isFlexContainer: node.layout.isFlexContainer,
       isGridContainer: node.layout.isGridContainer,
+      parentDisplay: node.layout.parentDisplay,
     },
     badge:
       node.layerNameSource === "attribute" && node.layerNameAttribute

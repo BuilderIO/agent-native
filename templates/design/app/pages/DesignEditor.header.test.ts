@@ -27,7 +27,10 @@ describe("Design editor header", () => {
 
   it("keeps the shared chat header and tabs on the scoped agent surface", () => {
     const panelStart = editorSource.indexOf("data-design-agent-panel");
-    const surfaceStart = editorSource.indexOf("<AgentChatSurface", panelStart);
+    const surfaceStart = editorSource.indexOf(
+      "<MemoAgentChatSurface",
+      panelStart,
+    );
     const surfaceEnd = editorSource.indexOf("/>", surfaceStart);
     const surface = editorSource.slice(surfaceStart, surfaceEnd);
 
@@ -38,7 +41,7 @@ describe("Design editor header", () => {
     expect(surface).toContain("showHeader={true}");
     expect(surface).toContain("showTabBar={true}");
     expect(surface).toContain("chatOnly={true}");
-    expect(surface).toContain("onCollapse={() => setActiveLeftPanel(null)}");
+    expect(surface).toContain("onCollapse={collapseLeftPanel}");
     expect(surface).toContain("min-w-0");
   });
 

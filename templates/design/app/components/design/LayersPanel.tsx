@@ -74,6 +74,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
+import { isFlowDisplay } from "@/pages/design-editor/live-layer-move-layout";
 
 export type LayersPanelNodeType =
   | "file"
@@ -111,6 +112,7 @@ export interface LayersPanelNode {
     justifyContent?: string;
     isFlexContainer?: boolean;
     isGridContainer?: boolean;
+    parentDisplay?: string;
   };
   children?: LayersPanelNode[];
   /** Has layers that are only built once the row is expanded. */
@@ -252,6 +254,7 @@ export interface FlatLayerRow {
   ancestorIds: string[];
   hasChildren: boolean;
   canAcceptChildren: boolean;
+  siblingsInLayoutOrder: boolean;
 }
 
 const CONTAINER_TYPES = new Set<LayersPanelNodeType | undefined>([
@@ -455,6 +458,22 @@ function filterNode(
   return null;
 }
 
+// As in Figma: auto-layout children list in layout order, everything else
+// lists topmost (last DOM child) first.
+function siblingsListInLayoutOrder(siblings: readonly LayersPanelNode[]) {
+  return (
+    siblings.length > 0 &&
+    siblings.every((node) => isFlowDisplay(node.layout?.parentDisplay))
+  );
+}
+
+function childrenListInLayoutOrder(node: LayersPanelNode): boolean {
+  return (
+    Boolean(node.layout?.isFlexContainer || node.layout?.isGridContainer) ||
+    siblingsListInLayoutOrder(node.children ?? [])
+  );
+}
+
 export function flattenRows(
   nodes: LayersPanelNode[],
   expandedIds: ReadonlySet<string>,
@@ -463,8 +482,9 @@ export function flattenRows(
   parentKey = "root",
   ancestorIds: string[] = [],
   rows: FlatLayerRow[] = [],
+  siblingsInLayoutOrder = siblingsListInLayoutOrder(nodes),
 ) {
-  const displayOrder = [...nodes].reverse();
+  const displayOrder = siblingsInLayoutOrder ? nodes : [...nodes].reverse();
   displayOrder.forEach((node, index) => {
     const children = node.children ?? [];
     const hasChildren = children.length > 0 || node.childrenPending === true;
@@ -477,6 +497,7 @@ export function flattenRows(
       ancestorIds,
       hasChildren,
       canAcceptChildren,
+      siblingsInLayoutOrder,
     });
     if (hasChildren && (forceExpanded || expandedIds.has(node.id))) {
       flattenRows(
@@ -487,6 +508,7 @@ export function flattenRows(
         rowKey,
         [...ancestorIds, node.id],
         rows,
+        childrenListInLayoutOrder(node),
       );
     }
   });
@@ -503,7 +525,13 @@ export function mapPanelPlacementToDomPlacement(
 
 export function mapPanelMoveIntentToDomIntent(
   intent: LayersPanelMoveIntent,
+  targetRow: Pick<FlatLayerRow, "node" | "siblingsInLayoutOrder">,
 ): LayersPanelMoveIntent {
+  const receiverInLayoutOrder =
+    intent.placement === "inside"
+      ? childrenListInLayoutOrder(targetRow.node)
+      : targetRow.siblingsInLayoutOrder;
+  if (receiverInLayoutOrder) return intent;
   return {
     ...intent,
     draggedIds: [...intent.draggedIds].reverse(),
@@ -897,6 +925,7 @@ function LayersPanelImpl(
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedIdsRef = useRef<readonly string[]>(selectedIds);
   const visibleRowsRef = useRef<FlatLayerRow[]>([]);
+  const selectableVisibleIdsRef = useRef<string[]>([]);
   const rootsRef = useRef<LayersPanelNode[]>([]);
   const expandedIdsRef = useRef<readonly string[]>(expandedIds);
   expandedIdsRef.current = expandedIds;
@@ -971,6 +1000,7 @@ function LayersPanelImpl(
   );
 
   visibleRowsRef.current = visibleRows;
+  selectableVisibleIdsRef.current = selectableVisibleIds;
   rootsRef.current = roots;
 
   useLayoutEffect(() => {
@@ -1048,15 +1078,15 @@ function LayersPanelImpl(
         range: options.range,
         currentSelectedIds,
         anchor: lastSelectionAnchorRef.current,
-        selectableVisibleIds,
+        selectableVisibleIds: selectableVisibleIdsRef.current,
         visibleRows: visibleRowsRef.current,
-        anchorFallbackSelectedIds: selectedIds,
+        anchorFallbackSelectedIds: selectedIdsRef.current,
       });
       lastSelectionAnchorRef.current = nextAnchor;
       lastPanelSelectionSignatureRef.current = nextIds.join("\0");
       onSelectionChange(nextIds, { id, selectedIds: nextIds, ...options });
     },
-    [onSelectionChange, selectableVisibleIds, selectedIds],
+    [onSelectionChange],
   );
 
   const commitRename = useCallback(
@@ -1945,7 +1975,7 @@ const LayerRow = memo(function LayerRow({
       ),
       duplicate: event.altKey,
     } satisfies LayersPanelMoveIntent;
-    const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
+    const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent, row);
     if (canMoveLayer && !canMoveLayer(moveIntent)) {
       clearStaleIndicatorForThisRow();
       return;
@@ -2026,7 +2056,7 @@ const LayerRow = memo(function LayerRow({
               ),
               duplicate: event.altKey,
             } satisfies LayersPanelMoveIntent);
-      const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent);
+      const moveIntent = mapPanelMoveIntentToDomIntent(panelIntent, row);
       if (!canMoveLayer || canMoveLayer(moveIntent)) {
         onMoveLayer(moveIntent);
       }

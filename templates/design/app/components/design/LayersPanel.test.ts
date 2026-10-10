@@ -1,5 +1,11 @@
+import {
+  buildCodeLayerProjection,
+  buildCodeLayerTree,
+} from "@shared/code-layer";
 import type { DragEvent } from "react";
 import { describe, expect, it } from "vitest";
+
+import { codeLayerTreeToPanelNodes } from "@/pages/design-editor/code-layer-state";
 
 import {
   buildAncestorIdMap,
@@ -62,6 +68,7 @@ function row(
     ancestorIds,
     hasChildren: false,
     canAcceptChildren: false,
+    siblingsInLayoutOrder: false,
   };
 }
 
@@ -483,27 +490,151 @@ describe("LayersPanel row order convention (L5)", () => {
 
   it("maps panel move intents into DOM placement and sibling order", () => {
     expect(
-      mapPanelMoveIntentToDomIntent({
-        draggedIds: ["top-panel-row", "lower-panel-row"],
-        targetId: "anchor",
-        placement: "before",
-      }),
+      mapPanelMoveIntentToDomIntent(
+        {
+          draggedIds: ["top-panel-row", "lower-panel-row"],
+          targetId: "anchor",
+          placement: "before",
+        },
+        row("anchor"),
+      ),
     ).toEqual({
       draggedIds: ["lower-panel-row", "top-panel-row"],
       targetId: "anchor",
       placement: "after",
     });
     expect(
-      mapPanelMoveIntentToDomIntent({
-        draggedIds: ["top-panel-row", "lower-panel-row"],
-        targetId: "container",
-        placement: "inside",
-      }),
+      mapPanelMoveIntentToDomIntent(
+        {
+          draggedIds: ["top-panel-row", "lower-panel-row"],
+          targetId: "container",
+          placement: "inside",
+        },
+        row("container"),
+      ),
     ).toEqual({
       draggedIds: ["lower-panel-row", "top-panel-row"],
       targetId: "container",
       placement: "inside",
     });
+  });
+});
+
+describe("LayersPanel auto-layout row order", () => {
+  function panelOrder(html: string, expandedIds: string[]) {
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+    const nodes = codeLayerTreeToPanelNodes(tree, new Set(), new Set());
+    const byName = new Map<string, string>();
+    buildLayerNodeMap(nodes).forEach((node) => byName.set(node.name, node.id));
+    const expanded = new Set(expandedIds.map((name) => byName.get(name)!));
+    return flattenRows(nodes, expanded, false).map((r) => r.node.name);
+  }
+
+  const child = (name: string) => `<div data-name="${name}"></div>`;
+
+  it("lists flex-column, flex-row and grid children in layout order", () => {
+    const html = `<body style="position:relative">
+      <div data-name="Stack" style="display:flex;flex-direction:column">${child("Alpha")}${child("Bravo")}</div>
+      <div data-name="Row" class="flex flex-row">${child("One")}${child("Two")}</div>
+      <div data-name="Grid" style="display:grid">${child("G1")}${child("G2")}</div>
+    </body>`;
+    expect(panelOrder(html, ["Stack", "Row", "Grid"])).toEqual([
+      "Grid",
+      "G1",
+      "G2",
+      "Row",
+      "One",
+      "Two",
+      "Stack",
+      "Alpha",
+      "Bravo",
+    ]);
+  });
+
+  it("keeps absolutely positioned and plain-flow children topmost first", () => {
+    const html = `<body style="position:relative">
+      <div data-name="Free" style="position:relative">
+        <div data-name="Back" style="position:absolute"></div>
+        <div data-name="Front" style="position:absolute"></div>
+      </div>
+      <div data-name="Flow">${child("First")}${child("Last")}</div>
+    </body>`;
+    expect(panelOrder(html, ["Free", "Flow"])).toEqual([
+      "Flow",
+      "Last",
+      "First",
+      "Free",
+      "Front",
+      "Back",
+    ]);
+  });
+
+  it("lists a flex-column body's children in layout order at the panel root", () => {
+    const html = `<body style="display:flex;flex-direction:column">${child("Header")}${child("Main")}${child("Footer")}</body>`;
+    expect(panelOrder(html, [])).toEqual(["Header", "Main", "Footer"]);
+  });
+
+  it("drops before a layout-order row without swapping placement or dragged order", () => {
+    const target = {
+      ...row("bravo"),
+      node: { id: "bravo", name: "bravo", layout: { parentDisplay: "flex" } },
+      siblingsInLayoutOrder: true,
+    };
+    expect(
+      mapPanelMoveIntentToDomIntent(
+        {
+          draggedIds: ["upper", "lower"],
+          targetId: "bravo",
+          placement: "before",
+        },
+        target,
+      ),
+    ).toEqual({
+      draggedIds: ["upper", "lower"],
+      targetId: "bravo",
+      placement: "before",
+    });
+  });
+
+  it("keeps dragged order when dropping inside an empty auto-layout container", () => {
+    const target = {
+      ...row("stack"),
+      node: { id: "stack", name: "stack", layout: { isFlexContainer: true } },
+    };
+    expect(
+      mapPanelMoveIntentToDomIntent(
+        {
+          draggedIds: ["upper", "lower"],
+          targetId: "stack",
+          placement: "inside",
+        },
+        target,
+      ).draggedIds,
+    ).toEqual(["upper", "lower"]);
+  });
+
+  it("lists an auto-layout container's children in the order an inside drop keeps", () => {
+    const stack: LayersPanelNode = {
+      id: "stack",
+      name: "stack",
+      layout: { isFlexContainer: true },
+      children: [
+        { id: "first", name: "first" },
+        { id: "second", name: "second" },
+      ],
+    };
+    const rows = flattenRows([stack], new Set(["stack"]), false);
+    expect(rows.map((r) => r.node.id)).toEqual(["stack", "first", "second"]);
+    expect(
+      mapPanelMoveIntentToDomIntent(
+        {
+          draggedIds: ["first", "second"],
+          targetId: "stack",
+          placement: "inside",
+        },
+        rows[0]!,
+      ).draggedIds,
+    ).toEqual(["first", "second"]);
   });
 });
 

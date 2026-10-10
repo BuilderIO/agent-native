@@ -56,6 +56,12 @@ it("keeps the document palette fixed while the picker is open", () => {
   expect(swatchCount()).toBe(3);
 });
 
+it("shows the palette passed in the render that opens the picker", () => {
+  render(["#111111"], false);
+  render(["#111111", "#222222"], true);
+  expect(swatchCount()).toBe(2);
+});
+
 it("a press on the saturation field does not start a text selection", () => {
   render([], true);
   const field = document.querySelector<HTMLElement>(

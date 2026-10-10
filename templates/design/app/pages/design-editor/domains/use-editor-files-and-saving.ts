@@ -97,6 +97,7 @@ import {
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
+  reportDesignSaveFailure,
 } from "../save-failure";
 import {
   designFileCodeLayerSource,
@@ -230,6 +231,26 @@ export function useEditorFilesAndSaving({
       id: "design-save-outbox-discarded",
     });
   }, [readOnlyWidget, t]);
+
+  const reportSaveFailure = useCallback(
+    (error: unknown) =>
+      reportDesignSaveFailure(error, navigator.onLine, {
+        warnChangesWillRetry,
+        showConflict: () => {
+          if (readOnlyWidget) return;
+          toast.error(t("designEditor.toasts.saveConflict"), {
+            id: "design-save-error",
+          });
+        },
+        showError: (message) => {
+          if (readOnlyWidget) return;
+          toast.error(message ?? t("common.genericError"), {
+            id: "design-save-error",
+          });
+        },
+      }),
+    [readOnlyWidget, t, warnChangesWillRetry],
+  );
 
   const journalOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
@@ -1017,8 +1038,14 @@ export function useEditorFilesAndSaving({
       }
     }
   }, [serverFiles]);
+  // A get-design response can predate a geometry save still in flight, so
+  // unacknowledged local operations stay on top of whatever the server sent.
   const designDataJson = useMemo(
-    () => parseDesignDataJson(design?.data),
+    () =>
+      rebaseDesignDataWithPendingOperations(
+        parseDesignDataJson(design?.data),
+        pendingFrameGeometryOperationsForUnloadRef.current,
+      ),
     [design?.data],
   );
   const designSourceType = useMemo(
@@ -1068,10 +1095,7 @@ export function useEditorFilesAndSaving({
   }, [layoutGrids]);
   handleLayoutGridChangeRef.current = handleLayoutGridChange;
   useEffect(() => {
-    designDataJsonRef.current = rebaseDesignDataWithPendingOperations(
-      designDataJson,
-      pendingFrameGeometryOperationsForUnloadRef.current,
-    );
+    designDataJsonRef.current = designDataJson;
   }, [designDataJson]);
   const canvasFrameGeometryById = useMemo(
     () => getCanvasFrameGeometry(designDataJson),
@@ -1560,7 +1584,7 @@ export function useEditorFilesAndSaving({
     fileSaveOperationRevisionRef,
     latestFileSaveForUnloadRef,
     fileSaveTimersRef,
-    warnChangesWillRetry,
+    reportSaveFailure,
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,

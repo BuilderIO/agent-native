@@ -21,6 +21,7 @@ import {
 } from "@shared/gradient-opacity";
 import { commonPrefixLength, commonSuffixLength } from "@shared/string-diff";
 
+import type { SubtreeColorStylesRead } from "../multi-screen/read-portable-style-snapshot";
 import type { ElementInfo } from "../types";
 import {
   buildSolidFillLayer,
@@ -1220,6 +1221,7 @@ function replaceScopedColorTokensInHtml(
 export function selectionColorValues(
   element: ElementInfo | ElementInfo[],
   scopes: SelectionColorScope[] = [],
+  readSubtreeColorStyles?: (element: ElementInfo) => SubtreeColorStylesRead,
 ): SelectionColorValue[] {
   const elements = Array.isArray(element) ? element : [element];
   const values = new Map<string, SelectionColorValue>();
@@ -1257,6 +1259,18 @@ export function selectionColorValues(
       current.portableStyleSnapshot?.nodes.forEach((node) =>
         addStyleColors(values, node.styles, true),
       );
+      const subtree =
+        current.styleSnapshotReadOnDemand && readSubtreeColorStyles
+          ? readSubtreeColorStyles(current)
+          : undefined;
+      if (subtree?.status === "captured" || subtree?.status === "truncated") {
+        subtree.nodes.forEach((styles) => addStyleColors(values, styles, true));
+      } else if (subtree?.status === "failed") {
+        console.warn(
+          "Could not read the colors under the selection",
+          current.selector,
+        );
+      }
       if (current.htmlContent) {
         scanColorTokens(current.htmlContent).tokens.forEach(
           ({ value: token }) => addColorValue(values, "color", token),

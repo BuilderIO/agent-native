@@ -804,6 +804,7 @@ export function useEditorContentAndComponents({
         refreshPreview?: boolean;
         skipPreview?: boolean;
         forcePreviewFullDocument?: boolean;
+        allowPreviewNodeSwap?: boolean;
         immediateSave?: boolean;
         awaitSave?: boolean;
         persist?: boolean;

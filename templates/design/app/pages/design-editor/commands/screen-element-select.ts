@@ -12,6 +12,7 @@ import {
   canonicalElementInfoForCodeLayerNode,
   canonicalizeElementInfoFromProjection,
   elementInfoFromCodeLayerNode,
+  hasSettledPortableStyles,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
 import type { ApplyFileContentUpdateResult } from "@/pages/design-editor/commands/apply-file-content-update";
@@ -158,8 +159,7 @@ export function runScreenElementSelect(
         node?.dataAttributes["data-agent-native-node-id"] ===
           pendingLayerId)) &&
     !isScreenRootElementInfo(canonical) &&
-    (canonical.portableStyleSnapshot !== undefined ||
-      canonical.styleSnapshotCaptureFailed === true) &&
+    hasSettledPortableStyles(canonical) &&
     !blockedSelection;
   if (ignoredLayerSelectionEcho) {
     if (exactPendingLayerEcho) setSelectedElement(canonical);

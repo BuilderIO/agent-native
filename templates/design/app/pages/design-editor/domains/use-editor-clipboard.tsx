@@ -20,6 +20,7 @@ import type {
 import { DESIGN_FILE_STORAGE_REQUIRED_EVENT } from "@/components/design/editor/DesignBottomToolbar";
 import { FigmaPasteImagesNotice } from "@/components/design/FigmaPasteImagesNotice";
 import { getCurrentBoardSelectionWorldBounds } from "@/components/design/multi-screen/overview-layout";
+import { readPortableStyleSnapshot } from "@/components/design/multi-screen/read-portable-style-snapshot";
 import type {
   MultiScreenCanvasProps,
   Point,
@@ -425,12 +426,22 @@ export function useEditorClipboard({
         overviewScreens,
         overviewSelectedScreenIds,
         pasteCascadeRef,
+        readPortableStyleSnapshot: (screenId, target) =>
+          readPortableStyleSnapshot(
+            screenId,
+            target,
+            viewModeRef.current === "overview"
+              ? activeBreakpointWidthStateRef.current
+              : undefined,
+            boardFileId,
+          ),
         runtimeLayerSnapshotsById,
         setHasCanvasClipboard,
         t,
         viewModeRef,
       }),
     [
+      boardFileId,
       canvasFrameGeometryById,
       designSourceType,
       files,

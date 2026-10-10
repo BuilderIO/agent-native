@@ -23,6 +23,10 @@ export function designSaveErrorMessage(error: unknown): string | null {
   return message.replace(/^DESIGN_HTML_INTEGRITY:\s*/, "");
 }
 
+export function isContentPatchRejection(error: unknown): boolean {
+  return errorField(error, "status") === 422;
+}
+
 export function isDesignSaveSuccessConflict(
   persistedContentMatches: boolean,
 ): boolean {
@@ -55,8 +59,10 @@ export function classifyDesignSaveFailure(
   }
 
   if (!navigatorOnline) return "offline";
+  // The action client rethrows a fetch rejection as a plain Error with no status.
+  const reachedServer = typeof status === "number" && status !== 0;
   if (
-    (name === "TypeError" || status === 0) &&
+    !reachedServer &&
     (message.includes("failed to fetch") ||
       message.includes("networkerror") ||
       message.includes("network request failed") ||
@@ -66,4 +72,20 @@ export function classifyDesignSaveFailure(
   }
 
   return "other";
+}
+
+export function reportDesignSaveFailure(
+  error: unknown,
+  navigatorOnline: boolean,
+  report: {
+    warnChangesWillRetry: () => void;
+    showConflict: () => void;
+    showError: (message: string | null) => void;
+  },
+): void {
+  const kind = classifyDesignSaveFailure(error, navigatorOnline);
+  if (kind === "offline") report.warnChangesWillRetry();
+  else if (kind === "conflict") report.showConflict();
+  else if (kind !== "intentional-abort")
+    report.showError(designSaveErrorMessage(error));
 }

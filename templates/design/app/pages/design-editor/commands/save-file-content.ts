@@ -1,5 +1,8 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
-import { sourceContentHash } from "@shared/source-workspace";
+import {
+  sourceContentHash,
+  sourceContentPatch,
+} from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
@@ -17,6 +20,7 @@ import {
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
+  isContentPatchRejection,
   isDesignSaveSuccessConflict,
   patchProofStatusAfterPersistedSave,
 } from "@/pages/design-editor/save-failure";
@@ -335,6 +339,19 @@ export function runSaveFileContent(
       ? journalOutboxEntry(queuedOutboxEntry)
       : Promise.resolve(false));
   let outboxEntryJournaled = false;
+  const knownBaseContent = (
+    request: FileContentSaveRequest,
+  ): string | undefined => {
+    const remembered = knownSaveContents.get(
+      `${request.id}\0${request.expectedVersionHash}`,
+    );
+    if (remembered !== undefined) return remembered;
+    const pendingBase = getPendingBaseContent?.(request.id);
+    return pendingBase !== undefined &&
+      sourceContentHash(pendingBase) === request.expectedVersionHash
+      ? pendingBase
+      : undefined;
+  };
   // Re-applies the edit this save carries onto the content the server holds
   // now. Null means it could not be merged exactly, which the caller must
   // surface as a conflict.
@@ -342,19 +359,8 @@ export function runSaveFileContent(
     request: FileContentSaveRequest,
   ): Promise<FileContentSaveRequest | null> => {
     if (!readLiveFileContent) return null;
-    let base = knownSaveContents.get(
-      `${request.id}\0${request.expectedVersionHash}`,
-    );
-    if (base === undefined) {
-      const pendingBase = getPendingBaseContent?.(request.id);
-      if (
-        pendingBase === undefined ||
-        sourceContentHash(pendingBase) !== request.expectedVersionHash
-      ) {
-        return null;
-      }
-      base = pendingBase;
-    }
+    const base = knownBaseContent(request);
+    if (base === undefined) return null;
     let theirs: string;
     try {
       theirs = await readLiveFileContent(request.id);
@@ -406,10 +412,16 @@ export function runSaveFileContent(
       outboxEntryJournaled = await durableOutboxJournal;
       const expectedVersionHash = pending.expectedVersionHash;
       const outboxEntry = createFileSaveOutboxEntry(pending);
+      // A mirror-only write sends the document: a patch on a moved base is a
+      // 409, where the server skips a stale mirror instead.
+      const patchBase =
+        pending.syncCollab &&
+        pending.identityMigrationSourceContent === undefined
+          ? knownBaseContent(pending)
+          : undefined;
       rememberSaveContent(pending.id, pending.content);
-      const result = await updateFileMutation.mutateAsync({
+      const request = {
         id: pending.id,
-        content: pending.content,
         syncCollab: pending.syncCollab,
         operationSource: pending.operationSource,
         operationRevision: pending.operationRevision,
@@ -417,7 +429,31 @@ export function runSaveFileContent(
         ...(pending.identityMigrationSourceContent !== undefined
           ? { identityOnly: true }
           : {}),
-      } as any);
+      };
+      const contentPatch =
+        patchBase !== undefined
+          ? sourceContentPatch(patchBase, pending.content)
+          : undefined;
+      // A server without contentPatch drops it and saves nothing, and a base
+      // matched by a colliding hash gets a 422, so neither result is final.
+      let result: unknown = contentPatch
+        ? await updateFileMutation
+            .mutateAsync({ ...request, contentPatch } as any)
+            .catch((error: unknown) => {
+              if (isContentPatchRejection(error)) return undefined;
+              throw error;
+            })
+        : undefined;
+      if (
+        contentPatch === undefined ||
+        (result as { versionHash?: unknown } | undefined)?.versionHash !==
+          contentPatch.resultHash
+      ) {
+        result = await updateFileMutation.mutateAsync({
+          ...request,
+          content: pending.content,
+        } as any);
+      }
       if (
         pending.identityMigrationSourceContent !== undefined &&
         latestFileSaveForUnloadRef.current[pending.id] !== pending

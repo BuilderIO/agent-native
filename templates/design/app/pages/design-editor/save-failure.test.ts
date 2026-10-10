@@ -1,11 +1,12 @@
 import { DesignHtmlIntegrityError } from "@shared/html-integrity";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
   isDesignSaveSuccessConflict,
   patchProofStatusAfterPersistedSave,
+  reportDesignSaveFailure,
 } from "./save-failure";
 
 describe("Design save failure classification", () => {
@@ -16,6 +17,86 @@ describe("Design save failure classification", () => {
     expect(classifyDesignSaveFailure(new Error("anything"), false)).toBe(
       "offline",
     );
+  });
+
+  it("treats the action client's rethrown fetch failure as offline", () => {
+    expect(
+      classifyDesignSaveFailure(
+        new Error("Action update-design failed: Failed to fetch"),
+        true,
+      ),
+    ).toBe("offline");
+    expect(
+      classifyDesignSaveFailure(
+        Object.assign(
+          new Error("Action update-design failed: failed to fetch upstream"),
+          { status: 502 },
+        ),
+        true,
+      ),
+    ).toBe("other");
+  });
+
+  it("shows the server error instead of the reconnect warning when a save is rejected online", () => {
+    const report = {
+      warnChangesWillRetry: vi.fn(),
+      showConflict: vi.fn(),
+      showError: vi.fn(),
+    };
+    reportDesignSaveFailure(
+      Object.assign(new Error("Action update-design failed: Internal error"), {
+        status: 500,
+      }),
+      true,
+      report,
+    );
+    expect(report.warnChangesWillRetry).not.toHaveBeenCalled();
+    expect(report.showConflict).not.toHaveBeenCalled();
+    expect(report.showError).toHaveBeenCalledWith(
+      "Action update-design failed: Internal error",
+    );
+  });
+
+  it("reports a rejected stale save as a conflict, not the raw server text", () => {
+    const report = {
+      warnChangesWillRetry: vi.fn(),
+      showConflict: vi.fn(),
+      showError: vi.fn(),
+    };
+    reportDesignSaveFailure(
+      Object.assign(
+        new Error(
+          "File changed since it was read. Re-read the file and retry.",
+        ),
+        { status: 409 },
+      ),
+      true,
+      report,
+    );
+    expect(report.showConflict).toHaveBeenCalledTimes(1);
+    expect(report.showError).not.toHaveBeenCalled();
+    expect(report.warnChangesWillRetry).not.toHaveBeenCalled();
+  });
+
+  it("warns that changes will save when reconnected only for a network failure", () => {
+    const report = {
+      warnChangesWillRetry: vi.fn(),
+      showConflict: vi.fn(),
+      showError: vi.fn(),
+    };
+    reportDesignSaveFailure(
+      new Error("Action update-design failed: Failed to fetch"),
+      true,
+      report,
+    );
+    reportDesignSaveFailure(
+      Object.assign(new Error("aborted"), { name: "AbortError" }),
+      true,
+      report,
+    );
+    expect(report.warnChangesWillRetry).toHaveBeenCalledTimes(1);
+    expect(report.showConflict).not.toHaveBeenCalled();
+    expect(report.showError).not.toHaveBeenCalled();
   });
 
   it("silences intentional HMR/navigation aborts", () => {

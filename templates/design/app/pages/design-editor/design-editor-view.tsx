@@ -375,6 +375,7 @@ export function renderDesignEditorView({
     handleScreenHeightModeChange,
     selectedScreenElement,
     selectionColorScopes,
+    readSelectionSubtreeColorStyles,
     handleSelectionColorChange,
     handleSelectionColorPickerOpenChange,
     canSelectSelectionColorTarget,
@@ -1238,6 +1239,7 @@ export function renderDesignEditorView({
           )
       : undefined,
     selectionColorScopes,
+    readSubtreeColorStyles: readSelectionSubtreeColorStyles,
     onSelectionColorTarget: handleSelectionColorTarget,
     canSelectSelectionColorTarget,
     onSelectionColorChange: canEditActiveVisualScreen

@@ -511,7 +511,11 @@ export function DesignColorPicker({
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
   const documentColorsAtOpenRef = useRef(documentColors);
-  if (!open) documentColorsAtOpenRef.current = documentColors;
+  const wasOpenRef = useRef(open);
+  if (!open || !wasOpenRef.current) {
+    documentColorsAtOpenRef.current = documentColors;
+  }
+  wasOpenRef.current = open;
   const shownDocumentColors = documentColorsAtOpenRef.current;
   const handleOpenChange = (nextOpen: boolean) => {
     if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);

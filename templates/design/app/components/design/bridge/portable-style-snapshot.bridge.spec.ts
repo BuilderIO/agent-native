@@ -549,4 +549,79 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
       expect(styles?.borderTopColor).toBe("rgb(10, 20, 30)");
     },
   );
+
+  it(
+    "retains no extra document once a selection's styles are captured",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage({
+          viewport: { width: 800, height: 600 },
+        });
+        await page.setContent(`<!doctype html><html><head><style>button{background-color:teal}section{color:purple}</style></head><body style="margin:0">
+          <button data-agent-native-node-id="btn">Click</button>
+          <section data-agent-native-node-id="sec">Text</section>
+        </body></html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        const attachedDocuments = async () => {
+          await page.evaluate(
+            () => new Promise((resolve) => setTimeout(resolve, 50)),
+          );
+          return page.frames().length;
+        };
+        await page.evaluate(() => {
+          (window as any).__messages = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (event.data?.type === "element-select") {
+              (window as any).__messages.push(event.data);
+            }
+          });
+        });
+        const before = await attachedDocuments();
+        const captured: Record<string, string | undefined> = {};
+        for (const [id, property] of [
+          ["btn", "backgroundColor"],
+          ["sec", "color"],
+        ] as const) {
+          const selector = `[data-agent-native-node-id="${id}"]`;
+          const count = await page.evaluate(
+            () => (window as any).__messages.length as number,
+          );
+          await page.evaluate((sel) => {
+            window.postMessage(
+              {
+                type: "select-element",
+                selector: sel,
+                selectorCandidates: [sel],
+              },
+              "*",
+            );
+          }, selector);
+          await page.waitForFunction(
+            (after) => (window as any).__messages.length > after,
+            count,
+          );
+          captured[id] = await page.evaluate(
+            (key) =>
+              (window as any).__messages.at(-1)?.payload?.portableStyleSnapshot
+                ?.nodes?.[0]?.styles?.[key],
+            property,
+          );
+          expect(await attachedDocuments(), `after selecting ${id}`).toBe(
+            before,
+          );
+        }
+        expect(captured).toEqual({
+          btn: "rgb(0, 128, 128)",
+          sec: "rgb(128, 0, 128)",
+        });
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 });

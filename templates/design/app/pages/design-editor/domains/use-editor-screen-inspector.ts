@@ -15,6 +15,11 @@ import {
 import { getInitialFrameGeometry } from "@/components/design/multi-screen/frame-geometry";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
 import {
+  frameElementTarget,
+  readSubtreeColorStyles,
+  type SubtreeColorStylesRead,
+} from "@/components/design/multi-screen/read-portable-style-snapshot";
+import {
   resolveScreenHeightMode,
   type ScreenHeightMode,
 } from "@/components/design/multi-screen/screen-height";
@@ -22,6 +27,7 @@ import {
   clampScreenDimension,
   readScreenSizeConstraints,
 } from "@/components/design/multi-screen/screen-sizing";
+import type { ElementInfo } from "@/components/design/types";
 import {
   externalPreviewUrlForContent,
   fullPreviewHtml,
@@ -170,6 +176,7 @@ export function useEditorScreenInspector({
     designDataJsonRef,
     canvasFrameGeometryById,
     overviewScreens,
+    boardFileId,
   } = editorFilesAndSaving;
   const {
     responsiveEditScopeRef,
@@ -923,6 +930,22 @@ export function useEditorScreenInspector({
     viewMode,
   ]);
 
+  const readSelectionSubtreeColorStyles = useCallback(
+    (element: ElementInfo): SubtreeColorStylesRead => {
+      const screenId = element.sourceLayerIdentity?.screenId ?? activeFile?.id;
+      if (!screenId || !element.selector) return { status: "missing" };
+      return readSubtreeColorStyles(
+        screenId,
+        frameElementTarget(element.selector, element),
+        viewModeRef.current === "overview"
+          ? activeBreakpointWidthStateRef.current
+          : undefined,
+        boardFileId,
+      );
+    },
+    [activeFile?.id, boardFileId],
+  );
+
   const selectionColorScopeIdentity = JSON.stringify(
     selectionColorScopes.map(
       ({ fileId, sourceId, selector, wholeDocument }) => ({
@@ -1390,6 +1413,7 @@ export function useEditorScreenInspector({
     selectionColorPickerSessionRef,
     selectionColorScopes,
     selectionColorScopeIdentity,
+    readSelectionSubtreeColorStyles,
     handleSelectionColorChange,
     handleSelectionColorPickerOpenChange,
     canSelectSelectionColorTarget,

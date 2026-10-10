@@ -407,6 +407,7 @@ export interface UndoArgs {
       refreshPreview?: boolean;
       skipPreview?: boolean;
       forcePreviewFullDocument?: boolean;
+      allowPreviewNodeSwap?: boolean;
       immediateSave?: boolean;
       persist?: boolean;
       recordHistory?: boolean;
@@ -523,7 +524,7 @@ export interface UndoArgs {
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
-    options?: { forceFullDocument?: boolean },
+    options?: { forceFullDocument?: boolean; allowSourceNodeSwap?: boolean },
   ) => PreviewContentReplaceResult;
   requestPendingLiveNonStyleRevert: (
     edits: readonly PendingLiveNonStyleEdit[],
@@ -873,6 +874,7 @@ export function runUndo({
         ? applyLocalContentUpdate(clipboardPasteUndo.before, {
             recordHistory: false,
             forcePreviewFullDocument: true,
+            allowPreviewNodeSwap: true,
             immediateSave: true,
             clipboardMutation,
           })
@@ -967,6 +969,7 @@ export function runUndo({
           previewContentReplaceNeedsRenderFallback(
             replacePreviewContent(next, null, {
               forceFullDocument: true,
+              allowSourceNodeSwap: true,
             }),
           )
         ) {
@@ -1049,6 +1052,7 @@ export function runUndo({
             applyLocalContentUpdate(entry.before, {
               refreshPreview: false,
               forcePreviewFullDocument: true,
+              allowPreviewNodeSwap: true,
               immediateSave: true,
               recordHistory: false,
             });
@@ -1157,6 +1161,7 @@ export function runUndo({
                   historyBeforeContent: prepared.historyBeforeContent,
                   refreshPreview: false,
                   forcePreviewFullDocument: true,
+                  allowPreviewNodeSwap: true,
                   immediateSave: true,
                   recordHistory: false,
                 })
