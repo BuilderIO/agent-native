@@ -11,9 +11,9 @@ const buttonGroupVariants = cva(
     variants: {
       orientation: {
         horizontal:
-          "[&>*:not(:first-child)]:rounded-l-none [&>*:not(:first-child)]:border-l-0 [&>*:not(:last-child)]:rounded-r-none",
+          "[&>[data-slot=button]:not(:first-child)]:rounded-l-none [&>[data-slot=button]:not(:first-child)]:border-l [&>[data-slot=button]:not(:first-child)]:border-border [&>[data-slot=button]:has(~[data-slot=button])]:rounded-r-none [&>[data-slot=button]:has(~[data-slot=button])]:border-r-0",
         vertical:
-          "flex-col [&>*:not(:first-child)]:rounded-t-none [&>*:not(:first-child)]:border-t-0 [&>*:not(:last-child)]:rounded-b-none",
+          "flex-col [&>[data-slot=button]:not(:first-child)]:rounded-t-none [&>[data-slot=button]:not(:first-child)]:border-t [&>[data-slot=button]:not(:first-child)]:border-border [&>[data-slot=button]:has(~[data-slot=button])]:rounded-b-none [&>[data-slot=button]:has(~[data-slot=button])]:border-b-0",
       },
     },
     defaultVariants: {
