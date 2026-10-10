@@ -364,8 +364,8 @@ If /review-latest-feedback was used, carry its start cursor, grouped reports,
 evidence links, and disposition table into the ship ledger and PR recap. Carry
 CI run/fingerprint occurrences in the ship task transcript and PR recap, while
 keeping the feedback task transcript as the cross-sweep ledger source. Do not
-create GitHub issues to track those failures. Scheduled CI, production-health,
-and signup diagnostics are grouped in `#qa-agent-native`; link the relevant
+create GitHub issues to track those failures. Scheduled Beta, Design,
+production-health, and signup diagnostics are grouped in `#qa-agent-native`; link the relevant
 channel rollup and run artifact in the ship ledger, and do not duplicate the
 report with another issue or Slack message.
 Follow review-latest-feedback for ownership, claims, reporter replies, and the

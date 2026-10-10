@@ -225,6 +225,59 @@ describe("document body intent merge", () => {
     });
   });
 
+  it("keeps an acknowledged same-writer insertion when a later stale snapshot appends text", () => {
+    expect(
+      mergeDocumentBodyIntents({
+        authoredBaseContent: "Alpha paragraph A-first\nCharlie paragraph",
+        authoredCandidateContent:
+          "Alpha paragraph A-first A-third\nCharlie paragraph B-first B-second",
+        currentContent:
+          "Alpha paragraph A-first A-second\nCharlie paragraph B-first B-second",
+        currentRevision: 4,
+        incoming: {
+          writerId: "browser:a",
+          operationId: "a:30",
+          generation: 30,
+          authoredBaseRevision: 1,
+        },
+        priorIntents: [
+          {
+            writerId: "browser:b",
+            operationId: "b:10",
+            generation: 10,
+            authoredBaseRevision: 0,
+            committedRevision: 2,
+            affectedBlockIndexes: [1],
+            canonicalChanged: true,
+          },
+          {
+            writerId: "browser:a",
+            operationId: "a:20",
+            generation: 20,
+            authoredBaseRevision: 1,
+            committedRevision: 3,
+            affectedBlockIndexes: [0],
+            canonicalChanged: true,
+          },
+          {
+            writerId: "browser:b",
+            operationId: "b:20",
+            generation: 20,
+            authoredBaseRevision: 2,
+            committedRevision: 4,
+            affectedBlockIndexes: [1],
+            canonicalChanged: true,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      status: "resolved",
+      content:
+        "Alpha paragraph A-first A-second A-third\nCharlie paragraph B-first B-second",
+      displaced: false,
+    });
+  });
+
   it.each([
     ["Original passage", "Browser passage"],
     ["Base passage", "Browser passage"],

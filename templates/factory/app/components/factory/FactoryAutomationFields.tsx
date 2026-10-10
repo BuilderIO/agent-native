@@ -17,6 +17,7 @@ import {
   INTERVAL_MINUTES,
   isConnectorExplicitlyMissing,
   isDestinationReady,
+  requiresSlackFindingsDestination,
   timezoneOptions,
   type AutomationAuthorFilter,
   type FactoryAutomationConnections,
@@ -105,7 +106,12 @@ export function FactoryAutomationFields({
   const [authorDraft, setAuthorDraft] = useState("");
   const destinationReady =
     !readinessError &&
-    isDestinationReady(form.source, connections, form.slackWorkspace);
+    isDestinationReady(
+      form.source,
+      connections,
+      form.slackWorkspace,
+      form.template,
+    );
   const destinationLocked = disabled || (form.enabled && !destinationReady);
   const workspaceIntegrationsHref =
     workspaceIntegrationsHrefProp ?? "/dispatch/settings/integrations";
@@ -126,26 +132,37 @@ export function FactoryAutomationFields({
     Boolean(form.source) &&
     (showGuardrails || showSkillAlignment || showPrompt);
   const missingBanner =
-    form.source === "slack"
+    requiresSlackFindingsDestination(form.source, form.template) &&
+    isConnectorExplicitlyMissing("slack", connections, form.slackWorkspace)
       ? {
           title: t("factoryRoute.automationMissingSlack"),
           actionLabel: t("factoryRoute.automationConnectSlack"),
         }
-      : form.source === "github"
+      : form.source === "slack"
         ? {
-            title: t("factoryRoute.automationMissingGithub"),
-            actionLabel: t("factoryRoute.automationConnectGithub"),
+            title: t("factoryRoute.automationMissingSlack"),
+            actionLabel: t("factoryRoute.automationConnectSlack"),
           }
-        : form.source === "sentry"
+        : form.source === "github"
           ? {
-              title: t("factoryRoute.automationMissingSentry"),
-              actionLabel: t("factoryRoute.automationConnectSentry"),
+              title: t("factoryRoute.automationMissingGithub"),
+              actionLabel: t("factoryRoute.automationConnectGithub"),
             }
-          : null;
+          : form.source === "sentry"
+            ? {
+                title: t("factoryRoute.automationMissingSentry"),
+                actionLabel: t("factoryRoute.automationConnectSentry"),
+              }
+            : null;
   const showMissingBanner = Boolean(
     missingBanner &&
     !readinessError &&
-    isConnectorExplicitlyMissing(form.source, connections, form.slackWorkspace),
+    isConnectorExplicitlyMissing(
+      form.source,
+      connections,
+      form.slackWorkspace,
+      form.template,
+    ),
   );
   const showReadinessErrorBanner = Boolean(form.source && readinessError);
 
@@ -198,6 +215,28 @@ export function FactoryAutomationFields({
                 <span className="text-sm text-muted-foreground">
                   {sourceLabel}
                 </span>
+              }
+            />
+          ) : null}
+          {showDestination &&
+          requiresSlackFindingsDestination(form.source, form.template) ? (
+            <SettingsRow
+              label={t("factoryRoute.automationFindingsSlackChannel")}
+              description={t(
+                "factoryRoute.automationFindingsSlackChannelDescription",
+              )}
+              control={
+                <Input
+                  id="factory-automation-findings-channel"
+                  aria-label={t("factoryRoute.automationFindingsSlackChannel")}
+                  value={form.slackChannelId}
+                  onChange={(event) =>
+                    onChange({ ...form, slackChannelId: event.target.value })
+                  }
+                  placeholder={t("triage.slackChannelPlaceholder")}
+                  disabled={destinationLocked}
+                  className={fieldControlClass}
+                />
               }
             />
           ) : null}

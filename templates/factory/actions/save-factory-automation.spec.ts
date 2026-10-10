@@ -148,6 +148,116 @@ describe("save-factory-automation", () => {
     expect(assertFactoryConnectorReadyMock).toHaveBeenCalled();
   });
 
+  it("requires the Slack findings destination before enabling GitHub issue triage", async () => {
+    const githubContent = `---
+domain: factory
+factoryId: support-triage
+createdBy: alice@example.com
+triggerType: schedule
+schedule: "0 * * * *"
+enabled: false
+source: github
+template: github-issues
+repository: BuilderIO/agent-native
+---
+Review GitHub issues.
+`;
+    findFactoryAutomationDefinitionMock.mockResolvedValue({
+      name: "factories/support-triage/factory-github-issues",
+      resource: {
+        id: "resource-1",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-github-issues.md",
+        content: githubContent,
+        updatedAt: 1,
+      },
+      meta: { domain: "factory", triggerType: "schedule", timezone: "UTC" },
+    });
+    resourceGetByPathMock.mockResolvedValue({
+      id: "resource-1",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/support-triage/factory-github-issues.md",
+      content: githubContent,
+      updatedAt: 1,
+    });
+    const { default: action } = await import("./save-factory-automation.js");
+
+    await expect(
+      action.run(
+        {
+          factoryId: "support-triage",
+          automationId: "resource-1",
+          name: "factories/support-triage/factory-github-issues",
+          prompt: "Review GitHub issues.",
+          enabled: true,
+        },
+        { userEmail: "teammate@example.com" },
+      ),
+    ).rejects.toThrow(
+      "Configure a Slack findings channel before saving this job.",
+    );
+    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+  });
+
+  it("checks Slack readiness when enabling an issue-reporting job", async () => {
+    const githubContent = `---
+domain: factory
+factoryId: support-triage
+createdBy: alice@example.com
+triggerType: schedule
+schedule: "0 * * * *"
+enabled: false
+source: github
+template: github-issues
+repository: BuilderIO/agent-native
+---
+Review GitHub issues.
+`;
+    findFactoryAutomationDefinitionMock.mockResolvedValue({
+      name: "factories/support-triage/factory-github-issues",
+      resource: {
+        id: "resource-1",
+        owner: "__organization__:org-1",
+        path: "jobs/factories/support-triage/factory-github-issues.md",
+        content: githubContent,
+        updatedAt: 1,
+      },
+      meta: { domain: "factory", triggerType: "schedule", timezone: "UTC" },
+    });
+    resourceGetByPathMock.mockResolvedValue({
+      id: "resource-1",
+      owner: "__organization__:org-1",
+      path: "jobs/factories/support-triage/factory-github-issues.md",
+      content: githubContent,
+      updatedAt: 1,
+    });
+    const { default: action } = await import("./save-factory-automation.js");
+
+    await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-1",
+        name: "factories/support-triage/factory-github-issues",
+        prompt: "Review GitHub issues.",
+        slackChannelId: "CQA123",
+        enabled: true,
+      },
+      { userEmail: "teammate@example.com" },
+    );
+    expect(assertFactoryConnectorReadyMock).toHaveBeenNthCalledWith(
+      1,
+      "github",
+      "teammate@example.com",
+      expect.objectContaining({ orgId: "org-1", verb: "saving" }),
+    );
+    expect(assertFactoryConnectorReadyMock).toHaveBeenNthCalledWith(
+      2,
+      "slack",
+      "teammate@example.com",
+      expect.objectContaining({ orgId: "org-1", verb: "saving" }),
+    );
+  });
+
   it("saves and clears reasoningEffort, and rejects an unrecognized value", async () => {
     const { default: action } = await import("./save-factory-automation.js");
     const baseInput = {

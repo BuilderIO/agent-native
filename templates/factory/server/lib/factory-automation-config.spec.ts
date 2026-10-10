@@ -136,6 +136,24 @@ Classify Slack items.
     expect(next).toContain("Classify Slack items.");
   });
 
+  it("routes GitHub and Sentry finding batches to Slack guardrails", () => {
+    for (const [source, template] of [
+      ["github", "github-issues"],
+      ["sentry", "sentry-errors"],
+    ] as const) {
+      const guardrails = buildGuardrailsText(
+        "support-triage",
+        defaultAutomationConfig(source, template),
+      );
+      expect(guardrails).toContain("report-factory-findings");
+      expect(guardrails).toContain(
+        "Slack findings channel configured on this automation",
+      );
+      expect(guardrails).toContain("never writes to GitHub issues");
+      expect(guardrails).not.toContain("Builder is only tagged");
+    }
+  });
+
   it("does not delete a stored Slack channel when the config omits one", () => {
     const content = `---
 source: slack

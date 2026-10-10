@@ -37,6 +37,21 @@ const workflow = parse(
         };
       }>;
     };
+    report?: {
+      name?: unknown;
+      if?: unknown;
+      needs?: unknown;
+      permissions?: Record<string, unknown>;
+      steps?: Array<{
+        id?: unknown;
+        name?: unknown;
+        uses?: unknown;
+        if?: unknown;
+        run?: unknown;
+        "continue-on-error"?: unknown;
+        with?: Record<string, unknown>;
+      }>;
+    };
   };
 };
 
@@ -124,6 +139,72 @@ assert.equal(
 assert.equal(reportStep?.with?.path, "templates/design/test-results");
 assert.equal(reportStep?.with?.["retention-days"], 7);
 assert.equal(reportStep?.with?.["if-no-files-found"], "warn");
+
+const source = readFileSync(".github/workflows/design-e2e.yml", "utf8");
+const reporter = workflow.jobs?.report;
+assert.equal(reporter?.name, "Report scheduled Design E2E failures");
+assert.deepEqual(reporter?.needs, ["e2e"]);
+assert.equal(
+  reporter?.if,
+  "${{ always() && github.event_name == 'schedule' && needs.e2e.result != 'success' && needs.e2e.result != 'skipped' }}",
+);
+assert.deepEqual(reporter?.permissions, {
+  actions: "read",
+  contents: "read",
+});
+const reportSteps = reporter?.steps ?? [];
+const reportStepByName = (name: string) =>
+  reportSteps.find((step) => step.name === name);
+const artifactDownload = reportStepByName("Download Design E2E artifacts");
+assert.equal(
+  artifactDownload?.uses,
+  "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+);
+assert.equal(artifactDownload?.with?.pattern, "design-*");
+assert.equal(
+  reportStepByName("Collect failed jobs and full logs")?.["continue-on-error"],
+  true,
+);
+assert.ok(
+  typeof reportStepByName("Collect failed jobs and full logs")?.run ===
+    "string" &&
+    String(reportStepByName("Collect failed jobs and full logs")?.run).includes(
+      "gh run view --log-failed --job",
+    ),
+  "the scheduled report must retain complete failed-job logs",
+);
+const reportArtifact = reportStepByName(
+  "Upload the complete Design E2E report",
+);
+assert.equal(
+  reportArtifact?.uses,
+  "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+);
+assert.equal(reportArtifact?.with?.["retention-days"], 90);
+assert.equal(reportArtifact?.with?.["if-no-files-found"], "error");
+const slackPosts = reportSteps.filter(
+  (step) =>
+    step.uses ===
+      "slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d" &&
+    step.with?.method === "chat.postMessage",
+);
+assert.equal(
+  slackPosts.length,
+  1,
+  "post one consolidated Slack message per run",
+);
+assert.equal(
+  slackPosts[0]?.with?.["payload-file-path"],
+  ".tmp/design-e2e-report/slack-payload.json",
+);
+assert.ok(source.includes("--arg channel C0C4U4XRT6X"));
+assert.ok(source.includes("Complete failed-job logs and shard artifacts:"));
+assert.ok(source.includes("steps.report-artifact.outcome != 'success'"));
+assert.ok(source.includes("steps.report-artifact.outputs.artifact-url == ''"));
+assert.ok(source.includes("steps.collect.outcome != 'success'"));
+assert.ok(source.includes("steps.slack.outputs.ok != 'true'"));
+assert.ok(source.includes("No GitHub issue fallback was used."));
+assert.doesNotMatch(source, /issues:\s*write|gh issue\s/);
 
 const budgetBuild = steps.find(
   (step) => step.name === "Build Design for production",

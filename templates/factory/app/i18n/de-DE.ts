@@ -461,7 +461,10 @@ const messages = {
     automationSourceSentryHint: "Offene Fehler.",
     automationSlackChannel: "Slack-Kanal-ID",
     automationSlackChannelDescription:
-      "Kanal, den dieser Job abfragt. Beginnt mit C.",
+      "Slack-Kanal, den dieser Job liest oder für gebündelte Befunde nutzt. Beginnt mit C.",
+    automationFindingsSlackChannel: "Slack-Kanal-ID für Befunde",
+    automationFindingsSlackChannelDescription:
+      "Zulässige GitHub- oder Sentry-Befunde dieses Jobs werden hier in einer Nachricht gebündelt. Beginnt mit C.",
     automationRepository: "GitHub-Repository",
     automationRepositoryDescription: "owner/repo, das dieser Job abfragt.",
     automationSentryOrg: "Sentry-Organisation",

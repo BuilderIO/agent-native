@@ -443,7 +443,10 @@ const messages = {
     automationSourceSentryHint: "अनसुलझी त्रुटियाँ।",
     automationSlackChannel: "Slack चैनल आईडी",
     automationSlackChannelDescription:
-      "वह चैनल जिसे यह जॉब पोल करता है। C से शुरू होता है।",
+      "Slack चैनल जिसे यह जॉब पढ़ता है या समूहित निष्कर्ष पोस्ट करता है। C से शुरू होता है।",
+    automationFindingsSlackChannel: "Slack निष्कर्ष चैनल आईडी",
+    automationFindingsSlackChannelDescription:
+      "इस जॉब के योग्य GitHub या Sentry निष्कर्ष यहाँ एक संदेश में समूहित होते हैं। C से शुरू होता है।",
     automationRepository: "GitHub रिपॉज़िटरी",
     automationRepositoryDescription: "owner/repo जिसे यह जॉब पोल करता है।",
     automationSentryOrg: "Sentry संगठन",

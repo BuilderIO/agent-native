@@ -15,8 +15,8 @@ PRD -> design -> engineering -> release.
   decision append-only.
 - Lets a human correct a decision or tune a rule from the Factory UI or the
   generic Agent-Native Slack bot.
-- Starts clear-bug work by tagging Builder in Slack or `@builderio-bot` on a
-  GitHub issue, deduped by Factory item.
+- Starts clear-bug work in Slack feedback threads and sends grouped GitHub issue
+  or Sentry findings to the Slack findings channel configured on the automation.
 - Surfaces incomplete evidence and timeouts as explicit states rather than
   plausible success.
 
@@ -51,8 +51,9 @@ env-only read in a provider client.
 
 Factory prefers the new Agent-Native GitHub App. Configure `GITHUB_APP_ID`,
 `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY` together. The App
-needs repository `Pull requests: Read and write`, `Issues: Read and write`,
-and `Checks: Read`, plus organization `Members: Read` for governance. Hosted
+needs repository `Pull requests: Read and write`, `Issues: Read and write`
+for pull-request comments, and `Checks: Read`, plus organization `Members: Read`
+for governance. Hosted
 Factory stores the private key in the shared vault and generates short-lived
 installation tokens server-side. Do not send a static token or private key to
 developers. During migration, an existing `GITHUB_TOKEN` remains supported
@@ -62,7 +63,7 @@ For Factory pull-request polling and babysitting, scope a fine-grained token to
 the target repository and grant these repository permissions:
 
 - `Pull requests: Read` for pull requests, reviews, comments, and changed files.
-- `Issues: Read and write` for issue creation, reactions, and PR comments.
+- `Issues: Read and write` for pull-request comments.
 - `Checks: Read` for complete check-run evidence.
 
 Factory governance also verifies organization membership, so it needs
@@ -93,6 +94,8 @@ them through `provider-api-request`. Scheduled Factory runs also receive the
 workspace's connected MCP tools, subject to the same workspace and request
 scope gates. The three normalized pollers are compatibility adapters scoped by
 `factoryId`, not the agent's capability limit.
+GitHub and Sentry automations set a separate Slack findings destination on each
+job, so report delivery does not reuse or poll the source observation channel.
 
 The generic Slack bot is wired to Factory. Mention `@agent-native` in a feedback
 thread to inspect the linked item, explain its decision, or tune a rule. The
@@ -106,8 +109,10 @@ optional and is only needed when the deployment owner cannot reach the existing
 Dispatch vault organization through membership. Factory automations use
 workspace Slack and GitHub connections, or the org vault. They do not read Builder AI
 services credentials, so this template is not locked to that vendor API.
-Clear Sentry bugs become a GitHub issue in the factory repository, then tag
-`@builderio-bot` the same way GitHub-issue dispatch does.
+Eligible Sentry findings and GitHub issue findings are grouped into one message
+per automation run in the configured Slack findings channel. The report keeps
+the original source link and bounded stored issue evidence; this automated
+finding path does not create or comment on GitHub issues.
 
 ## Agents and agentic apps
 

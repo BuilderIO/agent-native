@@ -19,6 +19,7 @@ import {
   clampInboxLimit,
   clampWorkLimit,
   normalizeUserPrompt,
+  requiresSlackFindingsDestination,
   readConfigSavedAt,
   readFactoryAutomationConfig,
   readPromptVersion,
@@ -168,6 +169,12 @@ export default defineAction({
       if (current.source === "slack" && !nextSlackChannelId) {
         throw new Error("Configure a Slack channel before saving this job.");
       }
+      if (requiresSlackFindingsDestination(current) && !nextSlackChannelId) {
+        fail("Configure a Slack findings channel before saving this job.", {
+          errorCode: "slack_findings_channel_required",
+          statusCode: 400,
+        });
+      }
       if (current.source === "github" && !nextRepository) {
         throw new Error(
           "Configure a GitHub repository before saving this job.",
@@ -187,6 +194,13 @@ export default defineAction({
           slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
           verb: "saving",
         });
+        if (requiresSlackFindingsDestination(current)) {
+          await assertFactoryConnectorReady("slack", userEmail, {
+            orgId,
+            slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
+            verb: "saving",
+          });
+        }
       } catch (error) {
         if (error instanceof VaultUnavailableError) fail(error.message);
         fail(

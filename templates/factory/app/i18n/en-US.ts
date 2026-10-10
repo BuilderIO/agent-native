@@ -453,7 +453,10 @@ const messages = {
     automationSourceSentryHint: "Unresolved errors.",
     automationSlackChannel: "Slack channel id",
     automationSlackChannelDescription:
-      "The channel this job polls. Starts with C.",
+      "The Slack channel this job reads from or posts grouped findings to. Starts with C.",
+    automationFindingsSlackChannel: "Slack findings channel id",
+    automationFindingsSlackChannelDescription:
+      "Eligible GitHub or Sentry findings from this job are grouped into one message here. Starts with C.",
     automationRepository: "GitHub repository",
     automationRepositoryDescription: "owner/repo this job polls.",
     automationSentryOrg: "Sentry organization",

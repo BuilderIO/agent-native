@@ -1,4 +1,4 @@
-export const FACTORY_ALIGNMENT_REVISION = 2;
+export const FACTORY_ALIGNMENT_REVISION = 3;
 
 const ALIGNMENT_START = "<!-- factory-skill-alignment:start -->";
 const ALIGNMENT_END = "<!-- factory-skill-alignment:end -->";
@@ -27,9 +27,12 @@ contract is evidence-first and reply-producing:
   \`alreadyClaimed: true\` (\`clearBug\` may be omitted or \`false\`), omit
   reaction, and do not start Builder work.
 - Classify \`risk\` and \`confidence\` on every item, including skips.
-  \`dispatch-factory-item\` only tags Builder when \`clearBug\` is true,
-  \`risk\` is low, and \`confidence\` is high; everything else is a skip
-  regardless of how clear the bug looks.
+  \`dispatch-factory-item\` only tags Builder for eligible Slack feedback
+  (\`clearBug\` true, \`risk\` low, and \`confidence\` high); everything else
+  is a skip regardless of how clear the bug looks. Eligible GitHub issue and
+  Sentry findings are posted as one grouped \`report-factory-findings\` message
+  to the Slack findings channel configured on that automation and never create or comment on
+  GitHub issues.
 - For a dispatch-eligible repo-owned Slack item (\`clearBug\` true, \`risk\`
   low, \`confidence\` high) with no existing eyes 👀, you MUST pass
   \`reaction: eyes\` 👀 on \`dispatch-factory-item\` — never dispatch without
@@ -46,12 +49,14 @@ contract is evidence-first and reply-producing:
   separate. Do not claim a fix, PR, reply, or deployment without confirmation
   from the relevant action or runtime evidence.
 
-After classifying every processed item, call \`dispatch-factory-item\` so every
-skip or dispatch is recorded: \`alreadyClaimed: true\` (\`clearBug\` may be
+After classifying every processed item, call \`dispatch-factory-item\` to record
+skips and Slack dispatches: \`alreadyClaimed: true\` (\`clearBug\` may be
 omitted or \`false\`) when the parent already has eyes 👀, otherwise
-\`clearBug: true\` or \`false\`, \`risk\`, \`confidence\`, and a concise
-evidence-grounded reason. Pass \`reaction: eyes\` only when \`clearBug\` is
-true, \`risk\` is low, and \`confidence\` is high.`;
+\`clearBug\`, \`risk\`, \`confidence\`, and a concise evidence-grounded reason.
+For eligible GitHub issue or Sentry findings, do not call
+\`dispatch-factory-item\`; collect the complete eligible batch and call
+\`report-factory-findings\` exactly once per run. Pass \`reaction: eyes\` only
+for eligible Slack feedback.`;
 
 const PR_ALIGNMENT = `## Current review-prs contract
 

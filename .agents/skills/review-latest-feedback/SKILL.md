@@ -297,8 +297,8 @@ query.
 ### CI failures
 
 Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
-Scheduled diagnostics roll up in `#qa-agent-native`; read full artifacts and
-keep occurrences here, never issue-track them.
+Beta, Design, production-health, and signup reports go to
+`#qa-agent-native`; read artifacts and ledger runs here, never issue-track them.
 Query failures mean **CI unavailable**, not empty. Deploy/release/publish rows
 follow [`deployment-recovery.md`](references/deployment-recovery.md) and stay
 active through target proof; track source-fix disposition separately.

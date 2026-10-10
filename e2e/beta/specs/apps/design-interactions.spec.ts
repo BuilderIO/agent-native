@@ -647,9 +647,14 @@ async function addUrlBackedDropTarget(
     dataOperations: [
       {
         op: "set",
+        path: ["fusionUrl"],
+        value: URL_BACKED_TARGET_URL,
+      },
+      {
+        op: "set",
         path: ["screenMetadata", screenId],
         value: {
-          sourceType: "localhost",
+          sourceType: "fusion",
           previewState: "live",
           url: URL_BACKED_TARGET_URL,
           previewUrl: URL_BACKED_TARGET_URL,
@@ -1235,7 +1240,7 @@ test.describe("authenticated beta Design interactions", () => {
           timeout: 20_000,
         })
         .toMatchObject({
-          sourceType: "localhost",
+          sourceType: "fusion",
           previewState: "live",
           url: URL_BACKED_TARGET_URL,
           previewUrl: URL_BACKED_TARGET_URL,

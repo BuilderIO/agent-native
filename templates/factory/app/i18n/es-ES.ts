@@ -464,7 +464,10 @@ const messages = {
     automationSourceSentryHint: "Errores sin resolver.",
     automationSlackChannel: "Id de canal de Slack",
     automationSlackChannelDescription:
-      "Canal que consulta este trabajo. Empieza por C.",
+      "Canal de Slack que este trabajo lee o usa para publicar hallazgos agrupados. Empieza por C.",
+    automationFindingsSlackChannel: "Id del canal de Slack para hallazgos",
+    automationFindingsSlackChannelDescription:
+      "Los hallazgos aptos de GitHub o Sentry de este trabajo se agrupan en un solo mensaje aquí. Empieza por C.",
     automationRepository: "Repositorio de GitHub",
     automationRepositoryDescription: "owner/repo que consulta este trabajo.",
     automationSentryOrg: "Organización de Sentry",

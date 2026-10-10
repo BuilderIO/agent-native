@@ -28,7 +28,7 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 - Keep app state in SQL via Drizzle, scope reads/writes by org and member, and use actions for UI, agent, CLI, MCP, and A2A.
 - Missing callbacks, partial threads, unreadable provider responses, or missed reconciliation are failures; preserve typed errors or `reconciliation_required`.
 - Deduplicate by Factory item and rule/run identity, not provider comment id.
-- Slack clear bugs use `dispatch-factory-item`; never post Slack messages or `@handles`. GitHub issues and Sentry tag `@builderio-bot` on a GitHub issue. Read `review-latest-feedback`; include `risk` and `confidence`.
+- Slack clear bugs use `dispatch-factory-item` in the source thread. Group eligible GitHub issue and Sentry findings in one `report-factory-findings` call to that automation's configured Slack findings channel. The automated finding path never creates, comments on, or reacts to GitHub issues. Record non-eligible items as skips with `dispatch-factory-item`. Read `review-latest-feedback`; include `risk` and `confidence`.
 - PR governance follows `review-prs`: verify membership/evidence, skip drafts/external authors, apply the verified `liamdebeasi` exception for ordinary gates, keep ultra-scary risks manual, and never auto-merge.
 - Graph edits create immutable blueprint versions. AI proposes with `source=ai`; a person reviews/publishes through actions.
 - Provider credentials belong to Dispatch/workspace integrations, not Factory. Hosted reads use workspace connections or org vault; local development may use `.env` Slack/GitHub/Sentry keys last.
@@ -49,7 +49,7 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 | `poll-slack-channel` / `get-slack-feedback-context` | Slack evidence |
 | `poll-github-sources` / `poll-sentry-errors` / `ingest-github-observation` | Bounded source evidence |
 | `list-triage-rules` / `save-triage-rule` / `evaluate-triage-item` / `record-triage-feedback` | Tune rules, record decisions/corrections |
-| `dispatch-factory-item` / `govern-factory-pull-request` | Apply issue/PR gates |
+| `dispatch-factory-item` / `report-factory-findings` / `govern-factory-pull-request` | Apply feedback and PR gates |
 | `babysit-factory-pull-request` / `propose-pr-babysit-status` | Ping bot PR / read briefing |
 | `list-factory-automations` / `create-factory-automation` / `save-factory-automation` / `run-factory-automation` | Manage jobs |
 | `list-factory-audit` / `get-factory-automation-health` | Queue history / scheduler |

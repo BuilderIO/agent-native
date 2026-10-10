@@ -317,6 +317,20 @@ export async function postThreadReply(
   return data;
 }
 
+export async function postChannelMessage(
+  workspace: Workspace,
+  channelId: string,
+  text: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackPostMessageResult> {
+  return slackWrite<SlackPostMessageResult>(
+    workspace,
+    "chat.postMessage",
+    { channel: channelId, text },
+    tokenResolver,
+  );
+}
+
 export async function getTeamInfo(
   workspace: Workspace,
   tokenResolver?: SlackTokenResolver,

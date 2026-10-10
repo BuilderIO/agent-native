@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
+  fail: (message: string): never => {
+    throw new Error(message);
+  },
 }));
 vi.mock("../server/db/index.js", () => ({ getDb: vi.fn() }));
 vi.mock("../server/lib/require-factory-automation.js", () => ({
@@ -11,20 +14,13 @@ vi.mock("../server/lib/require-workspace-member.js", () => ({
   requireWorkspaceMember: vi.fn(),
   workspaceMemberIdentityFromContext: vi.fn(),
 }));
-vi.mock("../server/lib/factory-repository-scope.js", () => ({
-  resolveFactoryRepository: vi.fn(),
-}));
 vi.mock("../server/triage/audit.js", () => ({
   recordFactoryAudit: vi.fn(),
   recordFactoryAuditIfChanged: vi.fn(),
 }));
-vi.mock("../server/triage/github-client.js", () => ({
-  createGitHubClient: vi.fn(),
-}));
 vi.mock("../server/triage/ids.js", () => ({ stableId: vi.fn() }));
 vi.mock("../server/triage/metadata.js", () => ({
   metadataBoolean: vi.fn(),
-  metadataString: vi.fn(),
   parseTriageMetadata: vi.fn(),
   serializeTriageMetadata: vi.fn(),
 }));
@@ -36,21 +32,24 @@ import { getDb } from "../server/db/index.js";
 import { stableId } from "../server/triage/ids.js";
 import {
   computeDispatchGuardResults,
-  dispatchRepositoryConflictReason,
-  dispatchRepositoryForItem,
+  assertSlackDispatchSource,
   hasFeedbackCluster,
   isStartedTriageRunStatus,
   recordAutomaticBuilderDecision,
   relatedDispatchConflictReason,
   slackClearBugReactionRequirement,
-  githubBotDispatchText,
-  parseFactoryGitHubIssueNumber,
   replyTextForItem,
   requireBuilderSlackUserId,
 } from "./dispatch-factory-item.js";
 import action from "./dispatch-factory-item.js";
 
 describe("dispatch-factory-item schema guidance", () => {
+  it("keeps the single-item action away from GitHub issue writes", () => {
+    expect((action as { description: string }).description).toContain(
+      "does not write to GitHub issues",
+    );
+  });
+
   it("describes clearBug and productUxImplications as orthogonal axes", () => {
     const shape = (
       action as {
@@ -283,37 +282,14 @@ describe("dispatch-factory-item Slack handoff", () => {
     );
   });
 
-  it("parses a GitHub issue number and writes an @builderio-bot request", () => {
-    expect(
-      parseFactoryGitHubIssueNumber({
-        externalId: "BuilderIO/agent-native#88",
-        sourceUrl: null,
-      }),
-    ).toBe(88);
-    expect(
-      parseFactoryGitHubIssueNumber({
-        externalId: "sentry-1",
-        sourceUrl: "https://github.com/builder/factory/issues/12",
-      }),
-    ).toBe(12);
-    expect(() =>
-      parseFactoryGitHubIssueNumber({
-        externalId: "sentry-1",
-        sourceUrl: null,
-      }),
-    ).toThrow(/issue number/);
-
-    const text = githubBotDispatchText({
-      itemId: "item-sentry",
-      sourceUrl: "https://sentry.example/issues/9",
-      reason: "Repeated TypeError on export",
-      clearErrorReport: "TypeError: cannot read map",
-    });
-    expect(text).toContain("@builderio-bot");
-    expect(text).toContain("/address-feedback");
-    expect(text).toContain("item-sentry");
-    expect(text).toContain("https://sentry.example/issues/9");
-    expect(text).toContain("TypeError: cannot read map");
+  it("rejects automated issue and Sentry dispatch through the single-item action", () => {
+    expect(() => assertSlackDispatchSource("github_issue")).toThrow(
+      /report-factory-findings/,
+    );
+    expect(() => assertSlackDispatchSource("sentry")).toThrow(
+      /report-factory-findings/,
+    );
+    expect(() => assertSlackDispatchSource("slack")).not.toThrow();
   });
 
   it("blocks related items that are already clustered or started", () => {
@@ -330,46 +306,6 @@ describe("dispatch-factory-item Slack handoff", () => {
     expect(isStartedTriageRunStatus("failed")).toBe(false);
     expect(isStartedTriageRunStatus("reconciliation_required")).toBe(true);
     expect(hasFeedbackCluster({})).toBe(false);
-  });
-
-  it("refuses to tag a repository the factory is not configured for", () => {
-    expect(
-      dispatchRepositoryConflictReason(
-        "BuilderIO/other-repo",
-        "BuilderIO/agent-native",
-      ),
-    ).toMatch(/belongs to BuilderIO\/other-repo/);
-    expect(
-      dispatchRepositoryConflictReason(
-        "https://github.com/BuilderIO/agent-native",
-        "BuilderIO/agent-native",
-      ),
-    ).toBeNull();
-  });
-
-  it("takes the repository from a GitHub issue and falls back to the factory's", () => {
-    expect(
-      dispatchRepositoryForItem(
-        { source: "github_issue", repository: "BuilderIO/other-repo" },
-        "BuilderIO/agent-native",
-      ),
-    ).toBe("BuilderIO/other-repo");
-    expect(
-      dispatchRepositoryForItem(
-        {
-          source: "github_issue",
-          repository: null,
-          externalId: "BuilderIO/other-repo#88",
-        },
-        "BuilderIO/agent-native",
-      ),
-    ).toBe("BuilderIO/other-repo");
-    expect(
-      dispatchRepositoryForItem(
-        { source: "sentry", repository: null, externalId: "sentry-1" },
-        "BuilderIO/agent-native",
-      ),
-    ).toBe("BuilderIO/agent-native");
   });
 
   it("updates an existing automatic-builder decision when a later skip is recorded", async () => {

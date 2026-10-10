@@ -119,34 +119,62 @@ export function isDestinationReady(
   source: AutomationSource | null,
   connections?: FactoryAutomationConnections,
   slackWorkspace: "primary" | "secondary" = "primary",
+  template: AutomationTemplateId = "blank",
 ): boolean {
   if (!source || !connections) return false;
-  if (source === "slack") {
-    return slackWorkspace === "secondary"
+  const sourceReady =
+    source === "slack"
+      ? slackWorkspace === "secondary"
+        ? connections.slackSecondary === true
+        : connections.slack === true
+      : connections[source] === true;
+  if (!sourceReady) return false;
+  return (
+    !requiresSlackFindingsDestination(source, template) ||
+    (slackWorkspace === "secondary"
       ? connections.slackSecondary === true
-      : connections.slack === true;
-  }
-  return connections[source] === true;
+      : connections.slack === true)
+  );
 }
 
 export function isConnectorExplicitlyMissing(
   source: AutomationSource | null,
   connections?: FactoryAutomationConnections,
   slackWorkspace: "primary" | "secondary" = "primary",
+  template: AutomationTemplateId = "blank",
 ): boolean {
   if (!source || !connections) return false;
-  if (source === "slack") {
-    return slackWorkspace === "secondary"
+  const sourceMissing =
+    source === "slack"
+      ? slackWorkspace === "secondary"
+        ? connections.slackSecondary === false
+        : connections.slack === false
+      : connections[source] === false;
+  const findingsSlackMissing =
+    requiresSlackFindingsDestination(source, template) &&
+    (slackWorkspace === "secondary"
       ? connections.slackSecondary === false
-      : connections.slack === false;
-  }
-  return connections[source] === false;
+      : connections.slack === false);
+  return sourceMissing || findingsSlackMissing;
+}
+
+export function requiresSlackFindingsDestination(
+  source: AutomationSource | null,
+  template: AutomationTemplateId,
+): boolean {
+  if (source === "sentry") return true;
+  return (
+    source === "github" &&
+    template !== "pr-governance" &&
+    template !== "pr-babysit"
+  );
 }
 
 export function isDestinationFilled(
   form: Pick<
     FactoryAutomationFormState,
     | "source"
+    | "template"
     | "slackChannelId"
     | "repository"
     | "sentryOrgSlug"
@@ -154,11 +182,18 @@ export function isDestinationFilled(
   >,
 ): boolean {
   if (form.source === "slack") return Boolean(form.slackChannelId.trim());
-  if (form.source === "github") return Boolean(form.repository.trim());
+  if (form.source === "github") {
+    return (
+      Boolean(form.repository.trim()) &&
+      (!requiresSlackFindingsDestination(form.source, form.template) ||
+        Boolean(form.slackChannelId.trim()))
+    );
+  }
   if (form.source === "sentry") {
     return (
       Boolean(form.sentryOrgSlug.trim()) &&
-      Boolean(form.sentryProjectSlug.trim())
+      Boolean(form.sentryProjectSlug.trim()) &&
+      Boolean(form.slackChannelId.trim())
     );
   }
   return false;
@@ -372,7 +407,12 @@ export function canCreateFactoryAutomation(
   }
   if (!isDestinationFilled(form)) return false;
   if (!form.enabled) return true;
-  return isDestinationReady(form.source, connections, form.slackWorkspace);
+  return isDestinationReady(
+    form.source,
+    connections,
+    form.slackWorkspace,
+    form.template,
+  );
 }
 
 export function canSaveFactoryAutomation(

@@ -15,6 +15,7 @@ import {
   clampInboxLimit,
   clampWorkLimit,
   defaultAutomationConfig,
+  requiresSlackFindingsDestination,
   sourceForTemplate,
   type FactoryAutomationConfig,
 } from "../server/lib/factory-automation-config.js";
@@ -40,7 +41,7 @@ const templateSchema = z.enum([
 
 export default defineAction({
   description:
-    "Create one Slack, GitHub, or Sentry job on an existing Factory. Use this when the user asks to create an automation. Do not save a graph or rename the factory. Ask for a Slack channel id, GitHub repository, or Sentry slugs if missing. Opens the Automations tab. Reply with the job name and source, not pipeline stages. Hosted jobs need a workspace connection or vault token. Pass author ids (Slack U/W or GitHub numeric ids), not names. Limits are action-enforced.",
+    "Create one Slack, GitHub, or Sentry job on an existing Factory. Use this when the user asks to create an automation. Do not save a graph or rename the factory. Slack source jobs need a source channel; reportable GitHub and Sentry jobs also need a Slack findings destination and post one grouped message per run. Ask for the relevant channel id, GitHub repository, or Sentry slugs if missing. Opens the Automations tab. Reply with the job name and source, not pipeline stages. Hosted jobs need workspace connections or vault tokens for every source and destination. Pass author ids (Slack U/W or GitHub numeric ids), not names. Limits are action-enforced.",
   schema: z.object({
     factoryId: factoryIdSchema,
     displayName: z.string().trim().min(1).max(120),
@@ -107,8 +108,20 @@ export default defineAction({
     } catch (error) {
       fail(error instanceof Error ? error.message : "Invalid author filter.");
     }
-    if (input.source === "slack" && !input.slackChannelId?.trim()) {
-      fail("Configure a Slack channel before creating this job.");
+    const configTemplate = input.template ?? "blank";
+    const reportsFindings = requiresSlackFindingsDestination({
+      source: input.source,
+      template: configTemplate,
+    });
+    if (
+      (input.source === "slack" || reportsFindings) &&
+      !input.slackChannelId?.trim()
+    ) {
+      fail(
+        reportsFindings
+          ? "Configure a Slack findings channel before creating this job."
+          : "Configure a Slack channel before creating this job.",
+      );
     }
     if (input.source === "github" && !input.repository?.trim()) {
       fail("Configure a GitHub repository before creating this job.");
@@ -132,6 +145,14 @@ export default defineAction({
             input.slackWorkspace === "secondary" ? "secondary" : "primary",
           verb: "creating",
         });
+        if (reportsFindings) {
+          await assertFactoryConnectorReady("slack", userEmail, {
+            orgId,
+            slackWorkspace:
+              input.slackWorkspace === "secondary" ? "secondary" : "primary",
+            verb: "creating",
+          });
+        }
       } catch (error) {
         if (error instanceof VaultUnavailableError) fail(error.message);
         fail(

@@ -37,8 +37,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      actions: read
       contents: read
     env:
+      GH_TOKEN: ${{ github.token }}
       SIGNUP_E2E_APPS: all
       SIGNUP_E2E_ENVIRONMENTS: ${{ inputs.environments || 'beta' }}
       SIGNUP_AGENT_APPS: ${{ inputs.apps || '' }}
@@ -58,6 +60,77 @@ jobs:
           cache: "pnpm"
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Restore the previous scheduled report state
+        id: previous-state
+        run: |
+          set -euo pipefail
+          state_dir=.tmp/signup-agent-continuity
+          previous_dir="$state_dir/previous"
+          downloaded_dir="$previous_dir/downloaded"
+          mkdir -p "$previous_dir"
+          previous_state="$previous_dir/state.json"
+          node --experimental-strip-types scripts/signup-report-continuity.ts init-agent --out-file "$previous_state"
+          echo "path=$previous_state" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" != "schedule" ]; then exit 0; fi
+
+          prefix="signup-agent-continuity-"
+          if [ "$GITHUB_RUN_ATTEMPT" -gt 1 ]; then
+            same_run_artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100")"
+            previous_name="$(jq -r --arg name "${prefix}${GITHUB_RUN_ID}-$((GITHUB_RUN_ATTEMPT - 1))" '[.artifacts[] | select(.name == $name and (.expired | not))] | last | .name // empty' <<< "$same_run_artifacts")"
+            if [ -n "$previous_name" ]; then
+              gh run download "$GITHUB_RUN_ID" --name "$previous_name" --dir "$downloaded_dir" --repo "$GITHUB_REPOSITORY"
+              state_file="$(find "$downloaded_dir" -type f -name state.json -print -quit)"
+              if [ -z "$state_file" ]; then echo "::error::Previous Signup agent state artifact had no state.json."; exit 1; fi
+              cp "$state_file" "$previous_state"
+              node --experimental-strip-types -e 'import { readFileSync } from "node:fs"; const value = JSON.parse(readFileSync(process.argv[1], "utf8")); if (value.reporter !== "signup-agent") process.exit(1)' "$previous_state"
+              exit 0
+            fi
+            echo "::error::The prior Signup agent attempt has no continuity artifact; refusing to use stale scheduled state."
+            exit 1
+          fi
+
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/signup-agent-scheduled.yml/runs?branch=main&event=schedule&status=completed&per_page=100")"
+          previous_run="$(jq -c --arg current "$GITHUB_RUN_ID" '[.workflow_runs[] | select((.id | tostring) != $current)][0] // empty' <<< "$runs")"
+          if [ -z "$previous_run" ]; then exit 0; fi
+          previous_id="$(jq -r '.id' <<< "$previous_run")"
+          previous_conclusion="$(jq -r '.conclusion // "unknown"' <<< "$previous_run")"
+          previous_run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$previous_id"
+          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/artifacts?per_page=100")"
+          previous_name="$(jq -r --arg prefix "$prefix$previous_id-" '[.artifacts[] | select((.name | startswith($prefix)) and (.expired | not))] | sort_by(.created_at) | last | .name // empty' <<< "$artifacts")"
+          if [ -n "$previous_name" ]; then
+            gh run download "$previous_id" --name "$previous_name" --dir "$downloaded_dir" --repo "$GITHUB_REPOSITORY"
+            state_file="$(find "$downloaded_dir" -type f -name state.json -print -quit)"
+            if [ -z "$state_file" ]; then echo "::error::Previous Signup agent state artifact had no state.json."; exit 1; fi
+            cp "$state_file" "$previous_state"
+            node --experimental-strip-types -e 'import { readFileSync } from "node:fs"; const value = JSON.parse(readFileSync(process.argv[1], "utf8")); if (value.reporter !== "signup-agent") process.exit(1)' "$previous_state"
+            exit 0
+          fi
+
+          previous_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/jobs?per_page=100")"
+          if jq -e '[.jobs[].steps[].name] | any(. == "Persist Signup agent continuity state")' <<< "$previous_jobs" >/dev/null; then
+            echo "::error::The latest scheduled Signup agent run did not preserve its continuity state; refusing to assume the report was clean."
+            exit 1
+          fi
+
+          legacy_name="$(jq -r --arg name "signup-agent-$previous_id" '[.artifacts[] | select(.name == $name and (.expired | not))] | last | .name // empty' <<< "$artifacts")"
+          legacy_id="$(jq -r --arg name "signup-agent-$previous_id" '[.artifacts[] | select(.name == $name and (.expired | not))] | last | .id // empty' <<< "$artifacts")"
+          if [ -z "$legacy_name" ]; then exit 0; fi
+          legacy_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$previous_id/artifacts/$legacy_id"
+          gh run download "$previous_id" --name "$legacy_name" --dir "$previous_dir/legacy" --repo "$GITHUB_REPOSITORY"
+          findings_file="$(find "$previous_dir/legacy" -type f -name findings.md -print -quit)"
+          if [ -z "$findings_file" ]; then exit 0; fi
+          finding_count="$(grep -ciE '^\|[[:space:]]*(high|medium|low)[[:space:]]*\|' "$findings_file" || true)"
+          report_complete=false
+          if [ "$previous_conclusion" = "success" ] && ! find "$previous_dir/legacy" -type f -name mailosaur-inconclusive.txt -print -quit | grep -q .; then report_complete=true; fi
+          if [ "$finding_count" -gt 0 ]; then
+            jq -n --arg run_url "$previous_run_url" --arg artifact_url "$legacy_url" --argjson finding_count "$finding_count" \
+              --argjson report_complete "$report_complete" \
+              '{version: 1, reporter: "signup-agent", outcome: "findings", findingCount: $finding_count, reportComplete: $report_complete, runUrl: $run_url, reportArtifactUrl: $artifact_url}' > "$previous_state"
+          elif [ "$report_complete" = "true" ]; then
+            jq -n --arg run_url "$previous_run_url" --arg artifact_url "$legacy_url" \
+              '{version: 1, reporter: "signup-agent", outcome: "clean", findingCount: 0, reportComplete: true, runUrl: $run_url, reportArtifactUrl: $artifact_url}' > "$previous_state"
+          fi
 
       - name: Typecheck the agent lane
         run: pnpm exec tsc --noEmit -p e2e/signup/tsconfig.json
@@ -140,26 +213,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-      - name: Check Slack configuration
-        id: slack_config
-        if: >-
-          ${{ always() && (steps.classify.outputs.inconclusive != 'true' || steps.evidence.outcome == 'failure') && (steps.review.outcome != 'success' || steps.publish.outcome != 'success' || steps.publish.outputs.has_findings == 'true' || steps.evidence.outcome == 'failure') }}
-        env:
-          QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -n "$QA_SLACK_BOT_TOKEN" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            message="Slack notification not configured: QA_SLACK_BOT_TOKEN is empty, so the signup agent report could not be sent to #qa-agent-native."
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::error::$message"
-            echo "$message" >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
       - name: Build the consolidated Slack report
-        if: ${{ always() && steps.slack_config.outputs.configured == 'true' }}
+        if: ${{ always() }}
         env:
           ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
@@ -206,6 +261,53 @@ jobs:
             cat .tmp/signup-agent/signup-agent-slack.txt
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Plan the Signup agent recovery rollup
+        id: continuity-plan
+        if: ${{ always() && steps.previous-state.outcome == 'success' }}
+        env:
+          ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+          outcome=incomplete
+          report_complete=false
+          finding_count=0
+          if [ -s e2e/signup/test-results/signup-agent/findings.md ]; then
+            finding_count="$(jq -r '.findingCount // 0' .tmp/signup-agent/signup-agent-rollup.json)"
+            if [ "${{ steps.review.outcome }}" = "success" ] && [ "${{ steps.publish.outcome }}" = "success" ] && [ "${{ steps.publish.outputs.incomplete }}" != "true" ] && [ "${{ steps.evidence.outcome }}" = "success" ] && [ "${{ steps.classify.outputs.inconclusive }}" != "true" ]; then
+              report_complete=true
+              if [ "${{ steps.publish.outputs.has_findings }}" = "true" ]; then outcome=findings; else outcome=clean; fi
+            fi
+          fi
+          if [ "$report_complete" = "false" ] && [ "${{ steps.classify.outputs.inconclusive }}" = "true" ]; then outcome=inconclusive; fi
+          args=(plan-agent --previous-state .tmp/signup-agent-continuity/previous/state.json --event "$GITHUB_EVENT_NAME" --outcome "$outcome" --finding-count "$finding_count" --report-complete "$report_complete" --run-url "$RUN_URL" --out-dir .tmp/signup-agent-continuity/plan)
+          if [ -n "$ARTIFACT_URL" ]; then args+=(--report-artifact-url "$ARTIFACT_URL"); fi
+          node --experimental-strip-types scripts/signup-report-continuity.ts "${args[@]}"
+          if [ "$(jq -r '.recovery != null' .tmp/signup-agent-continuity/plan/plan.json)" = "true" ]; then
+            jq -n --arg channel "$SLACK_CHANNEL" --rawfile text .tmp/signup-agent-continuity/plan/recovery.txt \
+              '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' > .tmp/signup-agent-slack-payload.json
+            echo "recovered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "recovered=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check Slack configuration
+        id: slack_config
+        if: >-
+          ${{ always() && (steps.continuity-plan.outputs.recovered == 'true' || ((steps.classify.outputs.inconclusive != 'true' || steps.evidence.outcome == 'failure') && (steps.review.outcome != 'success' || steps.publish.outcome != 'success' || steps.publish.outputs.has_findings == 'true' || steps.evidence.outcome == 'failure'))) }}
+        env:
+          QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "$QA_SLACK_BOT_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            message="Slack notification not configured: QA_SLACK_BOT_TOKEN is empty, so the signup agent report could not be sent to #qa-agent-native."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::error::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
       - name: Post the consolidated report to Slack
         id: slack
         if: ${{ always() && steps.slack_config.outputs.configured == 'true' }}
@@ -230,6 +332,29 @@ jobs:
           echo "::error::$message"
           echo "$message" >> "$GITHUB_STEP_SUMMARY"
           exit 1
+
+      - name: Finalize Signup agent continuity state
+        id: finalize-state
+        if: ${{ always() && github.event_name == 'schedule' && steps.continuity-plan.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          delivered=false
+          if [ "${{ steps.continuity-plan.outputs.recovered }}" != "true" ] && [ "${{ steps.publish.outputs.has_findings }}" != "true" ]; then delivered=true; fi
+          if [ "${{ steps.slack.outputs.ok }}" = "true" ]; then delivered=true; fi
+          node --experimental-strip-types scripts/signup-report-continuity.ts finalize-agent \
+            --previous-state .tmp/signup-agent-continuity/previous/state.json \
+            --plan .tmp/signup-agent-continuity/plan/plan.json \
+            --slack-delivered "$delivered" \
+            --out-file .tmp/signup-agent-continuity/state.json
+
+      - name: Persist Signup agent continuity state
+        if: ${{ always() && github.event_name == 'schedule' && steps.finalize-state.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signup-agent-continuity-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .tmp/signup-agent-continuity/state.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Fail after posting an incomplete report
         if: >-

@@ -453,7 +453,10 @@ const messages = {
     automationSourceSentryHint: "未解決のエラー。",
     automationSlackChannel: "Slack チャンネル ID",
     automationSlackChannelDescription:
-      "このジョブがポーリングするチャンネル。C で始まります。",
+      "このジョブが読み取る、または検出結果をまとめて投稿する Slack チャンネル。C で始まります。",
+    automationFindingsSlackChannel: "Slack 検出結果チャンネル ID",
+    automationFindingsSlackChannelDescription:
+      "このジョブの対象となる GitHub または Sentry の検出結果をここに 1 件のメッセージにまとめます。C で始まります。",
     automationRepository: "GitHub リポジトリ",
     automationRepositoryDescription: "このジョブがポーリングする owner/repo。",
     automationSentryOrg: "Sentry 組織",

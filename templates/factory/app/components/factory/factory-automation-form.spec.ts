@@ -15,6 +15,7 @@ import {
   mergeListedAutomationDraft,
   omitNullDestination,
   persistAuthorFilter,
+  requiresSlackFindingsDestination,
   type AutomationEditorSnapshot,
 } from "./factory-automation-form";
 
@@ -91,6 +92,53 @@ describe("factory-automation-form destination gating", () => {
     ).toBe(false);
     expect(
       canCreateFactoryAutomation({ ...slack, slackChannelId: "" }, connected),
+    ).toBe(false);
+  });
+
+  it("requires a separate Slack destination for grouped GitHub and Sentry findings", () => {
+    expect(requiresSlackFindingsDestination("github", "github-issues")).toBe(
+      true,
+    );
+    expect(requiresSlackFindingsDestination("sentry", "sentry-errors")).toBe(
+      true,
+    );
+    expect(requiresSlackFindingsDestination("github", "pr-governance")).toBe(
+      false,
+    );
+    expect(requiresSlackFindingsDestination("github", "pr-babysit")).toBe(
+      false,
+    );
+
+    const github = {
+      ...emptyAutomationForm("github"),
+      template: "github-issues" as const,
+      displayName: "Issue triage",
+      repository: "BuilderIO/agent-native",
+    };
+    expect(isDestinationFilled(github)).toBe(false);
+    expect(isDestinationFilled({ ...github, slackChannelId: "C123" })).toBe(
+      true,
+    );
+    expect(canCreateFactoryAutomation({ ...github, enabled: false })).toBe(
+      false,
+    );
+    expect(
+      canCreateFactoryAutomation({
+        ...github,
+        slackChannelId: "C123",
+        enabled: false,
+      }),
+    ).toBe(true);
+    expect(
+      isDestinationReady("github", connected, "primary", "github-issues"),
+    ).toBe(true);
+    expect(
+      isDestinationReady(
+        "github",
+        { ...connected, slack: false },
+        "primary",
+        "github-issues",
+      ),
     ).toBe(false);
   });
 
