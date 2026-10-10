@@ -932,7 +932,7 @@ export interface MultiTabAssistantChatHeaderProps {
   tabs: ChatTab[];
   activeTabId: string;
   activeTabMessageCount: number;
-  activeTabIsPersisted: boolean;
+  activeTabIsPersisted?: boolean;
   setActiveTabId: (tabId: string) => void;
   addTab: () => void;
   closeTab: (tabId: string) => void;

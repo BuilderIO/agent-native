@@ -2664,6 +2664,8 @@ const AgentKitAssistantChatBody = forwardRef<
           }
 
           try {
+            // Legacy controller persistence can resolve for expected
+            // deferrals, so the host write below is the confirmation here.
             return (
               (await onSaveThread(
                 threadId,

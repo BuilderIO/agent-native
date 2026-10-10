@@ -981,10 +981,15 @@ export function useChatThreads(
     fetchedRef.current = true;
 
     void (async () => {
+      const initialFetchRequestId = latestFetchRequestRef.current + 1;
       const loadedThreads = await fetchThreads();
       const restoredId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {
         initialRouteConfirmationPendingRef.current = null;
+        if (latestFetchRequestRef.current !== initialFetchRequestId) {
+          setIsLoading(false);
+          return;
+        }
         if (
           restoredId &&
           autoCreate &&
@@ -1016,6 +1021,13 @@ export function useChatThreads(
       ) {
         setIsLoading(false);
         return;
+      }
+      if (
+        restoredThread === undefined &&
+        routeControlsActiveThread &&
+        lookupRestored
+      ) {
+        initialRouteConfirmationPendingRef.current = null;
       }
       if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
         initialRouteConfirmationPendingRef.current = null;
