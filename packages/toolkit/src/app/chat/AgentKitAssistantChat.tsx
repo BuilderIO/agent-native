@@ -5769,16 +5769,20 @@ function AgentKitRunFailure({
   const retryWithoutAttachments =
     retryRequest.fileParts.length || retryRequest.requestAttachments.length
       ? () =>
-          void sendRetryRequest(
-            surface,
-            {
-              ...retryRequest,
-              text: retryRequest.textWithContext,
-              fileParts: [],
-              requestAttachments: [],
-              hasUnavailableAttachment: false,
-            },
-            runId,
+          runContinueWithVisibleError(
+            () =>
+              sendRetryRequest(
+                surface,
+                {
+                  ...retryRequest,
+                  text: retryRequest.textWithContext,
+                  fileParts: [],
+                  requestAttachments: [],
+                  hasUnavailableAttachment: false,
+                },
+                runId,
+              ),
+            setRetryWithoutAttachmentFailed,
           )
       : undefined;
   const resumeAfterSetup = useResumeAfterAiSetup(
