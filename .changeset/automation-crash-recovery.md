@@ -60,3 +60,5 @@ Keep interrupted firings retryable when recovery context, journal, delivery-evid
 Reconcile durably finished history on a later scheduler tick when projecting its final resource status fails, without reporting successful work as an execution error.
 
 Preserve every own JSON key in saved dispatch requests while removing inline attachment bytes, including nested request and attachment metadata.
+
+Keep authorization inside the action deadline and cancellation race, preventing late authorization from starting a write after the worker has stopped.

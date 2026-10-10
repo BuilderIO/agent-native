@@ -31,6 +31,7 @@ import {
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
+import * as appRoles from "../org/app-roles.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
@@ -12212,6 +12213,113 @@ describe("runAgentLoop", () => {
       events.filter((event) => event.type === "tool_done" && event.isError),
     ).toHaveLength(0);
   });
+
+  it.each(["timeout", "abort"] as const)(
+    "does not invoke a write after %s during authorization",
+    async (interruption) => {
+      let releaseAuthorization!: (value: null) => void;
+      let markAuthorizationStarted!: () => void;
+      const authorizationStarted = new Promise<void>((resolve) => {
+        markAuthorizationStarted = resolve;
+      });
+      const authorization = vi
+        .spyOn(appRoles, "resolveAppAuthorizationContext")
+        .mockImplementation(() => {
+          markAuthorizationStarted();
+          return new Promise((resolve) => {
+            releaseAuthorization = resolve;
+          });
+        });
+      const timeout = new AbortController();
+      const timeoutFactory = vi
+        .spyOn(AbortSignal, "timeout")
+        .mockReturnValue(timeout.signal);
+      const controller = new AbortController();
+      const writeAction = vi.fn(async () => "sent");
+      const events: AgentChatEvent[] = [];
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          if (++streamCalls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call",
+                  id: "delayed-auth",
+                  name: "save-data",
+                  input: {},
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const loop = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "save" }] }],
+        actions: {
+          "save-data": {
+            ...actionEntry({ readOnly: false }),
+            run: writeAction,
+          },
+        },
+        send: (event) => events.push(event),
+        signal: controller.signal,
+        ownerEmail: "ada@example.com",
+        orgId: "test-org",
+        appId: "test-app",
+      });
+      try {
+        await authorizationStarted;
+        (interruption === "timeout" ? timeout : controller).abort();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const completedBeforeAuthorization = events.some(
+          (event) => event.type === "tool_done",
+        );
+        releaseAuthorization(null);
+        await loop;
+        await Promise.resolve();
+        expect(writeAction).not.toHaveBeenCalled();
+        expect(completedBeforeAuthorization).toBe(true);
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "tool_done",
+            tool: "save-data",
+            isError: true,
+            completedSideEffect: false,
+            result: expect.stringContaining(
+              interruption === "timeout"
+                ? "before the action started"
+                : "Interrupted before this tool returned a result.",
+            ),
+          }),
+        );
+      } finally {
+        releaseAuthorization?.(null);
+        await loop;
+        authorization.mockRestore();
+        timeoutFactory.mockRestore();
+      }
+    },
+  );
 
   it("does not repeat a write tool after it times out in the current run", async () => {
     const writeAction = vi.fn(() => new Promise(() => {}));
