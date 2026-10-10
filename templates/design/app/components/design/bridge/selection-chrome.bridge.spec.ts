@@ -251,6 +251,7 @@ describe("editor chrome selection overlays", () => {
             __selectionMessages?: {
               intent?: { source?: string };
               trustedPointer?: boolean;
+              focusSafe?: boolean;
             }[];
           }
         ).__selectionMessages;
@@ -259,6 +260,7 @@ describe("editor chrome selection overlays", () => {
       expect(pointerSelection).toMatchObject({
         intent: { source: "pointer" },
         trustedPointer: true,
+        focusSafe: true,
       });
 
       await select(page, "#frame");
@@ -271,6 +273,7 @@ describe("editor chrome selection overlays", () => {
         return messages?.[messages.length - 1];
       });
       expect(hostSelection).not.toHaveProperty("trustedPointer");
+      expect(hostSelection).not.toHaveProperty("focusSafe");
     } finally {
       await browser.close();
     }

@@ -624,58 +624,121 @@ async function drawInScreen(
     throw new Error("Screen " + screenId + " has no saved source");
   const existingNodeIds = sourceNodeIds(sourceBefore);
   await selectScreenLayer(page, screenId);
+  await page.keyboard.press("Shift+2");
   const body = designFrame(page, screenId).locator("body");
   const screenCard = page.locator(
     `[data-screen-shell][data-frame-id="${screenId}"] [data-screen-card]`,
   );
   if (!rect.assertUnobstructed) await screenCard.scrollIntoViewIfNeeded();
-  const bodyBox = await body.boundingBox();
-  const cardBox = await screenCard.boundingBox();
-  if (!bodyBox || !cardBox) throw new Error("screen canvas is not measurable");
   const screenWidth =
     designData(before).canvasFrames?.[screenId]?.width ?? 1440;
-  const scale = cardBox.width / screenWidth;
-  const startPoint = {
-    x: bodyBox.x + rect.x * scale,
-    y: bodyBox.y + rect.y * scale,
-  };
-  const endPoint = {
-    x: bodyBox.x + (rect.x + (rect.width ?? 1)) * scale,
-    y: bodyBox.y + (rect.y + (rect.height ?? 1)) * scale,
-  };
-  if (rect.assertUnobstructed) {
-    const pointerTargets = await page.evaluate(
-      ({ startPoint, endPoint, cardBox }) => {
-        return [startPoint, endPoint].map(({ x, y }) => {
-          const target = document.elementFromPoint(x, y);
-          return {
-            inViewport:
-              x >= 0 &&
-              y >= 0 &&
-              x < window.innerWidth &&
-              y < window.innerHeight,
-            inScreenBounds:
-              x >= cardBox.x &&
-              y >= cardBox.y &&
-              x <= cardBox.x + cardBox.width &&
-              y <= cardBox.y + cardBox.height,
-            inToolbar: Boolean(target?.closest("[data-design-bottom-toolbar]")),
-          };
-        });
-      },
-      { startPoint, endPoint, cardBox },
+  if (tool === "Frame") {
+    await pickFrameMode(page, "Frame");
+  } else {
+    const toolButton = page.locator(
+      `[data-design-bottom-toolbar] button[aria-label="${tool}"]`,
     );
-    expect(pointerTargets).toEqual([
-      { inViewport: true, inScreenBounds: true, inToolbar: false },
-      { inViewport: true, inScreenBounds: true, inToolbar: false },
-    ]);
+    await toolButton.click();
+    await expect(toolButton).toHaveAttribute("aria-pressed", "true");
   }
+
+  let previousCamera: string | null = null;
+  let stableCameraSamples = 0;
+  const drawingGeometry: {
+    current: {
+      startPoint: { x: number; y: number };
+      endPoint: { x: number; y: number };
+    } | null;
+  } = {
+    current: null,
+  };
+  await expect
+    .poll(
+      async () => {
+        const bodyBox = await body.boundingBox();
+        const cardBox = await screenCard.boundingBox();
+        if (!bodyBox || !cardBox) {
+          drawingGeometry.current = null;
+          return { settled: false, safe: false };
+        }
+        const scale = cardBox.width / screenWidth;
+        const startPoint = {
+          x: bodyBox.x + rect.x * scale,
+          y: bodyBox.y + rect.y * scale,
+        };
+        const endPoint = {
+          x: bodyBox.x + (rect.x + (rect.width ?? 1)) * scale,
+          y: bodyBox.y + (rect.y + (rect.height ?? 1)) * scale,
+        };
+        const pointerTargets = await page.evaluate(
+          ({ startPoint, endPoint, cardBox }) => {
+            return [startPoint, endPoint].map(({ x, y }) => {
+              const target = document.elementFromPoint(x, y);
+              return {
+                inViewport:
+                  x >= 0 &&
+                  y >= 0 &&
+                  x < window.innerWidth &&
+                  y < window.innerHeight,
+                inScreenBounds:
+                  x >= cardBox.x &&
+                  y >= cardBox.y &&
+                  x <= cardBox.x + cardBox.width &&
+                  y <= cardBox.y + cardBox.height,
+                inToolbar: Boolean(
+                  target?.closest("[data-design-bottom-toolbar]"),
+                ),
+                creationShield: Boolean(
+                  target?.closest("[data-canvas-creation-shield]"),
+                ),
+                frameId:
+                  target
+                    ?.closest<HTMLElement>("[data-frame-id]")
+                    ?.getAttribute("data-frame-id") ?? null,
+              };
+            });
+          },
+          { startPoint, endPoint, cardBox },
+        );
+        const cameraSignature = [
+          bodyBox.x,
+          bodyBox.y,
+          cardBox.x,
+          cardBox.y,
+          cardBox.width,
+          cardBox.height,
+        ]
+          .map((value) => Math.round(value * 2) / 2)
+          .join(":");
+        stableCameraSamples =
+          cameraSignature === previousCamera ? stableCameraSamples + 1 : 0;
+        previousCamera = cameraSignature;
+        const settled = stableCameraSamples >= 2;
+        const safe =
+          Number.isFinite(scale) &&
+          scale > 0 &&
+          pointerTargets.every(
+            (target) =>
+              target.inViewport &&
+              target.inScreenBounds &&
+              !target.inToolbar &&
+              (target.frameId === screenId || target.creationShield),
+          );
+        drawingGeometry.current = { startPoint, endPoint };
+        return { settled, safe, scale, pointerTargets };
+      },
+      {
+        timeout: 15_000,
+        message: `screen ${screenId} must fit and expose both ${tool} endpoints before drawing`,
+      },
+    )
+    .toMatchObject({ settled: true, safe: true });
+  const settledGeometry = drawingGeometry.current;
+  if (!settledGeometry) {
+    throw new Error(`screen ${screenId} drawing geometry was unavailable`);
+  }
+  const { startPoint, endPoint } = settledGeometry;
   if (tool === "Text") {
-    const textTool = page.locator(
-      '[data-design-bottom-toolbar] button[aria-label="Text"]',
-    );
-    await textTool.click();
-    await expect(textTool).toHaveAttribute("aria-pressed", "true");
     await page.mouse.click(startPoint.x, startPoint.y);
     const editable = designFrame(page, screenId).locator(
       '[data-agent-native-text-editing][contenteditable="true"]',
@@ -721,15 +784,6 @@ async function drawInScreen(
       })
       .toBe(true);
     return nodeId;
-  }
-  if (tool === "Frame") {
-    await pickFrameMode(page, "Frame");
-  } else {
-    const rectangleTool = page.locator(
-      '[data-design-bottom-toolbar] button[aria-label="Rectangle"]',
-    );
-    await rectangleTool.click();
-    await expect(rectangleTool).toHaveAttribute("aria-pressed", "true");
   }
   await page.mouse.move(startPoint.x, startPoint.y);
   await page.mouse.down();
@@ -850,12 +904,14 @@ async function createPodcastCard(
   await gap.fill("12");
   await gap.press("Enter");
   const horizontalPadding = layout.getByRole("textbox", {
-    name: /Left.*Right/,
+    name: "Left / Right",
+    exact: true,
   });
   await horizontalPadding.fill("12");
   await horizontalPadding.press("Enter");
   const verticalPadding = layout.getByRole("textbox", {
-    name: /Top.*Bottom/,
+    name: "Top / Bottom",
+    exact: true,
   });
   await verticalPadding.fill("12");
   await verticalPadding.press("Enter");
@@ -1136,7 +1192,7 @@ async function logNodeStage(
 
 async function setSizingMode(page: Page, axis: "W" | "H", mode: string) {
   const button = page.getByRole("button", {
-    name: new RegExp(`^${axis}(?: sizing mode —| \\d+ )`),
+    name: new RegExp(`^${axis}(?: sizing mode —| \\d+(?:\\.\\d+)? )`),
   });
   await expect(button).toBeVisible();
   await button.click();
@@ -1150,7 +1206,7 @@ async function addSizingConstraint(
   value: number,
 ) {
   const button = page.getByRole("button", {
-    name: new RegExp(`^${axis}(?: sizing mode —| \\d+ )`),
+    name: new RegExp(`^${axis}(?: sizing mode —| \\d+(?:\\.\\d+)? )`),
   });
   await expect(button).toBeVisible();
   await button.click();
@@ -1353,9 +1409,6 @@ async function setFillHex(page: Page, hex: string, probeName?: string) {
       contentType: "application/json",
     });
     console.info("color-escape-" + probeName, JSON.stringify(evidence));
-    await expect(picker).toHaveAttribute("data-state", "closed", {
-      timeout: 2_500,
-    });
   }
   await expect(picker).toBeHidden({ timeout: probeName ? 2_500 : 20_000 });
 }
@@ -1425,6 +1478,31 @@ function tagStyle(tag: string) {
     .replace(/&amp;/g, "&");
 }
 
+async function savedBoxSpacing(page: Page, tag: string) {
+  return page.evaluate((styleText) => {
+    const measurementRoot = document.createElement("div");
+    measurementRoot.style.cssText =
+      "position: fixed; left: -10000px; top: -10000px; width: 0; height: 0; overflow: hidden; contain: strict; visibility: hidden; pointer-events: none";
+    const element = document.createElement("div");
+    element.style.cssText = styleText;
+    measurementRoot.append(element);
+    document.body.append(measurementRoot);
+    const style = getComputedStyle(element);
+    const spacing = {
+      paddingTop: style.paddingTop,
+      paddingRight: style.paddingRight,
+      paddingBottom: style.paddingBottom,
+      paddingLeft: style.paddingLeft,
+      marginTop: style.marginTop,
+      marginRight: style.marginRight,
+      marginBottom: style.marginBottom,
+      marginLeft: style.marginLeft,
+    };
+    measurementRoot.remove();
+    return spacing;
+  }, tagStyle(tag));
+}
+
 async function sourceHasTransparentFill(page: Page, layerName: string) {
   const target = await persistedLayer(page, layerName);
   const style = tagStyle(target.tag);
@@ -1473,13 +1551,8 @@ async function addNativeArtworkGradient(page: Page, layerName: string) {
     .getByRole("button", { name: "Add fill", exact: true })
     .click();
   await expect(paintRows).toHaveCount(previousRows + 1);
-  const gradientRow = paintRows.first();
-  await gradientRow
-    .getByRole("button")
-    .filter({ hasText: /#[\da-f]{6}/i })
-    .first()
-    .click();
   const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
   await page.getByRole("button", { name: "Linear", exact: true }).click();
   const stops = dialog.getByRole("group", { name: "Gradient stops" });
   await expect(stops).toBeVisible();
@@ -1634,6 +1707,28 @@ async function setTextStyle(
     await lineHeightField.press("Enter");
   }
   await setFillHex(page, color, fillProbeName);
+  if (fillProbeName) {
+    await expect(layerRow(page, layerName)).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    const expectedColor = await page.evaluate((hex) => {
+      const style = document.createElement("span").style;
+      style.color = `#${hex.replace(/^#/, "")}`;
+      return style.color;
+    }, color);
+    await expect
+      .poll(async () => {
+        const target = await persistedLayer(page, layerName);
+        const savedColor = sourceStyleValue(target.tag, "color");
+        return page.evaluate((value) => {
+          const style = document.createElement("span").style;
+          style.color = value;
+          return style.color;
+        }, savedColor);
+      })
+      .toBe(expectedColor);
+  }
 }
 
 async function setTextTruncation(
@@ -2091,12 +2186,14 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await rootGap.fill("10");
   await rootGap.press("Enter");
   const horizontalPadding = rootLayout.getByRole("textbox", {
-    name: /Left.*Right/,
+    name: "Left / Right",
+    exact: true,
   });
   await horizontalPadding.fill("10");
   await horizontalPadding.press("Enter");
   const verticalPadding = rootLayout.getByRole("textbox", {
-    name: /Top.*Bottom/,
+    name: "Top / Bottom",
+    exact: true,
   });
   await verticalPadding.fill("10");
   await verticalPadding.press("Enter");
@@ -2130,16 +2227,16 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await workspaceGap.fill("10");
   await workspaceGap.press("Enter");
   await workspaceLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .fill("10");
   await workspaceLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .press("Enter");
   await workspaceLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .fill("10");
   await workspaceLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .press("Enter");
   await setDimension(page, "H", 850);
   await setSizingMode(page, "W", "Fill container");
@@ -2189,13 +2286,17 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await sidebarLayout
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
-  await sidebarLayout.getByRole("textbox", { name: /Left.*Right/ }).fill("20");
   await sidebarLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
+    .fill("20");
+  await sidebarLayout
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .press("Enter");
-  await sidebarLayout.getByRole("textbox", { name: /Top.*Bottom/ }).fill("20");
   await sidebarLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
+    .fill("20");
+  await sidebarLayout
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .press("Enter");
   await setFillHex(page, "141A24");
   await drawInScreen(page, screenId, "Text", { x: 136, y: 30 }, "SONORA");
@@ -2233,10 +2334,10 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await contentGap.fill("24");
   await contentGap.press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "24"],
-    [/Top.*Bottom/, "24"],
+    ["Left / Right", "24"],
+    ["Top / Bottom", "24"],
   ] as const) {
-    const field = contentLayout.getByRole("textbox", { name });
+    const field = contentLayout.getByRole("textbox", { name, exact: true });
     await field.fill(value);
     await field.press("Enter");
   }
@@ -2261,13 +2362,17 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   await topBarLayout
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
-  await topBarLayout.getByRole("textbox", { name: /Left.*Right/ }).fill("10");
   await topBarLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
+    .fill("10");
+  await topBarLayout
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .press("Enter");
-  await topBarLayout.getByRole("textbox", { name: /Top.*Bottom/ }).fill("10");
   await topBarLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
+    .fill("10");
+  await topBarLayout
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .press("Enter");
   await removeFill(page, "Top Bar");
   await layerButton(page, "Main Content").click();
@@ -2639,13 +2744,17 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   });
   await playerGap.fill("10");
   await playerGap.press("Enter");
-  await playerLayout.getByRole("textbox", { name: /Left.*Right/ }).fill("10");
   await playerLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
+    .fill("10");
+  await playerLayout
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .press("Enter");
-  await playerLayout.getByRole("textbox", { name: /Top.*Bottom/ }).fill("10");
   await playerLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
+    .fill("10");
+  await playerLayout
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .press("Enter");
   await setSizingMode(page, "W", "Fill container");
   await setSizingMode(page, "H", "Hug contents");
@@ -2805,6 +2914,27 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   expect(workspaceTag).toBeTruthy();
   expect(workspaceTag).toMatch(/width:\s*auto/i);
   expect(workspaceTag).toMatch(/align-self:\s*stretch/i);
+  if (!bodyIdentity.layerName) {
+    throw new Error("Screen root source is missing its layer name");
+  }
+  const screenRootTag = sourceLayerTag(content, bodyIdentity.layerName);
+  expect(screenRootTag).toBeTruthy();
+  const [screenRootSpacing, workspaceSpacing] = await Promise.all([
+    savedBoxSpacing(page, screenRootTag!),
+    savedBoxSpacing(page, workspaceTag!),
+  ]);
+  for (const spacing of [screenRootSpacing, workspaceSpacing]) {
+    expect(spacing).toEqual({
+      paddingTop: "10px",
+      paddingRight: "10px",
+      paddingBottom: "10px",
+      paddingLeft: "10px",
+      marginTop: "0px",
+      marginRight: "0px",
+      marginBottom: "0px",
+      marginLeft: "0px",
+    });
+  }
   const desktopCardA = await measureSourceLayer(
     page,
     screenId,
@@ -2944,16 +3074,16 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("button", { name: "Vertical", exact: true })
     .click();
   await mobileRootLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .fill("10");
   await mobileRootLayout
-    .getByRole("textbox", { name: /Left.*Right/ })
+    .getByRole("textbox", { name: "Left / Right", exact: true })
     .press("Enter");
   await mobileRootLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .fill("10");
   await mobileRootLayout
-    .getByRole("textbox", { name: /Top.*Bottom/ })
+    .getByRole("textbox", { name: "Top / Bottom", exact: true })
     .press("Enter");
   await mobileRootLayout.getByRole("button", { name: "Gap mode" }).click();
   await page.getByRole("menuitemcheckbox", { name: "Auto" }).click();
@@ -2985,10 +3115,13 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "10"],
-    [/Top.*Bottom/, "10"],
+    ["Left / Right", "10"],
+    ["Top / Bottom", "10"],
   ] as const) {
-    const field = mobileWorkspaceLayout.getByRole("textbox", { name });
+    const field = mobileWorkspaceLayout.getByRole("textbox", {
+      name,
+      exact: true,
+    });
     await field.fill(value);
     await field.press("Enter");
   }
@@ -3018,10 +3151,13 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "12"],
-    [/Top.*Bottom/, "20"],
+    ["Left / Right", "12"],
+    ["Top / Bottom", "20"],
   ] as const) {
-    const field = mobileSidebarLayout.getByRole("textbox", { name });
+    const field = mobileSidebarLayout.getByRole("textbox", {
+      name,
+      exact: true,
+    });
     await field.fill(value);
     await field.press("Enter");
   }
@@ -3084,10 +3220,13 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "24"],
-    [/Top.*Bottom/, "24"],
+    ["Left / Right", "24"],
+    ["Top / Bottom", "24"],
   ] as const) {
-    const field = mobileContentLayout.getByRole("textbox", { name });
+    const field = mobileContentLayout.getByRole("textbox", {
+      name,
+      exact: true,
+    });
     await field.fill(value);
     await field.press("Enter");
   }
@@ -3117,10 +3256,13 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "10"],
-    [/Top.*Bottom/, "10"],
+    ["Left / Right", "10"],
+    ["Top / Bottom", "10"],
   ] as const) {
-    const field = mobileTopBarLayout.getByRole("textbox", { name });
+    const field = mobileTopBarLayout.getByRole("textbox", {
+      name,
+      exact: true,
+    });
     await field.fill(value);
     await field.press("Enter");
   }
@@ -3217,10 +3359,13 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     .getByRole("textbox", { name: "Gap", exact: true })
     .press("Enter");
   for (const [name, value] of [
-    [/Left.*Right/, "10"],
-    [/Top.*Bottom/, "10"],
+    ["Left / Right", "10"],
+    ["Top / Bottom", "10"],
   ] as const) {
-    const field = mobilePlayerLayout.getByRole("textbox", { name });
+    const field = mobilePlayerLayout.getByRole("textbox", {
+      name,
+      exact: true,
+    });
     await field.fill(value);
     await field.press("Enter");
   }

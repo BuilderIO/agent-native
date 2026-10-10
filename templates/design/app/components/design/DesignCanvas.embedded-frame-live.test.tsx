@@ -206,6 +206,148 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
+  it("uses trusted pointer selection focus safety for the active live frame", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="http://localhost:3102/library"
+            contentKey="live-url-frame-pointer-selection-focus"
+            sourceType="localhost"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(iframe?.contentWindow).toBeTruthy();
+      expect(scrollSurface).not.toBeNull();
+      const posted: Array<{ type?: string; requestId?: number }> = [];
+      iframe!.contentWindow!.postMessage = ((message: {
+        type?: string;
+        requestId?: number;
+      }) => {
+        posted.push(message);
+      }) as Window["postMessage"];
+      Object.defineProperty(iframe, "contentDocument", {
+        configurable: true,
+        get: () => {
+          throw new DOMException(
+            "Blocked a frame with a different origin",
+            "SecurityError",
+          );
+        },
+      });
+
+      const reportMessage = async (
+        data: unknown,
+        source: MessageEventSource | null = iframe!.contentWindow,
+      ) => {
+        await act(async () =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data,
+              origin: window.location.origin,
+              source,
+            }),
+          ),
+        );
+      };
+      const reportSelection = (focusSafe: boolean) =>
+        reportMessage({
+          type: "element-select",
+          payload: { selector: "#hero", sourceId: "hero" },
+          intent: { source: "pointer" },
+          trustedPointer: true,
+          focusSafe,
+        });
+      const latestProbe = () => {
+        const probes = posted.filter(
+          (message) => message.type === "agent-native:canvas-focus-state-probe",
+        );
+        return probes[probes.length - 1];
+      };
+
+      iframe!.focus();
+      expect(document.activeElement).toBe(iframe);
+      const focusProbe = latestProbe();
+      expect(focusProbe?.requestId).toEqual(expect.any(Number));
+      await reportMessage({
+        type: "agent-native:canvas-focus-state",
+        requestId: focusProbe!.requestId,
+        focusSafe: false,
+      });
+      posted.length = 0;
+
+      await reportSelection(false);
+      expect(document.activeElement).toBe(iframe);
+      expect(latestProbe()).toBeUndefined();
+
+      await reportSelection(true);
+      const textEditProbe = latestProbe();
+      expect(textEditProbe?.requestId).toEqual(expect.any(Number));
+      expect(document.activeElement).toBe(iframe);
+      await reportMessage({
+        type: "agent-native:canvas-focus-state",
+        requestId: textEditProbe!.requestId,
+        focusSafe: false,
+      });
+      expect(document.activeElement).toBe(iframe);
+
+      await reportSelection(true);
+      const safeProbe = latestProbe();
+      expect(safeProbe?.requestId).toEqual(expect.any(Number));
+      expect(safeProbe!.requestId).toBeGreaterThan(textEditProbe!.requestId!);
+      await reportMessage(
+        {
+          type: "agent-native:canvas-focus-state",
+          requestId: safeProbe!.requestId,
+          focusSafe: true,
+        },
+        window,
+      );
+      expect(document.activeElement).toBe(iframe);
+      await reportMessage({
+        type: "agent-native:canvas-focus-state",
+        requestId: textEditProbe!.requestId,
+        focusSafe: true,
+      });
+      expect(document.activeElement).toBe(iframe);
+      await reportMessage({
+        type: "agent-native:canvas-focus-state",
+        requestId: safeProbe!.requestId,
+        focusSafe: true,
+      });
+      expect(document.activeElement).toBe(scrollSurface);
+
+      const hostButton = document.createElement("button");
+      container.append(hostButton);
+      hostButton.focus();
+      expect(document.activeElement).toBe(hostButton);
+      await reportSelection(true);
+      expect(document.activeElement).toBe(scrollSurface);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
   it("uses the current edit mode when live frames report focus", async () => {
     const container = document.createElement("div");
     document.body.append(container);

@@ -497,6 +497,29 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
       const screenId: string = (await getDesign(page, designId)).files.find(
         (f: any) => f.filename === "index.html",
       ).id;
+      const readCardPersistence = async () => {
+        const files = (await getDesign(page, designId)).files as Array<{
+          filename?: unknown;
+          content?: unknown;
+        }>;
+        const source = files.find((file) => file.filename === "index.html");
+        const board = files.find((file) => file.filename === "__board__.html");
+        const cardCount = (content: unknown) =>
+          typeof content === "string"
+            ? (content.match(/data-agent-native-node-id="card"/g) ?? []).length
+            : null;
+
+        return {
+          sourceExists: source !== undefined,
+          sourceContentReadable:
+            typeof source?.content === "string" && source.content.length > 0,
+          sourceCardCount: cardCount(source?.content),
+          boardExists: board !== undefined,
+          boardContentReadable:
+            typeof board?.content === "string" && board.content.length > 0,
+          boardCardCount: cardCount(board?.content),
+        };
+      };
       const before = (await designFrame(page, screenId)
         .locator('[data-agent-native-node-id="card"]')
         .boundingBox())!;
@@ -514,31 +537,37 @@ test.describe("YT #1 (mobile app beginner tutorial)", () => {
       );
       await page.mouse.move(boardPoint.x, boardPoint.y, { steps: 30 });
       await page.waitForTimeout(400);
-      const trace = await dumpTrace(page);
       await page.mouse.up();
-      await page.waitForTimeout(400);
-
-      const htmlAfterDrag = await fileContent(page, designId, "index.html");
-      expect(
-        htmlAfterDrag,
-        `Card must leave the Home screen's document; trace: ${JSON.stringify(trace)}`,
-      ).not.toContain('data-agent-native-node-id="card"');
+      const trace = await dumpTrace(page);
+      await expect
+        .poll(readCardPersistence, {
+          timeout: 10_000,
+          message: `Card must move from the screen document into the board; trace: ${JSON.stringify(trace)}`,
+        })
+        .toEqual({
+          sourceExists: true,
+          sourceContentReadable: true,
+          sourceCardCount: 0,
+          boardExists: true,
+          boardContentReadable: true,
+          boardCardCount: 1,
+        });
 
       await page.keyboard.press(`${MOD}+z`);
 
-      let htmlAfterUndo = "";
       await expect
-        .poll(
-          async () => {
-            htmlAfterUndo = await fileContent(page, designId, "index.html");
-            return htmlAfterUndo.includes('data-agent-native-node-id="card"');
-          },
-          {
-            timeout: 10_000,
-            message: "one undo must restore Card back inside Home",
-          },
-        )
-        .toBe(true);
+        .poll(readCardPersistence, {
+          timeout: 10_000,
+          message: "one undo must restore Card back inside Home",
+        })
+        .toEqual({
+          sourceExists: true,
+          sourceContentReadable: true,
+          sourceCardCount: 1,
+          boardExists: true,
+          boardContentReadable: true,
+          boardCardCount: 0,
+        });
 
       const afterUndoBox = (await designFrame(page, screenId)
         .locator('[data-agent-native-node-id="card"]')

@@ -712,13 +712,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return true;
   }
 
-  function reportCanvasFocusState(reason?: string): void {
-    if (readOnly || interactionMode) return;
+  function reportCanvasFocusState(reason?: string, requestId?: number): void {
+    if ((readOnly || interactionMode) && !Number.isSafeInteger(requestId)) {
+      return;
+    }
     (window.parent as Window).postMessage(
       {
         type: "agent-native:canvas-focus-state",
-        focusSafe: isCanvasFocusTransferSafe(),
+        focusSafe:
+          !readOnly &&
+          !interactionMode &&
+          !activeTextEditEl &&
+          isCanvasFocusTransferSafe(),
         ...(reason ? { reason } : {}),
+        ...(Number.isSafeInteger(requestId) ? { requestId } : {}),
       },
       "*",
     );
@@ -6717,12 +6724,16 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       payload: unknown;
       intent?: ReturnType<typeof selectionIntentFromEvent>;
       trustedPointer?: boolean;
+      focusSafe?: boolean;
     } = {
       type: "element-select",
       payload: getElementInfo(el),
     };
     if (intent) message.intent = intent;
-    if (e?.isTrusted) message.trustedPointer = true;
+    if (e?.isTrusted && intent?.source === "pointer") {
+      message.trustedPointer = true;
+      message.focusSafe = !activeTextEditEl && isCanvasFocusTransferSafe();
+    }
     (window.parent as Window).postMessage(message, "*");
 
     var framework = frameworkDebugProvenance(el);
@@ -27525,6 +27536,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (e.data.type === "agent-native:canvas-focus-state-probe") {
       reportCanvasFocusState(
         e.data.reason === "route-change" ? "route-change" : undefined,
+        Number.isSafeInteger(e.data.requestId) ? e.data.requestId : undefined,
       );
       return;
     }

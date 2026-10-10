@@ -1318,13 +1318,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return true;
     }
-    function reportCanvasFocusState(reason) {
-      if (readOnly || interactionMode) return;
+    function reportCanvasFocusState(reason, requestId) {
+      if ((readOnly || interactionMode) && !Number.isSafeInteger(requestId)) {
+        return;
+      }
       window.parent.postMessage(
         {
           type: "agent-native:canvas-focus-state",
-          focusSafe: isCanvasFocusTransferSafe(),
-          ...reason ? { reason } : {}
+          focusSafe: !readOnly && !interactionMode && !activeTextEditEl && isCanvasFocusTransferSafe(),
+          ...reason ? { reason } : {},
+          ...Number.isSafeInteger(requestId) ? { requestId } : {}
         },
         "*"
       );
@@ -5806,7 +5809,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         payload: getElementInfo(el)
       };
       if (intent) message.intent = intent;
-      if (e?.isTrusted) message.trustedPointer = true;
+      if (e?.isTrusted && intent?.source === "pointer") {
+        message.trustedPointer = true;
+        message.focusSafe = !activeTextEditEl && isCanvasFocusTransferSafe();
+      }
       window.parent.postMessage(message, "*");
       var framework = frameworkDebugProvenance(el);
       if (framework.framework === "react" && (framework.method === "debug-stack" || framework.ownerMethod === "debug-stack")) {
@@ -21520,7 +21526,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "agent-native:canvas-focus-state-probe") {
         reportCanvasFocusState(
-          e.data.reason === "route-change" ? "route-change" : void 0
+          e.data.reason === "route-change" ? "route-change" : void 0,
+          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0
         );
         return;
       }

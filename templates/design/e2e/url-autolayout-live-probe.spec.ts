@@ -46,6 +46,7 @@ test.describe("URL-backed live auto-layout probe", () => {
   let baseURL = "";
   let designId = "";
   let focusDesignId = "";
+  let rootScreenId = "";
 
   async function postAction(
     request: APIRequestContext,
@@ -121,6 +122,13 @@ test.describe("URL-backed live auto-layout probe", () => {
       publicReadOnly: false,
     });
     focusDesignId = focusDesign.designId;
+    const rootScreen = (
+      focusDesign.screens as Array<{ id?: unknown; path?: unknown }>
+    ).find((screen) => screen.path === "/" && typeof screen.id === "string");
+    if (!rootScreen?.id || typeof rootScreen.id !== "string") {
+      throw new Error("multi-screen open returned no root screen ID");
+    }
+    rootScreenId = rootScreen.id;
     if (
       focusDesign.connectionId !== opened.connectionId ||
       focusDesign.bridgeToken !== opened.bridgeToken
@@ -603,6 +611,162 @@ test.describe("URL-backed live auto-layout probe", () => {
     await expect
       .poll(readOrder, { timeout: 5_000 })
       .toEqual(["v1", "v2", "v3"]);
+  });
+
+  test("keeps cross-origin text editing after delayed pointer selection", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const messages: Array<Record<string, unknown>> = [];
+      const now = () => performance.timeOrigin + performance.now();
+      Object.assign(window, { __canvasFocusMessages: messages });
+      window.addEventListener("message", (event) => {
+        const data = event.data as Record<string, unknown> | null;
+        if (typeof data?.type !== "string") return;
+        if (window === window.top) {
+          if (data.type === "element-select" && data.trustedPointer === true) {
+            messages.push({
+              kind: "selection",
+              time: now(),
+              focusSafe: data.focusSafe,
+            });
+          } else if (data.type === "agent-native:canvas-focus-state") {
+            messages.push({
+              kind: "focus-state",
+              time: now(),
+              focusSafe: data.focusSafe,
+              requestId: data.requestId,
+            });
+          }
+        } else if (
+          event.source === window.parent &&
+          data.type === "agent-native:canvas-focus-state-probe"
+        ) {
+          messages.push({
+            kind: "focus-probe",
+            time: now(),
+            requestId: data.requestId,
+          });
+        }
+      });
+    });
+
+    const localNetworkCdp = await page.context().newCDPSession(page);
+    await localNetworkCdp.send("Browser.grantPermissions", {
+      origin: new URL(baseURL).origin,
+      permissions: ["localNetworkAccess"],
+    });
+    await localNetworkCdp.detach();
+    await page.goto(
+      `${baseURL}/visual-edit/${focusDesignId}?editorView=overview`,
+      { waitUntil: "domcontentloaded" },
+    );
+    await expect(
+      page.getByRole("button", { name: "Move", exact: true }),
+    ).toBeVisible({ timeout: 90_000 });
+
+    const iframe = page.locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${rootScreenId}"]`,
+    );
+    await expect(iframe).toHaveCount(1);
+    const iframeHandle = await iframe.elementHandle();
+    if (!iframeHandle) throw new Error("Preview iframe is missing");
+    const frame = await iframeHandle.contentFrame();
+    if (!frame) throw new Error("Preview iframe has no content frame");
+    const text = frame.locator('[data-agent-native-node-id="v1"]');
+    await expect(text).toBeVisible({ timeout: 30_000 });
+    const hostOrigin = new URL(page.url()).origin;
+    const previewOrigin = await frame.evaluate(() => location.origin);
+    expect(
+      previewOrigin,
+      `Preview must be cross-origin from the editor (${hostOrigin})`,
+    ).not.toBe(hostOrigin);
+    expect(
+      await iframe.evaluate(
+        (element) => (element as HTMLIFrameElement).contentDocument === null,
+      ),
+    ).toBe(true);
+
+    const hostMessageStart = await page.evaluate(
+      () => (window as any).__canvasFocusMessages.length,
+    );
+    const childMessageStart = await frame.evaluate(
+      () => (window as any).__canvasFocusMessages.length,
+    );
+    const bounds = await text.boundingBox();
+    if (!bounds) throw new Error("V1 text target has no bounds");
+    await page.mouse.dblclick(
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2,
+    );
+
+    await expect(text).toHaveAttribute("contenteditable", "true");
+    await expect
+      .poll(() =>
+        frame.evaluate(() => {
+          const target = document.querySelector<HTMLElement>(
+            '[data-agent-native-node-id="v1"]',
+          );
+          return target !== null && document.activeElement === target;
+        }),
+      )
+      .toBe(true);
+    await expect
+      .poll(async () => {
+        const hostMessages = await page.evaluate(
+          (start) =>
+            (window as any).__canvasFocusMessages.slice(start) as Array<
+              Record<string, unknown>
+            >,
+          hostMessageStart,
+        );
+        const childMessages = await frame.evaluate(
+          (start) =>
+            (window as any).__canvasFocusMessages.slice(start) as Array<
+              Record<string, unknown>
+            >,
+          childMessageStart,
+        );
+        const selection = hostMessages.find(
+          (message) =>
+            message.kind === "selection" && message.focusSafe === true,
+        );
+        const probe = childMessages.find(
+          (message) =>
+            message.kind === "focus-probe" &&
+            typeof message.time === "number" &&
+            typeof selection?.time === "number" &&
+            message.time > selection.time,
+        );
+        const response = hostMessages.find(
+          (message) =>
+            message.kind === "focus-state" &&
+            message.requestId === probe?.requestId &&
+            message.focusSafe === false,
+        );
+        const editing = await text.evaluate(
+          (element) =>
+            element.getAttribute("contenteditable") === "true" &&
+            element.ownerDocument.activeElement === element,
+        );
+        const frameActive = await iframe.evaluate(
+          (element) => document.activeElement === element,
+        );
+        return {
+          staleSafeSelection: Boolean(selection),
+          freshProbe: Boolean(probe),
+          unsafeAcknowledgement: Boolean(response),
+          editing,
+          frameActive,
+        };
+      })
+      .toEqual({
+        staleSafeSelection: true,
+        freshProbe: true,
+        unsafeAcknowledgement: true,
+        editing: true,
+        frameActive: true,
+      });
   });
 
   test("all-screens PDF exports URL-backed previews", async ({ page }) => {

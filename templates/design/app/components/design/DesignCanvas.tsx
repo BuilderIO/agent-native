@@ -1442,6 +1442,33 @@ export function DesignCanvas({
   const { resolvedTheme } = useTheme();
   const browserOrigin = useBrowserOrigin();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const canvasFocusProbeRequestIdRef = useRef(0);
+  const pendingCanvasFocusProbeRef = useRef<{
+    requestId: number;
+    iframe: HTMLIFrameElement;
+    contentWindow: Window;
+  } | null>(null);
+  const requestCanvasFocusProbe = useCallback(
+    (iframe: HTMLIFrameElement, reason?: string) => {
+      const contentWindow = iframe.contentWindow;
+      if (!contentWindow || iframeRef.current !== iframe) return;
+      const requestId = ++canvasFocusProbeRequestIdRef.current;
+      pendingCanvasFocusProbeRef.current = {
+        requestId,
+        iframe,
+        contentWindow,
+      };
+      contentWindow.postMessage(
+        {
+          type: "agent-native:canvas-focus-state-probe",
+          requestId,
+          ...(reason ? { reason } : {}),
+        },
+        "*",
+      );
+    },
+    [],
+  );
   const restoreKScalePreviewRef = useRef<(() => void) | null>(null);
   const textEditingStateRef = useRef<Omit<TextEditingState, "screenId">>({
     active: false,
@@ -3443,6 +3470,12 @@ export function DesignCanvas({
         usesLiveEditInjectedBridge ? liveEditBridgeKey : ""
       }`
     : iframeDocumentIdentity;
+  useLayoutEffect(() => {
+    pendingCanvasFocusProbeRef.current = null;
+    return () => {
+      pendingCanvasFocusProbeRef.current = null;
+    };
+  }, [editMode, iframeElementIdentity, interactMode, readOnly, sourceType]);
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     runtimeReloadingFromDocumentIdRef.current = undefined;
@@ -3749,6 +3782,49 @@ export function DesignCanvas({
       const tabFocusedFrame = iframeRef.current;
       if (
         trustedCurrentFrame &&
+        e.data.type === "agent-native:canvas-focus-state" &&
+        Object.prototype.hasOwnProperty.call(e.data, "requestId")
+      ) {
+        const pendingProbe = pendingCanvasFocusProbeRef.current;
+        if (
+          !pendingProbe ||
+          !Number.isSafeInteger(e.data.requestId) ||
+          e.data.requestId !== pendingProbe.requestId
+        ) {
+          return;
+        }
+        pendingCanvasFocusProbeRef.current = null;
+        if (
+          pendingProbe.iframe !== tabFocusedFrame ||
+          pendingProbe.contentWindow !== iframeWindow ||
+          e.source !== pendingProbe.contentWindow ||
+          e.data.focusSafe !== true ||
+          sourceType !== "localhost" ||
+          readOnly ||
+          !editMode ||
+          interactMode ||
+          textEditingStateRef.current.active ||
+          document.activeElement !== pendingProbe.iframe ||
+          tabFocusNavigationPendingDocuments.has(document)
+        ) {
+          if (
+            e.data.focusSafe === false &&
+            pendingProbe.iframe === tabFocusedFrame &&
+            document.activeElement === pendingProbe.iframe &&
+            tabFocusedLiveFrames.has(pendingProbe.iframe)
+          ) {
+            tabFocusedLiveFrames.set(pendingProbe.iframe, true);
+          }
+          return;
+        }
+        if (tabFocusedLiveFrames.has(pendingProbe.iframe)) {
+          tabFocusedLiveFrames.delete(pendingProbe.iframe);
+        }
+        focusScrollSurfaceRef.current?.(false, true);
+        return;
+      }
+      if (
+        trustedCurrentFrame &&
         sourceType === "localhost" &&
         !readOnly &&
         editMode &&
@@ -3917,14 +3993,11 @@ export function DesignCanvas({
             tabFocusedLiveFrames.delete(iframeRef.current);
             window.requestAnimationFrame(() => {
               const currentIframe = iframeRef.current;
-              if (currentIframe?.contentWindow === iframeWindow) {
-                iframeWindow?.postMessage(
-                  {
-                    type: "agent-native:canvas-focus-state-probe",
-                    reason: "route-change",
-                  },
-                  "*",
-                );
+              if (
+                currentIframe &&
+                currentIframe.contentWindow === iframeWindow
+              ) {
+                requestCanvasFocusProbe(currentIframe, "route-change");
               }
             });
           }
@@ -4202,6 +4275,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-select") {
+        const activePreviewFrame = iframeRef.current;
         const reported = e.data.payload as
           | { selector?: string; sourceId?: string; runtimeSourceId?: string }
           | undefined;
@@ -4231,9 +4305,18 @@ export function DesignCanvas({
         onElementSelect(e.data.payload, e.data.intent);
         if (
           e.data.trustedPointer === true &&
-          e.data.intent?.source === "pointer"
+          e.data.intent?.source === "pointer" &&
+          e.data.focusSafe !== false
         ) {
-          focusScrollSurfaceRef.current?.();
+          if (
+            activePreviewFrame &&
+            e.source === activePreviewFrame.contentWindow &&
+            document.activeElement === activePreviewFrame
+          ) {
+            requestCanvasFocusProbe(activePreviewFrame);
+          } else {
+            focusScrollSurfaceRef.current?.();
+          }
         }
         return;
       }
@@ -5246,6 +5329,7 @@ export function DesignCanvas({
     sourceType,
     bridgeUrl,
     liveEditBridgeKey,
+    requestCanvasFocusProbe,
     readOnly,
     editMode,
     interactMode,
@@ -7406,12 +7490,10 @@ export function DesignCanvas({
             ) {
               return;
             }
-            event.currentTarget.contentWindow?.postMessage(
-              { type: "agent-native:canvas-focus-state-probe" },
-              "*",
-            );
+            requestCanvasFocusProbe(event.currentTarget);
           }}
           onLoad={(event) => {
+            pendingCanvasFocusProbeRef.current = null;
             tabFocusedLiveFrames.delete(event.currentTarget);
             markExternalPreviewDocumentLoaded();
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
