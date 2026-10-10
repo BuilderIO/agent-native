@@ -200,6 +200,7 @@ import {
   useCommentReplyDrafts,
   usePendingCommentDraft,
 } from "./CommentsSidebar";
+import { ContentImportDialog } from "./ContentImportDialog";
 import { creationSaveBarrierIsSettled } from "./creation-save-barrier";
 import { prepareInitialCreationSave } from "./creation-save-baseline";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
@@ -3385,6 +3386,20 @@ function PageEditorSessionBody({
       collabSynced ||
       canEditWithoutCollaboration) &&
     (!collabInitializationFailed || canEditWithoutCollaboration);
+  const canImportPages =
+    canEdit &&
+    !isLocalFileDocument &&
+    !mcpDirectoryWidgetReadOnly &&
+    !document.database;
+  const [importRequest, setImportRequest] = useState<{
+    files: File[];
+  } | null>(null);
+  const openImport = useCallback(() => setImportRequest({ files: [] }), []);
+  const importDroppedFiles = useCallback(
+    (files: File[]) => setImportRequest({ files }),
+    [],
+  );
+  const closeImport = useCallback(() => setImportRequest(null), []);
   const collabEditorEnabled =
     collabEnabled &&
     canEdit &&
@@ -8770,6 +8785,13 @@ function PageEditorSessionBody({
             onSuggestingChange={(next) => {
               void handleSuggestionModeChange(next);
             }}
+            onImport={canImportPages ? openImport : undefined}
+          />
+          <ContentImportDialog
+            request={importRequest}
+            parentId={documentId}
+            parentTitle={exportTitle}
+            onClose={closeImport}
           />
           {mcpDirectoryWidgetReadOnly && widgetEditability.canEditDocument ? (
             <div
@@ -9242,6 +9264,9 @@ function PageEditorSessionBody({
                                     : "readonly"
                               }
                               onEscape={handleEditorEscape}
+                              onImportFiles={
+                                canImportPages ? importDroppedFiles : undefined
+                              }
                               acceptedDecisionReadback={
                                 !isSuggesting &&
                                 pendingSuggestionDecision?.decision ===

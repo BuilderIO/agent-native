@@ -1,4 +1,5 @@
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
+import { isAnalyticsAskPath } from "@shared/ask-route";
 import { useLocation } from "react-router";
 
 import { rememberLastOpened } from "@/lib/last-opened";
@@ -32,7 +33,7 @@ export function useNavigationState() {
 
       if (pathname === "/" || pathname === "" || pathname === "/overview") {
         state.view = "ask";
-      } else if (pathname === "/ask") {
+      } else if (isAnalyticsAskPath(pathname)) {
         state.view = "ask";
       } else if (
         pathname.startsWith("/dashboards/") ||

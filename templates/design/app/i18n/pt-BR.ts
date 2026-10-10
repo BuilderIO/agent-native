@@ -69,6 +69,10 @@ export default {
       "{from} a {to} · coortes separadas por aplicativo{partial}",
     sessionCount: "{count} sessões",
     otherPaths: "Outros caminhos",
+    otherBranchesShown: "Exibindo {shown} de {total} ramificações",
+    otherBranchDetailsUnavailable:
+      "Os detalhes das ramificações não estão disponíveis nesta árvore de jornada",
+    otherBranchSourceKey: "Chave da etapa de origem: {key}",
     htmlLanguage: "pt-BR",
   },
   composer: { menu: { integrations: "Integrações" } },

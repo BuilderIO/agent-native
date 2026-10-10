@@ -620,19 +620,34 @@ describe("AgentKit protocol validation", () => {
         fileId: "file-1",
       }),
     ).toEqual({ type: "file", name: "photo.png", fileId: "file-1" });
-    expect(
-      persistableFilePart({
+    for (const fileId of [
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+      "_9j_4AAQSkZJRgABAQAAAQABAAD",
+      "AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYx",
+      "77u/PHN2Zy8+",
+    ]) {
+      expect(
+        persistableFilePart({
+          type: "file",
+          name: "photo.png",
+          mediaType: "image/png",
+          fileId,
+        }),
+      ).toEqual({
         type: "file",
         name: "photo.png",
         mediaType: "image/png",
-        fileId: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
-      }),
-    ).toEqual({
-      type: "file",
-      name: "photo.png",
-      mediaType: "image/png",
-      omitted: "inline-bytes",
-    });
+        omitted: "inline-bytes",
+      });
+    }
+    for (const fileId of [
+      "4b1f4cc034da4c8c8fe4a5d20fa87a32",
+      "AbCDef0123456789_-AbCDef0123456789",
+    ]) {
+      expect(
+        persistableFilePart({ type: "file", name: "photo.png", fileId }),
+      ).toEqual({ type: "file", name: "photo.png", fileId });
+    }
     const durable = {
       type: "file" as const,
       name: "photo.png",

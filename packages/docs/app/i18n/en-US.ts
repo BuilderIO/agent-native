@@ -2165,6 +2165,8 @@ const enUS = {
     downloadStarted: "Download started",
     downloadAgain: "Didn't work? Try downloading again",
     loadError: "Could not load the latest desktop installer.",
+    mountError:
+      "The desktop download page could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
     checkingRelease: "Checking the latest desktop release...",
     retry: "Retry",
     unavailable: "Installer unavailable for this platform",

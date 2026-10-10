@@ -567,6 +567,7 @@ export default {
     approved: "aprovado",
     suggestion: "sugestão",
     unreviewed: "não revisado",
+    deprecated: "obsoleto",
     ai: "AI",
     source: "fonte",
     deleteTitle: 'Excluir "{{metric}}"?',
@@ -619,6 +620,8 @@ export default {
       "Não foi possível ler o índice salvo; importe novamente um arquivo válido.",
     indexReadFailed:
       "Não foi possível verificar o índice de fontes salvo. Tente novamente.",
+    generatedEntriesMayBeMissing:
+      "Podem faltar entradas de fontes geradas; as entradas salvas continuam disponíveis.",
     indexReady: "{{count}} definições de fontes geradas em {{date}}.",
     indexStale:
       "O snapshot tem {{days}} dias. Atualize-o para verificar revisões mais recentes das fontes.",
