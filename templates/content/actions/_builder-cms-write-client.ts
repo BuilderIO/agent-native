@@ -1,4 +1,11 @@
-import { resolveBuilderCredential } from "@agent-native/core/server";
+import { fail, isActionContractError } from "@agent-native/core/action";
+import {
+  BUILDER_CONTENT_WRITE_SCOPE,
+  BUILDER_OAUTH_RESOURCE,
+  resolveBuilderLegacyRequestAuthorization,
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "@agent-native/core/server";
 
 export interface BuilderCmsWriteRequest {
   method: "POST" | "PATCH";
@@ -20,7 +27,10 @@ export const DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS = 30_000;
 
 type FetchLike = typeof fetch;
 
-function builderWriteApiHost() {
+function builderWriteApiHost(source: BuilderRequestAuthorization["source"]) {
+  // An OAuth bearer goes only to the Builder API resource it was issued for;
+  // the host overrides apply to private keys alone.
+  if (source === "oauth") return BUILDER_OAUTH_RESOURCE;
   return (
     process.env.BUILDER_CONTENT_API_HOST ??
     process.env.BUILDER_CMS_API_HOST ??
@@ -28,11 +38,73 @@ function builderWriteApiHost() {
   ).replace(/\/+$/, "");
 }
 
-async function readBuilderPrivateKey() {
-  return (
-    (await resolveBuilderCredential("BUILDER_PRIVATE_KEY")) ??
-    (await resolveBuilderCredential("BUILDER_CMS_PRIVATE_KEY"))
-  );
+const BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS = [
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_CMS_PRIVATE_KEY",
+] as const;
+
+async function readBuilderWriteAuthorization(sourceBound: boolean) {
+  try {
+    return await resolveBuilderRequestAuthorization({
+      oauthResource: "general",
+      requiredScope: BUILDER_CONTENT_WRITE_SCOPE,
+      legacyCredentialKeys: BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS,
+    });
+  } catch (error) {
+    // The shared resolver throws instead of falling back when a grant predates
+    // builder:content:write. A caller with no Source binding wrote with the
+    // deploy keys before OAuth, so it keeps that path until re-authorizing.
+    if (
+      sourceBound ||
+      !isActionContractError(error) ||
+      error.errorCode !== "builder_oauth_reauthorization_required"
+    ) {
+      throw error;
+    }
+    const legacy = await resolveBuilderLegacyRequestAuthorization(
+      BUILDER_WRITE_LEGACY_CREDENTIAL_KEYS,
+    );
+    if (!legacy) throw error;
+    return legacy;
+  }
+}
+
+function assertBuilderWriteSourceBinding(
+  authorization: Awaited<ReturnType<typeof readBuilderWriteAuthorization>>,
+  expectedSourceSpace: string | null | undefined,
+  expectedSourceConnectionId: string | null | undefined,
+  required: boolean,
+) {
+  if (
+    required &&
+    (authorization?.source !== "oauth" ||
+      authorization.oauthResource !== "general")
+  ) {
+    fail(
+      "This Builder source's OAuth connection is unavailable. Reconnect the source before writing.",
+      { errorCode: "builder_connection_required", statusCode: 412 },
+    );
+  }
+  if (authorization?.source !== "oauth") return;
+  if (!required && !expectedSourceSpace && !expectedSourceConnectionId) return;
+  if (!expectedSourceSpace || !expectedSourceConnectionId) {
+    fail(
+      "This Builder source is not bound to its connected space. Refresh the source before writing.",
+      { errorCode: "builder_source_unbound", statusCode: 409 },
+    );
+  }
+  if (authorization.oauthSelectedPublicKey !== expectedSourceSpace) {
+    fail(
+      "The connected Builder space does not match this Content source. Reconnect the source's Builder space before writing.",
+      { errorCode: "builder_source_space_mismatch", statusCode: 409 },
+    );
+  }
+  if (authorization.oauthConnectionId !== expectedSourceConnectionId) {
+    fail(
+      "The connected Builder credential does not match this Content source. Reconnect the source before writing.",
+      { errorCode: "builder_source_connection_mismatch", statusCode: 409 },
+    );
+  }
 }
 
 function parseResponseBody(text: string): unknown {
@@ -136,22 +208,37 @@ function buildWriteResult(args: {
 
 export async function executeBuilderCmsWrite(args: {
   request: BuilderCmsWriteRequest;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  requireSourceBinding?: boolean;
   fetchImpl?: FetchLike;
   /** @deprecated Never used: retrying another transport after dispatch is unsafe. */
   nodeRequestImpl?: unknown;
   timeoutMs?: number;
 }): Promise<BuilderCmsWriteResult> {
-  const privateKey = await readBuilderPrivateKey();
-  if (!privateKey) {
+  const authorization = await readBuilderWriteAuthorization(
+    args.requireSourceBinding === true ||
+      Boolean(args.expectedSourceSpace || args.expectedSourceConnectionId),
+  );
+  if (!authorization) {
     return {
       ok: false,
       status: 0,
       responseBody: null,
-      error: "Builder private key is not configured.",
+      error: "Builder write access is not connected.",
     };
   }
+  assertBuilderWriteSourceBinding(
+    authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+    args.requireSourceBinding === true,
+  );
 
-  const url = new URL(args.request.path, builderWriteApiHost());
+  const url = new URL(
+    args.request.path,
+    builderWriteApiHost(authorization.source),
+  );
   for (const [key, value] of Object.entries(args.request.query ?? {})) {
     url.searchParams.set(key, value);
   }
@@ -159,7 +246,7 @@ export async function executeBuilderCmsWrite(args: {
   const body = JSON.stringify(args.request.body);
   const headers = {
     accept: "application/json",
-    authorization: `Bearer ${privateKey}`,
+    authorization: authorization.authorization,
     "content-type": "application/json",
   };
 

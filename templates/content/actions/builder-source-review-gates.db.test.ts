@@ -11,6 +11,10 @@ import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
 } from "./_builder-cms-source-adapter";
+import {
+  registerMemoryPrivateBlobProvider,
+  storedExecutionPayload,
+} from "./_builder-private-blob.test-fixture";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -18,6 +22,7 @@ const TEST_DB_PATH = join(
 );
 
 const OWNER = "owner@example.com";
+const privateBlobs = registerMemoryPrivateBlobProvider();
 
 const heavySnapshotReads = vi.hoisted(() => ({
   review: 0,
@@ -100,6 +105,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
+  privateBlobs.unregister();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -131,6 +137,7 @@ async function seedBuilderSource(args: {
   changeSetState?: "pending_push" | "approved";
   metadata?: Record<string, unknown>;
   unmatched?: boolean;
+  lastSourceUpdatedAt?: string;
   bodyChange?: Record<string, unknown>;
 }) {
   const db = getDb();
@@ -209,6 +216,7 @@ async function seedBuilderSource(args: {
     sourceDisplayKey: "Old title",
     provenance: args.unmatched ? "Builder CMS fixture adapter" : "source",
     sourceValuesJson: JSON.stringify({ "data.title": "Old title" }),
+    lastSourceUpdatedAt: args.lastSourceUpdatedAt ?? null,
     createdAt: now,
     updatedAt: now,
   });
@@ -423,11 +431,12 @@ describe("Builder source review execution gates", () => {
             seeded.changeSetId,
           ),
         );
-      expect(JSON.parse(execution.payloadJson).target).toMatchObject({
+      const payload = await storedExecutionPayload(execution);
+      expect(payload.target).toMatchObject({
         entryId: expect.stringMatching(/^entry_/),
         documentId: expect.stringMatching(/^doc_row_/),
       });
-      expect(JSON.parse(execution.payloadJson).request.method).toBe("PATCH");
+      expect(payload.request.method).toBe("PATCH");
       expect(heavySnapshotReads.reviewDocumentScopes).toEqual([
         [seeded.rowDocumentId],
       ]);
@@ -456,7 +465,85 @@ describe("Builder source review execution gates", () => {
     expect(heavySnapshotReads.documentScopes).toEqual([[seeded.rowDocumentId]]);
   });
 
-  it("refreshes a previously approved body only from a provably unsent blocked dry run", async () => {
+  it("claims only the execution row the gate validated and releases it intact", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const db = getDb();
+    const validatedAt = "2026-06-29T16:00:00.000Z";
+    const executionId = `claim-gate-${counter}`;
+    await db.insert(schema.contentDatabaseSourceExecutions).values({
+      id: executionId,
+      ownerEmail: OWNER,
+      sourceId: seeded.sourceId,
+      changeSetId: seeded.changeSetId,
+      adapter: "builder-cms",
+      pushMode: "autosave",
+      state: "ready",
+      idempotencyKey: `builder-cms:${seeded.sourceId}:${seeded.changeSetId}:autosave`,
+      summary: "Ready.",
+      payloadJson: JSON.stringify({ request: { method: "PATCH" } }),
+      attemptToken: null,
+      lastError: null,
+      createdAt: validatedAt,
+      updatedAt: validatedAt,
+    });
+    const deps = realExecutionDeps(seeded.sourceId, seeded.changeSetId);
+    const claim = (expected: { state: string; updatedAt: string }) =>
+      deps.claimExecution({
+        executionId,
+        changeSetId: seeded.changeSetId,
+        expected: { ...expected, attemptToken: null },
+        summary: "Running.",
+        payload: { request: { method: "PATCH" } },
+        now: "2026-06-29T16:01:00.000Z",
+        staleBefore: "2026-06-29T15:51:00.000Z",
+        attemptToken: "attempt-1",
+      });
+
+    await expect(
+      claim({ state: "ready", updatedAt: "2026-06-29T15:59:00.000Z" }),
+    ).resolves.toBe(false);
+    await db
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ state: "rejected" })
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
+    await expect(
+      claim({ state: "ready", updatedAt: validatedAt }),
+    ).resolves.toBe(false);
+    await db
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ state: "approved" })
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
+    await expect(
+      claim({ state: "ready", updatedAt: validatedAt }),
+    ).resolves.toBe(true);
+
+    await deps.releaseExecutionClaim({
+      executionId,
+      attemptToken: "attempt-1",
+      restore: { state: "ready", attemptToken: null },
+      summary: "Stopped before write.",
+      payload: { request: { method: "PATCH" } },
+      lastError: "Re-authorize Builder.io to continue.",
+      now: "2026-06-29T16:02:00.000Z",
+    });
+    const [released] = await db
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
+    expect(released).toMatchObject({
+      state: "ready",
+      attemptToken: null,
+      lastError: "Re-authorize Builder.io to continue.",
+    });
+    await expect(storedExecutionPayload(released)).resolves.toEqual({
+      request: { method: "PATCH" },
+    });
+  });
+
+  it("gives a refreshed body a new revision instead of rewriting an approved blocked gate", async () => {
     const staleBody = {
       summary: "Old blocked body",
       currentExcerpt: "",
@@ -523,25 +610,44 @@ describe("Builder source review execution gates", () => {
       }),
     );
 
-    const [persisted] = await db
+    const [original] = await db
       .select()
       .from(schema.contentDatabaseSourceChangeSets)
       .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
-    const [refreshedExecution] = await db
+    const [blockedExecution] = await db
       .select()
       .from(schema.contentDatabaseSourceExecutions)
       .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
-    const body = JSON.parse(persisted.bodyChangeJson);
-    const payload = JSON.parse(refreshedExecution.payloadJson);
+    expect(JSON.parse(original.bodyChangeJson)).toEqual(staleBody);
+    expect(blockedExecution.state).toBe("blocked");
+    expect(JSON.parse(blockedExecution.payloadJson)).toEqual({
+      request: { method: "POST" },
+      dryRun: { status: "blocked" },
+    });
 
-    expect(persisted.id).toBe(seeded.changeSetId);
+    const revisionId = response.review.rows[0]?.changeSetId;
+    expect(revisionId).toBeTruthy();
+    expect(revisionId).not.toBe(seeded.changeSetId);
+    const [revision] = await db
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, revisionId!));
+    const [revisionExecution] = await db
+      .select()
+      .from(schema.contentDatabaseSourceExecutions)
+      .where(
+        eq(schema.contentDatabaseSourceExecutions.changeSetId, revisionId!),
+      );
+    const body = JSON.parse(revision.bodyChangeJson);
+    const payload = await storedExecutionPayload(revisionExecution);
+
+    expect(revision.state).toBe("approved");
     expect(body.proposedContent).toBe("Fresh body after the converter fix.");
     expect(body.warnings).toEqual([]);
     expect(payload.request.body.data.blocks).toEqual(
       JSON.parse(body.proposedBlocksJson),
     );
     expect(payload.dryRun.status).toBe("validated");
-    expect(response.review.rows[0]?.changeSetId).toBe(seeded.changeSetId);
     expect(response.review.rows[0]?.bodyChange).toEqual(body);
   });
 
@@ -652,6 +758,7 @@ describe("Builder source review execution gates", () => {
     };
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      lastSourceUpdatedAt: "2026-06-29T14:00:00.000Z",
       bodyChange,
     });
     heavySnapshotReads.review = 0;
@@ -682,7 +789,7 @@ describe("Builder source review execution gates", () => {
       );
     const persistedFields = JSON.parse(persistedChangeSet.fieldChangesJson);
     const persistedBody = JSON.parse(persistedChangeSet.bodyChangeJson);
-    const executionPayload = JSON.parse(execution.payloadJson);
+    const executionPayload = await storedExecutionPayload(execution);
 
     expect(heavySnapshotReads).toMatchObject({
       review: 1,
@@ -701,6 +808,10 @@ describe("Builder source review execution gates", () => {
     );
     expect(executionPayload.request.body.data.blocks).toEqual(
       JSON.parse(bodyChange.proposedBlocksJson),
+    );
+    expect(executionPayload.request.body.__write).toBeUndefined();
+    expect(executionPayload.target.reviewedLastUpdated).toBe(
+      "2026-06-29T14:00:00.000Z",
     );
     expect(executionPayload.dryRun.status).toBe("validated");
   });
@@ -787,6 +898,7 @@ describe("Builder source review execution gates", () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
       changeSetState: "approved",
+      lastSourceUpdatedAt: "2026-06-29T14:00:00.000Z",
       metadata: {
         writeMode: "publish_updates",
         pushMode: "publish",
@@ -825,7 +937,7 @@ describe("Builder source review execution gates", () => {
           idempotencyKey,
         ),
       );
-    const payload = JSON.parse(execution.payloadJson);
+    const payload = await storedExecutionPayload(execution);
 
     expect(execution.state).toBe("ready");
     expect(execution.lastError).toBeNull();
@@ -1014,6 +1126,44 @@ describe("Builder source review execution gates", () => {
       );
     expect(claims).toHaveLength(1);
     expect(claims[0]?.executionId).toBe(executions[0]?.id);
+  });
+
+  it("surfaces a failed gate replacement instead of reporting a won race", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      changeSetState: "approved",
+    });
+    const prepare = () =>
+      asOwner(() =>
+        prepareExecution.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          changeSetId: seeded.changeSetId,
+          pushModeConfirmation: "autosave",
+        }),
+      );
+    await prepare();
+    const readGate = async () =>
+      (
+        await getDb()
+          .select()
+          .from(schema.contentDatabaseSourceExecutions)
+          .where(
+            eq(
+              schema.contentDatabaseSourceExecutions.sourceId,
+              seeded.sourceId,
+            ),
+          )
+      )[0];
+    const before = await readGate();
+
+    privateBlobs.setPutsUnavailable(true);
+    try {
+      await expect(prepare()).rejects.toThrow();
+    } finally {
+      privateBlobs.setPutsUnavailable(false);
+    }
+    expect(await readGate()).toEqual(before);
   });
 
   it("preserves legacy duplicate gates and blocks their canonical claim", async () => {

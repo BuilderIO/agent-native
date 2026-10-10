@@ -1037,5 +1037,26 @@ describe("content database source actions", () => {
     expect(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT).toBe(100);
     expect(review.totalRowCount).toBe(1);
     expect(review.preparedRowLimit).toBe(1);
+
+    const publishReview = buildBuilderSourceReviewPayload({
+      source,
+      changeSets: [
+        {
+          id: "publish-change",
+          databaseItemId: "item",
+          documentId: "doc",
+          fieldChanges: [],
+          bodyChange: null,
+          riskLevel: "low",
+          riskReasons: [],
+          conflictState: "none",
+          executions: [{ payload: { effect: "publish" } }],
+        } as never,
+      ],
+    });
+    expect(publishReview.rows[0]).toMatchObject({
+      effect: "publish",
+      fieldChanges: [],
+    });
   });
 });

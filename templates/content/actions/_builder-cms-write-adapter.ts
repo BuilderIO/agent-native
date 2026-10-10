@@ -36,6 +36,8 @@ export interface BuilderCmsExecutionPayload {
     sourceQualifiedId: string | null;
     documentId: string | null;
     databaseItemId: string | null;
+    /** The entry's lastUpdated when the change was reviewed; execute rejects a live value that differs. */
+    reviewedLastUpdated: string | null;
   };
   request: {
     method: "POST" | "PATCH";
@@ -872,6 +874,14 @@ export function buildBuilderCmsExecutionPlan(args: {
     targetRow,
     request,
   });
+  const reviewedLastUpdated = targetEntryId
+    ? (targetRow?.lastSourceUpdatedAt ?? null)
+    : null;
+  if (targetEntryId && !reviewedLastUpdated?.trim()) {
+    fieldBlockers.push(
+      "Refresh this Builder entry before writing so its last update time can be checked.",
+    );
+  }
   const safety = builderSafetyChecks({
     source: args.source,
     changeSet: args.changeSet,
@@ -934,6 +944,7 @@ export function buildBuilderCmsExecutionPlan(args: {
         sourceQualifiedId: targetSourceQualifiedId,
         documentId: args.changeSet.documentId,
         databaseItemId: args.changeSet.databaseItemId,
+        reviewedLastUpdated,
       },
       pushMode: effectivePushMode,
       request,
@@ -1003,11 +1014,26 @@ export function validateBuilderCmsExecutionDryRun(args: {
       "Stored Builder effect no longer matches the approved write mode.",
     );
   }
-  if (
-    stableJson(storedComparable.target) !== stableJson(planComparable.target)
-  ) {
+  const { reviewedLastUpdated: storedReviewedLastUpdated, ...storedTarget } =
+    (storedComparable.target ?? {}) as Partial<
+      BuilderCmsExecutionPayload["target"]
+    >;
+  const { reviewedLastUpdated: planReviewedLastUpdated, ...planTarget } =
+    (planComparable.target ?? {}) as Partial<
+      BuilderCmsExecutionPayload["target"]
+    >;
+  if (stableJson(storedTarget) !== stableJson(planTarget)) {
     mismatches.push(
       "Stored Builder target no longer matches the current row identity.",
+    );
+  }
+  // A refresh that saw a newer Builder lastUpdated moves the row baseline, so
+  // the value recorded at review is the one the live check must compare.
+  if (
+    (storedReviewedLastUpdated ?? null) !== (planReviewedLastUpdated ?? null)
+  ) {
+    mismatches.push(
+      "Builder entry changed since this change was reviewed. Refresh and review it again.",
     );
   }
 

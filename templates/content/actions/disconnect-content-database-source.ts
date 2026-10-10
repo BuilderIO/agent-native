@@ -8,6 +8,11 @@ import type {
   ContentDatabaseResponse,
   DisconnectContentDatabaseSourceRequest,
 } from "../shared/api.js";
+import {
+  builderExecutionPayloadReference,
+  cleanupBuilderPrivatePayload,
+  isBuilderPrivatePayloadBoundToSource,
+} from "./_builder-cms-blob-custody.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   getExistingSource,
@@ -17,6 +22,7 @@ import { getContentDatabaseResponse } from "./_database-utils.js";
 
 async function deleteSourceRecords(databaseId: string, sourceId: string) {
   const db = getDb();
+  const deletedBlobReferences = new Set<string>();
   await db.transaction(async (tx) => {
     await lockContentDatabaseMutation(
       tx as unknown as ReturnType<typeof getDb>,
@@ -35,9 +41,26 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
     await tx
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
-    await tx
+    const deletedExecutions = await tx
       .delete(schema.contentDatabaseSourceExecutions)
-      .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId));
+      .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId))
+      .returning({
+        ownerEmail: schema.contentDatabaseSourceExecutions.ownerEmail,
+        payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+      });
+    for (const row of deletedExecutions) {
+      const reference = builderExecutionPayloadReference(row.payloadJson);
+      if (
+        reference &&
+        isBuilderPrivatePayloadBoundToSource(
+          reference,
+          row.ownerEmail,
+          sourceId,
+        )
+      ) {
+        deletedBlobReferences.add(reference);
+      }
+    }
     await tx
       .delete(schema.contentDatabaseSourceChangeReviews)
       .where(eq(schema.contentDatabaseSourceChangeReviews.sourceId, sourceId));
@@ -54,6 +77,9 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
       .delete(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.id, sourceId));
   });
+  for (const reference of deletedBlobReferences) {
+    await cleanupBuilderPrivatePayload(reference, "disconnected source");
+  }
 }
 
 export default defineAction({

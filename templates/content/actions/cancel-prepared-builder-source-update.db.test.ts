@@ -6,11 +6,17 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import {
+  registerMemoryPrivateBlobProvider,
+  storedExecutionPayload,
+} from "./_builder-private-blob.test-fixture";
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `cancel-prepared-builder-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "owner@example.com";
+const privateBlobs = registerMemoryPrivateBlobProvider();
 
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
@@ -34,6 +40,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
+  privateBlobs.unregister();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -633,7 +640,9 @@ describe("cancel-prepared-builder-source-update", () => {
         eq(schema.contentDatabaseSourceExecutions.changeSetId, revisionId),
       );
     expect(execution).toBeTruthy();
-    expect(JSON.parse(execution.payloadJson).changeSetId).toBe(revisionId);
+    expect((await storedExecutionPayload(execution)).changeSetId).toBe(
+      revisionId,
+    );
   });
 
   it("prepares a corrected diff separately from a failed non-refreshable gate", async () => {
