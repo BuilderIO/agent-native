@@ -123,6 +123,166 @@ describe("password sign-up on a one-connection Neon pool", () => {
     expect(stats.maxWaiting).toBe(0);
   });
 
+  it.each(["provider rejection", "network failure"])(
+    "rejects verification signup on %s and permits a successful retry",
+    async (failure) => {
+      const fetchMock = vi.fn(async () => {
+        if (failure === "network failure") throw new TypeError("fetch failed");
+        return new Response(JSON.stringify({ message: "API key is invalid" }), {
+          status: 401,
+        });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const { auth, pglite, stats } = await bootSignUp({
+        AUTH_REQUIRE_EMAIL_VERIFICATION: "1",
+        RESEND_API_KEY: "re_test_not_a_real_key",
+        EMAIL_FROM: "Test <test@example.test>",
+        APP_URL: "https://auth.example.test",
+      });
+      const signup = () =>
+        auth.api.signUpEmail({
+          body: {
+            email: "delivery+qa@example.test",
+            password: "correct-horse-battery",
+            name: "delivery",
+          },
+        });
+
+      await expect(signup()).rejects.toThrow();
+      expect((await pglite.query('SELECT id FROM "user"')).rows).toHaveLength(
+        0,
+      );
+      expect(
+        (await pglite.query('SELECT id FROM "session"')).rows,
+      ).toHaveLength(0);
+
+      fetchMock.mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ id: "email_retry" }), { status: 200 }),
+      );
+      await expect(signup()).resolves.toMatchObject({
+        user: { email: "delivery+qa@example.test", emailVerified: false },
+        token: null,
+      });
+      expect((await pglite.query('SELECT email FROM "user"')).rows).toEqual([
+        { email: "delivery+qa@example.test" },
+      ]);
+      fetchMock.mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ message: "API key is invalid" }), {
+            status: 401,
+          }),
+      );
+      await expect(
+        auth.api.sendVerificationEmail({
+          body: { email: "delivery+qa@example.test" },
+        }),
+      ).rejects.toThrow();
+      await expect(signup()).rejects.toThrow();
+      await pglite.exec('UPDATE "user" SET email_verified = TRUE');
+      await expect(signup()).rejects.toThrow();
+      expect(
+        (await pglite.query('SELECT email_verified FROM "user"')).rows,
+      ).toEqual([{ email_verified: true }]);
+      fetchMock.mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ id: "email_resend" }), { status: 200 }),
+      );
+      await expect(
+        auth.api.sendVerificationEmail({
+          body: { email: "delivery+qa@example.test" },
+        }),
+      ).resolves.toEqual({ status: true });
+      await expect(signup()).resolves.toMatchObject({ token: null });
+      // Log schema introspection queues one query before signup's transaction.
+      expect(stats.maxWaiting).toBeLessThanOrEqual(1);
+    },
+  );
+
+  it.each([
+    ["application/json", false],
+    ["application/x-www-form-urlencoded", true],
+    ["Application/X-WWW-Form-Urlencoded; charset=UTF-8", true],
+    ["application/json; profile=application/x-www-form-urlencoded", false],
+  ])(
+    "keeps new and existing verification signup responses consistent for %s",
+    async (contentType, formEncoded) => {
+      const fetchMock = vi.fn(
+        async (_input: unknown, _init?: RequestInit) =>
+          new Response(JSON.stringify({ id: "email_http" }), { status: 200 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const { auth, pglite } = await bootSignUp({
+        AUTH_REQUIRE_EMAIL_VERIFICATION: "1",
+        RESEND_API_KEY: "re_test_not_a_real_key",
+        EMAIL_FROM: "Test <test@example.test>",
+        APP_URL: "https://auth.example.test",
+      });
+      const signup = (email = "http-signup@example.test") => {
+        const body = {
+          email,
+          password: "correct-horse-battery",
+          name: "http-signup",
+          callbackURL: "https://auth.example.test/after-signup",
+        };
+        return auth.handler(
+          new Request(
+            "https://auth.example.test/_agent-native/auth/ba/sign-up/email",
+            {
+              method: "POST",
+              headers: {
+                "content-type": contentType,
+                origin: "https://auth.example.test",
+              },
+              body: formEncoded
+                ? new URLSearchParams(body)
+                : JSON.stringify(body),
+            },
+          ),
+        );
+      };
+
+      expect((await signup()).status).toBe(200);
+      expect((await signup()).status).toBe(200);
+      await pglite.exec('UPDATE "user" SET email_verified = TRUE');
+      const accounts = (await pglite.query("SELECT id, password FROM account"))
+        .rows;
+      expect((await signup()).status).toBe(200);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      for (const [, init] of fetchMock.mock.calls) {
+        const payload = JSON.parse(String(init?.body)) as { html: string };
+        const href = payload.html.match(
+          /href="([^"]*email-link\/landing[^"]*)"/,
+        )?.[1];
+        expect(href).toBeTruthy();
+        const landingURL = new URL(href!.replaceAll("&amp;", "&"));
+        expect(landingURL.searchParams.get("callbackURL")).toBe(
+          "https://auth.example.test/after-signup",
+        );
+      }
+
+      fetchMock.mockImplementation(
+        async () =>
+          new Response(JSON.stringify({ message: "API key is invalid" }), {
+            status: 401,
+          }),
+      );
+      const existingFailure = await signup();
+      const newFailure = await signup("new-http-signup@example.test");
+      expect(existingFailure.status).toBe(500);
+      expect(newFailure.status).toBe(existingFailure.status);
+      expect(
+        (await pglite.query("SELECT id, password FROM account")).rows,
+      ).toEqual(accounts);
+      expect(
+        (await pglite.query('SELECT email, email_verified FROM "user"')).rows,
+      ).toEqual([{ email: "http-signup@example.test", email_verified: true }]);
+      expect(
+        (await pglite.query('SELECT id FROM "session"')).rows,
+      ).toHaveLength(0);
+    },
+  );
+
   // With verification required, signUpEmail creates no session and awaits
   // sendVerificationEmail inside the transaction. sendEmail then records the
   // send in email_log through getDbExec(). recordEmailSend swallows its own
@@ -241,7 +401,8 @@ describe("password sign-up on a one-connection Neon pool", () => {
     expect((await pglite.query(`SELECT id FROM "session"`)).rows).toHaveLength(
       1,
     );
-    expect(stats.maxWaiting).toBe(0);
+    // Log schema introspection queues one query before signup's transaction.
+    expect(stats.maxWaiting).toBeLessThanOrEqual(1);
   });
 
   it("keeps a magic link usable after a scanner-shaped GET", async () => {
