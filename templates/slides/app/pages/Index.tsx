@@ -688,12 +688,19 @@ export default function Index({ active = true }: { active?: boolean }) {
         quickActionsEnabled &&
         homeSuggestionsSnapshot === null,
       retry: false,
-      staleTime: 0,
-      refetchOnMount: true,
+      staleTime: Number.POSITIVE_INFINITY,
+      gcTime: Number.POSITIVE_INFINITY,
+      refetchOnMount: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
     },
   );
+  const readyHomeSuggestions =
+    quickActionsEnabled &&
+    homeSuggestionsQuery.data?.status === "ready" &&
+    homeSuggestionsQuery.data.suggestions.length === 3
+      ? homeSuggestionsQuery.data.suggestions
+      : null;
   const homeSuggestionsUnavailable =
     !homeSuggestionsQuery.isFetching &&
     (agentEngine.state === "unavailable" ||
@@ -703,9 +710,7 @@ export default function Index({ active = true }: { active?: boolean }) {
           (homeSuggestionsQuery.data?.status === "ready" &&
             homeSuggestionsQuery.data.suggestions.length !== 3))));
   useEffect(() => {
-    if (homeSuggestionsSnapshot !== null || homeSuggestionsQuery.isFetching) {
-      return;
-    }
+    if (homeSuggestionsSnapshot !== null) return;
     const result = homeSuggestionsQuery.data;
     if (
       quickActionsEnabled &&
@@ -713,7 +718,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       result.suggestions.length === 3
     ) {
       setHomeSuggestionsSnapshot(result.suggestions);
-    } else if (homeSuggestionsUnavailable) {
+    } else if (!homeSuggestionsQuery.isFetching && homeSuggestionsUnavailable) {
       setHomeSuggestionsSnapshot(fallbackHomeSuggestions);
     }
   }, [
@@ -726,11 +731,13 @@ export default function Index({ active = true }: { active?: boolean }) {
   ]);
   const homeSuggestions =
     homeSuggestionsSnapshot ??
+    readyHomeSuggestions ??
     (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);
   const homeSuggestionsLoading =
     isHome &&
     showNewDeckPrompt &&
     homeSuggestionsSnapshot === null &&
+    readyHomeSuggestions === null &&
     (homeSuggestionsQuery.isFetching ||
       (!agentEngineMissing && !homeSuggestionsUnavailable));
   const navigate = useNavigate();
