@@ -626,10 +626,20 @@ export function defineAction(options: any) {
     };
   }
 
+  const executionKey = {};
+  const handlerRun = (args: any, ctx?: ActionRunContext) => {
+    // Nested or parallel calls may share context; any entered handler for this
+    // action makes overlapping failures uncertain rather than safe to retry.
+    const frames = ctx
+      ? actionExecutionFrames.get(ctx)?.get(executionKey)
+      : undefined;
+    for (const frame of frames ?? []) frame.handlerEntered = true;
+    return options.run(args, ctx);
+  };
   const guardedRun =
     typeof options.authorize === "function" || options.access
-      ? wrapRunWithAccess(options.run, options.access, options.authorize)
-      : options.run;
+      ? wrapRunWithAccess(handlerRun, options.access, options.authorize)
+      : handlerRun;
   const uiOnlyGuardedRun =
     options.uiOnly === true
       ? async (args: any, ctx?: ActionRunContext) => {
@@ -768,7 +778,7 @@ export function defineAction(options: any) {
       description: options.description,
       parameters: toolParameters,
     },
-    run: trackedRun,
+    run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof options.requiresAuth === "boolean"
@@ -878,41 +888,26 @@ function wrapRunWithAccess(
   authorize: ActionAuthorize<any> | undefined,
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   return async function accessCheckedRun(args: any, ctx?: ActionRunContext) {
-    if (ctx) actionPreExecutionFailures.delete(ctx);
-    try {
-      if (access) {
-        await assertRegisteredActionAccess(access, args, ctx);
+    if (access) await assertRegisteredActionAccess(access, args, ctx);
+    if (authorize) {
+      const verdict = await authorize(args, ctx);
+      if (verdict === false) {
+        const err = new Error("Not authorized") as Error & {
+          statusCode: number;
+        };
+        err.name = "ForbiddenError";
+        err.statusCode = 403;
+        throw err;
       }
-      if (authorize) {
-        const verdict = await authorize(args, ctx);
-        if (verdict === false) {
-          const err = new Error("Not authorized") as Error & {
-            statusCode: number;
-          };
-          err.name = "ForbiddenError";
-          err.statusCode = 403;
-          throw err;
-        }
-      }
-    } catch (error) {
-      if (ctx && error !== null && typeof error === "object") {
-        let failures = actionPreExecutionFailures.get(ctx);
-        if (!failures) {
-          failures = new WeakSet<object>();
-          actionPreExecutionFailures.set(ctx, failures);
-        }
-        failures.add(error);
-      }
-      throw error;
     }
     return run(args, ctx);
   };
 }
 
 /**
- * Outermost wrapper, so a refused call is audited once as a denial and never
- * as a failed run of the action. Every route to running an action as a service
- * identity (MCP, HTTP, delegated agent runs, sandbox bridges) passes here.
+ * Runs outside action tracking, so a refused call is audited once as a denial
+ * and never as a failed run of the action. Every route to running an action as
+ * a service identity passes here.
  */
 function wrapRunWithServicePrincipalGrant(
   run: (args: any, ctx?: ActionRunContext) => any,
@@ -1434,22 +1429,71 @@ const preValidatedForContext = new WeakMap<
 
 export class ActionInputValidationError extends Error {}
 
-// Bind to the invocation context: reusing an error object in a later handler
-// must not make a potentially completed write look like a wrapper refusal.
+type ActionExecutionFrame = { handlerEntered: boolean };
+type ActionExecutionRun = (args: any, ctx?: ActionRunContext) => Promise<any>;
+const actionExecutionFrames = new WeakMap<
+  ActionRunContext,
+  Map<object, Set<ActionExecutionFrame>>
+>();
 const actionPreExecutionFailures = new WeakMap<
   ActionRunContext,
-  WeakSet<object>
+  WeakMap<object, ActionExecutionRun>
 >();
+
+function wrapRunWithExecutionBoundary(
+  run: (args: any, ctx?: ActionRunContext) => Promise<any>,
+  key: object,
+): (args: any, ctx?: ActionRunContext) => Promise<any> {
+  const boundaryRun = async (args: any, ctx?: ActionRunContext) => {
+    if (!ctx) return run(args, ctx);
+    let byAction = actionExecutionFrames.get(ctx);
+    if (!byAction) {
+      byAction = new Map();
+      actionExecutionFrames.set(ctx, byAction);
+    }
+    let frames = byAction.get(key);
+    if (!frames) {
+      frames = new Set();
+      byAction.set(key, frames);
+    }
+    const frame: ActionExecutionFrame = { handlerEntered: false };
+    frames.add(frame);
+    actionPreExecutionFailures.delete(ctx);
+    try {
+      return await run(args, ctx);
+    } catch (error) {
+      if (error !== null && typeof error === "object") {
+        if (frame.handlerEntered)
+          actionPreExecutionFailures.get(ctx)?.delete(error);
+        else {
+          let failures = actionPreExecutionFailures.get(ctx);
+          if (!failures) {
+            failures = new WeakMap();
+            actionPreExecutionFailures.set(ctx, failures);
+          }
+          failures.set(error, boundaryRun);
+        }
+      }
+      throw error;
+    } finally {
+      frames.delete(frame);
+      if (!frames.size) byAction.delete(key);
+      if (!byAction.size) actionExecutionFrames.delete(ctx);
+    }
+  };
+  return boundaryRun;
+}
 
 export function isActionPreExecutionFailure(
   error: unknown,
   ctx: ActionRunContext | undefined,
+  run: ActionExecutionRun,
 ): boolean {
   return (
     ctx !== undefined &&
     error !== null &&
     typeof error === "object" &&
-    actionPreExecutionFailures.get(ctx)?.has(error) === true
+    actionPreExecutionFailures.get(ctx)?.get(error) === run
   );
 }
 

@@ -30,7 +30,6 @@ import {
 } from "../action-ui.js";
 import {
   AgentConnectionRequiredError,
-  ActionInputValidationError,
   describeToolParameterSignature,
   isActionContractError,
   isActionPreExecutionFailure,
@@ -2858,7 +2857,11 @@ export function appendRequestAttachmentContextToResumedHistory(
 
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
-    if (message.role !== "user") continue;
+    if (
+      message.role !== "user" ||
+      message.content.some((part) => part.type === "tool-result")
+    )
+      continue;
     const missingContent = attachmentContent.filter(
       (candidate) =>
         !message.content.some((existing) =>
@@ -7944,8 +7947,11 @@ export async function runAgentLoop(opts: {
           }
         } catch (err: any) {
           actionRefused =
-            err instanceof ActionInputValidationError ||
-            isActionPreExecutionFailure(err, invokedActionContext) ||
+            isActionPreExecutionFailure(
+              err,
+              invokedActionContext,
+              actionEntry.run,
+            ) ||
             isAgentConnectionRequiredError(err) ||
             ((isActionContractError(err) || isAgentActionStopError(err)) &&
               err.errorCode === "permanent_precondition");

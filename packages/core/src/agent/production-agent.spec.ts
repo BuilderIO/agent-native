@@ -2736,12 +2736,29 @@ describe("appendRequestAttachmentContextToResumedHistory", () => {
       attachments,
       vision: true,
     });
-    const original = structuredClone(content);
-    const messages: EngineMessage[] = [{ role: "user", content }];
+    const messages: EngineMessage[] = [
+      { role: "user", content },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", id: "read-1", name: "read", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "read-1",
+            toolName: "read",
+            content: "read result",
+          },
+        ],
+      },
+    ];
+    const original = structuredClone(messages);
     appendRequestAttachmentContextToResumedHistory(messages, attachments, {
       vision: true,
     });
-    expect(messages[0]?.content).toEqual(original);
+    expect(messages).toEqual(original);
   });
   it("restores image pixels and visible attachment failures on durable continuation", () => {
     const messages: EngineMessage[] = [
@@ -10953,6 +10970,39 @@ describe("runAgentLoop", () => {
       "needs to be fixed outside this chat",
     );
   });
+
+  it.each([
+    "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    "'options' must be a non-empty JSON array.",
+  ])(
+    "blocks a retry when a plain write handler throws without non-execution evidence (%s)",
+    async (message) => {
+      const run = vi.fn(async () => {
+        throw new Error(message);
+      });
+      const events = await runToolCallSequence(
+        [
+          { name: "write", input: { id: "first" } },
+          { name: "write", input: { id: "second" } },
+        ],
+        { write: { ...actionEntry({ readOnly: false }), run } },
+      );
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "write",
+          outcomeUnknown: true,
+        }),
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+    },
+  );
 
   it("lets the model revise arguments after a role mismatch", async () => {
     let streamCalls = 0;

@@ -70,6 +70,8 @@ async function recover(
     | "action"
     | "validation"
     | "authorization"
+    | "nested-authorization"
+    | "nested-validation"
     | "access"
     | "precondition"
     | "connection" = false,
@@ -224,6 +226,29 @@ async function recover(
                 .object({ to: z.string(), body: z.string() })
                 .refine(() => false, "Recipient is not eligible"),
               run: sendEmail,
+            })
+          : {}),
+        ...(failFinalization === "nested-authorization" ||
+        failFinalization === "nested-validation"
+          ? defineAction({
+              description: "Send then call another action",
+              readOnly: false,
+              schema: z.object({ to: z.string(), body: z.string() }),
+              run: async (input, ctx) => {
+                await sendEmail(input);
+                const child = defineAction({
+                  description: "Refused child",
+                  schema: z
+                    .object({})
+                    .refine(
+                      () => failFinalization !== "nested-validation",
+                      "Child validation failed",
+                    ),
+                  authorize: () => false,
+                  run: async () => "unreachable",
+                });
+                return child.run({}, ctx);
+              },
             })
           : {}),
         ...(failFinalization === "authorization" ||
@@ -425,12 +450,22 @@ describe("reaper successor resume context", () => {
       expect(next.sendEmail).toHaveBeenCalledTimes(1);
     },
   );
-  it("refreshes verification reads and blocks a reworded retry after a live unknown write", async () => {
-    const result = await recover([], "verify-live", false, "action");
-    expect(result.checkEmail).toHaveBeenCalledTimes(2);
-    expect(result.sendEmail).toHaveBeenCalledTimes(1);
-    expect(result.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
-  });
+  it.each([
+    "action",
+    "serialization",
+    "nested-authorization",
+    "nested-validation",
+  ] as const)(
+    "refreshes verification reads and blocks a reworded retry after a live unknown write (%s)",
+    async (failure) => {
+      const result = await recover([], "verify-live", false, failure);
+      expect(result.sendEmail).toHaveBeenCalledTimes(1);
+      expect(result.checkEmail).toHaveBeenCalledTimes(2);
+      expect(result.run?.terminalReason).toBe(
+        "error:write_tool_outcome_unknown",
+      );
+    },
+  );
   it.each(["auto", "manual"] as const)(
     "recovers a killed %s continuation with its original prompt and unique tool ids",
     async (trigger) => {

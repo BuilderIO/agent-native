@@ -1024,14 +1024,14 @@ describe("defineAction — authorize", () => {
     const second: ActionRunContext = { caller: "tool" };
     await expect(action.run({}, first)).rejects.toBe(denial);
     expect(run).not.toHaveBeenCalled();
-    expect(isActionPreExecutionFailure(denial, first)).toBe(true);
-    expect(isActionPreExecutionFailure(denial, second)).toBe(false);
+    expect(isActionPreExecutionFailure(denial, first, action.run)).toBe(true);
+    expect(isActionPreExecutionFailure(denial, second, action.run)).toBe(false);
     allowed = true;
     await expect(action.run({}, second)).rejects.toBe(denial);
     expect(run).toHaveBeenCalledTimes(1);
-    expect(isActionPreExecutionFailure(denial, second)).toBe(false);
+    expect(isActionPreExecutionFailure(denial, second, action.run)).toBe(false);
     await expect(action.run({}, first)).rejects.toBe(denial);
-    expect(isActionPreExecutionFailure(denial, first)).toBe(false);
+    expect(isActionPreExecutionFailure(denial, first, action.run)).toBe(false);
   });
   it("runs the gate before the body and passes args + ctx through", async () => {
     const authorize = vi.fn();
