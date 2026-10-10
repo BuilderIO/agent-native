@@ -22,6 +22,7 @@ export interface SlackAuthTestResult {
   userName: string;
   teamId: string;
   teamName: string;
+  botId?: string;
 }
 
 export interface SlackTeamInfo {
@@ -264,6 +265,7 @@ export async function authTest(
     user?: string;
     team_id?: string;
     team?: string;
+    bot_id?: string;
   }>(workspace, "auth.test", undefined, tokenResolver);
   if (
     typeof data.user_id !== "string" ||
@@ -278,6 +280,7 @@ export async function authTest(
     userName: data.user,
     teamId: data.team_id,
     teamName: data.team,
+    ...(typeof data.bot_id === "string" ? { botId: data.bot_id } : {}),
   };
 }
 

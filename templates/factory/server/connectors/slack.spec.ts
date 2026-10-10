@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getUserInfo, postChannelMessage, SlackWriteError } from "./slack";
+import {
+  authTest,
+  getUserInfo,
+  postChannelMessage,
+  SlackWriteError,
+} from "./slack";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -8,6 +13,38 @@ function jsonResponse(body: unknown): Response {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+describe("authTest", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns the authenticated Slack bot id when available", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          ok: true,
+          user_id: "U-agent-native",
+          user: "agent-native",
+          team_id: "T1",
+          team: "Builder",
+          bot_id: "B-agent-native",
+        }),
+      ),
+    );
+
+    await expect(
+      authTest("primary", async () => "xoxb-auth-test"),
+    ).resolves.toEqual({
+      userId: "U-agent-native",
+      userName: "agent-native",
+      teamId: "T1",
+      teamName: "Builder",
+      botId: "B-agent-native",
+    });
+  });
+});
 
 describe("getUserInfo cache", () => {
   afterEach(() => {

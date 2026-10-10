@@ -375,7 +375,9 @@ describe("report-factory-findings", () => {
       metadataJson: "{}",
     });
     const slack = {
-      getAgentNativeIdentity: vi.fn().mockResolvedValue({}),
+      getAgentNativeIdentity: vi
+        .fn()
+        .mockResolvedValue({ userId: "U_AGENT_NATIVE" }),
       getChannelHistory: vi.fn().mockResolvedValue({
         messages: [],
         has_more: false,
@@ -409,7 +411,9 @@ describe("report-factory-findings", () => {
       metadataJson: "{}",
     });
     const slack = {
-      getAgentNativeIdentity: vi.fn().mockResolvedValue({}),
+      getAgentNativeIdentity: vi
+        .fn()
+        .mockResolvedValue({ userId: "U_AGENT_NATIVE" }),
       getChannelHistory: vi.fn().mockResolvedValue({
         messages: [],
         has_more: false,
@@ -456,7 +460,9 @@ describe("report-factory-findings", () => {
       item("item-c"),
     ]);
     const slack = {
-      getAgentNativeIdentity: vi.fn().mockResolvedValue({}),
+      getAgentNativeIdentity: vi
+        .fn()
+        .mockResolvedValue({ userId: "U_AGENT_NATIVE" }),
       getChannelHistory: vi.fn().mockResolvedValue({
         messages: [],
         has_more: false,
@@ -507,7 +513,9 @@ describe("report-factory-findings", () => {
       },
     );
     const slack = {
-      getAgentNativeIdentity: vi.fn().mockResolvedValue({}),
+      getAgentNativeIdentity: vi
+        .fn()
+        .mockResolvedValue({ userId: "U_AGENT_NATIVE" }),
       getChannelHistory: vi.fn().mockResolvedValue({
         messages: [],
         has_more: false,
@@ -612,13 +620,25 @@ describe("report-factory-findings", () => {
       .fn()
       .mockResolvedValueOnce({
         messages: [
-          { type: "message", text: "newer message", ts: "1791633602.0" },
+          {
+            type: "message",
+            user: "U_OTHER",
+            text: "newer message",
+            ts: "1791633602.0",
+          },
         ],
         has_more: true,
         next_cursor: "1791633602.0",
       })
       .mockResolvedValueOnce({
-        messages: [{ type: "message", text: marker, ts: "1791633601.0" }],
+        messages: [
+          {
+            type: "message",
+            bot_id: "B_AGENT_NATIVE",
+            text: marker,
+            ts: "1791633601.0",
+          },
+        ],
         has_more: true,
         next_cursor: "1791633601.0",
       });
@@ -628,11 +648,45 @@ describe("report-factory-findings", () => {
         readHistory,
         channelId: "C0C4U4XRT6X",
         marker,
+        expectedUserId: "U_AGENT_NATIVE",
+        expectedBotId: "B_AGENT_NATIVE",
         startedAt,
       }),
     ).resolves.toEqual({ channel: "C0C4U4XRT6X", ts: "1791633601.0" });
     expect(readHistory).toHaveBeenCalledTimes(2);
     expect(readHistory).toHaveBeenLastCalledWith("1791633602.0");
+  });
+
+  it("does not reconcile a marker posted by another sender or quoted in text", async () => {
+    const marker = "Report reference: run-abc";
+    const readHistory = vi.fn().mockResolvedValue({
+      messages: [
+        {
+          type: "message",
+          user: "U_OTHER",
+          text: marker,
+          ts: "1791633601.0",
+        },
+        {
+          type: "message",
+          user: "U_AGENT_NATIVE",
+          text: `A previous message said ${marker}`,
+          ts: "1791633600.0",
+        },
+      ],
+      has_more: false,
+      next_cursor: null,
+    });
+
+    await expect(
+      findSlackReportMessage({
+        readHistory,
+        channelId: "C0C4U4XRT6X",
+        marker,
+        expectedUserId: "U_AGENT_NATIVE",
+        startedAt: "2026-10-10T12:00:00.000Z",
+      }),
+    ).resolves.toBeNull();
   });
 
   it("rejects absent and malformed Slack timestamps during reconciliation", async () => {
@@ -654,6 +708,7 @@ describe("report-factory-findings", () => {
           readHistory,
           channelId: "C0C4U4XRT6X",
           marker: "Report reference: run-abc",
+          expectedUserId: "U_AGENT_NATIVE",
           startedAt: "2026-10-10T12:00:00.000Z",
         }),
       ).rejects.toThrow(/invalid message timestamp/);

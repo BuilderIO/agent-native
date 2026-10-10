@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   initialSignupAgentReportState,
   initialSignupE2EReportState,
-  assertLegacySignupReportFallbackAllowed,
+  legacySignupReportFallbackAllowed,
   legacySignupE2EOutcomeFromJobs,
   legacySignupE2ETestStepResult,
   finalizeSignupAgentReport,
@@ -23,14 +23,15 @@ const priorRunUrl =
 const artifactUrl = `${runUrl}/artifacts/456`;
 const priorArtifactUrl = `${priorRunUrl}/artifacts/789`;
 
-test("legacy signup report fallback is allowed only when the persist step is absent", () => {
-  assert.doesNotThrow(() =>
-    assertLegacySignupReportFallbackAllowed(
+test("legacy signup fallback is unavailable when continuity persistence was attempted", () => {
+  assert.equal(
+    legacySignupReportFallbackAllowed(
       JSON.stringify({
         jobs: [{ steps: [{ name: "Build report", conclusion: "success" }] }],
       }),
       "Persist Signup E2E continuity state",
     ),
+    true,
   );
 
   for (const conclusion of [
@@ -39,29 +40,28 @@ test("legacy signup report fallback is allowed only when the persist step is abs
     "failure",
     "action_required",
   ]) {
-    assert.throws(
-      () =>
-        assertLegacySignupReportFallbackAllowed(
-          JSON.stringify({
-            jobs: [
-              {
-                steps: [
-                  {
-                    name: "Persist Signup agent continuity state",
-                    conclusion,
-                  },
-                ],
-              },
-            ],
-          }),
-          "Persist Signup agent continuity state",
-        ),
-      /continuity artifact is missing; refusing to fall back to legacy report state/,
+    assert.equal(
+      legacySignupReportFallbackAllowed(
+        JSON.stringify({
+          jobs: [
+            {
+              steps: [
+                {
+                  name: "Persist Signup agent continuity state",
+                  conclusion,
+                },
+              ],
+            },
+          ],
+        }),
+        "Persist Signup agent continuity state",
+      ),
+      false,
     );
   }
 
   assert.throws(
-    () => assertLegacySignupReportFallbackAllowed("{}", "Persist state"),
+    () => legacySignupReportFallbackAllowed("{}", "Persist state"),
     /invalid shape/,
   );
 });

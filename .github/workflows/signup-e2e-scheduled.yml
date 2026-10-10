@@ -145,10 +145,14 @@ jobs:
             mark_continuity_unknown "Job history for prior signup run $previous_id could not be read; no recovery will be inferred."
             exit 0
           fi
-          if ! node --experimental-strip-types scripts/signup-report-continuity.ts assert-legacy-fallback \
+          if ! fallback_allowed="$(node --experimental-strip-types scripts/signup-report-continuity.ts legacy-fallback-allowed \
             --jobs-file "$previous_jobs_file" \
-            --persist-step-name "Persist Signup E2E continuity state"; then
-            mark_continuity_unknown "Prior signup run $previous_id has no usable continuity state; no recovery will be inferred."
+            --persist-step-name "Persist Signup E2E continuity state")"; then
+            mark_continuity_unknown "Prior signup run $previous_id has unreadable job history; no recovery will be inferred."
+            exit 0
+          fi
+          if [ "$fallback_allowed" != "true" ]; then
+            mark_continuity_unknown "Prior signup run $previous_id was expected to persist continuity state but has no usable state artifact; no recovery will be inferred."
             exit 0
           fi
 
@@ -376,12 +380,11 @@ jobs:
           ${{ always() && needs.signup-e2e.result != 'success' && (steps.report.outcome != 'success' || steps.slack-report.outcome != 'success') }}
         env:
           REPORT_ARTIFACT_URL: ${{ steps.report-artifact.outputs.artifact-url }}
-          CONTINUITY_UNKNOWN: ${{ steps.previous-state.outputs.continuity_unknown }}
         run: |
           set -euo pipefail
           mkdir -p .tmp
           continuity_message=""
-          if [ "$CONTINUITY_UNKNOWN" = "true" ]; then
+          if [ "${{ steps.previous-state.outputs.continuity_unknown }}" = "true" ]; then
             continuity_message="Prior scheduled signup continuity is unavailable; no recovery was inferred."
           fi
           jq -n --arg channel "$SLACK_CHANNEL" --arg run_url "$RUN_URL" --arg artifact_url "$REPORT_ARTIFACT_URL" \

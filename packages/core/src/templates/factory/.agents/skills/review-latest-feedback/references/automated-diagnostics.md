@@ -27,3 +27,11 @@ and issue state. Treat labels/counts as leads. Fix verified repo-owned causes;
 for other causes, record evidence and the next owner/action. Don't ask bots; ask
 a person only when a fact blocks a fix. Improve reports with concise evidence
 and links; avoid duplicate details and secrets.
+
+For CI, uptime/downtime, test, check, and health findings, use one grouped
+`#qa-agent-native` report per run with the full artifact and occurrence ledger.
+Never create or update GitHub issues for automated findings, and never post one
+Slack message per finding. Treat existing bot issues as migration records; use
+the QA rollup and run artifacts for discovery, deduplication, and recovery. If
+Slack delivery fails, record it and leave the findings unresolved without an
+issue fallback.

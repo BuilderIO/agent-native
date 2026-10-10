@@ -187,6 +187,8 @@ export async function findSlackReportMessage(input: {
   readHistory: (cursor?: string) => Promise<ChannelHistoryResult>;
   channelId: string;
   marker: string;
+  expectedUserId: string;
+  expectedBotId?: string;
   startedAt: string;
 }): Promise<SlackPostMessageResult | null> {
   const startedAtMs = Date.parse(input.startedAt);
@@ -200,8 +202,13 @@ export async function findSlackReportMessage(input: {
   let cursor: string | undefined;
   for (let page = 0; page < 100; page += 1) {
     const result = await input.readHistory(cursor);
-    const found = result.messages.find((message) =>
-      message.text.includes(input.marker),
+    const found = result.messages.find(
+      (message) =>
+        message.type === "message" &&
+        (message.user === input.expectedUserId ||
+          (input.expectedBotId !== undefined &&
+            message.bot_id === input.expectedBotId)) &&
+        message.text.split(/\r?\n/).includes(input.marker),
     );
     if (found) {
       parseSlackTimestamp(found.ts);
@@ -334,7 +341,7 @@ export default defineAction({
     const channelId = QA_AGENT_NATIVE_SLACK_CHANNEL_ID;
     const workspace = "primary";
     const slack = createSlackReader({ ownerEmail: userEmail, orgId });
-    await slack.getAgentNativeIdentity(workspace);
+    const slackIdentity = await slack.getAgentNativeIdentity(workspace);
 
     const claim = await db.transaction(async (tx) => {
       const currentItems = await tx
@@ -596,6 +603,8 @@ export default defineAction({
               slack.getChannelHistory(workspace, channelId, 100, cursor),
             channelId,
             marker: `Report reference: ${reportKey}`,
+            expectedUserId: slackIdentity.userId,
+            expectedBotId: slackIdentity.botId,
             startedAt: existingRuns[0]!.startedAt,
           });
         } catch (error) {

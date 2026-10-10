@@ -90,10 +90,10 @@ export function initialSignupAgentReportState(): SignupAgentReportState {
   };
 }
 
-export function assertLegacySignupReportFallbackAllowed(
+export function legacySignupReportFallbackAllowed(
   rawJobs: string,
   persistStepName: string,
-): void {
+): boolean {
   const value = parseRecord(rawJobs, "previous workflow jobs");
   if (!Array.isArray(value.jobs)) {
     throw new Error("previous workflow jobs have an invalid shape");
@@ -110,11 +110,7 @@ export function assertLegacySignupReportFallbackAllowed(
       return step.name === persistStepName;
     });
   });
-  if (persistStepFound) {
-    throw new Error(
-      `previous workflow contains ${persistStepName} but its continuity artifact is missing; refusing to fall back to legacy report state`,
-    );
-  }
+  return !persistStepFound;
 }
 
 export function legacySignupE2ETestStepResult(
@@ -592,10 +588,14 @@ function runCli(): void {
     return;
   }
 
-  if (command === "assert-legacy-fallback") {
-    assertLegacySignupReportFallbackAllowed(
-      readFileSync(requireArg(args, "jobs-file"), "utf8"),
-      requireArg(args, "persist-step-name"),
+  if (command === "legacy-fallback-allowed") {
+    process.stdout.write(
+      String(
+        legacySignupReportFallbackAllowed(
+          readFileSync(requireArg(args, "jobs-file"), "utf8"),
+          requireArg(args, "persist-step-name"),
+        ),
+      ),
     );
     return;
   }
