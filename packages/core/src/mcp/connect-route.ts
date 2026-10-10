@@ -147,12 +147,21 @@ function joinAppPath(basePath: string, path: string): string {
   return `${basePath}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-function appLabel(origin: string, options: McpConnectRouteOptions): string {
+function appLabel(
+  origin: string,
+  options: McpConnectRouteOptions,
+  environment: McpConnectIdentity["environment"],
+): string {
   const app = getAppConfig().app;
   const declared = options.appId ?? app.id ?? app.template ?? app.slug;
   if (declared) return declared;
+  // Deployed functions run without npm's `npm_package_name`, so first-party
+  // apps usually land here. A beta lane is `beta.<app>.agent-native.com`: its
+  // leading label names the lane, and every beta app would share it. Only a
+  // beta deployment drops it, so no production name changes.
   try {
-    const h = new URL(origin).hostname;
+    const host = new URL(origin).hostname;
+    const h = environment === "beta" ? host.replace(/^beta\./, "") : host;
     return h.split(".")[0] || h;
   } catch {
     return options.appName || "app";
@@ -179,10 +188,13 @@ export function resolveMcpConnectIdentity(
   const environment = connectEnvironment();
   const baseName =
     options.serverName?.trim() ||
-    derivedMcpServerBaseName(appLabel(appUrl, options), environment);
+    derivedMcpServerBaseName(
+      appLabel(appUrl, options, environment),
+      environment,
+    );
   return {
     serverName: mcpConnectServerName(baseName, environment),
-    appName: options.appName || appLabel(appUrl, options),
+    appName: options.appName || appLabel(appUrl, options, environment),
     appUrl,
     mcpUrl: mcpResourceUrl(appUrl),
     environment,
