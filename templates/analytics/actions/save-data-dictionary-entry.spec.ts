@@ -23,9 +23,9 @@ describe("save-data-dictionary-entry schema", () => {
     });
   });
 
-  it("defaults human-authored entries to approved", () => {
+  it("defaults entries to unapproved until someone reviews them", () => {
     expect(resolveDictionaryTrustDefaults({})).toEqual({
-      approved: true,
+      approved: false,
       aiGenerated: false,
     });
   });
@@ -55,6 +55,15 @@ describe("save-data-dictionary-entry schema", () => {
     ).toEqual({
       approved: true,
       aiGenerated: true,
+    });
+    expect(
+      resolveDictionaryTrustDefaults(
+        {},
+        { approved: true, aiGenerated: false },
+      ),
+    ).toEqual({
+      approved: true,
+      aiGenerated: false,
     });
   });
 });

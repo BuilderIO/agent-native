@@ -113,7 +113,7 @@ export default defineAction({
     approved: cliBoolean
       .optional()
       .describe(
-        "Whether this entry has been reviewed and approved. Defaults to true for human-authored entries and false for AI-generated suggestions.",
+        "Whether this entry has been reviewed and approved. Defaults to false unless explicitly approved.",
       ),
     aiGenerated: cliBoolean
       .optional()

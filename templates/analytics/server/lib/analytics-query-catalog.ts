@@ -13,6 +13,7 @@ import {
   semanticScopeForSearch,
   searchTerms,
   decodeSearchCursor,
+  unrelatedNameTerms,
 } from "./analytics-term-matcher";
 export { relevanceTerms, searchTerms } from "./analytics-term-matcher";
 
@@ -82,6 +83,7 @@ export type AnalyticsQueryCatalogCandidate =
       origin: "saved-dashboard" | "dashboard-template";
       score: number;
       matchedTerms: string[];
+      exactMatchedTerms?: string[];
       dashboardId: string;
       dashboardTitle: string;
       dashboardDescription?: string;
@@ -100,6 +102,7 @@ export type AnalyticsQueryCatalogCandidate =
       origin: "data-dictionary" | "source-index";
       score: number;
       matchedTerms: string[];
+      exactMatchedTerms?: string[];
       id: string;
       metric: string;
       definition?: string;
@@ -328,7 +331,11 @@ function dashboardPanelCandidates(args: {
         : {};
     const panelTitle = text(panel.title) || text(panel.id);
     const panelDescription = text(panelConfig.description);
-    const { score: rawScore, matchedTerms } = matchScore(args.search, [
+    const {
+      score: rawScore,
+      matchedTerms,
+      exactMatchedTerms,
+    } = matchScore(args.search, [
       { value: panelTitle, weight: 24 },
       { value: panelDescription, weight: 12 },
       { value: args.dashboardTitle, weight: 10 },
@@ -344,16 +351,25 @@ function dashboardPanelCandidates(args: {
       },
     ]);
     const requestedTerms = new Set(searchTerms(args.search));
-    const unmatchedTitleTerms = searchTerms(panelTitle).filter(
-      (term) => !requestedTerms.has(term),
-    ).length;
-    const titleSpecificityPenalty = Math.min(unmatchedTitleTerms, 4) * 4;
     const titleMatchedTerms = matchScore(args.search, [
       { value: panelTitle, weight: 1 },
     ]).matchedTerms;
     const strongTitleTerms = titleMatchedTerms.filter(
       (term) => !LOW_INFORMATION_TERMS.has(term),
     ).length;
+    const dashboardTitleMatchedTerms = matchScore(args.search, [
+      { value: args.dashboardTitle, weight: 1 },
+    ]).matchedTerms;
+    const titleSpecificityPenalty =
+      (titleMatchedTerms.length
+        ? Math.min(unrelatedNameTerms(args.search, panelTitle).length, 4) * 12
+        : 0) +
+      (dashboardTitleMatchedTerms.length
+        ? Math.min(
+            unrelatedNameTerms(args.search, args.dashboardTitle).length,
+            4,
+          ) * 4
+        : 0);
     const titleIsOnTopic =
       requestedTerms.size > 0 &&
       (strongTitleTerms >= 2 ||
@@ -383,6 +399,7 @@ function dashboardPanelCandidates(args: {
         origin: args.origin,
         score,
         matchedTerms,
+        exactMatchedTerms,
         dashboardId: args.dashboardId,
         dashboardTitle: args.dashboardTitle,
         ...(args.dashboardDescription
@@ -412,7 +429,11 @@ function dictionaryCandidates(
 ): AnalyticsQueryCatalogCandidate[] {
   const candidates = entries.flatMap((entry) => {
     if (isRetiredCatalogReference(entry)) return [];
-    const { score: rawScore, matchedTerms } = matchScore(search, [
+    const {
+      score: rawScore,
+      matchedTerms,
+      exactMatchedTerms,
+    } = matchScore(search, [
       { value: entry.metric, weight: 28 },
       { value: entry.commonQuestions, weight: 16 },
       { value: entry.definition, weight: 12 },
@@ -428,7 +449,16 @@ function dictionaryCandidates(
       { value: entry.semanticModel, weight: 8 },
       { value: entry.owner, weight: 3 },
     ]);
-    if (!rawScore) return [];
+    const metricMatchedTerms = matchScore(search, [
+      { value: entry.metric, weight: 1 },
+    ]).matchedTerms;
+    const score =
+      rawScore -
+      (metricMatchedTerms.length
+        ? Math.min(unrelatedNameTerms(search, text(entry.metric)).length, 4) *
+          12
+        : 0);
+    if (score <= 0) return [];
     const isSourceIndex = entry.sourceIndex === true;
     const declaredScope = text(entry.semanticScope);
     const semanticScope =
@@ -441,9 +471,6 @@ function dictionaryCandidates(
           );
     const entrySourceKind = sourceKind(entry.sourceKind);
     const entryType = sourceEntryType(entry.entryType);
-    const score = rawScore;
-    if (!score) return [];
-
     const id = text(entry.id);
     const metric = text(entry.metric);
     if (!id || !metric) return [];
@@ -455,6 +482,7 @@ function dictionaryCandidates(
           : ("data-dictionary" as const),
         score: score + (entry.approved === true ? 12 : 0),
         matchedTerms,
+        exactMatchedTerms,
         id,
         metric,
         ...(text(entry.definition)
@@ -549,6 +577,12 @@ function candidateIsRunnable(
     : Boolean(candidate.queryTemplate);
 }
 
+function candidateExactMatchedTerms(
+  candidate: AnalyticsQueryCatalogCandidate,
+): string[] {
+  return candidate.exactMatchedTerms ?? [];
+}
+
 function candidateDedupeKey(candidate: AnalyticsQueryCatalogCandidate): string {
   if (candidate.kind === "data-dictionary") return `dict:${candidate.id}`;
   const query =
@@ -614,7 +648,9 @@ export function rankAnalyticsQueryCatalogPage(args: {
   const requestedTerms = new Set(searchTerms(args.search));
   const hasExactQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
     requestedTerms.size > 0 &&
-    [...requestedTerms].every((term) => candidate.matchedTerms.includes(term));
+    [...requestedTerms].every((term) =>
+      candidateExactMatchedTerms(candidate).includes(term),
+    );
   const hasFullQueryCoverage = (candidate: AnalyticsQueryCatalogCandidate) =>
     requestedTerms.size > 1 && hasExactQueryCoverage(candidate);
   // Strong definitions and proven panels outrank generic hits before coverage.
@@ -641,7 +677,7 @@ export function rankAnalyticsQueryCatalogPage(args: {
           ? 1
           : 0,
     coverage:
-      candidate.matchedTerms.length +
+      candidateExactMatchedTerms(candidate).length +
       (candidate.kind === "dashboard-panel" && candidate.dashboardCertified
         ? 1
         : 0),

@@ -75,6 +75,7 @@ interface DictionaryEntry {
   knownGotchas?: string;
   exampleUseCase?: string;
   owner?: string;
+  status?: "active" | "deprecated";
   approved?: boolean;
   aiGenerated?: boolean;
   sourceUrl?: string;
@@ -132,7 +133,7 @@ const EMPTY_ENTRY: Partial<DictionaryEntry> = {
   knownGotchas: "",
   exampleUseCase: "",
   owner: "",
-  approved: true,
+  approved: false,
   aiGenerated: false,
 };
 

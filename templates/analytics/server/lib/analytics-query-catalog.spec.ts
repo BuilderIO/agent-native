@@ -276,6 +276,96 @@ describe("analytics query catalog", () => {
     ).toBe(false);
   });
 
+  it("ranks organization membership over Builder.io Connect user dashboards", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "Builder.io users organization",
+      limit: 6,
+      dictionaryEntries: [
+        {
+          id: "builder-users-by-organization",
+          metric: "Builder.io User Distribution by Organization",
+          definition:
+            "Distribution of Builder.io product users across organizations, one row per user and organization membership.",
+          table: "dbt_intermediate.user_organization_role",
+          semanticScope: "membership",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          aiGenerated: true,
+          approved: false,
+        },
+      ],
+      dashboards: [
+        {
+          id: "builder-connect",
+          title: "Builder.io Connect",
+          origin: "saved-dashboard",
+          favorite: true,
+          config: {
+            panels: [
+              {
+                id: "connect-funnel",
+                title: "Builder.io Connect Users",
+                config: {
+                  description:
+                    "Distinct users through Builder.io Connect clicked, started, and succeeded.",
+                },
+                source: "bigquery",
+                sql: "SELECT org_id, user_id, event_name FROM builder_connect_events",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "data-dictionary",
+      id: "builder-users-by-organization",
+      semanticScope: "membership",
+    });
+  });
+
+  it("penalizes off-topic terms in metric names when query coverage is equal", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "organization Builder.io users",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "membership-distribution",
+          metric: "Builder.io User Distribution by Organization",
+          definition: "Builder.io users organization membership records.",
+          table: "user_organization_role",
+          semanticScope: "membership",
+          sourceKind: "sigma",
+          sourceIndex: true,
+          aiGenerated: true,
+          approved: false,
+        },
+        {
+          id: "connect-membership",
+          metric: "Builder.io Users Organization Connect",
+          definition: "Builder.io users organization membership records.",
+          table: "user_organization_role",
+          semanticScope: "membership",
+          sourceKind: "sigma",
+          sourceIndex: true,
+          aiGenerated: true,
+          approved: false,
+        },
+      ],
+    });
+
+    expect(
+      results.map((candidate) =>
+        candidate.kind === "data-dictionary" ? candidate.id : candidate.panelId,
+      ),
+    ).toEqual(["membership-distribution", "connect-membership"]);
+    expect(results[0].score).toBeGreaterThan(results[1].score);
+    expect(results[0].exactMatchedTerms).toHaveLength(4);
+    expect(results[1].exactMatchedTerms).toHaveLength(4);
+  });
+
   it("keeps a relevant AI generated definition when human entries are unrelated", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "monthly active users",
