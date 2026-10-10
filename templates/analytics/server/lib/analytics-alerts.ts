@@ -15,6 +15,7 @@ import {
   gte,
   inArray,
   isNull,
+  like,
   lte,
   or,
   sql,
@@ -642,10 +643,23 @@ export async function ensureDefaultAnalyticsAlertRules(): Promise<{
   checked: number;
   created: number;
 }> {
+  const db = getDb() as any;
+  await db
+    .update(schema.analyticsAlertRules)
+    .set({ enabled: false, updatedAt: nowIso() })
+    .where(
+      and(
+        like(
+          schema.analyticsAlertRules.id,
+          `${DEFAULT_HTTP_5XX_ALERT_ID_PREFIX}-%`,
+        ),
+        eq(schema.analyticsAlertRules.enabled, true),
+      ),
+    );
+
   const definitions = defaultAnalyticsAlertDefinitions();
   if (!definitions.length) return { checked: 0, created: 0 };
 
-  const db = getDb() as any;
   let checked = 0;
   let created = 0;
   let offset = 0;

@@ -809,6 +809,26 @@ describe("analytics alert evaluation", () => {
     expect(inserted.get(stuckId!)?.enabled).toBe(false);
   });
 
+  it("retires an existing legacy HTTP 5xx default row without seeding a new one", async () => {
+    vi.stubEnv("ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_ENABLED", "false");
+    const { db, inserted } = defaultAlertDb([
+      { ownerEmail: "owner@example.test", orgId: "org_123" },
+    ]);
+    inserted.set("default-http-5xx-spike-legacy", {
+      id: "default-http-5xx-spike-legacy",
+      eventName: "http.response",
+      enabled: true,
+    });
+    dbMocks.getDb.mockReturnValue(db);
+
+    await expect(ensureDefaultAnalyticsAlertRules()).resolves.toEqual({
+      checked: 0,
+      created: 0,
+    });
+    expect(inserted.get("default-http-5xx-spike-legacy")?.enabled).toBe(false);
+    expect(inserted.size).toBe(1);
+  });
+
   it("honors the enable switch for the hosted stuck-chat default", async () => {
     vi.stubEnv("URL", "https://analytics.agent-native.com");
     vi.stubEnv("ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_ENABLED", "false");
