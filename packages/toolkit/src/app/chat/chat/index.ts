@@ -56,6 +56,7 @@ export type {
 export type {
   MultiTabAssistantChatProps,
   MultiTabAssistantChatHeaderProps,
+  MultiTabAssistantChatHeaderCallbackProps,
 } from "../MultiTabAssistantChat.js";
 export * from "@agent-native/core/client/agent-chat";
 export {

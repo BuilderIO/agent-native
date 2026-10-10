@@ -8376,6 +8376,86 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
   });
 
+  it.each(["false", "throw"])(
+    "retries a legacy save when the host fallback returns %s",
+    async (failureMode) => {
+      const createTransport = () => chatMocks.transport;
+      chatMocks.omitSnapshotPersistenceResult = true;
+      chatMocks.snapshotPersistenceUnavailable = true;
+      // A legacy Promise<void> resolves the same way for a save and a deferral.
+      chatMocks.persistThreadSnapshot.mockImplementation(async () => undefined);
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const onSaveThread = vi.fn();
+      if (failureMode === "false") {
+        onSaveThread.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      } else {
+        onSaveThread
+          .mockRejectedValueOnce(new Error("Host fallback save failed."))
+          .mockResolvedValueOnce(true);
+      }
+      const onThreadSnapshotPersisted = vi.fn();
+      try {
+        await mount(
+          baseProps({
+            createTransport,
+            onSaveThread,
+            onThreadSnapshotPersisted,
+          }),
+        );
+
+        vi.useFakeTimers();
+        chatMocks.thread = {
+          ...chatMocks.thread,
+          messages: [
+            {
+              id: "legacy-controller-deferred-message",
+              role: "user",
+              status: "complete",
+              createdAt: "2026-10-07T12:00:00.000Z",
+              parts: [{ type: "text", text: "Retry the deferred save" }],
+            },
+          ],
+        };
+        await act(async () => {
+          root.render(
+            <AgentKitAssistantChat
+              {...baseProps({
+                createTransport,
+                onSaveThread,
+                onThreadSnapshotPersisted,
+              })}
+            />,
+          );
+          for (let i = 0; i < 8; i++) await Promise.resolve();
+        });
+
+        expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledOnce();
+        expect(onSaveThread).toHaveBeenCalledOnce();
+        expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_000);
+        });
+
+        expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledTimes(2);
+        expect(onSaveThread).toHaveBeenCalledTimes(2);
+        expect(onSaveThread).toHaveBeenCalledWith(
+          "thread-1",
+          expect.objectContaining({ threadData: expect.any(String) }),
+          expect.anything(),
+          "host-fallback",
+        );
+        expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
+      } finally {
+        await act(async () => root.render(null));
+        vi.useRealTimers();
+        consoleError.mockRestore();
+      }
+    },
+  );
+
   it("does not confirm legacy controller snapshots when the save rejects", async () => {
     const createTransport = () => chatMocks.transport;
     chatMocks.omitSnapshotPersistenceResult = true;

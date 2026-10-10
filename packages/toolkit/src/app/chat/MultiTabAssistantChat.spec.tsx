@@ -29,7 +29,15 @@ import { invalidateClientStatusRequests } from "@agent-native/core/client/status
 import { ComposerContextError } from "@agent-native/toolkit/composer";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vitest";
 
 import {
   MultiTabAssistantChat,
@@ -540,6 +548,25 @@ function ensureLocalStorage() {
     } satisfies Storage,
   });
 }
+
+describe("MultiTabAssistantChatHeaderProps", () => {
+  it("keeps persisted status optional for existing custom header props", () => {
+    const legacyHeaderProps: MultiTabAssistantChatHeaderProps = {
+      tabs: [],
+      activeTabId: "thread-1",
+      activeTabMessageCount: 0,
+      setActiveTabId: () => {},
+      addTab: () => {},
+      closeTab: () => {},
+      closeOtherTabs: () => {},
+      closeAllTabs: () => {},
+      clearActiveTab: () => {},
+      tabCount: 1,
+    };
+
+    expect(legacyHeaderProps.activeTabIsPersisted).toBeUndefined();
+  });
+});
 
 describe("MultiTabAssistantChat postMessage bridge", () => {
   let container: HTMLDivElement;
