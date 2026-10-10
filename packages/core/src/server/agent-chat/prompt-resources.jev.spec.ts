@@ -1218,6 +1218,15 @@ describe("preloadJevContextForPrompt", () => {
     const owner = "user@example.test";
     const candidates = [
       {
+        id: "legacy-repeat-skill",
+        owner,
+        path: "skills/legacy-repeat-skill.md",
+        mimeType: "text/markdown",
+        updatedAt: 500,
+        content:
+          "---\nname: repeat-skill\ndescription: Legacy filename version.\n---\n# Legacy",
+      },
+      {
         id: "repeat-skill-2",
         owner,
         path: "skills/repeat-skill-2/SKILL.md",
@@ -1251,6 +1260,7 @@ describe("preloadJevContextForPrompt", () => {
     );
     expect(prompt).toContain("Newest version.");
     expect(prompt).not.toContain("skills/repeat-skill-2/SKILL.md");
+    expect(prompt).not.toContain("skills/legacy-repeat-skill.md");
   });
 
   it.each([false, true])(
