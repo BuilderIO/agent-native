@@ -95,7 +95,6 @@ function CodeChip({ children }: { children: ReactNode }) {
  * full chat page instead of running it here.
  */
 function HomeAgentComposer() {
-  const t = useT();
   const navigate = useNavigate();
   const [threadId] = useState(getChatHomeThreadId);
   const [mode, setMode] = useState<"act" | "plan">("act");
