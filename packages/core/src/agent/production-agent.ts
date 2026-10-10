@@ -11772,6 +11772,16 @@ export function createProductionAgentHandler(
           ) {
             throw new Error(journalRead.error);
           }
+          appendRequestAttachmentContextToResumedHistory(
+            resumed,
+            requestAttachments,
+            {
+              vision: isAgentModelVisionCapable(
+                effectiveModel,
+                engine.capabilities.vision === true,
+              ),
+            },
+          );
           const context = buildTurnResumeContext({
             messages: resumed,
             journal:
@@ -11782,16 +11792,6 @@ export function createProductionAgentHandler(
               ? { events: journalRead.events }
               : {}),
           });
-          appendRequestAttachmentContextToResumedHistory(
-            context.messages,
-            requestAttachments,
-            {
-              vision: isAgentModelVisionCapable(
-                effectiveModel,
-                engine.capabilities.vision === true,
-              ),
-            },
-          );
           appendAgentLoopContinuation(context.messages, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),
             ...(context.journalNote

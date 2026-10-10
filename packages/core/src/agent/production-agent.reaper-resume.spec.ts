@@ -72,6 +72,7 @@ async function recover(
     | "precondition"
     | "connection" = false,
   resumeContinue?: "auto" | "manual",
+  withAttachment = false,
 ) {
   sequence++;
   const threadId = `reaper-thread-${sequence}`;
@@ -110,7 +111,7 @@ async function recover(
     capabilities: {
       thinking: false,
       promptCaching: false,
-      vision: false,
+      vision: withAttachment,
       computerUse: false,
       parallelToolCalls: false,
     },
@@ -233,6 +234,18 @@ async function recover(
           },
         }
       : {}),
+    ...(withAttachment
+      ? {
+          attachments: [
+            {
+              type: "image",
+              name: "receipt.png",
+              contentType: "image/png",
+              data: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6VEAAAAAASUVORK5CYII=",
+            },
+          ],
+        }
+      : {}),
     ...(resumeContinue === "auto"
       ? { autoContinueOfRunId: "stopped-run" }
       : {}),
@@ -308,6 +321,19 @@ async function recover(
 }
 
 describe("reaper successor resume context", () => {
+  it("retains one attachment and keeps a reworded unknown write blocked", async () => {
+    const result = await recover([START], true, true, false, undefined, true);
+    expect(result.sendEmail).not.toHaveBeenCalled();
+    expect(result.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
+    const parts = result.seen[0]!.flatMap(({ content }) => content);
+    expect(parts.filter((part) => part.type === "image")).toHaveLength(1);
+    expect(result.seen[0]!.at(-1)?.content[0]).toEqual(
+      expect.objectContaining({
+        text: expect.stringContaining(AGENT_INTERNAL_CONTINUE_PROMPT),
+      }),
+    );
+  });
+
   it("blocks the same write tool after an ambiguous error at an ordinary continuation boundary", async () => {
     const result = await recover(
       [
