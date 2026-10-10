@@ -39,12 +39,16 @@ export async function callClipsActionFor<T>(
     body: requestBody,
     signal: opts?.signal,
   });
-  const text = await response.text().catch(() => "");
+  const text = await response.text();
   let json: any = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    // Keep text fallback below.
+  let parseError: unknown;
+  if (text) {
+    try {
+      json = JSON.parse(text);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+      parseError = error;
+    }
   }
   if (!response.ok) {
     const message =
@@ -54,6 +58,14 @@ export async function callClipsActionFor<T>(
         ? "Sign in to transcribe meetings."
         : text.slice(0, 180) || `Request failed (${response.status})`);
     throw new Error(message);
+  }
+  if (!text) {
+    throw new Error("Action returned an empty response.");
+  }
+  if (parseError) {
+    throw new Error("Action returned an invalid JSON response.", {
+      cause: parseError,
+    });
   }
   return (json?.result ?? json) as T;
 }

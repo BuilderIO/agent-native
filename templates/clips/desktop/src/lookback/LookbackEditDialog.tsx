@@ -190,7 +190,7 @@ function LookbackEditForm({
           </Button>
         </div>
       ) : (
-        <div className="relative h-36 overflow-hidden rounded-md bg-black">
+        <div className="relative h-36 overflow-hidden rounded-md bg-background">
           {preview.status === "ready" ? (
             <video
               ref={videoRef}

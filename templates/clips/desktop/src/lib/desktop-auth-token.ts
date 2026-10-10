@@ -7,8 +7,9 @@ const AUTH_TOKEN_KEY = "clips:auth-token";
 export function originForUrl(value: string, base?: string): string | null {
   try {
     return new URL(value, base).origin;
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof TypeError) return null;
+    throw error;
   }
 }
 
