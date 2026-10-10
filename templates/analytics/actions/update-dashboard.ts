@@ -302,44 +302,42 @@ function collectDashboardConfigIssues(
           `config.filters[${i}].options can have at most 100 entries`,
         );
       }
-      if (f.type === "multi-select") {
-        // The selection is comma-joined in the URL, so a value cannot be empty or contain ",". MULTI_SELECT_EMPTY is reserved for the cleared state.
-        if (f.options !== undefined && !Array.isArray(f.options)) {
+      // isDashboardFilter rejects these shapes for every filter type, so a save that passes here would drop the whole filter set on read.
+      if (f.options !== undefined && !Array.isArray(f.options)) {
+        return dashboardIssue(`config.filters[${i}].options must be an array`);
+      }
+      const options: unknown[] = Array.isArray(f.options) ? f.options : [];
+      for (let j = 0; j < options.length; j++) {
+        const option = options[j] as {
+          value?: unknown;
+          label?: unknown;
+        } | null;
+        if (
+          !option ||
+          typeof option !== "object" ||
+          typeof option.value !== "string" ||
+          typeof option.label !== "string"
+        ) {
           return dashboardIssue(
-            `config.filters[${i}].options must be an array`,
+            `config.filters[${i}].options[${j}] must be an object with string value and label`,
           );
         }
-        const options: unknown[] = Array.isArray(f.options) ? f.options : [];
-        for (let j = 0; j < options.length; j++) {
-          const option = options[j] as {
-            value?: unknown;
-            label?: unknown;
-          } | null;
-          if (
-            !option ||
-            typeof option !== "object" ||
-            typeof option.value !== "string" ||
-            typeof option.label !== "string"
-          ) {
-            return dashboardIssue(
-              `config.filters[${i}].options[${j}] must be an object with string value and label`,
-            );
-          }
-          if (
-            option.value === "" ||
+        // The selection is comma-joined in the URL, so a multi-select value cannot be empty or contain ",". MULTI_SELECT_EMPTY is reserved for the cleared state.
+        if (
+          f.type === "multi-select" &&
+          (option.value === "" ||
             option.value.includes(",") ||
-            option.value === MULTI_SELECT_EMPTY
-          ) {
-            return dashboardIssue(
-              `config.filters[${i}].options[${j}].value must be non-empty, cannot contain ",", and cannot be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
-            );
-          }
-        }
-        if (f.default !== undefined && typeof f.default !== "string") {
+            option.value === MULTI_SELECT_EMPTY)
+        ) {
           return dashboardIssue(
-            `config.filters[${i}].default must be a string in a multi-select filter`,
+            `config.filters[${i}].options[${j}].value must be non-empty, cannot contain ",", and cannot be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
           );
         }
+      }
+      if (f.default !== undefined && typeof f.default !== "string") {
+        return dashboardIssue(`config.filters[${i}].default must be a string`);
+      }
+      if (f.type === "multi-select") {
         if (typeof f.default === "string" && f.default !== "") {
           const named = normalizeMultiSelectValue(f.default);
           // A default that normalizes to nothing would show All while the query still gets a non-empty value.

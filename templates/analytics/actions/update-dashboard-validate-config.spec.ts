@@ -220,17 +220,39 @@ describe("validateDashboardConfig multi-select options", () => {
     expect(validateDashboardConfig(config)).toContain('"legacy"');
   });
 
-  it("rejects a non-string default, which would crash the split", () => {
+  it("rejects a non-string default on every filter type, which the read path would refuse", () => {
     const base = withOptions(["free"]);
     for (const value of [1, ["free"], null]) {
       const config = {
         ...base,
         filters: [{ ...base.filters[0], default: value }],
       };
-      expect(validateDashboardConfig(config)).toContain(
-        "must be a string in a multi-select filter",
-      );
+      expect(validateDashboardConfig(config)).toContain("must be a string");
     }
+    const select = {
+      name: "Plans",
+      filters: [{ id: "plan", label: "Plan", type: "select", default: 1 }],
+      panels: [],
+    };
+    expect(validateDashboardConfig(select)).toContain("must be a string");
+  });
+
+  it("rejects a malformed option on a select filter, which the read path would refuse", () => {
+    const config = {
+      name: "Plans",
+      filters: [
+        {
+          id: "plan",
+          label: "Plan",
+          type: "select",
+          options: [{ value: "free", label: 1 }],
+        },
+      ],
+      panels: [],
+    };
+    expect(validateDashboardConfig(config)).toContain(
+      "must be an object with string value and label",
+    );
   });
 
   it("rejects more than 100 options, which the read path would refuse", () => {
