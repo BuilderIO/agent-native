@@ -1223,6 +1223,16 @@ describe("onboarding journey events SQL", () => {
   it("preserves journey results with the explicit event source projection", async () => {
     await setup();
     await seedSessions();
+    await insert("response-property-employee", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-property-employee", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-property-employee", "http.response", 3, {
+      properties: { auth_user_id: "dev@builder.io" },
+    });
     const sql = buildOnboardingJourneyEventsSql(
       filters(),
       { limit: 100, offset: 0 },
