@@ -14,6 +14,15 @@ const PROCESSING_NEXT_CHECK_STALE_AFTER_MS = 60 * 1000;
 const TERMINAL_HISTORY_FINALIZATION_LEASE_MS = 60 * 1000;
 const MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS = 16_000;
 const MAX_TERMINAL_HISTORY_PAYLOAD_CHARS = 64_000;
+const MAX_TERMINAL_HISTORY_TEXT_CHARS = 32_000;
+const MAX_TERMINAL_HISTORY_MESSAGE_REFS = 32;
+const MAX_TERMINAL_HISTORY_ARTIFACTS = 16;
+const MAX_TERMINAL_HISTORY_FIELD_CHARS = 256;
+const MAX_CONTINUATION_ERROR_CHARS = 2_000;
+const TERMINAL_HISTORY_OMISSION_NOTE =
+  "Delivered output omitted from retained history because it exceeded storage limits or contained inline file data.";
+const CONTINUATION_ERROR_OMISSION_NOTE =
+  "Continuation failure details omitted because they contained inline file data.";
 
 function buildCreateSql(): string {
   return `
@@ -330,6 +339,116 @@ function parseTerminalHistoryPayload(
   }
 }
 
+function sanitizeTerminalHistoryText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  try {
+    assertA2APersistablePayload(value, "A2A terminal history text");
+  } catch {
+    return TERMINAL_HISTORY_OMISSION_NOTE;
+  }
+  if (value.length <= MAX_TERMINAL_HISTORY_TEXT_CHARS) return value;
+  const marker = "\n[truncated]";
+  return `${value.slice(0, MAX_TERMINAL_HISTORY_TEXT_CHARS - marker.length)}${marker}`;
+}
+
+function boundedPersistableString(
+  value: unknown,
+  maxChars: number,
+): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    assertA2APersistablePayload(value, "A2A terminal history field");
+  } catch {
+    return null;
+  }
+  return value.slice(0, maxChars);
+}
+
+function sanitizeTerminalHistoryPayload(
+  input: A2ATerminalHistoryPayload,
+): A2ATerminalHistoryPayload {
+  const deliveredAt =
+    boundedPersistableString(input?.deliveredAt, 128) ??
+    new Date().toISOString();
+  const messageRefs = Array.isArray(input?.messageRefs)
+    ? input.messageRefs
+        .slice(0, MAX_TERMINAL_HISTORY_MESSAGE_REFS)
+        .flatMap((ref) => {
+          const safe = boundedPersistableString(
+            ref,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          return safe == null ? [] : [safe];
+        })
+    : [];
+  const artifacts = Array.isArray(input?.artifacts)
+    ? input.artifacts
+        .slice(0, MAX_TERMINAL_HISTORY_ARTIFACTS)
+        .flatMap((artifact): A2AArtifactIdentity[] => {
+          if (!artifact || typeof artifact !== "object") return [];
+          try {
+            assertA2APersistablePayload(
+              artifact,
+              "A2A terminal history artifact",
+            );
+          } catch {
+            return [];
+          }
+          const candidate = artifact as A2AArtifactIdentity;
+          const id = boundedPersistableString(
+            candidate.id,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          const sourceAction = boundedPersistableString(
+            candidate.sourceAction,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          const resourceType = boundedPersistableString(
+            candidate.resourceType,
+            MAX_TERMINAL_HISTORY_FIELD_CHARS,
+          );
+          if (!id || !sourceAction || !resourceType) return [];
+          const safe: A2AArtifactIdentity = {
+            id,
+            resourceType: resourceType as A2AArtifactIdentity["resourceType"],
+            sourceAction,
+          };
+          if (candidate.titleAtAction != null) {
+            const titleAtAction = boundedPersistableString(
+              candidate.titleAtAction,
+              MAX_TERMINAL_HISTORY_FIELD_CHARS,
+            );
+            if (titleAtAction == null) return [];
+            safe.titleAtAction = titleAtAction;
+          }
+          if (candidate.url != null) {
+            const url = boundedPersistableString(
+              candidate.url,
+              MAX_TERMINAL_HISTORY_FIELD_CHARS,
+            );
+            if (url == null) return [];
+            safe.url = url;
+          }
+          return [safe];
+        })
+    : [];
+  let payload: A2ATerminalHistoryPayload = {
+    text: sanitizeTerminalHistoryText(input?.text),
+    deliveredAt,
+    messageRefs,
+    artifacts,
+  };
+  if (JSON.stringify(payload).length > MAX_TERMINAL_HISTORY_PAYLOAD_CHARS) {
+    payload = {
+      text: TERMINAL_HISTORY_OMISSION_NOTE,
+      deliveredAt,
+      messageRefs: [],
+      artifacts: [],
+    };
+  }
+  return payload;
+}
+
 export async function insertA2AContinuation(input: {
   integrationTaskId: string;
   platform: string;
@@ -534,6 +653,7 @@ export async function failA2AContinuationsForIntegrationTask(
   integrationTaskId: string,
   errorMessage: string,
 ): Promise<void> {
+  const safeErrorMessage = safeContinuationFailureMessage(errorMessage);
   await ensureTable();
   const now = Date.now();
   await getDbExec().execute({
@@ -543,7 +663,7 @@ export async function failA2AContinuationsForIntegrationTask(
           WHERE integration_task_id = ?
             AND status IN ('pending', 'processing', 'delivering')
             AND terminal_delivery_confirmed_at IS NULL`,
-    args: [errorMessage.slice(0, 2000), now, now, integrationTaskId],
+    args: [safeErrorMessage, now, now, integrationTaskId],
   });
 }
 
@@ -898,15 +1018,17 @@ export async function recordA2ATerminalDeliveryReceipt(
   historyPayload: A2ATerminalHistoryPayload,
   errorMessage?: string,
 ): Promise<A2AContinuation> {
-  assertA2APersistablePayload(historyPayload, "A2A terminal history");
-  assertA2APersistablePayload(errorMessage, "A2A terminal error");
-  await ensureTable();
-  const serializedPayload = JSON.stringify(historyPayload);
-  if (serializedPayload.length > MAX_TERMINAL_HISTORY_PAYLOAD_CHARS) {
-    throw new Error(
-      `Terminal A2A history payload exceeds ${MAX_TERMINAL_HISTORY_PAYLOAD_CHARS} characters`,
-    );
+  const safeHistoryPayload = sanitizeTerminalHistoryPayload(historyPayload);
+  let safeErrorMessage = errorMessage?.slice(0, 2000) ?? null;
+  if (safeErrorMessage) {
+    try {
+      assertA2APersistablePayload(safeErrorMessage, "A2A terminal error");
+    } catch {
+      safeErrorMessage = "The remote agent reported a delivery failure.";
+    }
   }
+  await ensureTable();
+  const serializedPayload = JSON.stringify(safeHistoryPayload);
   const now = Date.now();
   await getDbExec().execute({
     sql: `UPDATE integration_a2a_continuations
@@ -924,7 +1046,7 @@ export async function recordA2ATerminalDeliveryReceipt(
       serializedPayload,
       now + TERMINAL_HISTORY_FINALIZATION_LEASE_MS,
       now,
-      errorMessage?.slice(0, 2000) ?? null,
+      safeErrorMessage,
       id,
       kind,
     ],
@@ -1001,6 +1123,7 @@ export async function failA2AContinuation(
   id: string,
   errorMessage: string,
 ): Promise<void> {
+  const safeErrorMessage = safeContinuationFailureMessage(errorMessage);
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -1010,6 +1133,16 @@ export async function failA2AContinuation(
               incoming_payload = ?, a2a_auth_token = NULL, progress_ref = NULL,
               verified_artifact_checkpoint = NULL
           WHERE id = ? AND status <> 'completed'`,
-    args: ["failed", now, errorMessage.slice(0, 2000), "{}", id],
+    args: ["failed", now, safeErrorMessage, "{}", id],
   });
+}
+
+function safeContinuationFailureMessage(errorMessage: string): string {
+  const bounded = errorMessage.slice(0, MAX_CONTINUATION_ERROR_CHARS);
+  try {
+    assertA2APersistablePayload(bounded, "A2A continuation failure");
+    return bounded;
+  } catch {
+    return CONTINUATION_ERROR_OMISSION_NOTE;
+  }
 }

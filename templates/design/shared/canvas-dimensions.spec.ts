@@ -566,6 +566,8 @@ describe("requestedCanvasDeviceVariants", () => {
   it.each([
     "Create a promo banner, no mobile version",
     "Create a promo banner without a mobile version",
+    "Create a banner with no mobile or tablet versions",
+    "Create a banner without mobile and tablet versions",
     "Create a desktop and mobile banner, excluding tablet variants",
   ])("respects excluded device variants in %s", (prompt) => {
     expect(requestedCanvasDeviceVariants(prompt)).toEqual(

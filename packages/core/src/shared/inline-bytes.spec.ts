@@ -28,6 +28,24 @@ describe("stripInlineBytes", () => {
     });
   });
 
+  it("keeps configured HTTP storage references without persisting pixels", () => {
+    const httpReference = "http://minio.example.test:9000/bucket/shot.png";
+
+    expect(
+      stripInlineBytes(
+        { type: "image", name: "shot.png", data: PIXELS, url: httpReference },
+        "placeholder",
+      ),
+    ).toEqual({
+      type: "image",
+      name: "shot.png",
+      url: httpReference,
+    });
+    expect(() =>
+      assertNoInlineImageBytes({ url: httpReference }),
+    ).not.toThrow();
+  });
+
   it("uses the attachment's upload URL for its nested content parts", () => {
     const stored = stripInlineBytes(
       {
@@ -231,6 +249,37 @@ describe("stripInlineBytes", () => {
     expect(stripInlineBytesFromJson(json, "placeholder")).toBe(json);
   });
 
+  it("preserves non-attachment byte-size metadata in serialized JSON", () => {
+    const stored = stripInlineBytesFromJson(
+      '{"metadata":{"bytes":"1.2 MB"}}',
+      "reject",
+    );
+
+    expect(JSON.parse(stored)).toEqual({ metadata: { bytes: "1.2 MB" } });
+  });
+
+  it.each([
+    ["base64", '"base64":"iVBORw0KGgoAAAANSUhEUg=="'],
+    ["bytes", '"bytes":[1,2,3]'],
+    ["imageBase64", '"imageBase64":"iVBORw0KGgoAAAANSUhEUg=="'],
+    ["screenshot_data", '"screenshot_data":"iVBORw0KGgoAAAANSUhEUg=="'],
+  ])("sanitizes serialized attachment bytes in the %s field", (_, field) => {
+    const json = `{"attachments":[{"type":"file","name":"x.png",${field}}]}`;
+    const stored = stripInlineBytesFromJson(json, "placeholder");
+
+    expect(stored).not.toContain("iVBORw0KGgo");
+    expect(stored).not.toContain('"bytes"');
+    expect(JSON.parse(stored)).toEqual({
+      attachments: [
+        {
+          type: "file",
+          name: "x.png",
+          omitted: "inline-bytes",
+        },
+      ],
+    });
+  });
+
   it("sanitizes short raw-base64 references from serialized snapshots", () => {
     const stored = stripInlineBytesFromJson(
       '{"attachments":[{"type":"file","name":"x.png","url":"AQID"}]}',
@@ -244,6 +293,35 @@ describe("stripInlineBytes", () => {
 });
 
 describe("assertNoInlineImageBytes", () => {
+  it("allows ordinary prose mentioning data and base64", () => {
+    expect(() =>
+      assertNoInlineImageBytes({
+        text: "Data: Q1 revenue, Q2 revenue. Encode it as base64, then retry.",
+        metadata: { bytes: "1.2 MB", base64: "encoding guidance" },
+      }),
+    ).not.toThrow();
+  });
+
+  it("allows a non-attachment byte-count metadata field", () => {
+    expect(() =>
+      assertNoInlineImageBytes({ metadata: { bytes: "1.2 MB" } }),
+    ).not.toThrow();
+  });
+
+  it("still rejects byte bodies in attachment metadata", () => {
+    expect(() =>
+      assertNoInlineImageBytes({
+        attachments: [{ type: "file", bytes: "AQID" }],
+      }),
+    ).toThrow("attachments[0].bytes");
+  });
+
+  it("rejects a recognizable file body in a top-level base64 field", () => {
+    expect(() =>
+      assertNoInlineImageBytes({ base64: "iVBORw0KGgoAAAANSUhEUg==" }),
+    ).toThrow("base64");
+  });
+
   it.each([
     [{ content: [{ type: "image", image: PIXELS }] }, "content[0].image"],
     [{ parts: [{ type: "file", data: "JVBERi0=" }] }, "parts[0].data"],

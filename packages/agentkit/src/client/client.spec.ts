@@ -784,6 +784,7 @@ describe("AgentKitClient", () => {
           name: "reference.png",
           contentType: "image/png",
           data: "data:image/png;base64,SGVsbG8=",
+          url: "https://storage.example.test/original.png?token=temporary",
           referenceUrl: "https://storage.example.test/original.png",
         },
       ],
@@ -804,44 +805,78 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
-  it("validates queued image size limits before decoding inline bytes", async () => {
-    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
+  it("uploads queued images above the inline limit before persisting the request", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async (input) => ({
+        message: {
+          id: input.id ?? "queued-large-image",
+          threadId: input.threadId,
+          text: input.text,
+          createdAt: "2026-10-08T00:00:00.000Z",
+          requestAttachments: input.requestAttachments,
+        },
+      }),
+    );
     const upload = vi.fn(async () => undefined);
+    const completeUpload = vi.fn(async () => ({
+      type: "file" as const,
+      name: "oversized.png",
+      mediaType: "image/png",
+      url: "https://storage.example.test/oversized.png",
+    }));
     const client = new AgentKitClient({
       transport: {
         ...createTransport([]),
-        capabilities: { attachments: true, messageQueue: true, uploads: true },
+        capabilities: {
+          attachments: true,
+          messageQueue: true,
+          uploads: true,
+        },
         queueMessage,
+        async createUpload() {
+          return {
+            uploadId: "upload-large",
+            method: "PUT",
+            url: "https://upload.example.test/large.png",
+          };
+        },
+        completeUpload,
       },
       upload,
     });
-    const atobMock = vi.spyOn(globalThis, "atob");
 
-    try {
-      await expect(
-        client.queueMessage({
-          threadId: "thread-1",
-          text: "Describe this",
-          requestAttachments: [
-            {
-              type: "image",
-              name: "oversized.png",
-              data: `data:image/png;base64,${"A".repeat(3_000_000)}`,
-            },
-          ],
-        }),
-      ).rejects.toThrow("bounded base64 raster image data URL");
+    await client.queueMessage({
+      threadId: "thread-1",
+      text: "Describe this",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "oversized.png",
+          data: `data:image/png;base64,${"A".repeat(3_000_000)}`,
+        },
+      ],
+    });
 
-      expect(atobMock).not.toHaveBeenCalled();
-      expect(upload).not.toHaveBeenCalled();
-      expect(queueMessage).not.toHaveBeenCalled();
-    } finally {
-      atobMock.mockRestore();
-      await client.shutdown();
-    }
+    expect(upload).toHaveBeenCalledOnce();
+    expect(completeUpload).toHaveBeenCalledOnce();
+    expect(queueMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestAttachments: [
+          expect.objectContaining({
+            name: "oversized.png",
+            url: "https://storage.example.test/oversized.png",
+          }),
+        ],
+      }),
+      expect.anything(),
+    );
+    expect(JSON.stringify(queueMessage.mock.calls[0]?.[0])).not.toContain(
+      "A".repeat(128),
+    );
+    await client.shutdown();
   });
 
-  it("validates aggregate queued image bytes before decoding any attachment", async () => {
+  it("bounds aggregate queued image uploads before decoding inline bytes", async () => {
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
     const upload = vi.fn(async () => undefined);
     const client = new AgentKitClient({
@@ -862,10 +897,10 @@ describe("AgentKitClient", () => {
           requestAttachments: Array.from({ length: 3 }, (_, index) => ({
             type: "image" as const,
             name: `image-${index}.png`,
-            data: `data:image/png;base64,${"A".repeat(2_000_000)}`,
+            data: `data:image/png;base64,${"A".repeat(12_000_000)}`,
           })),
         }),
-      ).rejects.toThrow("aggregate inline image data exceeds");
+      ).rejects.toThrow("aggregate image uploads exceed");
 
       expect(atobMock).not.toHaveBeenCalled();
       expect(upload).not.toHaveBeenCalled();
@@ -950,7 +985,7 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
-  it("shows no queued row until AI setup is ready and never queues when it fails", async () => {
+  it("shows the optimistic queue row during readiness and removes it if readiness fails", async () => {
     const ready = Promise.withResolvers<void>();
     const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>();
     const client = new AgentKitClient({
@@ -969,7 +1004,9 @@ describe("AgentKitClient", () => {
     });
 
     await Promise.resolve();
-    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    expect(client.getThread("thread-1").queuedMessages).toEqual([
+      expect.objectContaining({ text: "Next" }),
+    ]);
     expect(onLocalSubmit).not.toHaveBeenCalled();
     const setupRequired = Object.assign(new Error("Connect AI first."), {
       code: "AGENT_CHAT_AI_SETUP_REQUIRED",

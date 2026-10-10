@@ -45,6 +45,7 @@ import {
   createAgentKitProtocolVersionOffer,
   isInlineDataUrl,
   isPersistableAttachmentUrl,
+  MAX_AGENT_REQUEST_ATTACHMENTS,
   parseAgentEvent,
   parseStartRunInput,
   projectAgentCapabilities,
@@ -124,6 +125,23 @@ export interface AgentKitUploadFile {
   mediaType: string;
   size: number;
   body: Blob;
+}
+
+const MAX_QUEUED_IMAGE_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+function estimateQueuedImageBytes(data: string, path: string): number {
+  const match = data.match(
+    /^data:image\/(?:gif|jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/i,
+  );
+  if (!match) {
+    throw new AgentProtocolValidationError(
+      path,
+      "expected a base64 raster image data URL",
+    );
+  }
+  const encoded = match[1]!;
+  const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+  return Math.floor((encoded.length * 3) / 4) - padding;
 }
 
 function requestAttachmentFile(
@@ -3353,19 +3371,64 @@ export class AgentKitClient implements AgentKitController {
     context: AgentRequestContext,
   ): Promise<AgentRequestAttachment[] | undefined> {
     if (!attachments?.length) return undefined;
+    if (attachments.length > MAX_AGENT_REQUEST_ATTACHMENTS) {
+      throw new AgentProtocolValidationError(
+        "requestAttachments",
+        `expected at most ${MAX_AGENT_REQUEST_ATTACHMENTS} attachments`,
+      );
+    }
     parseStartRunInput({
       threadId,
       messages: [],
-      requestAttachments: attachments,
+      requestAttachments: attachments.map((attachment) => ({
+        ...attachment,
+        data: undefined,
+        url:
+          attachment.url ??
+          (typeof attachment.data === "string"
+            ? "https://queued-image.invalid"
+            : undefined),
+      })),
+    });
+    let totalUploadBytes = 0;
+    attachments.forEach((attachment, index) => {
+      if (
+        attachment.data !== undefined &&
+        typeof attachment.data !== "string"
+      ) {
+        throw new AgentProtocolValidationError(
+          `requestAttachments[${index}].data`,
+          "expected a string",
+        );
+      }
+      if (isPersistableAttachmentUrl(attachment.url)) return;
+      if (!attachment.data) {
+        throw new AgentProtocolValidationError(
+          `requestAttachments[${index}]`,
+          "expected a durable image URL or inline image data",
+        );
+      }
+      const size = estimateQueuedImageBytes(
+        attachment.data,
+        `requestAttachments[${index}].data`,
+      );
+      if (size > MAX_QUEUED_IMAGE_UPLOAD_BYTES) {
+        throw new AgentProtocolValidationError(
+          `requestAttachments[${index}].data`,
+          `image exceeds the ${MAX_QUEUED_IMAGE_UPLOAD_BYTES}-byte upload limit`,
+        );
+      }
+      totalUploadBytes += size;
+      if (totalUploadBytes > MAX_QUEUED_IMAGE_UPLOAD_BYTES) {
+        throw new AgentProtocolValidationError(
+          "requestAttachments",
+          `aggregate image uploads exceed the ${MAX_QUEUED_IMAGE_UPLOAD_BYTES}-byte limit`,
+        );
+      }
     });
     const safeAttachments: AgentRequestAttachment[] = attachments.map(
       (attachment) => {
-        if (
-          attachment.data &&
-          typeof attachment.url === "string" &&
-          attachment.url.trim().length > 0 &&
-          !/^\s*data:/i.test(attachment.url)
-        ) {
+        if (attachment.data && isPersistableAttachmentUrl(attachment.url)) {
           const { data: _data, ...reference } = attachment;
           return reference;
         }
@@ -3554,33 +3617,9 @@ export class AgentKitClient implements AgentKitController {
           input.attachments?.length ||
           input.requestAttachments?.length,
         );
-    try {
-      if (!preflightMatches) {
-        await this.assertAiSetupReady(
-          {
-            engine: selectedEngineForDispatch(input),
-            threadId: input.threadId,
-          },
-          requestContext,
-        );
-        await this.requireCapability("messageQueue", requestContext);
-        if (
-          input.queueMessageHasAttachments ||
-          input.attachments?.length ||
-          input.requestAttachments?.length
-        ) {
-          await this.requireCapability("attachments", requestContext);
-        }
-      }
-      if (!queueMessage) {
-        throw new AgentKitCapabilityError("messageQueue");
-      }
-    } catch (error) {
-      if (reservedMessage) {
-        this.cancelQueuedMessageReservation(input.threadId, reservedMessage.id);
-      }
-      throw error;
-    }
+    // Render immediately so readiness checks and uploads do not make the send
+    // feel like it was ignored. The payload is replaced with durable references
+    // before it crosses the transport boundary.
     if (input.queuedMessageReservationId) {
       reservedMessage = this.getThread(input.threadId).queuedMessages.find(
         (message) => message.id === input.queuedMessageReservationId,
@@ -3596,7 +3635,6 @@ export class AgentKitClient implements AgentKitController {
         );
       }
     }
-    // Direct submits appear after readiness; host reservations are already visible.
     const optimisticMessage: AgentQueuedMessage = reservedMessage
       ? {
           ...reservedMessage,
@@ -3633,6 +3671,26 @@ export class AgentKitClient implements AgentKitController {
       removedIds,
     });
     try {
+      if (!preflightMatches) {
+        await this.assertAiSetupReady(
+          {
+            engine: selectedEngineForDispatch(input),
+            threadId: input.threadId,
+          },
+          requestContext,
+        );
+        await this.requireCapability("messageQueue", requestContext);
+        if (
+          input.queueMessageHasAttachments ||
+          input.attachments?.length ||
+          input.requestAttachments?.length
+        ) {
+          await this.requireCapability("attachments", requestContext);
+        }
+      }
+      if (!queueMessage) {
+        throw new AgentKitCapabilityError("messageQueue");
+      }
       if (!reservedMessage) input.onLocalSubmit?.();
       return await this.enqueueQueueMutation(input.threadId, async () => {
         this.assertActive();

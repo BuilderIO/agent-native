@@ -1740,18 +1740,20 @@ function generateRecoveryRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function staleRecoveryDispatchPayload(payload: string): string {
+function staleRecoveryDispatchPayload(payload: string): string | null {
   try {
     const parsed = JSON.parse(payload);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return payload;
+      return null;
     }
-    return JSON.stringify({
+    const serialized = JSON.stringify({
       ...stripInlineBytes(parsed as Record<string, unknown>, "placeholder"),
       internalContinuation: true,
     });
+    assertNoInlineImageBytes(serialized, "stale recovery dispatch_payload");
+    return serialized;
   } catch {
-    return payload;
+    return null;
   }
 }
 
@@ -1780,6 +1782,8 @@ async function attemptStaleRunRecovery(
   if (typeof payload !== "string" || payload.length === 0) {
     return { outcome: "not_redispatchable" };
   }
+  const recoveryPayload = staleRecoveryDispatchPayload(payload);
+  if (!recoveryPayload) return { outcome: "not_redispatchable" };
   const threadId = row.thread_id;
   const turnId = row.turn_id ?? runId;
   const startedAt = Number(row.started_at) || 0;
@@ -1847,6 +1851,7 @@ async function attemptStaleRunRecovery(
   const successorRunId = generateRecoveryRunId();
   const now = Date.now();
   const continuationOrder = await nextContinuationOrder(db, threadId, turnId);
+  assertNoInlineImageBytes(recoveryPayload, "stale recovery dispatch_payload");
   await db.execute({
     sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?, ?) ON CONFLICT (id) DO NOTHING`,
     args: [
@@ -1856,7 +1861,7 @@ async function attemptStaleRunRecovery(
       now,
       now,
       turnId,
-      staleRecoveryDispatchPayload(payload),
+      recoveryPayload,
       continuationOrder,
     ],
   });

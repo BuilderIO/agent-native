@@ -1422,6 +1422,92 @@ describe("generate-design: new-file creation path", () => {
     },
   );
 
+  it("keeps manually added breakpoints on same-size fixed artwork edits", async () => {
+    setExistingFile("<html><body>Old artwork</body></html>", {
+      filename: "post.html",
+    });
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1080, height: 1350 },
+      },
+      screenMetadata: {
+        "file-1": {
+          width: 1080,
+          height: 1350,
+          breakpointWidths: [390],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Update the Instagram post background color",
+      devices: [],
+      files: [
+        {
+          filename: "post.html",
+          fileType: "html",
+          content: "<html><body>Updated artwork</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.getDesignData().screenMetadata).toMatchObject({
+      "file-1": {
+        width: 1080,
+        height: 1350,
+        breakpointWidths: [390],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+  });
+
+  it("drops manually added breakpoints when explicitly converting the canvas size", async () => {
+    setExistingFile("<html><body>Old artwork</body></html>", {
+      filename: "post.html",
+    });
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1200, height: 627 },
+      },
+      screenMetadata: {
+        "file-1": {
+          width: 1200,
+          height: 627,
+          breakpointWidths: [390],
+          heightPinned: true,
+          heightMode: "fixed",
+        },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Turn this into a 1200x627 ad",
+      devices: ["desktop", "mobile"],
+      files: [
+        {
+          filename: "post.html",
+          fileType: "html",
+          content: "<html><body>Updated artwork</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.getDesignData().screenMetadata).toMatchObject({
+      "file-1": {
+        width: 1200,
+        height: 627,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+  });
+
   it("rejects multiple exact canvas sizes before writing files", async () => {
     await expect(
       action.run({

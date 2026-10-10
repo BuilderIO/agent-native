@@ -41,6 +41,13 @@ let turnInitiatorByRunRows: Array<Record<string, unknown>> = [];
 let insertEventBehavior: () => void = () => {};
 let abortRowsAffected = 1;
 let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
+let staleRecoveryRows: Array<{
+  thread_id: string;
+  turn_id: string | null;
+  dispatch_mode: string | null;
+  dispatch_payload: string | null;
+  started_at: number;
+}> = [];
 let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
 let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   id: string;
@@ -183,6 +190,13 @@ const mockDb: any = {
     }
     if (/SELECT dispatch_payload FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: dispatchPayloadRows, rowsAffected: 0 };
+    }
+    if (
+      /SELECT thread_id, turn_id, dispatch_mode, dispatch_payload, started_at\s+FROM agent_runs WHERE id/i.test(
+        rawSql,
+      )
+    ) {
+      return { rows: staleRecoveryRows, rowsAffected: 0 };
     }
     if (/DELETE FROM agent_runs[\s\S]*RETURNING/i.test(rawSql)) {
       return { rows: prunedRunRows, rowsAffected: prunedRunRows.length };
@@ -337,6 +351,7 @@ describe("run store", () => {
     turnInitiatorByRunRows = [];
     ledgerRows = [];
     dispatchPayloadRows = [];
+    staleRecoveryRows = [];
     unclaimedBackgroundRunRows = [];
     unclaimedBackgroundRunRowsWithStartedAt = [];
     runCountRows = [];
@@ -1752,6 +1767,27 @@ describe("run store", () => {
       ).toBe(false);
     },
   );
+
+  it("does not copy malformed legacy image payloads during stale recovery", async () => {
+    staleRecoveryRows = [
+      {
+        thread_id: "thread-legacy-image",
+        turn_id: "turn-legacy-image",
+        dispatch_mode: "background-processing",
+        dispatch_payload:
+          '{"message":"legacy payload data:image/png;base64,LEGACY_IMAGE_BYTES"',
+        started_at: 1,
+      },
+    ];
+
+    await expect(reapIfStale("run-legacy-image", 1)).resolves.toBe(true);
+
+    expect(
+      execCalls.some((call) =>
+        /INSERT INTO agent_runs[\s\S]*dispatch_payload/i.test(call.sql),
+      ),
+    ).toBe(false);
+  });
 
   it("insertRun binds null dispatch_payload when no payload is given", async () => {
     await insertRun("run-no-payload", "thread-1");

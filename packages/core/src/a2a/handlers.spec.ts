@@ -18,6 +18,7 @@ const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const getA2ASecretByDomainMock = vi.hoisted(() => vi.fn());
 const callActionMock = vi.hoisted(() => vi.fn());
 const findWorkspaceDispatchAgentMock = vi.hoisted(() => vi.fn());
+const uploadFileMock = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   getHeader: (event: any, name: string) =>
@@ -273,6 +274,10 @@ vi.mock("../server/agent-discovery.js", () => ({
   findWorkspaceDispatchAgent: findWorkspaceDispatchAgentMock,
 }));
 
+vi.mock("../file-upload/registry.js", () => ({
+  uploadFile: uploadFileMock,
+}));
+
 const evaluateServicePrincipalMock = vi.hoisted(() => vi.fn());
 vi.mock("../org/service-principal-policy.js", async (importActual) => ({
   ...(await importActual<
@@ -322,6 +327,11 @@ describe("handleJsonRpc", () => {
       description: "Workspace control plane",
       url: "https://dispatch.agent-native.test",
       color: "#000000",
+    });
+    uploadFileMock.mockReset();
+    uploadFileMock.mockResolvedValue({
+      url: "https://storage.agent-native.test/artifacts/report.png",
+      provider: "test-storage",
     });
     callActionMock.mockResolvedValue({
       action: "resolve-integration-source-context",
@@ -1888,6 +1898,130 @@ describe("handleJsonRpc", () => {
     expect(followup.result.status.message.parts[0].text).toBe(
       "done eventually",
     );
+  });
+
+  it("stores writeArtifact file content in durable storage and persists only its URI", async () => {
+    const content = "small image fixture bytes";
+    const config: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => {
+        expect(context.writeArtifact("report.png", content, "image/png")).toBe(
+          "report.png",
+        );
+        return {
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "Created report.png" }],
+          },
+        };
+      },
+    };
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice@example.test" };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: { role: "user", parts: [{ type: "text", text: "create" }] },
+        },
+      },
+      event,
+      config,
+    );
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(created.result.id, config);
+    const readback = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: created.result.id },
+      },
+      event,
+      config,
+    );
+
+    expect(uploadFileMock).toHaveBeenCalledWith({
+      data: Buffer.from(content, "utf8"),
+      filename: "report.png",
+      mimeType: "image/png",
+      ownerEmail: "alice@example.test",
+    });
+    expect(readback.result.status.state).toBe("completed");
+    expect(readback.result.artifacts).toEqual([
+      {
+        name: "report.png",
+        parts: [
+          {
+            type: "file",
+            file: {
+              name: "report.png",
+              mimeType: "image/png",
+              uri: "https://storage.agent-native.test/artifacts/report.png",
+            },
+          },
+        ],
+      },
+    ]);
+    expect(JSON.stringify(readback.result)).not.toContain(
+      "small image fixture bytes",
+    );
+    expect(JSON.stringify(readback.result)).not.toContain("base64");
+  });
+
+  it("settles the task with a typed failure when artifact storage is unavailable", async () => {
+    uploadFileMock.mockResolvedValue(null);
+    const config: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => {
+        context.writeArtifact(
+          "report.png",
+          "small image fixture bytes",
+          "image/png",
+        );
+        return {
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "Created report.png" }],
+          },
+        };
+      },
+    };
+    const event = mockEvent();
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: { role: "user", parts: [{ type: "text", text: "create" }] },
+        },
+      },
+      event,
+      config,
+    );
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(created.result.id, config);
+    const readback = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: created.result.id },
+      },
+      event,
+      config,
+    );
+
+    expect(readback.result.status.state).toBe("failed");
+    expect(readback.result.status.message.metadata.agentNativeErrorCode).toBe(
+      "A2A_ARTIFACT_STORAGE_UNAVAILABLE",
+    );
+    expect(readback.result.artifacts).toEqual([]);
   });
 
   it("fails stale processing async tasks instead of rerunning side effects from tasks/get", async () => {

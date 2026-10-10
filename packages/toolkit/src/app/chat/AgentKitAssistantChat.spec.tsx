@@ -4,6 +4,7 @@ import {
   AgentKitClient,
   AgentKitUploadError,
 } from "@agent-native/agentkit/client";
+import { MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS } from "@agent-native/agentkit/protocol";
 import type {
   FilePart,
   AgentMessage,
@@ -4482,6 +4483,137 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("keeps deferred image options with a durable ref during legacy cleanup", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    const inlineImageUrl = "data:image/png;base64,LEGACY_DEFERRED_IMAGE_BYTES";
+    const referenceUrl = "https://files.example.test/reference.png";
+    vi.mocked(compareAndSetClientAppState).mockClear();
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "legacy-deferred-image-with-durable-ref",
+          threadId,
+          text: "Describe this image",
+          fileParts: [
+            {
+              type: "file",
+              name: "reference.png",
+              mediaType: "image/png",
+              url: referenceUrl,
+            },
+          ],
+          requestAttachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              url: referenceUrl,
+            },
+          ],
+          references: [],
+          composerOptions: {},
+          options: {
+            deferredFileParts: [
+              {
+                type: "file",
+                name: "reference.png",
+                mediaType: "image/png",
+                url: referenceUrl,
+                data: inlineImageUrl,
+              },
+            ],
+            deferredRequestAttachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                contentType: "image/png",
+                referenceUrl,
+                data: inlineImageUrl,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    await mount(baseProps());
+    await flush();
+
+    const stateWrites = vi
+      .mocked(compareAndSetClientAppState)
+      .mock.calls.filter(([key]) => key === stateKey);
+    expect(stateWrites.length).toBeGreaterThan(0);
+    expect(JSON.stringify(stateWrites.map(([, , next]) => next))).not.toContain(
+      "data:image",
+    );
+    expect(chatMocks.appState.has(stateKey)).toBe(false);
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request.attachments).toContainEqual({
+      type: "file",
+      name: "reference.png",
+      mediaType: "image/png",
+      url: referenceUrl,
+    });
+    expect(request.requestAttachments).toContainEqual({
+      type: "image",
+      name: "reference.png",
+      contentType: "image/png",
+      url: referenceUrl,
+    });
+  });
+
+  it("still marks inline bytes in unrelated deferred options as unrecoverable", async () => {
+    const threadId = chatMocks.threadId;
+    const encodedThreadId = Array.from(threadId, (character) =>
+      character.codePointAt(0)!.toString(16),
+    ).join("-");
+    const stateKey = `agentkit-deferred-provider-submissions:${encodedThreadId}`;
+    const inlineImageUrl = "data:image/png;base64,LEGACY_OPTION_IMAGE_BYTES";
+    chatMocks.appState.set(stateKey, {
+      version: 1,
+      threadId,
+      submissions: [
+        {
+          id: "legacy-deferred-unrelated-option-payload",
+          threadId,
+          text: "Describe this image",
+          fileParts: [],
+          references: [],
+          composerOptions: {},
+          options: {
+            deferredRequestAttachments: [
+              {
+                type: "image",
+                name: "reference.png",
+                url: "https://files.example.test/reference.png",
+                data: inlineImageUrl,
+              },
+            ],
+            unrelatedPayload: { image: inlineImageUrl },
+          },
+        },
+      ],
+    });
+
+    await mount(baseProps());
+    await flush();
+
+    expect(chatMocks.appState.get(stateKey)).toMatchObject({
+      submissions: [{ failed: true, attachmentRestoreRequired: true }],
+    });
+    expect(JSON.stringify(chatMocks.appState.get(stateKey))).not.toContain(
+      "data:image",
+    );
+    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+  });
+
   it("marks a legacy inline reference lost when only an unrelated file remains", async () => {
     const threadId = chatMocks.threadId;
     const encodedThreadId = Array.from(threadId, (character) =>
@@ -4969,6 +5101,93 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     expect(queuedRequest?.requestAttachments?.[0]).not.toHaveProperty("data");
     expect(JSON.stringify(queuedRequest)).not.toContain(imageDataUrl);
+  });
+
+  it("uploads oversized queued inline images before applying request limits", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    const imageDataUrl = `data:image/png;base64,${"A".repeat(
+      MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS + 4,
+    )}`;
+    const uploadedImage: FilePart = {
+      type: "file",
+      name: "image-1",
+      mediaType: "image/png",
+      url: "https://files.example.test/queued-image.png",
+    };
+    const steps: string[] = [];
+    chatMocks.control.uploadFiles.mockImplementation(async () => {
+      steps.push("upload");
+      return [uploadedImage];
+    });
+    chatMocks.control.queueMessage.mockImplementation(async () => {
+      steps.push("queue");
+      return undefined;
+    });
+    await mount(baseProps(), ref);
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(new Blob(["image pixels"], { type: "image/png" })),
+      );
+
+    try {
+      let result:
+        | Awaited<ReturnType<AssistantChatHandle["queueMessage"]>>
+        | undefined;
+      await act(async () => {
+        result = await ref.current!.queueMessage("Describe this later", [
+          imageDataUrl,
+        ]);
+      });
+
+      const queuedRequest = chatMocks.control.queueMessage.mock.calls[0]?.[0];
+      expect(result).toEqual({ status: "submitted" });
+      expect(steps).toEqual(["upload", "queue"]);
+      expect(queuedRequest?.requestAttachments).toEqual([
+        {
+          type: "image",
+          name: "image-1",
+          contentType: "image/png",
+          url: uploadedImage.url,
+        },
+      ]);
+      expect(JSON.stringify(queuedRequest)).not.toContain(imageDataUrl);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it("sends a small inline image immediately when file storage is unavailable", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    const imageDataUrl = "data:image/png;base64,SGVsbG8=";
+    chatMocks.fileUploadStatus = {
+      data: { configured: false },
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    };
+    await mount(baseProps(), ref);
+
+    const result = await ref.current!.sendMessage("Describe this image", [
+      imageDataUrl,
+    ]);
+
+    expect(result).toEqual({ status: "submitted" });
+    expect(chatMocks.control.uploadFiles).not.toHaveBeenCalled();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+    expect(request.attachments).toEqual([]);
+    expect(request.requestAttachments).toEqual([
+      expect.objectContaining({
+        type: "image",
+        contentType: "image/png",
+        data: imageDataUrl,
+      }),
+    ]);
+    expect(request.metadata.custom).toEqual({
+      agentNativeRetryAttachmentsUnavailable: true,
+    });
+    expect(JSON.stringify(request.metadata)).not.toContain(imageDataUrl);
   });
 
   it("rolls back and displays an error when imperative image storage fails", async () => {
@@ -6068,6 +6287,42 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
     expect(container.textContent).toContain(
       "agentChat.recovery.continueUnavailable",
+    );
+  });
+
+  it("shows a visible error when retrying without an attachment fails", async () => {
+    chatMocks.failureError = {
+      code: "invalid_attachment",
+      message: "The provider rejected this attachment.",
+    };
+    chatMocks.thread.messages = [
+      {
+        id: "user-invalid-attachment",
+        role: "user",
+        parts: [
+          { type: "text", text: "Use this reference" },
+          {
+            type: "file",
+            name: "reference.png",
+            mediaType: "image/png",
+            url: "https://files.example.test/reference.png",
+          },
+        ],
+      },
+    ];
+    chatMocks.control.sendMessage.mockRejectedValueOnce(
+      new Error("transport unavailable"),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      chatMocks.failureProps.onRetryWithoutAttachment();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "agentChat.recovery.deferredSubmissionFailed",
     );
   });
 

@@ -1,5 +1,21 @@
-import { isInlineDataUrl, isPersistableAttachmentUrl } from "./attachments.js";
+import { isInlineDataUrl } from "./attachments.js";
 import { parseDataUrl } from "./data-url.js";
+
+function isPersistableAttachmentReferenceUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !value.trim() || value.length > 8192) {
+    return false;
+  }
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    Boolean(url.hostname) &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}
 
 /**
  * Inline file bytes reached a SQL write with no durable URL to stand in for
@@ -50,10 +66,38 @@ const INLINE_BYTE_FIELD_KEYS = new Set([
   "screenshotbase64",
   "screenshotdata",
 ]);
+const BYTE_SIZE_PATTERN =
+  /^\d+(?:\.\d+)?\s*(?:bytes?|b|kb|kib|mb|mib|gb|gib|tb|tib)$/i;
+const INLINE_DATA_URL =
+  /\bdata:[\w.+-]+\/[\w.+-]+(?:;[^,;\s"'<>]*)?,[^\s"'<>)]*/i;
+const IMAGE_BYTE_FIELD_KEYS = new Set([
+  "imagebase64",
+  "imagedata",
+  "imagebytes",
+  "screenshotbase64",
+  "screenshotdata",
+]);
 // URL schemes are case-insensitive: `DATA:image/png;base64,...` is still bytes.
 const DATA_SCHEME = /data:/i;
 const EMBEDDED_DATA_URL =
   /\bdata:[\w.+-]+\/[\w.+-]+(?:;[^,;\s"'<>]*)*,[^\s"'<>)\]]*/gi;
+
+function hasInlineByteProperty(json: string): boolean {
+  for (const match of json.matchAll(/"((?:\\.|[^"\\])*)"\s*:/g)) {
+    let key: string;
+    try {
+      key = JSON.parse(`"${match[1]}"`) as string;
+    } catch {
+      continue;
+    }
+    if (
+      INLINE_BYTE_FIELD_KEYS.has(key.toLowerCase().replace(/[^a-z0-9]/g, ""))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function durableUrl(item: Record<string, unknown>): string | undefined {
   const metadata = item.metadata as Record<string, unknown> | undefined;
@@ -64,7 +108,7 @@ function durableUrl(item: Record<string, unknown>): string | undefined {
     item.image,
     metadata?.uploadUrl,
   ]) {
-    if (isPersistableAttachmentUrl(candidate)) {
+    if (isPersistableAttachmentReferenceUrl(candidate)) {
       return candidate;
     }
   }
@@ -77,13 +121,13 @@ function inlineKeys(item: Record<string, unknown>): string[] {
     return (
       typeof value === "string" &&
       value.length > 0 &&
-      !isPersistableAttachmentUrl(value)
+      !isPersistableAttachmentReferenceUrl(value)
     );
   });
   if (
     typeof item.data === "string" &&
     item.data.length > 0 &&
-    !isPersistableAttachmentUrl(item.data)
+    !isPersistableAttachmentReferenceUrl(item.data)
   ) {
     keys.push("data");
   }
@@ -220,8 +264,9 @@ function sanitize(
       omitted: inline.some(
         (key) =>
           key === "data" ||
-          key === "base64" ||
-          key === "dataUrl" ||
+          INLINE_BYTE_FIELD_KEYS.has(
+            key.toLowerCase().replace(/[^a-z0-9]/g, ""),
+          ) ||
           isInlineDataUrl(item[key]),
       )
         ? "inline-bytes"
@@ -248,6 +293,7 @@ export function stripInlineBytesFromJson(
 ): string {
   if (
     !DATA_SCHEME.test(json) &&
+    !hasInlineByteProperty(json) &&
     ![
       "data",
       "url",
@@ -282,7 +328,7 @@ export function assertNoInlineImageBytes(
     inAttachmentMetadata = false,
   ): void => {
     if (typeof node === "string") {
-      if (/base64,|data:image/i.test(node)) {
+      if (INLINE_DATA_URL.test(node)) {
         throw new Error(`${label} stores inline image bytes at ${path}`);
       }
       return;
@@ -328,7 +374,10 @@ export function assertNoInlineImageBytes(
     }
     for (const [key, child] of Object.entries(record)) {
       const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
-      if (INLINE_BYTE_FIELD_KEYS.has(normalizedKey) && hasBytes(child)) {
+      if (
+        INLINE_BYTE_FIELD_KEYS.has(normalizedKey) &&
+        hasInlinePayloadInField(normalizedKey, child, hasAttachmentContext)
+      ) {
         throw new Error(
           `${label} stores inline image or file bytes at ${path}.${key}`,
         );
@@ -351,6 +400,85 @@ export function assertNoInlineImageBytes(
     }
   };
   visit(typeof value === "string" ? safeJson(value) : value, label, false);
+}
+
+function hasInlinePayloadInField(
+  normalizedKey: string,
+  value: unknown,
+  inAttachmentContext: boolean,
+): boolean {
+  if (!value || !hasInlineFieldBytes(value)) return false;
+  if (normalizedKey === "bytes" && isByteSizeMetadata(value)) return false;
+  if (IMAGE_BYTE_FIELD_KEYS.has(normalizedKey)) return true;
+  if (normalizedKey === "dataurl") {
+    return typeof value !== "string" || INLINE_DATA_URL.test(value);
+  }
+  if (inAttachmentContext) return true;
+  return normalizedKey === "base64"
+    ? typeof value === "string" && looksLikeEncodedFileBytes(value)
+    : (normalizedKey === "bytes" || normalizedKey === "buffer") &&
+        looksLikeFileByteArray(value);
+}
+
+function hasInlineFieldBytes(value: unknown): boolean {
+  return (
+    (typeof value === "string" && value.length > 0) ||
+    (Array.isArray(value) && value.length > 0) ||
+    (ArrayBuffer.isView(value) && value.byteLength > 0)
+  );
+}
+
+function looksLikeEncodedFileBytes(value: string): boolean {
+  const normalized = value.trim();
+  return (
+    normalized.startsWith("iVBORw0KGgo") ||
+    normalized.startsWith("/9j/") ||
+    normalized.startsWith("R0lGOD") ||
+    normalized.startsWith("UklGR") ||
+    normalized.startsWith("JVBERi0") ||
+    normalized.startsWith("UEsDB") ||
+    normalized.startsWith("PHN2Zy") ||
+    normalized.startsWith("SUkqA") ||
+    normalized.startsWith("TU0AK") ||
+    normalized.startsWith("Qk1")
+  );
+}
+
+function looksLikeFileByteArray(value: unknown): boolean {
+  if (!Array.isArray(value) && !ArrayBuffer.isView(value)) return false;
+  const bytes = Array.from(value as ArrayLike<number>).slice(0, 12);
+  return (
+    (bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47) ||
+    (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) ||
+    (bytes[0] === 0x47 &&
+      bytes[1] === 0x49 &&
+      bytes[2] === 0x46 &&
+      bytes[3] === 0x38) ||
+    (bytes[0] === 0x25 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x44 &&
+      bytes[3] === 0x46) ||
+    (bytes[0] === 0x50 &&
+      bytes[1] === 0x4b &&
+      bytes[2] === 0x03 &&
+      bytes[3] === 0x04) ||
+    (bytes[0] === 0x42 && bytes[1] === 0x4d) ||
+    (bytes[0] === 0x52 &&
+      bytes[1] === 0x49 &&
+      bytes[2] === 0x46 &&
+      bytes[3] === 0x46 &&
+      bytes[8] === 0x57 &&
+      bytes[9] === 0x45 &&
+      bytes[10] === 0x42 &&
+      bytes[11] === 0x50)
+  );
+}
+
+function isByteSizeMetadata(value: unknown): boolean {
+  return typeof value === "string" && BYTE_SIZE_PATTERN.test(value.trim());
 }
 
 function safeJson(value: string): unknown {

@@ -260,13 +260,21 @@ export async function settleA2AApproval(
   status: "completed" | "failed",
   resultText: string,
 ): Promise<void> {
-  assertA2APersistablePayload(resultText, "A2A approval result");
+  let settledStatus = status;
+  let settledText = resultText;
+  try {
+    assertA2APersistablePayload(resultText, "A2A approval result");
+  } catch {
+    settledStatus = "failed";
+    settledText =
+      "The approved action result could not be safely stored. Verify its outcome before retrying.";
+  }
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
   const message: Message = {
     role: "agent",
-    parts: [{ type: "text", text: resultText }],
+    parts: [{ type: "text", text: settledText }],
   };
   await withDbTransaction(client, async (tx) => {
     const { rows } = await tx.execute({
@@ -289,7 +297,7 @@ export async function settleA2AApproval(
     const taskUpdate = await tx.execute({
       sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, updated_at = ? WHERE id = ? AND status_state = 'working'`,
       args: [
-        status,
+        settledStatus,
         JSON.stringify(message),
         timestamp,
         JSON.stringify(history),
@@ -302,7 +310,7 @@ export async function settleA2AApproval(
     }
     const approvalUpdate = await tx.execute({
       sql: `UPDATE a2a_approvals SET status = ?, result = ?, updated_at = ? WHERE id = ? AND status = 'processing'`,
-      args: [status, resultText, now, id],
+      args: [settledStatus, settledText, now, id],
     });
     if (getAffectedRowCount(approvalUpdate) === 0) {
       throw new Error("Approval settlement lost its state claim");

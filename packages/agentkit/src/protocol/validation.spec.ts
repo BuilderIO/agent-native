@@ -620,6 +620,19 @@ describe("AgentKit protocol validation", () => {
         fileId: "file-1",
       }),
     ).toEqual({ type: "file", name: "photo.png", fileId: "file-1" });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        mediaType: "image/png",
+        fileId: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      mediaType: "image/png",
+      omitted: "inline-bytes",
+    });
     const durable = {
       type: "file" as const,
       name: "photo.png",
@@ -635,6 +648,32 @@ describe("AgentKit protocol validation", () => {
 
     expect(isPersistableAttachmentUrl(durable.url)).toBe(true);
     expect(isPersistableAttachmentUrl("AQID")).toBe(false);
+    const localS3 = {
+      type: "file" as const,
+      name: "photo.png",
+      url: "http://minio.example.test:9000/bucket/photo.png",
+    };
+    expect(persistableFilePart(localS3)).toEqual(localS3);
+    const signedReference = {
+      ...durable,
+      url: "https://storage.example.test/photo.png?signature=fake-signature",
+    };
+    expect(persistableFilePart(signedReference)).toEqual({
+      type: "file",
+      name: "photo.png",
+      omitted: "unsafe-url",
+    });
+    expect(
+      persistableFilePart({
+        type: "file",
+        name: "photo.png",
+        fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+      }),
+    ).toEqual({
+      type: "file",
+      name: "photo.png",
+      fileId: "4b1f4cc0-34da-4c8c-8fe4-a5d20fa87a32",
+    });
     expect(
       persistableFilePart({
         type: "file",

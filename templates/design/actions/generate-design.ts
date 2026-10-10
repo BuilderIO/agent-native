@@ -181,6 +181,12 @@ function isFixedArtworkCopyFollowUp(prompt: string): boolean {
   );
 }
 
+function isFixedCanvasFormatConversion(prompt: string): boolean {
+  return /\b(?:turn|convert|transform)\s+(?:(?:this|it|the\s+(?:artwork|design|screen|image))\s+)?(?:into|to)\b|\bresize\s+(?:(?:this|it|the\s+(?:artwork|design|screen|image))\s+)?to\b/i.test(
+    prompt,
+  );
+}
+
 const reuseLabelSchema = z
   .object({
     itemId: z.string().min(1).optional(),
@@ -1184,10 +1190,13 @@ const generateDesignAction = defineAction({
               ? metadata.height
               : previousFrame?.height;
           const sameFixedCanvasSize =
-            fixedArtworkFollowUp &&
-            (promptCanvasDimensions === undefined ||
-              (existingWidth === promptCanvasDimensions.width &&
-                existingHeight === promptCanvasDimensions.height));
+            fixedCanvasOutput &&
+            (metadata.heightMode === "fixed" ||
+              metadata.heightPinned === true ||
+              fixedArtworkFollowUp) &&
+            existingWidth === width &&
+            existingHeight === height &&
+            !isFixedCanvasFormatConversion(prompt);
           const breakpointWidths = explicitDeviceSelection
             ? fixedCanvasOutput
               ? generatedBreakpointSet.map((breakpoint) => breakpoint.widthPx)

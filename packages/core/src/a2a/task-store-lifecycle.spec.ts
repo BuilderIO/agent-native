@@ -380,6 +380,51 @@ describe("task-store lifecycle (real pglite)", () => {
         artifacts: [],
       });
     });
+
+    it("persists uploaded file artifact URIs without inline file bytes", async () => {
+      const {
+        claimA2ATaskForProcessing,
+        createTask,
+        getTask,
+        settleProcessingA2ATask,
+      } = await loadStore();
+      const task = await createTask(makeMessage("create a report"));
+      await claimA2ATaskForProcessing(task.id);
+      const artifact = {
+        name: "report.png",
+        parts: [
+          {
+            type: "file" as const,
+            file: {
+              name: "report.png",
+              mimeType: "image/png",
+              uri: "https://storage.agent-native.test/artifacts/report.png",
+            },
+          },
+        ],
+      };
+
+      await settleProcessingA2ATask(task.id, {
+        state: "completed",
+        message: makeMessage("Created report.png", "agent"),
+        artifacts: [artifact],
+      });
+
+      await expect(getTask(task.id)).resolves.toMatchObject({
+        status: { state: "completed" },
+        artifacts: [artifact],
+      });
+      const { rows } = await dbExec.execute({
+        sql: `SELECT artifacts FROM a2a_tasks WHERE id = ?`,
+        args: [task.id],
+      });
+      const serialized = String(rows[0]?.artifacts);
+      expect(serialized).toContain(
+        "https://storage.agent-native.test/artifacts/report.png",
+      );
+      expect(serialized).not.toContain("base64");
+      expect(serialized).not.toContain("data:image");
+    });
   });
 
   describe("claimA2ATaskForProcessing", () => {
@@ -507,6 +552,65 @@ describe("task-store lifecycle (real pglite)", () => {
           message: { parts: [{ type: "text", text: "Email sent" }] },
         },
       });
+    });
+
+    it("settles an approval as failed when its result cannot be persisted", async () => {
+      const {
+        claimA2AApproval,
+        claimA2ATaskForProcessing,
+        createA2AApproval,
+        createTask,
+        getA2AApprovalForOwner,
+        getTask,
+        pauseProcessingA2ATask,
+        settleA2AApproval,
+      } = await loadStore();
+      const task = await createTask(
+        makeMessage("send it"),
+        undefined,
+        undefined,
+        "owner@example.com",
+      );
+      await claimA2ATaskForProcessing(task.id);
+      const approval = await createA2AApproval({
+        taskId: task.id,
+        ownerEmail: "owner@example.com",
+        tool: "send-email",
+        toolInput: { to: "recipient@example.com" },
+        approvalKey: "private-key",
+        callId: "call-1",
+      });
+      await pauseProcessingA2ATask(
+        task.id,
+        makeMessage("Approval required", "agent"),
+      );
+      await claimA2AApproval(approval.id, "owner@example.com");
+
+      await settleA2AApproval(
+        approval.id,
+        "completed",
+        "data:image/png;base64,iVBORw0KGgo=",
+      );
+
+      const failureText =
+        "The approved action result could not be safely stored. Verify its outcome before retrying.";
+      expect(await getTask(task.id)).toMatchObject({
+        status: {
+          state: "failed",
+          message: { parts: [{ type: "text", text: failureText }] },
+        },
+        history: expect.arrayContaining([
+          { role: "agent", parts: [{ type: "text", text: failureText }] },
+        ]),
+      });
+      expect(
+        await getA2AApprovalForOwner(approval.id, "owner@example.com"),
+      ).toMatchObject({ status: "failed", result: failureText });
+      const { rows } = await dbExec.execute({
+        sql: `SELECT history, status_message FROM a2a_tasks WHERE id = ?`,
+        args: [task.id],
+      });
+      expect(JSON.stringify(rows)).not.toContain("data:image");
     });
 
     it("refuses an expired approval", async () => {

@@ -97,8 +97,8 @@ export class InvalidCanvasDimensionsError extends Error {
 export type CanvasDeviceVariant = "desktop" | "tablet" | "mobile";
 
 function isNegatedDeviceMention(prompt: string, index: number): boolean {
-  const precedingText = prompt.slice(Math.max(0, index - 32), index);
-  return /\b(?:no|without|exclude|excluding|avoid|skip|not|never|don't|do not)\s+(?:(?:the|a|an|any)\s+)?$/i.test(
+  const precedingText = prompt.slice(Math.max(0, index - 48), index);
+  return /\b(?:no|without|exclud(?:e|ed|ing)|avoid|skip|not|never|don't|do not)(?:\s+(?:include|use|make|create|add))?\s+(?:(?:the|a|an|any)\s+)?(?:(?:desktop|mobile|tablet)\s*(?:[,/&]|\b(?:and|or)\b)\s*)*$/i.test(
     precedingText,
   );
 }
