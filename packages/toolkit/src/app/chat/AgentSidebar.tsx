@@ -83,7 +83,9 @@ import {
   AGENT_PANEL_SET_MODE_EVENT,
   getAgentChatNavigationKey,
   type AgentChatNavigationKey,
-  shouldHandleAgentPanelChatShortcut,
+  isAgentPanelChatShortcut,
+  isAgentSidebarToggleShortcut,
+  agentPanelShortcutSelectionText,
   shouldHandleAgentSidebarToggle,
 } from "./agent-sidebar-events.js";
 import {
@@ -1431,24 +1433,18 @@ export function AgentSidebar({
   useEffect(() => {
     if (!enabled) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        !e.altKey &&
-        !e.shiftKey &&
-        (e.key === "\\" || e.code === "Backslash")
-      ) {
+      if (isAgentSidebarToggleShortcut(e)) {
         e.preventDefault();
         window.dispatchEvent(
           new CustomEvent("agent-panel:toggle", { detail: { focus: true } }),
         );
         return;
       }
-      if (!disableChatShortcut && (e.metaKey || e.ctrlKey) && e.key === "i") {
-        if (!shouldHandleAgentPanelChatShortcut(e.target)) return;
+      if (!disableChatShortcut && isAgentPanelChatShortcut(e)) {
         e.preventDefault();
         let selectionText = "";
         try {
-          selectionText = window.getSelection()?.toString().trim() ?? "";
+          selectionText = agentPanelShortcutSelectionText(e);
         } catch {
           // coercion-ok: selection capture is optional; the shortcut still opens chat.
         }

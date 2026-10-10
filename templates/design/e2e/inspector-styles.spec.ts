@@ -5,6 +5,7 @@ import {
   cdpScreenshot,
   createFixtureDesign,
   designFrame,
+  expandAllLayers,
   gotoEditor,
   installBridge,
   readSeedDesignId,
@@ -226,6 +227,7 @@ test("text fills hide and restore without losing the original color", async ({
   await expect(showFillButton).toBeVisible();
 
   await page.reload();
+  await expandAllLayers(page);
   await selectLayerFromTree(page, "E2E Hero Heading");
   await expect(showFillButton).toBeVisible();
   await showFillButton.click();

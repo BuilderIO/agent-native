@@ -445,6 +445,70 @@ describe("editor chrome selection overlays", () => {
     }
   });
 
+  it("marks trusted canvas pointer selections separately from host selections", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      await page.evaluate(() => {
+        const target = window as Window & {
+          __selectionMessages?: Record<string, unknown>[];
+        };
+        target.__selectionMessages = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "element-select") {
+            target.__selectionMessages?.push(event.data);
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      const childBox = (await page.locator("#child").boundingBox())!;
+      await page.mouse.click(
+        childBox.x + childBox.width / 2,
+        childBox.y + childBox.height / 2,
+      );
+      await page.waitForFunction(() =>
+        (
+          window as Window & {
+            __selectionMessages?: { trustedPointer?: boolean }[];
+          }
+        ).__selectionMessages?.some((message) => message.trustedPointer),
+      );
+      const pointerSelection = await page.evaluate(() => {
+        const messages = (
+          window as Window & {
+            __selectionMessages?: {
+              intent?: { source?: string };
+              trustedPointer?: boolean;
+              focusSafe?: boolean;
+            }[];
+          }
+        ).__selectionMessages;
+        return messages?.find((message) => message.trustedPointer);
+      });
+      expect(pointerSelection).toMatchObject({
+        intent: { source: "pointer" },
+        trustedPointer: true,
+        focusSafe: true,
+      });
+
+      await select(page, "#frame");
+      const hostSelection = await page.evaluate(() => {
+        const messages = (
+          window as Window & {
+            __selectionMessages?: Record<string, unknown>[];
+          }
+        ).__selectionMessages;
+        return messages?.[messages.length - 1];
+      });
+      expect(hostSelection).not.toHaveProperty("trustedPointer");
+      expect(hostSelection).not.toHaveProperty("focusSafe");
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("keeps an overview-scale resize alive after the pointer leaves the iframe", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
