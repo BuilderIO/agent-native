@@ -30,6 +30,15 @@ vi.mock("../chat-threads/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../chat-threads/store.js")>()),
   getThread: threadRead,
 }));
+vi.mock("../resources/agents.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../resources/agents.js")>()),
+  findAccessibleCustomAgent: vi.fn(async () => ({
+    name: "Refund helper",
+    path: "refund-helper",
+    instructions: "Handle the refund email",
+    model: "custom-test-model",
+  })),
+}));
 vi.mock("./run-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./run-store.js")>()),
   getCurrentTurnEventsForThread: ledger,
@@ -85,6 +94,7 @@ async function recover(
   resumeContinue?: "auto" | "manual",
   withAttachment = false,
   onEmailWrite?: () => void,
+  withCustomAgent = false,
 ) {
   sequence++;
   const threadId = `reaper-thread-${sequence}`;
@@ -96,6 +106,7 @@ async function recover(
   if (events instanceof Error) ledger.mockRejectedValue(events);
   else ledger.mockResolvedValue(events);
   const seen: EngineMessage[][] = [];
+  const modelCalls = new Map<string, number>();
   const sendEmail = vi.fn(async (_input: Record<string, unknown>) => {
     onEmailWrite?.();
     if (failFinalization === "precondition")
@@ -120,7 +131,7 @@ async function recover(
     name: "test",
     label: "Test",
     defaultModel: "test-model",
-    supportedModels: ["test-model"],
+    supportedModels: ["test-model", "custom-test-model"],
     capabilities: {
       thinking: false,
       promptCaching: false,
@@ -130,6 +141,8 @@ async function recover(
     },
     async *stream(options): AsyncIterable<EngineEvent> {
       seen.push(structuredClone(options.messages));
+      const modelCall = (modelCalls.get(options.model) ?? 0) + 1;
+      modelCalls.set(options.model, modelCall);
       const context = JSON.stringify(options.messages);
       if (ignoreContext === "verify-live" && seen.length <= 4) {
         const read = seen.length % 2 === 1;
@@ -171,18 +184,22 @@ async function recover(
         return;
       }
       if (
-        seen.length === (ignoreContext === "after-read" ? 2 : 1) &&
+        (withCustomAgent ? modelCall : seen.length) ===
+          (ignoreContext === "after-read" ? 2 : 1) &&
         (ignoreContext || !context.includes("Tool-call journal"))
       ) {
+        const read =
+          withCustomAgent && !ignoreContext && options.model === "test-model";
         yield {
           type: "assistant-content",
           parts: [
             {
               type: "tool-call",
               id: "email-2",
-              name: "send-email",
-              input:
-                isRecovery === true || isRecovery === "continuation"
+              name: read ? "check-email" : "send-email",
+              input: read
+                ? {}
+                : isRecovery === true || isRecovery === "continuation"
                   ? { ...EMAIL, body: "Your refund has been approved." }
                   : EMAIL,
             },
@@ -334,6 +351,17 @@ async function recover(
       : "Send the refund email, then finish the refund.",
     threadId,
     turnId,
+    ...(withCustomAgent
+      ? {
+          references: [
+            {
+              type: "custom-agent",
+              name: "Refund helper",
+              refId: "refund-helper",
+            },
+          ],
+        }
+      : {}),
     ...(isRecovery === true || isRecovery === "continuation"
       ? { internalContinuation: true }
       : {}),
@@ -444,9 +472,13 @@ async function recover(
 }
 
 describe("reaper successor resume context", () => {
-  it.each(["delayed", "failed"])(
-    "keeps writes behind %s start persistence",
-    async (mode) => {
+  it.each(
+    ["delayed", "failed", "terminal"].flatMap((mode) =>
+      [false, true].map((custom) => ({ mode, custom })),
+    ),
+  )(
+    "keeps writes behind $mode start persistence (custom agent: $custom)",
+    async ({ mode, custom }) => {
       let release!: () => void;
       const waiting = new Promise<void>((resolve) => {
         release = resolve;
@@ -465,13 +497,28 @@ describe("reaper successor resume context", () => {
             await waiting;
             if (mode === "failed")
               throw new Error("Fixture event persistence failed");
+            if (mode === "terminal")
+              await runStore.updateRunStatus(args[0], "errored");
           }
           return insert(...args);
         });
-      const pending = recover([], false, false, false, undefined, false, write);
+      const pending = recover(
+        [],
+        false,
+        false,
+        false,
+        undefined,
+        false,
+        write,
+        custom,
+      );
       const completion =
-        mode === "failed"
-          ? expect(pending).rejects.toThrow("Fixture event persistence failed")
+        mode !== "delayed"
+          ? expect(pending).rejects.toThrow(
+              mode === "failed"
+                ? "Fixture event persistence failed"
+                : "Run event was not persisted",
+            )
           : pending;
       try {
         await persisting;
@@ -482,9 +529,100 @@ describe("reaper successor resume context", () => {
         await completion;
         spy.mockRestore();
       }
-      expect(write).toHaveBeenCalledTimes(mode === "failed" ? 0 : 1);
+      expect(write).toHaveBeenCalledTimes(mode === "delayed" ? 1 : 0);
     },
   );
+
+  it("rejects start markers for absent runs and duplicate sequences", async () => {
+    const runId = `marker-proof-${++sequence}`;
+    const marker = JSON.stringify(START);
+    await expect(
+      runStore.insertRunEvent(runId, 0, marker, { requireInserted: true }),
+    ).rejects.toThrow("Run event was not persisted");
+    await insertRun(
+      runId,
+      `marker-thread-${sequence}`,
+      `marker-turn-${sequence}`,
+    );
+    await runStore.insertRunEvent(runId, 0, marker, { requireInserted: true });
+    await expect(
+      runStore.insertRunEvent(runId, 0, marker, { requireInserted: true }),
+    ).rejects.toThrow("Run event was not persisted");
+    expect(await getRunEventsSince(runId, -1)).toHaveLength(1);
+    await runStore.updateRunStatus(runId, "completed");
+  });
+
+  it("persists custom-agent tool calls in the parent turn", async () => {
+    const result = await recover(
+      [],
+      false,
+      false,
+      false,
+      undefined,
+      false,
+      undefined,
+      true,
+    );
+    expect(result.sendEmail).toHaveBeenCalledTimes(1);
+    expect(result.checkEmail).toHaveBeenCalledTimes(1);
+    const events = (await getRunEventsSince(result.runId, -1)).map(
+      ({ eventData }) => JSON.parse(eventData),
+    );
+    const starts = events.filter((event) => event.type === "tool_start");
+    const done = events.filter((event) => event.type === "tool_done");
+    expect(starts).toHaveLength(2);
+    expect(done).toHaveLength(2);
+    expect(new Set(starts.map((event) => event.id)).size).toBe(2);
+    expect(done.map((event) => event.id)).toEqual(
+      starts.map((event) => event.id),
+    );
+    const recovered = await recover(
+      events,
+      false,
+      true,
+      false,
+      undefined,
+      false,
+      undefined,
+      true,
+    );
+    expect(recovered.sendEmail).not.toHaveBeenCalled();
+    expect(JSON.stringify(recovered.seen[0])).toContain("Sent a second email");
+  });
+
+  it.each([false, true])(
+    "restores custom-agent recovery context and blocks unknown writes (ignore context: %s)",
+    async (ignoreContext) => {
+      const result = await recover(
+        [START],
+        ignoreContext,
+        true,
+        false,
+        undefined,
+        false,
+        undefined,
+        true,
+      );
+      expect(result.sendEmail).not.toHaveBeenCalled();
+      expect(JSON.stringify(result.seen[0])).toContain("Tool-call journal");
+      expect(JSON.stringify(result.seen[0])).toContain("unknown outcome");
+    },
+  );
+
+  it("blocks the parent loop after a custom-agent unknown write", async () => {
+    const result = await recover(
+      [],
+      true,
+      false,
+      "action",
+      undefined,
+      false,
+      undefined,
+      true,
+    );
+    expect(result.sendEmail).toHaveBeenCalledTimes(1);
+    expect(result.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
+  });
 
   it("retains one attachment and keeps a reworded unknown write blocked", async () => {
     const result = await recover([START], true, true, false, undefined, true);

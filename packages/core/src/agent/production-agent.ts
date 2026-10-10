@@ -5457,6 +5457,8 @@ export async function runAgentLoop(opts: {
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
   beforeWrite?: () => Promise<void>;
+  unknownWriteToolNames?: Set<string>;
+  internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
   onUsage?: (usage: AgentLoopUsage) => void;
   onOutcome?: (outcome: AgentLoopOutcome) => void;
@@ -5525,7 +5527,9 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
-  const internalContinuationTurn = isInternalContinuationTurn(messages);
+  // Delegation context can prepend the synthetic continuation instruction.
+  const internalContinuationTurn =
+    opts.internalContinuation === true || isInternalContinuationTurn(messages);
   const followUpRunId = opts.followUpSuggestions ? opts.runId : undefined;
   if (opts.followUpSuggestions && !followUpRunId) {
     throw new Error("Follow-up suggestions require the canonical run id.");
@@ -5849,7 +5853,7 @@ export async function runAgentLoop(opts: {
     messages,
     actions,
   );
-  const unknownWriteToolNames = new Set<string>();
+  const unknownWriteToolNames = opts.unknownWriteToolNames ?? new Set<string>();
   const {
     sameArguments: repeatedToolErrors,
     sameTool: repeatedToolErrorsAnyArgs,
@@ -12420,13 +12424,14 @@ export function createProductionAgentHandler(
           await options.onRunStart(send, threadId ?? runId, runId);
         }
 
+        const unknownWriteToolNames = new Set<string>();
         if (customAgentRefs.length > 0) {
           const ownerEmail = getRequestUserEmail();
           if (!ownerEmail) throw new Error("no authenticated user");
           const { findAccessibleCustomAgent } =
             await import("../resources/agents.js");
           const customResults = await Promise.allSettled(
-            customAgentRefs.map(async (ref) => {
+            customAgentRefs.map(async (ref, index) => {
               send({
                 type: "agent_call",
                 agent: ref.name,
@@ -12457,18 +12462,26 @@ export function createProductionAgentHandler(
                   systemPrompt: profilePrompt,
                   tools: requestTools,
                   availableTools: availableRequestTools,
-                  messages: [
-                    {
-                      role: "user",
-                      content: [
+                  messages: internalContinuation
+                    ? structuredClone(messages)
+                    : [
                         {
-                          type: "text",
-                          text: enrichedMessage + referencedAgentContext,
+                          role: "user",
+                          content: [
+                            {
+                              type: "text",
+                              text: enrichedMessage + referencedAgentContext,
+                            },
+                          ],
                         },
                       ],
-                    },
-                  ],
                   actions: requestActions,
+                  runId,
+                  threadId: effectiveThreadId,
+                  turnId: effectiveTurnId,
+                  beforeWrite: control.flushEvents,
+                  unknownWriteToolNames,
+                  internalContinuation,
                   send: (event) => {
                     if (event.type === "text") {
                       responseText += event.text;
@@ -12476,6 +12489,17 @@ export function createProductionAgentHandler(
                         type: "agent_call_text",
                         agent: ref.name,
                         text: event.text,
+                      });
+                    } else if (
+                      event.type === "tool_start" ||
+                      event.type === "tool_done"
+                    ) {
+                      send({
+                        ...event,
+                        id:
+                          event.id === undefined
+                            ? undefined
+                            : `${runId}:custom:${index}:${event.id}`,
                       });
                     }
                   },
@@ -12488,6 +12512,7 @@ export function createProductionAgentHandler(
                     ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
                     : {}),
                 });
+                await control.flushEvents();
 
                 try {
                   const ownerEmail = options.resolveOwnerEmail
@@ -12637,6 +12662,8 @@ export function createProductionAgentHandler(
           systemSections: contextXraySystemSections,
           actions: requestActions,
           beforeWrite: control.flushEvents,
+          unknownWriteToolNames,
+          internalContinuation,
           send,
           signal,
           onUsage: (usage: AgentLoopUsage) => {

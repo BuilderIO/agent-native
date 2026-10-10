@@ -848,7 +848,10 @@ describe("run manager soft timeout", () => {
     expect(starts).toHaveLength(2);
     for (const [, , data, options] of starts) {
       expect(JSON.parse(data).input).toEqual({ destination: "original" });
-      expect(options).toEqual({ toolInputSource: "execution" });
+      expect(options).toEqual({
+        toolInputSource: "execution",
+        requireInserted: true,
+      });
     }
   });
 

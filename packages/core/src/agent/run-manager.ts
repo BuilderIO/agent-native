@@ -1382,6 +1382,9 @@ export function startRun(
       runEvent.event.type === "tool_done"
         ? insertRunEvent(runId, runEvent.seq, eventData, {
             toolInputSource: "execution",
+            ...(runEvent.event.type === "tool_start"
+              ? { requireInserted: true }
+              : {}),
           })
         : insertRunEvent(runId, runEvent.seq, eventData);
     return options?.persistEvent

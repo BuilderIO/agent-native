@@ -2430,21 +2430,29 @@ function persistedRunEventData(
   });
 }
 
+export class AgentRunEventNotPersistedError extends Error {
+  constructor(runId: string, seq: number) {
+    super(`Run event was not persisted: ${runId} sequence ${seq}`);
+    this.name = "AgentRunEventNotPersistedError";
+  }
+}
+
 export async function insertRunEvent(
   runId: string,
   seq: number,
   eventData: string,
-  options?: { toolInputSource?: "execution" },
+  options?: { toolInputSource?: "execution"; requireInserted?: boolean },
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
-  await client.execute({
+  const { rowsAffected } = await client.execute({
     sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
       SELECT ?, ?, ?, ?
       WHERE NOT EXISTS (
         SELECT 1 FROM agent_runs
         WHERE id = ? AND status <> 'running'
       )
+      ${options?.requireInserted ? "AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND status = 'running')" : ""}
       ON CONFLICT (run_id, seq) DO NOTHING`,
     args: [
       runId,
@@ -2452,8 +2460,11 @@ export async function insertRunEvent(
       Date.now(),
       persistedRunEventData(eventData, options?.toolInputSource),
       runId,
+      ...(options?.requireInserted ? [runId] : []),
     ],
   });
+  if (options?.requireInserted && rowsAffected !== 1)
+    throw new AgentRunEventNotPersistedError(runId, seq);
 }
 
 export const CHECKPOINT_TERMINAL_EVENT_SEQ = 1_000_000_000;
