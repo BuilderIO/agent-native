@@ -7571,6 +7571,22 @@ async function main() {
   return exitCode;
 }
 
+function installWarmUpNavigationTrace() {
+  const report = (kind: string, stack?: string) =>
+    console.debug(
+      "[edit-fidelity-navigation]",
+      JSON.stringify({ kind, url: location.href, stack }),
+    );
+  report("document");
+  for (const method of ["pushState", "replaceState"] as const) {
+    const original = window.history[method];
+    window.history[method] = function (...args) {
+      original.apply(this, args);
+      report(method, new Error().stack);
+    };
+  }
+}
+
 /** Load the editor chunks once so Vite's optimize-dep reload happens here. */
 async function warmUp(page: Page, base: string) {
   const created = await action(page, "create-deck", {
@@ -7583,7 +7599,19 @@ async function warmUp(page: Page, base: string) {
   // The first editor route can trigger Vite dependency optimization and a
   // full-page reload; let that cold browser warm-up finish before retrying.
   const browserErrors: string[] = [];
+  const navigationTrace: string[] = [];
+  const traceStartedAt = Date.now();
+  const trace = (message: string) => {
+    navigationTrace.push(`${Date.now() - traceStartedAt}ms ${message}`);
+    if (navigationTrace.length > 60) navigationTrace.shift();
+  };
   const onConsole = (message: any) => {
+    if (
+      message.text().startsWith("[edit-fidelity-navigation]") ||
+      message.text().includes("[agent-native] Vite re-bundled deps")
+    ) {
+      trace(message.text());
+    }
     if (message.type() === "error") {
       browserErrors.push(
         `${message.text()} (${JSON.stringify(message.location())})`,
@@ -7593,16 +7621,35 @@ async function warmUp(page: Page, base: string) {
   const onPageError = (error: Error) =>
     browserErrors.push(error.stack ?? error.message);
   const onResponse = (response: any) => {
+    const request = response.request();
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+      const headers = response.headers();
+      trace(
+        JSON.stringify({
+          kind: "document-response",
+          url: response.url(),
+          status: response.status(),
+          location: headers.location,
+          retryAfter: headers["retry-after"],
+          redirectedFrom: request.redirectedFrom()?.url(),
+        }),
+      );
+    }
     if (response.status() >= 500) {
       browserErrors.push(
         `${response.request().method()} ${response.url()} returned ${response.status()}`,
       );
     }
   };
+  const onFrameNavigated = (frame: any) => {
+    if (frame === page.mainFrame()) trace(`main-frame ${frame.url()}`);
+  };
   page.on("console", onConsole);
   page.on("pageerror", onPageError);
   page.on("response", onResponse);
+  page.on("framenavigated", onFrameNavigated);
   try {
+    await page.addInitScript(installWarmUpNavigationTrace);
     await openSlide(page, base, deckId, 0, "warm-1", {
       canvasTimeoutMs: 120_000,
     });
@@ -7612,11 +7659,15 @@ async function warmUp(page: Page, base: string) {
         `[edit-fidelity] warm-up browser errors: ${browserErrors.slice(-20).join(" | ")}`,
       );
     }
+    console.error(
+      `[edit-fidelity] warm-up navigation trace:\n${navigationTrace.join("\n")}`,
+    );
     throw error;
   } finally {
     page.off("console", onConsole);
     page.off("pageerror", onPageError);
     page.off("response", onResponse);
+    page.off("framenavigated", onFrameNavigated);
   }
   const [target] = await listTargets(page, "warm-1");
   if (target && (await enterEdit(page, "warm-1", target.point, []))) {
