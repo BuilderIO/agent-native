@@ -103,6 +103,17 @@ describe("readMarkdownLedger", () => {
       /header/,
     );
   });
+
+  it("throws on a duplicate row id, which the id-keyed parity checks would shadow", () => {
+    expect(() =>
+      readMarkdownLedger(
+        table(
+          "| 1.5 | hover on the border | move | screen-px | high |",
+          "| 1.5 | hover on the border | stay | screen-px | high |",
+        ),
+      ),
+    ).toThrow(/duplicate.*1\.5/i);
+  });
 });
 
 describe("diffLedgerContent", () => {

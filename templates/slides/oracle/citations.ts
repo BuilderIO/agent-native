@@ -73,9 +73,16 @@ type ImportContext = {
   functions: Map<string, string>;
   // Local names bound to the whole vitest module.
   namespaces: Set<string>;
-  // Names this file binds to something other than Vitest, which shadow a
-  // Vitest global of the same name.
+  // Local names of imports from anything other than vitest. They bind the
+  // module scope, so they shadow a Vitest global of the same name.
   shadowed: Set<string>;
+};
+
+// What a call sees where it is written: the file's imports, and the names each
+// scope around the call declares, outermost (the module) first.
+type Context = {
+  imports: ImportContext;
+  bindings: Set<string>[];
 };
 
 /**
@@ -92,18 +99,21 @@ export function titleCitations(source: string, fileName: string): string[] {
     tsx: /[jt]sx$/.test(fileName),
   });
   const imports = readVitestImports(ast.body);
-  declaredNames(ast.body, imports.shadowed);
+  const moduleNames = new Set(imports.shadowed);
+  statementNames(ast.body, moduleNames);
+  varNames(ast.body, moduleNames);
+  const context: Context = { imports, bindings: [moduleNames] };
   const registrations: Registration[] = [];
   collectRegistrations(
     ast.body,
     { skipped: false, focused: false },
     registrations,
-    imports,
+    context,
   );
   // Vitest runs only the focused tests of a file that has a focused one. A
   // focused declaration in unreachable code still changes the file's run, so
   // the whole file counts as focused and only reachable focused tests cite.
-  const fileFocused = containsFocus(ast.body, imports);
+  const fileFocused = containsFocus(ast.body, context);
   const ids: string[] = [];
   for (const registration of registrations) {
     const runs =
@@ -154,26 +164,121 @@ function readVitestImports(statements: unknown): ImportContext {
 }
 
 /**
- * Every name the file declares itself: variables, functions, classes,
- * parameters and catch bindings. A declared name shadows a Vitest global of the
- * same name, so a call through it registers no Vitest test.
+ * The names a node declares in the scope it opens, or undefined when it opens
+ * none: a function's parameters and body bindings, a block's let, const, class
+ * and function declarations, a loop head's let or const, a catch parameter, and
+ * a switch's cases. A var is not here; it belongs to the nearest function.
  */
-function declaredNames(value: unknown, out: Set<string>): void {
+function scopeNames(node: AstNode): Set<string> | undefined {
+  const names = new Set<string>();
+  if (isFunctionNode(node)) {
+    for (const param of paramsOf(node)) addPatternNames(param, names);
+    if (node.type === "FunctionExpression" && node.identifier !== undefined) {
+      addPatternNames(node.identifier, names);
+    }
+    const body = node.body as AstNode | undefined;
+    if (body?.type === "BlockStatement") statementNames(body.stmts, names);
+    varNames(node.body, names);
+    return names;
+  }
+  if (node.type === "BlockStatement") {
+    statementNames(node.stmts, names);
+    return names;
+  }
+  if (
+    node.type === "ForStatement" ||
+    node.type === "ForInStatement" ||
+    node.type === "ForOfStatement"
+  ) {
+    const head = (node.type === "ForStatement" ? node.init : node.left) as
+      | AstNode
+      | undefined;
+    if (head?.type === "VariableDeclaration") addLexicalNames(head, names);
+    return names;
+  }
+  if (node.type === "CatchClause") {
+    addPatternNames(node.param, names);
+    return names;
+  }
+  if (node.type === "SwitchStatement") {
+    for (const switchCase of node.cases as AstNode[]) {
+      statementNames(switchCase.consequent, names);
+    }
+    return names;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a node is a function. swc gives a class method's function as an
+ * untyped node that holds its params and body.
+ */
+function isFunctionNode(node: AstNode): boolean {
+  if (typeof node.type !== "string") return Array.isArray(node.params);
+  return FUNCTION_NODES.has(node.type);
+}
+
+/** A function's parameters. A setter holds its single parameter as `param`. */
+function paramsOf(node: AstNode): unknown[] {
+  if (Array.isArray(node.params)) return node.params;
+  return node.param === undefined ? [] : [node.param];
+}
+
+/** The context inside a node: the names it declares join those around it. */
+function enterScope(node: AstNode, context: Context): Context {
+  const names = scopeNames(node);
+  if (names === undefined) return context;
+  return { imports: context.imports, bindings: [...context.bindings, names] };
+}
+
+/**
+ * The let, const, class and function declarations of a statement list. They
+ * are visible throughout the list, so they count from its start.
+ */
+function statementNames(statements: unknown, out: Set<string>): void {
+  if (!Array.isArray(statements)) return;
+  for (const statement of statements as AstNode[]) {
+    const node =
+      statement.type === "ExportDeclaration"
+        ? (statement.declaration as AstNode)
+        : statement;
+    if (node.type === "VariableDeclaration") addLexicalNames(node, out);
+    if (
+      node.type === "FunctionDeclaration" ||
+      node.type === "ClassDeclaration"
+    ) {
+      addPatternNames(node.identifier, out);
+    }
+  }
+}
+
+/** The names a let or const declaration binds. A var is hoisted elsewhere. */
+function addLexicalNames(declaration: AstNode, out: Set<string>): void {
+  if (declaration.kind === "var") return;
+  for (const declarator of declaration.declarations as AstNode[]) {
+    addPatternNames(declarator.id, out);
+  }
+}
+
+/**
+ * The names declared with var anywhere in a node, outside any nested function.
+ * A var hoists to its function, so one inside a nested block still binds the
+ * whole function body.
+ */
+function varNames(value: unknown, out: Set<string>): void {
   if (Array.isArray(value)) {
-    for (const item of value) declaredNames(item, out);
+    for (const item of value) varNames(item, out);
     return;
   }
   if (typeof value !== "object" || value === null) return;
   const node = value as AstNode;
-  if (node.type === "VariableDeclarator") addPatternNames(node.id, out);
-  if (node.type === "FunctionDeclaration" || node.type === "ClassDeclaration") {
-    addPatternNames(node.identifier, out);
+  if (isFunctionNode(node)) return;
+  if (node.type === "VariableDeclaration" && node.kind === "var") {
+    for (const declarator of node.declarations as AstNode[]) {
+      addPatternNames(declarator.id, out);
+    }
   }
-  if (node.type === "CatchClause") addPatternNames(node.param, out);
-  if (Array.isArray(node.params)) {
-    for (const param of node.params) addPatternNames(param, out);
-  }
-  for (const child of Object.values(node)) declaredNames(child, out);
+  for (const child of Object.values(node)) varNames(child, out);
 }
 
 /** The names a binding pattern declares. */
@@ -217,12 +322,12 @@ function collectRegistrations(
   statements: unknown,
   scope: Scope,
   out: Registration[],
-  imports: ImportContext,
+  context: Context,
 ): void {
   if (!Array.isArray(statements)) return;
   for (const statement of statements as AstNode[]) {
     if (statement.type === "ExpressionStatement") {
-      collectExpression(statement.expression, scope, out, imports);
+      collectExpression(statement.expression, scope, out, context);
     }
     if (mayTransferControl(statement, false)) return;
   }
@@ -258,11 +363,11 @@ function collectExpression(
   value: unknown,
   scope: Scope,
   out: Registration[],
-  imports: ImportContext,
+  context: Context,
 ): void {
   const node = value as AstNode;
   if (node.type !== "CallExpression") return;
-  const declaration = testDeclaration(node.callee, imports);
+  const declaration = testDeclaration(node.callee, context);
   if (declaration === undefined) return;
   // A table-driven declaration registers one test per case. A table that is not
   // a non-empty array literal cannot be shown to register any, so it is not
@@ -291,12 +396,12 @@ function collectExpression(
     // A suite that holds its own focus runs only that focus: its ordinary
     // children are skipped by Vitest, so they inherit no focus here.
     const holdsFocus =
-      callback !== undefined && containsFocus(callback, imports);
+      callback !== undefined && containsFocus(callback, context);
     collectCallback(
       callback,
       { skipped, focused: holdsFocus ? false : focused },
       out,
-      imports,
+      context,
     );
   }
 }
@@ -305,7 +410,7 @@ function collectCallback(
   node: AstNode | undefined,
   scope: Scope,
   out: Registration[],
-  imports: ImportContext,
+  context: Context,
 ): void {
   if (node === undefined) return;
   if (
@@ -314,11 +419,13 @@ function collectCallback(
   ) {
     return;
   }
+  // The callback's parameters and declarations shadow the names around it.
+  const inner = enterScope(node, context);
   const body = node.body as AstNode;
   if (body.type === "BlockStatement") {
-    collectRegistrations(body.stmts, scope, out, imports);
+    collectRegistrations(body.stmts, scope, out, inner);
   } else {
-    collectExpression(body, scope, out, imports);
+    collectExpression(body, scope, out, inner);
   }
 }
 
@@ -358,9 +465,9 @@ function tableHasCases(callee: AstNode): boolean {
  * literal condition is read only when that condition lets it run. Any other
  * branch is assumed to run, so a focus the scanner cannot place still counts.
  */
-function containsFocus(value: unknown, imports: ImportContext): boolean {
+function containsFocus(value: unknown, context: Context): boolean {
   if (Array.isArray(value)) {
-    return value.some((item) => containsFocus(item, imports));
+    return value.some((item) => containsFocus(item, context));
   }
   if (typeof value !== "object" || value === null) return false;
   const node = value as AstNode;
@@ -369,15 +476,16 @@ function containsFocus(value: unknown, imports: ImportContext): boolean {
     if (test.type === "BooleanLiteral") {
       return containsFocus(
         test.value ? node.consequent : node.alternate,
-        imports,
+        context,
       );
     }
   }
   if (node.type === "CallExpression") {
-    const declaration = testDeclaration(node.callee, imports);
+    const declaration = testDeclaration(node.callee, context);
     if (declaration?.modifiers.includes("only")) return true;
   }
-  return Object.values(node).some((child) => containsFocus(child, imports));
+  const inner = enterScope(node, context);
+  return Object.values(node).some((child) => containsFocus(child, inner));
 }
 
 /**
@@ -433,7 +541,7 @@ function titleText(node: AstNode | undefined): string | undefined {
  */
 function testDeclaration(
   callee: unknown,
-  imports: ImportContext,
+  context: Context,
 ): { base: string; modifiers: string[] } | undefined {
   const node = callee as AstNode;
   // The outer call's callee is the table call or the tagged template.
@@ -442,7 +550,7 @@ function testDeclaration(
   if (node.type === "TaggedTemplateExpression") chainNode = node.tag as AstNode;
   const chain = memberChain(chainNode);
   if (chain === undefined || chain.length === 0) return undefined;
-  const resolved = resolveFunction(chain, imports);
+  const resolved = resolveFunction(chain, context);
   if (resolved === undefined || !TEST_FUNCTIONS.has(resolved.name)) {
     return undefined;
   }
@@ -464,18 +572,19 @@ function testDeclaration(
 
 /**
  * The Vitest function a member chain names, and the modifiers after it. A
- * namespace import names it as the member after the namespace; a named import
- * may be renamed; otherwise the chain names a global.
+ * name that an enclosing scope declares is not Vitest at this call. Otherwise a
+ * namespace import names the member after the namespace; a named import may be
+ * renamed; and anything else is the Vitest global of that name.
  */
 function resolveFunction(
   chain: string[],
-  imports: ImportContext,
+  context: Context,
 ): { name: string; modifiers: string[] } | undefined {
   const [head, ...rest] = chain;
-  // A name the file declares itself shadows an import of the same name in the
-  // scope that declares it. Reading that as a Vitest call would be a false
-  // registration, so any such name counts as no Vitest function at all.
-  if (imports.shadowed.has(head)) return undefined;
+  // Only the scopes around this call can shadow it. A declaration elsewhere in
+  // the file, such as a helper's parameter, does not reach it.
+  if (context.bindings.some((names) => names.has(head))) return undefined;
+  const { imports } = context;
   if (imports.namespaces.has(head)) {
     const [member, ...modifiers] = rest;
     return member === undefined ? undefined : { name: member, modifiers };

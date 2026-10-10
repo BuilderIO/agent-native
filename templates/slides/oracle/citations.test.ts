@@ -473,4 +473,49 @@ describe("titleCitations counts only test titles", () => {
     ].join("\n");
     expect(titleCitations(source, "a.test.ts")).toEqual([]);
   });
+
+  it("counts a top-level test when an unrelated helper parameter shares its name", () => {
+    const source = [
+      `function helper(it: string) { return it; }`,
+      `it("moves (oracle 8.1)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["8.1"]);
+  });
+
+  it("counts a test in one suite when a sibling suite declares the same name", () => {
+    const source = [
+      `describe("a", () => { const it = 1; });`,
+      `describe("b", () => { it("moves (oracle 8.2)", () => {}); });`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["8.2"]);
+  });
+
+  it("counts a real focus when a helper parameter shares its name", () => {
+    const source = [
+      `function helper(it: string) { return it; }`,
+      `it.only("moves (oracle 8.4)", () => {});`,
+      `it("snaps (oracle 8.5)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["8.4"]);
+  });
+
+  it("ignores a test through a var that hoists out of a nested block", () => {
+    const source = [
+      `describe("group", () => {`,
+      `  if (flag) { var it = 1; }`,
+      `  it("moves (oracle 8.6)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("counts a test after a block-scoped const that ends with its block", () => {
+    const source = [
+      `describe("group", () => {`,
+      `  if (flag) { const it = 1; }`,
+      `  it("moves (oracle 8.7)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["8.7"]);
+  });
 });

@@ -27,6 +27,7 @@ type ColumnIndex = Record<keyof typeof COLUMN_NAMES, number>;
  */
 export function readMarkdownLedger(markdown: string): MarkdownLedgerRow[] {
   const rows: MarkdownLedgerRow[] = [];
+  const ids = new Set<string>();
   let columns: ColumnIndex | undefined;
   let cellCount = 0;
   for (const line of markdown.split("\n")) {
@@ -52,6 +53,13 @@ export function readMarkdownLedger(markdown: string): MarkdownLedgerRow[] {
         `Ledger row has ${cells.length} cells, its header has ${cellCount}: ${line}`,
       );
     }
+    // The parity checks key rows by id, so a copy would silently replace one.
+    if (ids.has(cells[columns.id])) {
+      throw new Error(
+        `Duplicate ledger row id "${cells[columns.id]}" in interaction-oracle.md`,
+      );
+    }
+    ids.add(cells[columns.id]);
     rows.push({
       id: cells[columns.id],
       probe: cells[columns.probe],
