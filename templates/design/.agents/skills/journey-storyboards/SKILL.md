@@ -132,7 +132,16 @@ configured public-upload provider.
 - A neutral "No later step observed" stub shows the session count and
   percentage of that step for sessions whose last observed step is the node.
   This does not confirm that those sessions exited. `other` nodes are also
-  neutral stubs.
+  neutral, screenshotless stubs. When Analytics provides `otherBranches`, the
+  stub lists up to 20 root-to-branch label paths per node and 200 entries / 64
+  KiB of serialized branch detail per tree, with each branch's count and
+  direct-parent percentage. `otherBranchCount` gives the full total, and
+  `otherBranchSummariesPartial` marks producer-side omissions so a partial list
+  says how many branches are shown. A bounded tree with no remaining detail
+  reports zero shown; older trees without branch detail and without the partial
+  marker say that names are unavailable. Do not reconstruct or invent them.
+  Incoming edge labels wrap the full skipped-branch name and percentage on
+  separate lines.
 - Passing `designId` again replaces only what this action drew (ids start `jc_`, board objects `jc-`) and redraws in place. Other screens and board objects are untouched. A first draw goes below existing screens; board objects are not measured, so check for overlap on a board that already has shapes.
 - If every node lacks a frame the call fails with `journey_canvas_empty` and lists them.
 - If the design's board was edited while the call ran, it writes nothing and fails with `journey_board_changed`; call it again.
