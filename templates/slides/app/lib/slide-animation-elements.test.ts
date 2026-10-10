@@ -334,6 +334,37 @@ describe("slide animation element parsing", () => {
     ]);
   });
 
+  it.each([{ elementPath: [0, 0, 0, 0] }, { elementPath: [0, 0, 1, 0] }])(
+    "expands a selected paragraph inside its containing list",
+    ({ elementPath }) => {
+      const doc = new DOMParser().parseFromString(
+        `<div class="fmd-slide"><div><ul>
+          <li><p>First</p></li>
+          <li><p>Second</p></li>
+        </ul></div></div>`,
+        "text/html",
+      );
+      const root = doc.querySelector<HTMLElement>(".fmd-slide");
+      expect(root).not.toBeNull();
+      if (!root) return;
+
+      const expanded = expandByParagraphAnimations(root, [
+        {
+          id: "animation-1",
+          elementIndex: 0,
+          elementPath,
+          byParagraph: true,
+          type: "slide-up",
+        },
+      ]);
+
+      expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+        [0, 0, 0],
+        [0, 0, 1],
+      ]);
+    },
+  );
+
   it("does not expand into unrelated nested text blocks", () => {
     const doc = new DOMParser().parseFromString(
       `<div class="fmd-slide"><div>
@@ -363,7 +394,7 @@ describe("slide animation element parsing", () => {
     ]);
   });
 
-  it("deduplicates a by-paragraph target that overlaps another animation", () => {
+  it("preserves an explicit animation over a by-paragraph expansion", () => {
     const doc = new DOMParser().parseFromString(
       `<div class="fmd-slide"><div><p>First</p><p>Second</p></div></div>`,
       "text/html",
@@ -389,13 +420,55 @@ describe("slide animation element parsing", () => {
       },
     ]);
 
-    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
-      [0, 0],
-      [0, 1],
+    expect(
+      expanded?.map(({ id, elementPath, byParagraph, type }) => ({
+        id,
+        elementPath,
+        byParagraph,
+        type,
+      })),
+    ).toEqual([
+      {
+        id: "all-paragraphs-paragraph-0",
+        elementPath: [0, 0],
+        byParagraph: false,
+        type: "slide-up",
+      },
+      {
+        id: "second-paragraph",
+        elementPath: [0, 1],
+        byParagraph: false,
+        type: "fade",
+      },
     ]);
     expect(expanded && resolveSlideAnimationTargets(root, expanded)).not.toBe(
       null,
     );
+
+    const reversed = expandByParagraphAnimations(root, [
+      {
+        id: "second-paragraph",
+        elementIndex: 1,
+        elementPath: [0, 1],
+        byParagraph: false,
+        type: "fade",
+      },
+      {
+        id: "all-paragraphs",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+    expect(
+      Object.fromEntries(
+        reversed?.map(({ elementPath, type }) => [
+          elementPath?.join(".") ?? "",
+          type,
+        ]) ?? [],
+      ),
+    ).toEqual({ "0.0": "slide-up", "0.1": "fade" });
   });
 
   it("expands by paragraph when one native paragraph is selected", () => {

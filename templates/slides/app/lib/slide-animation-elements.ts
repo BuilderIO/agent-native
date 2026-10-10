@@ -290,10 +290,12 @@ export function expandByParagraphAnimations<T extends AnimationTarget>(
   if (!resolved) return null;
 
   const expanded: T[] = [];
+  const explicitTargetKeys = new Set(
+    resolved.filter(({ target }) => !target.byParagraph).map(({ key }) => key),
+  );
   const seenTargets = new Set<string>();
   for (const { target, element, key } of resolved) {
     if (!target.byParagraph) {
-      if (seenTargets.has(key)) continue;
       seenTargets.add(key);
       expanded.push(target);
       continue;
@@ -350,14 +352,19 @@ export function expandByParagraphAnimations<T extends AnimationTarget>(
         }
       };
       if (!textObject && tagName === "p") {
-        for (const sibling of getPersistedChildren(
-          element.parentElement ?? element,
-        )) {
-          const siblingTagName = sibling.tagName.toLowerCase();
-          if (siblingTagName === "p") {
-            if (hasMeaningfulContent(sibling)) nativeParagraphs.push(sibling);
-          } else if (siblingTagName === "ul" || siblingTagName === "ol") {
-            collectListItems(sibling);
+        const containingList = element.closest("li")?.closest("ul, ol");
+        if (containingList) {
+          collectListItems(containingList);
+        } else {
+          for (const sibling of getPersistedChildren(
+            element.parentElement ?? element,
+          )) {
+            const siblingTagName = sibling.tagName.toLowerCase();
+            if (siblingTagName === "p") {
+              if (hasMeaningfulContent(sibling)) nativeParagraphs.push(sibling);
+            } else if (siblingTagName === "ul" || siblingTagName === "ol") {
+              collectListItems(sibling);
+            }
           }
         }
       } else {
@@ -377,11 +384,18 @@ export function expandByParagraphAnimations<T extends AnimationTarget>(
       continue;
     }
 
+    // Explicit element animations take precedence over generated paragraph
+    // steps.
     for (const [paragraphIndex, paragraph] of paragraphs.entries()) {
       const elementPath = getPersistedElementPath(root, paragraph);
       if (!elementPath) return null;
       const paragraphKey = animationElementKey(elementPath);
-      if (seenTargets.has(paragraphKey)) continue;
+      if (
+        explicitTargetKeys.has(paragraphKey) ||
+        seenTargets.has(paragraphKey)
+      ) {
+        continue;
+      }
       seenTargets.add(paragraphKey);
       expanded.push({
         ...target,
