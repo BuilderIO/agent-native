@@ -32,8 +32,20 @@ const NATURAL_LANGUAGE_CREDENTIAL_VALUE = new RegExp(
   String.raw`((?:^|[\r\n;])[ \t]*(?:(?:my|our|your|the)[ \t]+)?)(${NATURAL_LANGUAGE_CREDENTIAL_KEY})([ \t]+)(?![:=])([^;\r\n]+)`,
   "gim",
 );
-const NATURAL_LANGUAGE_CONTINUATION =
-  /^(?:can|could|should|will|would|may|might|must|be|been|being|is|are|was|were|has|have|had|looks?|seems?|means?|refers?|describes?|explains?|contains?|includes?|uses?|used|exists?|remains?|stays?|changes?|resets?|expires?|rotates?|rates?|counts?|numbers?|lengths?|values?|fields?|parameters?|headers?|settings?)\b/i;
+const NATURAL_LANGUAGE_CREDENTIAL_VALUE_CUE =
+  /^(value\s+(?:is|equals|was)|(?:should|must)\s+be)([ \t]+)([^;\r\n]+)$/i;
+const NATURAL_LANGUAGE_ALREADY_REDACTED_CUE =
+  /^(?:is|equals|was)\s+\[REDACTED\]$/i;
+const NATURAL_LANGUAGE_CREDENTIAL_USES_CUE =
+  /^(uses?)([ \t]+)(\S+)([ \t]+.+)?$/i;
+const NATURAL_LANGUAGE_CREDENTIAL_DESCRIPTION =
+  /^(?:for|of|in|on|to|with)\s+\S+(?:[ \t]+\S+){1,}\s+(?:(?:is|are|was|were)\s+(?:broken|missing|unavailable|invalid|slow|deprecated|misconfigured|delayed|failing|unsupported|working|incorrect|blocked)|(?:should|could|can|will|would|must)\s+be\s+(?:rotated|updated|stored|renewed|changed|reset|refreshed|validated|scoped|configured|removed|kept|set|shared|sent|used|protected|encrypted))\b/i;
+const NATURAL_LANGUAGE_TOKEN_DESCRIPTION =
+  /^(?:refresh|rotation|validation|renewal|expiration|management|handling)\s+logic\s+(?:is|are|was|were)\s+(?:broken|slow|missing|unavailable|invalid|misconfigured|delayed|failing|unsupported|deprecated|working|incorrect|blocked)\b/i;
+const NATURAL_LANGUAGE_SECRET_USAGE =
+  /^(?:can|could|should|will|would|may|might|must)\s+be\s+(?:used later|applied later|stored safely|rotated regularly|reset later|shared later|updated later|renewed later)\b/i;
+const NATURAL_LANGUAGE_PASS_INSTRUCTION =
+  /^(?:rate\s+(?:is|equals|was)\s+\d+(?:\.\d+)?\s+(?:percent|%)\b|the\s+(?:test|suite|project|command|task|build)(?:\s+\w+){0,3}\s+(?:before|after|until|when|while)\b)/i;
 const PROVIDER_TOKEN =
   /\b(?:github_pat_[a-z0-9_]{20,}|gh[pousr]_[a-z0-9_]{20,}|AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16}|sk-proj-[a-z0-9_-]{20,}|sk-ant-[a-z0-9_-]{20,}|(?:sk|rk)_(?:live|test)_[a-z0-9]{16,}|AIza[a-z0-9_-]{35}|xox[baprs]-[a-z0-9-]{10,}|npm_[a-z0-9]{30,})\b/gi;
 const SQL_CODE_BLOCK = /```(?:sql|postgres(?:ql)?)\b[\s\S]*?```/gi;
@@ -169,12 +181,55 @@ function hasSpaceSeparatedCredential(text: string): boolean {
   return false;
 }
 
-function urlParameterValueEnd(text: string, valueStart: number): number | null {
+function urlParameterContext(
+  text: string,
+  valueStart: number,
+): { url: URL; inFragment: boolean } | null {
   const prefix = text.slice(0, valueStart);
-  const queryStart = prefix.lastIndexOf("?");
-  const fragmentStart = prefix.lastIndexOf("#");
-  const parameterStart = Math.max(queryStart, fragmentStart);
-  if (parameterStart <= prefix.lastIndexOf("://")) {
+  const urlStart = Math.max(
+    prefix.lastIndexOf("https://"),
+    prefix.lastIndexOf("http://"),
+  );
+  if (urlStart === -1) {
+    return null;
+  }
+  const urlEndMatch = /\s/.exec(text.slice(urlStart));
+  const urlEnd = urlEndMatch ? urlStart + urlEndMatch.index : text.length;
+  if (valueStart >= urlEnd) return null;
+  const rawUrl = text.slice(urlStart, urlEnd);
+  if (!URL.canParse(rawUrl)) return null;
+  const url = new URL(rawUrl);
+
+  const queryStart = rawUrl.indexOf("?");
+  const fragmentStart = rawUrl.indexOf("#");
+  const inQuery =
+    queryStart !== -1 &&
+    valueStart - urlStart > queryStart &&
+    (fragmentStart === -1 || valueStart - urlStart < fragmentStart);
+  const inFragment =
+    fragmentStart !== -1 && valueStart - urlStart > fragmentStart;
+  if (!inQuery && !inFragment) return null;
+
+  return { url, inFragment };
+}
+
+function urlParameterNames(context: {
+  url: URL;
+  inFragment: boolean;
+}): Set<string> {
+  const parameters = context.inFragment
+    ? new URLSearchParams(context.url.hash.slice(1))
+    : context.url.searchParams;
+  return new Set([...parameters.keys()].map((name) => name.toLowerCase()));
+}
+
+function urlParameterValueEnd(
+  text: string,
+  valueStart: number,
+  key: string,
+): number | null {
+  const context = urlParameterContext(text, valueStart);
+  if (!context || !urlParameterNames(context).has(key.toLowerCase())) {
     return null;
   }
   const delimiter = /[&#\s]/.exec(text.slice(valueStart));
@@ -186,46 +241,17 @@ function isOAuthCallbackParameter(
   valueStart: number,
   key: string,
 ): boolean {
-  const prefix = text.slice(0, valueStart);
-  const urlStart = Math.max(
-    prefix.lastIndexOf("https://"),
-    prefix.lastIndexOf("http://"),
-  );
-  if (urlStart === -1) {
-    return false;
-  }
-  const urlEndMatch = /\s/.exec(text.slice(urlStart));
-  const urlEnd = urlEndMatch ? urlStart + urlEndMatch.index : text.length;
-  let url: URL;
-  try {
-    url = new URL(text.slice(urlStart, urlEnd));
-  } catch {
-    return false;
-  }
-
-  const queryStart = text.indexOf("?", urlStart);
-  const fragmentStart = text.indexOf("#", urlStart);
-  const inQuery =
-    queryStart !== -1 &&
-    valueStart > queryStart &&
-    (fragmentStart === -1 || valueStart < fragmentStart);
-  const inFragment = fragmentStart !== -1 && valueStart > fragmentStart;
-  if (!inQuery && !inFragment) return false;
-
-  const parameters = inFragment
-    ? new URLSearchParams(url.hash.slice(1))
-    : url.searchParams;
-  const parameterNames = new Set(
-    [...parameters.keys()].map((name) => name.toLowerCase()),
-  );
+  const context = urlParameterContext(text, valueStart);
+  if (!context) return false;
+  const parameterNames = urlParameterNames(context);
   if (!parameterNames.has(key.toLowerCase())) return false;
 
   const callbackPath =
     /\/(?:oauth2?|auth(?:entication)?|callback|redirect)(?:\/|$)/i.test(
-      url.pathname,
+      context.url.pathname,
     );
   const rootCallback =
-    url.pathname === "/" &&
+    context.url.pathname === "/" &&
     parameterNames.has("code") &&
     parameterNames.has("state");
   return callbackPath || rootCallback;
@@ -240,11 +266,32 @@ function redactNaturalLanguageCredentials(text: string): string {
   return withCopulaValues.replace(
     NATURAL_LANGUAGE_CREDENTIAL_VALUE,
     (match, prefix, key, separator, value) => {
-      const firstWord = value.trimStart().split(/[ \t]+/, 1)[0] ?? "";
-      return isCredentialKey(key) &&
-        !NATURAL_LANGUAGE_CONTINUATION.test(firstWord)
-        ? `${prefix}${key}${separator}[REDACTED]`
-        : match;
+      if (!isCredentialKey(key)) return match;
+      const loweredKey = key.toLowerCase();
+      const trimmedValue = value.trimStart();
+      if (NATURAL_LANGUAGE_ALREADY_REDACTED_CUE.test(trimmedValue)) {
+        return match;
+      }
+      if (
+        (loweredKey === "pass" &&
+          NATURAL_LANGUAGE_PASS_INSTRUCTION.test(trimmedValue)) ||
+        (loweredKey === "token" &&
+          NATURAL_LANGUAGE_TOKEN_DESCRIPTION.test(trimmedValue)) ||
+        NATURAL_LANGUAGE_CREDENTIAL_DESCRIPTION.test(trimmedValue) ||
+        NATURAL_LANGUAGE_SECRET_USAGE.test(trimmedValue)
+      ) {
+        return match;
+      }
+      const valueCue = NATURAL_LANGUAGE_CREDENTIAL_VALUE_CUE.exec(trimmedValue);
+      if (valueCue) {
+        return `${prefix}${key}${separator}${valueCue[1]}${valueCue[2]}[REDACTED]`;
+      }
+      const usesCue = NATURAL_LANGUAGE_CREDENTIAL_USES_CUE.exec(trimmedValue);
+      if (usesCue) {
+        const suffix = usesCue[4];
+        return `${prefix}${key}${separator}${usesCue[1]}${usesCue[2]}[REDACTED]${suffix === undefined ? "" : suffix}`;
+      }
+      return `${prefix}${key}${separator}[REDACTED]`;
     },
   );
 }
@@ -296,7 +343,7 @@ function redactCredentialAssignments(text: string): string {
       continue;
     }
 
-    const parameterValueEnd = urlParameterValueEnd(text, valueStart);
+    const parameterValueEnd = urlParameterValueEnd(text, valueStart, key);
     if (parameterValueEnd !== null) {
       assignments.push({
         redactStart: valueStart,

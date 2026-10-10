@@ -196,6 +196,7 @@ describe("sanitizePromptProvenanceCandidates", () => {
           "https://app.example/?code=fake-root-oauth-code&state=fake-root-oauth-state",
           "https://app.example/callback#code=fake-fragment-oauth-code&state=fake-fragment-oauth-state",
           "https://docs.example/reference?code=example-code&state=example-state",
+          "https://docs.example/#section\npassword=fake-first-part fake-second-part fake-third-part",
           "Use code to explain the state machine.",
         ].join("\n"),
       },
@@ -209,6 +210,7 @@ describe("sanitizePromptProvenanceCandidates", () => {
         "https://app.example/?code=[REDACTED]&state=[REDACTED]",
         "https://app.example/callback#code=[REDACTED]&state=[REDACTED]",
         "https://docs.example/reference?code=example-code&state=example-state",
+        "https://docs.example/#section\npassword=[REDACTED]",
         "Use code to explain the state machine.",
       ].join("\n"),
     );
@@ -220,6 +222,9 @@ describe("sanitizePromptProvenanceCandidates", () => {
       "fake-root-oauth-state",
       "fake-fragment-oauth-code",
       "fake-fragment-oauth-state",
+      "fake-first-part",
+      "fake-second-part",
+      "fake-third-part",
     ]) {
       expect(text).not.toContain(value);
     }
@@ -228,10 +233,22 @@ describe("sanitizePromptProvenanceCandidates", () => {
   it("redacts plain credential lines and past-tense credential phrasings", () => {
     const result = sanitizePromptProvenanceCandidates([
       { role: "user", text: "password fake-standalone-password-value" },
-      { role: "user", text: "token fakealphabeticplaceholder" },
+      { role: "user", text: "token placeholder" },
       {
         role: "user",
         text: "password fake-first-part fake-second-part fake-third-part",
+      },
+      {
+        role: "user",
+        text: "token value is fake-leak-aaa111",
+      },
+      {
+        role: "user",
+        text: "my API key uses fake-leak-bbb222 for billing",
+      },
+      {
+        role: "user",
+        text: "password should be fake-leak-ccc333",
       },
       {
         role: "user",
@@ -249,6 +266,9 @@ describe("sanitizePromptProvenanceCandidates", () => {
       "password [REDACTED]",
       "token [REDACTED]",
       "password [REDACTED]",
+      "token value is [REDACTED]",
+      "my API key uses [REDACTED] for billing",
+      "password should be [REDACTED]",
       "the API key was [REDACTED]",
       "I changed my password yesterday; no value is included.",
       "Pass rate is 40 percent this week.",
@@ -257,13 +277,69 @@ describe("sanitizePromptProvenanceCandidates", () => {
     expect(JSON.stringify(result)).not.toContain(
       "fake-standalone-password-value",
     );
-    expect(JSON.stringify(result)).not.toContain("fakealphabeticplaceholder");
+    expect(JSON.stringify(result)).not.toContain("placeholder");
     expect(JSON.stringify(result)).not.toContain("fake-first-part");
     expect(JSON.stringify(result)).not.toContain("fake-second-part");
     expect(JSON.stringify(result)).not.toContain("fake-third-part");
+    expect(JSON.stringify(result)).not.toContain("fake-leak-aaa111");
+    expect(JSON.stringify(result)).not.toContain("fake-leak-bbb222");
+    expect(JSON.stringify(result)).not.toContain("fake-leak-ccc333");
     expect(JSON.stringify(result)).not.toContain(
       "fake-past-tense-api-key-value",
     );
+  });
+
+  it("preserves credential-like words in grammatical descriptions", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      { role: "user", text: "Token refresh logic is broken on the server." },
+      {
+        role: "user",
+        text: "The token for this API should be rotated before expiry.",
+      },
+      { role: "user", text: "Pass the test suite before merging." },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "Token refresh logic is broken on the server.",
+      "The token for this API should be rotated before expiry.",
+      "Pass the test suite before merging.",
+    ]);
+  });
+
+  it("still redacts token-like values after prose-like credential phrases", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: "Token refresh logic is fake-leak-ddd444",
+      },
+      {
+        role: "user",
+        text: "The token for this API should be fake-leak-eee555",
+      },
+      {
+        role: "user",
+        text: "The secret can be used fake-leak-fff666",
+      },
+      {
+        role: "user",
+        text: "Pass the test suite fake-leak-ggg777",
+      },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "Token [REDACTED]",
+      "The token [REDACTED]",
+      "The secret [REDACTED]",
+      "Pass [REDACTED]",
+    ]);
+    for (const value of [
+      "fake-leak-ddd444",
+      "fake-leak-eee555",
+      "fake-leak-fff666",
+      "fake-leak-ggg777",
+    ]) {
+      expect(JSON.stringify(result)).not.toContain(value);
+    }
   });
 
   it("redacts session ID and token key variants", () => {
