@@ -663,13 +663,39 @@ export function AgentSidebar({
     queueMicrotask(() => {
       try {
         while (panelReadyRef.current) {
+          const head = pendingPanelEvents.current[0];
+          const referenceBlocked =
+            head &&
+            isComposerReferenceEvent(head.event) &&
+            !isReferenceTargetReady(head.referenceTargetId ?? null);
           const navigation =
-            activeNavigations.current.size > 0
+            activeNavigations.current.size > 0 || referenceBlocked
               ? pendingPanelEvents.current.find((pending) =>
                   isPanelNavigationEvent(pending.event),
                 )
               : undefined;
-          const conversation = navigation ?? pendingPanelEvents.current[0];
+          if (referenceBlocked && navigation) {
+            const superseded = new Set(
+              pendingPanelEvents.current.filter((pending) => {
+                const submit =
+                  pending.event instanceof MessageEvent
+                    ? parseSubmitChatMessage(pending.event)
+                    : null;
+                return (
+                  pending.order < navigation.order &&
+                  !isPanelNavigationEvent(pending.event) &&
+                  !submit?.targetTabId
+                );
+              }),
+            );
+            // Cancel before navigation can deliver a prefill that would overtake the reference.
+            cancelPendingEventsRef.current(
+              (pending) => superseded.has(pending),
+              "navigation-superseded",
+            );
+            continue;
+          }
+          const conversation = navigation ?? head;
           const control = pendingPanelControls.current[0];
           const conversationReady =
             conversation &&
@@ -817,8 +843,8 @@ export function AgentSidebar({
     },
     [getReferenceTargetId, cancelPendingEvents, drainPendingPanelEvents],
   );
-  const disposePendingEventsRef = useRef(cancelPendingEvents);
-  disposePendingEventsRef.current = cancelPendingEvents;
+  const cancelPendingEventsRef = useRef(cancelPendingEvents);
+  cancelPendingEventsRef.current = cancelPendingEvents;
   useEffect(
     () => () => {
       panelReadyRef.current = false;
@@ -826,7 +852,7 @@ export function AgentSidebar({
       composerElementRef.current = null;
       activeNavigations.current.clear();
       committedNavigations.current.clear();
-      disposePendingEventsRef.current(() => true, "panel-unmounted");
+      cancelPendingEventsRef.current(() => true, "panel-unmounted");
     },
     [],
   );

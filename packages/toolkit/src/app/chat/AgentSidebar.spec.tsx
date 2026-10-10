@@ -330,11 +330,6 @@ describe("AgentSidebar panel", () => {
         }),
       );
       window.dispatchEvent(
-        new CustomEvent("agent-chat:open-thread", {
-          detail: { threadId: "thread-example" },
-        }),
-      );
-      window.dispatchEvent(
         new MessageEvent("message", {
           origin: window.location.origin,
           data: {
@@ -388,7 +383,7 @@ describe("AgentSidebar panel", () => {
         }),
       );
     });
-    expect(mockPanel.events).toHaveLength(7);
+    expect(mockPanel.events).toHaveLength(6);
     expect(mockPanel.events[2]).toEqual({
       type: "message",
       detail: {
@@ -398,16 +393,12 @@ describe("AgentSidebar panel", () => {
     });
     expect([
       ...mockPanel.events.slice(0, 2),
-      ...mockPanel.events.slice(3, 5),
+      ...mockPanel.events.slice(3, 4),
     ]).toEqual([
       { type: "agent-panel:set-mode", detail: { mode: "resources" } },
       {
         type: "agent-panel:open-settings",
         detail: { section: "integrations" },
-      },
-      {
-        type: "agent-chat:open-thread",
-        detail: { threadId: "thread-example" },
       },
       {
         type: "message",
@@ -789,6 +780,133 @@ describe("AgentSidebar panel", () => {
     });
   });
 
+  it.each([
+    ["agent-chat:open-thread", "different"],
+    ["agent-chat:open-thread", "same"],
+    ["agent-chat:open-thread", "failed"],
+    ["agent-task-open", "different"],
+    ["agent-task-open", "same"],
+    ["agent-task-open", "failed"],
+  ])(
+    "lets %s progress past an unavailable reference (%s)",
+    async (type, selection) => {
+      mockPanel.composer = (
+        <div data-agent-chat-reference-target="first">
+          <textarea />
+        </div>
+      );
+      let notify: MultiTabAssistantChatProps["onReferenceTargetChange"];
+      mockPanel.onReady = (callback) => {
+        notify = callback;
+      };
+      const submitMessageId = `blocked-reference-${type}-${selection}`;
+      const cancellation = {
+        submitMessageId,
+        delivered: false,
+        reason: "navigation-superseded",
+      };
+      const chat = await import("@agent-native/core/client/agent-chat");
+      const results: unknown[] = [];
+      mockPanel.onEvent = (event) => {
+        if (event.type !== type) return;
+        expect(results).toEqual([cancellation]);
+        mockPanel.onNavigationChange?.(event, "started");
+        if (selection !== "failed") {
+          const target = selection === "different" ? "second" : "first";
+          container!
+            .querySelector("textarea")!
+            .parentElement!.setAttribute(
+              "data-agent-chat-reference-target",
+              target,
+            );
+          notify?.(target, [event]);
+        }
+        mockPanel.onNavigationChange?.(
+          event,
+          selection === "failed" ? "failed" : "selected",
+        );
+      };
+      const record = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      try {
+        renderSidebar(false);
+        await act(async () =>
+          window.dispatchEvent(new CustomEvent("agent-panel:prepare")),
+        );
+        const element = container!.querySelector("textarea")!;
+        mockPanel.events = [];
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+              detail: { refType: "file", refId: "/original-tab.md" },
+            }),
+          );
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              origin: window.location.origin,
+              data: {
+                type: "agentNative.submitChat",
+                data: {
+                  message: "With that reference",
+                  submit: false,
+                  submitMessageId,
+                },
+              },
+            }),
+          );
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              origin: window.location.origin,
+              data: {
+                type: "agentNative.submitChat",
+                data: {
+                  message: "For an explicit destination",
+                  submit: false,
+                  submitMessageId: `explicit-${submitMessageId}`,
+                  targetTabId: "explicit-tab",
+                },
+              },
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent(type, {
+              detail: {
+                threadId: selection === "different" ? "second" : "first",
+                openRequestId: `navigation-${submitMessageId}`,
+                prefill: "Navigation prefill",
+              },
+            }),
+          );
+        });
+        expect(mockPanel.events.map((event) => event.type)).toEqual([
+          "message",
+          type,
+        ]);
+        expect(mockPanel.events[0].detail).toMatchObject({
+          data: {
+            targetTabId: "explicit-tab",
+            message: "For an explicit destination",
+          },
+        });
+        expect(results).toEqual([cancellation]);
+        await act(async () =>
+          window.dispatchEvent(
+            new CustomEvent("agentNative:composer-reference-ready", {
+              detail: element,
+            }),
+          ),
+        );
+        expect(mockPanel.events.map((event) => event.type)).toEqual([
+          "message",
+          type,
+        ]);
+      } finally {
+        window.removeEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      }
+    },
+  );
+
   it("commits a retained reference in the real editor before replaying its submission", async () => {
     let setDisabled!: (disabled: boolean) => void;
     function Composer() {
@@ -957,7 +1075,7 @@ describe("AgentSidebar panel", () => {
   });
 
   it.each(["agent-chat:open-thread", "agent-task-open"])(
-    "keeps %s behind an earlier reference and untargeted submission",
+    "keeps %s behind an earlier reference once its composer is ready",
     async (type) => {
       renderSidebar(false);
       await act(async () => {
@@ -991,17 +1109,13 @@ describe("AgentSidebar panel", () => {
             }),
           );
           window.dispatchEvent(
-            new CustomEvent(type, {
-              detail: { threadId: "next-thread" },
-            }),
-          );
-        });
-        expect(selected).toBe("original-thread");
-        expect(destinations).toEqual([]);
-        await act(async () => {
-          window.dispatchEvent(
             new CustomEvent("agentNative:composer-reference-ready", {
               detail: container!.querySelector("textarea"),
+            }),
+          );
+          window.dispatchEvent(
+            new CustomEvent(type, {
+              detail: { threadId: "next-thread" },
             }),
           );
         });
