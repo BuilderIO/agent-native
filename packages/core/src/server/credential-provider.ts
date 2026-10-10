@@ -189,6 +189,11 @@ const HOSTED_MODEL_PROVIDER_ENV_KEYS = new Set([
   "VOYAGE_API_KEY",
 ]);
 
+const BUILDER_CREDITS_DEPLOY_ENV_KEYS = new Set([
+  "BUILDER_GATEWAY_SPACE_ID",
+  "BUILDER_GATEWAY_TOKEN",
+]);
+
 const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "EMAIL_FROM",
   "EMAIL_INBOUND_WEBHOOK_SECRET",
@@ -211,13 +216,10 @@ function isAppProvidedDeployCredentialKey(key: string | undefined): boolean {
 }
 
 /**
- * Deployment-level credentials are safe as a runtime fallback only in local /
- * single-tenant contexts. In hosted production with a shared database, every
- * signed-in user needs their own user/org/workspace credential for provider
- * keys. Model-provider env keys are never shared with hosted users because
- * they bill the app owner. Other app-provided service credentials configure
- * the deployed app itself, such as email transport and OAuth client
- * credentials whose per-user identity remains in scoped OAuth tokens.
+ * Legacy deployment-level credential policy for non-provider call sites.
+ * Model-provider env keys use `canUseDeployCredentialFallbackForRequest()` so
+ * self-hosted apps and local PGlite development can share an app-owned
+ * inference key.
  *
  * @deprecated Use `canUseDeployCredentialFallbackForRequest()` for generic
  * provider secrets. This stricter helper remains for legacy call sites with
@@ -236,8 +238,12 @@ export function canUseDeployCredentialFallbackForRequest(
   // would make a green retry both misleading and billable to real traffic.
   if (getRequestContext()?.isSyntheticTraffic === true) return false;
   if (key && HOSTED_MODEL_PROVIDER_ENV_KEYS.has(key)) {
-    if (isHostedWorkspaceRuntime()) return false;
-    if (isProductionLikeRuntime() && !isLocalDatabase()) return false;
+    const hostedWorkspace = isHostedWorkspaceRuntime();
+    if (BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) return !hostedWorkspace;
+    // LLM provider keys belong to the app's inference service. Self-hosted
+    // apps and local PGlite development may share them when no scoped key is
+    // available; hosted workspace deployments with a shared database cannot.
+    return !hostedWorkspace || isLocalDatabase();
   }
   const email = getRequestUserEmail();
   if (!email) return true;

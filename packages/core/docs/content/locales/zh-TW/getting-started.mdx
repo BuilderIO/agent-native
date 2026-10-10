@@ -52,9 +52,19 @@ pnpm dev
 
 </Callout>
 
-## 連線 LLM
+## 連線 LLM {#connect-an-llm}
 
-應用程式會開啟 **開始使用** 頁面。在其輸入框上方連線 LLM。選取 **使用 Builder.io** 使用免費額度，或選取 **Custom keys**，選擇提供者並輸入所需的連線詳細資料。
+本機開發時，請在啟動 `pnpm dev` 前將提供者金鑰加入應用程式的 `.env` 檔案：
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+本機伺服器會將此金鑰做為共用備援，因此本機應用程式的使用者不必在介面中新增金鑰。自架正式環境應用程式可在部署環境中設定此金鑰，做為應用程式的共用備援。已儲存的使用者或組織金鑰會優先使用。Hosted workspace 不會在應用程式或租戶間共用部署提供者金鑰。
+
+使用 PostgreSQL 時，使用者也可以透過 **Custom keys** 儲存金鑰。選擇個人範圍可將金鑰限制在自己的帳戶；管理員可選擇組織範圍與工作區共用。應用程式會將已儲存的金鑰保存在加密的資料庫憑證儲存區。
+
+如要使用 Builder 管理的提供者，請在 composer 中選取 **Use Builder.io**。支援的提供者金鑰與使用範圍請參閱[環境變數](/docs/environment-variables#optional-ai-search-and-email-fallbacks)。
 
 ## 從代理執行 action
 

@@ -62,12 +62,19 @@ lokale Entwicklung müssen Sie keine E-Mail-Adresse und kein Passwort eingeben.
 
 </Callout>
 
-## Ein LLM verbinden
+## Ein LLM verbinden {#connect-an-llm}
 
-Die App öffnet sich auf der Seite **Loslegen**. Verbinden Sie dort über dem
-Eingabefeld ein LLM. Wählen Sie **Builder.io verwenden**, um
-kostenlose Credits zu verwenden, oder **Custom keys**, wählen Sie einen Anbieter
-aus und geben Sie die abgefragten Verbindungsdaten ein.
+Die App öffnet sich auf der Seite **Loslegen**. Fügen Sie für die lokale Entwicklung vor dem Start von `pnpm dev` einen Provider-Schlüssel zur `.env`-Datei der App hinzu:
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+Der lokale Server verwendet diesen Schlüssel als gemeinsamen Fallback. Nutzer der lokalen App müssen daher keinen Schlüssel in der UI hinzufügen. Eine selbst gehostete Produktions-App kann den Schlüssel in der Deployment-Umgebung als gemeinsamen Fallback für die App verwenden. Gespeicherte Benutzer- oder Organisationsschlüssel haben Vorrang. Hosted-Workspace-Apps teilen Deployment-Provider-Schlüssel nicht zwischen Apps oder Tenants.
+
+Mit PostgreSQL können Nutzer außerdem über **Custom keys** einen Schlüssel speichern. Mit dem persönlichen Geltungsbereich bleibt er auf das eigene Konto beschränkt; Admins können den Organisationsbereich wählen, um ihn im Workspace zu teilen. Gespeicherte Schlüssel liegen im verschlüsselten, datenbankgestützten Anmeldedatenspeicher.
+
+Um stattdessen Builders verwalteten Provider zu nutzen, wählen Sie **Use Builder.io** im Composer. Unter [Umgebungsvariablen](/docs/environment-variables#optional-ai-search-and-email-fallbacks) finden Sie unterstützte Provider-Schlüssel und ihren Geltungsbereich.
 
 ## Die Action über den Agenten ausführen
 

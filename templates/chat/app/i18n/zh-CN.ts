@@ -53,6 +53,7 @@ const messages = {
     editHint: "编辑 {{file}} 并保存，再问一次就能看到新的问候语。",
     lead: "应用的界面和代理共用同一组操作。",
     leadTry: "让代理调用 hello 操作试试。",
+    llmSetupLink: "设置 LLM 密钥",
     title: "开始使用",
   },
   navigation: {

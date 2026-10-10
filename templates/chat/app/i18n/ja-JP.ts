@@ -57,6 +57,7 @@ const messages = {
       "{{file}} を編集して保存し、もう一度頼むと新しいあいさつが表示されます。",
     lead: "アプリの UI とエージェントは同じアクションを共有しています。",
     leadTry: "エージェントに hello アクションを呼び出してもらいましょう。",
+    llmSetupLink: "LLM キーを設定",
     title: "はじめに",
   },
   navigation: {

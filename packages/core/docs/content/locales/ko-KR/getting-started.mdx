@@ -55,9 +55,19 @@ Welcome 화면에서 **Continue as local dev**를 선택하세요. 로컬 개발
 
 </Callout>
 
-## LLM 연결하기
+## LLM 연결하기 {#connect-an-llm}
 
-앱은 **시작하기** 페이지에서 열립니다. 프롬프트 위에서 LLM을 연결합니다. 무료 크레딧을 사용하려면 **Builder.io를 사용하세요**를 선택하세요. 또는 **Custom keys**를 선택하고, 프로바이더를 고른 뒤 필요한 연결 정보를 입력하세요.
+로컬 개발에서는 `pnpm dev`를 시작하기 전에 앱의 `.env` 파일에 프로바이더 키를 추가하세요.
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+로컬 서버는 이 키를 공유 fallback으로 사용하므로 로컬 앱 사용자는 UI에서 키를 추가할 필요가 없습니다. Self-hosted 프로덕션 앱은 배포 환경에 키를 설정해 앱의 공유 fallback으로 사용할 수 있습니다. 저장된 사용자 또는 조직 키가 우선합니다. Hosted-workspace 앱은 배포 프로바이더 키를 앱이나 테넌트 간에 공유하지 않습니다.
+
+PostgreSQL을 사용하면 사용자는 **Custom keys**에서 키를 저장할 수도 있습니다. 본인 계정에만 적용하려면 Personal 범위를 선택하고, 관리자는 Organization 범위로 워크스페이스와 공유할 수 있습니다. 저장된 키는 암호화된 데이터베이스 기반 자격 증명 저장소에 보관됩니다.
+
+Builder의 관리형 프로바이더를 사용하려면 composer에서 **Use Builder.io**를 선택하세요. 지원되는 프로바이더 키와 범위는 [환경 변수](/docs/environment-variables#optional-ai-search-and-email-fallbacks)를 참조하세요.
 
 ## 에이전트에서 액션 실행하기
 

@@ -98,14 +98,42 @@ describe("HomePage", () => {
     act(() => root.render(<HomePage />));
     const threadId = state.rootProps?.threadId as string;
 
-    const onSubmit = state.composerProps?.onSubmit as (text: string) => void;
-    act(() => onSubmit("Call the hello action for Sam"));
+    const onLocalSubmit = vi.fn();
+    const onSubmit = state.composerProps?.onSubmit as (
+      text: string,
+      files: File[],
+      references: unknown[],
+      options: {
+        engine: string;
+        model: string;
+        effort: string;
+        onLocalSubmit: () => void;
+      },
+    ) => void;
+    act(() =>
+      onSubmit("Call the hello action for Sam", [], [], {
+        engine: "anthropic",
+        model: "claude-example",
+        effort: "high",
+        onLocalSubmit,
+      }),
+    );
 
     expect(state.navigateWithTransition).toHaveBeenCalledWith(
       state.navigate,
       `/chat/${threadId}`,
-      { state: { initialMessage: "Call the hello action for Sam" } },
+      {
+        state: {
+          initialMessage: "Call the hello action for Sam",
+          initialComposerOptions: {
+            engine: "anthropic",
+            model: "claude-example",
+            effort: "high",
+          },
+        },
+      },
     );
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
   });
 
   it("renders file paths as code inside translated sentences", () => {
@@ -129,6 +157,7 @@ describe("HomePage", () => {
       link.getAttribute("href"),
     );
     expect(hrefs).toEqual([
+      "https://www.agent-native.com/docs/getting-started#connect-an-llm",
       "https://www.agent-native.com/docs/getting-started",
       "https://www.agent-native.com/docs/getting-started-actions",
       "https://www.agent-native.com/docs/getting-started-pages",

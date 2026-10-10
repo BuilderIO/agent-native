@@ -58,6 +58,7 @@ const messages = {
       "{{file}} 파일을 수정하고 저장한 다음 다시 요청하면 새 인사말이 보입니다.",
     lead: "앱의 UI와 에이전트는 같은 작업을 공유합니다.",
     leadTry: "에이전트에게 hello 작업을 호출해 달라고 요청해 보세요.",
+    llmSetupLink: "LLM 키 설정하기",
     title: "시작하기",
   },
   navigation: {

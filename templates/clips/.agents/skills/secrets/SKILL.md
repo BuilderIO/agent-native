@@ -25,8 +25,12 @@ never copy a value into app code or client-visible state.
 3. If the app truly needs its own API key, register it with the shared secrets
    surface. Do not build a parallel key form or storage table.
 4. Use deployment configuration only for a secret owned by the deployed app,
-   such as a webhook verification secret. A deployment key must not stand in
-   for a user's or customer's provider credential.
+   such as a webhook verification secret. LLM inference keys are an app-owned
+   exception: self-hosted apps may use provider keys from deployment env as a
+   shared fallback, while scoped user or organization keys take precedence.
+   Hosted-workspace deployments backed by a shared database must not share
+   those env keys across apps or tenants. This exception does not authorize
+   using env credentials to access user-owned provider data.
 
 ## Register an app-local API key
 

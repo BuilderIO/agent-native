@@ -851,7 +851,7 @@ describe("resolveBuilderCredential", () => {
     process.env.OPENAI_API_KEY = "openai-deploy-key";
     process.env.SLACK_BOT_TOKEN = "slack-deploy-token";
     process.env.GITHUB_TOKEN = "github-deploy-token";
-    mockIsLocalDatabase.mockReturnValue(true);
+    mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
     mockReadAppSecret.mockResolvedValue(null);
@@ -869,7 +869,24 @@ describe("resolveBuilderCredential", () => {
     );
   });
 
-  it("blocks app-provided LLM env keys for signed-in production shared-database users", async () => {
+  it("uses deployment LLM keys in local PGlite workspace development", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.ANTHROPIC_API_KEY = "anthropic-local-key";
+    mockIsLocalDatabase.mockReturnValue(true);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("ANTHROPIC_API_KEY")).toBe(
+      "anthropic-local-key",
+    );
+    expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
+      true,
+    );
+  });
+
+  it("uses deployment LLM keys as shared fallbacks for self-hosted production users", async () => {
     process.env.NODE_ENV = "production";
     process.env.ANTHROPIC_API_KEY = "anthropic-deploy-key";
     process.env.OPENAI_API_KEY = "openai-deploy-key";
@@ -879,17 +896,20 @@ describe("resolveBuilderCredential", () => {
     mockGetRequestOrgId.mockReturnValue("builder_io");
     mockReadAppSecret.mockResolvedValue(null);
 
-    expect(await resolveSecret("ANTHROPIC_API_KEY")).toBeNull();
-    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(await resolveSecret("ANTHROPIC_API_KEY")).toBe(
+      "anthropic-deploy-key",
+    );
+    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
     expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
     expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
-      false,
+      true,
     );
   });
 
-  it("blocks deploy-level LLM keys for hosted background requests without an email", async () => {
+  it("blocks deploy-level LLM keys for hosted workspace background requests", async () => {
     process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.OPENAI_API_KEY = "openai-deploy-key";
     process.env.VOYAGE_API_KEY = "voyage-deploy-key";
     mockIsLocalDatabase.mockReturnValue(false);
@@ -1742,8 +1762,9 @@ describe("resolveSecret (generic)", () => {
     ).toBe(true);
   });
 
-  it("blocks deploy-level provider keys for signed-in production shared-database users", async () => {
+  it("blocks deploy-level provider keys for signed-in hosted workspace users on a shared database", async () => {
     process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.AGENT_ENGINE = "builder";
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
     process.env.BUILDER_PUBLIC_KEY = "space-id";
@@ -2225,6 +2246,7 @@ describe("Builder gateway credential lane", () => {
 
   it("does not resolve the deploy pair for a hosted user without a connection", async () => {
     hostedVisitor();
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
     process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
 
@@ -2241,6 +2263,7 @@ describe("Builder gateway credential lane", () => {
 
   it("keeps the deprecated resolveBuilderGatewayCredentials alias working", async () => {
     hostedVisitor();
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
     process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
 
@@ -2653,6 +2676,7 @@ describe("Builder gateway credential lane", () => {
 
   it("does not report a hosted deploy Builder credential as usable", async () => {
     hostedVisitor();
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
     process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
 

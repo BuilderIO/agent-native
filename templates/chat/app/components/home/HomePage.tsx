@@ -101,11 +101,19 @@ function HomeAgentComposer() {
     }),
   );
 
-  function openChat(message: string) {
-    const state: ChatRouteState = { initialMessage: message };
+  function openChat(
+    message: string,
+    options: { engine?: string; model?: string; effort?: string },
+    onLocalSubmit?: () => void,
+  ) {
+    const state: ChatRouteState = {
+      initialMessage: message,
+      initialComposerOptions: options,
+    };
     navigateWithAgentChatViewTransition(navigate, chatThreadPath(threadId), {
       state,
     });
+    onLocalSubmit?.();
   }
 
   return (
@@ -130,7 +138,17 @@ function HomeAgentComposer() {
               plusMenuMode="hidden"
               attachmentsEnabled={false}
               voiceEnabled
-              onSubmit={(text) => openChat(text)}
+              onSubmit={(text, _files, _references, options) => {
+                openChat(
+                  text,
+                  {
+                    engine: options.engine,
+                    model: options.model,
+                    effort: options.effort,
+                  },
+                  options.onLocalSubmit,
+                );
+              }}
             />
           </CoreAgentKitRoot>
         </CoreComposerRuntimeProvider>
@@ -214,6 +232,15 @@ export default function HomePage() {
             code={EDIT_HINT_CODE}
           />
         </p>
+        <Button asChild variant="link" size="sm" className="h-auto px-0">
+          <a
+            href={`${DOCS_URL}/getting-started#connect-an-llm`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {t("home.llmSetupLink")}
+          </a>
+        </Button>
       </section>
 
       <Separator />
@@ -250,7 +277,6 @@ export default function HomePage() {
           </ResourceLink>
         </ResourceColumn>
       </div>
-
       <Separator />
       <p className="px-6 py-4 text-center text-xs text-muted-foreground">
         <WithCode

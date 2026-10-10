@@ -57,9 +57,19 @@ Welcome画面で**Continue as local dev**を選択します。ローカル開発
 
 </Callout>
 
-## LLMを接続する
+## LLMを接続する {#connect-an-llm}
 
-アプリは**はじめに**ページで開きます。プロンプトの上で LLM を接続します。無料クレジットを使うには**Builder.io を使う**を選択します。あるいは、**Custom keys**を選択してプロバイダーを選び、必要な接続情報を入力します。
+ローカル開発では、`pnpm dev` の起動前にアプリの `.env` ファイルへプロバイダーキーを追加します。
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+ローカルサーバーはこのキーを共有フォールバックとして使うため、ローカルアプリのユーザーが UI でキーを追加する必要はありません。セルフホストの本番アプリでは、デプロイ環境にキーを設定するとアプリ共通のフォールバックとして使われます。保存済みのユーザー別または組織別キーが優先されます。Hosted workspace ではデプロイキーをアプリやテナント間で共有しません。
+
+PostgreSQL を使う場合、ユーザーは **Custom keys** からもキーを保存できます。自分のアカウントだけで使うには Personal スコープを選び、管理者は Organization スコープでワークスペースと共有できます。保存したキーは暗号化されたデータベース認証情報ストアに保管されます。
+
+Builder のマネージドプロバイダーを使うには、composer で **Use Builder.io** を選びます。対応するプロバイダーキーと適用範囲は[環境変数](/docs/environment-variables#optional-ai-search-and-email-fallbacks)を参照してください。
 
 ## エージェントからアクションを実行する
 

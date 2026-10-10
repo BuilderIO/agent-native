@@ -63,12 +63,19 @@ desarrollo local.
 
 </Callout>
 
-## Conectar un LLM
+## Conectar un LLM {#connect-an-llm}
 
-La app se abre en la página **Empieza aquí**. Conecta un LLM encima de su campo
-de mensaje. Selecciona **Usa Builder.io** para usar
-créditos gratuitos, o selecciona **Custom keys**, elige un proveedor e introduce
-los datos de conexión solicitados.
+La app se abre en la página **Empieza aquí**. Para el desarrollo local, añade una clave de proveedor al archivo `.env` de la app antes de iniciar `pnpm dev`:
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+El servidor local usa esta clave como alternativa compartida, así que quienes usan la app local no tienen que añadir una clave en la interfaz. Una app de producción autoalojada puede definir la clave en el entorno de despliegue para compartirla como alternativa de la app. Las claves guardadas de usuario u organización tienen prioridad. Las apps de Hosted workspace no comparten claves de proveedor del despliegue entre apps ni inquilinos.
+
+Con PostgreSQL, los usuarios también pueden guardar una clave mediante **Custom keys**. Elige el ámbito personal para que solo se aplique a tu cuenta; los administradores pueden elegir el ámbito de organización para compartirla en el espacio de trabajo. La app guarda las claves en su almacén de credenciales cifrado y respaldado por la base de datos.
+
+Para usar el proveedor gestionado de Builder, selecciona **Use Builder.io** en el compositor. Consulta [Variables de entorno](/docs/environment-variables#optional-ai-search-and-email-fallbacks) para ver las claves compatibles y su alcance.
 
 ## Ejecutar la acción desde el agente
 

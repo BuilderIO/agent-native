@@ -52,9 +52,19 @@ pnpm dev
 
 </Callout>
 
-## 连接 LLM
+## 连接 LLM {#connect-an-llm}
 
-应用会打开 **开始使用** 页面。在其输入框上方连接 LLM。选择 **使用 Builder.io** 以使用免费额度，或选择 **Custom keys**，选择提供商并输入所需的连接信息。
+本地开发时，请在启动 `pnpm dev` 前将提供商密钥添加到应用的 `.env` 文件：
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+本地服务器会将此密钥用作共享备用密钥，因此本地应用的用户无需在界面中添加密钥。自托管生产应用可以在部署环境中设置此密钥，并将其作为应用的共享备用密钥。已保存的用户或组织密钥优先使用。Hosted workspace 不会在应用或租户之间共享部署提供商密钥。
+
+使用 PostgreSQL 时，用户也可以通过 **Custom keys** 保存密钥。选择个人范围可将密钥限于自己的账户；管理员可以选择组织范围，与工作区共享。应用会将保存的密钥保存在加密的数据库凭据存储中。
+
+如需使用 Builder 托管的提供商，请在 composer 中选择 **Use Builder.io**。有关支持的提供商密钥及其适用范围，请参阅[环境变量](/docs/environment-variables#optional-ai-search-and-email-fallbacks)。
 
 ## 从智能体运行动作
 

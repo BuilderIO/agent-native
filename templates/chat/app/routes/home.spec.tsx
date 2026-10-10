@@ -690,9 +690,16 @@ describe("ChatRoute AgentKit surface", () => {
     });
   });
 
-  it("sends a prompt handed over from Home once, then clears it", async () => {
+  it("sends a prompt and selected model from Home once, then clears it", async () => {
     routeState.threadId = "chat-from-home";
-    routeState.locationState = { initialMessage: "Call the hello action" };
+    routeState.locationState = {
+      initialMessage: "Call the hello action",
+      initialComposerOptions: {
+        engine: "anthropic",
+        model: "claude-example",
+        effort: "high",
+      },
+    };
 
     await act(async () =>
       root.render(
@@ -703,7 +710,17 @@ describe("ChatRoute AgentKit surface", () => {
     );
 
     expect(routeState.send).toHaveBeenCalledTimes(1);
-    expect(routeState.send).toHaveBeenCalledWith("Call the hello action");
+    expect(routeState.send).toHaveBeenCalledWith("Call the hello action", {
+      model: "claude-example",
+      reasoningEffort: "high",
+      metadata: {
+        engine: "anthropic",
+        model: "claude-example",
+        effort: "high",
+        mode: "act",
+        requestMode: "act",
+      },
+    });
     expect(routeState.navigate).toHaveBeenCalledWith(
       { pathname: "/chat/chat-from-home", search: "" },
       { replace: true, state: null },
@@ -719,6 +736,9 @@ describe("ChatRoute AgentKit surface", () => {
 
     expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
       tags: { area: "chat_initial_message" },
+    });
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: "Call the hello action" },
     });
   });
 

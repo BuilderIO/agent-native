@@ -33,10 +33,29 @@ export function threadIdFromPath(pathname: string): string | null {
 /** Router state that carries a prompt typed elsewhere into the chat it opens. */
 export interface ChatRouteState {
   initialMessage: string;
+  initialComposerOptions?: {
+    engine?: string;
+    model?: string;
+    effort?: string;
+  };
 }
 
 export function initialMessageFromState(state: unknown): string | null {
   if (!state || typeof state !== "object") return null;
   const message = (state as Partial<ChatRouteState>).initialMessage;
   return typeof message === "string" && message.trim() ? message : null;
+}
+
+export function initialComposerOptionsFromState(
+  state: unknown,
+): ChatRouteState["initialComposerOptions"] {
+  if (!state || typeof state !== "object") return undefined;
+  const options = (state as Partial<ChatRouteState>).initialComposerOptions;
+  if (!options || typeof options !== "object") return undefined;
+
+  return {
+    ...(typeof options.engine === "string" ? { engine: options.engine } : {}),
+    ...(typeof options.model === "string" ? { model: options.model } : {}),
+    ...(typeof options.effort === "string" ? { effort: options.effort } : {}),
+  };
 }

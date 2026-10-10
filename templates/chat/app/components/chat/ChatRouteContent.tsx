@@ -1,6 +1,7 @@
 import type {
   AgentConnectionRequest,
   AgentMessage,
+  AgentRunOptions,
 } from "@agent-native/agentkit";
 import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
 import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
@@ -60,7 +61,11 @@ import {
 } from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
 import { consumeChatHomeThreadId } from "@/lib/chat-home-thread";
-import { chatThreadPath, initialMessageFromState } from "@/lib/chat-paths";
+import {
+  chatThreadPath,
+  initialComposerOptionsFromState,
+  initialMessageFromState,
+} from "@/lib/chat-paths";
 import { TAB_ID } from "@/lib/tab-id";
 
 // Module scope on purpose: CoreAgentKitRoot memoizes the client on its options, so
@@ -98,6 +103,23 @@ function ChatThreadRouteContent({
 }) {
   const t = useT();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [failedInitialDraft, setFailedInitialDraft] = useState<{
+    text: string;
+    attempt: number;
+    threadId: string;
+  } | null>(null);
+  const failedInitialDraftAttemptRef = useRef(0);
+  const handleInitialMessageFailure = useCallback(
+    (text: string) => {
+      failedInitialDraftAttemptRef.current += 1;
+      setFailedInitialDraft({
+        text,
+        attempt: failedInitialDraftAttemptRef.current,
+        threadId: resolvedThreadId,
+      });
+    },
+    [resolvedThreadId],
+  );
 
   const [transport] = useState(() =>
     createAgentNativeAgentKitTransport({
@@ -145,11 +167,25 @@ function ChatThreadRouteContent({
             onThreadForked={(thread) => navigate(chatThreadPath(thread.id))}
           >
             <ChatLifecycleTracking threadId={resolvedThreadId} />
-            <ChatInitialMessage threadId={resolvedThreadId} />
+            <ChatInitialMessage
+              threadId={resolvedThreadId}
+              onStart={() => setFailedInitialDraft(null)}
+              onFailure={handleInitialMessageFailure}
+            />
             <ChatMcpConnectionResume />
             <ChatCanvas
               workspaceOpen={workspaceOpen}
               setWorkspaceOpen={setWorkspaceOpen}
+              initialText={
+                failedInitialDraft?.threadId === resolvedThreadId
+                  ? failedInitialDraft.text
+                  : undefined
+              }
+              initialTextKey={
+                failedInitialDraft?.threadId === resolvedThreadId
+                  ? `${resolvedThreadId}:${failedInitialDraft.attempt}`
+                  : undefined
+              }
             />
           </CoreAgentKitRoot>
         </CoreComposerRuntimeProvider>
@@ -289,27 +325,71 @@ function ChatRunFailure({
   return <AgentRunFailure error={error} runId={runId} threadId={threadId} />;
 }
 
-function ChatInitialMessage({ threadId }: { threadId: string }) {
+function ChatInitialMessage({
+  threadId,
+  onStart,
+  onFailure,
+}: {
+  threadId: string;
+  onStart: () => void;
+  onFailure: (text: string) => void;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const control = useAgentKitControl(threadId);
   const sentRef = useRef(false);
   const message = initialMessageFromState(location.state);
+  const composerOptions = initialComposerOptionsFromState(location.state);
+  const engine = composerOptions?.engine;
+  const model = composerOptions?.model;
+  const effort = composerOptions?.effort;
 
   useEffect(() => {
     if (!message || sentRef.current) return;
     sentRef.current = true;
+    onStart();
     // Router state survives a reload, so drop it before sending or a refresh
     // would send the prompt a second time.
     navigate(
       { pathname: location.pathname, search: location.search },
       { replace: true, state: null },
     );
-    void Promise.resolve(control.send(message)).catch((error: unknown) => {
-      captureException(error, { tags: { area: "chat_initial_message" } });
-      toast.error(error instanceof Error ? error.message : String(error));
-    });
-  }, [control, location.pathname, location.search, message, navigate]);
+    const runOptions: AgentRunOptions = {
+      ...(model ? { model } : {}),
+      ...(effort && !["auto", "max"].includes(effort)
+        ? {
+            reasoningEffort: effort as NonNullable<
+              AgentRunOptions["reasoningEffort"]
+            >,
+          }
+        : {}),
+      metadata: {
+        ...(engine ? { engine } : {}),
+        ...(model ? { model } : {}),
+        ...(effort ? { effort } : {}),
+        mode: "act",
+        requestMode: "act",
+      },
+    };
+    void Promise.resolve(control.send(message, runOptions)).catch(
+      (error: unknown) => {
+        onFailure(message);
+        captureException(error, { tags: { area: "chat_initial_message" } });
+        toast.error(error instanceof Error ? error.message : String(error));
+      },
+    );
+  }, [
+    control,
+    engine,
+    effort,
+    location.pathname,
+    location.search,
+    message,
+    model,
+    navigate,
+    onFailure,
+    onStart,
+  ]);
 
   return null;
 }
@@ -543,9 +623,13 @@ function ChatEmptyState() {
 function ChatCanvas({
   workspaceOpen,
   setWorkspaceOpen,
+  initialText,
+  initialTextKey,
 }: {
   workspaceOpen: boolean;
   setWorkspaceOpen: (value: boolean | ((current: boolean) => boolean)) => void;
+  initialText?: string;
+  initialTextKey?: string;
 }) {
   const t = useT();
   const thread = useAgentThread();
@@ -586,6 +670,8 @@ function ChatCanvas({
       emptyComposerPlacement="center"
       composerProps={{
         requireAgentEngine: true,
+        initialText,
+        initialTextKey,
         stopButton,
         queueWhileRunning: true,
         autoFocus: true,

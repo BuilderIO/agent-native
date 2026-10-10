@@ -59,10 +59,19 @@ Welcome screen पर **Continue as local dev** चुनें। Local develop
 
 </Callout>
 
-## LLM कनेक्ट करें
+## LLM कनेक्ट करें {#connect-an-llm}
 
-ऐप **शुरू करें** पेज पर खुलता है। उसके prompt के ऊपर LLM connect करें। Free credits के लिए **Builder.io का उपयोग करें** चुनें, या
-**Custom keys** चुनें, provider चुनें और मांगी गई connection details डालें।
+लोकल डेवलपमेंट के लिए, `pnpm dev` चलाने से पहले ऐप की `.env` फ़ाइल में provider key जोड़ें:
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+लोकल सर्वर इस key को साझा fallback की तरह इस्तेमाल करता है, इसलिए लोकल ऐप के उपयोगकर्ताओं को UI में key जोड़ने की ज़रूरत नहीं होती। Self-hosted production app deployment environment में key सेट करके उसे ऐप का साझा fallback बना सकता है। सेव की गई user या organization keys को प्राथमिकता मिलती है। Hosted-workspace apps deployment provider keys को apps या tenants के बीच साझा नहीं करते।
+
+PostgreSQL के साथ, उपयोगकर्ता **Custom keys** से भी key सेव कर सकते हैं। अपने account तक सीमित रखने के लिए Personal scope चुनें; admins इसे workspace में साझा करने के लिए Organization scope चुन सकते हैं। सेव की गई keys encrypted, database-backed credential store में रहती हैं।
+
+Builder का managed provider इस्तेमाल करने के लिए composer में **Use Builder.io** चुनें। समर्थित provider keys और उनके scope के लिए [Environment Variables](/docs/environment-variables#optional-ai-search-and-email-fallbacks) देखें।
 
 ## Agent से action चलाएं
 

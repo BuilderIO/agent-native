@@ -62,12 +62,19 @@ besoin de saisir d’adresse e-mail ni de mot de passe pour le développement lo
 
 </Callout>
 
-## Connecter un LLM
+## Connecter un LLM {#connect-an-llm}
 
-L’app s’ouvre sur la page **Commencer**. Connectez un LLM au-dessus de son champ
-de saisie. Sélectionnez **Utilisez Builder.io** pour utiliser des
-crédits gratuits, ou sélectionnez **Custom keys**, choisissez un fournisseur et
-saisissez les informations de connexion demandées.
+L’app s’ouvre sur la page **Commencer**. Pour le développement local, ajoutez une clé de fournisseur au fichier `.env` de l’app avant de lancer `pnpm dev` :
+
+```dotenv
+ANTHROPIC_API_KEY=replace-with-your-key
+```
+
+Le serveur local utilise cette clé comme solution de repli partagée. Les utilisateurs de l’app locale n’ont donc pas besoin d’ajouter une clé dans l’interface. Une app de production auto-hébergée peut définir la clé dans l’environnement de déploiement pour la partager comme solution de repli de l’app. Les clés enregistrées par utilisateur ou organisation sont prioritaires. Les apps Hosted workspace ne partagent pas les clés de fournisseur du déploiement entre apps ou locataires.
+
+Avec PostgreSQL, les utilisateurs peuvent aussi enregistrer une clé via **Custom keys**. Choisissez la portée personnelle pour la limiter à votre compte ; les administrateurs peuvent choisir la portée organisation pour la partager dans l’espace de travail. L’app conserve les clés enregistrées dans son coffre chiffré adossé à la base de données.
+
+Pour utiliser le fournisseur géré de Builder, sélectionnez **Use Builder.io** dans le compositeur. Consultez [Variables d’environnement](/docs/environment-variables#optional-ai-search-and-email-fallbacks) pour connaître les clés prises en charge et leur portée.
 
 ## Exécuter l’action depuis l’agent
 

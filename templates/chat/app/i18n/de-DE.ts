@@ -58,6 +58,7 @@ const messages = {
       "Bearbeite {{file}}, speichere und frag erneut, um die neue Begrüßung zu sehen.",
     lead: "Die Oberfläche deiner App und ihr Agent nutzen dieselben Aktionen.",
     leadTry: "Bitte den Agenten, die Aktion hello aufzurufen.",
+    llmSetupLink: "LLM-Schlüssel einrichten",
     title: "Loslegen",
   },
   navigation: {
