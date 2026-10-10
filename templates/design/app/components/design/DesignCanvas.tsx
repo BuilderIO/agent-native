@@ -936,14 +936,10 @@ function isAbsoluteRoutePath(value: unknown): value is string {
   ) {
     return false;
   }
-  try {
-    return (
-      new URL(value, "https://design-route.invalid").origin ===
-      "https://design-route.invalid"
-    );
-  } catch {
-    return false;
-  }
+  const baseUrl = "https://design-route.invalid";
+  return (
+    URL.canParse(value, baseUrl) && new URL(value, baseUrl).origin === baseUrl
+  );
 }
 
 function isCurrentLiveEditReadyMessage(
