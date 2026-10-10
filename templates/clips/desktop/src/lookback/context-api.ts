@@ -1,6 +1,7 @@
 import type { ScreenHistoryStatus } from "../../../shared/screen-history-context";
 import {
   callClipsActionFor,
+  ClipsActionError,
   type ClipsActionTarget,
 } from "../lib/clips-action";
 
@@ -75,14 +76,21 @@ export async function listRecordingContext(
   return result.items;
 }
 
-// Null only when the server reports the item absent or removed. A failed read
-// throws, so an unreadable item is never mistaken for an absent one.
+// Null only when the server reports the item absent or removed, or its Clip gone
+// (404). Any other failed read throws, so an unreadable item is never mistaken
+// for an absent one.
 export async function getRecordingContextItem(
   target: ClipsActionTarget,
   recordingId: string,
   id: string,
 ): Promise<RecordingContextItem | null> {
-  const items = await listRecordingContext(target, recordingId);
+  let items: RecordingContextItem[];
+  try {
+    items = await listRecordingContext(target, recordingId);
+  } catch (error) {
+    if (error instanceof ClipsActionError && error.status === 404) return null;
+    throw error;
+  }
   return items.find((item) => item.id === id) ?? null;
 }
 

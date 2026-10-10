@@ -16,8 +16,9 @@ export type Role = "viewer" | "editor" | "owner";
 
 const ROLE_RANK: Record<Role, number> = { viewer: 1, editor: 2, owner: 3 };
 
-// Mirrors recording_context_items in server/plugins/db.ts (migrations v81 and
-// v82). Keep the columns and the partial unique index predicate identical to it.
+// Mirrors recording_context_items in server/plugins/db.ts (migrations v81 to
+// v83). Keep the columns, indexes, and the partial unique index predicate
+// identical to it.
 const CONTEXT_ITEMS_DDL = `
   CREATE TABLE recording_context_items (
     id TEXT PRIMARY KEY,
@@ -43,6 +44,10 @@ const CONTEXT_ITEMS_DDL = `
     ON recording_context_items (recording_id) WHERE status <> 'removed';
   CREATE INDEX recording_context_items_pending_idx
     ON recording_context_items (created_at) WHERE status = 'pending';
+  CREATE INDEX recording_context_items_media_recording_idx
+    ON recording_context_items (media_recording_id);
+  CREATE INDEX recording_context_items_pending_media_recording_idx
+    ON recording_context_items (pending_media_recording_id);
 `;
 
 // Only the recordings and shares columns the actions under test read or write.
@@ -193,5 +198,38 @@ export function testFail(
     actionContractError: true,
     errorCode: options.errorCode ?? "action_failed",
     statusCode: options.statusCode ?? 400,
+  });
+}
+
+// Pushes "update" onto `events` each time a transaction writes an item row.
+// Order against the trash fake's own pushes is what the tests check. The trash
+// fake cannot read the row mid-transaction: PGlite makes a query from outside
+// the open transaction wait for it, so the transaction handle is the only
+// place the write order is visible.
+export function traceItemWrites<T extends object>(db: T, events: string[]): T {
+  return new Proxy(db, {
+    get(target, prop) {
+      const value: unknown = Reflect.get(target, prop, target);
+      if (typeof value !== "function") return value;
+      if (prop !== "transaction") return value.bind(target);
+      return (run: (tx: object) => unknown) =>
+        value.call(target, (tx: object) =>
+          run(traceTransactionWrites(tx, events)),
+        );
+    },
+  });
+}
+
+function traceTransactionWrites<T extends object>(tx: T, events: string[]): T {
+  return new Proxy(tx, {
+    get(target, prop) {
+      const value: unknown = Reflect.get(target, prop, target);
+      if (typeof value !== "function") return value;
+      if (prop !== "update") return value.bind(target);
+      return (...args: unknown[]) => {
+        events.push("update");
+        return value.apply(target, args);
+      };
+    },
   });
 }

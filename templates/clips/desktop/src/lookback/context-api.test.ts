@@ -7,11 +7,11 @@ import {
 
 const target = { serverUrl: "https://clips.example.test", authToken: "" };
 
-function stubFetch(body: unknown = { items: [] }) {
+function stubFetch(body: unknown = { items: [] }, status = 200) {
   const fetchMock = vi.fn(
     async (_url: string, _init?: RequestInit) =>
       new Response(JSON.stringify(body), {
-        status: 200,
+        status,
         headers: { "Content-Type": "application/json" },
       }),
   );
@@ -79,5 +79,21 @@ describe("getRecordingContextItem", () => {
     await expect(
       getRecordingContextItem(target, "rec1", "ctx1"),
     ).rejects.toThrow();
+  });
+
+  it("returns null when the server answers 404 because the Clip is gone", async () => {
+    stubFetch({ error: "Recording not found" }, 404);
+
+    await expect(
+      getRecordingContextItem(target, "rec1", "ctx1"),
+    ).resolves.toBeNull();
+  });
+
+  it("throws on a 403, since lost access does not prove the item is absent", async () => {
+    stubFetch({ error: "No access to recording rec1" }, 403);
+
+    await expect(
+      getRecordingContextItem(target, "rec1", "ctx1"),
+    ).rejects.toThrow("No access to recording rec1");
   });
 });

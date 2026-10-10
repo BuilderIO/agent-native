@@ -1,11 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ClipsActionError } from "../lib/clips-action";
-import type {
-  RecordingContextItem,
-  RecordingContextUpdate,
+import {
+  getRecordingContextItem,
+  type RecordingContextItem,
+  type RecordingContextUpdate,
 } from "./context-api";
 import { processRecordingContextItem, type LookbackWorkerDeps } from "./worker";
+
+const target = { serverUrl: "https://clips.example.test", authToken: "" };
 
 function item(
   overrides: Partial<RecordingContextItem> = {},
@@ -77,6 +80,10 @@ function fakeDeps(
 }
 
 describe("processRecordingContextItem", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("skips items whose footage was captured on another device", async () => {
     const deps = fakeDeps({ originFor: vi.fn(() => null) });
 
@@ -362,6 +369,72 @@ describe("processRecordingContextItem", () => {
     expect(deps.trashed).toEqual([]);
     // The claim and the rejected ready write only. Nothing is written blind.
     expect(deps.update).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps its footage without trashing it when the read throws after an upload fails", async () => {
+    const deps = fakeDeps({
+      uploadWindow: vi.fn(async () => {
+        throw new Error("network down");
+      }),
+      currentItem: vi.fn(async () => {
+        throw new Error("read offline");
+      }),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "failed",
+    );
+    expect(deps.trashed).toEqual([]);
+    expect(deps.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("trashes its footage and skips without a failed write when the read finds the item absent", async () => {
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "ready") throw new Error("socket hang up");
+        return input;
+      }),
+      currentItem: vi.fn(async () => null),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "skipped",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
+  });
+
+  it("treats a 404 from the context read as an absent item and trashes its footage", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: "Recording not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+    const deps = fakeDeps({
+      update: vi.fn(async (input: RecordingContextUpdate) => {
+        if (input.status === "ready") throw new Error("socket hang up");
+        return input;
+      }),
+      currentItem: (recordingId, itemId) =>
+        getRecordingContextItem(target, recordingId, itemId),
+    });
+
+    await expect(processRecordingContextItem(item(), deps)).resolves.toBe(
+      "skipped",
+    );
+    expect(deps.trashed).toEqual(["media-1"]);
+    expect(deps.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" }),
+    );
   });
 
   it("ignores a 409 when recording a failure the item has already moved past", async () => {

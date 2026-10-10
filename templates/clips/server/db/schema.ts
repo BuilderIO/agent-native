@@ -669,6 +669,13 @@ export const recordingContextItems = table(
     )
       .on(item.createdAt)
       .where(sql`${item.status} = 'pending'`),
+    // The in-use check looks items up by either footage column.
+    recordingContextItemsMediaRecordingIdx: index(
+      "recording_context_items_media_recording_idx",
+    ).on(item.mediaRecordingId),
+    recordingContextItemsPendingMediaRecordingIdx: index(
+      "recording_context_items_pending_media_recording_idx",
+    ).on(item.pendingMediaRecordingId),
   }),
 );
 

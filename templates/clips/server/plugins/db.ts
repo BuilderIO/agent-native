@@ -1215,6 +1215,16 @@ export const migrations = runMigrations(
       // Additive. Mirrors `pendingMediaRecordingId` in server/db/schema.ts.
       sql: `ALTER TABLE recording_context_items ADD COLUMN IF NOT EXISTS pending_media_recording_id TEXT`,
     },
+    {
+      version: 83,
+      name: "recording-context-footage-indexes",
+      // Additive. The in-use check looks up items by either footage column.
+      // Mirrors the indexes on `recordingContextItems` in server/db/schema.ts.
+      sql: `CREATE INDEX IF NOT EXISTS recording_context_items_media_recording_idx
+        ON recording_context_items (media_recording_id);
+      CREATE INDEX IF NOT EXISTS recording_context_items_pending_media_recording_idx
+        ON recording_context_items (pending_media_recording_id)`,
+    },
   ],
   { table: "clips_migrations" },
 );

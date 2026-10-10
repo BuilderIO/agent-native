@@ -64,6 +64,7 @@ afterAll(async () => {
 
 describe("list-recording-context", () => {
   it("lets a viewer list the active item and leaves out removed ones", async () => {
+    await seedRecording(client, { id: "rec_2" });
     await seedContextItem(client, {
       id: "active",
       status: "ready",
@@ -94,11 +95,32 @@ describe("list-recording-context", () => {
     });
   });
 
-  it("refuses a caller with no access to the Clip", async () => {
+  it("returns 404 recording_not_found for a Clip that was permanently deleted", async () => {
     mocks.roles = {};
 
-    await expect(action.run({ recordingId: "rec_1" })).rejects.toMatchObject({
-      statusCode: 403,
+    await expect(
+      action.run({ recordingId: "rec_deleted" }),
+    ).rejects.toMatchObject({
+      errorCode: "recording_not_found",
+      statusCode: 404,
     });
+  });
+
+  it("keeps 403 for an existing Clip with context that the caller cannot access", async () => {
+    await seedRecording(client, {
+      id: "rec_other",
+      ownerEmail: "someone-else@example.com",
+    });
+    await seedContextItem(client, {
+      id: "other_item",
+      recordingId: "rec_other",
+    });
+    mocks.roles = {};
+
+    const error = await action
+      .run({ recordingId: "rec_other" })
+      .catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ statusCode: 403 });
+    expect(error).not.toMatchObject({ errorCode: "recording_not_found" });
   });
 });

@@ -15,15 +15,25 @@ import {
   readContextItemRow,
   seedContextItem,
   seedRecording,
+  traceItemWrites,
   type RecordingContextTestClient,
 } from "../server/lib/recording-context-test-db.js";
 import { SCREEN_HISTORY_FOOTAGE_SOURCE_APP_NAME } from "../server/lib/recording-context.js";
 
-const mocks = vi.hoisted(() => ({
-  db: undefined as unknown,
-  roles: {} as Record<string, "viewer" | "editor" | "owner" | undefined>,
-  trash: vi.fn(async (args: { id: string }) => ({ id: args.id })),
-}));
+const mocks = vi.hoisted(() => {
+  // "trash" is pushed by the trash fake and "update" by the item-row write, in
+  // the order they happen.
+  const events: string[] = [];
+  return {
+    db: undefined as unknown,
+    events,
+    roles: {} as Record<string, "viewer" | "editor" | "owner" | undefined>,
+    trash: vi.fn(async (args: { id: string }) => {
+      events.push("trash");
+      return { id: args.id };
+    }),
+  };
+});
 
 vi.mock("@agent-native/core/action", async () => {
   const fakes = await import("../server/lib/recording-context-test-db.js");
@@ -76,7 +86,7 @@ const STALE_CLAIM = "2026-10-01T11:50:00.000Z";
 beforeAll(async () => {
   const opened = await openRecordingContextTestDb();
   client = opened.client;
-  mocks.db = opened.db;
+  mocks.db = traceItemWrites(opened.db, mocks.events);
 });
 
 beforeEach(async () => {
@@ -84,6 +94,7 @@ beforeEach(async () => {
   vi.setSystemTime(new Date(NOW));
   await resetRecordingContextTestDb(client);
   mocks.trash.mockClear();
+  mocks.events.length = 0;
   mocks.roles = { rec_1: "owner", media_1: "owner" };
   await seedRecording(client, { id: "rec_1" });
   await seedRecording(client, {
@@ -743,30 +754,134 @@ describe("update-recording-context", () => {
     expect(mocks.trash).not.toHaveBeenCalled();
   });
 
-  it("releases the reservation and logs when trashing its footage fails", async () => {
+  it("trashes a failed transition's reservation before clearing it", async () => {
     await seedContextItem(client, {
       id: "item",
       status: "processing",
       pendingMediaRecordingId: "media_1",
     });
-    mocks.trash.mockRejectedValueOnce(new Error("trash unavailable"));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    try {
-      await expect(
-        action.run({
-          id: "item",
-          status: "failed",
-          error: "Export timed out.",
-        }),
-      ).resolves.toMatchObject({
-        status: "failed",
-        pendingMediaRecordingId: null,
-      });
-      expect(warn).toHaveBeenCalledOnce();
-    } finally {
-      warn.mockRestore();
-    }
+    await action.run({
+      id: "item",
+      status: "failed",
+      error: "Export timed out.",
+    });
+
+    expect(mocks.events).toEqual(["trash", "update"]);
+    expect(mocks.trash.mock.calls).toEqual([[{ id: "media_1" }]]);
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "failed",
+      pending_media_recording_id: null,
+    });
+  });
+
+  it("keeps a failed transition's reservation and throws when its trash fails", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    await setUpdatedAt("item", FRESH_CLAIM);
+    mocks.trash.mockRejectedValueOnce(new Error("trash unavailable"));
+
+    await expect(
+      action.run({ id: "item", status: "failed", error: "Export timed out." }),
+    ).rejects.toThrow("trash unavailable");
+    expect(mocks.events).not.toContain("update");
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "processing",
+      error: null,
+      pending_media_recording_id: "media_1",
+      updated_at: FRESH_CLAIM,
+    });
+  });
+
+  it("trashes a replaced reservation before the claim commits", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    await setUpdatedAt("item", STALE_CLAIM);
+    await seedFootage("media_2");
+
+    await action.run({
+      id: "item",
+      status: "processing",
+      mediaRecordingId: "media_2",
+    });
+
+    expect(mocks.events).toEqual(["trash", "update"]);
+    expect(mocks.trash.mock.calls).toEqual([[{ id: "media_1" }]]);
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "processing",
+      pending_media_recording_id: "media_2",
+    });
+  });
+
+  it("keeps the replaced reservation and throws when its trash fails", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    await setUpdatedAt("item", STALE_CLAIM);
+    await seedFootage("media_2");
+    mocks.trash.mockRejectedValueOnce(new Error("trash unavailable"));
+
+    await expect(
+      action.run({
+        id: "item",
+        status: "processing",
+        mediaRecordingId: "media_2",
+      }),
+    ).rejects.toThrow("trash unavailable");
+    expect(mocks.events).not.toContain("update");
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "processing",
+      pending_media_recording_id: "media_1",
+      updated_at: STALE_CLAIM,
+    });
+
+    // The stale claim is still there to be replaced, so a retry can finish it.
+    await expect(
+      action.run({
+        id: "item",
+        status: "processing",
+        mediaRecordingId: "media_2",
+      }),
+    ).resolves.toMatchObject({ pendingMediaRecordingId: "media_2" });
+    expect(mocks.trash.mock.calls).toEqual([
+      [{ id: "media_1" }],
+      [{ id: "media_1" }],
+    ]);
+  });
+
+  it("refuses to trash a replaced reservation that a ready item references", async () => {
+    await seedContextItem(client, {
+      id: "other",
+      recordingId: "rec_2",
+      status: "ready",
+      mediaRecordingId: "media_1",
+    });
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    await setUpdatedAt("item", STALE_CLAIM);
+    await seedFootage("media_2");
+
+    await action.run({
+      id: "item",
+      status: "processing",
+      mediaRecordingId: "media_2",
+    });
+
+    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      pending_media_recording_id: "media_2",
+    });
   });
 
   it("accepts only processing, ready, or failed as a worker status", () => {

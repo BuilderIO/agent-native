@@ -156,46 +156,51 @@ export default defineAction({
             mediaRecordingId,
           )
         : undefined;
+    const transitionWhere = and(
+      eq(schema.recordingContextItems.id, item.id),
+      fromState,
+      reservedFootage,
+    );
 
-    // The row is locked while its reservation is read, so the reservation this
-    // update releases is the one it read. A plain read could be stale by the
-    // time the update lands, and the footage a concurrent claim reserved would
-    // be left with nothing pointing at it.
-    const { locked, updated } = await getDb().transaction(async (tx) => {
+    // The row is locked with the same predicate the update uses, so a rejected
+    // transition locks nothing and trashes nothing. Once the row is locked the
+    // update cannot reject, so the trash below always runs before the
+    // reservation is cleared. A trash failure rolls the whole transaction back.
+    const updated = await getDb().transaction(async (tx) => {
       const [locked] = await tx
         .select({
           pendingMediaRecordingId:
             schema.recordingContextItems.pendingMediaRecordingId,
         })
         .from(schema.recordingContextItems)
-        .where(eq(schema.recordingContextItems.id, item.id))
+        .where(transitionWhere)
         .for("update");
+      if (!locked) return undefined;
+
+      // A ready update makes its reservation the item's media, and a claim
+      // that names the same footage keeps it. Only a release is trashed.
+      const released =
+        status === "ready" ? null : locked.pendingMediaRecordingId;
+      const kept = status === "processing" ? (mediaRecordingId ?? null) : null;
+      if (released !== null && released !== kept) {
+        await trashReleasedFootage(tx, released, item.id);
+      }
+
       const [updated] = await tx
         .update(schema.recordingContextItems)
         .set(fields)
-        .where(
-          and(
-            eq(schema.recordingContextItems.id, item.id),
-            fromState,
-            reservedFootage,
-          ),
-        )
+        .where(transitionWhere)
         .returning();
-      return { locked, updated };
-    });
-    if (updated) {
-      // A ready update releases its reservation by making that footage the
-      // item's media, so only a claim or a failure trashes what it released.
-      const released = locked?.pendingMediaRecordingId ?? null;
-      if (
-        status !== "ready" &&
-        released !== null &&
-        released !== updated.pendingMediaRecordingId
-      ) {
-        await trashReleasedFootage(released);
+      // Unreachable: the row is locked, so the predicate that matched it still holds.
+      if (!updated) {
+        // guard:allow-bare-error — invariant: the row is locked by this transaction, so the predicate that matched it still holds
+        throw new Error(
+          `Screen history ${item.id} changed while its row was locked`,
+        );
       }
       return updated;
-    }
+    });
+    if (updated) return updated;
 
     const current = await findRecordingContextItem(item.id);
     if (status === "ready" && current?.status === "processing") {

@@ -49,18 +49,28 @@ export default defineAction({
     const requestedSeconds = Math.round(
       (Date.parse(next.endedAt) - Date.parse(next.startedAt)) / 1000,
     );
-    // The row is locked while its reservation is read, so the reservation this
-    // trim clears is the one it read. Without the lock, a claim that landed
-    // between the read and the update would have its footage orphaned.
-    const { locked, updated } = await getDb().transaction(async (tx) => {
+    // The row is locked with the same predicate the update uses, so a removed
+    // item locks nothing. Under the lock the trash runs before the reservation
+    // is cleared, and a trash failure rolls the transaction back.
+    const transitionWhere = and(
+      eq(schema.recordingContextItems.id, id),
+      ne(schema.recordingContextItems.status, "removed"),
+    );
+    const updated = await getDb().transaction(async (tx) => {
       const [locked] = await tx
         .select({
           pendingMediaRecordingId:
             schema.recordingContextItems.pendingMediaRecordingId,
         })
         .from(schema.recordingContextItems)
-        .where(eq(schema.recordingContextItems.id, id))
+        .where(transitionWhere)
         .for("update");
+      if (!locked) return undefined;
+
+      if (locked.pendingMediaRecordingId) {
+        await trashReleasedFootage(tx, locked.pendingMediaRecordingId, id);
+      }
+
       const [updated] = await tx
         .update(schema.recordingContextItems)
         .set({
@@ -74,20 +84,19 @@ export default defineAction({
           pendingMediaRecordingId: null,
           updatedAt: new Date().toISOString(),
         })
-        .where(
-          and(
-            eq(schema.recordingContextItems.id, id),
-            ne(schema.recordingContextItems.status, "removed"),
-          ),
-        )
+        .where(transitionWhere)
         .returning();
-      return { locked, updated };
+      // Unreachable: the row is locked, so the predicate that matched it still holds.
+      if (!updated) {
+        // guard:allow-bare-error — invariant: the row is locked by this transaction, so the predicate that matched it still holds
+        throw new Error(
+          `Screen history ${id} changed while its row was locked`,
+        );
+      }
+      return updated;
     });
-    // The only way a loaded, non-removed item fails this match is a concurrent remove.
+    // The only way a loaded, non-removed item fails the match is a concurrent remove.
     if (!updated) fail("This screen history was removed.", REMOVED);
-    if (locked?.pendingMediaRecordingId) {
-      await trashReleasedFootage(locked.pendingMediaRecordingId);
-    }
     return updated;
   },
 });

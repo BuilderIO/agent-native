@@ -14,14 +14,24 @@ import {
   readContextItemRow,
   seedContextItem,
   seedRecording,
+  traceItemWrites,
   type RecordingContextTestClient,
 } from "../server/lib/recording-context-test-db.js";
 
-const mocks = vi.hoisted(() => ({
-  db: undefined as unknown,
-  roles: {} as Record<string, "viewer" | "editor" | "owner" | undefined>,
-  trash: vi.fn(async (args: { id: string }) => ({ id: args.id })),
-}));
+const mocks = vi.hoisted(() => {
+  // "trash" is pushed by the trash fake and "update" by the item-row write, in
+  // the order they happen.
+  const events: string[] = [];
+  return {
+    db: undefined as unknown,
+    events,
+    roles: {} as Record<string, "viewer" | "editor" | "owner" | undefined>,
+    trash: vi.fn(async (args: { id: string }) => {
+      events.push("trash");
+      return { id: args.id };
+    }),
+  };
+});
 
 vi.mock("@agent-native/core/action", async () => {
   const fakes = await import("../server/lib/recording-context-test-db.js");
@@ -68,12 +78,13 @@ let client: RecordingContextTestClient;
 beforeAll(async () => {
   const opened = await openRecordingContextTestDb();
   client = opened.client;
-  mocks.db = opened.db;
+  mocks.db = traceItemWrites(opened.db, mocks.events);
 });
 
 beforeEach(async () => {
   await resetRecordingContextTestDb(client);
   mocks.trash.mockClear();
+  mocks.events.length = 0;
   mocks.roles = { rec_1: "owner" };
   await seedRecording(client, { id: "rec_1" });
   await seedContextItem(client, {
@@ -246,7 +257,7 @@ describe("set-recording-context-window", () => {
     });
   });
 
-  it("trashes the footage a trim releases from its reservation", async () => {
+  it("trashes the footage a trim releases before clearing its reservation", async () => {
     await seedRecording(client, { id: "media_2" });
     await client.query(
       `UPDATE recording_context_items SET status = 'processing', pending_media_recording_id = 'media_2' WHERE id = 'item'`,
@@ -258,6 +269,7 @@ describe("set-recording-context-window", () => {
       endedAt: ORIGINAL_END,
     });
 
+    expect(mocks.events).toEqual(["trash", "update"]);
     expect(mocks.trash.mock.calls).toEqual([[{ id: "media_2" }]]);
     expect(await readContextItemRow(client, "item")).toMatchObject({
       status: "pending",
@@ -316,29 +328,51 @@ describe("set-recording-context-window", () => {
     });
   });
 
-  it("still releases the reservation when trashing its footage fails", async () => {
+  it("keeps the reservation and throws when trashing the footage a trim releases fails", async () => {
     await seedRecording(client, { id: "media_2" });
     await client.query(
       `UPDATE recording_context_items SET status = 'processing', pending_media_recording_id = 'media_2' WHERE id = 'item'`,
     );
     mocks.trash.mockRejectedValueOnce(new Error("trash unavailable"));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    try {
-      await expect(
-        action.run({
-          id: "item",
-          startedAt: "2026-10-01T11:59:50.000Z",
-          endedAt: ORIGINAL_END,
-        }),
-      ).resolves.toMatchObject({ status: "pending" });
-      expect(await readContextItemRow(client, "item")).toMatchObject({
-        pending_media_recording_id: null,
-      });
-      expect(warn).toHaveBeenCalledOnce();
-    } finally {
-      warn.mockRestore();
-    }
+    await expect(
+      action.run({
+        id: "item",
+        startedAt: "2026-10-01T11:59:50.000Z",
+        endedAt: ORIGINAL_END,
+      }),
+    ).rejects.toThrow("trash unavailable");
+    expect(mocks.events).not.toContain("update");
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "processing",
+      started_at: ORIGINAL_START,
+      pending_media_recording_id: "media_2",
+    });
+  });
+
+  it("keeps footage a ready item references when a trim releases it from a reservation", async () => {
+    await seedRecording(client, { id: "rec_2" });
+    await seedContextItem(client, {
+      id: "other",
+      recordingId: "rec_2",
+      status: "ready",
+      mediaRecordingId: "media_2",
+    });
+    await client.query(
+      `UPDATE recording_context_items SET status = 'processing', pending_media_recording_id = 'media_2' WHERE id = 'item'`,
+    );
+
+    await action.run({
+      id: "item",
+      startedAt: "2026-10-01T11:59:50.000Z",
+      endedAt: ORIGINAL_END,
+    });
+
+    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "pending",
+      pending_media_recording_id: null,
+    });
   });
 
   describe("with the 5-minute original that request-recording-context stores", () => {

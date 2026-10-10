@@ -20,7 +20,7 @@ export interface LookbackWorkerDeps {
   // Null when this device did not capture the recording, so its footage is not here.
   originFor(recordingId: string): LookbackOrigin | null;
   update(input: RecordingContextUpdate): Promise<unknown>;
-  // Null means the server reports the item absent or removed. A failed read must throw.
+  // Null means the server reports the item absent, removed, or its Clip gone. A failed read must throw.
   currentItem(
     recordingId: string,
     itemId: string,
@@ -166,7 +166,18 @@ async function failAfterClaim(
     return "failed";
   }
 
-  if (current?.mediaRecordingId === recordingId) {
+  // The item is gone, so no item links this footage and nothing is left to
+  // mark failed. Nothing later will clean it up, so it is trashed here.
+  if (current === null) {
+    console.warn(
+      "[lookback] the item is gone after a failed export; trashing its footage:",
+      error,
+    );
+    await trashUnusedRecording(recordingId, deps);
+    return "skipped";
+  }
+
+  if (current.mediaRecordingId === recordingId) {
     console.warn(
       "[lookback] the export committed before its error; keeping its footage:",
       error,
@@ -178,7 +189,7 @@ async function failAfterClaim(
 
   await trashUnusedRecording(recordingId, deps);
   if (
-    current?.status === "processing" &&
+    current.status === "processing" &&
     current.pendingMediaRecordingId === recordingId
   ) {
     await markFailed(item, error, deps);
