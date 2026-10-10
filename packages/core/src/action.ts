@@ -637,9 +637,7 @@ export function defineAction(options: any) {
           parent.descendantWriteEntered = true;
       }
     }
-    const result = await options.run(args, ctx);
-    if (frame?.key === executionKey) frame.handlerCompleted = true;
-    return result;
+    return options.run(args, ctx);
   };
   const guardedRun =
     typeof options.authorize === "function" || options.access
@@ -1432,7 +1430,7 @@ const preValidatedForContext = new WeakMap<
   { schema: StandardSchemaV1; value: unknown }
 >();
 
-/** A definite input rejection before this action performs any side effect. */
+/** Rejected action input; execution phase determines whether effects are possible. */
 export class ActionInputValidationError extends Error {}
 
 type ActionExecutionRun = (args: any, ctx?: ActionRunContext) => Promise<any>;
@@ -1441,17 +1439,12 @@ type ActionExecutionFrame = {
   run: ActionExecutionRun;
   parent?: ActionExecutionFrame;
   handlerEntered: boolean;
-  handlerCompleted: boolean;
   descendantWriteEntered: boolean;
   boundaryPending?: boolean;
 };
-type ActionExecutionFailure = {
-  frame: ActionExecutionFrame;
-  origin: ActionExecutionFrame;
-};
 type ActionExecutionState = {
   frame?: ActionExecutionFrame;
-  failures: WeakMap<object, ActionExecutionFailure>;
+  failures: WeakMap<object, ActionExecutionFrame>;
 };
 const ActionExecutionStorage = getAsyncLocalStorageCtor();
 const actionExecutionStorage = ActionExecutionStorage
@@ -1473,13 +1466,11 @@ function wrapRunWithExecutionBoundary(
             run: boundaryRun,
             parent: parent?.frame,
             handlerEntered: false,
-            handlerCompleted: false,
             descendantWriteEntered: false,
           };
     frame.key = key;
     frame.boundaryPending = false;
     frame.handlerEntered = false;
-    frame.handlerCompleted = false;
     const state: ActionExecutionState = {
       frame,
       failures: parent?.failures ?? new WeakMap(),
@@ -1489,8 +1480,7 @@ function wrapRunWithExecutionBoundary(
         return await run(args, ctx);
       } catch (error) {
         if (error !== null && typeof error === "object") {
-          const origin = state.failures.get(error)?.origin ?? frame;
-          state.failures.set(error, { frame, origin });
+          state.failures.set(error, frame);
         }
         throw error;
       }
@@ -1515,7 +1505,6 @@ export async function runActionWithExecutionOutcome(
     run,
     parent: parent?.frame,
     handlerEntered: true,
-    handlerCompleted: false,
     descendantWriteEntered: false,
     boundaryPending: true,
   };
@@ -1531,20 +1520,11 @@ export async function runActionWithExecutionOutcome(
         error !== null && typeof error === "object"
           ? state.failures.get(error)
           : undefined;
-      // These types promise no effects at their emitting invocation, not its ancestors.
-      const typedRefusal =
-        error instanceof ActionInputValidationError ||
-        isAgentConnectionRequiredError(error) ||
-        ((isActionContractError(error) || isAgentActionStopError(error)) &&
-          error.errorCode === "permanent_precondition");
+      // Error types cannot prove non-execution once the handler has entered.
       outcome.refused =
         !frame.descendantWriteEntered &&
-        !frame.handlerCompleted &&
-        (failure
-          ? failure.frame === frame &&
-            (!frame.handlerEntered ||
-              (failure.origin === frame && typedRefusal))
-          : typedRefusal);
+        !frame.handlerEntered &&
+        failure === frame;
       throw error;
     }
   });

@@ -329,6 +329,7 @@ export interface RunChunkControl {
   readonly chunkSignal: AbortSignal;
   chunkBoundaryReason(): string | null;
   beginChunk(): AbortSignal;
+  flushEvents(): Promise<void>;
 }
 
 export interface ResolveRunSoftTimeoutOptions {
@@ -732,6 +733,7 @@ export function startRun(
     });
   }
   const runControl: RunChunkControl = {
+    flushEvents: () => persistenceChain,
     get turnSignal() {
       return abort.signal;
     },

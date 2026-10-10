@@ -1006,6 +1006,30 @@ describe("defineAction — outputSchema (return-value validation)", () => {
 });
 
 describe("defineAction — authorize", () => {
+  it.each(["plain", "defined"])(
+    "keeps a direct typed failure unknown after a %s write handler enters",
+    async (kind) => {
+      const failure = new AgentConnectionRequiredError("Connect provider", {
+        provider: "test-provider",
+      });
+      const effects: string[] = [];
+      const run = async () => {
+        effects.push("sent");
+        throw failure;
+      };
+      const publicRun =
+        kind === "defined"
+          ? defineAction({ description: "Write", run }).run
+          : run;
+      const outcome = { refused: false };
+      await expect(
+        runActionWithExecutionOutcome(publicRun, {}, undefined, outcome),
+      ).rejects.toBe(failure);
+      expect(effects).toEqual(["sent"]);
+      expect(outcome.refused).toBe(false);
+    },
+  );
+
   it("preserves definite refusals through the production action registry loader", async () => {
     const handler = vi.fn(async () => "sent");
     const action = defineAction({
@@ -1136,6 +1160,9 @@ describe("defineAction — authorize", () => {
     const parent = defineAction({
       description: "Parent",
       schema: z.object({ child: z.boolean() }),
+      authorize: (args) => {
+        if (!args.child) throw failure;
+      },
       run: async (args, ctx) => {
         if (args.child) await child.run({}, ctx);
         throw failure;

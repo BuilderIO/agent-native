@@ -5456,6 +5456,7 @@ export async function runAgentLoop(opts: {
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
+  beforeWrite?: () => Promise<void>;
   onModelInput?: ModelInputObserver;
   onUsage?: (usage: AgentLoopUsage) => void;
   onOutcome?: (outcome: AgentLoopOutcome) => void;
@@ -7666,6 +7667,7 @@ export async function runAgentLoop(opts: {
               actionUserEmail ?? undefined,
               actionOrgId,
             );
+            if (!actionIsReadOnly) await opts.beforeWrite?.();
             if (timeoutSignal.aborted) {
               throw new Error(timeoutMessage());
             }
@@ -12378,7 +12380,7 @@ export function createProductionAgentHandler(
     const startedRun = startRun(
       runId,
       effectiveThreadId,
-      async (rawSend, signal) => {
+      async (rawSend, signal, control) => {
         const send = (event: AgentChatEvent) => {
           rawSend(event);
           updateTrackedProgressFromEvent(event);
@@ -12634,6 +12636,7 @@ export function createProductionAgentHandler(
           messages,
           systemSections: contextXraySystemSections,
           actions: requestActions,
+          beforeWrite: control.flushEvents,
           send,
           signal,
           onUsage: (usage: AgentLoopUsage) => {

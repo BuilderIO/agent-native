@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../../action-ui.js";
 import { ActionInputValidationError, defineAction } from "../../action.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
@@ -398,6 +400,69 @@ export function createUrlTools(): Record<string, ActionEntry> {
   };
 }
 
+function parseAskQuestion(args: any) {
+  const question = String(args?.question ?? "").trim();
+  if (!question)
+    throw new ActionInputValidationError("'question' is required.");
+  const header = String(args?.header ?? "").trim();
+  const allowMultiple = String(args?.allowMultiple ?? "") === "true";
+  const allowFreeText = String(args?.allowFreeText ?? "true") !== "false";
+
+  let parsedOptions: unknown;
+  try {
+    parsedOptions = JSON.parse(String(args?.options ?? "[]"));
+  } catch {
+    throw new ActionInputValidationError(
+      "'options' must be a JSON array of { label, value?, description?, recommended? }.",
+    );
+  }
+  if (!Array.isArray(parsedOptions) || parsedOptions.length === 0) {
+    throw new ActionInputValidationError(
+      "'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.",
+    );
+  }
+
+  type AskOption = {
+    label: string;
+    value: string;
+    description?: string;
+    preview?: string;
+    recommended?: boolean;
+  };
+  const options = parsedOptions
+    .map((raw): AskOption | null => {
+      const opt = (raw ?? {}) as Record<string, unknown>;
+      const label =
+        typeof opt.label === "string" && opt.label.trim()
+          ? opt.label.trim()
+          : typeof opt.value === "string"
+            ? String(opt.value).trim()
+            : "";
+      if (!label) return null;
+      const value =
+        typeof opt.value === "string" && opt.value.trim()
+          ? opt.value.trim()
+          : label;
+      const option: AskOption = { label, value };
+      if (typeof opt.description === "string" && opt.description.trim()) {
+        option.description = opt.description.trim();
+      }
+      if (typeof opt.preview === "string" && opt.preview.trim()) {
+        option.preview = opt.preview;
+      }
+      if (opt.recommended === true) option.recommended = true;
+      return option;
+    })
+    .filter((opt): opt is AskOption => opt !== null);
+  if (options.length === 0) {
+    throw new ActionInputValidationError(
+      "'options' must contain at least one option with a label.",
+    );
+  }
+
+  return { question, header, allowMultiple, allowFreeText, options };
+}
+
 function createAskQuestionTool(): ActionEntry {
   const entry = {
     endsTurn: true,
@@ -439,64 +504,8 @@ function createAskQuestionTool(): ActionEntry {
       },
     },
     run: async (args) => {
-      const question = String(args?.question ?? "").trim();
-      if (!question)
-        throw new ActionInputValidationError("'question' is required.");
-      const header = String(args?.header ?? "").trim();
-      const allowMultiple = String(args?.allowMultiple ?? "") === "true";
-      const allowFreeText = String(args?.allowFreeText ?? "true") !== "false";
-
-      let parsedOptions: unknown;
-      try {
-        parsedOptions = JSON.parse(String(args?.options ?? "[]"));
-      } catch {
-        throw new ActionInputValidationError(
-          "'options' must be a JSON array of { label, value?, description?, recommended? }.",
-        );
-      }
-      if (!Array.isArray(parsedOptions) || parsedOptions.length === 0) {
-        throw new ActionInputValidationError(
-          "'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.",
-        );
-      }
-
-      type AskOption = {
-        label: string;
-        value: string;
-        description?: string;
-        preview?: string;
-        recommended?: boolean;
-      };
-      const options = parsedOptions
-        .map((raw): AskOption | null => {
-          const opt = (raw ?? {}) as Record<string, unknown>;
-          const label =
-            typeof opt.label === "string" && opt.label.trim()
-              ? opt.label.trim()
-              : typeof opt.value === "string"
-                ? String(opt.value).trim()
-                : "";
-          if (!label) return null;
-          const value =
-            typeof opt.value === "string" && opt.value.trim()
-              ? opt.value.trim()
-              : label;
-          const option: AskOption = { label, value };
-          if (typeof opt.description === "string" && opt.description.trim()) {
-            option.description = opt.description.trim();
-          }
-          if (typeof opt.preview === "string" && opt.preview.trim()) {
-            option.preview = opt.preview;
-          }
-          if (opt.recommended === true) option.recommended = true;
-          return option;
-        })
-        .filter((opt): opt is AskOption => opt !== null);
-      if (options.length === 0) {
-        throw new ActionInputValidationError(
-          "'options' must contain at least one option with a label.",
-        );
-      }
+      const { question, header, allowMultiple, allowFreeText, options } =
+        args as ReturnType<typeof parseAskQuestion>;
 
       const askingRunCtx = getRequestRunContext();
       const askingThreadId =
@@ -535,7 +544,7 @@ function createAskQuestionTool(): ActionEntry {
   } satisfies ActionEntry;
   const action = defineAction({
     description: entry.tool.description,
-    parameters: entry.tool.parameters.properties,
+    schema: z.unknown().transform(parseAskQuestion),
     endsTurn: true,
     run: entry.run,
   });

@@ -37,8 +37,8 @@ vi.mock("./run-store.js", async (importOriginal) => ({
 
 const { createProductionAgentHandler, AGENT_INTERNAL_CONTINUE_PROMPT } =
   await import("./production-agent.js");
-const { insertRun, getRunByThread, getRunEventsSince } =
-  await import("./run-store.js");
+const runStore = await import("./run-store.js");
+const { insertRun, getRunByThread, getRunEventsSince } = runStore;
 const EMAIL = { to: "customer@example.com", body: "Your refund is approved." };
 const START: AgentChatEvent = {
   type: "tool_start",
@@ -78,10 +78,13 @@ async function recover(
     | "nested-omitted"
     | "nested-question"
     | "access"
+    | "preflight-precondition"
+    | "preflight-connection"
     | "precondition"
     | "connection" = false,
   resumeContinue?: "auto" | "manual",
   withAttachment = false,
+  onEmailWrite?: () => void,
 ) {
   sequence++;
   const threadId = `reaper-thread-${sequence}`;
@@ -94,6 +97,7 @@ async function recover(
   else ledger.mockResolvedValue(events);
   const seen: EngineMessage[][] = [];
   const sendEmail = vi.fn(async (_input: Record<string, unknown>) => {
+    onEmailWrite?.();
     if (failFinalization === "precondition")
       throw new ActionContractError("Account is not enabled", {
         errorCode: "permanent_precondition",
@@ -230,6 +234,26 @@ async function recover(
               schema: z
                 .object({ to: z.string(), body: z.string() })
                 .refine(() => false, "Recipient is not eligible"),
+              run: sendEmail,
+            })
+          : {}),
+        ...(failFinalization === "preflight-precondition" ||
+        failFinalization === "preflight-connection"
+          ? defineAction({
+              description: "Send email",
+              schema: z.object({ to: z.string(), body: z.string() }),
+              authorize: () => {
+                if (failFinalization === "preflight-connection")
+                  throw new AgentConnectionRequiredError(
+                    "Connect the email provider",
+                    {
+                      provider: "test-email",
+                    },
+                  );
+                throw new ActionContractError("Account is not enabled", {
+                  errorCode: "permanent_precondition",
+                });
+              },
               run: sendEmail,
             })
           : {}),
@@ -389,7 +413,10 @@ async function recover(
   if (response instanceof ReadableStream) await new Response(response).text();
   await vi.waitFor(
     async () => {
-      if (failFinalization === "connection") {
+      if (
+        failFinalization === "connection" ||
+        failFinalization === "preflight-connection"
+      ) {
         expect(
           (await getRunEventsSince(runId, -1)).some(
             ({ eventData }) => JSON.parse(eventData).type === "tool_done",
@@ -417,6 +444,48 @@ async function recover(
 }
 
 describe("reaper successor resume context", () => {
+  it.each(["delayed", "failed"])(
+    "keeps writes behind %s start persistence",
+    async (mode) => {
+      let release!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let entered!: () => void;
+      const persisting = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const insert = runStore.insertRunEvent;
+      const write = vi.fn();
+      const spy = vi
+        .spyOn(runStore, "insertRunEvent")
+        .mockImplementation(async (...args) => {
+          if (JSON.parse(args[2]).type === "tool_start") {
+            entered();
+            await waiting;
+            if (mode === "failed")
+              throw new Error("Fixture event persistence failed");
+          }
+          return insert(...args);
+        });
+      const pending = recover([], false, false, false, undefined, false, write);
+      const completion =
+        mode === "failed"
+          ? expect(pending).rejects.toThrow("Fixture event persistence failed")
+          : pending;
+      try {
+        await persisting;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(write).not.toHaveBeenCalled();
+      } finally {
+        release();
+        await completion;
+        spy.mockRestore();
+      }
+      expect(write).toHaveBeenCalledTimes(mode === "failed" ? 0 : 1);
+    },
+  );
+
   it("retains one attachment and keeps a reworded unknown write blocked", async () => {
     const result = await recover([START], true, true, false, undefined, true);
     expect(result.sendEmail).not.toHaveBeenCalled();
@@ -451,20 +520,15 @@ describe("reaper successor resume context", () => {
   });
   it.each([
     "validation",
-    "precondition",
-    "connection",
+    "preflight-precondition",
+    "preflight-connection",
     "authorization",
     "access",
   ] as const)(
     "keeps a typed pre-execution refusal distinct from an unknown write (%s)",
     async (failure) => {
       const first = await recover([], false, false, failure);
-      if (
-        failure === "validation" ||
-        failure === "authorization" ||
-        failure === "access"
-      )
-        expect(first.sendEmail).not.toHaveBeenCalled();
+      expect(first.sendEmail).not.toHaveBeenCalled();
       const events = (await getRunEventsSince(first.runId, -1)).map(
         ({ eventData }) => JSON.parse(eventData) as AgentChatEvent,
       );
@@ -481,6 +545,22 @@ describe("reaper successor resume context", () => {
       ).toBe(false);
       const next = await recover(events, true);
       expect(next.sendEmail).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each(["precondition", "connection"] as const)(
+    "does not certify a direct typed handler failure as unexecuted (%s)",
+    async (failure) => {
+      const first = await recover([], false, false, failure);
+      expect(first.sendEmail).toHaveBeenCalledTimes(1);
+      const events = (await getRunEventsSince(first.runId, -1)).map(
+        ({ eventData }) => JSON.parse(eventData) as AgentChatEvent,
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: "tool_done", outcomeUnknown: true }),
+      );
+      const next = await recover(events, true);
+      expect(next.sendEmail).not.toHaveBeenCalled();
+      expect(next.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
     },
   );
   it.each([
