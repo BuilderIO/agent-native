@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { buildCodeLayerProjection } from "../shared/code-layer";
 import { e2eBaseURL } from "./base-url";
 import { expandAllLayers, gotoEditor } from "./helpers";
 
@@ -192,6 +193,43 @@ function screenFrameById(page: Page, fileId: string) {
     .contentFrame();
 }
 
+async function screenIdAtPoint(
+  page: Page,
+  point: { x: number; y: number },
+): Promise<string | null> {
+  return page.evaluate(({ x, y }) => {
+    if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return null;
+
+    const hit = document.elementFromPoint(x, y);
+    if (!hit || hit.closest(".design-sidebar")) return null;
+
+    const matches = Array.from(
+      document.querySelectorAll<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe][data-screen-iframe-id]",
+      ),
+    ).filter((frame) => {
+      const rect = frame.getBoundingClientRect();
+      const shell = frame.closest<HTMLElement>("[data-screen-shell]");
+      const shellRect = shell?.getBoundingClientRect();
+      return Boolean(
+        shellRect &&
+        x >= rect.left &&
+        x < rect.right &&
+        y >= rect.top &&
+        y < rect.bottom &&
+        x >= shellRect.left &&
+        x < shellRect.right &&
+        y >= shellRect.top &&
+        y < shellRect.bottom,
+      );
+    });
+
+    return matches.length === 1
+      ? matches[0].getAttribute("data-screen-iframe-id")
+      : null;
+  }, point);
+}
+
 async function screenBoxById(page: Page, fileId: string) {
   const box = (await page
     .locator(
@@ -223,14 +261,11 @@ async function useTool(page: Page, name: string): Promise<void> {
   await page.waitForTimeout(250);
 }
 
-async function addTextInScreen(
+async function enterTextAtPoint(
   page: Page,
-  fileId: string,
-  at: { x: number; y: number },
+  point: { x: number; y: number },
   text: string,
 ): Promise<void> {
-  await useTool(page, "Text");
-  const point = await toScreenPointById(page, fileId, at.x, at.y);
   await page.mouse.click(point.x, point.y);
   await page.waitForTimeout(300);
   await page.keyboard.type(text, { delay: 30 });
@@ -239,6 +274,17 @@ async function addTextInScreen(
   await page.waitForTimeout(900);
   await page.keyboard.press("v");
   await page.waitForTimeout(250);
+}
+
+async function addTextInScreen(
+  page: Page,
+  fileId: string,
+  at: { x: number; y: number },
+  text: string,
+): Promise<void> {
+  await useTool(page, "Text");
+  const point = await toScreenPointById(page, fileId, at.x, at.y);
+  await enterTextAtPoint(page, point, text);
 }
 
 function textPrimitiveNodeIds(html: string, text: string): string[] {
@@ -307,7 +353,8 @@ test.beforeEach(async ({ page }, testInfo) => {
     e2eBaseURL();
 });
 
-test.describe("interaction: guided walkthrough - navigation bar and footer", () => {
+test.describe
+  .serial("interaction: guided walkthrough - navigation bar and footer", () => {
   let navFilename = "";
 
   test("step 1 [overview, outside any screen]: Screen tool draws a new 1440x80 top-level screen", async ({
@@ -483,7 +530,8 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
   }) => {
     await openEditorAndExpandLayers(page, designId);
     const navFileId = await fileIdByName(page, designId, navFilename);
-    await addTextInScreen(page, navFileId, { x: 1100, y: 40 }, "Link");
+    const linkPoint = { x: 700, y: 40 };
+    await addTextInScreen(page, navFileId, linkPoint, "Link");
 
     let html = await fileContentByName(page, designId, navFilename);
     let ids = textPrimitiveNodeIds(html, "Link");
@@ -519,7 +567,7 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
       await page.waitForTimeout(500);
     }
 
-    await altDrag(originalId, 0, 40);
+    await altDrag(originalId, -40, 0);
     await expect
       .poll(
         async () => {
@@ -546,7 +594,7 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
         "DOM order) the source it was copied from",
     ).toBeGreaterThan(domOrderIndex(html, originalId));
 
-    await altDrag(copy1, 0, 40);
+    await altDrag(copy1, -40, 0);
     await expect
       .poll(
         async () => {
@@ -650,12 +698,22 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
     await openEditorAndExpandLayers(page, designId);
     const before = await designFiles(page, designId);
 
-    const navCard = page
-      .locator("[data-frame-title]")
-      .filter({ hasText: "Navigation" })
-      .first();
-    await navCard.click({ force: true });
-    await page.waitForTimeout(300);
+    const navRootRow = screenRootRow(page, "Navigation");
+    await expect(
+      navRootRow,
+      "the Navigation screen must have one root row before duplication",
+    ).toHaveCount(1);
+    await navRootRow.locator("[data-layer-row-button]").click();
+    await expect(
+      navRootRow,
+      "Cmd+D must target the selected Navigation screen root",
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      layersTree(page).locator(
+        '[role="treeitem"][aria-level="1"][aria-selected="true"]',
+      ),
+      "Navigation must be the only selected screen root before duplication",
+    ).toHaveCount(1);
     await page.keyboard.press(`${MOD}+d`);
 
     let afterDup: string[] = [];
@@ -687,7 +745,9 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
     const linkIdsInFooterCopy = textPrimitiveNodeIds(footerHtmlBefore, "Link");
     expect(
       linkIdsInFooterCopy.length,
-      "the duplicated screen must start with the same content as Navigation",
+      `the duplicated screen must start with the same content as Navigation; ` +
+        `before=${JSON.stringify(before)} after=${JSON.stringify(afterDup)} ` +
+        `source=${navFilename} copy=${footerFilename}`,
     ).toBe(textPrimitiveNodeIds(navHtmlBefore, "Link").length);
 
     const footerDefaultName = prettyScreenName(footerFilename);
@@ -716,9 +776,87 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
       .toBe(true);
     footerFilename = "Footer.html";
 
-    const movingId = await authoredTextNodeId(page, footerHtmlBefore, "Link");
+    const footerFileId = await fileIdByName(page, designId, footerFilename);
+    await useTool(page, "Text");
+    const footerBox = await screenBoxById(page, footerFileId);
+    const emptyFooterPoints = await screenFrameById(page, footerFileId)
+      .locator("body")
+      .evaluate((body) => {
+        const points: Array<{ x: number; y: number }> = [];
+        const width = document.documentElement.clientWidth;
+        const height = document.documentElement.clientHeight;
+        for (let y = 8; y < height - 8; y += 8) {
+          for (let x = 16; x < width - 16; x += 32) {
+            const hit = document.elementFromPoint(x, y);
+            const node = hit?.closest<HTMLElement>(
+              "[data-agent-native-node-id]",
+            );
+            if (!node || node === body || node === document.documentElement) {
+              points.push({ x, y });
+            }
+          }
+        }
+        return points;
+      });
+    let insertionPoint: { x: number; y: number } | null = null;
+    for (const candidate of emptyFooterPoints) {
+      const point = {
+        x: footerBox.x + candidate.x * footerBox.scale,
+        y: footerBox.y + candidate.y * footerBox.scale,
+      };
+      const receivingScreenId = await screenIdAtPoint(page, point);
+      const isBlankPoint = await screenFrameById(page, footerFileId)
+        .locator("body")
+        .evaluate((body, { x, y }) => {
+          const hit = document.elementFromPoint(x, y);
+          const node = hit?.closest<HTMLElement>("[data-agent-native-node-id]");
+          return !node || node === body || node === document.documentElement;
+        }, candidate);
+      if (receivingScreenId === footerFileId && isBlankPoint) {
+        insertionPoint = point;
+        break;
+      }
+    }
+    if (!insertionPoint) {
+      throw new Error(
+        "no visible blank point was available inside the Footer screen",
+      );
+    }
+    await enterTextAtPoint(page, insertionPoint, "Cross-screen Link");
+    let footerHtmlForMove = "";
+    let movingId = "";
+    await expect
+      .poll(
+        async () => {
+          footerHtmlForMove = await fileContentByName(
+            page,
+            designId,
+            footerFilename,
+          );
+          movingId =
+            (await authoredTextNodeId(
+              page,
+              footerHtmlForMove,
+              "Cross-screen Link",
+            )) ?? "";
+          return movingId;
+        },
+        {
+          timeout: 15_000,
+          message: "the Footer's separate Link must persist before it is moved",
+        },
+      )
+      .toBeTruthy();
     if (!movingId) {
       throw new Error("the duplicated Footer must contain a top-level Link");
+    }
+    const movingLayerId = buildCodeLayerProjection(footerHtmlForMove, {
+      source: { kind: "design-file", fileId: footerFileId },
+    }).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === movingId,
+    )?.id;
+    if (!movingLayerId) {
+      throw new Error("could not project the inserted Footer Link into Layers");
     }
 
     await page.keyboard.press("Escape");
@@ -750,11 +888,51 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
     ).toBeGreaterThanOrEqual(0);
 
     const footerIframeLoc = iframes.nth(footerIframeIndex);
-    const elBox = await footerIframeLoc
+    let elBox = await footerIframeLoc
       .contentFrame()
       .locator(`[data-agent-native-node-id="${movingId}"]`)
       .first()
       .boundingBox();
+    if (!elBox) throw new Error("missing geometry for the Footer Link");
+    let sourcePoint = {
+      x: elBox.x + elBox.width / 2,
+      y: elBox.y + elBox.height / 2,
+    };
+    const sourceFrameId = await screenIdAtPoint(page, sourcePoint);
+    expect(
+      sourceFrameId,
+      "the moving Link's physical drag point must belong to Footer",
+    ).toBe(footerFileId);
+    await page.mouse.click(sourcePoint.x, sourcePoint.y);
+    await page.keyboard.press(`${MOD}+\\`);
+    await page.waitForTimeout(250);
+    const selectedLayerRows = layersTree(page).locator(
+      '[role="treeitem"][aria-selected="true"]',
+    );
+    await expect.poll(() => selectedLayerRows.count()).toBe(1);
+    await expect(
+      selectedLayerRows
+        .first()
+        .locator("[data-layer-row-button][data-layer-node-id]"),
+    ).toHaveAttribute("data-layer-node-id", movingLayerId);
+    await expect(selectedLayerRows.first()).toContainText("Cross-screen Link");
+    await page.keyboard.press(`${MOD}+\\`);
+    await page.waitForTimeout(250);
+
+    elBox = await footerIframeLoc
+      .contentFrame()
+      .locator(`[data-agent-native-node-id="${movingId}"]`)
+      .first()
+      .boundingBox();
+    if (!elBox) throw new Error("missing geometry for the Footer Link");
+    sourcePoint = {
+      x: elBox.x + elBox.width / 2,
+      y: elBox.y + elBox.height / 2,
+    };
+    expect(
+      await screenIdAtPoint(page, sourcePoint),
+      "the moving Link's drag point must still belong to Footer after restoring overview UI",
+    ).toBe(footerFileId);
 
     const homeFileId = await fileIdByName(page, designId, "index.html");
     const homeIframeIndex = await iframes.evaluateAll(
@@ -773,22 +951,19 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
     if (!elBox || !targetScreenBox) {
       throw new Error("missing geometry for cross-screen drag");
     }
+    const homeDropPoint = {
+      x: targetScreenBox.x + targetScreenBox.width / 2,
+      y: targetScreenBox.y + targetScreenBox.height / 2,
+    };
+    expect(
+      await screenIdAtPoint(page, homeDropPoint),
+      "the drop point must belong to the Home screen",
+    ).toBe(homeFileId);
 
-    await page.mouse.move(
-      elBox.x + elBox.width / 2,
-      elBox.y + elBox.height / 2,
-    );
+    await page.mouse.move(sourcePoint.x, sourcePoint.y);
     await page.mouse.down();
-    await page.mouse.move(
-      elBox.x + elBox.width / 2 + 20,
-      elBox.y + elBox.height / 2,
-      { steps: 5 },
-    );
-    await page.mouse.move(
-      targetScreenBox.x + targetScreenBox.width / 2,
-      targetScreenBox.y + targetScreenBox.height / 2,
-      { steps: 24 },
-    );
+    await page.mouse.move(sourcePoint.x + 20, sourcePoint.y, { steps: 5 });
+    await page.mouse.move(homeDropPoint.x, homeDropPoint.y, { steps: 24 });
     await page.waitForTimeout(150);
     await page.mouse.up();
 
@@ -819,5 +994,28 @@ test.describe("interaction: guided walkthrough - navigation bar and footer", () 
       `the moved node must be REMOVED from its original screen ${footerFilename}, ` +
         `not merely copied`,
     ).toBe(false);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect
+      .poll(
+        async () => {
+          targetHtml = await fileContentByName(page, designId, otherFilename);
+          sourceHtmlAfter = await fileContentByName(
+            page,
+            designId,
+            footerFilename,
+          );
+          return (
+            targetHtml.includes(`data-agent-native-node-id="${movingId}"`) &&
+            !sourceHtmlAfter.includes(`data-agent-native-node-id="${movingId}"`)
+          );
+        },
+        {
+          timeout: 10_000,
+          message:
+            "the cross-screen move must remain saved after the editor reloads",
+        },
+      )
+      .toBe(true);
   });
 });

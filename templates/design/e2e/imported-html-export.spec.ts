@@ -10,14 +10,53 @@ import {
 import {
   expect,
   test,
+  type Browser,
   type APIRequestContext,
-  type FrameLocator,
   type Locator,
   type Page,
+  type TestInfo,
 } from "@playwright/test";
+import { imageSize } from "image-size";
 import { PDFParse } from "pdf-parse";
 
 import { comparePngs } from "../scripts/design-export-validation/lib/compare";
+import { redactExportDiagnostic } from "../scripts/design-export-validation/lib/redact-diagnostic";
+
+// PNG preparation and rendering can take about 74s. The two PDF pages can each
+// use about 124s of bounded readiness and rendering waits, plus PDF assembly.
+const PNG_DOWNLOAD_EVENT_TIMEOUT_MS = 90_000;
+const ALL_SCREENS_PDF_DOWNLOAD_EVENT_TIMEOUT_MS = 300_000;
+const IMPORTED_HTML_EXPORT_CASE_TIMEOUT_MS = 8 * 60_000;
+const MAX_EXPORT_DIAGNOSTICS = 80;
+
+interface ExportDiagnostic {
+  caseMs: number;
+  export?: string;
+  exportMs?: number;
+  event: string;
+}
+
+interface ExportTimelineEvent {
+  at: number;
+  event: string;
+}
+
+interface ExportTimelineState {
+  active: boolean;
+  events: ExportTimelineEvent[];
+  startedAt: number | null;
+}
+
+interface ExportTraceWindow extends Window {
+  __exportToasts?: string[];
+  __exportTimeline?: ExportTimelineState;
+}
+
+interface ExportTrace {
+  begin(label: string): number;
+  record(event: string, at?: number): void;
+  finish(page: Page): Promise<void>;
+}
 
 interface CorpusEntry {
   name: string;
@@ -27,11 +66,36 @@ interface CorpusEntry {
   sourcePath: string;
 }
 
+function expectedFixtureFrameMarker(entry: CorpusEntry): string | null {
+  const sourceHtml = fs.readFileSync(entry.sourcePath, "utf8");
+  const nodeIds = Array.from(
+    sourceHtml.matchAll(/\bdata-agent-native-node-id\s*=\s*["']([^"']+)["']/gi),
+    (match) => match[1],
+  ).filter((nodeId): nodeId is string => Boolean(nodeId));
+  return nodeIds.includes("frame") ? "frame" : null;
+}
+
+function submittedHtmlHasFixtureFrameMarker(
+  page: Page,
+  html: string,
+  expectedFrameMarker: string,
+): Promise<boolean> {
+  return page.evaluate(
+    ({ html, expectedFrameMarker }) => {
+      const parsedSnapshot = new DOMParser().parseFromString(html, "text/html");
+      return Array.from(
+        parsedSnapshot.querySelectorAll("[data-agent-native-node-id]"),
+      ).some(
+        (element) =>
+          element.getAttribute("data-agent-native-node-id") ===
+          expectedFrameMarker,
+      );
+    },
+    { html, expectedFrameMarker },
+  );
+}
+
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
-const ARTIFACT_DIR = path.join(
-  REPO_ROOT,
-  "templates/design/.tmp/design-export-validation/imported-html",
-);
 const STATIC_EXPORT_FIXTURES: CorpusEntry[] = [
   {
     name: "effects-transforms",
@@ -149,20 +213,84 @@ async function postAction(
   return response.json();
 }
 
-async function downloadPng(page: Page): Promise<Buffer> {
-  const pngMenuItem = await openPngExport(page);
-  const [download] = await Promise.all([
-    page.waitForEvent("download", { timeout: 15_000 }),
-    pngMenuItem.click(),
-  ]);
-  const stream = await download.createReadStream();
-  if (!stream) throw new Error("PNG download returned no bytes");
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-  return Buffer.concat(chunks);
+async function downloadFromMenuItem(
+  page: Page,
+  menuItem: Locator,
+  label: string,
+  timeoutMs: number,
+  trace: ExportTrace,
+): Promise<Buffer> {
+  const startedAt = trace.begin(label);
+  const enabledBeforeClick = await menuItem.isEnabled().catch(() => false);
+  trace.record(`menu item enabled before click=${enabledBeforeClick}`);
+  try {
+    await page.evaluate(
+      ({ label: exportLabel, startedAt: exportStartedAt }) => {
+        const timeline = (window as ExportTraceWindow).__exportTimeline;
+        if (!timeline) return;
+        timeline.events = [];
+        timeline.startedAt = exportStartedAt;
+        timeline.active = true;
+        timeline.events.push({
+          at: Date.now(),
+          event: `${exportLabel} browser event capture started`,
+        });
+      },
+      { label, startedAt },
+    );
+    await expect(menuItem).toBeEnabled();
+    trace.record("menu item enabled at click");
+    trace.record(`download event waiter armed timeoutMs=${timeoutMs}`);
+    const downloadPromise = page.waitForEvent("download", {
+      timeout: timeoutMs,
+    });
+    trace.record("locator click started");
+    const clickPromise = menuItem.click({ timeout: 15_000 }).then(
+      () => trace.record("locator click completed"),
+      (error: unknown) => {
+        trace.record(
+          `locator click rejected name=${error instanceof Error ? error.name : "unknown"}`,
+        );
+        throw error;
+      },
+    );
+    let download: Awaited<typeof downloadPromise>;
+    try {
+      [download] = await Promise.all([downloadPromise, clickPromise]);
+    } catch (error) {
+      trace.record(
+        `click/download wait rejected name=${error instanceof Error ? error.name : "unknown"}`,
+      );
+      throw error;
+    }
+    const extension = path.extname(download.suggestedFilename()).slice(0, 12);
+    trace.record(`download event observed extension=${extension || "unknown"}`);
+
+    const stream = await download.createReadStream();
+    if (!stream) throw new Error(`${label} returned no bytes`);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    return Buffer.concat(chunks);
+  } finally {
+    await trace.finish(page);
+  }
 }
 
-async function downloadAllScreensPdf(page: Page): Promise<Buffer> {
+async function downloadPng(page: Page, trace: ExportTrace): Promise<Buffer> {
+  const pngMenuItem = await openPngExport(page);
+  return downloadFromMenuItem(
+    page,
+    pngMenuItem,
+    "PNG",
+    PNG_DOWNLOAD_EVENT_TIMEOUT_MS,
+    trace,
+  );
+}
+
+async function downloadAllScreensPdf(
+  page: Page,
+  trace: ExportTrace,
+): Promise<Buffer> {
   await page.getByRole("button", { name: "More", exact: true }).click();
   const exportMenu = page.getByRole("menuitem", { name: "Export" });
   await expect(exportMenu).toBeVisible();
@@ -171,15 +299,13 @@ async function downloadAllScreensPdf(page: Page): Promise<Buffer> {
     name: "Download PDF (all screens)",
   });
   await expect(pdfMenuItem).toBeVisible();
-  const [download] = await Promise.all([
-    page.waitForEvent("download", { timeout: 15_000 }),
-    pdfMenuItem.click(),
-  ]);
-  const stream = await download.createReadStream();
-  if (!stream) throw new Error("all-screens PDF download returned no bytes");
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-  return Buffer.concat(chunks);
+  return downloadFromMenuItem(
+    page,
+    pdfMenuItem,
+    "all-screens PDF",
+    ALL_SCREENS_PDF_DOWNLOAD_EVENT_TIMEOUT_MS,
+    trace,
+  );
 }
 
 async function pdfPagesPng(
@@ -211,90 +337,160 @@ async function openPngExport(page: Page): Promise<Locator> {
   await exportMenu.press("ArrowRight");
   const pngMenuItem = page.getByRole("menuitem", { name: "Download PNG" });
   await expect(pngMenuItem).toBeVisible();
-  await expect(pngMenuItem).toBeEnabled();
   return pngMenuItem;
+}
+
+function isTransientPreviewNavigation(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /execution context was destroyed|frame was detached/i.test(message);
 }
 
 async function reportTrustedPreviewRoute(
   page: Page,
-  previewFrame: FrameLocator,
+  preview: Locator,
   screenId: string,
-  routePath: string,
+  reportedRoutePath: string,
+  expectedTargetPath: string,
   marker: string,
 ): Promise<string | null> {
   await page.evaluate(
     ({ screenId, marker }) => {
-      const iframe = document.querySelector<HTMLIFrameElement>(
-        `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
-      );
-      const source = iframe?.contentWindow;
-      if (!iframe || !source) throw new Error("preview iframe is unavailable");
-
       const routeProbeWindow = window as Window & {
-        __designRouteProbe?: Promise<string | null>;
+        __designRouteProbe?: {
+          marker: string;
+          onMessage: (event: MessageEvent) => void;
+          result: string | null | undefined;
+        };
       };
-      routeProbeWindow.__designRouteProbe = new Promise((resolve, reject) => {
-        const getTargetPath = () => {
-          try {
-            const iframeUrl = new URL(iframe.src, window.location.href);
-            const targetUrl = iframeUrl.searchParams.get("url");
-            return targetUrl ? new URL(targetUrl).pathname : iframeUrl.pathname;
-          } catch {
-            return null;
-          }
-        };
-        const timeout = window.setTimeout(() => {
-          window.removeEventListener("message", onMessage);
-          reject(new Error("preview route report was not received"));
-        }, 10_000);
-        const onMessage = (event: MessageEvent) => {
-          if (
-            event.source !== source ||
-            event.data?.type !== "agent-native:live-route-path" ||
-            event.data?.__routeProbeMarker !== marker
-          ) {
-            return;
-          }
-          window.removeEventListener("message", onMessage);
+      const previousProbe = routeProbeWindow.__designRouteProbe;
+      if (previousProbe) {
+        window.removeEventListener("message", previousProbe.onMessage);
+      }
+      const getPreview = () =>
+        document.querySelector<HTMLIFrameElement>(
+          `iframe[data-design-preview-iframe][data-screen-iframe-id="${CSS.escape(screenId)}"]`,
+        );
+      const probe = {
+        marker,
+        result: undefined as string | null | undefined,
+        onMessage: (_event: MessageEvent) => {},
+      };
+      probe.onMessage = (event: MessageEvent) => {
+        const iframe = getPreview();
+        if (
+          event.source !== iframe?.contentWindow ||
+          event.data?.type !== "agent-native:live-route-path" ||
+          event.data?.__routeProbeMarker !== marker
+        ) {
+          return;
+        }
+        window.requestAnimationFrame(() => {
           window.requestAnimationFrame(() => {
-            window.requestAnimationFrame(() => {
-              window.clearTimeout(timeout);
-              resolve(getTargetPath());
-            });
+            const currentIframe = getPreview();
+            if (event.source !== currentIframe?.contentWindow) return;
+            try {
+              const iframeUrl = new URL(
+                currentIframe.src,
+                window.location.href,
+              );
+              const targetUrl = iframeUrl.searchParams.get("url");
+              probe.result = targetUrl
+                ? new URL(targetUrl).pathname
+                : iframeUrl.pathname;
+            } catch {
+              probe.result = null;
+            }
           });
-        };
-        window.addEventListener("message", onMessage);
-      });
+        });
+      };
+      routeProbeWindow.__designRouteProbe = probe;
+      window.addEventListener("message", probe.onMessage);
     },
     { screenId, marker },
   );
 
-  await previewFrame.locator("html").evaluate(
-    (_, { routePath, marker }) => {
-      window.parent.postMessage(
-        {
-          type: "agent-native:live-route-path",
-          routePath,
-          __routeProbeMarker: marker,
+  try {
+    await expect
+      .poll(
+        async () => {
+          try {
+            await preview
+              .contentFrame()
+              .locator("html")
+              .evaluate(
+                (_, { routePath: reportedPath, marker: probeMarker }) => {
+                  window.parent.postMessage(
+                    {
+                      type: "agent-native:live-route-path",
+                      routePath: reportedPath,
+                      __routeProbeMarker: probeMarker,
+                    },
+                    "*",
+                  );
+                },
+                { routePath: reportedRoutePath, marker },
+              );
+          } catch (error) {
+            if (isTransientPreviewNavigation(error)) return null;
+            throw error;
+          }
+          return page.evaluate(
+            ({ marker: probeMarker }) => {
+              const routeProbeWindow = window as Window & {
+                __designRouteProbe?: {
+                  marker: string;
+                  result: string | null | undefined;
+                };
+              };
+              const probe = routeProbeWindow.__designRouteProbe;
+              if (probe?.marker !== probeMarker) {
+                throw new Error("preview route receipt was not armed");
+              }
+              return probe.result ?? null;
+            },
+            { marker },
+          );
         },
-        "*",
-      );
-    },
-    { routePath, marker },
-  );
-
-  return page.evaluate(async () => {
-    const routeProbeWindow = window as Window & {
-      __designRouteProbe?: Promise<string | null>;
-    };
-    const routeProbe = routeProbeWindow.__designRouteProbe;
-    if (!routeProbe) throw new Error("preview route receipt was not armed");
-    try {
-      return await routeProbe;
-    } finally {
-      delete routeProbeWindow.__designRouteProbe;
-    }
-  });
+        {
+          timeout: 10_000,
+          message:
+            "the loaded preview reports its trusted route after navigation",
+        },
+      )
+      .toBe(expectedTargetPath);
+    return page.evaluate(
+      ({ marker: probeMarker }) => {
+        const probe = (
+          window as Window & {
+            __designRouteProbe?: {
+              marker: string;
+              result: string | null | undefined;
+            };
+          }
+        ).__designRouteProbe;
+        return probe?.marker === probeMarker ? (probe.result ?? null) : null;
+      },
+      { marker },
+    );
+  } finally {
+    await page
+      .evaluate(
+        ({ marker: probeMarker }) => {
+          const routeProbeWindow = window as Window & {
+            __designRouteProbe?: {
+              marker: string;
+              onMessage: (event: MessageEvent) => void;
+            };
+          };
+          const probe = routeProbeWindow.__designRouteProbe;
+          if (probe?.marker !== probeMarker) return;
+          window.removeEventListener("message", probe.onMessage);
+          delete routeProbeWindow.__designRouteProbe;
+        },
+        { marker },
+      )
+      .catch(() => undefined);
+  }
 }
 
 function safeError(error: unknown) {
@@ -302,13 +498,7 @@ function safeError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return {
     name,
-    message: message
-      .replace(/https?:\/\/[^\s)"'<>]+/gi, "[URL]")
-      .replace(
-        /\b(api[_-]?key|token|secret|signature)=([^&\s]+)/gi,
-        "$1=[redacted]",
-      )
-      .slice(0, 300),
+    message: redactExportDiagnostic(message).slice(0, 300),
   };
 }
 
@@ -392,24 +582,65 @@ async function waitForLivePixels(html: Locator) {
   });
 }
 
-test("static design documents retain their rendered pixels through Design PNG export", async ({
-  page: basePage,
-  browser,
-  request,
-  baseURL,
-}) => {
-  test.setTimeout(600_000);
-  if (!baseURL) throw new Error("test baseURL is unavailable");
-  const entries = STATIC_EXPORT_FIXTURES;
-  const caseFilter = process.env.DESIGN_EXPORT_CORPUS_CASE;
-  const selectedEntries = caseFilter
-    ? entries.filter((entry) => entry.name === caseFilter)
-    : entries;
-  if (selectedEntries.length === 0) {
-    throw new Error("requested imported HTML corpus case is unavailable");
-  }
+async function waitForPreviewLivePixels(preview: Locator) {
+  const result: { readiness?: Awaited<ReturnType<typeof waitForLivePixels>> } =
+    {};
+  await expect
+    .poll(
+      async () => {
+        try {
+          const previewFrame = preview.contentFrame();
+          const nodeCount = await previewFrame
+            .locator("[data-agent-native-node-id]")
+            .count();
+          if (nodeCount === 0) return false;
+          result.readiness = await waitForLivePixels(
+            previewFrame.locator("html"),
+          );
+          return true;
+        } catch (error) {
+          if (isTransientPreviewNavigation(error)) return false;
+          throw error;
+        }
+      },
+      {
+        timeout: 20_000,
+        message:
+          "the preview document keeps its content through navigation and becomes pixel ready",
+      },
+    )
+    .toBe(true);
+  if (!result.readiness)
+    throw new Error("preview pixel readiness was not recorded");
+  return result.readiness;
+}
 
-  const sources = entries.map((entry) => ({ entry, filename: entry.name }));
+async function runStaticDesignExportCase(
+  {
+    page: basePage,
+    browser,
+    request,
+    baseURL,
+  }: {
+    page: Page;
+    browser: Browser;
+    request: APIRequestContext;
+    baseURL: string | undefined;
+  },
+  testInfo: TestInfo,
+  entry: CorpusEntry,
+  exportMode: "png" | "pdf",
+): Promise<void> {
+  test.setTimeout(IMPORTED_HTML_EXPORT_CASE_TIMEOUT_MS);
+  if (!baseURL) throw new Error("test baseURL is unavailable");
+  const selectedEntries = [entry];
+
+  // Keep the same complete source root and bridge manifest used by the
+  // combined corpus run, even when this worker exports one selected fixture.
+  const sources = STATIC_EXPORT_FIXTURES.map((entry) => ({
+    entry,
+    filename: entry.name,
+  }));
   fs.mkdirSync(path.join(REPO_ROOT, "templates/design/.tmp"), {
     recursive: true,
   });
@@ -469,7 +700,12 @@ test("static design documents retain their rendered pixels through Design PNG ex
       url: sourceUrl,
       port: bridgePort,
     });
-    fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+    const artifactDir = testInfo.outputPath(
+      "imported-html-export",
+      entry.name,
+      exportMode,
+    );
+    fs.mkdirSync(artifactDir, { recursive: true });
     browserContext = await browser.newContext({
       storageState: await basePage.context().storageState(),
       viewport: { width: 1440, height: 1000 },
@@ -477,12 +713,58 @@ test("static design documents retain their rendered pixels through Design PNG ex
       reducedMotion: "reduce",
     });
     const exportPage = await browserContext.newPage();
-    let activeDiagnostics: string[] | null = null;
+    let activeDiagnostics: ExportDiagnostic[] | null = null;
+    let diagnosticsDropped = 0;
+    let activeDiagnosticCaseStartedAt = Date.now();
+    let activeExport: { label: string; startedAt: number } | null = null;
     let activeRenderSnapshotHtml: string | null = null;
+    let activeExpectedFrameMarker: string | null = null;
+    let activeRenderFrameMarkerPresent: Promise<boolean> | null = null;
+    const recordDiagnostic = (event: string, at = Date.now()) => {
+      if (!activeDiagnostics) return;
+      if (activeDiagnostics.length >= MAX_EXPORT_DIAGNOSTICS) {
+        diagnosticsDropped += 1;
+        return;
+      }
+      const safeEvent = redactExportDiagnostic(event).slice(0, 180);
+      activeDiagnostics.push({
+        caseMs: Math.max(0, Math.round(at - activeDiagnosticCaseStartedAt)),
+        ...(activeExport
+          ? {
+              export: activeExport.label,
+              exportMs: Math.max(0, Math.round(at - activeExport.startedAt)),
+            }
+          : {}),
+        event: safeEvent,
+      });
+    };
+    const exportTrace: ExportTrace = {
+      begin(label) {
+        const startedAt = Date.now();
+        activeExport = { label, startedAt };
+        recordDiagnostic(`${label} menu export flow began`, startedAt);
+        return startedAt;
+      },
+      record: recordDiagnostic,
+      async finish(page) {
+        const timelineEvents = await page
+          .evaluate(() => {
+            const timeline = (window as ExportTraceWindow).__exportTimeline;
+            if (!timeline) return [];
+            timeline.active = false;
+            return timeline.events;
+          })
+          .catch(() => [] as ExportTimelineEvent[]);
+        for (const timelineEvent of timelineEvents) {
+          recordDiagnostic(timelineEvent.event, timelineEvent.at);
+        }
+        activeExport = null;
+      },
+    };
     exportPage.on("request", (request) => {
       const pathname = new URL(request.url()).pathname;
       if (pathname.endsWith("/_agent-native/ui-capability")) {
-        activeDiagnostics?.push("UI capability request started");
+        recordDiagnostic("UI capability request started");
       } else if (
         pathname.endsWith("/_agent-native/actions/render-export-png")
       ) {
@@ -492,18 +774,25 @@ test("static design documents retain their rendered pixels through Design PNG ex
           };
           if (typeof body.html === "string") {
             activeRenderSnapshotHtml = body.html;
-            activeDiagnostics?.push(
-              `render request started (${new TextEncoder().encode(body.html).byteLength} bytes)`,
+            activeRenderFrameMarkerPresent = activeExpectedFrameMarker
+              ? submittedHtmlHasFixtureFrameMarker(
+                  exportPage,
+                  body.html,
+                  activeExpectedFrameMarker,
+                )
+              : null;
+            recordDiagnostic(
+              `render request started bodyBytes=${new TextEncoder().encode(body.html).byteLength}`,
             );
             return;
           }
         } catch {
           // The safe diagnostic below records the request without its body.
         }
-        activeDiagnostics?.push("render request started without snapshot HTML");
+        recordDiagnostic("render request started without snapshot HTML");
       } else if (pathname.includes("/_agent-native/actions/")) {
         const pathSegments = pathname.split("/").filter(Boolean);
-        activeDiagnostics?.push(
+        recordDiagnostic(
           `action request ${request.method()} ${pathSegments[pathSegments.length - 1] ?? "unknown"}`,
         );
       }
@@ -511,11 +800,11 @@ test("static design documents retain their rendered pixels through Design PNG ex
     exportPage.on("response", (response) => {
       const pathname = new URL(response.url()).pathname;
       if (pathname.endsWith("/_agent-native/ui-capability")) {
-        activeDiagnostics?.push(`UI capability response ${response.status()}`);
+        recordDiagnostic(`UI capability response ${response.status()}`);
       } else if (
         pathname.endsWith("/_agent-native/actions/render-export-png")
       ) {
-        activeDiagnostics?.push(
+        recordDiagnostic(
           `render response ${response.status()} ${response.headers()["content-type"] ?? "unknown"}`,
         );
       }
@@ -526,36 +815,68 @@ test("static design documents retain their rendered pixels through Design PNG ex
         pathname.endsWith("/_agent-native/ui-capability") ||
         pathname.endsWith("/_agent-native/actions/render-export-png")
       ) {
-        activeDiagnostics?.push(
+        recordDiagnostic(
           `request failed ${request.failure()?.errorText ?? "unknown"}`,
         );
       }
     });
     exportPage.on("pageerror", (error) => {
-      activeDiagnostics?.push(`page error: ${safeError(error).message}`);
+      recordDiagnostic(`page error: ${safeError(error).message}`);
     });
     exportPage.on("console", (message) => {
       if (message.type() === "error") {
-        activeDiagnostics?.push(
-          `console error: ${safeError(message.text()).message}`,
-        );
+        recordDiagnostic(`console error: ${safeError(message.text()).message}`);
       }
     });
     await exportPage.addInitScript(() => {
       const toasts: string[] = [];
-      (window as Window & { __exportToasts?: string[] }).__exportToasts =
-        toasts;
+      const traceWindow = window as ExportTraceWindow;
+      const timeline: ExportTimelineState = {
+        active: false,
+        events: [],
+        startedAt: null,
+      };
+      traceWindow.__exportToasts = toasts;
+      traceWindow.__exportTimeline = timeline;
+      const observedToastMessages = new WeakMap<Element, string>();
+      const recordTimelineEvent = (event: string) => {
+        if (!timeline.active || timeline.events.length >= 24) {
+          return;
+        }
+        timeline.events.push({
+          at: Date.now(),
+          event: event.slice(0, 180),
+        });
+      };
+      document.addEventListener(
+        "click",
+        (event) => {
+          const target =
+            event.target instanceof Element
+              ? event.target.closest<HTMLElement>('[role="menuitem"]')
+              : null;
+          if (!target) return;
+          const label =
+            (target.textContent || "")
+              .replace(/\s+/g, " ")
+              .trim()
+              .slice(0, 80) || "unlabeled";
+          recordTimelineEvent(
+            `DOM click target=menuitem label=${label} aria-disabled=${target.getAttribute("aria-disabled") ?? "false"}`,
+          );
+        },
+        true,
+      );
       const toastObserver = new MutationObserver(() => {
         document.querySelectorAll("[data-sonner-toast]").forEach((toast) => {
-          const message = (toast.textContent || "")
-            .replace(/https?:\/\/[^\s)"'<>]+/gi, "[URL]")
-            .replace(
-              /\b(api[_-]?key|token|secret|signature)=([^&\s]+)/gi,
-              "$1=[redacted]",
-            )
-            .trim()
-            .slice(0, 180);
-          if (message && !toasts.includes(message)) toasts.push(message);
+          const message = (toast.textContent || "").trim().slice(0, 180);
+          if (message && observedToastMessages.get(toast) !== message) {
+            observedToastMessages.set(toast, message);
+            recordTimelineEvent(`toast ${message}`);
+            if (!toasts.includes(message) && toasts.length < 20) {
+              toasts.push(message);
+            }
+          }
         });
       });
       toastObserver.observe(document, {
@@ -572,29 +893,37 @@ test("static design documents retain their rendered pixels through Design PNG ex
     });
 
     sourcePage = await browserContext.newPage();
-    snapshotContext = await browser.newContext({
-      viewport: { width: 1440, height: 1000 },
-      deviceScaleFactor: 2,
-      reducedMotion: "reduce",
-      javaScriptEnabled: false,
-      serviceWorkers: "block",
-    });
-    snapshotPage = await snapshotContext.newPage();
     const blockedSnapshotRequests: string[] = [];
-    await snapshotPage.route("**/*", async (route) => {
-      const url = route.request().url();
-      if (url.startsWith("data:") || url === "about:blank") {
-        await route.continue();
-        return;
-      }
-      blockedSnapshotRequests.push(url);
-      await route.abort("blockedbyclient");
-    });
+    if (exportMode === "png") {
+      snapshotContext = await browser.newContext({
+        viewport: { width: 1440, height: 1000 },
+        deviceScaleFactor: 2,
+        reducedMotion: "reduce",
+        javaScriptEnabled: false,
+        serviceWorkers: "block",
+      });
+      snapshotPage = await snapshotContext.newPage();
+      await snapshotPage.route("**/*", async (route) => {
+        const url = route.request().url();
+        if (url.startsWith("data:") || url === "about:blank") {
+          await route.continue();
+          return;
+        }
+        blockedSnapshotRequests.push(url);
+        await route.abort("blockedbyclient");
+      });
+    }
     const caseFailures: string[] = [];
     for (const entry of selectedEntries) {
-      const diagnostics: string[] = [];
+      const diagnostics: ExportDiagnostic[] = [];
       let snapshotResourceFailures: string[] = [];
+      activeDiagnosticCaseStartedAt = Date.now();
+      activeExport = null;
       activeDiagnostics = diagnostics;
+      diagnosticsDropped = 0;
+      const expectedFrameMarker = expectedFixtureFrameMarker(entry);
+      activeExpectedFrameMarker = expectedFrameMarker;
+      activeRenderFrameMarkerPresent = null;
       const stage = { name: "setup" };
       let designId: string | null = null;
       try {
@@ -675,24 +1004,23 @@ test("static design documents retain their rendered pixels through Design PNG ex
           `iframe[data-design-preview-iframe][data-design-source-type="localhost"][data-screen-iframe-id="${previewScreenId}"]`,
         );
         await expect(preview).toHaveCount(1, { timeout: 30_000 });
-        const previewFrame = preview.contentFrame();
-        await expect
-          .poll(() =>
-            previewFrame.locator("[data-agent-native-node-id]").count(),
-          )
-          .toBeGreaterThan(0);
-        const previewHtml = previewFrame.locator("html");
-        const previewReadiness = await waitForLivePixels(previewHtml);
+        stage.name = "preview readiness";
+        recordDiagnostic("preview iframe readiness started");
+        const previewReadiness = await waitForPreviewLivePixels(preview);
+        recordDiagnostic("preview iframe readiness completed");
         if (entry.name === "effects-transforms") {
           stage.name = "preview route report";
+          recordDiagnostic("preview route report started");
           const routeAfterStartupReport = await reportTrustedPreviewRoute(
             exportPage,
-            previewFrame,
+            preview,
             previewScreenId,
             "srcdoc",
+            `/${entry.name}`,
             `route-probe-${designId}`,
           );
           expect(routeAfterStartupReport).toBe(`/${entry.name}`);
+          recordDiagnostic("preview route report completed");
         }
         stage.name = "source screenshot";
         await sourcePage.setViewportSize(viewport);
@@ -708,10 +1036,11 @@ test("static design documents retain their rendered pixels through Design PNG ex
           omitBackground: true,
           timeout: 30_000,
         });
-        const unsupportedMediaCount = await previewFrame
+        const unsupportedMediaCount = await preview
+          .contentFrame()
           .locator("video, audio[controls]")
           .count();
-        if (unsupportedMediaCount > 0) {
+        if (unsupportedMediaCount > 0 && exportMode === "png") {
           stage.name = "visible export rejection";
           const toastCount = await exportPage
             .locator("[data-sonner-toast]")
@@ -745,111 +1074,171 @@ test("static design documents retain their rendered pixels through Design PNG ex
           continue;
         }
 
-        stage.name = "PNG download";
-        activeRenderSnapshotHtml = null;
-        const exportedPng = await downloadPng(exportPage);
-        const exportSnapshotHtml = activeRenderSnapshotHtml;
-        if (!exportSnapshotHtml) {
-          throw new Error("PNG renderer request did not include snapshot HTML");
-        }
-        snapshotResourceFailures =
-          /data-agent-native-export-resource-failures=["']([^"']+)["']/i
-            .exec(exportSnapshotHtml)?.[1]
-            .split(",") ?? [];
+        if (exportMode === "png") {
+          stage.name = "PNG download";
+          activeRenderSnapshotHtml = null;
+          activeRenderFrameMarkerPresent = null;
+          const exportedPng = await downloadPng(exportPage, exportTrace);
+          const exportSnapshotHtml = activeRenderSnapshotHtml;
+          if (!exportSnapshotHtml) {
+            throw new Error(
+              "PNG renderer request did not include snapshot HTML",
+            );
+          }
+          if (expectedFrameMarker) {
+            expect(
+              activeRenderFrameMarkerPresent
+                ? await activeRenderFrameMarkerPresent
+                : false,
+              `PNG request HTML for ${entry.name} must retain fixture marker ${expectedFrameMarker}`,
+            ).toBe(true);
+          }
+          snapshotResourceFailures =
+            /data-agent-native-export-resource-failures=["']([^"']+)["']/i
+              .exec(exportSnapshotHtml)?.[1]
+              .split(",")
+              .map((failure) => redactExportDiagnostic(failure)) ?? [];
 
-        stage.name = "export snapshot screenshot";
-        blockedSnapshotRequests.length = 0;
-        await snapshotPage.setViewportSize(viewport);
-        await snapshotPage.setContent(exportSnapshotHtml, {
-          waitUntil: "load",
-        });
-        const snapshotReadiness = await snapshotPage.evaluate(async () => {
-          await Promise.race([
-            document.fonts.ready,
-            new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
-          ]);
-          await Promise.all(
-            Array.from(document.images, (image) =>
-              image.decode().catch(() => undefined),
-            ),
+          const activeSnapshotPage = snapshotPage;
+          if (!activeSnapshotPage) {
+            throw new Error("PNG snapshot page is unavailable");
+          }
+          stage.name = "export snapshot screenshot";
+          blockedSnapshotRequests.length = 0;
+          await activeSnapshotPage.setViewportSize(viewport);
+          await activeSnapshotPage.setContent(exportSnapshotHtml, {
+            waitUntil: "load",
+          });
+          const snapshotReadiness = await activeSnapshotPage.evaluate(
+            async () => {
+              await Promise.race([
+                document.fonts.ready,
+                new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+              ]);
+              await Promise.all(
+                Array.from(document.images, (image) =>
+                  image.decode().catch(() => undefined),
+                ),
+              );
+              return {
+                fontErrors: Array.from(document.fonts).filter(
+                  (font) => font.status === "error",
+                ).length,
+                loadingFonts: Array.from(document.fonts).filter(
+                  (font) => font.status === "loading",
+                ).length,
+                imageErrors: Array.from(document.images).filter(
+                  (image) => image.naturalWidth === 0,
+                ).length,
+              };
+            },
           );
-          return {
-            fontErrors: Array.from(document.fonts).filter(
-              (font) => font.status === "error",
-            ).length,
-            loadingFonts: Array.from(document.fonts).filter(
-              (font) => font.status === "loading",
-            ).length,
-            imageErrors: Array.from(document.images).filter(
-              (image) => image.naturalWidth === 0,
-            ).length,
-          };
-        });
-        if (blockedSnapshotRequests.length > 0) {
-          throw new Error("export snapshot requested an external resource");
-        }
-        const snapshotPng = await snapshotPage.screenshot({
-          fullPage: true,
-          animations: "disabled",
-          timeout: 30_000,
-        });
-        const snapshotDiff = await comparePngs(
-          browser,
-          referencePng,
-          snapshotPng,
-          { threshold: 0 },
-        );
-        fs.writeFileSync(
-          path.join(ARTIFACT_DIR, `${entry.name}-snapshot.png`),
-          snapshotPng,
-        );
-        fs.writeFileSync(
-          path.join(ARTIFACT_DIR, `${entry.name}-snapshot-diff.png`),
-          snapshotDiff.diffPng,
-        );
-        console.info(
-          `[imported-html-export] ${entry.name} snapshot diffPixels=${snapshotDiff.diffPixels} diffRatio=${snapshotDiff.diffRatio}`,
-        );
-
-        const diff = await comparePngs(browser, referencePng, exportedPng, {
-          threshold: 0,
-        });
-        let pdfPageComparisons:
-          | Array<{
-              page: number;
-              reference: { width: number; height: number };
-              candidate: { width: number; height: number };
-              dimensionMismatch: boolean;
-              diffPixels: number;
-              comparedPixels: number;
-              diffRatio: number;
-              maxDelta: number;
-              meanDelta: number;
-            }>
-          | undefined;
-        if (entry.name === "effects-transforms") {
-          stage.name = "all-screens PDF export";
-          const exportedPdf = await downloadAllScreensPdf(exportPage);
+          if (blockedSnapshotRequests.length > 0) {
+            throw new Error("export snapshot requested an external resource");
+          }
+          const snapshotPng = await activeSnapshotPage.screenshot({
+            fullPage: true,
+            animations: "disabled",
+            timeout: 30_000,
+          });
+          const snapshotDiff = await comparePngs(
+            browser,
+            referencePng,
+            snapshotPng,
+            { threshold: 0 },
+          );
           fs.writeFileSync(
-            path.join(ARTIFACT_DIR, `${entry.name}-all-screens.pdf`),
+            path.join(artifactDir, `${entry.name}-snapshot.png`),
+            snapshotPng,
+          );
+          fs.writeFileSync(
+            path.join(artifactDir, `${entry.name}-snapshot-diff.png`),
+            snapshotDiff.diffPng,
+          );
+          console.info(
+            `[imported-html-export] ${entry.name} snapshot diffPixels=${snapshotDiff.diffPixels} diffRatio=${snapshotDiff.diffRatio}`,
+          );
+
+          const diff = await comparePngs(browser, referencePng, exportedPng, {
+            threshold: 0,
+          });
+          outcomes.push({
+            name: entry.name,
+            reference: diff.reference,
+            exported: diff.candidate,
+            dimensionMismatch: diff.dimensionMismatch,
+            diffPixels: diff.diffPixels,
+            diffRatio: diff.diffRatio,
+            snapshotDiffPixels: snapshotDiff.diffPixels,
+            snapshotDiffRatio: snapshotDiff.diffRatio,
+            snapshotDimensionMismatch: snapshotDiff.dimensionMismatch,
+            maxDelta: diff.maxDelta,
+            meanDelta: diff.meanDelta,
+            worstCells: diff.worstCells,
+            previewFontErrors: previewReadiness.fontErrors,
+            previewLoadingFonts: previewReadiness.loadingFonts,
+            previewImageErrors: previewReadiness.imageErrors,
+            referenceFontErrors: referenceReadiness.fontErrors,
+            referenceLoadingFonts: referenceReadiness.loadingFonts,
+            referenceImageErrors: referenceReadiness.imageErrors,
+            snapshotFontErrors: snapshotReadiness.fontErrors,
+            snapshotLoadingFonts: snapshotReadiness.loadingFonts,
+            snapshotImageErrors: snapshotReadiness.imageErrors,
+            snapshotResourceFailures,
+            previewReadiness,
+            sourceDocument: {
+              width: referenceReadiness.width,
+              height: referenceReadiness.height,
+            },
+          });
+          fs.writeFileSync(
+            path.join(artifactDir, `${entry.name}-reference.png`),
+            referencePng,
+          );
+          fs.writeFileSync(
+            path.join(artifactDir, `${entry.name}-export.png`),
+            exportedPng,
+          );
+          fs.writeFileSync(
+            path.join(artifactDir, `${entry.name}-diff.png`),
+            diff.diffPng,
+          );
+        } else {
+          stage.name = "all-screens PDF export";
+          const exportedPdf = await downloadAllScreensPdf(
+            exportPage,
+            exportTrace,
+          );
+          fs.writeFileSync(
+            path.join(artifactDir, `${entry.name}-all-screens.pdf`),
             exportedPdf,
           );
-          const pdfPngs = await pdfPagesPng(exportedPdf, diff.reference.width);
-          pdfPageComparisons = [];
+          const pdfPngs = await pdfPagesPng(
+            exportedPdf,
+            imageSize(referencePng).width,
+          );
+          const pdfPageComparisons: Array<{
+            page: number;
+            reference: { width: number; height: number };
+            candidate: { width: number; height: number };
+            dimensionMismatch: boolean;
+            diffPixels: number;
+            comparedPixels: number;
+            diffRatio: number;
+            maxDelta: number;
+            meanDelta: number;
+          }> = [];
           for (const [index, pdfPng] of pdfPngs.entries()) {
             const pageDiff = await comparePngs(browser, referencePng, pdfPng, {
               threshold: 0,
             });
             fs.writeFileSync(
-              path.join(
-                ARTIFACT_DIR,
-                `${entry.name}-pdf-page-${index + 1}.png`,
-              ),
+              path.join(artifactDir, `${entry.name}-pdf-page-${index + 1}.png`),
               pdfPng,
             );
             fs.writeFileSync(
               path.join(
-                ARTIFACT_DIR,
+                artifactDir,
                 `${entry.name}-pdf-page-${index + 1}-diff.png`,
               ),
               pageDiff.diffPng,
@@ -869,55 +1258,27 @@ test("static design documents retain their rendered pixels through Design PNG ex
               `[imported-html-export] ${entry.name} PDF page ${index + 1} diffPixels=${pageDiff.diffPixels} diffRatio=${pageDiff.diffRatio}`,
             );
           }
+          outcomes.push({
+            name: entry.name,
+            pdfPageCount: pdfPageComparisons.length,
+            pdfPages: pdfPageComparisons,
+            previewFontErrors: previewReadiness.fontErrors,
+            previewLoadingFonts: previewReadiness.loadingFonts,
+            previewImageErrors: previewReadiness.imageErrors,
+            referenceFontErrors: referenceReadiness.fontErrors,
+            referenceLoadingFonts: referenceReadiness.loadingFonts,
+            referenceImageErrors: referenceReadiness.imageErrors,
+            previewReadiness,
+            sourceDocument: {
+              width: referenceReadiness.width,
+              height: referenceReadiness.height,
+            },
+          });
+          fs.writeFileSync(
+            path.join(artifactDir, `${entry.name}-reference.png`),
+            referencePng,
+          );
         }
-        const result = {
-          name: entry.name,
-          reference: diff.reference,
-          exported: diff.candidate,
-          dimensionMismatch: diff.dimensionMismatch,
-          diffPixels: diff.diffPixels,
-          diffRatio: diff.diffRatio,
-          snapshotDiffPixels: snapshotDiff.diffPixels,
-          snapshotDiffRatio: snapshotDiff.diffRatio,
-          snapshotDimensionMismatch: snapshotDiff.dimensionMismatch,
-          maxDelta: diff.maxDelta,
-          meanDelta: diff.meanDelta,
-          worstCells: diff.worstCells,
-          ...(pdfPageComparisons
-            ? {
-                pdfPageCount: pdfPageComparisons.length,
-                pdfPages: pdfPageComparisons,
-              }
-            : {}),
-          previewFontErrors: previewReadiness.fontErrors,
-          previewLoadingFonts: previewReadiness.loadingFonts,
-          previewImageErrors: previewReadiness.imageErrors,
-          referenceFontErrors: referenceReadiness.fontErrors,
-          referenceLoadingFonts: referenceReadiness.loadingFonts,
-          referenceImageErrors: referenceReadiness.imageErrors,
-          snapshotFontErrors: snapshotReadiness.fontErrors,
-          snapshotLoadingFonts: snapshotReadiness.loadingFonts,
-          snapshotImageErrors: snapshotReadiness.imageErrors,
-          snapshotResourceFailures,
-          previewReadiness,
-          sourceDocument: {
-            width: referenceReadiness.width,
-            height: referenceReadiness.height,
-          },
-        };
-        outcomes.push(result);
-        fs.writeFileSync(
-          path.join(ARTIFACT_DIR, `${entry.name}-reference.png`),
-          referencePng,
-        );
-        fs.writeFileSync(
-          path.join(ARTIFACT_DIR, `${entry.name}-export.png`),
-          exportedPng,
-        );
-        fs.writeFileSync(
-          path.join(ARTIFACT_DIR, `${entry.name}-diff.png`),
-          diff.diffPng,
-        );
         stage.name = "design cleanup";
         await postAction(request, baseURL, "delete-design", { id: designId });
         designIds.splice(designIds.indexOf(designId), 1);
@@ -940,17 +1301,15 @@ test("static design documents retain their rendered pixels through Design PNG ex
           name: entry.name,
           error: stage.name,
           exception: safe,
-          toast: toast
-            .join(" ")
-            .replace(/https?:\/\/[^\s)"'<>]+/gi, "[URL]")
-            .replace(
-              /\b(api[_-]?key|token|secret|signature)=([^&\s]+)/gi,
-              "$1=[redacted]",
-            )
-            .slice(0, 300),
-          toastHistory,
+          toast: redactExportDiagnostic(toast.join(" ")).slice(0, 300),
+          toastHistory: toastHistory.map((message) =>
+            redactExportDiagnostic(message).slice(0, 300),
+          ),
           snapshotResourceFailures,
-          diagnostics,
+          diagnosticsDropped,
+          diagnostics: [...diagnostics].sort(
+            (left, right) => left.caseMs - right.caseMs,
+          ),
         });
         if (designId) {
           try {
@@ -968,15 +1327,31 @@ test("static design documents retain their rendered pixels through Design PNG ex
     }
 
     fs.writeFileSync(
-      path.join(
-        ARTIFACT_DIR,
-        caseFilter ? `${caseFilter}-metrics.json` : "metrics.json",
-      ),
+      path.join(artifactDir, "metrics.json"),
       `${JSON.stringify(outcomes, null, 2)}\n`,
     );
+    const failureDetails = outcomes
+      .filter((outcome) => typeof outcome.error === "string")
+      .map((outcome) => ({
+        name: outcome.name,
+        stage: outcome.error,
+        exception: outcome.exception,
+        toast: outcome.toast,
+        toastHistory: Array.isArray(outcome.toastHistory)
+          ? outcome.toastHistory.map((message) => safeError(message).message)
+          : [],
+        diagnostics: outcome.diagnostics,
+        diagnosticsDropped: outcome.diagnosticsDropped,
+      }));
+    if (failureDetails.length > 0) {
+      await testInfo.attach("imported-html-export-failures.json", {
+        body: JSON.stringify(failureDetails, null, 2),
+        contentType: "application/json",
+      });
+    }
     console.info(
-      `[imported-html-export] ${JSON.stringify(
-        outcomes.map((outcome) => ({
+      `[imported-html-export] ${JSON.stringify({
+        outcomes: outcomes.map((outcome) => ({
           name: outcome.name,
           diffPixels: outcome.diffPixels,
           diffRatio: outcome.diffRatio,
@@ -984,44 +1359,47 @@ test("static design documents retain their rendered pixels through Design PNG ex
           snapshotDiffRatio: outcome.snapshotDiffRatio,
           error: outcome.error,
         })),
-      )}`,
+        failures: failureDetails,
+      })}`,
     );
     expect(caseFailures, "case-level browser/download failures").toEqual([]);
-    const comparedOutcomes = outcomes.filter(
-      (outcome) => typeof outcome.diffRatio === "number",
-    );
-    const minimumComparedOutcomes = caseFilter
-      ? Number(
-          STATIC_EXPORT_FIXTURES.some((entry) => entry.name === caseFilter),
-        )
-      : STATIC_EXPORT_FIXTURES.length;
-    expect(
-      comparedOutcomes.length,
-      "the run must compare each checked-in source document with its export",
-    ).toBeGreaterThanOrEqual(minimumComparedOutcomes);
+    expect(outcomes).toHaveLength(1);
+    if (exportMode === "png") {
+      expect(
+        outcomes.some((outcome) => typeof outcome.diffRatio === "number"),
+        "the case must compare its checked-in source document with the PNG export",
+      ).toBe(true);
+    } else {
+      expect(
+        outcomes.some((outcome) => Array.isArray(outcome.pdfPages)),
+        "the PDF case must compare both exported pages",
+      ).toBe(true);
+    }
     const exportFailures = outcomes
       .filter(
         (outcome) =>
           !outcome.unsupported &&
-          (outcome.dimensionMismatch ||
-            outcome.diffRatio !== 0 ||
-            outcome.snapshotDimensionMismatch ||
-            outcome.snapshotDiffPixels !== 0 ||
+          ((exportMode === "png" &&
+            (outcome.dimensionMismatch ||
+              outcome.diffRatio !== 0 ||
+              outcome.snapshotDimensionMismatch ||
+              outcome.snapshotDiffPixels !== 0 ||
+              outcome.snapshotFontErrors !== 0 ||
+              outcome.snapshotLoadingFonts !== 0 ||
+              outcome.snapshotImageErrors !== 0)) ||
+            (exportMode === "pdf" &&
+              (!Array.isArray(outcome.pdfPages) ||
+                outcome.pdfPageCount !== 2 ||
+                outcome.pdfPages.some(
+                  (page) =>
+                    page.dimensionMismatch !== false || page.diffRatio !== 0,
+                ))) ||
             outcome.previewFontErrors !== 0 ||
             outcome.previewLoadingFonts !== 0 ||
             outcome.previewImageErrors !== 0 ||
             outcome.referenceFontErrors !== 0 ||
             outcome.referenceLoadingFonts !== 0 ||
             outcome.referenceImageErrors !== 0 ||
-            outcome.snapshotFontErrors !== 0 ||
-            outcome.snapshotLoadingFonts !== 0 ||
-            outcome.snapshotImageErrors !== 0 ||
-            (Array.isArray(outcome.pdfPages) &&
-              (outcome.pdfPageCount !== 2 ||
-                outcome.pdfPages.some(
-                  (page) =>
-                    page.dimensionMismatch !== false || page.diffRatio !== 0,
-                ))) ||
             (Array.isArray(outcome.snapshotResourceFailures) &&
               outcome.snapshotResourceFailures.length !== 0) ||
             outcome.error),
@@ -1069,4 +1447,50 @@ test("static design documents retain their rendered pixels through Design PNG ex
     if (sourceServerStarted) await closeServer(sourceServer);
     fs.rmSync(siteRoot, { recursive: true, force: true });
   }
-});
+}
+
+const caseFilter = process.env.DESIGN_EXPORT_CORPUS_CASE;
+const selectedFixtures = caseFilter
+  ? STATIC_EXPORT_FIXTURES.filter((entry) => entry.name === caseFilter)
+  : STATIC_EXPORT_FIXTURES;
+
+if (selectedFixtures.length === 0) {
+  test("requested imported HTML corpus case is available", () => {
+    throw new Error("requested imported HTML corpus case is unavailable");
+  });
+} else {
+  for (const entry of selectedFixtures) {
+    test(`static Design document ${entry.name} retains its rendered pixels through PNG export`, async ({
+      page,
+      browser,
+      request,
+      baseURL,
+    }, testInfo) => {
+      await runStaticDesignExportCase(
+        { page, browser, request, baseURL },
+        testInfo,
+        entry,
+        "png",
+      );
+    });
+  }
+
+  const pdfEntry = selectedFixtures.find(
+    (entry) => entry.name === "effects-transforms",
+  );
+  if (pdfEntry) {
+    test(`static Design document ${pdfEntry.name} retains its rendered pixels through all-screens PDF export`, async ({
+      page,
+      browser,
+      request,
+      baseURL,
+    }, testInfo) => {
+      await runStaticDesignExportCase(
+        { page, browser, request, baseURL },
+        testInfo,
+        pdfEntry,
+        "pdf",
+      );
+    });
+  }
+}
