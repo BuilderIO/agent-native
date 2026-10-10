@@ -1504,6 +1504,7 @@ export function isActionPreExecutionFailure(
   if (failure?.run === run && !failure.handlerEntered) return true;
   if (failure && failure.origin !== run) return false;
   return (
+    error instanceof ActionInputValidationError ||
     isAgentConnectionRequiredError(error) ||
     ((isActionContractError(error) || isAgentActionStopError(error)) &&
       error.errorCode === "permanent_precondition")

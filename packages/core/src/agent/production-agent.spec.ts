@@ -31,6 +31,7 @@ import {
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
+import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
@@ -16521,13 +16522,13 @@ describe("runAgentLoop endsTurn", () => {
                 type: "tool-call" as const,
                 id: "ask-1",
                 name: "ask-question",
-                input: { question: "Which range?" },
+                input: { question: "Which range?", options: "[]" },
               },
               {
                 type: "tool-call" as const,
                 id: "ask-2",
                 name: "ask-question",
-                input: { question: "Which grain?" },
+                input: { question: "Which grain?", options: "[]" },
               },
             ],
           };
@@ -16591,7 +16592,8 @@ describe("runAgentLoop endsTurn", () => {
 
   it("keeps the turn running when the endsTurn action fails", async () => {
     const { engine, streamCalls } = yieldEngine();
-    const run = vi.fn(async () => "asked");
+    const ask = createUrlTools()["ask-question"]!;
+    const run = vi.fn(ask.run);
     const outcomes: AgentLoopOutcome[] = [];
 
     await runAgentLoop({
@@ -16602,17 +16604,8 @@ describe("runAgentLoop endsTurn", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
         "ask-question": {
-          ...actionEntry({ readOnly: false }),
-          ...defineAction({
-            description: "Ask a question",
-            schema: z.object({
-              question: z.string(),
-              options: z.array(z.string()).min(1),
-            }),
-            readOnly: false,
-            endsTurn: true,
-            run,
-          }),
+          ...ask,
+          run,
         },
       },
       send: () => {},
@@ -16620,7 +16613,7 @@ describe("runAgentLoop endsTurn", () => {
       signal: new AbortController().signal,
     });
 
-    expect(run).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledTimes(2);
     expect(streamCalls()).toBe(2);
     expect(outcomes).toEqual([{ state: "completed" }]);
   });

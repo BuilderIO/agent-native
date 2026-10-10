@@ -1,4 +1,5 @@
 import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../../action-ui.js";
+import { ActionInputValidationError } from "../../action.js";
 import type { ActionEntry } from "../../agent/production-agent.js";
 import {
   clampDataWidgetRows,
@@ -434,7 +435,8 @@ export function createUrlTools(): Record<string, ActionEntry> {
       },
       run: async (args) => {
         const question = String(args?.question ?? "").trim();
-        if (!question) throw new Error("'question' is required.");
+        if (!question)
+          throw new ActionInputValidationError("'question' is required.");
         const header = String(args?.header ?? "").trim();
         const allowMultiple = String(args?.allowMultiple ?? "") === "true";
         const allowFreeText = String(args?.allowFreeText ?? "true") !== "false";
@@ -443,12 +445,12 @@ export function createUrlTools(): Record<string, ActionEntry> {
         try {
           parsedOptions = JSON.parse(String(args?.options ?? "[]"));
         } catch {
-          throw new Error(
+          throw new ActionInputValidationError(
             "'options' must be a JSON array of { label, value?, description?, recommended? }.",
           );
         }
         if (!Array.isArray(parsedOptions) || parsedOptions.length === 0) {
-          throw new Error(
+          throw new ActionInputValidationError(
             "'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.",
           );
         }
@@ -486,7 +488,7 @@ export function createUrlTools(): Record<string, ActionEntry> {
           })
           .filter((opt): opt is AskOption => opt !== null);
         if (options.length === 0) {
-          throw new Error(
+          throw new ActionInputValidationError(
             "'options' must contain at least one option with a label.",
           );
         }
