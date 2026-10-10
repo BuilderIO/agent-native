@@ -5814,9 +5814,9 @@ export function createCoreRoutesPlugin(
         `${P}/agent-engine/status`,
         defineEventHandler(async (event) => {
           try {
+            const statusStartedAt = Date.now();
             const { userEmail, orgId } =
               await resolveAgentEngineStatusIdentity(event);
-            const statusStartedAt = Date.now();
             const status = await memoizeAgentEngineStatus(
               { userEmail, orgId },
               async () =>
