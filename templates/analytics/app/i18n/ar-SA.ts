@@ -8,6 +8,7 @@ export default {
     overview: "نظرة عامة",
     dashboard: "لوحة معلومات",
     dataSources: "مصادر البيانات",
+    sourceStatus: "حالة المصادر",
     dataDictionary: "قاموس البيانات",
     sessions: "الجلسات",
     monitoring: "Monitoring",
@@ -513,6 +514,32 @@ export default {
       resourcesSubmitted: "تم إرسال {{count}} من الموارد.",
     },
   },
+  dataStatus: {
+    sources: "المصادر",
+    index: "الفهرس",
+    connected: "متصل",
+    notConnected: "غير متصل",
+    needsReauth: "يلزم إعادة المصادقة",
+    error: "خطأ",
+    loadingSources: "جارٍ تحميل حالة المصادر",
+    indexNotImported: "لم يتم استيراد فهرس مُنشأ.",
+    indexUnreadable: "تعذرت قراءة الفهرس المحفوظ. ارفع فهرسًا صالحًا.",
+    indexReadFailed: "تعذر تحميل حالة الفهرس.",
+    lastBuilt: "آخر إنشاء",
+    freshness: "حداثة البيانات",
+    fresh: "حديث · {{age}}",
+    stale: "قديم · {{age}}",
+    generatedUnapproved: "مُنشأ · غير معتمد",
+    entriesBySource: "{{count}} مدخل حسب المصدر",
+    noSourceEntries: "لا تتوفر أعداد حسب المصدر.",
+    countUnavailable: "غير متاح",
+    adminUpload: "رفع المسؤول",
+    exportDictionary: "تصدير القاموس",
+    exportingDictionary: "جارٍ تصدير القاموس…",
+    exportFailed: "تعذر تصدير القاموس. حاول مرة أخرى.",
+    exportEmpty: "لا توجد مدخلات في القاموس لتصديرها.",
+    exportLimitReached: "يتجاوز القاموس حد التصدير. تواصل مع المسؤول.",
+  },
   dataDictionary: {
     intro:
       "كتالوج المقاييس والجداول وتعريفات الأعمال التي يستخدمها وكيل التحليلات عند إنشاء لوحات المعلومات من الموجهات. حافظ على دقة الإدخالات وسيتوقف الوكيل عن التخمين بشأن بياناتك.",
@@ -572,6 +599,26 @@ export default {
     exampleUseCasePlaceholder: "متى يجب على شخص ما الوصول إلى هذا المقياس؟",
     saving: "توفير...",
     saveEntry: "حفظ الإدخال",
+    importIndex: "استيراد فهرس المصادر",
+    indexNotImported: "لم يتم استيراد فهرس مصادر مُنشأ.",
+    indexUnreadable: "تعذرت قراءة فهرس المصادر المحفوظ؛ أعد استيراد ملف صالح.",
+    indexReadFailed: "تعذر التحقق من فهرس المصادر المحفوظ؛ حاول مرة أخرى.",
+    indexReady: "تم إنشاء {{count}} من تعريفات المصادر في {{date}}.",
+    indexStale:
+      "مرّ {{days}} يومًا على اللقطة. حدّثها للتحقق من وجود إصدارات أحدث للمصادر.",
+    indexFileInvalid:
+      "اختر ملف JSON صالحًا لفهرس المصادر بحجم لا يتجاوز 750 كيلوبايت.",
+    replaceIndexTitle: "استبدال فهرس المصادر؟",
+    replaceIndexDescription:
+      "سيستبدل هذا فهرس المصادر الحالي للمؤسسة. تظل التعريفات المستوردة اقتراحات غير معتمدة وليست نتائج استعلامات مباشرة.",
+    indexPreview: "{{count}} تعريفات من {{sources}}؛ تاريخ الإنشاء {{date}}.",
+    replaceIndex: "استبدال الفهرس",
+    importingIndex: "جارٍ الاستيراد…",
+    indexImportFailed:
+      "تعذر استيراد فهرس المصادر. تحقق من الملف ثم أعد المحاولة.",
+    dictionaryPage: "الصفحة {{page}} · {{count}} من {{total}} نتائج",
+    previousPage: "السابقة",
+    nextPage: "التالي",
   },
   dataSources: {
     uploadFile: "تحميل الملف",
@@ -608,6 +655,10 @@ export default {
       "استخدام بيانات الاعتماد المحفوظة في هذا التطبيق. لإعادة الاستخدام عبر التطبيقات، قم بتوصيل هذا الموفر ومنحه في Dispatch.",
     sharedFallback:
       "قم بتوصيل أو منح هذا الموفر في Dispatch لإعادة استخدامه عبر التطبيقات، أو حفظ بيانات الاعتماد المحلية أدناه.",
+    sharedNeedsReauth:
+      "يحتاج اتصال مساحة العمل المشترك إلى إعادة التفويض. أعد توصيله في Dispatch.",
+    sharedError:
+      "أبلغ اتصال مساحة العمل المشترك عن خطأ. افتح Dispatch لمراجعته وإصلاحه.",
     workspaceReadyDescription:
       "هذا المصدر جاهز من خلال اتصال مساحة عمل مشتركة. إدارة الوصول المشترك في Dispatch، أو إضافة بيانات الاعتماد المحلية لهذا التطبيق فقط.",
     testing: "اختبار...",
@@ -969,6 +1020,7 @@ export default {
     dashboard: "لوحة القيادة - Analytics",
     dataDictionary: "قاموس البيانات - Analytics",
     dataSources: "مصادر البيانات - Analytics",
+    sourceStatus: "حالة المصادر - Analytics",
     sessions: "الجلسات - Analytics",
     eventCatalog: "كتالوج الأحداث - Analytics",
     routePerformance: "أداء المسارات - Analytics",

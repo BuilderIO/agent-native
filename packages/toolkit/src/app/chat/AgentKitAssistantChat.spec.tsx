@@ -41,6 +41,7 @@ const chatMocks = vi.hoisted(() => ({
   appState: new Map<string, unknown>(),
   composerDrafts: new Map<string, string>(),
   threadId: "thread-1",
+  contextItems: [] as any[],
   renderEmptyState: false,
   pendingFiles: [] as File[],
   pendingReferences: [] as any[],
@@ -572,11 +573,26 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
       ["codex-cli", "claude-cli", "pi-cli", "opencode-cli"].includes(
         engine ?? "",
       ),
-    filterAgentChatContextItems: (items: unknown[]) => items,
+    filterAgentChatContextItems: actual.filterAgentChatContextItems,
     formatAgentChatContextItemsForPrompt:
       actual.formatAgentChatContextItemsForPrompt,
-    getAgentChatContextState: () => ({ items: [], updatedAt: 0 }),
-    publishAgentChatContextItems: vi.fn(),
+    getAgentChatContextState: () => ({
+      items: chatMocks.contextItems,
+      updatedAt: 0,
+    }),
+    publishAgentChatContextItems: vi.fn((items: unknown[]) => {
+      chatMocks.contextItems = items;
+    }),
+    setAgentChatContextItemAndPersist: async (item: unknown) => {
+      await actual.setAgentChatContextItemAndPersist(
+        item as Parameters<typeof actual.setAgentChatContextItemAndPersist>[0],
+      );
+      chatMocks.contextItems = actual.getAgentChatContextState().items;
+    },
+    removeAgentChatContextItemAndPersist: async (key: string) => {
+      await actual.removeAgentChatContextItemAndPersist(key);
+      chatMocks.contextItems = actual.getAgentChatContextState().items;
+    },
     refreshAgentChatContext: vi.fn(async () => undefined),
     subscribeAgentChatContext: vi.fn(() => () => undefined),
   };
@@ -823,6 +839,7 @@ beforeEach(() => {
   chatMocks.appState.clear();
   chatMocks.composerDrafts.clear();
   chatMocks.threadId = "thread-1";
+  chatMocks.contextItems = [];
   chatMocks.renderEmptyState = false;
   chatMocks.pendingFiles = [];
   chatMocks.pendingReferences = [];
@@ -2103,6 +2120,61 @@ describe("AgentKitAssistantChat host behavior", () => {
       chatMocks.composerProps.onRemoveContextItem(item.key),
     );
     expect(context.onRemoveContextItem).toHaveBeenCalledWith(item.key);
+  });
+
+  it("keeps staged prefill context in its target thread", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    const props = baseProps();
+    await mount(props, ref);
+
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "agent-chat-prefill-context",
+          title: "Active app context",
+          context: "Selected rows: a, b",
+        },
+        { focus: false, threadScoped: true },
+      ),
+    );
+
+    const staged = {
+      key: "agent-chat-prefill-context:thread-1",
+      title: "Active app context",
+      context: "Selected rows: a, b",
+      targetThreadId: "thread-1",
+    };
+    expect(
+      (
+        chatMocks.appState.get("agent-chat-context") as {
+          items: unknown[];
+        }
+      ).items,
+    ).toEqual([staged]);
+    expect(chatMocks.contextItems).toEqual([staged]);
+    expect(chatMocks.composerProps.contextItems).toEqual([staged]);
+
+    await act(async () =>
+      ref.current!.removeComposerContextItem("agent-chat-prefill-context", {
+        threadScoped: true,
+      }),
+    );
+    expect(
+      (
+        chatMocks.appState.get("agent-chat-context") as {
+          items: unknown[];
+        }
+      ).items,
+    ).toEqual([]);
+    expect(chatMocks.composerProps.contextItems).toEqual([]);
+
+    chatMocks.threadId = "thread-2";
+    await act(async () =>
+      root.render(
+        <AgentKitAssistantChat {...baseProps({ threadId: "thread-2" })} />,
+      ),
+    );
+    expect(chatMocks.composerProps.contextItems).toEqual([]);
   });
 
   it.each(["schedule", "automation", "skill"])(

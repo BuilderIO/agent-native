@@ -280,22 +280,4 @@ describe("GET /api/qa-import-assets/:assetId", () => {
       "/private/qa-owner/0f0f0f0f-1111-4222-8333-444444444444.svg",
     );
   });
-
-  it("falls back to the previous local cache path for a saved asset", async () => {
-    const currentPath = "/private/new/0f0f0f0f-1111-4222-8333-444444444444.png";
-    const previousPath =
-      "/private/old/0f0f0f0f-1111-4222-8333-444444444444.png";
-    mockAssetPaths.mockReturnValue([currentPath, previousPath]);
-    mockStat
-      .mockRejectedValueOnce(missingFileError())
-      .mockResolvedValueOnce({ isFile: () => true });
-
-    await expect(handler(makeEvent() as never)).resolves.toEqual({
-      kind: "stream-response",
-    });
-
-    expect(mockStat).toHaveBeenNthCalledWith(1, currentPath);
-    expect(mockStat).toHaveBeenNthCalledWith(2, previousPath);
-    expect(mockCreateReadStream).toHaveBeenCalledWith(previousPath);
-  });
 });

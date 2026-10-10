@@ -1055,17 +1055,20 @@ function buildOnboardingEventsCte(
     dateRangeFilter?: string;
     observationCutoffSql?: string;
     receivedAtCutoffSql?: string;
+    includeIdentityBridge?: boolean;
   } = {},
 ): string {
   const dateRangeFilter =
     options.dateRangeFilter ?? DASHBOARD_TIME_RANGE_FILTER;
+  const includeIdentityBridge = options.includeIdentityBridge !== false;
   const observationCutoffFilter = options.observationCutoffSql
     ? `\n      AND e.timestamp::timestamptz < ${options.observationCutoffSql}`
     : "";
   const receivedAtCutoffFilter = options.receivedAtCutoffSql
     ? `\n      AND e.received_at::timestamptz < ${options.receivedAtCutoffSql}`
     : "";
-  return `WITH auth_identity_bridge AS (
+  const identityBridgeCte = includeIdentityBridge
+    ? `auth_identity_bridge AS (
   SELECT linked_email, MIN(identities.auth_user_id) AS auth_user_id
   FROM (
     SELECT lower(COALESCE(
@@ -1082,25 +1085,33 @@ function buildOnboardingEventsCte(
     AND identities.auth_user_id IS NOT NULL
   GROUP BY linked_email
   HAVING COUNT(DISTINCT identities.auth_user_id) = 1
-), scoped_onboarding_events AS (
-  SELECT e.*,
-    COALESCE(
+), `
+    : "";
+  const identityKeyProjection = includeIdentityBridge
+    ? `COALESCE(
       NULLIF(e.properties::jsonb ->> 'auth_user_id', ''),
       auth_identity_bridge.auth_user_id,
       NULLIF(e.user_key, ''),
       NULLIF(e.user_id, ''),
       NULLIF(e.anonymous_id, '')
-    ) AS funnel_user_key,
+    ) AS funnel_user_key,`
+    : "";
+  const identityBridgeJoin = includeIdentityBridge
+    ? `LEFT JOIN auth_identity_bridge ON auth_identity_bridge.linked_email = lower(COALESCE(
+    CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
+    CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
+  ))`
+    : "";
+  return `WITH ${identityBridgeCte}scoped_onboarding_events AS (
+  SELECT e.*,
+    ${identityKeyProjection}
     COALESCE(
       CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END,
       CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
       CASE WHEN NULLIF(e.properties::jsonb ->> 'auth_user_id', '') LIKE '%@%.%' THEN e.properties::jsonb ->> 'auth_user_id' END
     ) AS funnel_user_email
   FROM analytics_events e
-  LEFT JOIN auth_identity_bridge ON auth_identity_bridge.linked_email = lower(COALESCE(
-    CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
-    CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
-  ))
+  ${identityBridgeJoin}
   WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
@@ -1406,7 +1417,7 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
       WHEN lower(${TEMPLATE_EXPR}) = 'slides'
         THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
     END AS attempt_id,
-    e.session_id
+    e.session_id AS source_session_id
   FROM scoped_onboarding_events e
   JOIN cohort_sessions s ON s.session_id = e.session_id
   WHERE (
@@ -1425,16 +1436,17 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
         THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
     END IS NOT NULL
 ), unique_output_links AS (
-  SELECT template_name, output_id, attempt_id, MIN(session_id) AS session_id
+  SELECT template_name, output_id, attempt_id,
+    MIN(source_session_id) AS session_id
   FROM eligible_output_links
   GROUP BY template_name, output_id, attempt_id
-  HAVING COUNT(DISTINCT session_id) = 1
+  HAVING COUNT(DISTINCT source_session_id) = 1
 ), design_output_links AS (
   SELECT DISTINCT
     NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
     NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') AS attempt_id,
-    e.session_id,
-    'onboarding' AS journey_kind
+    e.session_id AS source_session_id,
+    'onboarding' AS source_journey_kind
   FROM scoped_onboarding_events e
   JOIN cohort_sessions s ON s.session_id = e.session_id
   WHERE lower(${TEMPLATE_EXPR}) = 'design'
@@ -1445,8 +1457,8 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
   SELECT DISTINCT
     NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
     NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') AS attempt_id,
-    e.session_id,
-    'standalone_setup' AS journey_kind
+    e.session_id AS source_session_id,
+    'standalone_setup' AS source_journey_kind
   FROM scoped_onboarding_events e
   JOIN standalone_setup_sessions s ON s.session_id = e.session_id
   WHERE lower(${TEMPLATE_EXPR}) = 'design'
@@ -1457,12 +1469,12 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
   SELECT
     output_id,
     attempt_id,
-    MIN(session_id) AS session_id,
-    MIN(journey_kind) AS journey_kind
+    MIN(source_session_id) AS session_id,
+    MIN(source_journey_kind) AS journey_kind
   FROM design_output_links
   GROUP BY output_id, attempt_id
-  HAVING COUNT(DISTINCT session_id) = 1
-    AND COUNT(DISTINCT journey_kind) = 1
+  HAVING COUNT(DISTINCT source_session_id) = 1
+    AND COUNT(DISTINCT source_journey_kind) = 1
 ), journey_events AS (
   SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
     e.properties, lower(${TEMPLATE_EXPR}) AS template_name, e.template, e.app,
@@ -1554,7 +1566,7 @@ FROM journey_events e
 ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id
 LIMIT {{journeyLimit}} OFFSET {{journeyOffset}}`;
 
-const ONBOARDING_JOURNEY_EVENTS_SQL = `${ONBOARDING_EVENTS_CTE}${ONBOARDING_JOURNEY_SCOPE_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
+const ONBOARDING_JOURNEY_EVENTS_SQL = `${buildOnboardingEventsCte({ includeIdentityBridge: false })}${ONBOARDING_JOURNEY_SCOPE_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
 
 const ONBOARDING_JOURNEY_DATE_RANGE_FILTER =
   DASHBOARD_TIME_RANGE_FILTER.replace(
@@ -1643,6 +1655,21 @@ function validateObservationWindow(
   }
 }
 
+export function onboardingJourneyEventDateRange(
+  filters: OnboardingJourneyEventsFilters,
+  observation: OnboardingJourneyObservationWindow,
+): { startDate: string; endDate: string } {
+  validateOnboardingJourneyFilters(filters);
+  validateObservationWindow(observation);
+  return {
+    startDate: filters.dateFrom,
+    endDate:
+      filters.dateTo < observation.observationDate
+        ? filters.dateTo
+        : observation.observationDate,
+  };
+}
+
 function fillOnboardingJourneySql(
   sql: string,
   values: Record<string, string>,
@@ -1688,6 +1715,7 @@ export function buildOnboardingJourneyEventsSql(
     const cte = buildOnboardingEventsCte({
       dateRangeFilter: ONBOARDING_JOURNEY_DATE_RANGE_FILTER,
       observationCutoffSql: "NULLIF('{{observationCutoff}}', '')::timestamptz",
+      includeIdentityBridge: false,
       ...(options.freezeReceivedAt
         ? {
             receivedAtCutoffSql:
@@ -1724,7 +1752,7 @@ export function buildOnboardingJourneyFollowupSql(
     throw new Error("A follow-up query requires terminal onboarding steps");
   }
   const terminalRows = terminalSteps
-    .map((terminal) => {
+    .map((terminal, index) => {
       if (
         !terminal.sessionId ||
         !terminal.stepKey ||
@@ -1732,12 +1760,19 @@ export function buildOnboardingJourneyFollowupSql(
       ) {
         throw new Error("Invalid onboarding terminal step");
       }
-      return `SELECT ${sqlStringLiteral(terminal.sessionId)} AS session_id, ${sqlStringLiteral(terminal.stepKey)} AS terminal_step_key, NULLIF('${new Date(terminal.tsMs).toISOString()}', '')::timestamptz AS terminal_at`;
+      const values = [
+        sqlStringLiteral(terminal.sessionId),
+        sqlStringLiteral(terminal.stepKey),
+        sqlStringLiteral(new Date(terminal.tsMs).toISOString()),
+      ];
+      const columns = ["session_id", "terminal_step_key", "terminal_at_text"];
+      return `SELECT ${values.map((value, column) => (index === 0 ? `${value} AS ${columns[column]}` : value)).join(", ")}`;
     })
     .join(" UNION ALL ");
   const baseCte = buildOnboardingEventsCte({
     dateRangeFilter: ONBOARDING_JOURNEY_DATE_RANGE_FILTER,
     observationCutoffSql: "NULLIF('{{observationCutoff}}', '')::timestamptz",
+    includeIdentityBridge: false,
   });
   const query = `${baseCte}${ONBOARDING_JOURNEY_SCOPE_CTES}, cohort_sessions AS (
   SELECT DISTINCT i.session_id
@@ -1745,7 +1780,11 @@ export function buildOnboardingJourneyFollowupSql(
   JOIN scoped_onboarding_events c ON c.session_id = i.session_id
   WHERE c.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)})
 ), terminal_steps AS (
-  {{terminalRows}}
+  SELECT terminal_row.session_id, terminal_row.terminal_step_key,
+    terminal_row.terminal_at_text::timestamptz AS terminal_at
+  FROM (
+    {{terminalRows}}
+  ) terminal_row
 ), eligible_terminal_steps AS (
   SELECT terminal.*
   FROM terminal_steps terminal
@@ -1781,6 +1820,40 @@ ORDER BY terminal_step_key`;
 export const ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS = 30;
 export const MAX_ONBOARDING_PERSON_FOLLOWUP_MEMBERS = 1_000;
 
+export function onboardingJourneyPersonFollowupDateRange(
+  filters: OnboardingJourneyEventsFilters,
+  members: readonly OnboardingJourneyPersonMember[],
+  observation: OnboardingJourneyObservationWindow,
+): {
+  startAt: string;
+  startDate: string;
+  endAt: string;
+  endDate: string;
+} {
+  validateOnboardingJourneyFilters(filters);
+  validateObservationWindow(observation);
+  if (!members.length || !observation.observationWatermark) {
+    throw new Error(
+      "Person follow-up requires members and an observation watermark",
+    );
+  }
+  const horizonMs = ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS * DAY_MS;
+  const activityStartMs = Math.min(
+    Date.parse(`${filters.dateFrom}T00:00:00.000Z`),
+    ...members.map((member) => member.tsMs),
+  );
+  const activityEndMs = Math.min(
+    Date.parse(observation.observationWatermark),
+    Math.max(...members.map((member) => member.tsMs + horizonMs)),
+  );
+  return {
+    startAt: new Date(activityStartMs).toISOString(),
+    startDate: new Date(activityStartMs).toISOString().slice(0, 10),
+    endAt: new Date(activityEndMs).toISOString(),
+    endDate: new Date(activityEndMs).toISOString().slice(0, 10),
+  };
+}
+
 /** Cross-session person follow-up uses direct auth IDs and returns aggregates only. */
 export function buildOnboardingJourneyPersonFollowupSql(
   filters: OnboardingJourneyEventsFilters,
@@ -1815,34 +1888,47 @@ export function buildOnboardingJourneyPersonFollowupSql(
       ) {
         throw new Error("Invalid onboarding person follow-up member");
       }
-      const identityStatus = authUserId ? "identified" : "unavailable";
-      const personId = authUserId ? sqlStringLiteral(authUserId) : "NULL::text";
-      return `SELECT ${index} AS member_id, ${sqlStringLiteral(member.sessionId)} AS session_id, ${sqlStringLiteral(member.stepKey)} AS terminal_step_key, ${sqlStringLiteral(app)} AS terminal_app, NULLIF('${new Date(member.tsMs).toISOString()}', '')::timestamptz AS terminal_at, ${personId} AS auth_user_id, '${identityStatus}' AS identity_status`;
+      const payload = sqlStringLiteral(
+        JSON.stringify({
+          sessionId: member.sessionId,
+          stepKey: member.stepKey,
+          app,
+          timestamp: new Date(member.tsMs).toISOString(),
+          authUserId,
+        }),
+      );
+      return `SELECT ${payload}${index === 0 ? " AS member_payload" : ""}`;
     })
     .join(" UNION ALL ");
 
-  const watermarkMs = Date.parse(watermark);
-  const horizonMs = ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS * DAY_MS;
-  const activityStartMs = Math.min(
-    Date.parse(`${filters.dateFrom}T00:00:00.000Z`),
-    ...members.map((member) => member.tsMs),
+  const dateRange = onboardingJourneyPersonFollowupDateRange(
+    filters,
+    members,
+    observation,
   );
-  const activityEndMs = Math.min(
-    watermarkMs,
-    Math.max(...members.map((member) => member.tsMs + horizonMs)),
-  );
-  const activityStartDate = new Date(activityStartMs)
-    .toISOString()
-    .slice(0, 10);
-  const activityEndDate = new Date(activityEndMs).toISOString().slice(0, 10);
-  const activityStart = new Date(activityStartMs).toISOString();
-  const activityEnd = new Date(activityEndMs).toISOString();
+  const activityStartDate = dateRange.startDate;
+  const activityEndDate = dateRange.endDate;
+  const activityStart = dateRange.startAt;
+  const activityEnd = dateRange.endAt;
   const appExpression = TEMPLATE_EXPR.replace(/\btemplate\b/g, "e.template")
     .replace(/\bproperties\b/g, "e.properties")
     .replace(/\bapp\b/g, "e.app");
 
   const query = `WITH terminal_members AS (
+  SELECT ROW_NUMBER() OVER (
+      ORDER BY terminal_row.member_payload::jsonb ->> 'timestamp',
+        terminal_row.member_payload::jsonb ->> 'sessionId',
+        terminal_row.member_payload::jsonb ->> 'stepKey'
+    ) AS member_id,
+    terminal_row.member_payload::jsonb ->> 'sessionId' AS session_id,
+    terminal_row.member_payload::jsonb ->> 'stepKey' AS terminal_step_key,
+    terminal_row.member_payload::jsonb ->> 'app' AS terminal_app,
+    (terminal_row.member_payload::jsonb ->> 'timestamp')::timestamptz AS terminal_at,
+    terminal_row.member_payload::jsonb ->> 'authUserId' AS auth_user_id,
+    CASE WHEN terminal_row.member_payload::jsonb ->> 'authUserId' IS NULL THEN 'unavailable' ELSE 'identified' END AS identity_status
+  FROM (
   {{terminalRows}}
+  ) terminal_row
 ), activity_events AS (
   SELECT e.session_id, e.timestamp::timestamptz AS event_at,
     lower(${appExpression}) AS activity_app,

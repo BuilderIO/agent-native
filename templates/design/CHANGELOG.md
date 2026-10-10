@@ -15,6 +15,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Design widgets show the project title and sharing controls in the editor header.
 - Design widgets now include an editable title, sharing, mode selection, and zoom controls.
 - Left rail is now a 56px File, Agents and Tokens rail with labels, tooltips, an account avatar, a collapse button, and one shared panel header
+- Journey storyboards support up to 2,000 steps
 - Design widgets now support scoped edits and screen creation directly on the all-screens canvas.
 - Journey canvases place app cohorts side by side, lead with onboarding paths, and keep replay details expandable
 - Onboarding trees keep setup choices together while showing deeper paths clearly.
