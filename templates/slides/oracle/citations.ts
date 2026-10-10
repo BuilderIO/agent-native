@@ -11,12 +11,15 @@ const TEST_MODIFIERS = new Set([
   "skip",
   "todo",
   "each",
+  "for",
   "concurrent",
   "fails",
   "sequential",
   "skipIf",
   "runIf",
 ]);
+// Table-driven forms: one test per case, read from the table.
+const TABLE_FORMS = new Set(["each", "for"]);
 const TABLE_WRAPPERS = new Set([
   "TsAsExpression",
   "TsConstAssertion",
@@ -29,6 +32,19 @@ const NEVER_RUNS = new Set(["skip", "todo"]);
 // These run or skip by their condition. A literal condition is read; any other
 // condition may skip, so the declaration is treated as not running.
 const CONDITIONAL = new Set(["skipIf", "runIf"]);
+// Statements that leave the scope early. Code after one may not run.
+const TRANSFERS_CONTROL = new Set([
+  "ReturnStatement",
+  "ThrowStatement",
+  "BreakStatement",
+  "ContinueStatement",
+]);
+// A return inside a nested function leaves that function, not the scope.
+const FUNCTION_NODES = new Set([
+  "ArrowFunctionExpression",
+  "FunctionExpression",
+  "FunctionDeclaration",
+]);
 
 type AstNode = Record<string, unknown>;
 
@@ -51,7 +67,8 @@ type Scope = { skipped: boolean; focused: boolean };
 export function titleCitations(source: string, fileName: string): string[] {
   const ast = parseSync(source, {
     syntax: "typescript",
-    tsx: fileName.endsWith(".tsx"),
+    // Vitest parses every *.jsx, *.tsx, *.mjsx, *.cts... test file as JSX.
+    tsx: /[jt]sx$/.test(fileName),
   });
   const registrations: Registration[] = [];
   collectRegistrations(
@@ -81,8 +98,10 @@ export function titleCitations(source: string, fileName: string): string[] {
  * The tests Vitest registers. Only a plain expression statement at the top of
  * the file, or at the top of a suite callback, runs unconditionally, so only
  * those are read. Statements that may not run (if, loops, switch, try) and
- * functions that are merely defined or called later are not entered. Their
- * tests stay uncited until a visible test names the row, which fails closed.
+ * functions that are merely defined or called later are not entered. Reading
+ * stops at a statement that may leave the scope early, because the statements
+ * after it are not guaranteed to run. Their tests stay uncited until a visible
+ * test names the row, which fails closed.
  */
 function collectRegistrations(
   statements: unknown,
@@ -94,7 +113,19 @@ function collectRegistrations(
     if (statement.type === "ExpressionStatement") {
       collectExpression(statement.expression, scope, out);
     }
+    if (mayTransferControl(statement)) return;
   }
+}
+
+function mayTransferControl(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(mayTransferControl);
+  if (typeof value !== "object" || value === null) return false;
+  const node = value as AstNode;
+  if (typeof node.type === "string") {
+    if (TRANSFERS_CONTROL.has(node.type)) return true;
+    if (FUNCTION_NODES.has(node.type)) return false;
+  }
+  return Object.values(node).some(mayTransferControl);
 }
 
 function collectExpression(
@@ -110,7 +141,7 @@ function collectExpression(
   // a non-empty array literal cannot be shown to register any, so it is not
   // evidence that a row is covered.
   if (
-    declaration.modifiers.includes("each") &&
+    declaration.modifiers.some((m) => TABLE_FORMS.has(m)) &&
     !tableHasCases(node.callee as AstNode)
   ) {
     return;
@@ -158,11 +189,18 @@ function collectCallback(
 }
 
 /**
- * True for a plain declaration, and for a table-driven one only when its table
- * is a non-empty array literal. The table is the argument of the callee call:
- * it.each([...])("title", fn) has the table call as its callee.
+ * True when a table-driven declaration's table can register a case: a non-empty
+ * array literal, read through `as const`, or a tagged template with at least
+ * one substitution. The table is the argument of the callee call for
+ * it.each([...])("title", fn), and the template for it.each`...`("title", fn).
  */
 function tableHasCases(callee: AstNode): boolean {
+  if (callee.type === "TaggedTemplateExpression") {
+    const template = callee.template as AstNode;
+    return (
+      Array.isArray(template.expressions) && template.expressions.length > 0
+    );
+  }
   if (callee.type !== "CallExpression") return true;
   let table = argumentsOf(callee)[0]?.expression as AstNode | undefined;
   // `as const` and similar wrappers do not change the cases in the table.
@@ -249,24 +287,29 @@ function titleText(node: AstNode | undefined): string | undefined {
 }
 
 /**
- * The declaration a call makes: it("..."), it.only("..."), it.skip.each([...])("...").
- * Returns undefined for any other call.
+ * The declaration a call makes: it("..."), it.only("..."), it.skip.each([...])("..."),
+ * and it.each`...`("..."). Returns undefined for any other call.
  */
 function testDeclaration(
   callee: unknown,
 ): { base: string; modifiers: string[] } | undefined {
   const node = callee as AstNode;
-  // it.skip.each([...])("title"): the outer call's callee is the table call.
-  const chainNode = node.type === "CallExpression" ? node.callee : node;
+  // The outer call's callee is the table call or the tagged template.
+  let chainNode: AstNode = node;
+  if (node.type === "CallExpression") chainNode = node.callee as AstNode;
+  if (node.type === "TaggedTemplateExpression") chainNode = node.tag as AstNode;
   const chain = memberChain(chainNode);
   if (chain === undefined || chain.length === 0) return undefined;
   const [base, ...modifiers] = chain;
   if (!TEST_FUNCTIONS.has(base)) return undefined;
   if (modifiers.some((m) => !TEST_MODIFIERS.has(m))) return undefined;
-  if (node.type === "CallExpression" && !modifiers.includes("each")) {
-    if (!modifiers.some((m) => m === "skipIf" || m === "runIf")) {
-      return undefined;
-    }
+  const isCallForm =
+    node.type === "CallExpression" || node.type === "TaggedTemplateExpression";
+  if (
+    isCallForm &&
+    !modifiers.some((m) => TABLE_FORMS.has(m) || CONDITIONAL.has(m))
+  ) {
+    return undefined;
   }
   return { base, modifiers };
 }

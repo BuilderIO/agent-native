@@ -322,4 +322,51 @@ describe("titleCitations counts only test titles", () => {
       ),
     ).toEqual([]);
   });
+
+  it("ignores tests after a suite callback that may return early", () => {
+    const source = [
+      `describe("group", () => {`,
+      `  if (flag) return;`,
+      `  it("moves (oracle 2.1)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("reads a test in a JSX test file", () => {
+    expect(
+      titleCitations(
+        `it("renders (oracle 2.2)", () => { const el = <div />; });`,
+        "a.test.jsx",
+      ),
+    ).toEqual(["2.2"]);
+  });
+
+  it("counts a citation on a tagged-template each table with cases", () => {
+    const source = [
+      "it.each`",
+      "  a | b",
+      "  ${1} | ${2}",
+      '`("moves (oracle 2.3)", () => {});',
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["2.3"]);
+  });
+
+  it("ignores a citation on a tagged-template each table with no cases", () => {
+    expect(
+      titleCitations(
+        'it.each`\n  a | b\n`("moves (oracle 2.4)", () => {});',
+        "a.test.ts",
+      ),
+    ).toEqual([]);
+  });
+
+  it("counts a citation on an it.for table with cases", () => {
+    expect(
+      titleCitations(
+        `it.for([[1], [2]])("moves %s (oracle 2.5)", () => {});`,
+        "a.test.ts",
+      ),
+    ).toEqual(["2.5"]);
+  });
 });
