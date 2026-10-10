@@ -78,7 +78,18 @@ export async function writeActionChangeMarkerForResponse(
       "[action-change] durable marker write failed:",
       error instanceof Error ? error.message : String(error),
     );
-    recordActionChangeMarkerFailure(error);
+    // Still inside the catch: a throw from the metric would reject a write that
+    // already committed.
+    try {
+      recordActionChangeMarkerFailure(error);
+    } catch (metricError: unknown) {
+      console.warn(
+        "[action-change] failure metric failed:",
+        metricError instanceof Error
+          ? metricError.message
+          : String(metricError),
+      );
+    }
     return false;
   }
 }

@@ -338,6 +338,45 @@ describe("notifyActionChange", () => {
       },
     ]);
   });
+
+  it("still resolves a failed marker write when the failure metric throws", async () => {
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: () => ({ record: () => {} }),
+          createCounter: () => ({
+            add: () => {
+              throw new Error("metric exporter down");
+            },
+          }),
+        }),
+      },
+    });
+    mockAppStatePut.mockRejectedValue(new Error("database unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    try {
+      await expect(
+        notifyActionChangeForResponse({
+          actionName: "update-project",
+          owner: "owner@example.com",
+        }),
+      ).resolves.toBe(false);
+      expect(warn).toHaveBeenCalledWith(
+        "[action-change] durable marker write failed:",
+        "database unavailable",
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "[action-change] failure metric failed:",
+        "metric exporter down",
+      );
+    } finally {
+      unregister();
+      warn.mockRestore();
+    }
+  });
 });
 
 describe("actionCallIsReadOnly", () => {
