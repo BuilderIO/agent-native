@@ -181,6 +181,12 @@ describe("diffLedgerContent", () => {
       [],
     );
   });
+
+  it("throws on a repeated JSON row id, which a Map would check only once", () => {
+    expect(() =>
+      diffLedgerContent([markdownRow], [jsonRow(), jsonRow()]),
+    ).toThrow(/duplicate.*1\.5/i);
+  });
 });
 
 describe("diffLedgerExpectations", () => {
@@ -193,6 +199,15 @@ describe("diffLedgerExpectations", () => {
       confidence: "high",
     };
   }
+
+  it("throws on a repeated markdown row id, so a clean copy cannot hide a contradicting one", () => {
+    expect(() =>
+      diffLedgerExpectations(
+        [markdownResult("1.1", "`default`"), markdownResult("1.1", "`text`")],
+        [jsonRow({ id: "1.1", expect: { cursor: "text" } })],
+      ),
+    ).toThrow(/duplicate.*1\.1/i);
+  });
 
   it("accepts a cursor expectation the result names", () => {
     const problems = diffLedgerExpectations(

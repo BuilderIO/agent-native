@@ -27,7 +27,6 @@ type ColumnIndex = Record<keyof typeof COLUMN_NAMES, number>;
  */
 export function readMarkdownLedger(markdown: string): MarkdownLedgerRow[] {
   const rows: MarkdownLedgerRow[] = [];
-  const ids = new Set<string>();
   let columns: ColumnIndex | undefined;
   let cellCount = 0;
   for (const line of markdown.split("\n")) {
@@ -53,13 +52,6 @@ export function readMarkdownLedger(markdown: string): MarkdownLedgerRow[] {
         `Ledger row has ${cells.length} cells, its header has ${cellCount}: ${line}`,
       );
     }
-    // The parity checks key rows by id, so a copy would silently replace one.
-    if (ids.has(cells[columns.id])) {
-      throw new Error(
-        `Duplicate ledger row id "${cells[columns.id]}" in interaction-oracle.md`,
-      );
-    }
-    ids.add(cells[columns.id]);
     rows.push({
       id: cells[columns.id],
       probe: cells[columns.probe],
@@ -68,7 +60,22 @@ export function readMarkdownLedger(markdown: string): MarkdownLedgerRow[] {
       confidence: cells[columns.confidence],
     });
   }
+  assertUniqueIds(rows, "interaction-oracle.md");
   return rows;
+}
+
+/**
+ * Throws when a row id repeats. The parity checks look rows up by id, and a Map
+ * keeps only the last copy, so a repeat would be checked silently and only once.
+ */
+function assertUniqueIds(rows: Array<{ id: string }>, source: string): void {
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (seen.has(row.id)) {
+      throw new Error(`Duplicate row id "${row.id}" in ${source}`);
+    }
+    seen.add(row.id);
+  }
 }
 
 function mapColumns(header: string[]): ColumnIndex {
@@ -95,6 +102,7 @@ export function diffLedgerContent(
   markdownRows: MarkdownLedgerRow[],
   jsonRows: OracleRow[],
 ): string[] {
+  assertUniqueIds(jsonRows, "the JSON mirror");
   const byId = new Map(jsonRows.map((row) => [row.id, row]));
   const problems: string[] = [];
   for (const md of markdownRows) {
@@ -177,6 +185,7 @@ export function diffLedgerExpectations(
   markdownRows: MarkdownLedgerRow[],
   jsonRows: OracleRow[],
 ): string[] {
+  assertUniqueIds(markdownRows, "the markdown ledger");
   const byId = new Map(markdownRows.map((row) => [row.id, row]));
   const problems: string[] = [];
   for (const json of jsonRows) {
