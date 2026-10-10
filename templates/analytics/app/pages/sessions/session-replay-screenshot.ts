@@ -21,11 +21,48 @@ export class ReplayScreenshotCaptureError extends Error {
       | "captureSetup"
       | "replayRender"
       | "stageRender"
-      | "pngEncode",
+      | "pngEncode"
+      | "unsupportedColor"
+      | "unsupportedImageFunction"
+      | "unsupportedTransform"
+      | "rendererCloneWindow"
+      | "rendererCloneElement",
   ) {
     super("Replay screenshot capture failed");
     this.name = "ReplayScreenshotCaptureError";
   }
+}
+
+function rendererFailureReason(
+  error: unknown,
+  fallback: ReplayScreenshotCaptureError["reason"],
+): ReplayScreenshotCaptureError["reason"] {
+  const message =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : "";
+  // Only fixed codes leave this boundary; renderer errors can contain replay asset URLs.
+  if (message.startsWith("Attempting to parse an unsupported color function "))
+    return "unsupportedColor";
+  if (message.startsWith("Attempting to parse an unsupported image function "))
+    return "unsupportedImageFunction";
+  if (
+    message.startsWith("Attempting to parse an unsupported transform function ")
+  )
+    return "unsupportedTransform";
+  if (
+    message === "Unable to find iframe window" ||
+    message === "No window assigned for iframe"
+  )
+    return "rendererCloneWindow";
+  if (
+    message === "Unable to find element in cloned iframe" ||
+    /^Error finding the [A-Z]+ in the cloned document$/.test(message)
+  )
+    return "rendererCloneElement";
+  return fallback;
 }
 
 const REMOTE_IMAGE_PREFLIGHT_TIMEOUT_MS = 8_000;
@@ -1413,7 +1450,9 @@ export async function captureReplayScreenshot(
     return blob;
   } catch (error) {
     if (error instanceof ReplayScreenshotAssetError) throw error;
-    throw new ReplayScreenshotCaptureError(failureReason);
+    throw new ReplayScreenshotCaptureError(
+      rendererFailureReason(error, failureReason),
+    );
   } finally {
     if (previousStageFrameMarker === null) {
       iframe.removeAttribute(REPLAY_SCREENSHOT_MARKER);
