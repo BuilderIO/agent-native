@@ -75,6 +75,13 @@ jobs:
           previous_state="$previous_dir/state.json"
           node --experimental-strip-types scripts/signup-report-continuity.ts init-e2e --out-file "$previous_state"
           echo "path=$previous_state" >> "$GITHUB_OUTPUT"
+          echo "continuity_unknown=false" >> "$GITHUB_OUTPUT"
+          mark_continuity_unknown() {
+            local message="$1"
+            echo "continuity_unknown=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          }
           if [ "$GITHUB_EVENT_NAME" != "schedule" ]; then exit 0; fi
 
           prefix="signup-e2e-continuity-"
@@ -85,54 +92,119 @@ jobs:
               gh run download "$GITHUB_RUN_ID" --name "$previous_name" --dir "$downloaded_dir" --repo "$GITHUB_REPOSITORY"
               state_file="$(find "$downloaded_dir" -type f -name state.json -print -quit)"
               if [ -z "$state_file" ]; then echo "::error::Previous Signup E2E state artifact had no state.json."; exit 1; fi
+              node --experimental-strip-types scripts/signup-report-continuity.ts validate-e2e-state --state-file "$state_file"
               cp "$state_file" "$previous_state"
-              node --experimental-strip-types -e 'import { readFileSync } from "node:fs"; const value = JSON.parse(readFileSync(process.argv[1], "utf8")); if (value.reporter !== "signup-e2e") process.exit(1)' "$previous_state"
               exit 0
             fi
-            echo "::error::The prior Signup E2E attempt has no continuity artifact; refusing to use stale scheduled state."
+            message="The prior Signup E2E attempt has no continuity artifact; this rerun will stop rather than risk duplicating a Slack report. The next scheduled run will mark continuity unknown and report that state in #qa-agent-native."
+            echo "::error::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
-          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/signup-e2e-scheduled.yml/runs?branch=main&event=schedule&status=completed&per_page=100")"
+          if ! runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/signup-e2e-scheduled.yml/runs?branch=main&event=schedule&status=completed&per_page=100")"; then
+            mark_continuity_unknown "Prior scheduled signup continuity could not be read from GitHub; no recovery will be inferred."
+            exit 0
+          fi
+          if ! jq -e '.workflow_runs | type == "array"' <<< "$runs" >/dev/null; then
+            mark_continuity_unknown "GitHub returned invalid prior signup run history; no recovery will be inferred."
+            exit 0
+          fi
           previous_run="$(jq -c --arg current "$GITHUB_RUN_ID" '[.workflow_runs[] | select((.id | tostring) != $current)][0] // empty' <<< "$runs")"
           if [ -z "$previous_run" ]; then exit 0; fi
           previous_id="$(jq -r '.id' <<< "$previous_run")"
-          previous_conclusion="$(jq -r '.conclusion // "unknown"' <<< "$previous_run")"
-          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/artifacts?per_page=100")"
+          if ! [[ "$previous_id" =~ ^[0-9]+$ ]]; then
+            mark_continuity_unknown "GitHub returned an invalid prior signup run id; no recovery will be inferred."
+            exit 0
+          fi
+          if ! artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/artifacts?per_page=100")"; then
+            mark_continuity_unknown "Artifacts for prior signup run $previous_id could not be read; no recovery will be inferred."
+            exit 0
+          fi
+          if ! jq -e '(.artifacts | type == "array") and all(.artifacts[]; (.name | type == "string") and (.id | type == "number") and (.expired | type == "boolean") and (.created_at | type == "string"))' <<< "$artifacts" >/dev/null; then
+            mark_continuity_unknown "GitHub returned invalid artifact history for prior signup run $previous_id; no recovery will be inferred."
+            exit 0
+          fi
           previous_name="$(jq -r --arg prefix "$prefix$previous_id-" '[.artifacts[] | select((.name | startswith($prefix)) and (.expired | not))] | sort_by(.created_at) | last | .name // empty' <<< "$artifacts")"
           if [ -n "$previous_name" ]; then
-            gh run download "$previous_id" --name "$previous_name" --dir "$downloaded_dir" --repo "$GITHUB_REPOSITORY"
+            if ! gh run download "$previous_id" --name "$previous_name" --dir "$downloaded_dir" --repo "$GITHUB_REPOSITORY"; then
+              mark_continuity_unknown "Continuity state for prior signup run $previous_id could not be downloaded; no recovery will be inferred."
+              exit 0
+            fi
             state_file="$(find "$downloaded_dir" -type f -name state.json -print -quit)"
-            if [ -z "$state_file" ]; then echo "::error::Previous Signup E2E state artifact had no state.json."; exit 1; fi
+            if [ -z "$state_file" ] || ! node --experimental-strip-types scripts/signup-report-continuity.ts validate-e2e-state --state-file "$state_file"; then
+              mark_continuity_unknown "Continuity state for prior signup run $previous_id is missing or invalid; no recovery will be inferred."
+              exit 0
+            fi
             cp "$state_file" "$previous_state"
-            node --experimental-strip-types -e 'import { readFileSync } from "node:fs"; const value = JSON.parse(readFileSync(process.argv[1], "utf8")); if (value.reporter !== "signup-e2e") process.exit(1)' "$previous_state"
             exit 0
           fi
 
           previous_jobs_file="$previous_dir/jobs.json"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/jobs?per_page=100" > "$previous_jobs_file"
-          node --experimental-strip-types scripts/signup-report-continuity.ts assert-legacy-fallback \
+          if ! gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/jobs?per_page=100" > "$previous_jobs_file"; then
+            mark_continuity_unknown "Job history for prior signup run $previous_id could not be read; no recovery will be inferred."
+            exit 0
+          fi
+          if ! node --experimental-strip-types scripts/signup-report-continuity.ts assert-legacy-fallback \
             --jobs-file "$previous_jobs_file" \
-            --persist-step-name "Persist Signup E2E continuity state"
+            --persist-step-name "Persist Signup E2E continuity state"; then
+            mark_continuity_unknown "Prior signup run $previous_id has no usable continuity state; no recovery will be inferred."
+            exit 0
+          fi
+
+          test_result="$(node --experimental-strip-types scripts/signup-report-continuity.ts legacy-e2e-test-result --jobs-file "$previous_jobs_file")"
+          evidence_available=false
+          evidence_inconclusive=true
+          if [ "$test_result" = "success" ]; then
+            evidence_name="signup-e2e-$previous_id"
+            evidence_artifact="$(jq -r --arg name "$evidence_name" '[.artifacts[] | select(.name == $name and (.expired | not))] | last | .name // empty' <<< "$artifacts")"
+            evidence_dir="$previous_dir/signup-evidence"
+            if [ -n "$evidence_artifact" ] && gh run download "$previous_id" --name "$evidence_artifact" --dir "$evidence_dir" --repo "$GITHUB_REPOSITORY"; then
+              if find "$evidence_dir" -type f -print -quit | grep -q .; then
+                evidence_available=true
+                if find "$evidence_dir" -type f -name mailosaur-inconclusive.txt -print -quit | grep -q .; then
+                  evidence_inconclusive=true
+                else
+                  evidence_inconclusive=false
+                fi
+              fi
+            fi
+          fi
+          if ! previous_outcome="$(node --experimental-strip-types scripts/signup-report-continuity.ts legacy-e2e-outcome \
+            --jobs-file "$previous_jobs_file" \
+            --signup-evidence-available "$evidence_available" \
+            --signup-evidence-inconclusive "$evidence_inconclusive")"; then
+            mark_continuity_unknown "Signup test outcome for prior run $previous_id could not be classified; no recovery will be inferred."
+            exit 0
+          fi
 
           previous_run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$previous_id"
-          prior_report="$(jq -r --arg prefix "signup-e2e-report-$previous_id-" '[.artifacts[] | select((.name | startswith($prefix)) and (.expired | not))] | sort_by(.created_at) | last // empty' <<< "$artifacts")"
-          prior_artifact_url=""
-          prior_findings=0
-          if [ -n "$prior_report" ]; then
+          if [ "$previous_outcome" = "failure" ]; then
+            prior_report="$(jq -r --arg prefix "signup-e2e-report-$previous_id-" '[.artifacts[] | select((.name | startswith($prefix)) and (.expired | not))] | sort_by(.created_at) | last // empty' <<< "$artifacts")"
+            if [ -z "$prior_report" ]; then
+              mark_continuity_unknown "The failed signup test in prior run $previous_id has no readable report artifact; no recovery will be inferred."
+              exit 0
+            fi
             prior_artifact_id="$(jq -r '.id' <<< "$prior_report")"
             prior_artifact_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$previous_id/artifacts/$prior_artifact_id"
             prior_report_name="$(jq -r '.name' <<< "$prior_report")"
-            gh run download "$previous_id" --name "$prior_report_name" --dir "$previous_dir/legacy-report" --repo "$GITHUB_REPOSITORY"
+            if ! gh run download "$previous_id" --name "$prior_report_name" --dir "$previous_dir/legacy-report" --repo "$GITHUB_REPOSITORY"; then
+              mark_continuity_unknown "The report artifact for prior signup run $previous_id could not be downloaded; no recovery will be inferred."
+              exit 0
+            fi
             report_json="$(find "$previous_dir/legacy-report" -type f -name signup-e2e-rollup.json -print -quit)"
-            if [ -n "$report_json" ]; then prior_findings="$(jq -r '.findingCount // 0' "$report_json")"; fi
-          fi
-          if [ "$previous_conclusion" = "failure" ] || [ "$previous_conclusion" = "cancelled" ]; then
+            if [ -z "$report_json" ] || ! jq -e 'type == "object" and (.findingCount | type == "number" and . >= 1 and floor == .)' "$report_json" >/dev/null; then
+              mark_continuity_unknown "The report artifact for prior signup run $previous_id has no valid finding count; no recovery will be inferred."
+              exit 0
+            fi
+            prior_findings="$(jq -r '.findingCount' "$report_json")"
             jq -n --arg run_url "$previous_run_url" --arg artifact_url "$prior_artifact_url" --argjson finding_count "$prior_findings" \
               '{version: 1, reporter: "signup-e2e", outcome: "failure", findingCount: $finding_count, runUrl: $run_url, reportArtifactUrl: (if $artifact_url == "" then null else $artifact_url end)}' > "$previous_state"
-          elif [ "$previous_conclusion" = "success" ]; then
+          elif [ "$previous_outcome" = "clean" ]; then
             jq -n --arg run_url "$previous_run_url" \
               '{version: 1, reporter: "signup-e2e", outcome: "clean", findingCount: 0, runUrl: $run_url, reportArtifactUrl: null}' > "$previous_state"
+          else
+            mark_continuity_unknown "Signup test result for prior run $previous_id is inconclusive or unavailable; no recovery will be inferred."
           fi
 
       - name: Build one consolidated report for a failed run
@@ -154,6 +226,10 @@ jobs:
             collection_errors+=("$label: ${detail:-$fallback}")
             report_incomplete=true
           }
+          if [ "${{ steps.previous-state.outputs.continuity_unknown }}" = "true" ]; then
+            collection_errors+=("Prior scheduled signup continuity is unavailable; no recovery was inferred from older runs.")
+            report_incomplete=true
+          fi
 
           if jobs_json="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --jq '.jobs[]' 2> "$report_dir/jobs-api-error.txt")"; then
             if ! printf '%s\n' "$jobs_json" | jq -s '[.[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | {id, name, url: .html_url, conclusion}]' > "$report_dir/jobs.json" 2> "$report_dir/jobs-parse-error.txt"; then
@@ -269,12 +345,13 @@ jobs:
           set -euo pipefail
           outcome=inconclusive
           finding_count=0
-          if [ "${{ needs.signup-e2e.result }}" = "failure" ] || [ "${{ needs.signup-e2e.result }}" = "cancelled" ]; then
-            if [ -s .tmp/signup-e2e/report/signup-e2e-rollup.json ] && ! jq -e '.unclassifiedWorkflowFailure == true' .tmp/signup-e2e/report/signup-e2e-rollup.json >/dev/null; then
+          signup_outcome="${{ needs.signup-e2e.outputs.signup_outcome }}"
+          if [ "$signup_outcome" = "failure" ]; then
+            if [ -s .tmp/signup-e2e/report/signup-e2e-rollup.json ] && jq -e 'type == "object" and .unclassifiedWorkflowFailure == false and (.findingCount | type == "number" and . >= 1 and floor == .)' .tmp/signup-e2e/report/signup-e2e-rollup.json >/dev/null; then
               outcome=failure
-              finding_count="$(jq -r '.findingCount // 0' .tmp/signup-e2e/report/signup-e2e-rollup.json)"
+              finding_count="$(jq -r '.findingCount' .tmp/signup-e2e/report/signup-e2e-rollup.json)"
             fi
-          elif [ "${{ needs.signup-e2e.outputs.signup_outcome }}" = "success" ]; then
+          elif [ "$signup_outcome" = "success" ]; then
             outcome=clean
           fi
           evidence_url="$REPORT_ARTIFACT_URL"
@@ -288,7 +365,7 @@ jobs:
           node --experimental-strip-types scripts/signup-report-continuity.ts "${args[@]}"
           if [ "$(jq -r '.recovery != null' .tmp/signup-e2e-continuity/plan/plan.json)" = "true" ]; then
             jq -n --arg channel "$SLACK_CHANNEL" --rawfile text .tmp/signup-e2e-continuity/plan/recovery.txt \
-              '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' > .tmp/signup-e2e-slack-payload.json
+              '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' > .tmp/signup-e2e-continuity/recovery-payload.json
             echo "recovered=true" >> "$GITHUB_OUTPUT"
           else
             echo "recovered=false" >> "$GITHUB_OUTPUT"
@@ -299,18 +376,62 @@ jobs:
           ${{ always() && needs.signup-e2e.result != 'success' && (steps.report.outcome != 'success' || steps.slack-report.outcome != 'success') }}
         env:
           REPORT_ARTIFACT_URL: ${{ steps.report-artifact.outputs.artifact-url }}
+          CONTINUITY_UNKNOWN: ${{ steps.previous-state.outputs.continuity_unknown }}
         run: |
           set -euo pipefail
           mkdir -p .tmp
+          continuity_message=""
+          if [ "$CONTINUITY_UNKNOWN" = "true" ]; then
+            continuity_message="Prior scheduled signup continuity is unavailable; no recovery was inferred."
+          fi
           jq -n --arg channel "$SLACK_CHANNEL" --arg run_url "$RUN_URL" --arg artifact_url "$REPORT_ARTIFACT_URL" \
-            '{channel: $channel, text: ":warning: *Signup E2E report is degraded*\nCollection failed before test details could be assembled.\nFindings: 1 total; showing 1; 0 omitted from this Slack message.\n• Report collection failure: no test findings can be confirmed from the available metadata.\n" + (if $artifact_url == "" then "Full report artifact unavailable; see <" + $run_url + "|workflow run logs>." else "Full report and failed-job logs: <" + $artifact_url + "|90-day report artifact>." end) + "\nRun: <" + $run_url + "|workflow run>.", unfurl_links: false, unfurl_media: false}' \
+            --arg continuity_message "$continuity_message" \
+            '{channel: $channel, text: ":warning: *Signup E2E report is degraded*\nCollection failed before test details could be assembled.\nFindings: 1 total; showing 1; 0 omitted from this Slack message.\n• Report collection failure: no test findings can be confirmed from the available metadata.\n" + (if $continuity_message == "" then "" else "• " + $continuity_message + "\n" end) + (if $artifact_url == "" then "Full report artifact unavailable; see <" + $run_url + "|workflow run logs>." else "Full report and failed-job logs: <" + $artifact_url + "|90-day report artifact>." end) + "\nRun: <" + $run_url + "|workflow run>.", unfurl_links: false, unfurl_media: false}' \
             > .tmp/signup-e2e-slack-payload.json
           echo "### Signup E2E report is degraded" >> "$GITHUB_STEP_SUMMARY"
           echo "Collection failed before test details could be assembled. A degraded report will be posted to #qa-agent-native." >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Combine the run report and recovery in one Slack message
+        if: ${{ always() && steps.continuity-plan.outputs.recovered == 'true' }}
+        run: |
+          set -euo pipefail
+          report_payload=.tmp/signup-e2e-slack-payload.json
+          recovery_payload=.tmp/signup-e2e-continuity/recovery-payload.json
+          if [ ! -s "$recovery_payload" ]; then
+            echo "::error::Signup recovery was planned without a Slack payload."
+            exit 1
+          fi
+          if [ -s "$report_payload" ]; then
+            recovery_text="$(jq -er '.text' "$recovery_payload")"
+            jq --arg recovery "$recovery_text" '.text += "\n\n" + $recovery' "$report_payload" > .tmp/signup-e2e-continuity/combined-payload.json
+            mv .tmp/signup-e2e-continuity/combined-payload.json "$report_payload"
+          elif [ "${{ needs.signup-e2e.result }}" != "success" ]; then
+            jq -n --arg channel "$SLACK_CHANNEL" --arg run_url "$RUN_URL" --arg recovery "$(jq -er '.text' "$recovery_payload")" \
+              '{channel: $channel, text: ":warning: *Signup E2E workflow failed before its report could be assembled.*\nSee <" + $run_url + "|workflow run> for available details.\n\n" + $recovery, unfurl_links: false, unfurl_media: false}' \
+              > "$report_payload"
+          else
+            cp "$recovery_payload" "$report_payload"
+          fi
+
+      - name: Build a Slack warning for unknown signup continuity
+        if: ${{ always() && github.event_name == 'schedule' && steps.previous-state.outputs.continuity_unknown == 'true' && needs.signup-e2e.result == 'success' }}
+        run: |
+          set -euo pipefail
+          text=":warning: *Signup E2E continuity is unknown*"
+          text+=$'\nThe previous scheduled run report state was missing or invalid, so no recovery was inferred. This run will establish a fresh baseline only if its result is conclusive.\n'
+          if [ "${{ needs.signup-e2e.outputs.signup_outcome }}" = "inconclusive" ]; then
+            text+=$'This run was also inconclusive because Mailosaur did not provide a usable test result.\n'
+          fi
+          text+="Run: <$RUN_URL|scheduled signup workflow>."
+          jq -n --arg channel "$SLACK_CHANNEL" --arg text "$text" \
+            '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' \
+            > .tmp/signup-e2e-slack-payload.json
+          echo "### Signup E2E continuity is unknown" >> "$GITHUB_STEP_SUMMARY"
+          echo "The prior report state could not be restored. No recovery was inferred; this warning is being sent to #qa-agent-native." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Check Slack configuration
         id: slack_config
-        if: ${{ always() && (needs.signup-e2e.result == 'failure' || needs.signup-e2e.result == 'cancelled' || steps.continuity-plan.outputs.recovered == 'true') }}
+        if: ${{ always() && (needs.signup-e2e.result == 'failure' || needs.signup-e2e.result == 'cancelled' || steps.continuity-plan.outputs.recovered == 'true' || steps.previous-state.outputs.continuity_unknown == 'true') }}
         env:
           QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
         run: |
@@ -356,16 +477,17 @@ jobs:
         run: |
           set -euo pipefail
           delivered=false
-          if [ "${{ steps.continuity-plan.outputs.recovered }}" != "true" ] && [ "${{ needs.signup-e2e.result }}" = "success" ]; then delivered=true; fi
           if [ "${{ steps.slack.outputs.ok }}" = "true" ]; then delivered=true; fi
+          if [ "${{ steps.previous-state.outputs.continuity_unknown }}" != "true" ] && [ "${{ steps.continuity-plan.outputs.recovered }}" != "true" ] && [ "${{ needs.signup-e2e.result }}" = "success" ]; then delivered=true; fi
           node --experimental-strip-types scripts/signup-report-continuity.ts finalize-e2e \
             --previous-state .tmp/signup-e2e-continuity/previous/state.json \
             --plan .tmp/signup-e2e-continuity/plan/plan.json \
             --slack-delivered "$delivered" \
+            --require-slack-delivery "${{ steps.previous-state.outputs.continuity_unknown }}" \
             --out-file .tmp/signup-e2e-continuity/state.json
 
       - name: Persist Signup E2E continuity state
-        if: ${{ always() && github.event_name == 'schedule' && steps.finalize-state.outcome == 'success' }}
+        if: ${{ always() && github.event_name == 'schedule' && steps.finalize-state.outcome == 'success' && (steps.previous-state.outputs.continuity_unknown != 'true' || steps.slack.outputs.ok == 'true') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: signup-e2e-continuity-${{ github.run_id }}-${{ github.run_attempt }}

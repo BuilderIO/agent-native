@@ -44,9 +44,12 @@ export function finalizeSignupE2EReport(input: {
   previous: SignupE2EReportState;
   plan: SignupE2EPlan;
   slackDelivered: boolean;
+  requireSlackDelivery?: boolean;
 }): SignupE2EReportState {
   validateE2EPlan(input.plan);
-  return (input.plan.recovery || input.plan.state.outcome === "failure") &&
+  return (input.requireSlackDelivery ||
+    input.plan.recovery ||
+    input.plan.state.outcome === "failure") &&
     !input.slackDelivered
     ? input.previous
     : input.plan.state;
@@ -112,6 +115,50 @@ export function assertLegacySignupReportFallbackAllowed(
       `previous workflow contains ${persistStepName} but its continuity artifact is missing; refusing to fall back to legacy report state`,
     );
   }
+}
+
+export function legacySignupE2ETestStepResult(
+  rawJobs: string,
+): "failure" | "success" | "unknown" {
+  const value = parseRecord(rawJobs, "previous workflow jobs");
+  if (!Array.isArray(value.jobs)) {
+    throw new Error("previous workflow jobs have an invalid shape");
+  }
+  const signupJobs = value.jobs.filter(
+    (job) => isRecord(job) && job.name === "Full signup flow / Signup canary",
+  );
+  if (signupJobs.length !== 1) return "unknown";
+
+  const signupJob = signupJobs[0];
+  if (!isRecord(signupJob) || !Array.isArray(signupJob.steps)) {
+    throw new Error("previous Signup canary job has an invalid shape");
+  }
+  const testSteps = signupJob.steps.filter(
+    (step) => isRecord(step) && step.name === "Run full signup flow",
+  );
+  if (testSteps.length !== 1 || !isRecord(testSteps[0])) return "unknown";
+
+  const conclusion = testSteps[0].conclusion;
+  if (conclusion === "failure" || conclusion === "timed_out") {
+    return "failure";
+  }
+  return conclusion === "success" ? "success" : "unknown";
+}
+
+export function legacySignupE2EOutcomeFromJobs(
+  rawJobs: string,
+  evidence: { available: boolean; inconclusive: boolean },
+): "failure" | "clean" | "unknown" {
+  const testResult = legacySignupE2ETestStepResult(rawJobs);
+  if (testResult === "failure") return "failure";
+  if (
+    testResult !== "success" ||
+    !evidence.available ||
+    evidence.inconclusive
+  ) {
+    return "unknown";
+  }
+  return "clean";
 }
 
 export function parseSignupE2EReportState(raw: string): SignupE2EReportState {
@@ -513,6 +560,14 @@ function requireArg(args: Map<string, string>, name: string): string {
   return value;
 }
 
+function requireBooleanArg(args: Map<string, string>, name: string): boolean {
+  const value = requireArg(args, name);
+  if (value !== "true" && value !== "false") {
+    throw new Error(`--${name} must be true or false`);
+  }
+  return value === "true";
+}
+
 function readPrevious<T>(path: string, parse: (raw: string) => T): T {
   return parse(readFileSync(path, "utf8"));
 }
@@ -545,6 +600,35 @@ function runCli(): void {
     return;
   }
 
+  if (command === "legacy-e2e-outcome") {
+    process.stdout.write(
+      legacySignupE2EOutcomeFromJobs(
+        readFileSync(requireArg(args, "jobs-file"), "utf8"),
+        {
+          available: requireBooleanArg(args, "signup-evidence-available"),
+          inconclusive: requireBooleanArg(args, "signup-evidence-inconclusive"),
+        },
+      ),
+    );
+    return;
+  }
+
+  if (command === "legacy-e2e-test-result") {
+    process.stdout.write(
+      legacySignupE2ETestStepResult(
+        readFileSync(requireArg(args, "jobs-file"), "utf8"),
+      ),
+    );
+    return;
+  }
+
+  if (command === "validate-e2e-state") {
+    parseSignupE2EReportState(
+      readFileSync(requireArg(args, "state-file"), "utf8"),
+    );
+    return;
+  }
+
   if (command === "finalize-e2e") {
     const previous = readPrevious(
       requireArg(args, "previous-state"),
@@ -554,7 +638,8 @@ function runCli(): void {
     const state = finalizeSignupE2EReport({
       previous,
       plan,
-      slackDelivered: requireArg(args, "slack-delivered") === "true",
+      slackDelivered: requireBooleanArg(args, "slack-delivered"),
+      requireSlackDelivery: requireBooleanArg(args, "require-slack-delivery"),
     });
     writeFileSync(
       requireArg(args, "out-file"),
@@ -572,7 +657,7 @@ function runCli(): void {
     const state = finalizeSignupAgentReport({
       previous,
       plan,
-      slackDelivered: requireArg(args, "slack-delivered") === "true",
+      slackDelivered: requireBooleanArg(args, "slack-delivered"),
     });
     writeFileSync(
       requireArg(args, "out-file"),
@@ -628,7 +713,7 @@ function runCli(): void {
         | "incomplete"
         | "inconclusive",
       findingCount: Number(requireArg(args, "finding-count")),
-      reportComplete: requireArg(args, "report-complete") === "true",
+      reportComplete: requireBooleanArg(args, "report-complete"),
       runUrl,
       reportArtifactUrl,
     });

@@ -5,6 +5,8 @@ import {
   initialSignupAgentReportState,
   initialSignupE2EReportState,
   assertLegacySignupReportFallbackAllowed,
+  legacySignupE2EOutcomeFromJobs,
+  legacySignupE2ETestStepResult,
   finalizeSignupAgentReport,
   finalizeSignupE2EReport,
   parseSignupAgentReportState,
@@ -61,6 +63,95 @@ test("legacy signup report fallback is allowed only when the persist step is abs
   assert.throws(
     () => assertLegacySignupReportFallbackAllowed("{}", "Persist state"),
     /invalid shape/,
+  );
+});
+
+test("legacy E2E recovery uses the signup test step result only", () => {
+  const reportJobFailure = JSON.stringify({
+    jobs: [
+      {
+        name: "Full signup flow / Signup canary",
+        conclusion: "success",
+        steps: [{ name: "Run full signup flow", conclusion: "success" }],
+      },
+      {
+        name: "Report signup E2E status",
+        conclusion: "failure",
+        steps: [{ name: "Post report", conclusion: "failure" }],
+      },
+    ],
+  });
+  assert.equal(legacySignupE2ETestStepResult(reportJobFailure), "success");
+  assert.equal(
+    legacySignupE2EOutcomeFromJobs(reportJobFailure, {
+      available: true,
+      inconclusive: false,
+    }),
+    "clean",
+  );
+
+  for (const evidence of [
+    { available: false, inconclusive: false },
+    { available: true, inconclusive: true },
+  ]) {
+    assert.equal(
+      legacySignupE2EOutcomeFromJobs(reportJobFailure, evidence),
+      "unknown",
+    );
+  }
+
+  const signupTestFailure = JSON.stringify({
+    jobs: [
+      {
+        name: "Full signup flow / Signup canary",
+        conclusion: "failure",
+        steps: [{ name: "Run full signup flow", conclusion: "failure" }],
+      },
+      {
+        name: "Report signup E2E status",
+        conclusion: "success",
+        steps: [{ name: "Post report", conclusion: "success" }],
+      },
+    ],
+  });
+  assert.equal(
+    legacySignupE2EOutcomeFromJobs(signupTestFailure, {
+      available: false,
+      inconclusive: true,
+    }),
+    "failure",
+  );
+
+  assert.equal(
+    legacySignupE2EOutcomeFromJobs(
+      JSON.stringify({
+        jobs: [
+          {
+            name: "Full signup flow / Signup canary",
+            conclusion: "failure",
+            steps: [{ name: "Typecheck signup suite", conclusion: "failure" }],
+          },
+        ],
+      }),
+      { available: true, inconclusive: false },
+    ),
+    "unknown",
+  );
+
+  assert.equal(
+    legacySignupE2EOutcomeFromJobs(
+      JSON.stringify({
+        jobs: [
+          {
+            name: "Full signup flow / Signup canary",
+            conclusion: "cancelled",
+            steps: [{ name: "Run full signup flow", conclusion: "cancelled" }],
+          },
+        ],
+      }),
+      { available: true, inconclusive: false },
+    ),
+    "unknown",
   );
 });
 
@@ -195,6 +286,36 @@ test("signup E2E does not persist an undelivered failure", () => {
   assert.deepEqual(
     finalizeSignupE2EReport({ previous, plan: failure, slackDelivered: false }),
     previous,
+  );
+});
+
+test("signup E2E preserves unknown continuity until its Slack warning is delivered", () => {
+  const previous = initialSignupE2EReportState();
+  const clean = planSignupE2EReport({
+    previous,
+    eventName: "schedule",
+    outcome: "clean",
+    findingCount: 0,
+    runUrl,
+  });
+
+  assert.deepEqual(
+    finalizeSignupE2EReport({
+      previous,
+      plan: clean,
+      slackDelivered: false,
+      requireSlackDelivery: true,
+    }),
+    previous,
+  );
+  assert.equal(
+    finalizeSignupE2EReport({
+      previous,
+      plan: clean,
+      slackDelivered: true,
+      requireSlackDelivery: true,
+    }).outcome,
+    "clean",
   );
 });
 

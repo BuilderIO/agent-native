@@ -635,6 +635,31 @@ describe("report-factory-findings", () => {
     expect(readHistory).toHaveBeenLastCalledWith("1791633602.0");
   });
 
+  it("rejects absent and malformed Slack timestamps during reconciliation", async () => {
+    for (const timestamp of [null, "", " ", "0", "not-a-timestamp"]) {
+      const readHistory = vi.fn().mockResolvedValue({
+        messages: [
+          {
+            type: "message",
+            text: timestamp === null ? "Report reference: run-abc" : "newer",
+            ts: timestamp,
+          },
+        ],
+        has_more: false,
+        next_cursor: null,
+      });
+
+      await expect(
+        findSlackReportMessage({
+          readHistory,
+          channelId: "C0C4U4XRT6X",
+          marker: "Report reference: run-abc",
+          startedAt: "2026-10-10T12:00:00.000Z",
+        }),
+      ).rejects.toThrow(/invalid message timestamp/);
+    }
+  });
+
   it("limits the batch and requires findings to clear the report gate", () => {
     const schema = (
       action as {

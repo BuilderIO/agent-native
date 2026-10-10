@@ -204,16 +204,11 @@ export async function findSlackReportMessage(input: {
       message.text.includes(input.marker),
     );
     if (found) {
+      parseSlackTimestamp(found.ts);
       return { channel: input.channelId, ts: found.ts };
     }
     const oldestTs = result.messages.reduce((oldest, message) => {
-      const timestamp = Number(message.ts);
-      if (!Number.isFinite(timestamp)) {
-        fail("Slack history contains an invalid message timestamp.", {
-          errorCode: "slack_report_reconciliation_incomplete",
-          statusCode: 424,
-        });
-      }
+      const timestamp = parseSlackTimestamp(message.ts);
       return Math.min(oldest, timestamp);
     }, Number.POSITIVE_INFINITY);
     if (!result.has_more || oldestTs <= earliestRelevantTs) return null;
@@ -229,6 +224,23 @@ export async function findSlackReportMessage(input: {
     errorCode: "slack_report_reconciliation_incomplete",
     statusCode: 424,
   });
+}
+
+function parseSlackTimestamp(value: unknown): number {
+  if (typeof value !== "string" || !/^\d+(?:\.\d+)?$/.test(value)) {
+    fail("Slack history contains an invalid message timestamp.", {
+      errorCode: "slack_report_reconciliation_incomplete",
+      statusCode: 424,
+    });
+  }
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    fail("Slack history contains an invalid message timestamp.", {
+      errorCode: "slack_report_reconciliation_incomplete",
+      statusCode: 424,
+    });
+  }
+  return timestamp;
 }
 
 export default defineAction({
