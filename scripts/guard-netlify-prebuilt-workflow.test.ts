@@ -262,6 +262,10 @@ describe("Netlify PR preview workflow guard", () => {
       "cancel-in-progress": true,
     });
     const authorize = previewJobs.authorize;
+    assert.equal(
+      (authorize.outputs as Workflow).requester_login,
+      "${{ steps.authorize.outputs.requester_login }}",
+    );
     assert.match(
       String(authorize.if),
       /github\.event\.comment\.author_association/,
@@ -351,6 +355,18 @@ describe("Netlify PR preview workflow guard", () => {
       ["createDeployment(", "createDeploymentStatus("],
       [
         "!['OWNER', 'MEMBER'].includes(pullRequest.author_association)",
+        "false",
+      ],
+      [
+        "pullRequest.user.login?.toLowerCase() !==\n                  context.payload.comment.user.login.toLowerCase()",
+        "false",
+      ],
+      [
+        "pullRequest.user.login?.toLowerCase() !==\n                  process.env.REQUESTER_LOGIN.toLowerCase()",
+        "false",
+      ],
+      [
+        "pullRequest.user.login?.toLowerCase() ===\n                    process.env.REQUESTER_LOGIN.toLowerCase()",
         "false",
       ],
       [

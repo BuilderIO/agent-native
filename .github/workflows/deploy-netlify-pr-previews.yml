@@ -55,6 +55,7 @@ jobs:
       pull-requests: read
     outputs:
       pull_request_number: ${{ steps.authorize.outputs.pull_request_number }}
+      requester_login: ${{ steps.authorize.outputs.requester_login }}
       source_ref: ${{ steps.authorize.outputs.source_ref }}
       checkout_ref: ${{ steps.authorize.outputs.checkout_ref }}
       site: ${{ steps.authorize.outputs.site }}
@@ -115,11 +116,14 @@ jobs:
             }
             if (
               pullRequest.user?.type !== 'User' ||
-              !['OWNER', 'MEMBER'].includes(pullRequest.author_association)
+              (!['OWNER', 'MEMBER'].includes(pullRequest.author_association) &&
+                pullRequest.user.login?.toLowerCase() !==
+                  context.payload.comment.user.login.toLowerCase())
             ) {
               throw new Error('Only PRs authored by an organization owner or member can receive previews.');
             }
             core.setOutput('pull_request_number', String(pullRequest.number));
+            core.setOutput('requester_login', context.payload.comment.user.login);
             core.setOutput('source_ref', pullRequest.head.sha);
             core.setOutput('checkout_ref', pullRequest.base.sha);
             core.setOutput('site', process.env.SITE_NAME);
@@ -181,6 +185,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PULL_REQUEST_NUMBER: ${{ needs.authorize.outputs.pull_request_number }}
+          REQUESTER_LOGIN: ${{ needs.authorize.outputs.requester_login }}
           SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}
         with:
           github-token: ${{ github.token }}
@@ -201,7 +206,9 @@ jobs:
               pullRequest.base.repo?.full_name?.toLowerCase() !== fullName ||
               pullRequest.head.repo?.full_name?.toLowerCase() !== fullName ||
               pullRequest.user?.type !== 'User' ||
-              !['OWNER', 'MEMBER'].includes(pullRequest.author_association) ||
+              (!['OWNER', 'MEMBER'].includes(pullRequest.author_association) &&
+                pullRequest.user.login?.toLowerCase() !==
+                  process.env.REQUESTER_LOGIN.toLowerCase()) ||
               pullRequest.head.sha !== process.env.SOURCE_REF
             ) {
               throw new Error('PR preview requires the current head of an open, internal PR targeting main.');
@@ -227,6 +234,9 @@ jobs:
         env:
           RUN_ATTEMPT: ${{ github.run_attempt }}
           SITE_NAME: ${{ needs.authorize.outputs.site }}
+          PULL_REQUEST_NUMBER: ${{ needs.authorize.outputs.pull_request_number }}
+          REQUESTER_LOGIN: ${{ needs.authorize.outputs.requester_login }}
+          SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -322,7 +332,9 @@ jobs:
                 pullRequest.base.repo?.full_name?.toLowerCase() === fullName &&
                 pullRequest.head.repo?.full_name?.toLowerCase() === fullName &&
                 pullRequest.user?.type === 'User' &&
-                ['OWNER', 'MEMBER'].includes(pullRequest.author_association) &&
+                (['OWNER', 'MEMBER'].includes(pullRequest.author_association) ||
+                  pullRequest.user.login?.toLowerCase() ===
+                    process.env.REQUESTER_LOGIN.toLowerCase()) &&
                 pullRequest.head.sha === process.env.SOURCE_REF
               );
             };

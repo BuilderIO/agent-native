@@ -361,6 +361,8 @@ export function validateNetlifyPrPreviewWorkflow(
     !authorizeIf.includes(
       "startsWith(github.event.comment.body, '/preview ')",
     ) ||
+    asRecord(authorize.outputs)?.requester_login !==
+      "${{ steps.authorize.outputs.requester_login }}" ||
     asRecord(authorize.permissions)?.contents !== "read" ||
     asRecord(authorize.permissions)?.["pull-requests"] !== "read" ||
     Object.keys(asRecord(authorize.permissions) ?? {}).some(
@@ -369,6 +371,9 @@ export function validateNetlifyPrPreviewWorkflow(
     !source.includes("context.payload.comment.author_association") ||
     !source.includes("context.payload.comment.user?.type !== 'User'") ||
     !source.includes("pullRequest.author_association") ||
+    !source.includes(
+      "REQUESTER_LOGIN: ${{ needs.authorize.outputs.requester_login }}",
+    ) ||
     !source.includes("['OWNER', 'MEMBER']") ||
     !source.includes("pullRequest.user?.type !== 'User'") ||
     !source.includes("pullRequest.state !== 'open'") ||
@@ -393,6 +398,12 @@ export function validateNetlifyPrPreviewWorkflow(
     !authorizeScript.includes("pullRequest.user?.type !== 'User'") ||
     !authorizeScript.includes("pullRequest.state !== 'open'") ||
     !authorizeScript.includes("pullRequest.base.ref !== 'main'") ||
+    !/!\['OWNER', 'MEMBER'\]\.includes\(pullRequest\.author_association\)\s*&&\s*pullRequest\.user\.login\?\.toLowerCase\(\)\s*!==\s*context\.payload\.comment\.user\.login\.toLowerCase\(\)/.test(
+      authorizeScript,
+    ) ||
+    !authorizeScript.includes(
+      "core.setOutput('requester_login', context.payload.comment.user.login)",
+    ) ||
     !authorizeScript.includes(
       "pullRequest.head.repo?.full_name?.toLowerCase() !== fullName",
     ) ||
@@ -466,10 +477,15 @@ export function validateNetlifyPrPreviewWorkflow(
     !revalidateStep ||
     revalidateEnv?.PULL_REQUEST_NUMBER !==
       "${{ needs.authorize.outputs.pull_request_number }}" ||
+    revalidateEnv?.REQUESTER_LOGIN !==
+      "${{ needs.authorize.outputs.requester_login }}" ||
     revalidateEnv?.SOURCE_REF !== "${{ needs.authorize.outputs.source_ref }}" ||
     !revalidateScript.includes("github.rest.pulls.get") ||
     !revalidateScript.includes("pullRequest.state !== 'open'") ||
     !revalidateScript.includes("pullRequest.base.ref !== 'main'") ||
+    !/!\['OWNER', 'MEMBER'\]\.includes\(pullRequest\.author_association\)\s*&&\s*pullRequest\.user\.login\?\.toLowerCase\(\)\s*!==\s*process\.env\.REQUESTER_LOGIN\.toLowerCase\(\)/.test(
+      revalidateScript,
+    ) ||
     !revalidateScript.includes(
       "pullRequest.base.repo?.full_name?.toLowerCase() !== fullName",
     ) ||
@@ -531,6 +547,9 @@ export function validateNetlifyPrPreviewWorkflow(
     !deploymentScript.includes("github.rest.pulls.get") ||
     !deploymentScript.includes("pullRequest.state === 'open'") ||
     !deploymentScript.includes("pullRequest.base.ref === 'main'") ||
+    !/\['OWNER', 'MEMBER'\]\.includes\(pullRequest\.author_association\)\s*\|\|\s*pullRequest\.user\.login\?\.toLowerCase\(\)\s*===\s*process\.env\.REQUESTER_LOGIN\.toLowerCase\(\)/.test(
+      deploymentScript,
+    ) ||
     !deploymentScript.includes(
       "['OWNER', 'MEMBER'].includes(pullRequest.author_association)",
     ) ||
