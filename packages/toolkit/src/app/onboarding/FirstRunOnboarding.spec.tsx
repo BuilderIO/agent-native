@@ -578,7 +578,7 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("lets users cancel a direct Builder connect during first run", () => {
+  it("lets users cancel a direct Builder connect and return to setup", () => {
     const flow = {
       hasFetchedStatus: true,
       statusResolved: true,
@@ -590,6 +590,9 @@ describe("FirstRunOnboarding", () => {
       cancel: vi.fn(),
       retry: vi.fn(),
     };
+    flow.cancel.mockImplementation(() => {
+      flow.connecting = false;
+    });
     flow.start.mockImplementation(() => {
       flow.connecting = true;
     });
@@ -619,6 +622,25 @@ describe("FirstRunOnboarding", () => {
     expect(cancelButton?.textContent).toBe("Cancel");
     act(() => cancelButton?.click());
     expect(flow.cancel).toHaveBeenCalledOnce();
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-back-to-choice"]',
+        )
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[data-onboarding-screen="choice"]'),
+    ).toBeTruthy();
   });
 
   it("keeps Cancel during a failed status poll without offering a fake retry", () => {

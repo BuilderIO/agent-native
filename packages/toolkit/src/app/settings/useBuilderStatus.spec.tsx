@@ -1856,6 +1856,75 @@ describe("useBuilderConnectFlow", () => {
     expect(openConnectUrl).not.toHaveBeenCalled();
   });
 
+  it("restores existing-account state when the desktop connect URL is invalid", async () => {
+    setUserAgent("Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7");
+    const accountExistsStatus: BuilderStatus = {
+      configured: false,
+      builderEnabled: true,
+      agentNativeProvisioningEnabled: true,
+      agentNativeProvisioningToken: provisioningToken,
+      envManaged: false,
+      connectUrl: signedConnectUrl,
+      appHost: "https://builder.io",
+      apiHost: "https://api.builder.io",
+      publicKeyConfigured: false,
+      privateKeyConfigured: false,
+      connectError: {
+        message:
+          "A Builder account already exists for this email. Log in to connect it.",
+        code: "account_exists",
+        at: Date.now(),
+      },
+    };
+    const invalidConnectUrlStatus: BuilderStatus = {
+      ...accountExistsStatus,
+      connectUrl: "https://builder.io/connect",
+      connectError: null,
+    };
+    const readStatus: BuilderConnectTransport["readStatus"] = async ({
+      connectAttemptId,
+    }) => (connectAttemptId ? invalidConnectUrlStatus : accountExistsStatus);
+    const openConnectUrl = vi.fn(async () => ({ ok: true as const }));
+    const transport: BuilderConnectTransport = {
+      readStatus,
+      activateAccount: async () => ({ ok: true }),
+      openConnectUrl,
+    };
+
+    await act(async () => {
+      root.render(
+        <BuilderConnectProbe
+          startProvisionAccount={false}
+          transport={transport}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector('[data-testid="status"]')
+        ?.textContent?.replace(/\s+/g, " ")
+        .trim(),
+    ).toBe("not-configured idle resolved account-exists");
+    expect(openConnectUrl).not.toHaveBeenCalled();
+  });
+
   it("falls back to the cached signed URL when the click-time status refresh fails", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     const popup = createPopupStub();

@@ -1507,6 +1507,7 @@ export function useBuilderConnectFlow(
           ) {
             connectStartedAtRef.current = null;
             setConnecting(false);
+            restoreExistingAccount();
             setError(t("agentChat.settingsShell.builder.setupStartFailed"));
             return;
           }

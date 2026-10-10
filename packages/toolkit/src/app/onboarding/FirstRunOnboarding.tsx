@@ -1131,6 +1131,18 @@ export function FirstRunOnboarding({
                   </button>
                 </div>
               )}
+            {!connectFlow.connecting &&
+              !connectFlow.statusUnavailable &&
+              !connectFlow.terminalError && (
+                <button
+                  type="button"
+                  data-testid="first-run-back-to-choice"
+                  className={cn(secondaryButtonClass, "mt-4")}
+                  onClick={returnToSetupChoice}
+                >
+                  {t("agentChat.onboarding.back")}
+                </button>
+              )}
           </>
         )}
         {accountExists && !connectFlow.connecting && (
