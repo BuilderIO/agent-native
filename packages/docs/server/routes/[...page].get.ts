@@ -24,6 +24,7 @@ import {
 } from "../../lib/ssr-cache";
 import {
   acceptsMarkdown,
+  agentWebAssetContentType,
   appendVary,
   buildMarkdownNotFoundResponse,
 } from "../lib/agent-web-responses";
@@ -115,14 +116,7 @@ function readAgentWebAssetForRequest(
   event: H3Event,
 ): { content: string; contentType: string } | undefined {
   const pathname = getRequestURL(event).pathname.replace(/\/+$/, "") || "/";
-  const contentTypeByPath: Record<string, string> = {
-    "/llms.txt": "text/plain; charset=utf-8",
-    "/llms-full.txt": "text/plain; charset=utf-8",
-    "/robots.txt": "text/plain; charset=utf-8",
-    "/sitemap.xml": "application/xml; charset=utf-8",
-    "/openapi.json": "application/json; charset=utf-8",
-  };
-  const contentType = contentTypeByPath[pathname];
+  const contentType = agentWebAssetContentType(pathname);
   if (!contentType) return undefined;
 
   const relativePath = pathname.replace(/^\//, "");
