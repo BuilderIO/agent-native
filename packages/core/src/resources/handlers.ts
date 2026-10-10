@@ -489,7 +489,7 @@ export async function handleCreateResource(event: any) {
   const owner = await resolveOwner(event, body.shared);
 
   if (body.uniqueSkillPath) {
-    const match = /^skills\/([a-z0-9]+(?:-[a-z0-9]+)*)\/SKILL\.md$/i.exec(
+    const match = /^skills\/([a-z0-9]+(?:-[a-z0-9]+)*)\/SKILL\.md$/.exec(
       body.path,
     );
     if (!match) {
@@ -499,9 +499,18 @@ export async function handleCreateResource(event: any) {
 
     const writeOptions =
       body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+    const organizationId = organizationIdFromResourceOwner(owner);
     for (let suffix = 1; suffix <= 1000; suffix += 1) {
       const path =
         suffix === 1 ? body.path : `skills/${match[1]}-${suffix}/SKILL.md`;
+      if (
+        organizationId &&
+        (await resourceGetByPath(SHARED_OWNER, path, {
+          orgId: organizationId,
+        }))
+      ) {
+        continue;
+      }
       const resource = await resourcePutIfAbsent(
         owner,
         path,

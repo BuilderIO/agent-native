@@ -24,6 +24,21 @@ describe("uploadedSkillSlug", () => {
     ).toBe("release-notes");
   });
 
+  it("parses CRLF frontmatter when name is followed by another field", () => {
+    expect(
+      uploadedSkillSlug(
+        "SKILL.md",
+        [
+          "---",
+          "name: release-notes",
+          "description: Draft concise release notes",
+          "---",
+          "Instructions",
+        ].join("\r\n"),
+      ),
+    ).toBe("release-notes");
+  });
+
   it("preserves filename fallback for Markdown without a declared name", () => {
     expect(uploadedSkillSlug("Review Feedback.md", "# Notes")).toBe(
       "review-feedback",

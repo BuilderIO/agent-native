@@ -153,6 +153,7 @@ describe("resource handlers", () => {
     lastStatus = 200;
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
     mockResourceGet.mockResolvedValue(null);
+    mockResourceGetByPath.mockReset().mockResolvedValue(null);
     mockResourcePutIfAbsent.mockResolvedValue(null);
     mockResourceDeleteIfCurrent.mockResolvedValue(true);
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
@@ -633,20 +634,68 @@ Legacy webhook.`,
       );
     });
 
-    it("rejects a unique skill path outside the skill layout", async () => {
+    it.each(["skills/review-feedback.md", "skills/Review-feedback/SKILL.md"])(
+      "rejects a non-canonical unique skill path: %s",
+      async (path) => {
+        const result = await handleCreateResource({
+          _body: { path, content: "new content", uniqueSkillPath: true },
+        });
+
+        expect(lastStatus).toBe(400);
+        expect(result).toEqual({
+          error: "uniqueSkillPath requires skills/<name>/SKILL.md",
+        });
+        expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+      },
+    );
+
+    it("avoids shadowing a legacy shared skill during organization upload", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      mockResourceGetByPath.mockImplementation(async (owner, path, options) =>
+        owner === "__shared__" &&
+        path === "skills/review-feedback/SKILL.md" &&
+        options?.orgId === "org-1"
+          ? { id: "legacy-skill" }
+          : null,
+      );
+      const created = {
+        id: "new-skill",
+        path: "skills/review-feedback-2/SKILL.md",
+        owner: "__organization__:org-1",
+        content: "new content",
+      };
+      mockResourcePutIfAbsent.mockResolvedValueOnce(created);
+
       const result = await handleCreateResource({
         _body: {
-          path: "skills/review-feedback.md",
+          path: "skills/review-feedback/SKILL.md",
           content: "new content",
+          mimeType: "text/markdown",
+          shared: true,
           uniqueSkillPath: true,
         },
       });
 
-      expect(lastStatus).toBe(400);
-      expect(result).toEqual({
-        error: "uniqueSkillPath requires skills/<name>/SKILL.md",
-      });
-      expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+      expect(lastStatus).toBe(201);
+      expect(result).toEqual(created);
+      expect(mockResourceGetByPath).toHaveBeenNthCalledWith(
+        1,
+        "__shared__",
+        "skills/review-feedback/SKILL.md",
+        { orgId: "org-1" },
+      );
+      expect(mockResourcePutIfAbsent).toHaveBeenCalledExactlyOnceWith(
+        "__organization__:org-1",
+        "skills/review-feedback-2/SKILL.md",
+        "new content",
+        "text/markdown",
+        undefined,
+      );
     });
 
     it("creates shared resource when shared flag is set", async () => {

@@ -2,7 +2,7 @@ function skillFrontmatterName(content: string): string | undefined {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
   if (!match) return undefined;
 
-  const lines = match[1].split("\n");
+  const lines = match[1].replace(/\r\n?/g, "\n").split("\n");
   for (let index = 0; index < lines.length; ) {
     const field = lines[index].match(/^name:\s*(.*)$/);
     if (!field) {
