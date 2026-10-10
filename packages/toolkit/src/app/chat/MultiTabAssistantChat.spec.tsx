@@ -105,7 +105,6 @@ const assistantChatMockState = vi.hoisted(() => ({
         },
       ) => void)
     | undefined,
-  onSubmitStart: undefined as ((threadId: string) => void) | undefined,
   branchNavigation: undefined as
     | {
         index: number;
@@ -392,7 +391,6 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
         onForkedThread?: (threadId: string) => void;
         onGenerateTitle?: typeof assistantChatMockState.onGenerateTitle;
         onSaveThread?: typeof assistantChatMockState.onSaveThread;
-        onSubmitStart?: typeof assistantChatMockState.onSubmitStart;
         branchNavigation?: typeof assistantChatMockState.branchNavigation;
       };
       assistantChatMockState.onThreadRestoreNotFound =
@@ -402,7 +400,6 @@ vi.mock("./AgentKitAssistantChat.js", async () => {
       assistantChatMockState.onForkedThread = props.onForkedThread;
       assistantChatMockState.onGenerateTitle = props.onGenerateTitle;
       assistantChatMockState.onSaveThread = props.onSaveThread;
-      assistantChatMockState.onSubmitStart = props.onSubmitStart;
       assistantChatMockState.branchNavigation = props.branchNavigation;
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
@@ -462,7 +459,6 @@ function resetThreadMocks() {
   assistantChatMockState.onForkedThread = undefined;
   assistantChatMockState.onGenerateTitle = undefined;
   assistantChatMockState.onSaveThread = undefined;
-  assistantChatMockState.onSubmitStart = undefined;
   assistantChatMockState.branchNavigation = undefined;
   threadMocks.activeThreadId = "thread-1";
   threadMocks.isLoading = false;
@@ -2494,7 +2490,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(container.textContent).not.toContain("Previous chats for this form");
   });
 
-  it("routes the active create chat to its thread on submit, before the first save", async () => {
+  it("adopts the thread route on its first accepted save, not on submit", async () => {
     const navigate = vi.fn();
     window.history.replaceState(null, "", "/chat");
 
@@ -2512,15 +2508,23 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       );
     });
 
+    expect(navigate).not.toHaveBeenCalled();
+
     act(() => {
-      assistantChatMockState.onSubmitStart?.("thread-1");
+      assistantChatMockState.onSaveThread?.("thread-1", {
+        threadData: JSON.stringify({ messages: [{ id: "message-1" }] }),
+        title: "New chat",
+        preview: "Hello",
+        messageCount: 1,
+        titleSource: "fallback",
+      });
     });
 
     expect(navigate).toHaveBeenCalledTimes(1);
     expect(navigate).toHaveBeenCalledWith("/chat/thread-1", { replace: false });
   });
 
-  it("does not move the route when a background chat submits", async () => {
+  it("does not move the route when a background chat is first saved", async () => {
     const navigate = vi.fn();
     window.history.replaceState(null, "", "/chat");
 
@@ -2539,7 +2543,13 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     act(() => {
-      assistantChatMockState.onSubmitStart?.("thread-2");
+      assistantChatMockState.onSaveThread?.("thread-2", {
+        threadData: JSON.stringify({ messages: [{ id: "message-2" }] }),
+        title: "Background chat",
+        preview: "Hello",
+        messageCount: 1,
+        titleSource: "fallback",
+      });
     });
 
     expect(navigate).not.toHaveBeenCalled();

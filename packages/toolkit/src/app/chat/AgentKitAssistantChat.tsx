@@ -2529,7 +2529,6 @@ const AgentKitAssistantChatBody = forwardRef<
       const showsUserMessage =
         !options.hideUserMessage && !options.approvedToolCalls;
       if (showsUserMessage) {
-        props.onSubmitStart?.(threadId);
         if (!isThreadRunning()) {
           setPendingUserSubmission({
             text,
@@ -2573,7 +2572,6 @@ const AgentKitAssistantChatBody = forwardRef<
       props.selectedModel,
       isRestoring,
       isThreadRunning,
-      props.onSubmitStart,
       props.tabId,
       setupMissing,
       t,
@@ -2593,7 +2591,6 @@ const AgentKitAssistantChatBody = forwardRef<
       const release = await acquireSubmission();
       if (!release)
         throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
-      props.onSubmitStart?.(threadId);
       if (!runWasActiveAtSubmit) {
         setPendingUserSubmission({ text, baseCount: messageCountRef.current });
       }
@@ -2622,7 +2619,6 @@ const AgentKitAssistantChatBody = forwardRef<
       isThreadRunning,
       props.composerDisabled,
       props.composerSubmissionDisabled,
-      props.onSubmitStart,
       props.tabId,
       t,
       threadId,

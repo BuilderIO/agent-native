@@ -1257,7 +1257,7 @@ export function useChatThreads(
   const isNewThread = useCallback(
     (id: string) => {
       // A chat created this session stays new when the route adopts its id on
-      // submit; treating it as a saved thread drops the surface into a
+      // its first save; treating it as a saved thread drops the surface into a
       // restore-loading state until the thread list loads.
       if (
         routeControlsActiveThread &&
