@@ -1431,6 +1431,10 @@ describe("server name on a multi-label host", () => {
       "beta-agent-native-content",
     );
   });
+
+  it("keeps a production app on a beta. host named as before", async () => {
+    expect(await serverNameFor("beta.example.com")).toBe("agent-native-beta");
+  });
 });
 
 describe("explicit server name", () => {
