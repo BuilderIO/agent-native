@@ -4988,11 +4988,16 @@ export async function runAuthoringFuzz(
     } catch (diagnosticError) {
       diagnostics = { status: "unavailable", error: String(diagnosticError) };
     }
+    for (const event of requestTrace) {
+      console.error(
+        `[edit-fidelity] seed=${seed} request-trace ${JSON.stringify(event)}`,
+      );
+    }
     throw formatAuthoringFuzzFailure(
       seed,
       activePhase,
       prefix,
-      `${String(error)}\ndiagnostics: ${JSON.stringify(diagnostics)}\nrequest trace: ${JSON.stringify(requestTrace)}`,
+      `${String(error)}\ndiagnostics: ${JSON.stringify(diagnostics)}`,
       options.browser,
     );
   } finally {
