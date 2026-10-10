@@ -104,6 +104,7 @@ export interface AnalyticsQueryOptions {
   maxBytesBilled?: number;
   signal?: AbortSignal;
   eventDateRange?: { startDate: string; endDate: string };
+  scopedEventsSingleScan?: boolean;
   /** Debugging only: metrics exclude test identities by default. */
   includeTestIdentities?: boolean;
 }
@@ -1089,6 +1090,7 @@ function scopedTableSource(
   parameterOffset: number,
   includeTestIdentities: boolean,
   eventPushdownPredicates: string[] = [],
+  scopedEventsSingleScan = false,
 ): {
   sql: string;
   args: Array<string | null>;
@@ -1148,6 +1150,12 @@ function scopedTableSource(
       };
     }
     const ownerParameter = parameterOffset + 3;
+    if (tableName === "analytics_events" && scopedEventsSingleScan) {
+      return {
+        sql: `(SELECT * FROM ${tableName} WHERE (org_id = $${orgParameter} OR (org_id IS NULL AND owner_email = $${ownerParameter})) AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
+        args: [scope.orgId, today, ownerEmail],
+      };
+    }
     return {
       sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
       args: [scope.orgId, today, ownerEmail, today],
@@ -1283,9 +1291,11 @@ export function scopedAnalyticsSql(
   {
     includeTestIdentities = false,
     scopedEventsNotMaterialized = false,
+    scopedEventsSingleScan = false,
   }: {
     includeTestIdentities?: boolean;
     scopedEventsNotMaterialized?: boolean;
+    scopedEventsSingleScan?: boolean;
   } = {},
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];
@@ -1326,6 +1336,7 @@ export function scopedAnalyticsSql(
         args.length,
         includeTestIdentities,
         eventPushdownPredicates,
+        scopedEventsSingleScan,
       )
     : null;
   if (scopedEvents) args.push(...scopedEvents.args);
@@ -1486,6 +1497,7 @@ export async function queryFirstPartyAnalytics(
   }
   const scopeOptions = {
     includeTestIdentities: options.includeTestIdentities === true,
+    scopedEventsSingleScan: options.scopedEventsSingleScan === true,
   };
   const queryClass = classifyFirstPartyAnalyticsQuery(sql);
   const startedAt = Date.now();
@@ -1552,6 +1564,7 @@ export async function queryFirstPartyAnalytics(
             maxBytesBilled: options.maxBytesBilled,
             timeoutMs: remainingTime(),
             eventDateRange: options.eventDateRange,
+            scopedEventsSingleScan: options.scopedEventsSingleScan === true,
             signal,
           }),
           signal,
