@@ -110,7 +110,7 @@ const assistantChatMockState = vi.hoisted(() => ({
       ) => boolean | void | Promise<boolean | void>)
     | undefined,
   onThreadSnapshotPersisted: undefined as
-    | ((threadId: string) => void)
+    | ((threadId: string, messageCount: number) => void)
     | undefined,
   branchNavigation: undefined as
     | {
@@ -2870,14 +2870,16 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
 
     expect(navigate).not.toHaveBeenCalled();
 
-    act(() => {
-      assistantChatMockState.onSaveThread?.("thread-1", {
+    threadMocks.saveThreadData.mockResolvedValueOnce(true);
+    await act(async () => {
+      await assistantChatMockState.onSaveThread?.("thread-1", {
         threadData: JSON.stringify({ messages: [{ id: "message-1" }] }),
         title: "New chat",
         preview: "Hello",
         messageCount: 1,
         titleSource: "fallback",
       });
+      assistantChatMockState.onThreadSnapshotPersisted?.("thread-1", 1);
     });
 
     expect(navigate).toHaveBeenCalledTimes(1);

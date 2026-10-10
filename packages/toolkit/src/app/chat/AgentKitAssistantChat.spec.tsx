@@ -4440,7 +4440,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         type: "file",
         name: "opaque-id.png",
         mediaType: "image/png",
-        omitted: "inline-bytes",
+        fileId: "4b1f4cc034da4c8c8fe4a5d20fa87a32",
       },
       {
         type: "file",
