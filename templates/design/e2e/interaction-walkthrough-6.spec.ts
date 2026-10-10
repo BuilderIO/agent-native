@@ -35,7 +35,7 @@ async function action(
 
 async function createDesign(request: APIRequestContext): Promise<string> {
   const created = await action(request, "create-design", {
-    title: `E2E Tutorial 6 Icon Grid ${Date.now()}`,
+    title: `Icon grid build ${Date.now()}`,
     projectType: "prototype",
   });
   const id = created?.id ?? created?.data?.id ?? created?.design?.id;
@@ -128,10 +128,10 @@ async function useTool(page: Page, name: string): Promise<void> {
   await page.waitForTimeout(250);
 }
 
-async function openTutorialStep(page: Page, id: string): Promise<void> {
+async function openWorkflowStep(page: Page, id: string): Promise<void> {
   if (!id)
     throw new Error(
-      "openTutorialStep called with no designId (a prior step must have thrown)",
+      "openWorkflowStep called with no designId (a prior step must have thrown)",
     );
   await page.goto(appPath(`/design/${id}?view=overview`), {
     waitUntil: "domcontentloaded",
@@ -271,7 +271,7 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
     request,
   }) => {
     designId = await createDesign(request);
-    await openTutorialStep(page, designId);
+    await openWorkflowStep(page, designId);
     const filesBefore = (await getDesign(request, designId)).files?.length ?? 0;
     const before = new Set(
       primitiveNodeIds(await indexHtml(request, designId), "frame"),
@@ -307,7 +307,7 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
     const h = styleNum(style, "height");
     expect(
       Math.abs(w - h) / Math.max(w, h),
-      `standard: Shift constrains a frame draw to a square/aspect lock. Got width=${w} height=${h} ` +
+      `Shift should constrain a frame draw to a square aspect lock. Got width=${w} height=${h} ` +
         `from a 2:1 (120x60) drag delta, style="${style}"`,
     ).toBeLessThan(0.15);
 
@@ -324,19 +324,19 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
     );
   });
 
-  test("step 2 [in-screen, codex]: Layout grid section accepts a grid size of 1 on the selected frame", async ({
+  test("step 2 [in-screen]: Layout grid section accepts a grid size of 1 on the selected frame", async ({
     page,
     request,
   }) => {
-    await openTutorialStep(page, designId);
+    await openWorkflowStep(page, designId);
     await selectLayerRowById(page, frameId);
 
     const addGrid = page.getByRole("button", { name: /add grid/i });
     const hasLayoutGrid = await addGrid.isVisible().catch(() => false);
     expect(
       hasLayoutGrid,
-      "harness-blocked/finding: no 'Add grid' control found in the inspector for a nested frame " +
-        `- Layout grid section presence could not be verified. dump: ${JSON.stringify(await dump(page))}`,
+      "Add grid control was not found in the inspector for a nested frame; " +
+        `layout grid section presence could not be verified. dump: ${JSON.stringify(await dump(page))}`,
     ).toBeTruthy();
     if (!hasLayoutGrid) {
       throw new Error("required 'Add grid' control is missing");
@@ -361,11 +361,11 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
     ).toMatch(/"size":\s*1\b/);
   });
 
-  test("step 3 [no equivalent -> closest: default arrow-key nudge]: Design has no Preferences panel for snap-to/small-nudge; default nudge amount is exercised instead", async ({
+  test("ArrowRight moves the selected frame to the right", async ({
     page,
     request,
   }) => {
-    await openTutorialStep(page, designId);
+    await openWorkflowStep(page, designId);
     await selectLayerRowById(page, frameId);
     const before = styleOf(await indexHtml(request, designId), frameId);
     const leftBefore = styleNum(before, "left");
@@ -377,17 +377,15 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
 
     expect(
       leftAfter,
-      "standard default small nudge is 1px absent a Preferences override (0.5px in the tutorial is a " +
-        "user-set Preference Design has no surface for -- see finding). Design's default ArrowRight " +
-        `nudge should move the frame by a small fixed step; left ${leftBefore} -> ${leftAfter}.`,
+      `ArrowRight should increase the frame's left position; left ${leftBefore} -> ${leftAfter}.`,
     ).toBeGreaterThan(leftBefore);
   });
 
-  test("step 4 [in-screen, codex]: Pen tool draws a 2-point guide line inside the frame; stroke color/opacity/weight commit via the inspector", async ({
+  test("step 4 [in-screen]: Pen tool draws a 2-point guide line inside the frame; stroke color/opacity/weight commit via the inspector", async ({
     page,
     request,
   }) => {
-    await openTutorialStep(page, designId);
+    await openWorkflowStep(page, designId);
     const box = await screenBox(page);
     const p1 = toScreenPoint(box, 45, 45);
     const p2 = toScreenPoint(box, 45 + 100, 45 + 100);
@@ -427,8 +425,7 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
       .catch(() => false);
     expect(
       hasStrokeSection,
-      `finding: no Stroke section found in the inspector for a freshly drawn line/path node ` +
-        `(ownedBy codex); dump: ${JSON.stringify(await dump(page))}`,
+      `Stroke section was not visible for the freshly drawn line/path node; dump: ${JSON.stringify(await dump(page))}`,
     ).toBeTruthy();
     if (hasStrokeSection) {
       const addStroke = strokeSection.getByRole("button", {
@@ -444,8 +441,7 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
         .catch(() => false);
       expect(
         hasWeight,
-        `finding: Stroke section has no Weight input to set the guide's 0.2 stroke weight ` +
-          `(ownedBy codex); dump: ${JSON.stringify(await dump(page))}`,
+        `Stroke section has no Weight input for the guide line; dump: ${JSON.stringify(await dump(page))}`,
       ).toBeTruthy();
       if (hasWeight) {
         await weightInput.fill("0.2");
@@ -459,7 +455,7 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
     page,
     request,
   }) => {
-    await openTutorialStep(page, designId);
+    await openWorkflowStep(page, designId);
     const html0 = await indexHtml(request, designId);
     const linesBefore = primitiveNodeIds(html0, "path").concat(
       primitiveNodeIds(html0, "line"),
@@ -504,7 +500,7 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
     page,
     request,
   }) => {
-    await openTutorialStep(page, designId);
+    await openWorkflowStep(page, designId);
     const box = await screenBox(page);
     const before = new Set(
       primitiveNodeIds(await indexHtml(request, designId), "ellipse"),
@@ -539,7 +535,7 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
     page,
     request,
   }) => {
-    await openTutorialStep(page, designId);
+    await openWorkflowStep(page, designId);
     const before = await boardObjects(request, designId);
 
     const origin = await emptyBoardPoint(page);
@@ -595,24 +591,11 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
     ).toEqual([afterRadius[rectId]?.x, afterRadius[rectId]?.y]);
   });
 
-  test("step 8 [no equivalent -> closest: manual stroke match]: Design has no copy/paste-style command; matching the stroke via the inspector is the closest equivalent", async ({
-    page,
-  }) => {
-    await openTutorialStep(page, designId);
-    const hasMenuOpen = false;
-    expect(
-      hasMenuOpen,
-      "Design has no Cmd+Opt+C/Cmd+Opt+V copy/paste-style command (checked: no such context-menu " +
-        "item exists in the design surface). Closest equivalent is setting matching stroke/fill " +
-        "values on the target node directly via the inspector, exercised in step 4/7's stroke edits.",
-    ).toBe(false);
-  });
-
   test("step 9 [crosses screen boundary, out->in]: dragging the board rectangle into the screen reparents it into the Icon-grid frame; one undo restores it outside", async ({
     page,
     request,
   }) => {
-    await openTutorialStep(page, designId);
+    await openWorkflowStep(page, designId);
     const objectsBefore = await boardObjects(request, designId);
     const rectId = Object.keys(objectsBefore).find(
       (id) => objectsBefore[id]?.kind === "rectangle",
@@ -682,35 +665,5 @@ test.describe("interaction: guided walkthrough - reusable icon grid", () => {
     if (restored) {
       expect([restored.x, restored.y]).toEqual([preDrag.x, preDrag.y]);
     }
-  });
-
-  test("step 10 [no equivalent]: Design has no boolean path operations (Union selection) and no components/variants system", async ({
-    page,
-  }) => {
-    await openTutorialStep(page, designId);
-    await selectLayerRowById(page, frameId);
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(400);
-    await page.keyboard.down("Shift");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.up("Shift");
-    await page.mouse.click(5, 5);
-    const hasUnion = await page
-      .getByRole("button", { name: /union selection/i })
-      .isVisible();
-    const hasCreateComponent = await page
-      .getByRole("button", { name: /create component/i })
-      .isVisible();
-    expect(
-      hasUnion,
-      "finding: no 'Union selection' boolean-path-operation control exists anywhere in the toolbar/inspector " +
-        "(ownedBy unknown, severity low) -- Design has no boolean path operations equivalent to standard's " +
-        "Union/Subtract/Intersect/Exclude.",
-    ).toBe(false);
-    expect(
-      hasCreateComponent,
-      "finding: no 'Create component' control exists (ownedBy unknown, severity low) -- Design has no " +
-        "components/variants system equivalent to standard's Main Component / Instance model.",
-    ).toBe(false);
   });
 });

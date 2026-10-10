@@ -94,6 +94,47 @@ export class InvalidCanvasDimensionsError extends Error {
   }
 }
 
+export type CanvasDeviceVariant = "desktop" | "tablet" | "mobile";
+
+function isNegatedDeviceMention(prompt: string, index: number): boolean {
+  const precedingText = prompt.slice(Math.max(0, index - 48), index);
+  return /\b(?:no|without|exclud(?:e|ed|ing)|avoid|skip|not|never|don't|do not)(?:\s+(?:include|use|make|create|add))?\s+(?:(?:the|a|an|any)\s+)?(?:(?:desktop|mobile|tablet)\s*(?:[,/&]|\b(?:and|or)\b)\s*)*$/i.test(
+    precedingText,
+  );
+}
+
+export function requestedCanvasDeviceVariants(
+  prompt?: string,
+): CanvasDeviceVariant[] {
+  if (!prompt) return [];
+
+  const requested = new Set<CanvasDeviceVariant>();
+  const deviceGroup =
+    /\b(?:desktop|mobile|tablet)(?:\s*(?:[,/&]|\band\b)\s*(?:desktop|mobile|tablet))+\b/gi;
+  const namedVariant =
+    /\b(desktop|mobile|tablet)\s+(?:versions?|variants?|layouts?|breakpoints?)\b/gi;
+
+  for (const match of prompt.matchAll(deviceGroup)) {
+    for (const deviceMatch of match[0].matchAll(
+      /\b(desktop|mobile|tablet)\b/gi,
+    )) {
+      const index = match.index! + deviceMatch.index!;
+      if (!isNegatedDeviceMention(prompt, index)) {
+        requested.add(deviceMatch[1]!.toLowerCase() as CanvasDeviceVariant);
+      }
+    }
+  }
+  for (const match of prompt.matchAll(namedVariant)) {
+    if (!isNegatedDeviceMention(prompt, match.index!)) {
+      requested.add(match[1]!.toLowerCase() as CanvasDeviceVariant);
+    }
+  }
+
+  return (["desktop", "tablet", "mobile"] as const).filter((device) =>
+    requested.has(device),
+  );
+}
+
 class MultipleCanvasDimensionsError extends Error {}
 
 interface CanvasPresetAlias {
@@ -151,7 +192,7 @@ const CANVAS_PRESET_ALIASES: CanvasPresetAlias[] = [
   },
   {
     preset: "Mobile Leaderboard",
-    pattern: /\bmobile\s+leaderboard\s+(?:ads?|banners?)\b/i,
+    pattern: /\bmobile\s+leaderboard\b/i,
   },
   {
     preset: "Leaderboard",
@@ -174,7 +215,7 @@ const OUTPUT_RELATION_BOUNDARY =
 // Matched against the head noun alone, so "Facebook ads reporting screen" stays
 // a screen: modifiers before a product-surface head never pick a fixed format.
 const PRODUCT_SURFACE_HEAD =
-  /^(?:pages?|screens?|views?|reports?|dashboards?|trackers?|analytics|lists?|managers?|editors?|builders?|makers?|generators?|creators?|tools?|apps?|applications?|forms?|librar(?:y|ies)|galler(?:y|ies)|schedulers?|portals?|platforms?|sites?|websites?|interfaces?|uis?|ux|panels?|crms?|workspaces?|prototypes?|inbox(?:es)?|tables?|calendars?|feeds?|planners?|consoles?|flows?|settings)$/i;
+  /^(?:pages?|screens?|views?|reports?|dashboards?|trackers?|analytics|lists?|leaderboards?|managers?|editors?|builders?|makers?|generators?|creators?|tools?|apps?|applications?|forms?|components?|librar(?:y|ies)|galler(?:y|ies)|schedulers?|portals?|platforms?|sites?|websites?|interfaces?|uis?|ux|panels?|crms?|workspaces?|prototypes?|inbox(?:es)?|tables?|calendars?|feeds?|planners?|consoles?|flows?|settings)$/i;
 const GENERIC_ARTWORK_HEAD =
   /^(?:|graphics?|images?|creatives?|visuals?|assets?|artwork|art|designs?|mockups?|posts?|stor(?:y|ies)|banners?|ads?|thumbnails?|cards?|covers?|headers?|promos?|directions?|options?|variations?|variants?|versions?|concepts?|ideas?|layouts?|drafts?|sets?|series|batch(?:es)?)$/i;
 const NOUN_PHRASE_POSTMODIFIER = /,|\s(?:in|of|at|to|from|by|as|into|like)\s/i;
@@ -229,7 +270,12 @@ export function resolveCanvasIntent(prompt?: string): CanvasIntent {
   }
 
   const { phrase: output, head } = requestedOutput(value);
-  if (PRODUCT_SURFACE_HEAD.test(head)) return { kind: "responsive" };
+  const explicitDisplayLeaderboard =
+    head.toLowerCase() === "leaderboard" &&
+    /\bdisplay\s+leaderboard\b/i.test(output);
+  if (PRODUCT_SURFACE_HEAD.test(head) && !explicitDisplayLeaderboard) {
+    return { kind: "responsive" };
+  }
 
   const outputAlias = CANVAS_PRESET_ALIASES.find((alias) =>
     alias.pattern.test(output),

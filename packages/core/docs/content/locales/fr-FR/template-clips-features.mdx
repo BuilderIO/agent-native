@@ -134,13 +134,35 @@ Rewind est désactivé par défaut. Rien n'est capturé jusqu'à ce que vous l'a
 
 Activez Rewind depuis l'onglet Rewind dans les Paramètres. Une fois activé, vous pouvez demander à l'agent des choses comme « qu'est-ce que je regardais il y a 20 minutes ? » et il lit des extraits de texte depuis le tampon local du texte à l'écran, du contexte de l'application et de la fenêtre, et des fragments de transcription. L'agent ne reçoit jamais les enregistrements eux-mêmes, à une exception : une demande que vous examinez et approuvez, qui transforme une plage exacte en un clip privé.
 
-#### Ajouter ce qui s'est passé avant
+#### Ajouter ce qui s'est passé avant (ancienne option de l'éditeur) {#add-what-happened-before}
 
-Dans l'éditeur d'un clip, **Ajouter ce qui s'est passé avant** récupère les 30 secondes ou les 5 minutes précédentes depuis votre historique Rewind local et les ajoute au début du clip. Le clip doit avoir été enregistré sur cet appareil pendant que Rewind était actif, et les moments doivent encore se trouver dans l'historique conservé par Rewind.
+C'est l'ancienne option de l'éditeur. Dans l'éditeur d'un clip, **Ajouter ce qui s'est passé avant** récupère les 30 secondes ou les 5 minutes précédentes depuis votre historique Rewind local et les ajoute au début de la vidéo du clip. Le clip doit avoir été enregistré sur cet appareil pendant que Rewind était actif, et les moments doivent encore se trouver dans l'historique conservé par Rewind. Pour l'option plus récente, qui conserve le temps d'écran précédent comme contexte distinct et laisse la vidéo intacte, voir [Temps d'écran précédent](#earlier-screen-time).
 
 - Le clip doit être privé, sans accès direct accordé à personne d'autre. L'historique Rewind peut contenir du contexte d'avant que vous ayez choisi d'enregistrer, donc Clips rend d'abord le clip privé et s'arrête si quelqu'un d'autre y a encore accès.
 - Le média du clip est remplacé par l'enregistrement combiné. La transcription, les chapitres, les commentaires, et les réactions se décalent pour que leurs horodatages restent alignés, et la timeline marque où l'enregistrement d'origine commençait.
 - Cela s'exécute une fois par clip et seulement quand vous le demandez. Rien n'est ajouté automatiquement depuis Rewind.
+
+### Temps d'écran précédent {#earlier-screen-time}
+
+Le temps d'écran précédent ajoute jusqu'à cinq minutes de votre écran, antérieures au début d'un enregistrement, tirées de Rewind sur cet appareil. Il est rattaché à l'enregistrement comme contexte propre. Il n'est pas intégré à la vidéo de l'enregistrement.
+
+Le temps d'écran précédent est une fonctionnalité optionnelle de Labs. Activez-la sous **Paramètres > Labs**, « Include earlier screen time ». Elle est désactivée par défaut.
+
+Avec la fonctionnalité activée, le popover de l'application de bureau Clips contient un contrôle **Inclure les derniers**. Choisissez **Désactivé** (par défaut), **30 s**, **5 min** ou **Personnalisé…** pour une durée allant jusqu'à cinq minutes. Rewind doit être activé et en cours d'exécution pour qu'une durée prenne effet. Si Rewind est désactivé, choisir une durée ouvre une brève explication avec un bouton **Activer Rewind**.
+
+Lorsque vous démarrez un enregistrement, la fenêtre temporelle choisie sous **Inclure les derniers** est demandée et envoyée depuis cet appareil. Avec **Désactivé**, rien n'est demandé.
+
+Pour voir exactement ce que vous partagez, choisissez **Modifier** à côté du temps d'écran précédent dans l'application de bureau, une fois qu'il est prêt. L'éditeur affiche un aperçu allant jusqu'à cinq minutes de l'historique local antérieur au début de l'enregistrement. L'aperçu est construit sur votre appareil et n'est jamais envoyé. La sélection commence sur la fenêtre temporelle que vous avez choisie. Faites glisser ses poignées pour la rogner, et utilisez **Lire la sélection** pour ne lire que cette partie.
+
+**Enregistrer** n'envoie que la fenêtre temporelle sélectionnée. Annuler, ou fermer l'éditeur de toute autre façon, supprime l'aperçu sans rien envoyer.
+
+Pour retirer le temps d'écran précédent d'un clip, demandez à l'agent de le retirer. L'enregistrement des images est déplacé vers la corbeille, où il reste jusqu'à ce que vous le supprimiez là-bas. Supprimer un enregistrement retire aussi le temps d'écran précédent qu'il contenait.
+
+Tant qu'un clip contient du temps d'écran précédent, il reste privé. La demande le rend privé, et elle est refusée si le clip est encore partagé directement avec d'autres personnes. Le partage est bloqué tant que vous n'avez pas retiré le temps d'écran précédent : rendre le clip public ou visible pour votre organisation, ou donner accès à quelqu'un, est refusé.
+
+Sur la page du clip, l'onglet Transcription affiche le temps d'écran précédent au-dessus de la transcription, avec sa fenêtre temporelle et un lecteur intégré. La modification se fait dans l'application de bureau Clips. L'agent peut lire la fenêtre temporelle et son statut.
+
+Limites : le temps d'écran précédent dure cinq minutes au maximum. L'historique ne comprend que ce que Rewind conserve encore sur cet appareil, si bien que les moments plus anciens peuvent ne plus être disponibles.
 
 ### Journaux du navigateur de l'extension Chrome
 

@@ -2561,6 +2561,16 @@ export async function activateBuilderAccount(
         account_provisioned: true,
       },
     );
+    track(
+      "llm_credential_changed",
+      {
+        change_type: "connected",
+        provider: "builder",
+        scope: written.scope,
+        credential_kind: "builder",
+      },
+      { userId: ownerEmail },
+    );
     await recordBuilderConnectionAudit({
       connected: true,
       ownerEmail,
@@ -5400,6 +5410,16 @@ export function createCoreRoutesPlugin(
               credential_scope: credentialScope,
             },
           );
+          track(
+            "llm_credential_changed",
+            {
+              change_type: "connected",
+              provider: "builder",
+              scope: credentialScope,
+              credential_kind: "builder",
+            },
+            { userId: ownerEmail },
+          );
           await recordBuilderConnectionAudit({
             connected: true,
             ownerEmail,
@@ -5794,9 +5814,10 @@ export function createCoreRoutesPlugin(
         `${P}/agent-engine/status`,
         defineEventHandler(async (event) => {
           try {
+            const statusStartedAt = Date.now();
             const { userEmail, orgId } =
               await resolveAgentEngineStatusIdentity(event);
-            return await memoizeAgentEngineStatus(
+            const status = await memoizeAgentEngineStatus(
               { userEmail, orgId },
               async () =>
                 await runWithRequestContext(
@@ -5812,6 +5833,11 @@ export function createCoreRoutesPlugin(
                   },
                 ),
             );
+            const statusMs = Date.now() - statusStartedAt;
+            if (statusMs >= 1_000) {
+              console.warn(`[agent-engine/status] slow lookup ms=${statusMs}`);
+            }
+            return status;
           } catch (err) {
             // NOT `{ configured: false }`. A 200 saying "not configured" is an
             // authoritative answer to the client, so a DB blip here renders as

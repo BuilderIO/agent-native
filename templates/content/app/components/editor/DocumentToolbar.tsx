@@ -4,8 +4,8 @@ import { type CollabUser } from "@agent-native/core/client/collab";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  openMcpAppHostLink,
   useIsMcpAppWidgetEmbed,
-  useIsMcpDirectoryWidgetReadOnlyEmbed,
   useIsMcpDirectoryWidgetWriteEmbed,
 } from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
@@ -38,6 +38,7 @@ import {
   IconChevronDown,
   IconCopy,
   IconDownload,
+  IconFileImport,
   IconDotsVertical,
   IconExternalLink,
   IconFileTypeHtml,
@@ -69,6 +70,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type MouseEvent,
   type Ref,
   type ReactNode,
   type SVGProps,
@@ -283,12 +285,15 @@ export function ToolbarBreadcrumb({
   ariaLabel,
   untitledLabel,
   onOpen,
+  fillCurrent = false,
 }: {
   items: ToolbarBreadcrumbItem[];
   currentDocumentId: string;
   ariaLabel: string;
   untitledLabel: string;
   onOpen: ToolbarBreadcrumbOpen;
+  /** Lets the current page's title use the room the bar has instead of capping it. */
+  fillCurrent?: boolean;
 }) {
   const navRef = useRef<HTMLElement>(null);
   const foldWidth = useElementWidthValue<number | undefined>(
@@ -311,6 +316,7 @@ export function ToolbarBreadcrumb({
           currentDocumentId={currentDocumentId}
           untitledLabel={untitledLabel}
           onOpen={onOpen}
+          fillCurrent={fillCurrent}
         />
       ))}
     </nav>
@@ -323,6 +329,7 @@ type ToolbarBreadcrumbSegmentProps = {
   currentDocumentId: string;
   untitledLabel: string;
   onOpen: ToolbarBreadcrumbOpen;
+  fillCurrent: boolean;
 };
 
 function ToolbarBreadcrumbSegment(props: ToolbarBreadcrumbSegmentProps) {
@@ -356,6 +363,7 @@ function ToolbarBreadcrumbSegmentView({
   untitledLabel,
   onOpen,
   hasMenu,
+  fillCurrent,
 }: ToolbarBreadcrumbSegmentProps & { hasMenu: boolean }) {
   const label = item.title.trim() || untitledLabel;
   const content = (
@@ -411,7 +419,8 @@ function ToolbarBreadcrumbSegmentView({
       ) : (
         <span
           className={cn(
-            "flex min-w-0 max-w-56 items-center gap-1 truncate px-1.5 py-1",
+            "flex min-w-0 items-center gap-1 truncate px-1.5 py-1",
+            !(isLast && fillCurrent) && "max-w-56",
             isLast ? "text-foreground" : "text-muted-foreground",
           )}
         >
@@ -875,6 +884,8 @@ interface DocumentToolbarProps {
   agentActive?: boolean;
   currentUserEmail?: string;
   canEdit?: boolean;
+  /** False hides Share; a widget offers it only on a document its viewer can edit. */
+  canShare?: boolean;
   readOnly?: boolean;
   hideFromSearch?: boolean;
   source?: DocumentSourceInfo;
@@ -902,6 +913,7 @@ interface DocumentToolbarProps {
   onRestoreEditorSelection?: () => void;
   onSuggestingChange?: (suggesting: boolean) => void;
   editorEscapeTargetRef?: Ref<HTMLButtonElement>;
+  onImport?: () => void;
 }
 
 // PresenceBar's default.
@@ -920,69 +932,49 @@ const TOOLBAR_SIDEBAR_TRIGGER_WIDTH = 40;
 // the menu, and a phone's room stays above that step.
 const TOOLBAR_FOLD_ROOMS = [384, 320, 260, 152, 112];
 
+// An MCP App widget's bar holds the page title, Share and one Open link. It
+// is not folded by `reserved`: the title keeps what the other controls leave,
+// and under this width the link moves into the page-actions menu.
+export const WIDGET_TOOLBAR_FOLD_ROOMS = [480];
+
+// Every control in a widget keeps a touch-sized hit area. The joined Share
+// control sizes its children, so the class goes on the group.
+const WIDGET_TOUCH_TARGET_CLASS_NAME = "size-11";
+const WIDGET_SHARE_GROUP_CLASS_NAME = "[&>*]:h-11 [&>*]:min-w-11";
+
 /**
  * How far the toolbar folds its controls at `width`, when `reserved` of it
  * holds the padding, the sidebar trigger and the breadcrumb at their
  * narrowest.
  */
-export function toolbarFoldLevel(width: number, reserved: number) {
+export function toolbarFoldLevel(
+  width: number,
+  reserved: number,
+  rooms: readonly number[] = TOOLBAR_FOLD_ROOMS,
+) {
   const room = width - reserved;
-  return TOOLBAR_FOLD_ROOMS.filter((step) => room < step).length;
+  return rooms.filter((step) => room < step).length;
 }
 
-export function DocumentToolbar(props: DocumentToolbarProps) {
-  const inWidget = useIsMcpAppWidgetEmbed();
-  const readOnlyWidget = useIsMcpDirectoryWidgetReadOnlyEmbed();
-  const writeWidget = useIsMcpDirectoryWidgetWriteEmbed();
-
-  if (!inWidget) return <DocumentToolbarRow {...props} />;
-  if (!writeWidget || readOnlyWidget || props.canEdit !== true) {
-    return null;
-  }
-
-  return <WidgetEditorToolbar {...props} />;
+// A widget's scoped session cannot list ancestors or peers, so its
+// breadcrumb is the page it holds, without a menu.
+function widgetBreadcrumbItems(
+  items: ToolbarBreadcrumbItem[],
+  documentId: string,
+): ToolbarBreadcrumbItem[] {
+  const current =
+    items.find((item) => item.id === documentId) ?? items[items.length - 1];
+  return [
+    {
+      id: current.id,
+      title: current.title,
+      icon: current.icon,
+      iconKind: current.iconKind,
+    },
+  ];
 }
 
-function WidgetEditorToolbar({
-  canUndo = false,
-  canRedo = false,
-  onUndo,
-  onRedo,
-}: DocumentToolbarProps) {
-  const t = useT();
-
-  return (
-    <div
-      className="flex h-12 min-w-0 shrink-0 items-center justify-end gap-1 border-b bg-background px-3"
-      data-content-widget-editor-toolbar=""
-      role="toolbar"
-      aria-label={t("editor.toolbar.morePageActions")}
-    >
-      <button
-        type="button"
-        className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-        aria-label={t("editor.toolbar.undo")}
-        title={t("editor.toolbar.undo")}
-        disabled={!canUndo}
-        onClick={onUndo}
-      >
-        <IconArrowBackUp size={16} />
-      </button>
-      <button
-        type="button"
-        className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-        aria-label={t("editor.toolbar.redo")}
-        title={t("editor.toolbar.redo")}
-        disabled={!canRedo}
-        onClick={onRedo}
-      >
-        <IconArrowForwardUp size={16} />
-      </button>
-    </div>
-  );
-}
-
-function DocumentToolbarRow({
+export function DocumentToolbar({
   compact = false,
   documentId,
   documentTitle,
@@ -998,6 +990,7 @@ function DocumentToolbarRow({
   agentActive,
   currentUserEmail,
   canEdit = true,
+  canShare = true,
   readOnly = false,
   hideFromSearch = false,
   source,
@@ -1025,28 +1018,40 @@ function DocumentToolbarRow({
   onRestoreEditorSelection,
   onSuggestingChange,
   editorEscapeTargetRef,
+  onImport,
 }: DocumentToolbarProps) {
   const sidebarTrigger = useSidebarTrigger();
   const t = useT();
+  const inWidget = useIsMcpAppWidgetEmbed();
+  const writeWidget = useIsMcpDirectoryWidgetWriteEmbed();
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const toolbarBreadcrumbItems = breadcrumbItems.length
+  const documentBreadcrumbItems = breadcrumbItems.length
     ? breadcrumbItems
     : [{ id: documentId, title: documentTitle || "Untitled" }];
-  const reservedWidth =
-    TOOLBAR_PADDING +
-    (sidebarTrigger ? TOOLBAR_SIDEBAR_TRIGGER_WIDTH + TOOLBAR_GAP : 0) +
-    (compact ? 0 : breadcrumbMinWidth(toolbarBreadcrumbItems) + TOOLBAR_GAP);
+  const toolbarBreadcrumbItems = inWidget
+    ? widgetBreadcrumbItems(documentBreadcrumbItems, documentId)
+    : documentBreadcrumbItems;
+  const reservedWidth = inWidget
+    ? 0
+    : TOOLBAR_PADDING +
+      (sidebarTrigger ? TOOLBAR_SIDEBAR_TRIGGER_WIDTH + TOOLBAR_GAP : 0) +
+      (compact ? 0 : breadcrumbMinWidth(toolbarBreadcrumbItems) + TOOLBAR_GAP);
+  const foldRooms = inWidget ? WIDGET_TOOLBAR_FOLD_ROOMS : TOOLBAR_FOLD_ROOMS;
   const foldLevel = useElementWidthValue(
     toolbarRef,
-    (width) => toolbarFoldLevel(width, reservedWidth),
+    (width) => toolbarFoldLevel(width, reservedWidth, foldRooms),
     0,
     true,
     reservedWidth,
   );
-  const suggestingInMenu = foldLevel >= 2;
-  const presenceHidden = foldLevel >= 3;
-  const commentsInMenu = foldLevel >= 4;
-  const shareInMenu = foldLevel >= 5;
+  const suggestingInMenu = !inWidget && foldLevel >= 2;
+  const presenceHidden = inWidget || foldLevel >= 3;
+  const commentsInMenu = !inWidget && foldLevel >= 4;
+  const shareInMenu = !inWidget && foldLevel >= 5;
+  const openInMenu = inWidget && foldLevel >= 1;
+  // A widget shares only through a write grant, and not a document its
+  // viewer cannot edit; the app shares everything it does not hold read-only.
+  const shareAvailable = canShare && (inWidget ? writeWidget : !readOnly);
   const pageActionsButtonRef = useRef<HTMLButtonElement | null>(null);
   const pageActionsRef = useCallback(
     (node: HTMLButtonElement | null) => {
@@ -1076,6 +1081,7 @@ function DocumentToolbarRow({
   const queryClient = useQueryClient();
   const isLocalFileDocument = source?.mode === "local-files";
   const openShareOnLoad =
+    !inWidget &&
     !readOnly &&
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
@@ -1086,7 +1092,7 @@ function DocumentToolbarRow({
   );
   const { data: connection } = useNotionConnection();
   const { data: syncStatus } = useDocumentSyncStatus(
-    canEdit && !isLocalFileDocument ? documentId : null,
+    !inWidget && canEdit && !isLocalFileDocument ? documentId : null,
   );
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
@@ -1164,14 +1170,15 @@ function DocumentToolbarRow({
     pushDocument.isPending ||
     resolveConflict.isPending ||
     createAndLink.isPending;
+  const encodedDocumentId = encodeURIComponent(documentId);
   const shareUrl =
     typeof window === "undefined"
-      ? `/p/${documentId}`
-      : `${window.location.origin}${appPath(`/p/${documentId}`)}`;
+      ? `/p/${encodedDocumentId}`
+      : `${window.location.origin}${appPath(`/p/${encodedDocumentId}`)}`;
   const pageUrl =
     typeof window === "undefined"
-      ? `/page/${documentId}`
-      : `${window.location.origin}${appPath(`/page/${documentId}`)}`;
+      ? `/page/${encodedDocumentId}`
+      : `${window.location.origin}${appPath(`/page/${encodedDocumentId}`)}`;
   const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl;
   const effectiveHideFromSearch = pendingHideFromSearch ?? hideFromSearch;
   const editedLabel = formatEditedLabel(documentUpdatedAt);
@@ -1276,6 +1283,20 @@ function DocumentToolbarRow({
     toast.success(t("editor.toolbar.copiedPageLink"));
     return true;
   }, [copyPageUrl, documentId, isLocalFileDocument, t]);
+
+  // The host opens the link in the user's browser; without one, or when it
+  // refuses, the anchor opens it as it would anywhere.
+  const handleOpenInAgentNative = useCallback(
+    (event: MouseEvent<HTMLElement>) => {
+      const handled = openMcpAppHostLink(pageUrl);
+      if (handled === false) return;
+      event.preventDefault();
+      void handled.then((opened) => {
+        if (!opened) window.open(pageUrl, "_blank", "noopener,noreferrer");
+      });
+    },
+    [pageUrl],
+  );
 
   const agentPrompt = useCallback(
     () =>
@@ -1568,8 +1589,10 @@ function DocumentToolbarRow({
       copyLabel={t("editor.toolbar.copyPageLink")}
       copiedLabel={t("editor.toolbar.copiedPageLink")}
       onCopy={handleCopyPageLink}
+      className={inWidget ? WIDGET_SHARE_GROUP_CLASS_NAME : undefined}
     />
   );
+  const openInAgentNativeLabel = t("editor.toolbar.openInAgentNative");
   const flushPendingPageActionsRestore = () => {
     if (pageActionsRestoreFrameRef.current == null) return;
     cancelAnimationFrame(pageActionsRestoreFrameRef.current);
@@ -1582,12 +1605,13 @@ function DocumentToolbarRow({
       {/* As the toolbar narrows, the Edited label goes first, then the Share
           and Suggesting labels, then controls fold by `toolbarFoldLevel`;
           the breadcrumb folds its ancestors before the page title drops below
-          a readable width. */}
+          a readable width. A widget's bar folds only its Open link, and keeps
+          the title and Share. */}
       <div
         ref={toolbarRef}
         className={cn(
           "relative z-10 flex h-12 shrink-0 items-center bg-background @container/toolbar",
-          shareInMenu ? "gap-1 px-2" : "gap-3 px-4",
+          inWidget || shareInMenu ? "gap-1 px-2" : "gap-3 px-4",
         )}
         data-editor-selection-continuation=""
       >
@@ -1598,6 +1622,7 @@ function DocumentToolbarRow({
             currentDocumentId={documentId}
             ariaLabel={t("editor.toolbar.pageBreadcrumb")}
             untitledLabel={t("sidebar.untitled")}
+            fillCurrent={inWidget}
             onOpen={(id, filesDatabaseId) => {
               if (onOpenBreadcrumbItem) {
                 onOpenBreadcrumbItem(id, filesDatabaseId);
@@ -1625,7 +1650,7 @@ function DocumentToolbarRow({
               className="mr-1"
             />
           )}
-          {!readOnly ? (
+          {shareAvailable ? (
             isLocalFileDocument ? (
               shareInMenu ? null : (
                 <DropdownMenu modal={false}>
@@ -1680,33 +1705,39 @@ function DocumentToolbarRow({
                       label: t("editor.toolbar.copyPageLink"),
                       copiedLabel: t("editor.toolbar.copiedPageLink"),
                       onCopy: handleCopyPageLink,
+                      className: inWidget
+                        ? WIDGET_SHARE_GROUP_CLASS_NAME
+                        : undefined,
                     }}
+                    basicSharingOnly={inWidget}
                     peopleTabLabel={t("editor.toolbar.sharePeople")}
                     agentsTabLabel={t("editor.toolbar.shareAgents")}
                     peopleAccessLabel={t("editor.toolbar.whoHasAccess")}
                     agentTabContent={
-                      <div className="space-y-3">
-                        <AgentDestinationActions
-                          labels={{
-                            copy: t("editor.toolbar.copyAgentPrompt"),
-                            claude: t("editor.toolbar.openInClaude"),
-                            claudeCode: t("editor.toolbar.openInClaudeCode"),
-                            codex: t("editor.toolbar.openInCodex"),
-                          }}
-                          icons={{
-                            claude: <ClaudeLogo className="size-4" />, // i18n-ignore: destination identifiers in this icon map
-                            "claude-code": (
-                              <ClaudeCodeLogo className="size-4" />
-                            ), // i18n-ignore: destination identifier
-                            codex: <CodexLogo className="size-4" />,
-                          }}
-                          onCopy={handleCopyAgentPrompt}
-                          onOpen={handleOpenAgentDestination}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          {t("editor.toolbar.agentCopyAccessNote")}
-                        </p>
-                      </div>
+                      inWidget ? undefined : (
+                        <div className="space-y-3">
+                          <AgentDestinationActions
+                            labels={{
+                              copy: t("editor.toolbar.copyAgentPrompt"),
+                              claude: t("editor.toolbar.openInClaude"),
+                              claudeCode: t("editor.toolbar.openInClaudeCode"),
+                              codex: t("editor.toolbar.openInCodex"),
+                            }}
+                            icons={{
+                              claude: <ClaudeLogo className="size-4" />, // i18n-ignore: destination identifiers in this icon map
+                              "claude-code": (
+                                <ClaudeCodeLogo className="size-4" />
+                              ), // i18n-ignore: destination identifier
+                              codex: <CodexLogo className="size-4" />,
+                            }}
+                            onCopy={handleCopyAgentPrompt}
+                            onOpen={handleOpenAgentDestination}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {t("editor.toolbar.agentCopyAccessNote")}
+                          </p>
+                        </div>
+                      )
                     }
                     defaultOpen={shareRequested || openShareOnLoad}
                     onOpenChange={handleDbShareOpenChange}
@@ -1723,16 +1754,22 @@ function DocumentToolbarRow({
                         description: t("editor.toolbar.publicLinkCanView"),
                       },
                     }}
-                    hideInSearchControl={{
-                      checked: effectiveHideFromSearch,
-                      pending: setDocumentDiscoverability.isPending,
-                      label: t("editor.toolbar.hideInSearch"),
-                      description: t("editor.toolbar.hideInSearchDescription"),
-                      onCheckedChange: handleHideFromSearchChange,
-                    }}
+                    hideInSearchControl={
+                      inWidget
+                        ? undefined
+                        : {
+                            checked: effectiveHideFromSearch,
+                            pending: setDocumentDiscoverability.isPending,
+                            label: t("editor.toolbar.hideInSearch"),
+                            description: t(
+                              "editor.toolbar.hideInSearchDescription",
+                            ),
+                            onCheckedChange: handleHideFromSearchChange,
+                          }
+                    }
                     variant="compact"
                     shareTabs={
-                      creativeContextEnabled
+                      creativeContextEnabled && !inWidget
                         ? {
                             tabs: [
                               {
@@ -1765,22 +1802,24 @@ function DocumentToolbarRow({
                   unopenedShareControl
                 )}
 
-                <VersionHistoryPanel
-                  documentId={documentId}
-                  open={historyOpen}
-                  onOpenChange={setHistoryOpen}
-                  canRestore={canEdit}
-                  restoreReady={historyRestoreReady}
-                  activeUsers={activeUsers}
-                  prepareRestore={prepareHistoryRestore}
-                  onRestored={onHistoryRestored}
-                  restoreUnavailableReason={restoreUnavailableReason}
-                />
+                {inWidget ? null : (
+                  <VersionHistoryPanel
+                    documentId={documentId}
+                    open={historyOpen}
+                    onOpenChange={setHistoryOpen}
+                    canRestore={canEdit}
+                    restoreReady={historyRestoreReady}
+                    activeUsers={activeUsers}
+                    prepareRestore={prepareHistoryRestore}
+                    onRestored={onHistoryRestored}
+                    restoreUnavailableReason={restoreUnavailableReason}
+                  />
+                )}
               </Suspense>
             )
           ) : null}
 
-          {!readOnly && suggesting && !suggestingInMenu ? (
+          {!inWidget && !readOnly && suggesting && !suggestingInMenu ? (
             <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
               <IconPencil aria-hidden="true" className="size-3.5" />
               <span className="sr-only @min-[40rem]/toolbar:not-sr-only">
@@ -1805,7 +1844,7 @@ function DocumentToolbarRow({
             </div>
           ) : null}
 
-          {showCommentsControl && !commentsInMenu ? (
+          {showCommentsControl && !inWidget && !commentsInMenu ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -1824,6 +1863,27 @@ function DocumentToolbarRow({
                 </button>
               </TooltipTrigger>
               <TooltipContent>{t("comments.title")}</TooltipContent>
+            </Tooltip>
+          ) : null}
+
+          {inWidget && !openInMenu ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <a
+                  href={pageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    "flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    WIDGET_TOUCH_TARGET_CLASS_NAME,
+                  )}
+                  aria-label={openInAgentNativeLabel}
+                  onClick={handleOpenInAgentNative}
+                >
+                  <IconExternalLink size={16} />
+                </a>
+              </TooltipTrigger>
+              <TooltipContent>{openInAgentNativeLabel}</TooltipContent>
             </Tooltip>
           ) : null}
 
@@ -1858,59 +1918,62 @@ function DocumentToolbarRow({
               onRestoreEditorSelection?.();
             }}
           >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    ref={pageActionsRef}
-                    className={cn(
-                      "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                      utilityPanel === "info" && "bg-accent text-foreground",
-                      // Folded, the menu holds Comments and Stop suggesting,
-                      // so it shows their state.
-                      commentsInMenu &&
-                        commentsHistoryOpen &&
-                        "bg-accent text-foreground",
-                      suggestingInMenu &&
-                        suggesting &&
-                        "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
-                    )}
-                    aria-label={t("editor.toolbar.morePageActions")}
-                    onPointerDownCapture={() => {
-                      if (pageActionsOpenRef.current) {
-                        pageActionsTriggerClosingRef.current = true;
-                        return;
-                      }
-                      flushPendingPageActionsRestore();
-                      onCaptureEditorSelection?.(false);
-                    }}
-                    onKeyDownCapture={(event) => {
-                      if (pageActionsOpenRef.current) return;
-                      if (
-                        event.key === "Enter" ||
-                        event.key === " " ||
-                        event.key === "ArrowDown"
-                      ) {
+            {inWidget && !openInMenu ? null : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      ref={pageActionsRef}
+                      className={cn(
+                        "flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
+                        inWidget ? WIDGET_TOUCH_TARGET_CLASS_NAME : "h-9 w-9",
+                        utilityPanel === "info" && "bg-accent text-foreground",
+                        // Folded, the menu holds Comments and Stop suggesting,
+                        // so it shows their state.
+                        commentsInMenu &&
+                          commentsHistoryOpen &&
+                          "bg-accent text-foreground",
+                        suggestingInMenu &&
+                          suggesting &&
+                          "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                      )}
+                      aria-label={t("editor.toolbar.morePageActions")}
+                      onPointerDownCapture={() => {
+                        if (pageActionsOpenRef.current) {
+                          pageActionsTriggerClosingRef.current = true;
+                          return;
+                        }
                         flushPendingPageActionsRestore();
-                        onCaptureEditorSelection?.(true);
-                      }
-                    }}
-                  >
-                    <IconDotsVertical size={16} />
-                  </button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("editor.toolbar.morePageActions")}
-              </TooltipContent>
-            </Tooltip>
+                        onCaptureEditorSelection?.(false);
+                      }}
+                      onKeyDownCapture={(event) => {
+                        if (pageActionsOpenRef.current) return;
+                        if (
+                          event.key === "Enter" ||
+                          event.key === " " ||
+                          event.key === "ArrowDown"
+                        ) {
+                          flushPendingPageActionsRestore();
+                          onCaptureEditorSelection?.(true);
+                        }
+                      }}
+                    >
+                      <IconDotsVertical size={16} />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("editor.toolbar.morePageActions")}
+                </TooltipContent>
+              </Tooltip>
+            )}
             <DropdownMenuContent
               align="end"
               className="w-60"
               data-database-preview-portal={compact ? "" : undefined}
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              {!readOnly && (canSuggest || suggesting) ? (
+              {!inWidget && !readOnly && (canSuggest || suggesting) ? (
                 <>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -1943,64 +2006,70 @@ function DocumentToolbarRow({
                   <DropdownMenuSeparator />
                 </>
               ) : null}
-              <DropdownMenuGroup>
-                <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
-                  <IconArrowBackUp className="me-2 h-4 w-4" />
-                  {t("editor.toolbar.undo")}
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
-                  <IconArrowForwardUp className="me-2 h-4 w-4" />
-                  {t("editor.toolbar.redo")}
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                {!readOnly && onToggleFavorite ? (
-                  <DropdownMenuItem
-                    onSelect={() => onToggleFavorite(!isFavorite)}
-                  >
-                    <IconPin
-                      className="me-2 h-4 w-4"
-                      strokeWidth={isFavorite ? 2.2 : 1.7}
-                    />
-                    {isFavorite
-                      ? t("editor.toolbar.unpin")
-                      : t("editor.toolbar.pin")}
-                  </DropdownMenuItem>
-                ) : null}
-                {showCommentsControl && commentsInMenu ? (
-                  <DropdownMenuItem
-                    onSelect={toggleCommentsHistory}
-                    className={cn(
-                      commentsHistoryOpen && "bg-accent text-accent-foreground",
-                    )}
-                  >
-                    <IconMessageCircle className="me-2 h-4 w-4" />
-                    {t("comments.title")}
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuItem
-                  onSelect={() => {
-                    const nextPanel = utilityPanel === "info" ? null : "info";
-                    if (nextPanel === "info") {
-                      trackEvent("document_utility_panel_opened", {
-                        app_name: "content",
-                        template_name: "content",
-                        panel: "info",
-                      });
-                    }
-                    onUtilityPanelChange(nextPanel);
-                  }}
-                  className={cn(
-                    utilityPanel === "info" &&
-                      "bg-accent text-accent-foreground",
-                  )}
-                >
-                  <IconInfoCircle className="me-2 h-4 w-4" />
-                  {t("editor.toolbar.info")}
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
+              {inWidget ? null : (
+                <>
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
+                      <IconArrowBackUp className="me-2 h-4 w-4" />
+                      {t("editor.toolbar.undo")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
+                      <IconArrowForwardUp className="me-2 h-4 w-4" />
+                      {t("editor.toolbar.redo")}
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    {!readOnly && onToggleFavorite ? (
+                      <DropdownMenuItem
+                        onSelect={() => onToggleFavorite(!isFavorite)}
+                      >
+                        <IconPin
+                          className="me-2 h-4 w-4"
+                          strokeWidth={isFavorite ? 2.2 : 1.7}
+                        />
+                        {isFavorite
+                          ? t("editor.toolbar.unpin")
+                          : t("editor.toolbar.pin")}
+                      </DropdownMenuItem>
+                    ) : null}
+                    {showCommentsControl && commentsInMenu ? (
+                      <DropdownMenuItem
+                        onSelect={toggleCommentsHistory}
+                        className={cn(
+                          commentsHistoryOpen &&
+                            "bg-accent text-accent-foreground",
+                        )}
+                      >
+                        <IconMessageCircle className="me-2 h-4 w-4" />
+                        {t("comments.title")}
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        const nextPanel =
+                          utilityPanel === "info" ? null : "info";
+                        if (nextPanel === "info") {
+                          trackEvent("document_utility_panel_opened", {
+                            app_name: "content",
+                            template_name: "content",
+                            panel: "info",
+                          });
+                        }
+                        onUtilityPanelChange(nextPanel);
+                      }}
+                      className={cn(
+                        utilityPanel === "info" &&
+                          "bg-accent text-accent-foreground",
+                      )}
+                    >
+                      <IconInfoCircle className="me-2 h-4 w-4" />
+                      {t("editor.toolbar.info")}
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               {shareInMenu ? (
                 <>
                   <DropdownMenuGroup>
@@ -2031,7 +2100,7 @@ function DocumentToolbarRow({
                   <DropdownMenuSeparator />
                 </>
               ) : null}
-              {isLocalFileDocument ? (
+              {!inWidget && isLocalFileDocument ? (
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
                     {t("editor.toolbar.localFile")}
@@ -2061,7 +2130,8 @@ function DocumentToolbarRow({
                     {t("editor.toolbar.copyAbsolutePath")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
-              ) : (
+              ) : null}
+              {!inWidget && !isLocalFileDocument ? (
                 <>
                   <DropdownMenuGroup>
                     <DropdownMenuItem
@@ -2122,11 +2192,30 @@ function DocumentToolbarRow({
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
                   )}
+                  {onImport ? (
+                    <DropdownMenuItem onSelect={onImport}>
+                      <IconFileImport className="me-2 h-4 w-4" />
+                      {t("contentImport.menuItem")}
+                    </DropdownMenuItem>
+                  ) : null}
                 </>
-              )}
-              <DropdownMenuSeparator />
+              ) : null}
+              {inWidget ? null : <DropdownMenuSeparator />}
               <DropdownMenuGroup>
-                {canEdit && !isLocalFileDocument ? (
+                {inWidget ? (
+                  <DropdownMenuItem asChild>
+                    <a
+                      href={pageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={handleOpenInAgentNative}
+                    >
+                      <IconExternalLink className="me-2 h-4 w-4" />
+                      {openInAgentNativeLabel}
+                    </a>
+                  </DropdownMenuItem>
+                ) : null}
+                {!inWidget && canEdit && !isLocalFileDocument ? (
                   <Popover open={open} onOpenChange={setOpen}>
                     <PopoverTrigger asChild>
                       <button
@@ -2478,7 +2567,7 @@ function DocumentToolbarRow({
                   </Popover>
                 ) : null}
               </DropdownMenuGroup>
-              {canDelete && onDelete ? (
+              {!inWidget && canDelete && onDelete ? (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -2492,39 +2581,46 @@ function DocumentToolbarRow({
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
-          <AgentToggleButton />
+          {inWidget ? null : <AgentToggleButton />}
         </div>
       </div>
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("sidebar.deletePageQuestion")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("sidebar.deletePageDescription", {
-                title: documentTitle || t("sidebar.untitled"),
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deletePending}
-              onClick={() => void onDelete?.()}
-            >
-              {t("database.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      <DatabaseExportDialog
-        documentId={documentId}
-        context={databaseExportContext ?? null}
-        open={databaseExportOpen}
-        onOpenChange={setDatabaseExportOpen}
-      />
+      {inWidget ? null : (
+        <>
+          <AlertDialog
+            open={deleteDialogOpen}
+            onOpenChange={setDeleteDialogOpen}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t("sidebar.deletePageQuestion")}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t("sidebar.deletePageDescription", {
+                    title: documentTitle || t("sidebar.untitled"),
+                  })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  disabled={deletePending}
+                  onClick={() => void onDelete?.()}
+                >
+                  {t("database.delete")}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          <DatabaseExportDialog
+            documentId={documentId}
+            context={databaseExportContext ?? null}
+            open={databaseExportOpen}
+            onOpenChange={setDatabaseExportOpen}
+          />
+        </>
+      )}
     </>
   );
 }

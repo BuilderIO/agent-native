@@ -59,6 +59,23 @@ sizes and persists the whole tree in one transaction.
    strictly increasing actual screenshot seek offsets. The dashed edge reads
    “Same recording” and has no cohort percentage. It describes replay order,
    not a causal transition.
+   For exact examples from distinct recordings in the same session and app,
+   use `observedRecordingGaps` instead of `observedContinuations`:
+   `{ type: "recording-gap", fromNodeKey, fromExampleIndex, toNodeKey,
+   toExampleIndex, gapDurationMs? }`. The destination must be a direct
+   reference-only child. Bind both endpoints to private frames with exact
+   `recordingStartedAt` values and actual `screenshotOffsetMs` seeks. Their
+   `sessionId` values must match and their recording IDs must differ; when
+   anonymous identity hashes are present, the `anonymousIdHash` values must
+   match. The source frame must include `recordingEndedAt` before the target
+   recording start, proving a recording gap even when duration is omitted.
+   Pass `gapDurationMs` only when it exactly equals target recording start
+   minus source recording end; values are bounded to 30 days. The edge is
+   dashed and visibly says “Recording gap,” optionally with the duration. It
+   preserves reference-only semantics and adds no cohort count, percentage,
+   conversion, signup success, or authentication outcome. If authentication
+   completion was not directly observed, keep it unknown. Unsupported or
+   mismatched provenance is rejected.
    For large native-PNG imports, create the Design once, then call
    `stage-journey-canvas-frames` with a stable `importId` and batches of up to
    eight frames. Use the same stable `frameKey` (`nodeKey`, NUL, `exampleIndex`)
@@ -76,7 +93,7 @@ sizes and persists the whole tree in one transaction.
 
 Options: `designId` (refresh that design), `cardWidth` (default 360),
 `maxExamplesPerNode` (default 3, at most 6), `includeScreenshotless` (default false).
-Each call accepts at most 1,000 journey nodes and 900 frame entries, with a
+Each call accepts at most 2,000 journey nodes and 900 frame entries, with a
 256 MiB total screenshot-byte limit.
 For independent app trees on one board, set `layoutMode: "appBands"`,
 `tree.app: "all"`, app-prefixed node keys such as `clips::...`, and
@@ -115,7 +132,16 @@ configured public-upload provider.
 - A neutral "No later step observed" stub shows the session count and
   percentage of that step for sessions whose last observed step is the node.
   This does not confirm that those sessions exited. `other` nodes are also
-  neutral stubs.
+  neutral, screenshotless stubs. When Analytics provides `otherBranches`, the
+  stub lists up to 20 root-to-branch label paths per node and 200 entries / 64
+  KiB of serialized branch detail per tree, with each branch's count and
+  direct-parent percentage. `otherBranchCount` gives the full total, and
+  `otherBranchSummariesPartial` marks producer-side omissions so a partial list
+  says how many branches are shown. A bounded tree with no remaining detail
+  reports zero shown; older trees without branch detail and without the partial
+  marker say that names are unavailable. Do not reconstruct or invent them.
+  Incoming edge labels wrap the full skipped-branch name and percentage on
+  separate lines.
 - Passing `designId` again replaces only what this action drew (ids start `jc_`, board objects `jc-`) and redraws in place. Other screens and board objects are untouched. A first draw goes below existing screens; board objects are not measured, so check for overlap on a board that already has shapes.
 - If every node lacks a frame the call fails with `journey_canvas_empty` and lists them.
 - If the design's board was edited while the call ran, it writes nothing and fails with `journey_board_changed`; call it again.

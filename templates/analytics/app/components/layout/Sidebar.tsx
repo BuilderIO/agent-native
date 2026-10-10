@@ -19,6 +19,7 @@ import {
   IconHeartbeat,
   IconLock,
   IconLink,
+  IconPlugConnected,
   IconMessageCircle,
   IconUsersGroup,
   IconEye,
@@ -2229,6 +2230,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       active: location.pathname === "/data-sources",
     },
     {
+      icon: IconPlugConnected,
+      label: t("navigation.sourceStatus"),
+      href: "/source-status",
+      active: location.pathname === "/source-status",
+    },
+    {
       icon: IconBook2,
       label: t("navigation.dataDictionary"),
       href: "/data-dictionary",
@@ -2446,11 +2453,27 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 </span>
               </Link>
 
+              {/* Source status link */}
+              <Link
+                to="/source-status"
+                className={cn(
+                  "order-8 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
+                  location.pathname === "/source-status"
+                    ? "bg-primary/10 font-medium text-primary"
+                    : "text-primary hover:bg-accent/60",
+                )}
+              >
+                <IconPlugConnected className="size-4 shrink-0 text-primary" />
+                <span className="truncate text-primary">
+                  {t("navigation.sourceStatus")}
+                </span>
+              </Link>
+
               {/* Data Dictionary link */}
               <Link
                 to="/data-dictionary"
                 className={cn(
-                  "order-8 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
+                  "order-9 flex items-center gap-2 rounded px-2 py-1.5 text-xs transition-colors",
                   location.pathname.startsWith("/data-dictionary")
                     ? "bg-primary/10 font-medium text-primary"
                     : "text-primary hover:bg-accent/60",

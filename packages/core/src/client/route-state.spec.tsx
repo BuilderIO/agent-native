@@ -99,6 +99,9 @@ function renderWithQueryClient(element: React.ReactElement) {
 describe("route-state client helpers", () => {
   const roots: Root[] = [];
   const containers: HTMLDivElement[] = [];
+  const originalWorkspaceEnv = process.env.VITE_AGENT_NATIVE_WORKSPACE;
+  const originalWorkspaceAppsEnv =
+    process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
 
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -117,6 +120,11 @@ describe("route-state client helpers", () => {
       value: window,
     });
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    expect(process.env.VITE_AGENT_NATIVE_WORKSPACE).toBe(originalWorkspaceEnv);
+    expect(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON).toBe(
+      originalWorkspaceAppsEnv,
+    );
   });
 
   it("reports child route changes to an embedding parent", async () => {

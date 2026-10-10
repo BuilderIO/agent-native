@@ -1,7 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import {
   getGenerationCreativeContext,
   mergeCreativeContextReuseLabels,
@@ -33,6 +32,10 @@ import {
   HYGIENE_ACTION_DESCRIPTION,
   slideHygieneResult,
 } from "../server/lib/slide-hygiene.js";
+import {
+  generationAttemptIdOf,
+  trackSlides,
+} from "../server/lib/slides-tracking.js";
 import {
   assertSourceSlidePreserved,
   sourceImportForDeck,
@@ -778,6 +781,8 @@ export default defineAction({
           previousContent,
           contentHash: hashSlideContent(String(slide.content ?? "")),
           layoutFitRevision: slide.layoutFitRevision,
+          slideCount: deck.slides.length as number,
+          generationAttemptId: generationAttemptIdOf(deck.generationContext),
           ...(creativeContext
             ? {
                 contextMode: creativeContext.contextMode,
@@ -797,6 +802,8 @@ export default defineAction({
         previousContent,
         contentHash: hashSlideContent(String(slide.content ?? "")),
         layoutFitRevision: slide.layoutFitRevision,
+        slideCount: deck.slides.length as number,
+        generationAttemptId: generationAttemptIdOf(deck.generationContext),
       };
     };
     const rmw = await withDeckLock(deckId, () => retryDeckWrite(applyEdit));
@@ -837,17 +844,19 @@ export default defineAction({
     });
 
     const endedAt = Date.now();
-    track(
+    trackSlides(
       "deck_edited",
       {
-        app_name: "slides",
-        template_name: "slides",
         output_id: deckId,
         output_type: "deck",
         slide_id: slideId,
+        slide_count: rmw.slideCount,
         edit_mode: "update_slide",
         edits_count: applied,
         ...generationTimingFields(startedAt, endedAt),
+        ...(rmw.generationAttemptId
+          ? { generation_attempt_id: rmw.generationAttemptId }
+          : {}),
       },
       ctx,
     );

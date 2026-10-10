@@ -52,6 +52,10 @@ import {
   type ReasoningEffort,
 } from "@agent-native/core/shared";
 import {
+  ComposerContextError,
+  composerContextFits,
+} from "@agent-native/toolkit/composer";
+import {
   isClaudeCodeAgentId,
   isLunaModel,
   resolvePreferredAgentModel,
@@ -95,6 +99,7 @@ import type {
 import { fallbackChatTitle } from "./fallback-chat-title.js";
 
 type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
+const PREFILL_CONTEXT_KEY = "agent-chat-prefill-context";
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -107,6 +112,7 @@ interface ModelSelection {
 
 interface PendingSend {
   message: string;
+  prefillContext?: AgentChatContextItem;
   images?: string[];
   attachments?: AgentChatAttachment[];
   submit: boolean;
@@ -137,11 +143,103 @@ interface PendingDelivery {
 }
 
 /** The single path that hands a queued send to a mounted chat ref. */
-function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
+async function deliverPendingPrefill(
+  ref: AssistantChatHandle,
+  send: PendingSend,
+  isCurrent: () => boolean,
+  onHandoff: () => void,
+): Promise<void> {
+  const reportResult = (delivered: boolean, reason?: string) => {
+    onHandoff();
+    reportAgentChatSubmitResult(send.submitMessageId, delivered, reason);
+  };
+  let stagedAt: number | undefined;
+  if (send.prefillContext) {
+    // Checked against what the composer already holds, before the draft changes,
+    // so a refused prefill leaves no draft without its context.
+    let fits: boolean;
+    try {
+      fits = ref.canStageComposerContextItem(send.prefillContext);
+    } catch (error) {
+      // A provider item still loading has no size yet; report a typed failure so the
+      // bridge caller does not wait for a timeout. Anything else is a bug and propagates.
+      if (error instanceof ComposerContextError && error.code === "not-ready") {
+        console.error(
+          "Composer context is still loading; the prefill was not applied.",
+        );
+        reportResult(false, "composer-not-ready");
+        return;
+      }
+      throw error;
+    }
+    if (!fits) {
+      console.error(
+        "Prefill context does not fit alongside the composer's existing context; the prefill was not applied.",
+      );
+      reportResult(false, "context-too-large");
+      return;
+    }
+    try {
+      const contextWrite = ref.setComposerContextItem(send.prefillContext, {
+        focus: false,
+        threadScoped: true,
+      });
+      if (contextWrite && typeof contextWrite.then === "function") {
+        stagedAt = (await contextWrite)?.stagedAt;
+      }
+    } catch {
+      reportResult(false, "context-persistence-failed");
+      return;
+    }
+  }
+  if (isAgentChatSubmitCancelled(send.submitMessageId) || !isCurrent()) {
+    if (send.prefillContext) {
+      // Removes only the item this delivery staged, so a newer prefill with the same
+      // key that replaced it while the write was in flight keeps its place.
+      if (stagedAt === undefined) {
+        console.error(
+          "Could not identify the staged prefill context; it was not removed after the cancelled send.",
+        );
+      } else {
+        await ref.removeComposerContextItem(send.prefillContext.key, {
+          threadScoped: true,
+          stagedAt,
+        });
+      }
+    }
+    return;
+  }
+  try {
+    ref.prefillMessage(send.message);
+  } catch {
+    reportResult(false, "prefill-failed");
+    return;
+  }
+  reportResult(true);
+}
+
+function deliverPendingSend(
+  ref: AssistantChatHandle,
+  send: PendingSend,
+  isCurrent: () => boolean,
+  onHandoff: () => void,
+): void | Promise<void> {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
-    ref.prefillMessage(send.message);
-    return;
+    return deliverPendingPrefill(ref, send, isCurrent, onHandoff).catch(
+      (error: unknown) => {
+        console.error(
+          "Could not finish a cancelled chat prefill cleanup.",
+          error,
+        );
+        onHandoff();
+        reportAgentChatSubmitResult(
+          send.submitMessageId,
+          false,
+          "prefill-failed",
+        );
+      },
+    );
   }
   // Every field is decided once, here; a separate "has options" condition
   // listing them again is how a new field ends up silently dropped.
@@ -1269,7 +1367,10 @@ export function MultiTabAssistantChat({
       item: AgentChatContextItem,
       options?: { focus?: boolean },
     ) => {
-      if (filterAgentChatContextItems([item], contextNamespace).length === 0) {
+      if (
+        filterAgentChatContextItems([item], contextNamespace, threadId)
+          .length === 0
+      ) {
         return;
       }
       const ref = chatRefs.current.get(threadId);
@@ -2140,16 +2241,56 @@ export function MultiTabAssistantChat({
             deliveryLanes.current.delete(threadId);
             return;
           }
-          pendingDeliveries.current.splice(index, 1);
+          const waitForPrefill =
+            !delivery.send.submit && !!delivery.send.prefillContext;
+          let awaitingPrefill = waitForPrefill;
+          if (!waitForPrefill) pendingDeliveries.current.splice(index, 1);
           lane.handedOff = true;
+          const onHandoff = () => {
+            awaitingPrefill = false;
+            pendingDeliveries.current = pendingDeliveries.current.filter(
+              (pending) => pending !== delivery,
+            );
+          };
+          const isCurrent = () =>
+            mountedRef.current &&
+            deliveryLanes.current.get(threadId) === lane &&
+            (!awaitingPrefill ||
+              pendingDeliveries.current.includes(delivery)) &&
+            delivery.isCurrent?.() !== false;
+          let finished = false;
+          const finish = (notify = true) => {
+            if (finished) return;
+            finished = true;
+            const current = isCurrent();
+            pendingDeliveries.current = pendingDeliveries.current.filter(
+              (pending) => pending !== delivery,
+            );
+            try {
+              if (current && notify) delivery.onDelivered?.();
+            } finally {
+              if (deliveryLanes.current.get(threadId) === lane)
+                deliveryLanes.current.delete(threadId);
+              if (mountedRef.current) flushPendingDeliveries(threadId);
+            }
+          };
           try {
-            if (delivery.isCurrent?.() === false) return;
-            deliverPendingSend(ref, delivery.send);
-            delivery.onDelivered?.();
-          } finally {
-            if (deliveryLanes.current.get(threadId) === lane)
-              deliveryLanes.current.delete(threadId);
-            flushPendingDeliveries(threadId);
+            if (!isCurrent()) {
+              finish(false);
+              return;
+            }
+            const completion = deliverPendingSend(
+              ref,
+              delivery.send,
+              isCurrent,
+              onHandoff,
+            );
+            if (waitForPrefill && completion)
+              void completion.then(() => finish());
+            else finish();
+          } catch (error) {
+            finish(false);
+            throw error;
           }
         };
         if (immediate) deliver();
@@ -2214,6 +2355,7 @@ export function MultiTabAssistantChat({
       const {
         message,
         context,
+        contextLabel,
         openSidebar,
         model,
         engine,
@@ -2250,12 +2392,36 @@ export function MultiTabAssistantChat({
 
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
-      const fullMessage = context
-        ? appendAgentChatContextToMessage(message, context)
-        : message;
+      const prefillContext =
+        context && !submit
+          ? {
+              key: PREFILL_CONTEXT_KEY,
+              title: contextLabel ?? translate("composer.activeAppContext"),
+              context,
+              ...(contextNamespace ? { contextNamespace } : {}),
+            }
+          : undefined;
+      // Checked the way a submit serializes it, so an accepted prefill cannot make
+      // every later submit fail. Refused as a whole, before the draft changes.
+      if (prefillContext && !composerContextFits([prefillContext])) {
+        console.error(
+          "Prefill context does not fit the composer context limit; the prefill was not applied.",
+        );
+        reportAgentChatSubmitResult(
+          submitMessageId,
+          false,
+          "context-too-large",
+        );
+        return;
+      }
+      const fullMessage =
+        context && submit
+          ? appendAgentChatContextToMessage(message, context)
+          : message;
 
       const send: PendingSend = {
         message: fullMessage,
+        ...(prefillContext ? { prefillContext } : {}),
         images,
         attachments,
         submit,
@@ -2389,6 +2555,7 @@ export function MultiTabAssistantChat({
     availableModels,
     bumpModelSelectionVersion,
     clearContextInTab,
+    contextNamespace,
     createThread,
     flushPendingDeliveries,
     isNewThread,

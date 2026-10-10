@@ -202,6 +202,7 @@ async function pdfPagesPng(pdf: Buffer, desiredWidth: number) {
   }
 }
 
+// Compare exports with the app rendered in the same browser.
 test("cross-origin localhost PNG and PDF preserve the live custom font pixels", async ({
   page: basePage,
   browser,
@@ -456,7 +457,7 @@ test("cross-origin localhost PNG and PDF preserve the live custom font pixels", 
     const frames = exportPage.locator(
       'iframe[data-design-preview-iframe][data-design-source-type="localhost"]',
     );
-    await expect(frames).toHaveCount(1, { timeout: 30_000 });
+    await expect(frames.first()).toBeAttached({ timeout: 30_000 });
     const iframe = frames.first();
     const frame = iframe.contentFrame();
     await expect

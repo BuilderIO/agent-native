@@ -29,6 +29,7 @@ export const dashboards = table("dashboards", {
   hiddenBy: text("hidden_by"),
   folderId: text("folder_id"),
   updatedBy: text("updated_by"),
+  githubSyncState: text("github_sync_state"),
   ...ownableColumns(),
 });
 
@@ -45,6 +46,7 @@ export const dashboardFolders = table("dashboard_folders", {
   scope: text("scope", { enum: ["personal", "shared"] }).notNull(),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  githubSync: text("github_sync"),
   ...ownableColumns(),
 });
 
@@ -746,41 +748,55 @@ export const analyticsDbAdminConnections = table(
   }),
 );
 
-export const sessionRecordings = table("session_recordings", {
-  id: text("id").primaryKey(),
-  publicKeyId: text("public_key_id").notNull(),
-  clientRecordingId: text("client_recording_id").notNull(),
-  sessionId: text("session_id").notNull(),
-  userId: text("user_id"),
-  anonymousId: text("anonymous_id"),
-  userKey: text("user_key"),
-  startedAt: text("started_at").notNull(),
-  endedAt: text("ended_at"),
-  durationMs: integer("duration_ms"),
-  chunkCount: integer("chunk_count").notNull().default(0),
-  eventCount: integer("event_count").notNull().default(0),
-  totalBytes: integer("total_bytes").notNull().default(0),
-  pageCount: integer("page_count").notNull().default(0),
-  errorCount: integer("error_count").notNull().default(0),
-  networkErrorCount: integer("network_error_count").notNull().default(0),
-  rageClickCount: integer("rage_click_count").notNull().default(0),
-  privacyMode: text("privacy_mode").notNull().default("unknown"),
-  firstUrl: text("first_url"),
-  lastUrl: text("last_url"),
-  path: text("path"),
-  hostname: text("hostname"),
-  referrer: text("referrer"),
-  app: text("app"),
-  template: text("template"),
-  status: text("status", { enum: ["active", "completed"] })
-    .notNull()
-    .default("active"),
-  metadata: text("metadata").notNull().default("{}"),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-  lastIngestedAt: text("last_ingested_at"),
-  ...ownableColumns(),
-});
+export const sessionRecordings = table(
+  "session_recordings",
+  {
+    id: text("id").primaryKey(),
+    publicKeyId: text("public_key_id").notNull(),
+    clientRecordingId: text("client_recording_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    userId: text("user_id"),
+    anonymousId: text("anonymous_id"),
+    userKey: text("user_key"),
+    clientStartedAt: text("client_started_at"),
+    startedAt: text("started_at").notNull(),
+    endedAt: text("ended_at"),
+    durationMs: integer("duration_ms"),
+    chunkCount: integer("chunk_count").notNull().default(0),
+    eventCount: integer("event_count").notNull().default(0),
+    totalBytes: integer("total_bytes").notNull().default(0),
+    pageCount: integer("page_count").notNull().default(0),
+    errorCount: integer("error_count").notNull().default(0),
+    networkErrorCount: integer("network_error_count").notNull().default(0),
+    rageClickCount: integer("rage_click_count").notNull().default(0),
+    privacyMode: text("privacy_mode").notNull().default("unknown"),
+    firstUrl: text("first_url"),
+    lastUrl: text("last_url"),
+    path: text("path"),
+    hostname: text("hostname"),
+    referrer: text("referrer"),
+    app: text("app"),
+    template: text("template"),
+    status: text("status", { enum: ["active", "completed"] })
+      .notNull()
+      .default("active"),
+    metadata: text("metadata").notNull().default("{}"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    lastIngestedAt: text("last_ingested_at"),
+    ...ownableColumns(),
+  },
+  (recording) => ({
+    clientStartedIdx: index("session_recordings_client_started_idx").on(
+      recording.clientRecordingId,
+      recording.startedAt,
+    ),
+    clientStartedAtIdx: index("session_recordings_client_started_at_idx").on(
+      recording.clientRecordingId,
+      recording.clientStartedAt,
+    ),
+  }),
+);
 
 export const sessionRecordingShares = createSharesTable(
   "session_recording_shares",

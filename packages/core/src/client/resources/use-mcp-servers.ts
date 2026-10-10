@@ -38,7 +38,10 @@ export interface McpServersList {
   role: string | null;
 }
 
-const ENDPOINT = agentNativePath("/_agent-native/mcp/servers");
+function mcpServersEndpoint(): string {
+  return agentNativePath("/_agent-native/mcp/servers");
+}
+
 const LIST_KEY = ["mcp-servers"] as const;
 
 export interface McpServersApi {
@@ -73,13 +76,13 @@ export function useMcpServersApi(): McpServersApi {
 }
 
 async function listMcpServers(): Promise<McpServersList> {
-  const res = await fetch(ENDPOINT, { credentials: "include" });
+  const res = await fetch(mcpServersEndpoint(), { credentials: "include" });
   if (!res.ok) throw new Error(`Failed to load (${res.status})`);
   return (await res.json()) as McpServersList;
 }
 
 async function createMcpServer(args: CreateMcpServerArgs): Promise<McpServer> {
-  const res = await fetch(ENDPOINT, {
+  const res = await fetch(mcpServersEndpoint(), {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -103,7 +106,7 @@ async function deleteMcpServer(args: {
   scope: McpServerScope;
 }): Promise<void> {
   const res = await fetch(
-    `${ENDPOINT}/${encodeURIComponent(args.id)}?scope=${args.scope}`,
+    `${mcpServersEndpoint()}/${encodeURIComponent(args.id)}?scope=${args.scope}`,
     {
       method: "DELETE",
       credentials: "include",
@@ -260,7 +263,7 @@ async function readMcpMutationBody(res: Response): Promise<{
 }
 
 function reconnectMcpServerUrl(args: ReconnectMcpServerArgs): string {
-  return `${ENDPOINT}/${encodeURIComponent(args.id)}/reconnect?scope=${args.scope}`;
+  return `${mcpServersEndpoint()}/${encodeURIComponent(args.id)}/reconnect?scope=${args.scope}`;
 }
 
 export function useReconnectMcpServer() {
@@ -359,7 +362,7 @@ export async function testMcpServerUrl(
 ): Promise<TestMcpUrlResult> {
   const validationError = getMcpUrlValidationError(url);
   if (validationError) return { ok: false, error: validationError };
-  const res = await fetch(`${ENDPOINT}/test`, {
+  const res = await fetch(`${mcpServersEndpoint()}/test`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },

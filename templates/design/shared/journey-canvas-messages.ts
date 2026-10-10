@@ -6,6 +6,8 @@ export interface JourneyCanvasMessages {
   sessionsOfParent: string;
   observedContinuation: string;
   observedContinuationCompact: string;
+  recordingGap: string;
+  recordingGapDuration: string;
   observedBranchLabel: string;
   sessionsOfStep: string;
   partialSample: string;
@@ -59,6 +61,9 @@ export interface JourneyCanvasMessages {
   journeyTitleAppBandsSummary: string;
   sessionCount: string;
   otherPaths: string;
+  otherBranchesShown: string;
+  otherBranchDetailsUnavailable: string;
+  otherBranchSourceKey: string;
   htmlLanguage: string;
 }
 
@@ -67,11 +72,13 @@ export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
   sessionsOfAll: "{count} sessions · {percent} of all",
   sessionsOfAppRoot:
     "{count} sessions · {percent} of {app} cohort (n={rootCount})",
-  sessionsOfPrevious: "{count} sessions · {percent} of previous",
+  sessionsOfPrevious: "{count} sessions · {percent} of previous step",
   sessionsOfParent: "{count} sessions · {percent} of {label}",
   observedContinuation:
     "Same recording · example {fromExample} → example {toExample}",
   observedContinuationCompact: "Ex. {fromExample} → {toExample}",
+  recordingGap: "Recording gap",
+  recordingGapDuration: "Recording gap · {duration}",
   observedBranchLabel: "{label} · {percent}",
   sessionsOfStep: "{count} sessions · {percent} of this step",
   partialSample: "partial sample",
@@ -129,6 +136,10 @@ export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
     "{from} to {to} · separate per-app cohorts{partial}",
   sessionCount: "{count} sessions",
   otherPaths: "Other paths",
+  otherBranchesShown: "Showing {shown} of {total} branches",
+  otherBranchDetailsUnavailable:
+    "Branch details are not available in this journey tree",
+  otherBranchSourceKey: "Source step key: {key}",
   htmlLanguage: "en-US",
 };
 

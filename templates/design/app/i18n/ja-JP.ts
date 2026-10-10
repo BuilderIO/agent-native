@@ -22,6 +22,8 @@ export default {
       "{label}、ソース例{source}、ギャラリー位置 {current}/{total}、撮影日 {date}",
     screenshotMissing: "スクリーンショット未取得",
     recordingUnavailable: "利用不可",
+    recordingGap: "記録の空白",
+    recordingGapDuration: "記録の空白 · {duration}",
     eventTime: "イベント時刻（UTC）",
     generationCompletedEvent: "generation_completed イベント（UTC）",
     replayObservation: "リプレイ観測",
@@ -65,6 +67,10 @@ export default {
       "{from} から {to} · アプリごとの別コホート{partial}",
     sessionCount: "{count} セッション",
     otherPaths: "その他の経路",
+    otherBranchesShown: "{total} 件中 {shown} 件の分岐を表示",
+    otherBranchDetailsUnavailable:
+      "このジャーニーツリーには分岐の詳細がありません",
+    otherBranchSourceKey: "元のステップキー: {key}",
     htmlLanguage: "ja-JP",
   },
   composer: { menu: { integrations: "連携" } },
@@ -779,6 +785,9 @@ export default {
       tools: "ツール",
       tokens: "トークン",
       label: "デザインワークスペース",
+      account: "アカウント",
+      collapse: "サイドバーを折りたたむ",
+      expand: "サイドバーを展開",
     },
     breakpointBar: {
       base: "ベース",
@@ -870,12 +879,10 @@ export default {
       "{{path}} は開いた後にディスク上で変更されています。画面を再読み込みしてもう一度お試しください。",
     applyToSourceError: "ソースへの保存に失敗しました: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "トークンをインポート",
       importTitle: "トークンをインポート",
       importHint:
@@ -887,6 +894,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "貼り付けたトークンをインポート",
       importedCount: "{{count}} 個のトークンをインポートしました",
+      count: "{{count}} 個のトークン",
+      search: "トークンを検索",
+      noMatches: "一致するトークンがありません",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1619,6 +1629,13 @@ export default {
       permissionPromptSettingsInstructions:
         "アドレスバー左側のサイト設定アイコンをクリックし、サイトの設定を開いて、ローカル ネットワークを「許可」に設定します。",
       permissionPromptRetry: "接続を再試行",
+      previewCredentialsUnavailableTitle:
+        "ローカルプレビューの認証情報を利用できません",
+      previewCredentialsUnavailableDescription:
+        "インスペクターでこの画面の localhost 接続を再接続してから、もう一度お試しください。",
+      publicPreviewUnavailableDescription:
+        "localhost のプレビューは公開ユーザーには共有されません。この画面を見るには、共同編集者としてこのデザインを開いてください。",
+      previewCredentialsRetry: "認証情報を再取得",
     },
   },
   multiScreenCanvas: {
