@@ -13,8 +13,8 @@ import {
 } from "@playwright/test";
 
 import {
+  appendFixtureInput,
   captureFixtureInput,
-  parseFixtureInput,
   type FixtureInputSnapshot,
 } from "./editor-input-lineage";
 import {
@@ -258,6 +258,7 @@ export interface TabRecord {
   saveLineage: SaveLineageEvent[];
   saveLineageDropped: number;
   inputLineage: FixtureInputSnapshot[];
+  inputLineageTruncated: boolean;
   realtimeRefusals: number;
   realtimeStreams: number;
   collabPollTimes: number[];
@@ -277,6 +278,7 @@ function emptyTab(label: string): TabRecord {
     saveLineage: [],
     saveLineageDropped: 0,
     inputLineage: [],
+    inputLineageTruncated: false,
     realtimeRefusals: 0,
     realtimeStreams: 0,
     collabPollTimes: [],
@@ -509,15 +511,14 @@ export class TabSet {
     const record = this.tabs.get(page);
     if (!record) return;
     if (kind === "editor-mount") record.editorMounts++;
-    if (kind === "fixture-input" && record.inputLineage.length < 32) {
+    if (kind === "fixture-input") {
       let parsed: unknown;
       try {
         parsed = JSON.parse(detail);
       } catch {
         return;
       }
-      const snapshot = parseFixtureInput(parsed);
-      if (snapshot) record.inputLineage.push(snapshot);
+      appendFixtureInput(record, parsed);
     }
     if (kind === "recovery") record.recovery.push(detail);
     if (kind === "toast" && detail.startsWith("error:"))

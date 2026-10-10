@@ -2,9 +2,30 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  appendFixtureInput,
   captureFixtureInput,
   parseFixtureInput,
+  type FixtureInputBucket,
 } from "../../../templates/content/e2e/editor-input-lineage";
+
+test("bounded input lineage explicitly reports discarded snapshots", () => {
+  const bucket: FixtureInputBucket = {
+    inputLineage: [],
+    inputLineageTruncated: false,
+  };
+  const snapshot = {
+    phase: "after-input",
+    edit: "A5",
+    present: { A5: 1 },
+    selectionCollapsed: true,
+  };
+  for (let index = 0; index < 32; index++) appendFixtureInput(bucket, snapshot);
+  assert.equal(bucket.inputLineage.length, 32);
+  assert.equal(bucket.inputLineageTruncated, false);
+  appendFixtureInput(bucket, snapshot);
+  assert.equal(bucket.inputLineage.length, 32);
+  assert.equal(bucket.inputLineageTruncated, true);
+});
 
 test("input lineage retains only bounded fixture presence and caret state", () => {
   const oldDocument = Object.getOwnPropertyDescriptor(globalThis, "document");

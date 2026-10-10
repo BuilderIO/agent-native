@@ -5,6 +5,24 @@ export interface FixtureInputSnapshot {
   selectionCollapsed: boolean | null;
 }
 
+export interface FixtureInputBucket {
+  inputLineage: FixtureInputSnapshot[];
+  inputLineageTruncated: boolean;
+}
+
+export function appendFixtureInput(
+  bucket: FixtureInputBucket,
+  value: unknown,
+): void {
+  const snapshot = parseFixtureInput(value);
+  if (!snapshot) return;
+  if (bucket.inputLineage.length >= 32) {
+    bucket.inputLineageTruncated = true;
+    return;
+  }
+  bucket.inputLineage.push(snapshot);
+}
+
 // This function is serialized into the fixture browser. Never return its text.
 export function captureFixtureInput(args: {
   phase: FixtureInputSnapshot["phase"];
