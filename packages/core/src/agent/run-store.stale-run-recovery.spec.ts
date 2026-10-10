@@ -672,7 +672,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(await rowsForTurn(turn)).toHaveLength(1);
   });
 
-  it("falls back to insert-then-update ordering when the DbExec has no transaction() primitive, and still recovers", async () => {
+  it("recovers after the stale status update when the DbExec has no transaction() primitive", async () => {
     currentClient = makeRawClient(false);
     const { runId, thread, turn } = ids();
     await insertRun(runId, thread, turn, {
@@ -687,6 +687,50 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect((await readRow(runId))?.status).toBe("errored");
     expect(await rowsForTurn(turn)).toHaveLength(2);
   });
+
+  it("does not expose a successor before winning a nontransactional stale update", async () => {
+    currentClient = makeRawClient(false);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimBackgroundRun(runId);
+    expect(await reapIfStale(runId)).toBe(false);
+    expect((await readRow(runId))?.status).toBe("running");
+    expect(await rowsForTurn(turn)).toHaveLength(1);
+  });
+
+  it.each([true, false])(
+    "surfaces failed recovery instead of confirming a successful reap (transaction: %s)",
+    async (withTransaction) => {
+      currentClient = makeRawClient(withTransaction);
+      const { runId, thread, turn } = ids();
+      await insertRun(runId, thread, turn, {
+        dispatchMode: "background",
+        dispatchPayload: JSON.stringify({ ok: true }),
+      });
+      await claimBackgroundRun(runId);
+      await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+      const execute = currentClient.execute.getMockImplementation()!;
+      currentClient.execute.mockImplementation(async (input) => {
+        if (
+          typeof input !== "string" &&
+          input.sql.includes("INSERT INTO agent_runs") &&
+          input.sql.includes("'background'")
+        )
+          throw new Error("fixture successor preparation failed");
+        return execute(input);
+      });
+      await expect(reapIfStale(runId)).rejects.toThrow(
+        "fixture successor preparation failed",
+      );
+      expect((await readRow(runId))?.status).toBe(
+        withTransaction ? "running" : "errored",
+      );
+      expect(await rowsForTurn(turn)).toHaveLength(1);
+    },
+  );
 
   it("serializes two concurrent reapers for the same turn so the cap is never exceeded", async () => {
     // Two stale rows of the SAME turn reaped at the same moment — e.g. a

@@ -11,3 +11,5 @@ Persist the tool-start marker before invoking writes. Classify handler failures 
 Reject unpersisted start markers and track custom-agent writes in the parent turn's durable recovery ledger.
 
 Wait for the run row before persisting tool events and keep delegated call ids compatible with provider history replay.
+
+Serialize required start markers with stale-run status updates, and expose fallback successors only after the old run is reaped.

@@ -2001,16 +2001,16 @@ async function reapSingleStaleRun(
       });
       reaped = (rowsAffected ?? 0) > 0;
       if (reaped) {
-        outcome = await attemptStaleRunRecovery(tx, runId).catch(() => null);
+        outcome = await attemptStaleRunRecovery(tx, runId);
       }
     });
   } else {
-    outcome = await attemptStaleRunRecovery(client, runId).catch(() => null);
     const { rowsAffected } = await client.execute({
       sql: updateSql,
       args: updateArgs,
     });
     reaped = (rowsAffected ?? 0) > 0;
+    if (reaped) outcome = await attemptStaleRunRecovery(client, runId);
   }
 
   let forensics = "";
@@ -2445,22 +2445,32 @@ export async function insertRunEvent(
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
+  const storedEventData = persistedRunEventData(
+    eventData,
+    options?.toolInputSource,
+  );
+  // The reaper must wait for the marker's commit before exposing a successor.
   const { rowsAffected } = await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+    sql: options?.requireInserted
+      ? `WITH running_run AS MATERIALIZED (
+          SELECT id FROM agent_runs WHERE id = ? AND status = 'running' FOR UPDATE
+        )
+        INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+        SELECT id, ?, ?, ? FROM running_run LIMIT 1
+        ON CONFLICT (run_id, seq) DO NOTHING`
+      : `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
       SELECT ?, ?, ?, ?
       WHERE NOT EXISTS (
         SELECT 1 FROM agent_runs
         WHERE id = ? AND status <> 'running'
       )
-      ${options?.requireInserted ? "AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND status = 'running')" : ""}
       ON CONFLICT (run_id, seq) DO NOTHING`,
     args: [
       runId,
       seq,
       Date.now(),
-      persistedRunEventData(eventData, options?.toolInputSource),
-      runId,
-      ...(options?.requireInserted ? [runId] : []),
+      storedEventData,
+      ...(options?.requireInserted ? [] : [runId]),
     ],
   });
   if (options?.requireInserted && rowsAffected !== 1)
