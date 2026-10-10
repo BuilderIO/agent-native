@@ -79,6 +79,28 @@ function animatedGifFile(): File {
   );
 }
 
+function largeStaticGifFile(payloadBytes: number): File {
+  const header = new Uint8Array([
+    0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0, 0, 0, 0x2c, 0, 0, 0, 0,
+    1, 0, 1, 0, 0, 2,
+  ]);
+  const blockCount = Math.ceil(payloadBytes / 255);
+  const subBlocks = new Uint8Array(payloadBytes + blockCount + 1);
+  let payloadOffset = 0;
+  let blockOffset = 0;
+  while (payloadOffset < payloadBytes) {
+    const blockLength = Math.min(255, payloadBytes - payloadOffset);
+    subBlocks[blockOffset++] = blockLength;
+    payloadOffset += blockLength;
+    blockOffset += blockLength;
+  }
+  return new File(
+    [header, subBlocks, new Uint8Array([0x3b])],
+    "large-static.gif",
+    { type: "image/gif" },
+  );
+}
+
 afterEach(() => {
   Object.defineProperty(URL, "createObjectURL", {
     configurable: true,
@@ -185,6 +207,39 @@ describe("preparePromptImageAttachment", () => {
     });
 
     expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("scans large static GIF blocks without treating them as animation", async () => {
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      configurable: true,
+      value: () => ({ drawImage: vi.fn() }),
+    });
+    Object.defineProperty(HTMLCanvasElement.prototype, "toBlob", {
+      configurable: true,
+      value: (callback: BlobCallback, type?: string) =>
+        callback(new Blob([new Uint8Array([1])], { type })),
+    });
+    vi.stubGlobal(
+      "Image",
+      class {
+        naturalWidth = 1;
+        naturalHeight = 1;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+
+    const prepared = await preparePromptImageAttachment(
+      largeStaticGifFile(5 * 1024 * 1024),
+      1_000,
+    );
+
+    expect(prepared?.file.type).toBe("image/webp");
+    expect(prepared?.dataUrl).toMatch(/^data:image\/webp;base64,/);
   });
 
   it("preserves APNG animation and refuses to flatten it when over budget", async () => {

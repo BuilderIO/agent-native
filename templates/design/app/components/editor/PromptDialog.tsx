@@ -76,6 +76,7 @@ import {
   MAX_TOTAL_IMAGE_ATTACHMENT_BYTES,
   MAX_TOTAL_IMAGE_ATTACHMENT_MB,
   MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_FILES_PER_REQUEST,
   MAX_UPLOAD_MB,
 } from "@/lib/upload-limits";
 import { cn } from "@/lib/utils";
@@ -386,6 +387,17 @@ export default function PromptPopover({
     setRestoredPrompt(undefined);
   }, [open]);
 
+  const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
+    const response = await fetch(`${appBasePath()}/api/uploads`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ path: file.path }),
+    });
+    if (!response.ok) {
+      throw new Error(`Upload cleanup failed (${response.status})`);
+    }
+  }, []);
   const uploadFilesToServer = useCallback(
     async (files: File[]): Promise<UploadedFile[]> => {
       if (files.length === 0) return [];
@@ -420,51 +432,78 @@ export default function PromptPopover({
       ) {
         throw new Error(attachmentLimitMessage);
       }
-      const formData = new FormData();
-      preparedFiles.forEach(({ file }) => formData.append("files", file));
-      const res = await fetch(`${appBasePath()}/api/uploads`, {
-        method: "POST",
-        body: formData,
-      });
-      if (!res.ok) {
-        // coercion-ok: error responses may be non-JSON; the HTTP status is still thrown below.
-        const body = await res.json().catch(() => null);
-        throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : `Upload failed (${res.status})`,
+      const uploadedFiles: UploadedFile[] = [];
+      try {
+        for (
+          let start = 0;
+          start < preparedFiles.length;
+          start += MAX_UPLOAD_FILES_PER_REQUEST
+        ) {
+          const batch = preparedFiles.slice(
+            start,
+            start + MAX_UPLOAD_FILES_PER_REQUEST,
+          );
+          const formData = new FormData();
+          batch.forEach(({ file }) => formData.append("files", file));
+          const res = await fetch(`${appBasePath()}/api/uploads`, {
+            method: "POST",
+            body: formData,
+          });
+          if (!res.ok) {
+            // coercion-ok: error responses may be non-JSON; the HTTP status is still thrown below.
+            const body = await res.json().catch(() => null);
+            throw new Error(
+              typeof body?.error === "string"
+                ? body.error
+                : `Upload failed (${res.status})`,
+            );
+          }
+          const uploaded = (await res.json()) as UploadedFile[];
+          if (!Array.isArray(uploaded) || uploaded.length !== batch.length) {
+            throw new Error(t("promptDialog.failedToUploadFile"));
+          }
+          uploadedFiles.push(
+            ...uploaded.map((uploadedFile, batchIndex) => {
+              const index = start + batchIndex;
+              return {
+                ...uploadedFile,
+                ...(files[index]?.type
+                  ? {
+                      type:
+                        preparedFiles[index]?.file.type || files[index].type,
+                    }
+                  : {}),
+                ...(preparedFiles[index]?.file !== files[index] && files[index]
+                  ? { originalName: files[index].name }
+                  : {}),
+                ...(preparedFiles[index]?.dataUrl
+                  ? { dataUrl: preparedFiles[index].dataUrl }
+                  : {}),
+              };
+            }),
+          );
+        }
+        return uploadedFiles;
+      } catch (error) {
+        const cleanupResults = await Promise.allSettled(
+          uploadedFiles.map(deleteUploadedFile),
         );
+        if (cleanupResults.some((result) => result.status === "rejected")) {
+          console.error(
+            "Prompt attachment upload cleanup failed",
+            cleanupResults,
+          );
+        }
+        throw error;
       }
-      const uploaded = (await res.json()) as UploadedFile[];
-      if (!Array.isArray(uploaded) || uploaded.length !== files.length) {
-        throw new Error(t("promptDialog.failedToUploadFile"));
-      }
-      return uploaded.map((uploadedFile, index) => ({
-        ...uploadedFile,
-        ...(files[index]?.type
-          ? { type: preparedFiles[index]?.file.type || files[index].type }
-          : {}),
-        ...(preparedFiles[index]?.file !== files[index] && files[index]
-          ? { originalName: files[index].name }
-          : {}),
-        ...(preparedFiles[index]?.dataUrl
-          ? { dataUrl: preparedFiles[index].dataUrl }
-          : {}),
-      }));
     },
-    [attachmentLimitMessage, imageAttachmentLimitMessage, t],
+    [
+      attachmentLimitMessage,
+      deleteUploadedFile,
+      imageAttachmentLimitMessage,
+      t,
+    ],
   );
-  const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
-    const response = await fetch(`${appBasePath()}/api/uploads`, {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ path: file.path }),
-    });
-    if (!response.ok) {
-      throw new Error(`Upload cleanup failed (${response.status})`);
-    }
-  }, []);
   const handleRetainedFilesAbandoned = useCallback(
     (_files: readonly File[], discard: () => void) => {
       if (!submittingRef.current) discard();

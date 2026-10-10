@@ -62,8 +62,8 @@ class FileByteReader {
     return this.position;
   }
 
-  async readByte(): Promise<number | null> {
-    if (this.position >= this.file.size) return null;
+  private async loadChunk(): Promise<boolean> {
+    if (this.position >= this.file.size) return false;
     if (
       this.position < this.chunkStart ||
       this.position >= this.chunkStart + this.chunk.length
@@ -75,7 +75,11 @@ class FileByteReader {
           .arrayBuffer(),
       );
     }
+    return true;
+  }
 
+  async readByte(): Promise<number | null> {
+    if (!(await this.loadChunk())) return null;
     return this.chunk[this.position++ - this.chunkStart] ?? null;
   }
 
@@ -121,12 +125,20 @@ class FileByteReader {
   }
 
   async skipSubBlocks(): Promise<boolean> {
-    while (true) {
-      const length = await this.readByte();
-      if (length === null) return false;
+    while (this.position < this.file.size) {
+      if (
+        this.position < this.chunkStart ||
+        this.position >= this.chunkStart + this.chunk.length
+      ) {
+        if (!(await this.loadChunk())) return false;
+      }
+      const length = this.chunk[this.position++ - this.chunkStart];
+      if (length === undefined) return false;
       if (length === 0) return true;
-      if (!(await this.skip(length))) return false;
+      if (this.position + length > this.file.size) return false;
+      this.position += length;
     }
+    return false;
   }
 }
 

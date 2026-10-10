@@ -667,6 +667,108 @@ describe("PromptPopover inline home", () => {
     ).toBe(3_000_000);
   });
 
+  it("uploads selections above the per-request file cap in ordered batches", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockEagerUpload.useUploadCallback = true;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (_input, init) => {
+        const files = (init?.body as FormData)
+          .getAll("files")
+          .filter((value): value is File => value instanceof File);
+        return {
+          ok: true,
+          json: async () =>
+            files.map((file) => ({
+              path: `/uploads/${file.name}`,
+              originalName: file.name,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            })),
+        } as Response;
+      });
+    await renderPopover({ inline: true, onSubmit });
+    const files = Array.from(
+      { length: 21 },
+      (_, index) =>
+        new File([`note ${index}`], `note-${index}.txt`, {
+          type: "text/plain",
+        }),
+    );
+
+    await act(async () =>
+      mockComposer.current!.onSubmit("Use all files", files, [], {}),
+    );
+
+    const batches = fetchMock.mock.calls.map(([, init]) =>
+      (init?.body as FormData).getAll("files"),
+    );
+    expect(batches.map((batch) => batch.length)).toEqual([20, 1]);
+    expect(
+      (onSubmit.mock.calls[0]?.[1] as Array<{ originalName: string }>).map(
+        (file) => file.originalName,
+      ),
+    ).toEqual(files.map((file) => file.name));
+  });
+
+  it("cleans up successful upload batches when a later batch fails", async () => {
+    const onSubmit = vi.fn();
+    mockEagerUpload.useUploadCallback = true;
+    const deletedPaths: string[] = [];
+    let postCount = 0;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (_input, init) => {
+        if (init?.method === "DELETE") {
+          deletedPaths.push(JSON.parse(String(init.body)).path as string);
+          return { ok: true, status: 200 } as Response;
+        }
+        postCount++;
+        if (postCount > 1) {
+          return {
+            ok: false,
+            status: 503,
+            json: async () => ({ error: "second batch failed" }),
+          } as Response;
+        }
+        const files = (init?.body as FormData)
+          .getAll("files")
+          .filter((value): value is File => value instanceof File);
+        return {
+          ok: true,
+          json: async () =>
+            files.map((file) => ({
+              path: `/uploads/${file.name}`,
+              originalName: file.name,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            })),
+        } as Response;
+      });
+    await renderPopover({ inline: true, onSubmit });
+    const files = Array.from(
+      { length: 21 },
+      (_, index) =>
+        new File([`note ${index}`], `note-${index}.txt`, {
+          type: "text/plain",
+        }),
+    );
+
+    await act(async () => {
+      await expect(
+        mockComposer.current!.onSubmit("Keep the draft", files, [], {}),
+      ).rejects.toThrow("second batch failed");
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(22);
+    expect(deletedPaths).toEqual(
+      files.slice(0, 20).map((file) => `/uploads/${file.name}`),
+    );
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("rejects an oversized optimized request before posting any file", async () => {
     const onSubmit = vi.fn();
     mockEagerUpload.useUploadCallback = true;

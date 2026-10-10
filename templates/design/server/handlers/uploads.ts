@@ -15,6 +15,7 @@ import { nanoid } from "nanoid";
 
 import {
   MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_FILES_PER_REQUEST,
   MAX_UPLOAD_MB,
   TOTAL_BODY_LIMIT,
 } from "../lib/request-body-limits.js";
@@ -177,7 +178,6 @@ export const uploadFiles = defineEventHandler(async (event) => {
     return { error: "Unauthorized" };
   }
 
-  const MAX_FILES = 20;
   const contentLength = Number(
     getRequestHeader(event, "content-length") ?? "0",
   );
@@ -194,9 +194,11 @@ export const uploadFiles = defineEventHandler(async (event) => {
     return { error: "No files uploaded" };
   }
 
-  if (fileParts.length > MAX_FILES) {
+  if (fileParts.length > MAX_UPLOAD_FILES_PER_REQUEST) {
     setResponseStatus(event, 413);
-    return { error: `Too many files (max ${MAX_FILES})` };
+    return {
+      error: `Too many files (max ${MAX_UPLOAD_FILES_PER_REQUEST})`,
+    };
   }
 
   const totalBytes = fileParts.reduce((sum, p) => sum + p.data.length, 0);
