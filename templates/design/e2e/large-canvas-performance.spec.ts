@@ -21,9 +21,11 @@ if (!Number.isInteger(SCREEN_COUNT) || SCREEN_COUNT < 1) {
 const CARDS_PER_SCREEN = 25;
 const EXPECTED_AUTHORED_LAYERS = SCREEN_COUNT * (1 + CARDS_PER_SCREEN * 3);
 const LIVE_IFRAME_BUDGET = 32;
+const MINIMUM_PAN_FRAME_SAMPLES = 10;
 
 interface BrowserPerfState {
   frameIntervalsMs: number[];
+  panFrameIntervalEnd: number | null;
   longTasks: number[];
   maxEventLoopDelayMs: number;
   iframeAdded: number;
@@ -107,6 +109,7 @@ async function installPerfObservers(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const state = {
       frameIntervalsMs: [] as number[],
+      panFrameIntervalEnd: null as number | null,
       longTasks: [] as number[],
       maxEventLoopDelayMs: 0,
       iframeAdded: 0,
@@ -198,35 +201,16 @@ async function resetIframeChurn(page: Page): Promise<void> {
 }
 
 async function screenSelectionLatency(page: Page, screenId: string) {
-  return page.evaluate(async (id) => {
-    const shell = document.querySelector<HTMLElement>(
-      `[data-screen-shell][data-frame-id="${CSS.escape(id)}"]`,
-    );
-    const clickTarget = shell?.querySelector<HTMLElement>("[data-frame-label]");
-    const rowButton = document.querySelector<HTMLElement>(
-      `[data-layer-row-button][data-layer-node-id="${CSS.escape(id)}"]`,
-    );
-    const row = rowButton?.closest<HTMLElement>('[role="treeitem"]');
-    if (!clickTarget || !row)
-      throw new Error(`missing screen selection DOM for ${id}`);
-    const startedAt = performance.now();
-    clickTarget.dispatchEvent(
-      new MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-      }),
-    );
-    while (performance.now() - startedAt < 2_000) {
-      if (row.getAttribute("aria-selected") === "true") {
-        return performance.now() - startedAt;
-      }
-      await new Promise<void>((resolve) =>
-        requestAnimationFrame(() => resolve()),
-      );
-    }
-    throw new Error(`screen selection did not settle for ${id}`);
-  }, screenId);
+  const rowButton = page.locator(
+    `[data-layer-row-button][data-layer-node-id="${screenId}"]`,
+  );
+  const row = rowButton.locator('xpath=ancestor::*[@role="treeitem"][1]');
+  const startedAt = await page.evaluate(() => performance.now());
+  await rowButton.click();
+  await expect(row).toHaveAttribute("aria-selected", "true", {
+    timeout: 2_000,
+  });
+  return page.evaluate((start) => performance.now() - start, startedAt);
 }
 
 async function performPanZoomGesture(page: Page): Promise<{
@@ -324,13 +308,31 @@ test(`${SCREEN_COUNT}-screen canvas preserves live iframes during pan and zoom`,
       });
     }
     const frameIntervalStart = (await perfState(page)).frameIntervalsMs.length;
+    await page.evaluate(() => {
+      const state = (window as any).__largeCanvasPerf as BrowserPerfState;
+      state.panFrameIntervalEnd = null;
+      const capturePanEnd = (event: MouseEvent) => {
+        if (event.button !== 1) return;
+        state.panFrameIntervalEnd = state.frameIntervalsMs.length;
+        document.removeEventListener("mouseup", capturePanEnd, true);
+      };
+      document.addEventListener("mouseup", capturePanEnd, true);
+    });
     await page.mouse.move(panStart.x, panStart.y);
     await page.mouse.down({ button: "middle" });
     await expect(
       page.locator("[data-multi-screen-canvas-pan-shield]"),
     ).toHaveCount(1);
-    await page.mouse.move(panStart.x + 80, panStart.y + 50, { steps: 5 });
+    await page.mouse.move(panStart.x + 80, panStart.y + 50, { steps: 24 });
     await page.mouse.up({ button: "middle" });
+    const frameIntervalEnd = await page.evaluate(
+      () =>
+        ((window as any).__largeCanvasPerf as BrowserPerfState)
+          .panFrameIntervalEnd,
+    );
+    if (frameIntervalEnd === null) {
+      throw new Error("Chrome did not capture the pan mouse-up frame boundary");
+    }
     if (profileSession && profileOutputPath) {
       await page.waitForTimeout(200);
       const tracingComplete = new Promise<{ stream?: string }>((resolveTrace) =>
@@ -340,7 +342,7 @@ test(`${SCREEN_COUNT}-screen canvas preserves live iframes during pan and zoom`,
       const { stream } = await tracingComplete;
       if (!stream)
         throw new Error("Chrome did not return the performance trace");
-      const traceChunks: string[] = [];
+      const traceChunks: Buffer[] = [];
       let traceComplete = false;
       while (!traceComplete) {
         const chunk = await profileSession.send("IO.read", {
@@ -348,16 +350,14 @@ test(`${SCREEN_COUNT}-screen canvas preserves live iframes during pan and zoom`,
           size: 1_048_576,
         });
         traceChunks.push(
-          chunk.base64Encoded
-            ? Buffer.from(chunk.data, "base64").toString("utf8")
-            : chunk.data,
+          Buffer.from(chunk.data, chunk.base64Encoded ? "base64" : "utf8"),
         );
         traceComplete = chunk.eof;
       }
       await profileSession.send("IO.close", { handle: stream });
       const outputPath = resolve(profileOutputPath);
       await mkdir(dirname(outputPath), { recursive: true });
-      await writeFile(outputPath, traceChunks.join(""));
+      await writeFile(outputPath, Buffer.concat(traceChunks));
       await profileSession.detach();
     }
     await expect(
@@ -378,23 +378,65 @@ test(`${SCREEN_COUNT}-screen canvas preserves live iframes during pan and zoom`,
       .not.toEqual(beforePan);
     const panIntervals = (await perfState(page)).frameIntervalsMs.slice(
       frameIntervalStart,
+      frameIntervalEnd,
     );
     const sortedPanIntervals = [...panIntervals].sort(
       (left, right) => left - right,
     );
+    expect(
+      sortedPanIntervals.length,
+      "pan gesture should capture enough real animation frames to profile",
+    ).toBeGreaterThanOrEqual(MINIMUM_PAN_FRAME_SAMPLES);
     const percentile = (value: number) =>
       sortedPanIntervals[
         Math.max(0, Math.ceil(sortedPanIntervals.length * value) - 1)
-      ] ?? 0;
+      ]!;
     console.info(
       `[large-canvas-pan-profile] ${JSON.stringify({
         frames: sortedPanIntervals.length,
         p50FrameMs: +percentile(0.5).toFixed(1),
         p95FrameMs: +percentile(0.95).toFixed(1),
-        maxFrameMs: +Math.max(0, ...sortedPanIntervals).toFixed(1),
+        maxFrameMs: +Math.max(...sortedPanIntervals).toFixed(1),
       })}`,
     );
-    await screenSelectionLatency(page, screenIds[0]!);
+    const selectionLatencyMs = await screenSelectionLatency(
+      page,
+      screenIds[0]!,
+    );
+    console.info(
+      `[large-canvas-selection-profile] ${JSON.stringify({
+        latencyMs: +selectionLatencyMs.toFixed(1),
+      })}`,
+    );
+
+    await page.mouse.move(panStart.x, panStart.y);
+    await page.mouse.down({ button: "middle" });
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(1);
+    await page.mouse.move(panStart.x + 20, panStart.y + 12);
+    const panDuringPause = await world.evaluate(
+      (element) => getComputedStyle(element).transform,
+    );
+    const pauseFrameStart = (await perfState(page)).frameIntervalsMs.length;
+    await expect
+      .poll(async () => (await perfState(page)).frameIntervalsMs.length, {
+        intervals: [20],
+      })
+      .toBeGreaterThanOrEqual(pauseFrameStart + 9);
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(1);
+    await expect
+      .poll(() =>
+        world.evaluate((element) => getComputedStyle(element).transform),
+      )
+      .toBe(panDuringPause);
+    await page.mouse.move(panStart.x + 80, panStart.y + 50, { steps: 4 });
+    await page.mouse.up({ button: "middle" });
+    await expect(
+      page.locator("[data-multi-screen-canvas-pan-shield]"),
+    ).toHaveCount(0);
 
     const { gesturePerf, iframeCountAfterGesture } =
       await performPanZoomGesture(page);

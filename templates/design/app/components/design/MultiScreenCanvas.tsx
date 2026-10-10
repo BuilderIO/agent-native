@@ -9935,12 +9935,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
     }
     setCanvasZoom(zoomRef.current);
-    setPan(panRef.current);
+    if (!panGestureActiveRef.current) {
+      setPan(panRef.current);
+      recomputePenPointerForViewChange();
+    }
     if (lastReportedZoomRef.current !== zoomRef.current) {
       lastReportedZoomRef.current = zoomRef.current;
       onZoomChangeRef.current?.(zoomRef.current);
     }
-    recomputePenPointerForViewChange();
   }, [recomputePenPointerForViewChange, startChromeSettle]);
 
   const scheduleViewCommit = useCallback(
