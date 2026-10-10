@@ -878,7 +878,7 @@ const messages = {
     labWisprFlowDescription: "أظهر الإملاء الصوتي في Clips Desktop أو أخفه.",
     labLookbackContext: "تضمين وقت الشاشة السابق",
     labLookbackContextDescription:
-      "أرفِق حتى خمس دقائق من وقت الشاشة السابق للتسجيل كسياق تلقائي. مُعطَّل افتراضيًا.",
+      "أرفِق حتى خمس دقائق من وقت الشاشة السابق للتسجيل كسياق تلقائي.",
     uploadWorkspaceTitle: "مساحة العمل النشطة",
     uploadWorkspaceDescription:
       "اختر مساحة العمل التي يستخدمها Clips للتسجيلات الجديدة، بما في ذلك تحميلات سطح المكتب.",

@@ -138,7 +138,7 @@ Activez Rewind depuis l'onglet Rewind dans les Paramètres. Une fois activé, vo
 
 Le temps d'écran précédent ajoute jusqu'à cinq minutes de votre écran, antérieures au début d'un enregistrement, tirées de Rewind sur cet appareil. Il est rattaché à l'enregistrement comme contexte propre. Il n'est pas intégré à la vidéo de l'enregistrement.
 
-Le temps d'écran précédent est une fonctionnalité optionnelle de Labs. Activez-la sous **Paramètres > Labs**, « Include earlier screen time ». Elle est désactivée par défaut.
+Le temps d'écran précédent est une fonctionnalité optionnelle de Labs, activée par défaut. Vous pouvez la désactiver sous **Paramètres > Labs**, « Include earlier screen time », dans l'application web Clips ou dans l'application de bureau.
 
 Avec la fonctionnalité activée, le popover de l'application de bureau Clips contient un contrôle **Inclure les derniers**. Choisissez **Désactivé** (par défaut), **30 s**, **5 min** ou **Personnalisé…** pour une durée allant jusqu'à cinq minutes. Rewind doit être activé et en cours d'exécution pour qu'une durée prenne effet. Si Rewind est désactivé, choisir une durée ouvre une brève explication avec un bouton **Activer Rewind**.
 
@@ -164,7 +164,17 @@ Limites : le temps d'écran précédent dure cinq minutes au maximum. L'historiq
 
 Installez l'extension Chrome de Clips pour obtenir un enregistrement plus les journaux du navigateur et l'activité réseau de l'onglet que vous déboguez, utile pour signaler des bugs produit et des reproductions uniquement liées au navigateur.
 
-Elle ne surveille que l'onglet que vous enregistrez activement, et seulement pendant que l'enregistrement est en cours. Elle enregistre les messages de la console et des informations basiques par requête (méthode, une URL expurgée, statut, durée, et si une requête a échoué), jamais les corps de requête ou de réponse, les en-têtes, ou les cookies. Utilisez l'application de bureau pour l'enregistrement quotidien, et tournez-vous vers l'extension Chrome spécifiquement quand vous avez besoin de ces journaux du navigateur joints.
+| Sujet               | Comportement                                                                                                                                                                                                                                                         |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Onglets             | Jusqu'à cinq : l'onglet à partir duquel vous avez démarré l'enregistrement, puis les onglets utilisés au cours des 10 dernières minutes, du plus récent au plus ancien.                                                                                              |
+| Changement d'onglet | Un onglet vers lequel vous basculez pendant l'enregistrement est également capturé. Si plus de cinq onglets sont joints, l'onglet le moins récemment utilisé, autre que celui au premier plan, est détaché, et ses journaux jusque-là restent dans l'enregistrement. |
+| Rétrospective       | Jusqu'à 30 secondes avant le début de l'enregistrement, dans la limite de l'historique de console et des données de resource timing conservées par la page. Ces entrées ont des décalages temporels négatifs.                                                        |
+| Enregistré          | Messages de la console, et informations sur les requêtes fetch/XHR : méthode, une URL expurgée, statut, durée et si la requête a échoué. Chaque entrée indique l'onglet d'où elle provient.                                                                          |
+| Jamais enregistré   | Corps des requêtes ou des réponses, en-têtes ou cookies.                                                                                                                                                                                                             |
+
+Les entrées réseau de la rétrospective n'ont pas de méthode HTTP ; leur méthode est donc enregistrée comme `UNKNOWN`. Les requêtes effectuées pendant l'enregistrement incluent leur méthode. Les onglets ne sont suivis que pendant l'exécution de l'extension ; ainsi, pendant les 10 premières minutes qui suivent son démarrage, moins de cinq onglets peuvent être retenus.
+
+Utilisez l'application de bureau pour l'enregistrement quotidien, et tournez-vous vers l'extension Chrome spécifiquement quand vous avez besoin de ces journaux du navigateur joints.
 
 ## Transcription et métadonnées IA {#transcription-and-ai-metadata}
 

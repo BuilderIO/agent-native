@@ -903,7 +903,7 @@ const messages = {
       "Afficher ou masquer la dictée vocale dans Clips Desktop.",
     labLookbackContext: "Inclure le temps d'écran antérieur",
     labLookbackContextDescription:
-      "Joindre jusqu'à cinq minutes de temps d'écran antérieur à un enregistrement comme contexte passif. Désactivé par défaut.",
+      "Joindre jusqu'à cinq minutes de temps d'écran antérieur à un enregistrement comme contexte passif.",
     uploadWorkspaceTitle: "Espace actif",
     uploadWorkspaceDescription:
       "Choisissez l’espace utilisé par Clips pour les nouveaux enregistrements, y compris ceux importés depuis le bureau.",

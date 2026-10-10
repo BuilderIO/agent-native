@@ -93,6 +93,7 @@ import {
   memo,
   useRef,
   useState,
+  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -767,6 +768,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const { resolvedTheme } = useTheme();
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const panHitTestShieldRef = useRef<HTMLDivElement | null>(null);
+  const panGestureActiveRef = useRef(false);
+  const panPreviousCursorRef = useRef<string | null>(null);
   const initialCanvasFocusPendingRef = useRef(true);
   const initialCanvasFocusAttemptedRef = useRef(false);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -1271,7 +1275,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const handledSelectAllRequestRef = useRef(selectAllRequest);
   const handledClearSelectionRequestRef = useRef(clearSelectionRequest);
   const [isDragging, setIsDragging] = useState(false);
-  const [isPanning, setIsPanning] = useState(false);
+  const isPanning = panGestureActiveRef.current;
   const wheelGestureActiveRef = useRef(false);
   const wheelGestureMutedElementsRef = useRef<Map<HTMLElement, string> | null>(
     null,
@@ -2634,6 +2638,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     return () => {
       dragCleanup.current?.();
+      panHitTestShieldRef.current?.remove();
+      panHitTestShieldRef.current = null;
+      panGestureActiveRef.current = false;
+      panPreviousCursorRef.current = null;
       duplicateCleanup.current?.();
       if (feedbackTimerRef.current !== null) {
         window.clearTimeout(feedbackTimerRef.current);
@@ -5573,6 +5581,37 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [boardCodeLayerSource, boardFileContent, boardFileId],
   );
 
+  const clearPanHitTestShield = useCallback(() => {
+    panHitTestShieldRef.current?.remove();
+    panHitTestShieldRef.current = null;
+    panGestureActiveRef.current = false;
+    const surface = surfaceRef.current;
+    if (surface && panPreviousCursorRef.current !== null) {
+      surface.style.cursor = panPreviousCursorRef.current;
+    }
+    panPreviousCursorRef.current = null;
+  }, []);
+
+  const installPanHitTestShield = useCallback(() => {
+    const surface = surfaceRef.current;
+    if (!surface || panHitTestShieldRef.current) return;
+    const shield = document.createElement("div");
+    shield.dataset.multiScreenCanvasPanShield = "";
+    shield.setAttribute("aria-hidden", "true");
+    Object.assign(shield.style, {
+      position: "absolute",
+      inset: "0",
+      zIndex: "2147483647",
+      pointerEvents: "auto",
+      cursor: "grabbing",
+      backgroundColor: "transparent",
+      touchAction: "none",
+      contain: "strict",
+    });
+    surface.append(shield);
+    panHitTestShieldRef.current = shield;
+  }, []);
+
   const finishDrag = useCallback(() => {
     if (feedbackTimerRef.current !== null) {
       window.clearTimeout(feedbackTimerRef.current);
@@ -5582,7 +5621,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     liveFrameDragPositionsRef.current.clear();
     liveFrameDragSelectionPositionRef.current = null;
     setIsDragging(false);
-    setIsPanning(false);
     setMarquee(null);
     setCreationPreview(null);
     setAlignmentGuides([]);
@@ -5593,8 +5631,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     primitiveDropTargetRef.current = null;
     setPrimitiveDropTarget(null);
     boardElementResizeCancel.current = null;
+    clearPanHitTestShield();
     dragCleanup.current?.();
-  }, []);
+  }, [clearPanHitTestShield]);
 
   const scaleScreenContents = useCallback(
     (
@@ -5929,7 +5968,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         originClient: { x: e.clientX, y: e.clientY },
         originPan: panRef.current,
       };
-      setIsPanning(true);
+      panGestureActiveRef.current = true;
+      const surface = surfaceRef.current;
+      if (surface) {
+        panPreviousCursorRef.current = surface.style.cursor;
+        surface.style.cursor = "grabbing";
+      }
+      installPanHitTestShield();
 
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
@@ -5944,14 +5989,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       };
 
       const handlePanEnd = () => {
-        setPan(panRef.current);
+        startTransition(() => setPan(panRef.current));
         recomputePenPointerForViewChangeRef.current();
         finishDrag();
       };
 
       installDragListeners(handleMouseMove, handlePanEnd);
     },
-    [cancelPendingStaticBoardSelection, finishDrag, installDragListeners],
+    [
+      cancelPendingStaticBoardSelection,
+      finishDrag,
+      installDragListeners,
+      installPanHitTestShield,
+    ],
   );
 
   const beginMarquee = useCallback(
@@ -9885,12 +9935,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
     }
     setCanvasZoom(zoomRef.current);
-    setPan(panRef.current);
+    if (!panGestureActiveRef.current) {
+      setPan(panRef.current);
+      recomputePenPointerForViewChange();
+    }
     if (lastReportedZoomRef.current !== zoomRef.current) {
       lastReportedZoomRef.current = zoomRef.current;
       onZoomChangeRef.current?.(zoomRef.current);
     }
-    recomputePenPointerForViewChange();
   }, [recomputePenPointerForViewChange, startChromeSettle]);
 
   const scheduleViewCommit = useCallback(

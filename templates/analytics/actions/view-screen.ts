@@ -757,6 +757,8 @@ export default defineAction({
           })),
         };
       }
+    } else if (nav?.view === "semantic-layer") {
+      screen.page = "semantic-layer";
     } else if (nav?.view === "agents") {
       screen.page = "agents";
       screen.agentsView = nav?.agentsView || "monitoring";

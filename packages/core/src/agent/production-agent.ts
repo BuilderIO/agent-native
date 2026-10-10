@@ -1128,6 +1128,7 @@ export interface ActionEntry {
   allowInPlanMode?: boolean;
   planMode?: import("../action.js").ActionPlanModeConfig<any>;
   changeEvents?: boolean;
+  persistInBrowser?: boolean;
   changeResource?: (
     input: any,
     result: any,
@@ -1693,6 +1694,20 @@ export interface PreparedAgentRequest {
   message?: string;
   displayMessage?: string;
   attachments?: AgentChatAttachment[];
+  /** Server-prepared context that must not be persisted as current-turn uploads. */
+  contextAttachments?: AgentChatAttachment[];
+  contextNote?: string;
+  /** Resolve model-specific context only after the effective model is known. */
+  prepareAfterModel?: (details: {
+    model: string;
+    vision: boolean;
+  }) =>
+    | void
+    | Pick<PreparedAgentRequest, "contextAttachments" | "contextNote">
+    | Promise<void | Pick<
+        PreparedAgentRequest,
+        "contextAttachments" | "contextNote"
+      >>;
   jevPromptCandidates?: JevPromptContextCandidate[];
   jevFallbackCandidateIds?: string[];
   /**
@@ -10082,6 +10097,8 @@ export function createProductionAgentHandler(
     let requestHistory = submittedHistory;
     let requestStructuredHistory = submittedStructuredHistory;
     let requestReferences = submittedReferences;
+    let requestContextAttachments: AgentChatAttachment[] = [];
+    let requestContextNote = "";
     let requestModel = submittedModel;
     let requestEngine = submittedEngine;
     let requestEffort = submittedEffort;
@@ -10496,6 +10513,12 @@ export function createProductionAgentHandler(
       if (Array.isArray(preparedRequest.attachments)) {
         requestAttachments = preparedRequest.attachments;
       }
+      if (Array.isArray(preparedRequest.contextAttachments)) {
+        requestContextAttachments = preparedRequest.contextAttachments;
+      }
+      if (typeof preparedRequest.contextNote === "string") {
+        requestContextNote = preparedRequest.contextNote;
+      }
       if (Array.isArray(preparedRequest.jevPromptCandidates)) {
         jevPromptCandidates = preparedRequest.jevPromptCandidates;
       }
@@ -10805,6 +10828,10 @@ export function createProductionAgentHandler(
       requestEffort,
       configuredEffort: options.reasoningEffort,
     });
+    const modelSupportsVision = isAgentModelVisionCapable(
+      effectiveModel,
+      engine.capabilities.vision === true,
+    );
 
     options.onEngineResolved?.(engine, effectiveModel);
 
@@ -10872,6 +10899,27 @@ export function createProductionAgentHandler(
           controller.close();
         },
       });
+    }
+
+    const modelPreparedContext = await preparedRequest?.prepareAfterModel?.({
+      model: effectiveModel,
+      vision: modelSupportsVision,
+    });
+    if (modelPreparedContext) {
+      if (Array.isArray(modelPreparedContext.contextAttachments)) {
+        requestContextAttachments = [
+          ...requestContextAttachments,
+          ...modelPreparedContext.contextAttachments,
+        ];
+      }
+      if (typeof modelPreparedContext.contextNote === "string") {
+        requestContextNote = [
+          requestContextNote,
+          modelPreparedContext.contextNote,
+        ]
+          .filter(Boolean)
+          .join("\n");
+      }
     }
 
     setupMark("prepDone");
@@ -11467,12 +11515,13 @@ export function createProductionAgentHandler(
         prefetchNote +
         priorConnectionContextNote(priorConnection) +
         filesContext +
-        planModeAgentNote,
-      attachments: requestAttachments,
-      vision: isAgentModelVisionCapable(
-        effectiveModel,
-        engine.capabilities.vision === true,
-      ),
+        planModeAgentNote +
+        (requestContextAttachments.length > 0
+          ? "\n\n<prior-chat-image-context>Images attached in earlier turns of this chat are included after the current text, in chronological order. Use them as prior references when relevant.</prior-chat-image-context>"
+          : "") +
+        (requestContextNote ? `\n\n${requestContextNote}` : ""),
+      attachments: [...requestContextAttachments, ...requestAttachments],
+      vision: modelSupportsVision,
     });
 
     const historyMessages =

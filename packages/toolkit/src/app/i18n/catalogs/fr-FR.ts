@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "en attente",
   "agent.completed": "a terminé",
   "agent.failed": "nécessite une attention particulière",
+  "agent.failureReason.failed": "Impossible de terminer",
+  "agent.failureReason.setup": "Configuration requise",
+  "agent.failureReason.auth": "Accès refusé",
+  "agent.failureReason.timeout": "Délai dépassé",
+  "agent.failureReason.budget": "Temps écoulé",
+  "agent.failureReason.response": "Résultat inutilisable",
   "agent.closed": "a fermé",
   "approval.alwaysAllow": "Toujours autoriser",
   "approval.alwaysAllowHint":

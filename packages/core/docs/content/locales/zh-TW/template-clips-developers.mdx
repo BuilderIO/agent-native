@@ -134,6 +134,19 @@ pnpm dev
 | `create-recording-intake-link`、`create-intake-recording`、`create-intake-agent-link` | 匿名的第三方嵌入流程。請參閱 [嵌入剪輯](/docs/template-clips-embed) |
 | `save-bug-report-context`、`save-browser-diagnostics`、`save-browser-transcript`      | 嵌入式錯誤回報啟動器，以及 Chrome 擴充功能診斷資訊                  |
 
+## 瀏覽器診斷
+
+Chrome 擴充功能會為錄製附加主控台和網路診斷資訊，由 `save-browser-diagnostics` 負責儲存。每一筆主控台和網路項目都帶有 `tabId`。
+
+| 主題     | 行為                                                                                                               |
+| -------- | ------------------------------------------------------------------------------------------------------------------ |
+| 分頁     | 每次錄製最多五個：起始分頁，然後是最近 10 分鐘內活躍過的分頁，依最近活躍排序。錄製期間使用者切換到的分頁也會附加。 |
+| 超過五個 | 除焦點分頁外，最久未活躍的分頁會被分離。其先前的項目仍保留在錄製中。                                               |
+| 回溯     | 錄製開始前最多 30 秒，以頁面自身的主控台歷史和資源計時清單為限。這些項目的 `elapsedMs` 為負值。                    |
+| `tabId`  | 設定在每一筆主控台和網路項目上。                                                                                   |
+| `method` | 回溯網路項目為 `"UNKNOWN"`，它們來自資源計時，沒有 HTTP 方法。即時請求會回報方法。                                 |
+| 不收集   | 請求和回應的內文與標頭。主控台和網路項目在上傳前會經過編輯處理。                                                   |
+
 ## 資料模型
 
 定義於 `templates/clips/server/db/schema.ts`。

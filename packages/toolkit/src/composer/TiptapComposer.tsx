@@ -1251,6 +1251,18 @@ function plainTextToDoc(text: string) {
 }
 
 /** Tiptap keeps the Editor object truthy after destroy but clears commandManager. */
+// The session shell hides its tree with an inline display: none (RequireSession).
+function isInsideHiddenShell(element: HTMLElement): boolean {
+  for (
+    let node: HTMLElement | null = element;
+    node;
+    node = node.parentElement
+  ) {
+    if (node.style?.display === "none") return true;
+  }
+  return false;
+}
+
 export function isComposerEditorUsable<T extends { isDestroyed?: boolean }>(
   editor: T | null | undefined,
 ): editor is T {
@@ -3981,7 +3993,20 @@ export function TiptapComposer({
 
   useImperativeHandle(focusRef, () => ({
     focus() {
-      if (isComposerEditorUsable(editor)) editor.commands.focus("end");
+      if (!isComposerEditorUsable(editor)) return;
+      // An editor inside a hidden session shell cannot take focus, and nothing
+      // re-runs this when the shell is shown. Focus on the first size change.
+      const dom = editor.view.dom;
+      if (isInsideHiddenShell(dom) && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(() => {
+          if (isInsideHiddenShell(dom)) return;
+          observer.disconnect();
+          editor.commands.focus("end");
+        });
+        observer.observe(dom);
+        return;
+      }
+      editor.commands.focus("end");
     },
     addAttachment(file: File) {
       return addAttachmentForCurrentScope(file);

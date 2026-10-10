@@ -32,7 +32,9 @@ import {
 } from "./error-capture.js";
 import {
   assertFirstPartyAnalyticsBigQuerySql,
+  ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS,
   type FirstPartyAnalyticsSink,
+  type FirstPartyAnalyticsEventsProjection,
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
@@ -104,6 +106,8 @@ export interface AnalyticsQueryOptions {
   maxBytesBilled?: number;
   signal?: AbortSignal;
   eventDateRange?: { startDate: string; endDate: string };
+  scopedEventsSingleScan?: boolean;
+  scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
   /** Debugging only: metrics exclude test identities by default. */
   includeTestIdentities?: boolean;
 }
@@ -1089,6 +1093,8 @@ function scopedTableSource(
   parameterOffset: number,
   includeTestIdentities: boolean,
   eventPushdownPredicates: string[] = [],
+  scopedEventsSingleScan = false,
+  scopedEventsProjection?: FirstPartyAnalyticsEventsProjection,
 ): {
   sql: string;
   args: Array<string | null>;
@@ -1138,18 +1144,30 @@ function scopedTableSource(
     );
   }
 
+  const eventSelection =
+    tableName === "analytics_events" &&
+    scopedEventsProjection === "onboarding_journey"
+      ? ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join(", ")
+      : "*";
+  const select = `SELECT ${eventSelection}`;
   const ownerEmail = scope.userEmail.trim().toLowerCase();
   if (scope.orgId) {
     const orgParameter = parameterOffset + 1;
     if (scope.credentialScope === "org") {
       return {
-        sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
+        sql: `(${select} FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
         args: [scope.orgId, today],
       };
     }
     const ownerParameter = parameterOffset + 3;
+    if (tableName === "analytics_events" && scopedEventsSingleScan) {
+      return {
+        sql: `(${select} FROM ${tableName} WHERE (org_id = $${orgParameter} OR (org_id IS NULL AND owner_email = $${ownerParameter})) AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
+        args: [scope.orgId, today, ownerEmail],
+      };
+    }
     return {
-      sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
+      sql: `(${select} FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter} UNION ALL ${select} FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
       args: [scope.orgId, today, ownerEmail, today],
     };
   }
@@ -1157,7 +1175,7 @@ function scopedTableSource(
     return { sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`, args: [] };
   }
   return {
-    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)}${eventPushdownFilter}${testIdentityFilter})`,
+    sql: `(${select} FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)}${eventPushdownFilter}${testIdentityFilter})`,
     args: [ownerEmail, today],
   };
 }
@@ -1283,9 +1301,13 @@ export function scopedAnalyticsSql(
   {
     includeTestIdentities = false,
     scopedEventsNotMaterialized = false,
+    scopedEventsSingleScan = false,
+    scopedEventsProjection,
   }: {
     includeTestIdentities?: boolean;
     scopedEventsNotMaterialized?: boolean;
+    scopedEventsSingleScan?: boolean;
+    scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
   } = {},
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];
@@ -1326,6 +1348,8 @@ export function scopedAnalyticsSql(
         args.length,
         includeTestIdentities,
         eventPushdownPredicates,
+        scopedEventsSingleScan,
+        scopedEventsProjection,
       )
     : null;
   if (scopedEvents) args.push(...scopedEvents.args);
@@ -1486,6 +1510,8 @@ export async function queryFirstPartyAnalytics(
   }
   const scopeOptions = {
     includeTestIdentities: options.includeTestIdentities === true,
+    scopedEventsSingleScan: options.scopedEventsSingleScan === true,
+    scopedEventsProjection: options.scopedEventsProjection,
   };
   const queryClass = classifyFirstPartyAnalyticsQuery(sql);
   const startedAt = Date.now();
@@ -1552,6 +1578,8 @@ export async function queryFirstPartyAnalytics(
             maxBytesBilled: options.maxBytesBilled,
             timeoutMs: remainingTime(),
             eventDateRange: options.eventDateRange,
+            scopedEventsSingleScan: options.scopedEventsSingleScan === true,
+            scopedEventsProjection: options.scopedEventsProjection,
             signal,
           }),
           signal,

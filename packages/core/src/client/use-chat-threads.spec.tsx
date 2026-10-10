@@ -1612,6 +1612,55 @@ describe("useChatThreads", () => {
     );
   });
 
+  it("retries initial route verification when a listed thread lookup is temporarily unavailable", async () => {
+    const routeThread: ChatThreadSummary = {
+      id: "listed-retry-route-thread",
+      title: "Route",
+      preview: "route preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    let lookups = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [routeThread] });
+      }
+      if (url === "/chat/threads/listed-retry-route-thread" && !init) {
+        lookups++;
+        return lookups === 1
+          ? new Response(null, { status: 503 })
+          : jsonResponse({
+              ...routeThread,
+              threadData: JSON.stringify({
+                messages: [{ id: "route-message" }],
+              }),
+            });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "listed-retry-route-test", null, {
+        routeThreadId: "listed-retry-route-thread",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+
+    expect(lookups).toBe(2);
+    expect(hook!.activeThreadId).toBe("listed-retry-route-thread");
+    expect(hook!.isThreadPersisted("listed-retry-route-thread")).toBe(true);
+    expect(hook!.isNewThread("listed-retry-route-thread")).toBe(false);
+  });
+
   it("keeps a chat created on the create route new once the route adopts its id", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/chat/threads" && !init) {
@@ -1785,6 +1834,427 @@ describe("useChatThreads", () => {
     expect(lookups).toBe(2);
     expect(hook!.isThreadPersisted("retry-route-thread")).toBe(true);
     expect(hook!.isNewThread("retry-route-thread")).toBe(false);
+  });
+
+  it("waits for a newer history refresh before retrying route confirmation", async () => {
+    const routeThread: ChatThreadSummary = {
+      id: "refresh-retry-route-thread",
+      title: "Refresh retry route",
+      preview: "route preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    let resolveRefreshList!: (response: Response) => void;
+    const refreshList = new Promise<Response>((resolve) => {
+      resolveRefreshList = resolve;
+    });
+    let listRequests = 0;
+    let routeLookups = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        listRequests++;
+        return listRequests === 1 ? jsonResponse({ threads: [] }) : refreshList;
+      }
+      if (url === "/chat/threads/refresh-retry-route-thread" && !init) {
+        routeLookups++;
+        return routeLookups <= 2
+          ? new Response(null, { status: 503 })
+          : jsonResponse({
+              ...routeThread,
+              threadData: JSON.stringify({
+                messages: [{ id: "route-message" }],
+              }),
+            });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "refresh-retry-route-test", null, {
+        routeThreadId: routeThread.id,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    });
+
+    expect(listRequests).toBe(1);
+    expect(routeLookups).toBe(2);
+    expect(hook!.isThreadPersisted(routeThread.id)).toBe(false);
+
+    await act(async () => {
+      hook!.refreshThreads();
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+    });
+    expect(listRequests).toBe(2);
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(routeLookups).toBe(2);
+    expect(hook!.isThreadPersisted(routeThread.id)).toBe(false);
+    expect(hook!.threads.some((thread) => thread.id === routeThread.id)).toBe(
+      false,
+    );
+
+    await act(async () => {
+      resolveRefreshList(jsonResponse({ threads: [] }));
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+
+    expect(routeLookups).toBe(3);
+    expect(hook!.isThreadPersisted(routeThread.id)).toBe(true);
+    expect(hook!.isNewThread(routeThread.id)).toBe(false);
+    expect(hook!.threads.map((thread) => thread.id)).toContain(routeThread.id);
+  });
+
+  it("ignores an initial route lookup superseded by a newer history response", async () => {
+    const threadId = "initial-restore-race-thread";
+    const summary: ChatThreadSummary = {
+      id: threadId,
+      title: "Saved thread",
+      preview: "Saved preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    let resolveInitialLookup!: (response: Response) => void;
+    const initialLookup = new Promise<Response>((resolve) => {
+      resolveInitialLookup = resolve;
+    });
+    let listRequests = 0;
+    let transcriptLookups = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        listRequests++;
+        return jsonResponse({ threads: listRequests === 1 ? [] : [summary] });
+      }
+      if (url === `/chat/threads/${threadId}` && !init) {
+        transcriptLookups++;
+        return transcriptLookups === 1
+          ? initialLookup
+          : jsonResponse({
+              ...summary,
+              threadData: JSON.stringify({
+                messages: [{ id: "route-message" }],
+              }),
+            });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "initial-restore-race", null, {
+        routeThreadId: threadId,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await vi.waitFor(() => expect(transcriptLookups).toBe(1));
+    expect(hook!.isLoading).toBe(true);
+
+    await act(async () => {
+      hook!.refreshThreads();
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(hook!.isLoading).toBe(false);
+    expect(hook!.activeThreadId).toBe(threadId);
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([threadId]);
+    expect(transcriptLookups).toBe(2);
+    expect(hook!.isThreadPersisted(threadId)).toBe(true);
+
+    await act(async () => {
+      resolveInitialLookup(
+        jsonResponse({
+          ...summary,
+          title: "Stale response",
+          preview: "Stale preview",
+          threadData: JSON.stringify({
+            messages: [{ id: "stale-route-message" }],
+          }),
+        }),
+      );
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe(threadId);
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([threadId]);
+    expect(hook!.threads[0]?.title).toBe(summary.title);
+    expect(hook!.threads[0]?.preview).toBe(summary.preview);
+    expect(hook!.isNewThread(threadId)).toBe(false);
+    expect(hook!.isThreadPersisted(threadId)).toBe(true);
+  });
+
+  it("keeps initial loading until the superseding route list settles", async () => {
+    const threadId = "superseded-initial-route-thread";
+    const routeThread: ChatThreadSummary = {
+      id: threadId,
+      title: "Route thread",
+      preview: "Route preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+      threadData: JSON.stringify({ messages: [{ id: "route-message" }] }),
+    };
+    let resolveInitialList!: (response: Response) => void;
+    let resolveLatestList!: (response: Response) => void;
+    const initialList = new Promise<Response>((resolve) => {
+      resolveInitialList = resolve;
+    });
+    const latestList = new Promise<Response>((resolve) => {
+      resolveLatestList = resolve;
+    });
+    let listRequests = 0;
+    let routeLookups = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        listRequests++;
+        return listRequests === 1
+          ? initialList
+          : listRequests === 2
+            ? latestList
+            : jsonResponse({ threads: [] });
+      }
+      if (url === `/chat/threads/${threadId}` && !init) {
+        routeLookups++;
+        return jsonResponse(routeThread);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "superseded-initial-route", null, {
+        routeThreadId: threadId,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+    });
+    expect(listRequests).toBe(1);
+
+    await act(async () => {
+      hook!.refreshThreads();
+      await Promise.resolve();
+    });
+    expect(listRequests).toBe(2);
+
+    await act(async () => {
+      resolveInitialList(new Response(null, { status: 503 }));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+    expect(hook!.isLoading).toBe(true);
+    expect(routeLookups).toBe(0);
+
+    await act(async () => {
+      resolveLatestList(jsonResponse({ threads: [] }));
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+
+    expect(hook!.isLoading).toBe(false);
+    expect(routeLookups).toBe(1);
+    expect(hook!.isThreadPersisted(threadId)).toBe(true);
+  });
+
+  it("reconciles a restored draft when a refresh supersedes the initial list", async () => {
+    const threadId = "superseded-restored-draft";
+    const draftMarker = `agent-chat-client-draft-thread:${encodeURIComponent(threadId)}`;
+    window.localStorage.setItem(
+      "agent-chat-active-thread:superseded-restored-draft",
+      threadId,
+    );
+    window.localStorage.setItem(draftMarker, "1");
+    let resolveInitialList!: (response: Response) => void;
+    const initialList = new Promise<Response>((resolve) => {
+      resolveInitialList = resolve;
+    });
+    let listRequests = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        listRequests++;
+        return listRequests === 1 ? initialList : jsonResponse({ threads: [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "superseded-restored-draft");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+    });
+    expect(listRequests).toBe(1);
+    expect(hook!.isLoading).toBe(true);
+
+    await act(async () => {
+      hook!.refreshThreads();
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+
+    expect(hook!.isLoading).toBe(false);
+    expect(hook!.activeThreadId).toBe(threadId);
+    expect(hook!.threads.map((thread) => thread.id)).toContain(threadId);
+    expect(hook!.isNewThread(threadId)).toBe(true);
+    expect(window.localStorage.getItem(draftMarker)).toBe("1");
+
+    await act(async () => {
+      resolveInitialList(jsonResponse({ threads: [] }));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+    expect(hook!.activeThreadId).toBe(threadId);
+    expect(hook!.threads.map((thread) => thread.id)).toContain(threadId);
+  });
+
+  it("replaces a missing restored thread when a refresh supersedes the initial list", async () => {
+    const threadId = "superseded-missing-restored-thread";
+    window.localStorage.setItem(
+      "agent-chat-active-thread:superseded-missing-restored-thread",
+      threadId,
+    );
+    let resolveInitialList!: (response: Response) => void;
+    const initialList = new Promise<Response>((resolve) => {
+      resolveInitialList = resolve;
+    });
+    let listRequests = 0;
+    let restoredLookups = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        listRequests++;
+        return listRequests === 1 ? initialList : jsonResponse({ threads: [] });
+      }
+      if (url === `/chat/threads/${threadId}` && !init) {
+        restoredLookups++;
+        return new Response(null, { status: 404 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "superseded-missing-restored-thread");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+    });
+    expect(hook!.activeThreadId).toBe(threadId);
+
+    await act(async () => {
+      hook!.refreshThreads();
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+    });
+
+    expect(restoredLookups).toBe(1);
+    expect(hook!.isLoading).toBe(false);
+    expect(hook!.activeThreadId).not.toBe(threadId);
+    expect(hook!.activeThreadId).not.toBeNull();
+    expect(hook!.isNewThread(hook!.activeThreadId!)).toBe(true);
+    expect(hook!.threads.map((thread) => thread.id)).toContain(
+      hook!.activeThreadId,
+    );
+
+    await act(async () => {
+      resolveInitialList(jsonResponse({ threads: [] }));
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+    expect(hook!.activeThreadId).not.toBe(threadId);
+    expect(hook!.isNewThread(hook!.activeThreadId!)).toBe(true);
+  });
+
+  it("does not replace a restored tab when a list request is superseded during verification retry backoff", async () => {
+    const threadId = "superseded-list-restore";
+    const draftMarker = `agent-chat-client-draft-thread:${encodeURIComponent(threadId)}`;
+    const summary: ChatThreadSummary = {
+      id: threadId,
+      title: "Saved thread",
+      preview: "Saved preview",
+      messageCount: 1,
+      createdAt: Date.now() - 60_000,
+      updatedAt: Date.now(),
+      scope: null,
+    };
+    window.localStorage.setItem(draftMarker, "1");
+    window.localStorage.setItem(
+      "agent-chat-active-thread:superseded-list-restore",
+      threadId,
+    );
+    let listRequests = 0;
+    let transcriptLookups = 0;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        listRequests++;
+        return listRequests === 1
+          ? jsonResponse({ threads: [summary] })
+          : new Response(JSON.stringify({ error: "nope" }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            });
+      }
+      if (url === `/chat/threads/${threadId}` && !init) {
+        transcriptLookups++;
+        return new Response(null, { status: 503 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "superseded-list-restore");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+
+    expect(transcriptLookups).toBe(1);
+    expect(hook!.activeThreadId).toBe(threadId);
+
+    await act(async () => {
+      hook!.refreshThreads();
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+
+    expect(listRequests).toBe(2);
+    expect(hook!.activeThreadId).toBe(threadId);
+    expect(hook!.restoredThreadIdOnListFailure).toBeNull();
+    expect(hook!.threadsLoadError).toBe("Could not load chat history.");
+    expect(window.localStorage.getItem(draftMarker)).toBe("1");
   });
 
   it("does not confirm a later route with an unreadable transcript", async () => {

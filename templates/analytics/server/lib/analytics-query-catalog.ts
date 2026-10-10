@@ -776,13 +776,30 @@ async function listDictionaryEntries(args: {
   status: "available" | "partial" | "unavailable";
 }> {
   const entries: DictionaryEntry[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, number>();
   const collect = (raw: unknown) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
     const entry = raw as DictionaryEntry;
     const id = text(entry.id);
-    if (!id || seen.has(id)) return;
-    seen.add(id);
+    if (!id) return;
+    const existingIndex = seen.get(id);
+    if (existingIndex !== undefined) {
+      const existing = entries[existingIndex];
+      if (entry.sourceIndex === true && existing?.sourceIndex !== true) {
+        entries[existingIndex] = {
+          ...entry,
+          ...existing,
+          status: entry.status,
+          sourceIndex: true,
+          sourcePath: entry.sourcePath,
+          sourceRevision: entry.sourceRevision,
+          sourceIndexGeneratedAt: entry.sourceIndexGeneratedAt,
+          sourceIndexSources: entry.sourceIndexSources,
+        };
+      }
+      return;
+    }
+    seen.set(id, entries.length);
     entries.push(entry);
   };
 

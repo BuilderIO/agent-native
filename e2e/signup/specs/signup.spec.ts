@@ -70,6 +70,21 @@ function assertBetterAuthSession(
   ).toBe(email);
 }
 
+async function waitForApplicationReady(page: Page, app: string) {
+  await renderedText(page, `${app} application after signup`, {
+    timeoutMs: 60_000,
+  });
+  await expect(
+    page.locator('[data-first-run-startup-loading="true"]'),
+  ).toHaveCount(0, { timeout: 60_000 });
+
+  if (app === "chat") {
+    const composer = page.getByRole("textbox", { name: "Message agent" });
+    await expect(composer).toBeVisible();
+    await expect(composer).toBeEditable();
+  }
+}
+
 const targets = selectedSignupTargets();
 
 function recordMailosaurInconclusive(
@@ -214,7 +229,7 @@ for (const target of targets) {
       await test.step("wait for Chat to finish its first-run thread handoff", async () => {
         await verificationPage.waitForURL(
           (url) => /^\/chat\/[^/]+\/?$/.test(url.pathname),
-          { waitUntil: "load" },
+          { waitUntil: "domcontentloaded" },
         );
       });
     }
@@ -252,6 +267,10 @@ for (const target of targets) {
       });
     }
 
+    await test.step("wait for the application to become usable", async () => {
+      await waitForApplicationReady(verificationPage, target.app);
+    });
+
     await test.step("prove the session works before any refresh", async () => {
       assertSession(
         await readSession(verificationPage),
@@ -266,10 +285,12 @@ for (const target of targets) {
     });
 
     await test.step("prove the session survives a browser refresh", async () => {
+      await waitForApplicationReady(verificationPage, target.app);
       await verificationPage.reload({ waitUntil: "domcontentloaded" });
       await expect
         .poll(() => new URL(verificationPage.url()).pathname)
         .not.toMatch(/sign-in|login/i);
+      await waitForApplicationReady(verificationPage, target.app);
       assertSession(
         await readSession(verificationPage),
         email,

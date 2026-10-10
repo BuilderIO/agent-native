@@ -134,6 +134,19 @@ pnpm dev
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | 匿名的第三方嵌入流程。参阅[嵌入剪辑](/docs/template-clips-embed) |
 | `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | 嵌入式缺陷报告启动器和 Chrome 扩展程序诊断信息                   |
 
+## 浏览器诊断
+
+Chrome 扩展程序会为录制附加控制台和网络诊断信息，`save-browser-diagnostics` 负责保存这些信息。每条控制台和网络条目都带有 `tabId`。
+
+| 主题     | 行为                                                                                                                       |
+| -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 标签页   | 每次录制最多五个：起始标签页，然后是最近 10 分钟内活跃过的标签页，最近活跃的排在前面。录制期间用户切换到的标签页也会附加。 |
+| 超过五个 | 除焦点标签页外，最久未活跃的标签页会被分离。其此前的条目仍保留在录制中。                                                   |
+| 回溯     | 录制开始前最多 30 秒，受页面自身的控制台历史和资源计时列表限制。这些条目的 `elapsedMs` 为负值。                            |
+| `tabId`  | 设置在每条控制台和网络条目上。                                                                                             |
+| `method` | 回溯网络条目为 `"UNKNOWN"`，它们来自资源计时，没有 HTTP 方法。实时请求会报告方法。                                         |
+| 不收集   | 请求和响应的正文及请求头。控制台和网络条目在上传前会经过编辑处理。                                                         |
+
 ## 数据模型
 
 定义在 `templates/clips/server/db/schema.ts` 中。

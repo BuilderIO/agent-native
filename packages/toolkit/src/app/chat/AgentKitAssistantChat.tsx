@@ -17,6 +17,7 @@ import type {
   AgentApprovalRequest,
   AgentConnectionRequest,
   AgentEvent,
+  AgentInteraction,
   AgentMessage,
   AgentQueuedMessage,
   AgentRequestAttachment,
@@ -141,6 +142,7 @@ import {
   AgentKitChat,
   AgentKitComposer,
   AgentApprovalPrompt,
+  AgentInteractionItem,
   AgentMessageView,
   useAgentKit,
   useAgentKitControl,
@@ -1492,6 +1494,9 @@ const agentKitRegistry = {
     "connect-builder": AgentKitTool,
     "connect-file-storage": AgentKitTool,
   },
+  agentInteractions: {
+    failed: AgentKitFailedInteraction,
+  },
 };
 
 export const AgentKitAssistantChat = forwardRef<
@@ -2666,6 +2671,8 @@ const AgentKitAssistantChatBody = forwardRef<
           }
 
           try {
+            // Legacy controller persistence can resolve for expected
+            // deferrals, so the host write below is the confirmation here.
             return (
               (await onSaveThread(
                 threadId,
@@ -4794,11 +4801,7 @@ const AgentKitAssistantChatBody = forwardRef<
             { threadId: targetThreadId, runId, requestId },
             request,
           ) => {
-            if (targetThreadId !== threadId) {
-              throw new Error(
-                "Cannot resume a connection request in another chat.",
-              );
-            }
+            if (targetThreadId !== threadId) return "not-owner";
             return control.resolveConnectionRequest(runId, requestId, {
               status: "connected",
               message: request.message,
@@ -6363,6 +6366,20 @@ function AgentKitReasoning({
       resetKey={resetKey}
     />
   );
+}
+
+function AgentKitFailedInteraction(
+  props: AgentKitRenderProps<AgentInteraction>,
+) {
+  const t = useT();
+  const reasonKey = props.value.metadata?.failureReasonKey;
+  if (typeof reasonKey !== "string") return <AgentInteractionItem {...props} />;
+  // The key comes from persisted run state, so one this build does not know
+  // falls back to the generic reason rather than printing the key.
+  const detail = t(reasonKey, {
+    defaultValue: t("agentChat.agent.failureReason.failed"),
+  });
+  return <AgentInteractionItem {...props} value={{ ...props.value, detail }} />;
 }
 
 function AgentKitConnectionRequest({
