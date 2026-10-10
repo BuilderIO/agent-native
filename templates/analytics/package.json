@@ -8,10 +8,12 @@
     "build": "agent-native build && tsx scripts/emit-netlify-dashboard-report-cron.ts",
     "start": "agent-native start",
     "test": "vitest --run",
+    "test:bigquery-emulator": "vitest --run --config vitest.bigquery.config.ts",
     "format.fix": "oxfmt --write .",
     "typecheck": "agent-native typecheck",
     "migrate:production": "tsx scripts/migrate-production.ts",
     "journey:capture": "tsx scripts/journey-capture.ts",
+    "source-index": "tsx scripts/build-source-index.ts",
     "backfill:first-party-bigquery": "tsx scripts/first-party-analytics-bigquery-backfill.ts",
     "action": "agent-native action",
     "script": "agent-native script"

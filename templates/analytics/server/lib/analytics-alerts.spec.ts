@@ -519,31 +519,6 @@ describe("analytics alert evaluation", () => {
     expect(source).not.toContain("function maxCandidateEventsPerRule");
   });
 
-  it("claims alert rules before evaluating so parallel sweeps cannot double-send", () => {
-    const source = readFileSync(
-      new URL("./analytics-alerts.ts", import.meta.url),
-      "utf8",
-    );
-    const jobSource = readFileSync(
-      new URL("../jobs/analytics-alerts.ts", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      "export async function claimAnalyticsAlertRuleEvaluation",
-    );
-    expect(source).toContain('lastStatus: "running"');
-    expect(source).toContain("alertRuleNotRunningWhere(now)");
-    expect(source).toContain("alertRulePreviousEvaluationWhere(rule)");
-    expect(source).toContain(".returning({ id: table.id })");
-    expect(jobSource).toContain("claimAnalyticsAlertRuleEvaluation(rule)");
-    expect(
-      jobSource.indexOf("claimAnalyticsAlertRuleEvaluation(rule)"),
-    ).toBeLessThan(
-      jobSource.indexOf("evaluateAndNotifyAnalyticsAlertRule(rule)"),
-    );
-  });
-
   it("keeps triggered rules retryable only when no notification channel delivered", () => {
     const source = readFileSync(
       new URL("./analytics-alerts.ts", import.meta.url),

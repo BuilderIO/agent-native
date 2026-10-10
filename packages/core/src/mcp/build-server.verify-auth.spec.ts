@@ -738,12 +738,33 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity).toEqual({
       userEmail: "oauth@example.com",
       identityAssurance: "user",
+      // Signed without a grant time, like every token issued before grant
+      // times existed, so its own `iat` is the issue time.
+      mcpCredentialIssuedAtMs: expect.any(Number),
       orgId: "org_123",
       orgDomain: "builder.io",
       oauthScopes: ["mcp:read", "mcp:apps"],
       oauthClientId: "client-123",
     });
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
+  });
+
+  it("anchors a standard MCP OAuth access token at its signed grant time, not its iat", async () => {
+    const resource = "https://mail.agent-native.com/_agent-native/mcp";
+    const grantCreatedAtMs = Date.now() - 3 * 24 * 60 * 60 * 1000;
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      clientId: "client-123",
+      scope: "mcp:read mcp:apps",
+      resource,
+      issuer: "https://mail.agent-native.com",
+      grantCreatedAtMs,
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res.authed).toBe(true);
+    expect(res.identity?.mcpCredentialIssuedAtMs).toBe(grantCreatedAtMs);
   });
 
   it("rejects a standard MCP OAuth access token for another resource", async () => {

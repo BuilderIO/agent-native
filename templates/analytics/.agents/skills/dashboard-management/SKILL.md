@@ -117,7 +117,7 @@ an ordinary activity scan.
 
 When the user asks for a dashboard:
 
-1. Start from the preloaded `<resource scope="analytics-catalog">` references (catalog-first), else one `search-analytics-query-catalog`. If a relevant entry exists, use its `table`, `columns`, `queryTemplate`, and gotchas verbatim.
+1. Start from the preloaded `<resource scope="analytics-catalog">` references (catalog-first), else one `find-data`. If a relevant entry exists, use its `table`, `columns`, `queryTemplate`, and gotchas verbatim.
 2. If a metric definition, date range, or grain is ambiguous and the choice would change the panel's numbers, use the `ask-question` clarifying tool once before building. Skip it when the dictionary or the user already settled it.
 3. If a metric is not documented, do not guess column names and do not ask the user for them. Find the table and columns with `search-bigquery-schema` (or the provider's own schema action), then propose a dictionary entry with `save-data-dictionary-entry`.
 4. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
@@ -327,6 +327,14 @@ Use conditional blocks for optional filters:
 ```sql
 {{?country}}AND country = '{{country}}'{{/country}}
 ```
+
+**Use `type: "multi-select"` for a pick list where several options can apply at once.** Give it `options` like a `select`. Its value is the selected option values joined by commas. Interpolate it as `IN ({{<id>:list}})`, which expands to one quoted literal per selected value, and wrap the clause in a conditional so an empty selection drops the filter:
+
+```sql
+{{?plan}}AND plan IN ({{plan:list}}){{/plan}}
+```
+
+An unwrapped `{{<id>:list}}` with no selection fails the query on purpose. Option values must not contain commas.
 
 Filters auto-apply on change — there is no Apply button. Each filter change writes to the URL and re-runs the affected panels. Other filters are preserved (the URL update is functional, not destructive). If you see a filter "reset" itself when another filter changes, look for a duplicate `id` first.
 

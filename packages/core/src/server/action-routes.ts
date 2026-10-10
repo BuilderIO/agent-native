@@ -57,6 +57,7 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_DIRECTORY_WIDGET_SESSION_EXPIRED_HEADER,
   allowsMcpDirectoryWidgetReadAction,
+  getMcpDirectoryWidgetReadCapabilityResourceIds,
   getMcpDirectoryWidgetWriteCapabilityGrant,
   isExpiredMcpDirectoryWidgetWriteCapability,
   isMcpDirectoryWidgetCapabilityScope,
@@ -303,7 +304,7 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Content-Save-Origin,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
         : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
@@ -602,6 +603,44 @@ function resolveRequestEmbedSession(
   return resolveEmbedSessionFromRequest(event);
 }
 
+/**
+ * Widget-scoped action routes are auth-public, so the global guard never runs
+ * the workspace app access check for them; the handler runs it for the
+ * session-authenticated callers it resolves itself.
+ */
+async function denyWithoutWorkspaceAppAccess(
+  event: any,
+  name: string,
+  ownerContext: AgentRunOwnerContext,
+  resolvedCaller: ActionRouteResolvedCaller | null,
+  resolveOrgId: MountActionRoutesInternalOptions["resolveOrgId"],
+): Promise<{ status: 403 | 503; error: string } | null> {
+  const workspaceOrgId = resolvedCaller
+    ? resolvedCaller.orgId === null
+      ? undefined
+      : (normalizeOrgId(resolvedCaller.orgId) ??
+        (resolvedCaller.owner && !resolvedCaller.anonymous
+          ? await storedActiveOrgId(resolvedCaller.owner)
+          : undefined))
+    : await resolveAgentRunOrgId({ event, ownerContext, resolveOrgId });
+  const workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
+    path: `/_agent-native/actions/${name}`,
+    method: getMethod(event),
+    email: ownerContext.owner,
+    orgId: workspaceOrgId,
+  });
+  if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
+    return { status: 503, error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
+  }
+  if (workspaceAppAccess === false) {
+    return {
+      status: 403,
+      error: "You do not have access to this workspace app.",
+    };
+  }
+  return null;
+}
+
 function mountActionRoutesInternal(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
@@ -731,6 +770,14 @@ function mountActionRoutesInternal(
                 orgId: embedSession.orgId,
               })
             : undefined;
+        const directoryWidgetResourceIds =
+          directoryWidgetWriteGrant?.resourceIds ??
+          (directoryWidgetCapability && embedSession
+            ? getMcpDirectoryWidgetReadCapabilityResourceIds(authCapability, {
+                appId: options?.mcpDirectoryWidgetAppId ?? options?.appId ?? "",
+                resourceUri: options?.mcpDirectoryWidgetResourceUri ?? "",
+              })
+            : undefined);
         const directoryWidgetReadRequest =
           isFrontendActionRequest(event) ||
           (options?.caller === "webmcp" &&
@@ -872,10 +919,33 @@ function mountActionRoutesInternal(
               authUserId = ownerContext.authUserId;
               ownerContextResolved = true;
               directoryWidgetReadAuthenticatedFallback = true;
+              const denied = await denyWithoutWorkspaceAppAccess(
+                event,
+                name,
+                ownerContext,
+                null,
+                options?.resolveOrgId,
+              );
+              if (denied) {
+                setResponseStatus(event, denied.status);
+                return { error: denied.error };
+              }
             } catch (error) {
               if (!isAuthResolutionFailure(error)) throw error;
               setResponseStatus(event, 401);
               return { error: "Unauthorized" };
+            }
+          } else {
+            const denied = await denyWithoutWorkspaceAppAccess(
+              event,
+              name,
+              resolvedCaller,
+              resolvedCaller,
+              options?.resolveOrgId,
+            );
+            if (denied) {
+              setResponseStatus(event, denied.status);
+              return { error: denied.error };
             }
           }
         }
@@ -909,33 +979,16 @@ function mountActionRoutesInternal(
             ownerContextResolved = true;
           }
 
-          const workspaceOrgId = resolvedCaller
-            ? resolvedCaller.orgId === null
-              ? undefined
-              : (normalizeOrgId(resolvedCaller.orgId) ??
-                (resolvedCaller.owner && !resolvedCaller.anonymous
-                  ? await storedActiveOrgId(resolvedCaller.owner)
-                  : undefined))
-            : await resolveAgentRunOrgId({
-                event,
-                ownerContext,
-                resolveOrgId: options?.resolveOrgId,
-              });
-          const workspaceAppAccess = await checkWorkspaceAppAccessForRequest({
-            path: `/_agent-native/actions/${name}`,
-            method: getMethod(event),
-            email: ownerContext.owner,
-            orgId: workspaceOrgId,
-          });
-          if (workspaceAppAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
-            setResponseStatus(event, 503);
-            return { error: WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE };
-          }
-          if (workspaceAppAccess === false) {
-            setResponseStatus(event, 403);
-            return {
-              error: "You do not have access to this workspace app.",
-            };
+          const denied = await denyWithoutWorkspaceAppAccess(
+            event,
+            name,
+            ownerContext,
+            resolvedCaller,
+            options?.resolveOrgId,
+          );
+          if (denied) {
+            setResponseStatus(event, denied.status);
+            return { error: denied.error };
           }
         }
         if (
@@ -1295,6 +1348,12 @@ function mountActionRoutesInternal(
                 requestHeaders: event.headers,
                 ...(directoryWidgetReadAllowed
                   ? { mcpDirectoryWidgetReadOnly: true as const }
+                  : {}),
+                ...(directoryWidgetResourceIds &&
+                (directoryWidgetWriteAllowed || directoryWidgetReadAllowed)
+                  ? {
+                      mcpDirectoryWidgetResourceIds: directoryWidgetResourceIds,
+                    }
                   : {}),
                 ...(directoryWidgetWriteGrant &&
                 (directoryWidgetWriteAllowed || directoryWidgetReadAllowed)

@@ -346,7 +346,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "エージェントが読み取り可能なクリップ コンテキスト",
     agentInstructions:
-      "トランスクリプトのagentContextUrlとJPEGフレームURLsを取得します。フレーム URLs をフェッチして、トランスクリプトを読むだけでなく、画面を確認します。",
+      "最初にagentContextUrlを開きます。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。",
     untitledClip: "無題のクリップ",
     incorrectPassword: "パスワードが間違っています",
     passwordProtected: "このクリップはパスワードで保護されています",
@@ -610,7 +610,7 @@ const messages = {
     openInCodex: "Codex で開く",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
-      "この Clips エージェントコンテキスト URL を取得してください: {{agentContextUrl}}。音声の文脈には transcript.segments を使い、画面を見るために recommendedFrames またはフレーム API URL を取得し、browserDiagnostics がある場合は、編集済みのコンソールログと fetch/XHR リクエストのメタデータを確認してください。",
+      "このClipsエージェントコンテキストURLを読み取ってください: {{agentContextUrl}}。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。バグ報告ではbrowserDiagnosticsがあれば確認してください。",
     agentTokenDescription:
       "このクリップは非公開のため、エージェント用の一時的な読み取り専用リンクです。2 時間で期限切れになります。",
     agentPublicDescription:

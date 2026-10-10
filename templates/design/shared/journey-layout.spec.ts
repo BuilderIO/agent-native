@@ -193,6 +193,19 @@ describe("layoutJourney", () => {
     );
   });
 
+  it("lays out a 2,000-node path without overflowing the call stack", () => {
+    const nodes: JourneyLayoutNode[] = Array.from(
+      { length: 2_000 },
+      (_, index) => ({
+        key: `n${index}`,
+        parentKey: index === 0 ? null : `n${index - 1}`,
+        kind: "card",
+      }),
+    );
+
+    expect(layoutJourney(nodes, { cardWidth: 120 }).nodes).toHaveLength(2_000);
+  });
+
   it("rejects duplicate keys, missing parents, stub parents and cycles", () => {
     const card = (
       key: string,

@@ -1,5 +1,15 @@
 export class ReplayScreenshotAssetError extends Error {
-  constructor() {
+  constructor(
+    readonly reason:
+      | "unsupportedAsset"
+      | "fontReadiness"
+      | "cloneDocument"
+      | "duplicateCloneMarker"
+      | "cloneRoot"
+      | "cloneElement"
+      | "cloneStageFrame"
+      | "clonePseudoElement" = "unsupportedAsset",
+  ) {
     super("Replay contains media or images that cannot be captured safely");
     this.name = "ReplayScreenshotAssetError";
   }
@@ -715,6 +725,7 @@ export function crossOriginImageUrls(document: Document): string[] {
 export async function assertRemoteImagesCapturable(
   document: Document,
   signal?: AbortSignal,
+  credentials: RequestCredentials = "same-origin",
 ): Promise<ReplayScreenshotAssets> {
   const documents = replayDocuments(document);
   const resources = imageResourcesInDocuments(documents);
@@ -753,7 +764,7 @@ export async function assertRemoteImagesCapturable(
           throw new ReplayScreenshotAssetError();
         }
         const response = await fetch(resource.url, {
-          credentials: "same-origin",
+          credentials,
           mode: "cors",
           signal: controller.signal,
         });
@@ -914,7 +925,7 @@ export function inlineReplayAssets(
   const originalDocuments = [originalDocument];
   const clonedDocuments = markedReplayDocuments(clonedDocument, captureId);
   if (clonedDocuments.length !== 1) {
-    throw new ReplayScreenshotAssetError();
+    throw new ReplayScreenshotAssetError("cloneDocument");
   }
 
   const clonesByMarker = new Map<string, Element>();
@@ -922,7 +933,9 @@ export function inlineReplayAssets(
     for (const element of renderedElements(cloned)) {
       const marker = element.getAttribute(REPLAY_SCREENSHOT_MARKER);
       if (!marker?.startsWith(`${captureId}-`)) continue;
-      if (clonesByMarker.has(marker)) throw new ReplayScreenshotAssetError();
+      if (clonesByMarker.has(marker)) {
+        throw new ReplayScreenshotAssetError("duplicateCloneMarker");
+      }
       clonesByMarker.set(marker, element);
     }
   }
@@ -948,7 +961,7 @@ export function inlineReplayAssets(
         rootMarker,
     );
     if (!cloned || rootMarker !== `${captureId}-${documentIndex}-0`) {
-      throw new ReplayScreenshotAssetError();
+      throw new ReplayScreenshotAssetError("cloneRoot");
     }
     const documentAssets = assets.get(original) ?? new Map();
 
@@ -966,7 +979,7 @@ export function inlineReplayAssets(
           originalElement.tagName !== clonedElement.tagName &&
           !originalElement.localName.includes("-"))
       ) {
-        throw new ReplayScreenshotAssetError();
+        throw new ReplayScreenshotAssetError("cloneElement");
       }
       if (originalElement instanceof view.HTMLIFrameElement) {
         const screenshot = iframeScreenshots.get(originalElement);
@@ -1059,7 +1072,9 @@ export function inlineReplayAssets(
             : "___html2canvas___pseudoelement_after";
         if (!clonedElement.classList.contains(generatedClass)) continue;
         const pseudoElement = pseudoElements[pseudoElementIndex++];
-        if (!pseudoElement) throw new ReplayScreenshotAssetError();
+        if (!pseudoElement) {
+          throw new ReplayScreenshotAssetError("clonePseudoElement");
+        }
         if (
           pseudoStyles.display === "none" ||
           pseudoStyles.visibility === "hidden" ||
@@ -1119,7 +1134,7 @@ async function assertDocumentFontsReady(document: Document): Promise<void> {
       fontSet.ready,
       new Promise<never>((_resolve, reject) => {
         timeoutId = window.setTimeout(
-          () => reject(new ReplayScreenshotAssetError()),
+          () => reject(new ReplayScreenshotAssetError("fontReadiness")),
           REPLAY_FONT_TIMEOUT_MS,
         );
       }),
@@ -1260,6 +1275,7 @@ export async function captureReplayScreenshot(
   stageRoot: HTMLElement,
   iframe: HTMLIFrameElement,
   signal?: AbortSignal,
+  options: { assetCredentials?: RequestCredentials } = {},
 ): Promise<Blob> {
   const replayWindow = iframe.contentWindow;
   const replayDocument = iframe.contentDocument;
@@ -1297,6 +1313,7 @@ export async function captureReplayScreenshot(
     const replayAssets = await assertRemoteImagesCapturable(
       replayDocument,
       signal,
+      options.assetCredentials,
     );
     assertCaptureAvailable();
     await waitForReplayPaint(signal);
@@ -1339,7 +1356,9 @@ export async function captureReplayScreenshot(
         const clonedFrame = clonedStageRoot.querySelector(
           `iframe[${REPLAY_SCREENSHOT_MARKER}="${stageFrameMarker}"]`,
         );
-        if (!clonedFrame) throw new ReplayScreenshotAssetError();
+        if (!clonedFrame) {
+          throw new ReplayScreenshotAssetError("cloneStageFrame");
+        }
         const image = clonedStageRoot.ownerDocument.createElement("img");
         image.alt = "";
         image.src = replayImageUrl;

@@ -92,13 +92,12 @@ export function buildSlidesAgentContext(
     .join("\n");
   return {
     context,
-    contextVersion: [
+    contextVersion: JSON.stringify([
       deckId,
       slideId ?? "",
       slideNumber ?? "",
-      selection?.selectionRevision ?? "",
-      ...itemKeys,
-    ].join("|"),
+      itemKeys,
+    ]),
   };
 }
 
@@ -129,4 +128,21 @@ export function getSlidesAgentScopeLabel(
   return hasCurrentSlideSelection(selection, deckId)
     ? { key: "agent.currentSelection" }
     : { key: "agent.thisSlide" };
+}
+
+export function haveSameSlidesAgentScope(
+  current: SlidesAgentSelection | null,
+  next: SlidesAgentSelection | null,
+): boolean {
+  const signature = (selection: SlidesAgentSelection | null) => {
+    const deckId = selection?.deckId ?? "";
+    const context = buildSlidesAgentContext(selection, deckId);
+    const label = getSlidesAgentScopeLabel(selection, deckId);
+    return JSON.stringify([
+      context.contextVersion,
+      label.key,
+      label.key === "agent.slideNumber" ? label.number : null,
+    ]);
+  };
+  return signature(current) === signature(next);
 }

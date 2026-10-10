@@ -48,6 +48,7 @@ import {
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { observeRecoveryDocumentCreate } from "./_content-save-outcomes.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import { resolveContentSpaceTarget } from "./_content-space-target.js";
 import {
@@ -466,7 +467,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
-  run: async (args, ctx) => {
+  run: observeRecoveryDocumentCreate(async (args, ctx, measurement) => {
     const title = args.title;
     let content = args.content || "";
     const description = args.description?.trim() ?? "";
@@ -575,6 +576,8 @@ export default defineAction({
         reuseLabels: args.reuseLabels,
         contextModeOverride: args.contextModeOverride,
       });
+      measurement.outcome = "replayed";
+      measurement.settled = true;
       await writeAppState("refresh-signal", { ts: Date.now() });
       return documentCreationResult(
         existingAccess.resource as typeof schema.documents.$inferSelect,
@@ -752,7 +755,7 @@ export default defineAction({
 
         const position = nextAppendPosition(maxPos[0]?.max);
 
-        return db.transaction(async (tx) => {
+        const insertedDocument = await db.transaction(async (tx) => {
           const [inserted] = await tx
             .insert(schema.documents)
             .values({
@@ -836,6 +839,9 @@ export default defineAction({
           });
           return true;
         });
+        measurement.outcome = insertedDocument ? "written" : "replayed";
+        measurement.settled = true;
+        return insertedDocument;
       },
     );
 
@@ -895,7 +901,7 @@ export default defineAction({
         ? { creativeContextProjectionStatus }
         : {}),
     };
-  },
+  }),
   link: ({ result }) => {
     const id = (result as { id?: string } | null)?.id;
     if (!id) return null;

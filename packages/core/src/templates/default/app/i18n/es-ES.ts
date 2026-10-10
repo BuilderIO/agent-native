@@ -677,6 +677,8 @@ const messages = {
       "Texto opcional que se comprobará en la respuesta…",
     promoteMustContainLabel:
       "Texto que se comprobará en la respuesta de la evaluación promovida",
+    promoteReviewedPromptLabel:
+      "Prompt revisado manualmente (nunca se copia de producción)",
     promoteNeedsContains:
       "Esta ejecución no tiene ninguna llamada de herramienta exitosa. Introduce el texto que debe incluir la respuesta antes de promoverla a evaluación.",
     spans: "Spans",

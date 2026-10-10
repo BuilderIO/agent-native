@@ -19,6 +19,7 @@ export default mergeConfig(
         "**/.git/**",
         "**/dist/**",
         "**/.react-router/**",
+        "**/*.bigquery.integration.spec.ts",
       ],
     },
   }),

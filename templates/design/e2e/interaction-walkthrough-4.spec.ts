@@ -61,7 +61,7 @@ test.beforeEach(async ({ page }, workerInfo) => {
   baseURLForActions =
     (workerInfo.project.use.baseURL as string | undefined) ?? e2eBaseURL();
   const created = await postAction(page.request, "create-design", {
-    title: "E2E Search Icon Tutorial",
+    title: "Search icon build",
     projectType: "prototype",
   });
   designId = created?.id ?? created?.data?.id ?? created?.design?.id;
@@ -222,7 +222,7 @@ function renameInput(page: Page): Locator {
 const undoShortcut = process.platform === "darwin" ? "Meta+z" : "Control+z";
 const groupShortcut = process.platform === "darwin" ? "Meta+g" : "Control+g";
 
-test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
+test("build and group a search icon", async ({ page }) => {
   const card = await homeScreenCard(page).boundingBox();
   if (!card) throw new Error("no screen card box");
 
@@ -283,7 +283,7 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     const fillSection = inspectorSection(page, /^Fill$/i);
     await expect(
       fillSection.locator('button[aria-label="Remove layer"]'),
-      "a freshly drawn shape must start with one removable Fill layer row, matching standard",
+      "a freshly drawn shape must start with one removable Fill layer row",
     ).toHaveCount(1);
     await fillSection.locator('button[aria-label="Remove layer"]').click();
 
@@ -321,7 +321,7 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     await expect(selectedLayerRow(page)).toContainText(/Vector/i);
   });
 
-  await test.step("stroke weight 2 applies to the handle; Round line-cap has no control (finding)", async () => {
+  await test.step("stroke weight 2 applies to the handle", async () => {
     const strokeSection = inspectorSection(page, /^Stroke$/i);
     await addStrokeButton(strokeSection).click();
     const weightField = strokeSection.getByLabel("Weight").first();
@@ -352,7 +352,7 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
     await expect(capControl).toHaveCount(0);
   });
 
-  await test.step("Union selection does not exist (finding); Cmd+G groups instead, one undo restores both layers", async () => {
+  await test.step("Cmd+G groups the selected layers; one undo restores both layers", async () => {
     await layerRowButton(page, "Ellipse").click();
     await layerRowButton(page, "Vector").click({ modifiers: ["Shift"] });
     await expect(
@@ -573,7 +573,7 @@ test("tutorial 4 — design a search icon, step by step", async ({ page }) => {
   });
 });
 
-test("tutorial 4 (overview) — a board rectangle drawn, renamed, and dragged into the screen", async ({
+test("overview canvas: draw, rename, and move a board rectangle into the screen", async ({
   page,
 }) => {
   const cardBox = await homeScreenCard(page).boundingBox();

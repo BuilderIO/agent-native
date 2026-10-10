@@ -32,6 +32,8 @@ const WORKSPACE_PROVIDER_BY_KEY: Record<string, string> = {
   HUBSPOT_ACCESS_TOKEN: "hubspot",
   HUBSPOT_PRIVATE_APP_TOKEN: "hubspot",
   NOTION_API_KEY: "notion",
+  SENTRY_AUTH_TOKEN: "sentry",
+  SENTRY_SERVER_TOKEN: "sentry",
   SLACK_BOT_TOKEN: "slack",
 };
 
@@ -49,6 +51,7 @@ export async function requireActionCredentials(
     mode?: "all" | "any";
     message?: string;
     settingsPath?: string;
+    connectionId?: string;
   } = {},
 ): Promise<CredentialCheckResult> {
   const ctx = tryRequestCredentialContext();
@@ -74,16 +77,19 @@ export async function requireActionCredentials(
       provider: workspaceProvider,
       keys,
       ctx,
+      connectionId: options.connectionId,
     });
     if (configured) return { ok: true, ctx };
   }
 
   const configured: Record<string, boolean> = {};
-  await Promise.all(
-    keys.map(async (key) => {
-      configured[key] = !!(await resolveCredential(key, ctx));
-    }),
-  );
+  if (!options.connectionId) {
+    await Promise.all(
+      keys.map(async (key) => {
+        configured[key] = !!(await resolveCredential(key, ctx));
+      }),
+    );
+  }
 
   const mode = options.mode ?? "all";
   const hasRequired =

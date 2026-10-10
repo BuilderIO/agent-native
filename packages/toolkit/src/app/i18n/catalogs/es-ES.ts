@@ -85,6 +85,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Texto opcional que se comprobará en la respuesta…",
   "observability.promoteMustContainLabel":
     "Texto que se comprobará en la respuesta de la evaluación promovida",
+  "observability.promoteReviewedPromptLabel":
+    "Prompt revisado manualmente (nunca se copia de producción)",
   "observability.promoteNeedsContains":
     "Esta ejecución no tiene ninguna llamada a herramienta exitosa. Introduce el texto que debe contener la respuesta antes de promoverla.",
   "observability.viewDetails": "Ver detalles",
@@ -818,6 +820,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta ejecución ya no se puede continuar. Envía un mensaje para seguir.",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitud incluía un archivo que no se puede volver a enviar. Vuelve a adjuntarlo en el cuadro de mensaje y vuelve a intentarlo.",
+  "recovery.retryWithoutAttachment": "Reintentar sin el adjunto",
   "recovery.deferredSubmissionFailed":
     "No se pudo enviar este mensaje. Comprueba tu conexión o la configuración del chat y vuelve a intentarlo.",
   "recovery.credentialRejected":
@@ -1144,10 +1147,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Subir",
   "composer.uploadFailed": "No se pudo cargar el archivo seleccionado.",
   "composer.fileTooLarge":
-    "Este archivo supera el límite de tamaño para subirlo.",
+    "Este archivo supera el límite de subida de {{size}} MB.",
   "composer.sessionExpired":
-    "Tu sesión ha caducado. Actualiza la página e inténtalo de nuevo.",
+    "Tu sesión ha caducado. Vuelve a iniciar sesión y envía tu mensaje de nuevo.",
   "composer.unsupportedFileType": "Este tipo de archivo no es compatible.",
+  "composer.uploadUnavailable":
+    "La subida de archivos no está disponible ahora mismo. Inténtalo de nuevo en un momento.",
+  "composer.uploadOffline":
+    "La subida no pudo llegar al servidor. Comprueba tu conexión e inténtalo de nuevo.",
+  "composer.submissionNotReady":
+    "El chat aún no está listo para enviar. Espera un momento y vuelve a enviarlo.",
+  "composer.submissionScopeChanged":
+    "Este chat cambió antes de que se enviara tu mensaje. Vuelve a enviarlo.",
+  "composer.attachmentNotSaved": "No se guardó con este chat",
   "composer.useAttachedContext": "Usa el contexto adjunto.",
   "mentions.commands": "Comandos",
   "mentions.learnMore": "Más información",

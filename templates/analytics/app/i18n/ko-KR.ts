@@ -8,6 +8,7 @@ export default {
     overview: "개요",
     dashboard: "대시보드",
     dataSources: "데이터 소스",
+    sourceStatus: "소스 상태",
     dataDictionary: "데이터 사전",
     sessions: "세션",
     monitoring: "Monitoring",
@@ -513,6 +514,34 @@ export default {
       resourcesSubmitted: "{{count}}개 리소스가 제출되었습니다.",
     },
   },
+  dataStatus: {
+    sources: "소스",
+    index: "인덱스",
+    connected: "연결됨",
+    notConnected: "연결 안 됨",
+    needsReauth: "재인증 필요",
+    error: "오류",
+    loadingSources: "소스 상태를 불러오는 중",
+    indexNotImported: "생성된 인덱스를 가져오지 않았습니다.",
+    indexUnreadable:
+      "저장된 인덱스를 읽을 수 없습니다. 올바른 인덱스를 업로드하세요.",
+    indexReadFailed: "인덱스 상태를 불러올 수 없습니다.",
+    lastBuilt: "마지막 빌드",
+    freshness: "최신 상태",
+    fresh: "최신 · {{age}}",
+    stale: "오래됨 · {{age}}",
+    generatedUnapproved: "생성됨 · 승인되지 않음",
+    entriesBySource: "소스별 항목 {{count}}개",
+    noSourceEntries: "소스별 개수를 사용할 수 없습니다.",
+    countUnavailable: "사용 불가",
+    adminUpload: "관리자 업로드",
+    exportDictionary: "사전 내보내기",
+    exportingDictionary: "사전 내보내는 중…",
+    exportFailed: "사전 내보내기에 실패했습니다. 다시 시도하세요.",
+    exportEmpty: "내보낼 사전 항목이 없습니다.",
+    exportLimitReached:
+      "사전이 내보내기 제한을 초과했습니다. 관리자에게 문의하세요.",
+  },
   dataDictionary: {
     intro:
       "프롬프트에서 대시보드를 구축할 때 분석 에이전트가 사용하는 지표, 테이블 및 비즈니스 정의의 카탈로그입니다. 항목을 정확하게 유지하면 상담원이 데이터에 대한 추측을 중단합니다.",
@@ -571,6 +600,27 @@ export default {
     exampleUseCasePlaceholder: "이 측정항목은 언제 도달해야 합니까?",
     saving: "절약...",
     saveEntry: "항목 저장",
+    importIndex: "소스 인덱스 가져오기",
+    indexNotImported: "생성된 소스 인덱스를 아직 가져오지 않았습니다.",
+    indexUnreadable:
+      "저장된 소스 인덱스를 읽을 수 없습니다. 유효한 파일을 다시 가져오세요.",
+    indexReadFailed:
+      "저장된 소스 인덱스를 확인하지 못했습니다. 다시 시도하세요.",
+    indexReady: "{{count}}개의 소스 정의가 {{date}}에 생성되었습니다.",
+    indexStale:
+      "스냅샷이 {{days}}일 지났습니다. 최신 소스 리비전이 있는지 확인하려면 새로고침하세요.",
+    indexFileInvalid: "750KB 이하의 유효한 소스 인덱스 JSON 파일을 선택하세요.",
+    replaceIndexTitle: "소스 인덱스를 바꾸시겠습니까?",
+    replaceIndexDescription:
+      "조직의 현재 소스 인덱스를 바꿉니다. 가져온 정의는 승인되지 않은 제안이며 실시간 쿼리 결과가 아닙니다.",
+    indexPreview: "{{sources}}의 정의 {{count}}개, 생성일 {{date}}.",
+    replaceIndex: "인덱스 바꾸기",
+    importingIndex: "가져오는 중…",
+    indexImportFailed:
+      "소스 인덱스를 가져오지 못했습니다. 파일을 확인한 후 다시 시도하세요.",
+    dictionaryPage: "{{total}}개 중 {{count}}개 · {{page}}페이지",
+    previousPage: "이전",
+    nextPage: "다음",
   },
   dataSources: {
     uploadFile: "파일 업로드",
@@ -607,6 +657,10 @@ export default {
       "이 앱에 저장된 자격 증명을 사용합니다. 앱 전체에서 재사용하려면 Dispatch에서 이 공급자를 연결하고 부여하세요.",
     sharedFallback:
       "Dispatch에서 이 공급자를 연결하거나 부여하여 앱 전체에서 재사용하거나 아래에 로컬 자격 증명을 저장하세요.",
+    sharedNeedsReauth:
+      "이 공유 연결은 다시 인증해야 합니다. Dispatch에서 다시 연결하세요.",
+    sharedError:
+      "이 공유 연결에서 오류가 보고되었습니다. Dispatch를 열어 확인하고 복구하세요.",
     workspaceReadyDescription:
       "이 소스는 공유 작업공간 연결을 통해 준비되었습니다. Dispatch에서 공유 액세스를 관리하거나 이 앱에만 로컬 자격 증명을 추가하세요.",
     testing: "테스트 중...",
@@ -968,6 +1022,7 @@ export default {
     dashboard: "대시보드 - Analytics",
     dataDictionary: "데이터 사전 - Analytics",
     dataSources: "데이터 소스 - Analytics",
+    sourceStatus: "소스 상태 - Analytics",
     sessions: "세션 - Analytics",
     eventCatalog: "이벤트 카탈로그 - Analytics",
     routePerformance: "경로별 성능 - Analytics",
@@ -1078,6 +1133,12 @@ export default {
   },
   sqlDashboard: {
     customRange: "사용자 지정 기간",
+    allValues: "전체",
+    searchValues: "값 검색",
+    noValuesFound: "값을 찾을 수 없습니다",
+    selectAll: "모두 선택",
+    selectOnly: "만",
+    selectOnlyValue: "{{value}}만",
     untitledDashboard: "제목 없는 대시보드",
     dashboardFallback: "대시보드",
     viewOnly: "이 대시보드에 대한 보기 전용 액세스 권한이 있습니다.",

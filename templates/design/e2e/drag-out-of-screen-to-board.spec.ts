@@ -128,8 +128,6 @@ test("a layer dragged below the rendered Screen card moves to the board", async 
       await page.waitForTimeout(25);
     }
     await page.waitForTimeout(700);
-    await page.mouse.move(end.x + 1, end.y);
-    await page.waitForTimeout(300);
     await page.mouse.up();
 
     await expect

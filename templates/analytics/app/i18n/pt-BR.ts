@@ -8,6 +8,7 @@ export default {
     overview: "Visão geral",
     dashboard: "Dashboard",
     dataSources: "Fontes de dados",
+    sourceStatus: "Status das fontes",
     dataDictionary: "Dicionário de dados",
     sessions: "Sessões",
     monitoring: "Monitoring",
@@ -524,6 +525,34 @@ export default {
       resourcesSubmitted: "{{count}} recursos enviados.",
     },
   },
+  dataStatus: {
+    sources: "Fontes",
+    index: "Índice",
+    connected: "Conectado",
+    notConnected: "Não conectado",
+    needsReauth: "Reautenticação necessária",
+    error: "Erro",
+    loadingSources: "Carregando o status das fontes",
+    indexNotImported: "Nenhum índice gerado foi importado.",
+    indexUnreadable:
+      "Não foi possível ler o índice salvo. Envie um índice válido.",
+    indexReadFailed: "Não foi possível carregar o status do índice.",
+    lastBuilt: "Última compilação",
+    freshness: "Atualidade",
+    fresh: "Atual · {{age}}",
+    stale: "Desatualizado · {{age}}",
+    generatedUnapproved: "Gerado · não aprovado",
+    entriesBySource: "{{count}} entradas por fonte",
+    noSourceEntries: "Nenhuma contagem por fonte disponível.",
+    countUnavailable: "Indisponível",
+    adminUpload: "Envio do administrador",
+    exportDictionary: "Exportar dicionário",
+    exportingDictionary: "Exportando dicionário…",
+    exportFailed: "Falha ao exportar o dicionário. Tente novamente.",
+    exportEmpty: "Não há entradas no dicionário para exportar.",
+    exportLimitReached:
+      "O dicionário excede o limite de exportação. Entre em contato com um administrador.",
+  },
   dataDictionary: {
     intro:
       "O catálogo de métricas, tabelas e definições de negócios que o agente analítico usa ao criar painéis a partir de prompts. Mantenha as entradas precisas e o agente deixará de adivinhar seus dados.",
@@ -584,6 +613,29 @@ export default {
     exampleUseCasePlaceholder: "Quando alguém deve alcançar essa métrica?",
     saving: "Salvando...",
     saveEntry: "Salvar entrada",
+    importIndex: "Importar índice de fontes",
+    indexNotImported: "Nenhum índice de fontes gerado foi importado.",
+    indexUnreadable:
+      "Não foi possível ler o índice salvo; importe novamente um arquivo válido.",
+    indexReadFailed:
+      "Não foi possível verificar o índice de fontes salvo. Tente novamente.",
+    indexReady: "{{count}} definições de fontes geradas em {{date}}.",
+    indexStale:
+      "O snapshot tem {{days}} dias. Atualize-o para verificar revisões mais recentes das fontes.",
+    indexFileInvalid:
+      "Escolha um arquivo JSON de índice válido com até 750 KB.",
+    replaceIndexTitle: "Substituir índice de fontes?",
+    replaceIndexDescription:
+      "Isso substitui o índice de fontes atual da organização. As definições importadas continuam como sugestões não aprovadas e não são resultados de consultas ao vivo.",
+    indexPreview: "{{count}} definições de {{sources}}; geradas em {{date}}.",
+    replaceIndex: "Substituir índice",
+    importingIndex: "Importando…",
+    indexImportFailed:
+      "Não foi possível importar o índice. Confira o arquivo e tente novamente.",
+    dictionaryPage:
+      "Página {{page}} · {{total}} resultados, {{count}} exibidos",
+    previousPage: "Anterior",
+    nextPage: "Próxima",
   },
   dataSources: {
     uploadFile: "Carregar arquivo",
@@ -621,6 +673,10 @@ export default {
       "Usando credenciais salvas neste aplicativo. Para reutilização em aplicativos, conecte e conceda este provedor no Dispatch.",
     sharedFallback:
       "Conecte ou conceda este provedor no Dispatch para reutilizá-lo em aplicativos ou salve as credenciais locais abaixo.",
+    sharedNeedsReauth:
+      "Esta conexão compartilhada precisa ser autorizada novamente. Reconecte-a no Dispatch.",
+    sharedError:
+      "Esta conexão compartilhada informou um erro. Abra o Dispatch para revisar e corrigir.",
     workspaceReadyDescription:
       "Esta fonte está pronta através de uma conexão de espaço de trabalho compartilhado. Gerencie o acesso compartilhado no Dispatch ou adicione credenciais locais somente para este aplicativo.",
     testing: "Testando...",
@@ -992,6 +1048,7 @@ export default {
     dashboard: "Painel - Analytics",
     dataDictionary: "Dicionário de Dados - Analytics",
     dataSources: "Fontes de dados - Analytics",
+    sourceStatus: "Status das fontes - Analytics",
     sessions: "Sessões - Analytics",
     eventCatalog: "Catálogo de eventos - Analytics",
     routePerformance: "Desempenho por rota - Analytics",
@@ -1105,6 +1162,12 @@ export default {
   },
   sqlDashboard: {
     customRange: "Intervalo personalizado",
+    allValues: "Todos",
+    searchValues: "Buscar valores",
+    noValuesFound: "Nenhum valor encontrado",
+    selectAll: "Selecionar tudo",
+    selectOnly: "Só",
+    selectOnlyValue: "Somente {{value}}",
     untitledDashboard: "Painel sem título",
     dashboardFallback: "painel",
     viewOnly: "Você tem acesso somente visualização a este painel.",
