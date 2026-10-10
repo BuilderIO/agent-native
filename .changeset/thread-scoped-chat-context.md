@@ -2,4 +2,5 @@
 "@agent-native/core": patch
 ---
 
-Keep staged app context scoped to the chat thread it targets.
+Keep staged app context scoped to its chat thread. Persist it before saving a
+prefilled draft.

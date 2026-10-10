@@ -38,6 +38,7 @@ import {
   publishAgentChatContextItems,
   reportAgentChatSubmitResult,
   refreshAgentChatContext,
+  setAgentChatContextItemAndPersist,
   subscribeAgentChatContext,
   type AgentChatContextItem,
 } from "@agent-native/core/client/agent-chat";
@@ -3013,17 +3014,29 @@ const AgentKitAssistantChatBody = forwardRef<
         writeAssistantChatComposerDraft(props.tabId ?? threadId, text);
         setPrefillRevision((revision) => revision + 1);
       },
-      setComposerContextItem: (item, options) =>
-        setContextItem(
-          options?.threadScoped
-            ? {
-                ...item,
-                key: `${item.key}:${threadId}`,
-                targetThreadId: threadId,
-              }
-            : item,
-          options?.focus !== false,
-        ),
+      setComposerContextItem: (item, options) => {
+        const focus = options?.focus !== false;
+        if (!options?.threadScoped) {
+          setContextItem(item, focus);
+          return;
+        }
+
+        const scopedItem = {
+          ...item,
+          key: `${item.key}:${threadId}`,
+          targetThreadId: threadId,
+        };
+        return setAgentChatContextItemAndPersist(scopedItem).then(() => {
+          setContextItems(
+            filterAgentChatContextItems(
+              getAgentChatContextState().items,
+              props.contextNamespace,
+              threadId,
+            ),
+          );
+          if (focus) requestComposerFocus(threadId);
+        });
+      },
       removeComposerContextItem: removeContextItem,
       clearComposerContextItems: () => {
         for (const item of contextItems) removeContextItem(item.key);

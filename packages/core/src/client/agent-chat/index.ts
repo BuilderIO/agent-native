@@ -47,6 +47,7 @@ export {
   sendToAgentChat,
   sendToAgentChatAndConfirm,
   setAgentChatContextItem,
+  setAgentChatContextItemAndPersist,
   setContextToAgentChat,
   subscribeAgentChatContext,
   type AgentChatContextItem,

@@ -9,7 +9,10 @@ import { parseBase64DataUrl } from "../shared/data-url.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
-import { readClientAppState } from "./application-state.js";
+import {
+  readClientAppState,
+  writeClientAppState,
+} from "./application-state.js";
 import {
   isInBuilderFrame,
   isTrustedBuilderMessage,
@@ -1462,6 +1465,47 @@ export function setAgentChatContextItem(
       openSidebar: opts.openSidebar !== false,
     },
   );
+}
+
+/** Persist a staged context item before exposing it to a composer. */
+export async function setAgentChatContextItemAndPersist(
+  opts: AgentChatContextSetOptions,
+): Promise<void> {
+  const item = normalizeAgentChatContextItem(opts);
+  if (!item) {
+    throw new TypeError("Agent chat context must include a valid item.");
+  }
+  if (typeof window === "undefined") {
+    throw new Error("Agent chat context can only be persisted in a browser.");
+  }
+
+  const nextState: AgentChatContextState = {
+    items: withReplacedAgentChatContextItem(agentChatContextState.items, item),
+    updatedAt: Math.max(Date.now(), agentChatContextState.updatedAt + 1),
+  };
+  const persistedState = normalizeAgentChatContextState(
+    await writeClientAppState(AGENT_CHAT_CONTEXT_STATE_KEY, nextState, {
+      keepalive: true,
+    }),
+  );
+  const persistedItem = persistedState?.items.find(
+    (candidate) => candidate.key === item.key,
+  );
+  if (
+    !persistedState ||
+    !persistedItem ||
+    persistedItem.title !== item.title ||
+    persistedItem.context !== item.context ||
+    persistedItem.contextNamespace !== item.contextNamespace ||
+    persistedItem.targetThreadId !== item.targetThreadId
+  ) {
+    throw new Error("Agent chat context was not persisted.");
+  }
+
+  publishAgentChatContextItems(persistedState.items, {
+    persist: false,
+    updatedAt: persistedState.updatedAt,
+  });
 }
 
 /** @deprecated Use `setAgentChatContextItem` instead. */

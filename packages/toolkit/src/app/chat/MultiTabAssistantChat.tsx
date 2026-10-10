@@ -131,16 +131,42 @@ interface PendingDelivery {
 }
 
 /** The single path that hands a queued send to a mounted chat ref. */
-function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
-  if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
-  if (!send.submit) {
-    if (send.prefillContext) {
-      ref.setComposerContextItem(send.prefillContext, {
+async function deliverPendingPrefill(
+  ref: AssistantChatHandle,
+  send: PendingSend,
+): Promise<void> {
+  if (send.prefillContext) {
+    try {
+      const contextWrite = ref.setComposerContextItem(send.prefillContext, {
         focus: false,
         threadScoped: true,
       });
+      if (contextWrite && typeof contextWrite.then === "function") {
+        await contextWrite;
+      }
+    } catch {
+      reportAgentChatSubmitResult(
+        send.submitMessageId,
+        false,
+        "context-persistence-failed",
+      );
+      return;
     }
+  }
+  if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
+  try {
     ref.prefillMessage(send.message);
+  } catch {
+    reportAgentChatSubmitResult(send.submitMessageId, false, "prefill-failed");
+    return;
+  }
+  reportAgentChatSubmitResult(send.submitMessageId, true);
+}
+
+function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
+  if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
+  if (!send.submit) {
+    void deliverPendingPrefill(ref, send);
     return;
   }
   // Every field is decided once, here; a separate "has options" condition

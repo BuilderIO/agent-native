@@ -81,6 +81,7 @@ const {
   sendToAgentChat,
   sendToAgentChatAndConfirm,
   setAgentChatContextItem,
+  setAgentChatContextItemAndPersist,
   setContextToAgentChat,
 } = await import("./agent-chat.js");
 const { _resetEmbedAuthForTests } = await import("./embed-auth.js");
@@ -1687,6 +1688,51 @@ describe("sendToAgentChat", () => {
       "agentNative.chatContextChanged",
       "agent-panel:prepare",
     ]);
+  });
+
+  it("persists composer context before publishing it", async () => {
+    const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy.mockImplementationOnce(() => write.promise);
+    const persistence = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "Active app context",
+      context: "Selected rows: a, b",
+      targetThreadId: "thread-1",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(listAgentChatContext()).toEqual([]);
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    const requestState = JSON.parse(
+      fetchSpy.mock.calls[0]?.[1]?.body as string,
+    );
+    write.resolve({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(requestState),
+    });
+
+    await expect(persistence).resolves.toBeUndefined();
+    expect(listAgentChatContext()).toEqual(requestState.items);
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toContain(
+      "agentNative.chatContextChanged",
+    );
+  });
+
+  it("does not publish composer context when persistence fails", async () => {
+    fetchSpy.mockRejectedValueOnce(new Error("offline"));
+
+    await expect(
+      setAgentChatContextItemAndPersist({
+        key: "prefill:thread-1",
+        title: "Active app context",
+        context: "Selected rows: a, b",
+        targetThreadId: "thread-1",
+      }),
+    ).rejects.toThrow("offline");
+
+    expect(listAgentChatContext()).toEqual([]);
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("removes a staged context item by key", () => {
