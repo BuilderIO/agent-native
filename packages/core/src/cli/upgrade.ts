@@ -13,9 +13,15 @@ import {
   type MigrationDependencyCondition,
 } from "../package-lifecycle/migration-manifest.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
+import { writeTextFileAtomically } from "./atomic-json-file.js";
 import type { MigrationCodemodResult } from "./migration-codemod.js";
+import { addMinimumReleaseAgeExclude } from "./workspace-yaml.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
+// New workspaces exclude every first-party package from pnpm's release-age
+// gate; older ones only excluded core, so same-day dependencies of a fresh
+// core release failed to install.
+const AGENT_NATIVE_RELEASE_AGE_EXCLUDE = '"@agent-native/*"';
 const PINNABLE_VERSION = "latest";
 const PINNABLE_SECTIONS = [
   "dependencies",
@@ -655,6 +661,71 @@ function applyBumps(pkg: PackageJsonLike, bumps: AgentNativeDepBump[]): void {
   }
 }
 
+// pnpm reads the nearest pnpm-workspace.yaml at or above the directory it runs
+// in, so an upgrade started from a member app still installs under the
+// workspace root's release-age settings. An ancestor's file only counts when
+// that workspace lists the project; an unrelated parent is left alone.
+function findGoverningPnpmWorkspaceFile(
+  project: UpgradeProject,
+): string | null {
+  if (detectPackageManager(project.root) !== "pnpm") return null;
+  let dir = project.root;
+  while (true) {
+    const file = path.join(dir, "pnpm-workspace.yaml");
+    if (fs.existsSync(file)) {
+      if (dir === project.root) return file;
+      const manifest = path.join(project.root, "package.json");
+      return workspacePackageFiles(dir, file).includes(manifest) ? file : null;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+function alignReleaseAgeExclude(
+  project: UpgradeProject,
+  dryRun: boolean,
+): UpgradeRunResult["steps"][number] | null {
+  const file = findGoverningPnpmWorkspaceFile(project);
+  if (!file) return null;
+  const displayFile = relativeTo(project.root, file);
+  const failed = (error: unknown): UpgradeRunResult["steps"][number] => ({
+    id: "release-age",
+    status: "failed",
+    detail: `Could not update ${displayFile} (${error instanceof Error ? error.message : String(error)}). Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude by hand, then re-run upgrade.`,
+  });
+  let current: string;
+  let updated: string;
+  try {
+    current = fs.readFileSync(file, "utf-8");
+    updated = addMinimumReleaseAgeExclude(
+      current,
+      AGENT_NATIVE_RELEASE_AGE_EXCLUDE,
+    );
+  } catch (error) {
+    return failed(error);
+  }
+  if (updated === current) return null;
+  if (dryRun) {
+    return {
+      id: "release-age",
+      status: "planned",
+      detail: `Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in ${displayFile}`,
+    };
+  }
+  try {
+    writeTextFileAtomically(file, updated);
+  } catch (error) {
+    return failed(error);
+  }
+  return {
+    id: "release-age",
+    status: "ok",
+    detail: `Added ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in ${displayFile}`,
+  };
+}
+
 export function detectUpgradeProject(cwd: string): UpgradeProject | null {
   const start = path.resolve(cwd);
   let dir = start;
@@ -1093,6 +1164,20 @@ export async function runUpgrade(
         ? "Continuing with --force despite framework overrides/patches"
         : "No framework overrides/patches",
   });
+
+  // Before any manifest edit: if the exclusion cannot be written, the install
+  // would hit the same release-age gate, so stop with the workspace untouched.
+  const releaseAgeStep = alignReleaseAgeExclude(project, dryRun);
+  if (releaseAgeStep) {
+    result.steps.push(releaseAgeStep);
+    if (releaseAgeStep.status === "failed") {
+      result.ok = false;
+      result.exitCode = 1;
+      result.message = releaseAgeStep.detail ?? "";
+      emitResult(io, opts, result);
+      return result.exitCode;
+    }
+  }
 
   let dependencyAdditions: UpgradeDependencyAddition[];
   try {

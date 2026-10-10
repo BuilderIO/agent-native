@@ -1180,4 +1180,268 @@ describe("runUpgrade", () => {
     expect(code).toBe(0);
     expect(out.join("\n")).toContain("[skipped] pin");
   });
+
+  describe("release-age exclude", () => {
+    const olderWorkspaceYaml = [
+      "packages:",
+      '  - "apps/*"',
+      "",
+      "minimumReleaseAge: 1440",
+      "minimumReleaseAgeExclude:",
+      '  - "@bacons/apple-targets"',
+      '  - "@agent-native/core"',
+      '  - "typescript"',
+      "",
+      "overrides:",
+      '  zod: "^4.4.3"',
+      "",
+    ].join("\n");
+    const skipArgs = ["--skip-install", "--skip-skills", "--skip-verify"];
+
+    function makeOlderWorkspace(
+      workspaceYaml = olderWorkspaceYaml,
+      coreSpec = "latest",
+    ): string {
+      return makeTempProject({
+        kind: "workspace",
+        rootPkg: {
+          name: "old-workspace",
+          dependencies: { "@agent-native/core": coreSpec },
+        },
+        workspaceYaml,
+      });
+    }
+
+    it("excludes every @agent-native package in workspaces that only excluded core", async () => {
+      const root = makeOlderWorkspace();
+      const yamlPath = path.join(root, "pnpm-workspace.yaml");
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(fs.readFileSync(yamlPath, "utf-8")).toBe(
+        olderWorkspaceYaml.replace(
+          "minimumReleaseAgeExclude:\n",
+          'minimumReleaseAgeExclude:\n  - "@agent-native/*"\n',
+        ),
+      );
+    });
+
+    it("leaves the workspace file alone on a second run", async () => {
+      const root = makeOlderWorkspace();
+      const yamlPath = path.join(root, "pnpm-workspace.yaml");
+      expect(
+        await runUpgrade(["--cwd", root, ...skipArgs], captureIo().io),
+      ).toBe(0);
+      const afterFirstRun = fs.readFileSync(yamlPath, "utf-8");
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(fs.readFileSync(yamlPath, "utf-8")).toBe(afterFirstRun);
+      expect(out.join("\n")).not.toContain("release-age");
+    });
+
+    it("plans the change on dry-run without writing", async () => {
+      const root = makeOlderWorkspace();
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, "--dry-run"], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[planned] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(olderWorkspaceYaml);
+    });
+
+    it("does not add the exclude when the release-age gate is off", async () => {
+      const workspaceYaml = 'packages:\n  - "apps/*"\n';
+      const root = makeOlderWorkspace(workspaceYaml);
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(workspaceYaml);
+      expect(out.join("\n")).not.toContain("release-age");
+    });
+
+    it("updates the workspace root's file when run from a member app", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "old-workspace", private: true },
+        workspaceYaml: olderWorkspaceYaml,
+        apps: {
+          web: {
+            name: "web",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+        },
+      });
+      const memberDir = path.join(root, "apps", "web");
+      expect(detectUpgradeProject(memberDir)?.root).toBe(memberDir);
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", memberDir, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(
+        olderWorkspaceYaml.replace(
+          "minimumReleaseAgeExclude:\n",
+          'minimumReleaseAgeExclude:\n  - "@agent-native/*"\n',
+        ),
+      );
+    });
+
+    it("recognizes a quoted minimumReleaseAgeExclude key", async () => {
+      const quotedYaml = olderWorkspaceYaml.replace(
+        "minimumReleaseAgeExclude:",
+        '"minimumReleaseAgeExclude":',
+      );
+      const root = makeOlderWorkspace(quotedYaml);
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(
+        quotedYaml.replace(
+          '"minimumReleaseAgeExclude":\n',
+          '"minimumReleaseAgeExclude":\n  - "@agent-native/*"\n',
+        ),
+      );
+    });
+
+    it("stops before editing manifests when the exclude list cannot be updated", async () => {
+      const workspaceYaml = [
+        "minimumReleaseAge: 1440",
+        'minimumReleaseAgeExclude: ["@agent-native/core", # first-party',
+        '  "typescript"]',
+        "",
+      ].join("\n");
+      const root = makeOlderWorkspace(workspaceYaml, "^0.190.0");
+      const packageJson = fs.readFileSync(
+        path.join(root, "package.json"),
+        "utf-8",
+      );
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(1);
+
+      expect(out.join("\n")).toContain("[failed] release-age");
+      expect(fs.readFileSync(path.join(root, "package.json"), "utf-8")).toBe(
+        packageJson,
+      );
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(workspaceYaml);
+    });
+
+    it("stops with the workspace untouched when the workspace file write fails midway", async () => {
+      const root = makeOlderWorkspace(olderWorkspaceYaml, "^0.190.0");
+      const packageJson = fs.readFileSync(
+        path.join(root, "package.json"),
+        "utf-8",
+      );
+      const writeFileSync = fs.writeFileSync;
+      vi.spyOn(fs, "writeFileSync").mockImplementation(
+        (file, data, options) => {
+          if (path.basename(String(file)).includes("pnpm-workspace.yaml")) {
+            writeFileSync(file, String(data).slice(0, 10), options);
+            throw new Error("ENOSPC: no space left on device");
+          }
+          writeFileSync(file, data, options);
+        },
+      );
+      const { io, out, err } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(1);
+
+      expect(out.join("\n")).toContain("[failed] release-age");
+      expect(err.join("\n")).toContain("ENOSPC: no space left on device");
+      expect(fs.readFileSync(path.join(root, "package.json"), "utf-8")).toBe(
+        packageJson,
+      );
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(olderWorkspaceYaml);
+      expect(fs.readdirSync(root).sort()).toEqual([
+        "package.json",
+        "pnpm-workspace.yaml",
+      ]);
+    });
+
+    it("extends an exclude list whose items sit at the key's column", async () => {
+      const indentlessYaml = olderWorkspaceYaml.replace(/^ {2}- /gm, "- ");
+      const root = makeOlderWorkspace(indentlessYaml);
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", root, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).toContain("[ok] release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(
+        indentlessYaml.replace(
+          "minimumReleaseAgeExclude:\n",
+          'minimumReleaseAgeExclude:\n- "@agent-native/*"\n',
+        ),
+      );
+    });
+
+    it("leaves a parent workspace alone when it does not list the project", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "unrelated-workspace", private: true },
+        workspaceYaml: olderWorkspaceYaml,
+      });
+      const appDir = path.join(root, "tools", "app");
+      fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(appDir, "package.json"),
+        JSON.stringify({
+          name: "app",
+          dependencies: { "@agent-native/core": "latest" },
+        }),
+      );
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", appDir, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).not.toContain("release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(olderWorkspaceYaml);
+    });
+
+    it("leaves a parent workspace alone when the project installs with npm", async () => {
+      const root = makeTempProject({
+        kind: "workspace",
+        rootPkg: { name: "old-workspace", private: true },
+        workspaceYaml: olderWorkspaceYaml,
+        apps: {
+          web: {
+            name: "web",
+            dependencies: { "@agent-native/core": "latest" },
+          },
+        },
+      });
+      const memberDir = path.join(root, "apps", "web");
+      fs.writeFileSync(path.join(memberDir, "package-lock.json"), "{}\n");
+      const { io, out } = captureIo();
+
+      expect(await runUpgrade(["--cwd", memberDir, ...skipArgs], io)).toBe(0);
+
+      expect(out.join("\n")).not.toContain("release-age");
+      expect(
+        fs.readFileSync(path.join(root, "pnpm-workspace.yaml"), "utf-8"),
+      ).toBe(olderWorkspaceYaml);
+    });
+  });
 });
