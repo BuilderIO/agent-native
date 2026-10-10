@@ -65,6 +65,16 @@ export interface SlackPostMessageResult {
   message?: SlackMessage;
 }
 
+export class SlackWriteError extends Error {
+  constructor(
+    message: string,
+    readonly delivery: "rejected" | "unknown",
+  ) {
+    super(message);
+    this.name = "SlackWriteError";
+  }
+}
+
 const cache = new Map<string, { value: unknown; expiresAt: number }>();
 const cacheTtlMs = 120_000;
 
@@ -123,23 +133,32 @@ async function slackWrite<T extends { ok?: boolean; error?: string }>(
   tokenResolver?: SlackTokenResolver,
 ): Promise<T> {
   const token = await getToken(workspace, tokenResolver);
-  const response = await fetch(`https://slack.com/api/${method}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json; charset=utf-8",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok)
-    throw new Error(
-      `Slack API error ${response.status}: ${await response.text()}`,
-    );
-  const data = (await response.json()) as T;
-  if (data.ok !== true)
-    throw new Error(`Slack API error: ${data.error ?? "unknown_error"}`);
-  invalidateWorkspaceCache(workspace);
-  return data;
+  try {
+    const response = await fetch(`https://slack.com/api/${method}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new SlackWriteError(
+        `Slack API error ${response.status}: ${await response.text()}`,
+        "unknown",
+      );
+    }
+    const data = (await response.json()) as T;
+    if (data.ok !== true) {
+      throw new SlackWriteError(
+        `Slack API error: ${data.error ?? "unknown_error"}`,
+        "rejected",
+      );
+    }
+    return data;
+  } finally {
+    invalidateWorkspaceCache(workspace);
+  }
 }
 
 export async function getChannelHistory(

@@ -104,7 +104,7 @@ export function assertSlackDispatchSource(
 ): asserts source is "slack" {
   if (source !== "slack") {
     fail(
-      "Eligible GitHub issue and Sentry findings must use report-factory-findings so they are grouped in the Slack findings channel configured on this automation.",
+      "Eligible GitHub issue and Sentry findings must use report-factory-findings so they are grouped in #qa-agent-native.",
       { errorCode: "finding_report_required", statusCode: 400 },
     );
   }

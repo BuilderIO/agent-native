@@ -131,9 +131,7 @@ export function isDestinationReady(
   if (!sourceReady) return false;
   return (
     !requiresSlackFindingsDestination(source, template) ||
-    (slackWorkspace === "secondary"
-      ? connections.slackSecondary === true
-      : connections.slack === true)
+    connections.slack === true
   );
 }
 
@@ -152,9 +150,7 @@ export function isConnectorExplicitlyMissing(
       : connections[source] === false;
   const findingsSlackMissing =
     requiresSlackFindingsDestination(source, template) &&
-    (slackWorkspace === "secondary"
-      ? connections.slackSecondary === false
-      : connections.slack === false);
+    connections.slack === false;
   return sourceMissing || findingsSlackMissing;
 }
 
@@ -183,17 +179,12 @@ export function isDestinationFilled(
 ): boolean {
   if (form.source === "slack") return Boolean(form.slackChannelId.trim());
   if (form.source === "github") {
-    return (
-      Boolean(form.repository.trim()) &&
-      (!requiresSlackFindingsDestination(form.source, form.template) ||
-        Boolean(form.slackChannelId.trim()))
-    );
+    return Boolean(form.repository.trim());
   }
   if (form.source === "sentry") {
     return (
       Boolean(form.sentryOrgSlug.trim()) &&
-      Boolean(form.sentryProjectSlug.trim()) &&
-      Boolean(form.slackChannelId.trim())
+      Boolean(form.sentryProjectSlug.trim())
     );
   }
   return false;

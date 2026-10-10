@@ -73,6 +73,7 @@ export function createAuthoredContentBase() {
     },
     /** The editor merged the saved body at `revision` into its own text. */
     merged(revision: string) {
+      if (acknowledged?.saved.revision === revision) acknowledged = null;
       if (unheld?.revision === revision) unheld = null;
     },
     /** The editor's text changed without an edit here, as a peer's arrives. */

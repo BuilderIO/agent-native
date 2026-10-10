@@ -138,6 +138,22 @@ test("signup E2E state parsing rejects corrupt or foreign state", () => {
   );
 });
 
+test("signup E2E does not persist an undelivered failure", () => {
+  const previous = initialSignupE2EReportState();
+  const failure = planSignupE2EReport({
+    previous,
+    eventName: "schedule",
+    outcome: "failure",
+    findingCount: 1,
+    runUrl,
+  });
+
+  assert.deepEqual(
+    finalizeSignupE2EReport({ previous, plan: failure, slackDelivered: false }),
+    previous,
+  );
+});
+
 test("signup agent clears all prior findings in one complete clean rollup", () => {
   const findings = planSignupAgentReport({
     previous: initialSignupAgentReportState(),
@@ -218,6 +234,53 @@ test("incomplete signup agent reviews cannot clear prior findings", () => {
     assert.deepEqual(plan.state, findings);
     assert.equal(plan.recovery, null);
   }
+});
+
+test("undelivered signup agent findings are not saved as reported state", () => {
+  const previous = initialSignupAgentReportState();
+  const plan = planSignupAgentReport({
+    previous,
+    eventName: "schedule",
+    outcome: "findings",
+    findingCount: 2,
+    reportComplete: true,
+    runUrl,
+  });
+
+  assert.deepEqual(
+    finalizeSignupAgentReport({ previous, plan, slackDelivered: false }),
+    previous,
+  );
+});
+
+test("clean review does not say it cleared findings from an incomplete report", () => {
+  const previous = {
+    ...initialSignupAgentReportState(),
+    outcome: "findings" as const,
+    findingCount: 2,
+    reportComplete: false,
+    runUrl: priorRunUrl,
+    reportArtifactUrl: priorArtifactUrl,
+  };
+  const plan = planSignupAgentReport({
+    previous,
+    eventName: "schedule",
+    outcome: "clean",
+    findingCount: 0,
+    reportComplete: true,
+    runUrl,
+    reportArtifactUrl: artifactUrl,
+  });
+
+  assert.equal(plan.recovery?.previousReportComplete, false);
+  const message = renderSignupAgentRecovery({
+    recovery: plan.recovery!,
+    runUrl,
+    reportArtifactUrl: artifactUrl,
+  });
+  assert.match(message, /found no current findings/);
+  assert.match(message, /previous report was incomplete/);
+  assert.doesNotMatch(message, /cleared 2 findings/);
 });
 
 test("signup agent state parsing rejects missing fields and unsafe links", () => {

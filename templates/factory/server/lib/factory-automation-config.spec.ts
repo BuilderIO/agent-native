@@ -146,9 +146,7 @@ Classify Slack items.
         defaultAutomationConfig(source, template),
       );
       expect(guardrails).toContain("report-factory-findings");
-      expect(guardrails).toContain(
-        "Slack findings channel configured on this automation",
-      );
+      expect(guardrails).toContain("#qa-agent-native");
       expect(guardrails).toContain("never writes to GitHub issues");
       expect(guardrails).not.toContain("Builder is only tagged");
     }

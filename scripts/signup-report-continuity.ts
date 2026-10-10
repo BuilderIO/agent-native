@@ -34,6 +34,7 @@ export type SignupAgentPlan = {
   state: SignupAgentReportState;
   recovery: {
     findingCount: number;
+    previousReportComplete: boolean;
     previousRunUrl: string | null;
     previousReportArtifactUrl: string | null;
   } | null;
@@ -45,7 +46,8 @@ export function finalizeSignupE2EReport(input: {
   slackDelivered: boolean;
 }): SignupE2EReportState {
   validateE2EPlan(input.plan);
-  return input.plan.recovery && !input.slackDelivered
+  return (input.plan.recovery || input.plan.state.outcome === "failure") &&
+    !input.slackDelivered
     ? input.previous
     : input.plan.state;
 }
@@ -56,7 +58,8 @@ export function finalizeSignupAgentReport(input: {
   slackDelivered: boolean;
 }): SignupAgentReportState {
   validateAgentPlan(input.plan);
-  return input.plan.recovery && !input.slackDelivered
+  return (input.plan.recovery || input.plan.state.outcome === "findings") &&
+    !input.slackDelivered
     ? input.previous
     : input.plan.state;
 }
@@ -216,6 +219,7 @@ export function planSignupAgentReport(input: {
     input.previous.outcome === "findings" && input.previous.findingCount > 0
       ? {
           findingCount: input.previous.findingCount,
+          previousReportComplete: input.previous.reportComplete,
           previousRunUrl: input.previous.runUrl,
           previousReportArtifactUrl: input.previous.reportArtifactUrl,
         }
@@ -276,9 +280,14 @@ export function renderSignupAgentRecovery(input: {
   const currentDetails = input.reportArtifactUrl
     ? `Complete clean review and screenshot evidence: ${slackLink(input.reportArtifactUrl, "current report artifact")}.`
     : `Current evidence: ${slackLink(input.runUrl, "workflow run")}.`;
+  const priorWasComplete = input.recovery.previousReportComplete;
   return [
-    ":white_check_mark: *Signup agent findings cleared*",
-    `A complete clean review cleared ${input.recovery.findingCount} finding${input.recovery.findingCount === 1 ? "" : "s"} from the previous report.`,
+    priorWasComplete
+      ? ":white_check_mark: *Signup agent findings cleared*"
+      : ":white_check_mark: *Signup agent review found no current findings*",
+    priorWasComplete
+      ? `A complete clean review cleared ${input.recovery.findingCount} finding${input.recovery.findingCount === 1 ? "" : "s"} from the previous report.`
+      : "The previous report was incomplete, so its findings are not individually confirmed as cleared.",
     priorDetails,
     currentDetails,
     `Recovery run: ${slackLink(input.runUrl, "workflow run")}`,
@@ -303,7 +312,12 @@ function validateE2EPlan(plan: SignupE2EPlan): void {
 
 function validateAgentPlan(plan: SignupAgentPlan): void {
   parseSignupAgentReportState(JSON.stringify(plan.state));
-  if (plan.recovery !== null) validateRecovery(plan.recovery);
+  if (plan.recovery !== null) {
+    validateRecovery(plan.recovery);
+    if (typeof plan.recovery.previousReportComplete !== "boolean") {
+      throw new Error("signup agent recovery plan has an invalid shape");
+    }
+  }
 }
 
 function validateRecovery(recovery: {
@@ -334,10 +348,22 @@ function parseAgentPlan(raw: string): SignupAgentPlan {
   const value = parseRecord(raw, "signup agent report plan");
   const plan = {
     state: parseSignupAgentReportState(JSON.stringify(value.state) ?? ""),
-    recovery: parseRecovery(value.recovery),
+    recovery: parseAgentRecovery(value.recovery),
   };
   validateAgentPlan(plan);
   return plan;
+}
+
+function parseAgentRecovery(value: unknown): SignupAgentPlan["recovery"] {
+  if (value === null) return null;
+  const recovery = parseRecovery(value);
+  if (!isRecord(value) || typeof value.previousReportComplete !== "boolean") {
+    throw new Error("signup agent recovery plan has an invalid shape");
+  }
+  return {
+    ...recovery,
+    previousReportComplete: value.previousReportComplete,
+  };
 }
 
 function parseRecovery(value: unknown): SignupE2EPlan["recovery"] {

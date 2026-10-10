@@ -225,20 +225,11 @@ export function FactoryAutomationFields({
               description={t(
                 "factoryRoute.automationFindingsSlackChannelDescription",
               )}
-              control={
-                <Input
-                  id="factory-automation-findings-channel"
-                  aria-label={t("factoryRoute.automationFindingsSlackChannel")}
-                  value={form.slackChannelId}
-                  onChange={(event) =>
-                    onChange({ ...form, slackChannelId: event.target.value })
-                  }
-                  placeholder={t("triage.slackChannelPlaceholder")}
-                  disabled={destinationLocked}
-                  className={fieldControlClass}
-                />
-              }
-            />
+            >
+              <span className="text-sm text-muted-foreground">
+                #qa-agent-native
+              </span>
+            </SettingsRow>
           ) : null}
         </SettingsGroup>
       ) : null}

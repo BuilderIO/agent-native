@@ -461,9 +461,9 @@ const messages = {
     automationSlackChannel: "Id do canal Slack",
     automationSlackChannelDescription:
       "Canal do Slack que este job lê ou usa para publicar achados agrupados. Começa com C.",
-    automationFindingsSlackChannel: "Id do canal Slack para achados",
+    automationFindingsSlackChannel: "Canal Slack para achados",
     automationFindingsSlackChannelDescription:
-      "Os achados elegíveis do GitHub ou Sentry deste job são agrupados em uma mensagem aqui. Começa com C.",
+      "Os achados elegíveis do GitHub e Sentry são agrupados em uma mensagem neste canal.",
     automationRepository: "Repositório GitHub",
     automationRepositoryDescription: "owner/repo que este job consulta.",
     automationSentryOrg: "Organização Sentry",

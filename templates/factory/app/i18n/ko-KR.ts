@@ -450,9 +450,9 @@ const messages = {
     automationSlackChannel: "Slack 채널 ID",
     automationSlackChannelDescription:
       "이 작업이 읽거나 조사 결과를 모아 게시하는 Slack 채널. C로 시작합니다.",
-    automationFindingsSlackChannel: "Slack 조사 결과 채널 ID",
+    automationFindingsSlackChannel: "Slack 조사 결과 채널",
     automationFindingsSlackChannelDescription:
-      "이 작업의 해당 GitHub 또는 Sentry 조사 결과를 여기에서 하나의 메시지로 묶습니다. C로 시작합니다.",
+      "해당 GitHub 및 Sentry 조사 결과를 이 채널의 메시지 하나로 묶습니다.",
     automationRepository: "GitHub 저장소",
     automationRepositoryDescription: "이 작업이 폴링하는 owner/repo.",
     automationSentryOrg: "Sentry 조직",

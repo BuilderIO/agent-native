@@ -337,8 +337,8 @@ dispatch-factory-item with clearBug true or false, risk, confidence, and an
 evidence-grounded reason so the skip is recorded. Do not call it for eligible
 items. Collect every eligible item (clearBug true, risk low, confidence high,
 and no product or UX decision) and call report-factory-findings exactly once
-with the complete batch. The action posts one grouped report to the Slack
-findings channel configured on this automation; it does not create or comment on GitHub issues. Do
+with the complete batch. The action posts one grouped report to
+#qa-agent-native; it does not create or comment on GitHub issues. Do
 not claim a PR exists until GitHub evidence confirms it.
 
 Across your decisions over time, expect roughly 1 in 10 items to qualify for
@@ -392,8 +392,8 @@ dispatch-factory-item with clearBug true or false, risk, confidence, and an
 evidence-grounded reason so the skip is recorded. Do not call it for eligible
 items. Collect every eligible item (clearBug true, risk low, confidence high,
 and no product or UX decision) and call report-factory-findings exactly once
-with the complete batch. The action posts one grouped report to the Slack
-findings channel configured on this automation, preserving each issue link and stored issue body as
+with the complete batch. The action posts one grouped report to
+#qa-agent-native, preserving each issue link and stored issue body as
 evidence; it never comments on or creates GitHub issues. Preserve failures and
 never report a successful Slack report without its action confirmation.
 

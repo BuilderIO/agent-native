@@ -41,6 +41,7 @@ vi.mock("../server/triage/slack-client.js", () => ({
 }));
 
 import {
+  findSlackReportMessage,
   factoryFindingRollupText,
   reportableFindingSource,
 } from "./report-factory-findings.js";
@@ -71,6 +72,7 @@ describe("report-factory-findings", () => {
   it("builds one grouped message with the source links and stored evidence", () => {
     const text = factoryFindingRollupText({
       factoryId: "qa",
+      reportKey: "run-abc",
       source: "github_issue",
       findings: [
         {
@@ -114,6 +116,74 @@ describe("report-factory-findings", () => {
     expect(text).toContain("Error: export returned an empty file");
     expect(text).toContain("Error: second export case");
     expect(text).toContain("Why it qualifies:");
+    expect(text).toContain("Report reference: run-abc");
+  });
+
+  it("escapes Slack mentions and formatting from source evidence", () => {
+    const text = factoryFindingRollupText({
+      factoryId: "qa",
+      reportKey: "run-escape",
+      source: "github_issue",
+      findings: [
+        {
+          itemId: "triage-1",
+          clearBug: true,
+          risk: "low",
+          confidence: "high",
+          productUxImplications: false,
+          reason: "@channel <@U123> <https://evil.test|click>",
+          id: "triage-1",
+          source: "github_issue",
+          sourceUrl:
+            "https://github.com/BuilderIO/agent-native/issues/1?x=1&y=2",
+          title: "@here <fake-link|open>",
+          summary: "Summary",
+          metadataJson: JSON.stringify({
+            errorReport: "Error <@U123>: <!channel> & invalid",
+          }),
+        },
+      ],
+    });
+
+    expect(text).toContain(
+      "＠channel &lt;＠U123&gt; &lt;https://evil.test|click&gt;",
+    );
+    expect(text).toContain("＠here &lt;fake-link|open&gt;");
+    expect(text).toContain(
+      "Error &lt;＠U123&gt;: &lt;!channel&gt; &amp; invalid",
+    );
+    expect(text).not.toContain("<@U123>");
+    expect(text).not.toContain("<!channel>");
+  });
+
+  it("reconciles an ambiguous delivery by paging the channel before retrying", async () => {
+    const startedAt = "2026-10-10T12:00:00.000Z";
+    const marker = "Report reference: run-abc";
+    const readHistory = vi
+      .fn()
+      .mockResolvedValueOnce({
+        messages: [
+          { type: "message", text: "newer message", ts: "1791633602.0" },
+        ],
+        has_more: true,
+        next_cursor: "1791633602.0",
+      })
+      .mockResolvedValueOnce({
+        messages: [{ type: "message", text: marker, ts: "1791633601.0" }],
+        has_more: true,
+        next_cursor: "1791633601.0",
+      });
+
+    await expect(
+      findSlackReportMessage({
+        readHistory,
+        channelId: "C0C4U4XRT6X",
+        marker,
+        startedAt,
+      }),
+    ).resolves.toEqual({ channel: "C0C4U4XRT6X", ts: "1791633601.0" });
+    expect(readHistory).toHaveBeenCalledTimes(2);
+    expect(readHistory).toHaveBeenLastCalledWith("1791633602.0");
   });
 
   it("limits the batch and requires findings to clear the report gate", () => {

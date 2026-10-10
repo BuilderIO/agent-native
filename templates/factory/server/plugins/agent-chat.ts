@@ -100,7 +100,7 @@ manual. Slack clear bugs use the
 thread-preserving dispatch-factory-item flow. GitHub issue and Sentry findings
 that pass the clear-bug, low-risk, high-confidence gate use one
 report-factory-findings call per automation run; it posts a grouped report to
-the Slack findings channel configured on that automation and never writes to
+#qa-agent-native and never writes to
 GitHub issues. Record non-eligible GitHub and Sentry items as skips with
 dispatch-factory-item. Slack repeat reports must be clustered by underlying
 symptom, with one Builder thread for the cluster. After classifying an item,

@@ -16,6 +16,8 @@ export const FACTORY_INBOX_LIMIT_MAX = 50;
 export const FACTORY_WORK_LIMIT_MAX = 10;
 export const FACTORY_INBOX_LIMIT_DEFAULT = 25;
 export const FACTORY_INTERVAL_MINUTES = [5, 10, 15, 30, 60] as const;
+export const QA_AGENT_NATIVE_SLACK_CHANNEL_ID = "C0C4U4XRT6X";
+export const QA_AGENT_NATIVE_SLACK_CHANNEL_NAME = "#qa-agent-native";
 
 export type FactoryAutomationSource = "slack" | "github" | "sentry";
 export type FactoryAutomationAuthorMode = "include" | "exclude";
@@ -624,7 +626,7 @@ export function buildGuardrailsText(
   if (config.template !== "pr-governance" && config.template !== "pr-babysit") {
     if (config.source === "github" || config.source === "sentry") {
       lines.push(
-        "Classify every item. Record non-eligible items as skips with dispatch-factory-item. Group all eligible GitHub issue or Sentry findings into one report-factory-findings call per run; it posts one message to the Slack findings channel configured on this automation and never writes to GitHub issues.",
+        "Classify every item. Record non-eligible items as skips with dispatch-factory-item. Group all eligible GitHub issue or Sentry findings into one report-factory-findings call per run; it posts one message to #qa-agent-native and never writes to GitHub issues.",
       );
     } else {
       lines.push(

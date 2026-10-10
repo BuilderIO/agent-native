@@ -181,6 +181,14 @@ describe("authored content base", () => {
     expect(tracker.base(merged)).toEqual(merged);
   });
 
+  it("does not re-arm a reconciled base when a stale snapshot arrives later", () => {
+    const tracker = afterMergedSave();
+    tracker.merged("r2");
+    tracker.observed("Alpha.\nBravo. mine", merged);
+
+    expect(tracker.base(merged)).toEqual(merged);
+  });
+
   it("follows the saved body once a later save moves past the held one", () => {
     const tracker = afterMergedSave();
     const later = { revision: "r3", content: "Alpha. peer\nBravo. mine!" };

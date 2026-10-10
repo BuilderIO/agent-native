@@ -431,9 +431,9 @@ const messages = {
     automationSlackChannel: "Slack 頻道 ID",
     automationSlackChannelDescription:
       "此工作讀取或用來發布彙整調查結果的 Slack 頻道。以 C 開頭。",
-    automationFindingsSlackChannel: "Slack 調查結果頻道 ID",
+    automationFindingsSlackChannel: "Slack 調查結果頻道",
     automationFindingsSlackChannelDescription:
-      "此工作中符合條件的 GitHub 或 Sentry 發現會彙整為一則訊息傳送至此處。以 C 開頭。",
+      "符合條件的 GitHub 與 Sentry 發現會彙整為一則訊息傳送至此頻道。",
     automationRepository: "GitHub 儲存庫",
     automationRepositoryDescription: "此工作輪詢的 owner/repo。",
     automationSentryOrg: "Sentry 組織",

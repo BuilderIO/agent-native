@@ -443,9 +443,9 @@ const messages = {
     automationSlackChannel: "معرّف قناة Slack",
     automationSlackChannelDescription:
       "قناة Slack التي تقرؤها هذه المهمة أو تنشر فيها تقارير مجمّعة. تبدأ بـ C.",
-    automationFindingsSlackChannel: "معرّف قناة Slack للتقارير",
+    automationFindingsSlackChannel: "قناة تقارير Slack",
     automationFindingsSlackChannelDescription:
-      "تُجمع نتائج GitHub أو Sentry المؤهلة لهذه المهمة في رسالة واحدة هنا. تبدأ بـ C.",
+      "تُجمع النتائج المؤهلة من GitHub وSentry في رسالة واحدة بهذه القناة.",
     automationRepository: "مستودع GitHub",
     automationRepositoryDescription: "owner/repo الذي تستطلعه هذه المهمة.",
     automationSentryOrg: "منظمة Sentry",

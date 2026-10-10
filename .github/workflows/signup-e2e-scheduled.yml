@@ -110,7 +110,7 @@ jobs:
           fi
 
           previous_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/jobs?per_page=100")"
-          if jq -e '[.jobs[].steps[].name] | any(. == "Persist Signup E2E continuity state")' <<< "$previous_jobs" >/dev/null; then
+          if jq -e '[.jobs[].steps[] | select(.name == "Persist Signup E2E continuity state") | select(.conclusion == "success" or .conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")] | any' <<< "$previous_jobs" >/dev/null; then
             echo "::error::The latest scheduled Signup E2E run did not preserve its continuity state; refusing to assume the report was clean."
             exit 1
           fi

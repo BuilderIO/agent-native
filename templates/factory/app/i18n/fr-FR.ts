@@ -466,9 +466,9 @@ const messages = {
     automationSlackChannel: "Identifiant du canal Slack",
     automationSlackChannelDescription:
       "Canal Slack que ce job lit ou utilise pour publier des résultats groupés. Commence par C.",
-    automationFindingsSlackChannel: "Identifiant du canal Slack des résultats",
+    automationFindingsSlackChannel: "Canal Slack des résultats",
     automationFindingsSlackChannelDescription:
-      "Les résultats GitHub ou Sentry admissibles de ce job sont regroupés en un seul message ici. Commence par C.",
+      "Les résultats GitHub et Sentry admissibles sont regroupés en un seul message dans ce canal.",
     automationRepository: "Dépôt GitHub",
     automationRepositoryDescription: "owner/repo interrogé par ce job.",
     automationSentryOrg: "Organisation Sentry",

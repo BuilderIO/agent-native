@@ -431,9 +431,9 @@ const messages = {
     automationSlackChannel: "Slack 频道 ID",
     automationSlackChannelDescription:
       "此作业读取或用于发布汇总发现的 Slack 频道。以 C 开头。",
-    automationFindingsSlackChannel: "Slack 调查结果频道 ID",
+    automationFindingsSlackChannel: "Slack 调查结果频道",
     automationFindingsSlackChannelDescription:
-      "此作业中符合条件的 GitHub 或 Sentry 发现会汇总为一条消息发送到此处。以 C 开头。",
+      "符合条件的 GitHub 和 Sentry 发现会汇总为一条消息发送到此频道。",
     automationRepository: "GitHub 仓库",
     automationRepositoryDescription: "此作业轮询的 owner/repo。",
     automationSentryOrg: "Sentry 组织",

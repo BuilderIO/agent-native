@@ -95,7 +95,7 @@ describe("factory-automation-form destination gating", () => {
     ).toBe(false);
   });
 
-  it("requires a separate Slack destination for grouped GitHub and Sentry findings", () => {
+  it("routes grouped GitHub and Sentry findings to the fixed QA channel", () => {
     expect(requiresSlackFindingsDestination("github", "github-issues")).toBe(
       true,
     );
@@ -115,20 +115,19 @@ describe("factory-automation-form destination gating", () => {
       displayName: "Issue triage",
       repository: "BuilderIO/agent-native",
     };
-    expect(isDestinationFilled(github)).toBe(false);
-    expect(isDestinationFilled({ ...github, slackChannelId: "C123" })).toBe(
+    expect(isDestinationFilled(github)).toBe(true);
+    expect(canCreateFactoryAutomation({ ...github, enabled: false })).toBe(
       true,
     );
-    expect(canCreateFactoryAutomation({ ...github, enabled: false })).toBe(
-      false,
-    );
     expect(
-      canCreateFactoryAutomation({
-        ...github,
-        slackChannelId: "C123",
-        enabled: false,
-      }),
+      canCreateFactoryAutomation({ ...github, enabled: true }, connected),
     ).toBe(true);
+    expect(
+      canCreateFactoryAutomation(
+        { ...github, enabled: true },
+        { ...connected, slack: false },
+      ),
+    ).toBe(false);
     expect(
       isDestinationReady("github", connected, "primary", "github-issues"),
     ).toBe(true);
@@ -140,6 +139,9 @@ describe("factory-automation-form destination gating", () => {
         "github-issues",
       ),
     ).toBe(false);
+    expect(
+      isDestinationReady("github", connected, "secondary", "github-issues"),
+    ).toBe(true);
   });
 
   it("treats an unknown connections payload as not explicitly missing", () => {

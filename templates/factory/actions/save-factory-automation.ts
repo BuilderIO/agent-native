@@ -19,6 +19,8 @@ import {
   clampInboxLimit,
   clampWorkLimit,
   normalizeUserPrompt,
+  QA_AGENT_NATIVE_SLACK_CHANNEL_ID,
+  QA_AGENT_NATIVE_SLACK_CHANNEL_NAME,
   requiresSlackFindingsDestination,
   readConfigSavedAt,
   readFactoryAutomationConfig,
@@ -149,10 +151,15 @@ export default defineAction({
     if (scheduleMode === "daily" && !timezone) {
       throw new Error("Choose a timezone for a daily schedule.");
     }
-    const nextSlackChannelId =
-      input.slackChannelId !== undefined
+    const reportsFindings = requiresSlackFindingsDestination(current);
+    const nextSlackChannelId = reportsFindings
+      ? QA_AGENT_NATIVE_SLACK_CHANNEL_ID
+      : input.slackChannelId !== undefined
         ? input.slackChannelId.trim()
         : current.slackChannelId;
+    const nextSlackWorkspace = reportsFindings
+      ? "primary"
+      : (input.slackWorkspace ?? current.slackWorkspace);
     const nextRepository =
       input.repository !== undefined
         ? input.repository.trim()
@@ -168,12 +175,6 @@ export default defineAction({
     if (input.enabled) {
       if (current.source === "slack" && !nextSlackChannelId) {
         throw new Error("Configure a Slack channel before saving this job.");
-      }
-      if (requiresSlackFindingsDestination(current) && !nextSlackChannelId) {
-        fail("Configure a Slack findings channel before saving this job.", {
-          errorCode: "slack_findings_channel_required",
-          statusCode: 400,
-        });
       }
       if (current.source === "github" && !nextRepository) {
         throw new Error(
@@ -197,7 +198,7 @@ export default defineAction({
         if (requiresSlackFindingsDestination(current)) {
           await assertFactoryConnectorReady("slack", userEmail, {
             orgId,
-            slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
+            slackWorkspace: nextSlackWorkspace,
             verb: "saving",
           });
         }
@@ -221,10 +222,11 @@ export default defineAction({
     }
     const config = {
       ...current,
-      slackWorkspace: input.slackWorkspace ?? current.slackWorkspace,
+      slackWorkspace: nextSlackWorkspace,
       slackChannelId: nextSlackChannelId,
-      slackChannelName:
-        input.slackChannelName !== undefined
+      slackChannelName: reportsFindings
+        ? QA_AGENT_NATIVE_SLACK_CHANNEL_NAME
+        : input.slackChannelName !== undefined
           ? input.slackChannelName.trim()
           : current.slackChannelName,
       repository: nextRepository,

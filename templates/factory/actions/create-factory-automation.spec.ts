@@ -110,25 +110,26 @@ describe("create-factory-automation", () => {
     expect(createFactoryAutomationMock).not.toHaveBeenCalled();
   });
 
-  it("requires a Slack findings channel for reportable GitHub jobs", async () => {
+  it("routes reportable GitHub jobs to the fixed QA channel", async () => {
     const { default: action } = await import("./create-factory-automation.js");
-    await expect(
-      action.run(
-        {
-          factoryId: "support-triage",
-          displayName: "GitHub issue triage",
-          source: "github",
-          template: "github-issues",
-          repository: "BuilderIO/agent-native",
-        },
-        { userEmail: "owner@example.com" },
-      ),
-    ).rejects.toMatchObject({
-      message: "Configure a Slack findings channel before creating this job.",
-      actionContractError: true,
-      statusCode: 400,
+    await action.run(
+      {
+        factoryId: "support-triage",
+        displayName: "GitHub issue triage",
+        source: "github",
+        template: "github-issues",
+        repository: "BuilderIO/agent-native",
+      },
+      { userEmail: "owner@example.com" },
+    );
+
+    expect(createFactoryAutomationMock.mock.calls[0]?.[3]).toMatchObject({
+      config: {
+        slackWorkspace: "primary",
+        slackChannelId: "C0C4U4XRT6X",
+        slackChannelName: "#qa-agent-native",
+      },
     });
-    expect(createFactoryAutomationMock).not.toHaveBeenCalled();
   });
 
   it("requires both GitHub and Slack connections for enabled issue reporting", async () => {
@@ -155,8 +156,19 @@ describe("create-factory-automation", () => {
       2,
       "slack",
       "owner@example.com",
-      expect.objectContaining({ orgId: "org-1", verb: "creating" }),
+      expect.objectContaining({
+        orgId: "org-1",
+        slackWorkspace: "primary",
+        verb: "creating",
+      }),
     );
+    expect(createFactoryAutomationMock.mock.calls[0]?.[3]).toMatchObject({
+      config: {
+        slackWorkspace: "primary",
+        slackChannelId: "C0C4U4XRT6X",
+        slackChannelName: "#qa-agent-native",
+      },
+    });
   });
 
   it("does not require a findings destination for PR governance jobs", async () => {

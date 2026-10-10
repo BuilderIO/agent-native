@@ -31,7 +31,7 @@ contract is evidence-first and reply-producing:
   (\`clearBug\` true, \`risk\` low, and \`confidence\` high); everything else
   is a skip regardless of how clear the bug looks. Eligible GitHub issue and
   Sentry findings are posted as one grouped \`report-factory-findings\` message
-  to the Slack findings channel configured on that automation and never create or comment on
+  to #qa-agent-native and never create or comment on
   GitHub issues.
 - For a dispatch-eligible repo-owned Slack item (\`clearBug\` true, \`risk\`
   low, \`confidence\` high) with no existing eyes 👀, you MUST pass

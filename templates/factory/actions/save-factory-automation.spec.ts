@@ -148,7 +148,7 @@ describe("save-factory-automation", () => {
     expect(assertFactoryConnectorReadyMock).toHaveBeenCalled();
   });
 
-  it("requires the Slack findings destination before enabling GitHub issue triage", async () => {
+  it("sets the fixed QA channel when enabling GitHub issue triage", async () => {
     const githubContent = `---
 domain: factory
 factoryId: support-triage
@@ -182,21 +182,20 @@ Review GitHub issues.
     });
     const { default: action } = await import("./save-factory-automation.js");
 
-    await expect(
-      action.run(
-        {
-          factoryId: "support-triage",
-          automationId: "resource-1",
-          name: "factories/support-triage/factory-github-issues",
-          prompt: "Review GitHub issues.",
-          enabled: true,
-        },
-        { userEmail: "teammate@example.com" },
-      ),
-    ).rejects.toThrow(
-      "Configure a Slack findings channel before saving this job.",
+    await action.run(
+      {
+        factoryId: "support-triage",
+        automationId: "resource-1",
+        name: "factories/support-triage/factory-github-issues",
+        prompt: "Review GitHub issues.",
+        enabled: true,
+      },
+      { userEmail: "teammate@example.com" },
     );
-    expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+    const saved = resourcePutIfCurrentMock.mock.calls[0]?.[0].content as string;
+    expect(saved).toContain("slackWorkspace: primary");
+    expect(saved).toContain("slackChannelId: C0C4U4XRT6X");
+    expect(saved).toContain("#qa-agent-native");
   });
 
   it("checks Slack readiness when enabling an issue-reporting job", async () => {
@@ -254,7 +253,11 @@ Review GitHub issues.
       2,
       "slack",
       "teammate@example.com",
-      expect.objectContaining({ orgId: "org-1", verb: "saving" }),
+      expect.objectContaining({
+        orgId: "org-1",
+        slackWorkspace: "primary",
+        verb: "saving",
+      }),
     );
   });
 

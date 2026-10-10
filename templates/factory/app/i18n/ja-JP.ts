@@ -454,9 +454,9 @@ const messages = {
     automationSlackChannel: "Slack チャンネル ID",
     automationSlackChannelDescription:
       "このジョブが読み取る、または検出結果をまとめて投稿する Slack チャンネル。C で始まります。",
-    automationFindingsSlackChannel: "Slack 検出結果チャンネル ID",
+    automationFindingsSlackChannel: "Slack 検出結果チャンネル",
     automationFindingsSlackChannelDescription:
-      "このジョブの対象となる GitHub または Sentry の検出結果をここに 1 件のメッセージにまとめます。C で始まります。",
+      "対象となる GitHub と Sentry の検出結果をこのチャンネルの 1 件のメッセージにまとめます。",
     automationRepository: "GitHub リポジトリ",
     automationRepositoryDescription: "このジョブがポーリングする owner/repo。",
     automationSentryOrg: "Sentry 組織",

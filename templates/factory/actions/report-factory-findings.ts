@@ -2,7 +2,11 @@ import { defineAction, fail } from "@agent-native/core/action";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
-import type { SlackPostMessageResult } from "../server/connectors/slack.js";
+import type {
+  ChannelHistoryResult,
+  SlackPostMessageResult,
+} from "../server/connectors/slack.js";
+import { SlackWriteError } from "../server/connectors/slack.js";
 import { getDb } from "../server/db/index.js";
 import {
   factoryAuditEvents,
@@ -11,7 +15,10 @@ import {
   triageRuns,
 } from "../server/db/schema.js";
 import { readCallingFactoryAutomation } from "../server/lib/factory-automation-caller.js";
-import { requiresSlackFindingsDestination } from "../server/lib/factory-automation-config.js";
+import {
+  QA_AGENT_NATIVE_SLACK_CHANNEL_ID,
+  requiresSlackFindingsDestination,
+} from "../server/lib/factory-automation-config.js";
 import type { FactoryAutomationConfig } from "../server/lib/factory-automation-config.js";
 import {
   DEFAULT_FACTORY_ID,
@@ -84,12 +91,17 @@ export function reportableFindingSource(input: {
 
 function boundedSlackText(value: string, max: number): string {
   const compact = value.trim();
-  const safe = compact.replace(/@/g, "＠");
+  const safe = compact
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/@/g, "＠");
   return safe.length > max ? `${safe.slice(0, max - 1)}…` : safe;
 }
 
 export function factoryFindingRollupText(input: {
   factoryId: string;
+  reportKey: string;
   source: "github_issue" | "sentry";
   findings: Array<Finding & FindingSource>;
 }): string {
@@ -102,8 +114,10 @@ export function factoryFindingRollupText(input: {
       finding.title;
     return [
       `*${index + 1}. ${boundedSlackText(finding.title, 200)}*`,
-      `Factory item: ${finding.id}`,
-      finding.sourceUrl ? `Source: ${finding.sourceUrl}` : "",
+      `Factory item: ${boundedSlackText(finding.id, 200)}`,
+      finding.sourceUrl
+        ? `Source: ${boundedSlackText(finding.sourceUrl, 1_000)}`
+        : "",
       `Why it qualifies: ${boundedSlackText(finding.reason, 1_000)}`,
       `Source evidence:\n${boundedSlackText(evidence, 2_000)}`,
     ]
@@ -111,15 +125,54 @@ export function factoryFindingRollupText(input: {
       .join("\n");
   });
   return [
-    `Factory ${sourceLabel} findings for ${input.factoryId} (${input.findings.length})`,
+    `Factory ${sourceLabel} findings for ${boundedSlackText(input.factoryId, 200)} (${input.findings.length})`,
     "These findings passed the clear-bug, low-risk, high-confidence gate. Review the linked source evidence and coordinate follow-up in this channel.",
+    `Report reference: ${input.reportKey}`,
     ...sections,
   ].join("\n\n");
 }
 
+export async function findSlackReportMessage(input: {
+  readHistory: (cursor?: string) => Promise<ChannelHistoryResult>;
+  channelId: string;
+  marker: string;
+  startedAt: string;
+}): Promise<SlackPostMessageResult | null> {
+  const startedAtMs = Date.parse(input.startedAt);
+  if (!Number.isFinite(startedAtMs)) {
+    throw new Error("The Slack report start time is invalid.");
+  }
+  const earliestRelevantTs = startedAtMs / 1_000 - 300;
+  let cursor: string | undefined;
+  for (let page = 0; page < 100; page += 1) {
+    const result = await input.readHistory(cursor);
+    const found = result.messages.find((message) =>
+      message.text.includes(input.marker),
+    );
+    if (found) {
+      return { channel: input.channelId, ts: found.ts };
+    }
+    const oldestTs = result.messages.reduce((oldest, message) => {
+      const timestamp = Number(message.ts);
+      if (!Number.isFinite(timestamp)) {
+        throw new Error("Slack history contains an invalid message timestamp.");
+      }
+      return Math.min(oldest, timestamp);
+    }, Number.POSITIVE_INFINITY);
+    if (!result.has_more || oldestTs <= earliestRelevantTs) return null;
+    if (!result.next_cursor || result.next_cursor === cursor) {
+      throw new Error("Slack history pagination did not advance.");
+    }
+    cursor = result.next_cursor;
+  }
+  throw new Error(
+    "Slack history did not cover the full report attempt window.",
+  );
+}
+
 export default defineAction({
   description:
-    "Post one grouped Slack report for eligible GitHub issue or Sentry findings from the current Factory automation run, using that automation's configured Slack findings channel. This action never creates, comments on, or reacts to GitHub issues. Use it once for the complete eligible batch; record non-eligible items with dispatch-factory-item.",
+    "Post one grouped Slack report for eligible GitHub issue or Sentry findings from the current Factory automation run to #qa-agent-native. This action never creates, comments on, or reacts to GitHub issues. Use it once for the complete eligible batch; record non-eligible items with dispatch-factory-item.",
   schema: z.object({
     factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     findings: z
@@ -206,15 +259,8 @@ export default defineAction({
       return { ...finding, ...item };
     });
 
-    const channelId = job.config.slackChannelId?.trim();
-    if (!channelId) {
-      fail(
-        "Configure a Slack findings channel on this automation before reporting GitHub or Sentry findings.",
-        { errorCode: "slack_findings_channel_required", statusCode: 400 },
-      );
-    }
-    const workspace =
-      job.config.slackWorkspace === "secondary" ? "secondary" : "primary";
+    const channelId = QA_AGENT_NATIVE_SLACK_CHANNEL_ID;
+    const workspace = "primary";
     const slack = createSlackReader({ ownerEmail: userEmail, orgId });
     await slack.getAgentNativeIdentity(workspace);
 
@@ -260,11 +306,42 @@ export default defineAction({
           slackMessageTs: existingRuns[0]?.providerTaskId ?? null,
         };
       }
-      if (existingRuns.some((run) => run.status !== "failed")) {
-        fail(
-          "This findings report has an unresolved Slack delivery attempt; refusing to post a possible duplicate.",
-          { errorCode: "slack_report_pending", statusCode: 409 },
-        );
+    }
+
+    let reconciledPost: SlackPostMessageResult | null = null;
+    if (existingRuns.length > 0) {
+      const safelyRetryable = existingRuns.every(
+        (run) =>
+          run.status === "failed" && run.error?.startsWith("slack-rejected: "),
+      );
+      if (!safelyRetryable) {
+        let found: SlackPostMessageResult | null;
+        try {
+          found = await findSlackReportMessage({
+            readHistory: (cursor) =>
+              slack.getChannelHistory(workspace, channelId, 100, cursor),
+            channelId,
+            marker: `Report reference: ${reportKey}`,
+            startedAt: existingRuns[0]!.startedAt,
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          fail(
+            `Could not reconcile the previous Slack delivery attempt: ${message}. The report remains pending and will not be reposted automatically.`,
+            {
+              errorCode: "slack_report_reconciliation_incomplete",
+              statusCode: 424,
+            },
+          );
+        }
+        if (!found) {
+          fail(
+            "The previous Slack delivery attempt is still unresolved; refusing to post a possible duplicate.",
+            { errorCode: "slack_report_pending", statusCode: 409 },
+          );
+        }
+        reconciledPost = found;
       }
     }
 
@@ -334,59 +411,73 @@ export default defineAction({
     });
 
     let posted: SlackPostMessageResult;
-    try {
-      posted = await slack.postChannelMessage(
-        workspace,
-        channelId,
-        factoryFindingRollupText({
-          factoryId,
-          source,
-          findings: orderedFindings,
-        }),
-      );
-      if (!posted.ts || !posted.channel) {
-        fail("Slack response is missing the posted message identity.", {
-          errorCode: "slack_invalid_response",
-          statusCode: 424,
-        });
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await db
-        .update(triageRuns)
-        .set({
-          status: "failed",
-          error: message,
-          completedAt: new Date().toISOString(),
-          heartbeatAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            orgFactoryRunFilter(orgId, factoryId),
-            eq(triageRuns.dedupeKey, reportKey),
-          ),
-        );
-      for (const item of orderedFindings) {
-        await recordFactoryAudit(
-          context,
-          { userEmail, orgId },
-          {
-            action: "report-factory-findings",
-            kind: "external_action",
-            status: "error",
+    if (reconciledPost) {
+      posted = reconciledPost;
+    } else {
+      try {
+        posted = await slack.postChannelMessage(
+          workspace,
+          channelId,
+          factoryFindingRollupText({
             factoryId,
-            itemId: item.id,
+            reportKey,
             source,
-            sourceUrl: item.sourceUrl,
-            summary: `Slack findings report failed: ${message}`,
-            details: { provider: "slack-findings", reportKey },
+            findings: orderedFindings,
+          }),
+        );
+        if (!posted.ts || !posted.channel) {
+          fail("Slack response is missing the posted message identity.", {
+            errorCode: "slack_invalid_response",
+            statusCode: 424,
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const definitelyRejected =
+          error instanceof SlackWriteError && error.delivery === "rejected";
+        await db
+          .update(triageRuns)
+          .set({
+            status: definitelyRejected ? "failed" : "submitted",
+            error: `${definitelyRejected ? "slack-rejected" : "slack-delivery-unknown"}: ${message}`,
+            completedAt: definitelyRejected ? new Date().toISOString() : null,
+            heartbeatAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              orgFactoryRunFilter(orgId, factoryId),
+              eq(triageRuns.dedupeKey, reportKey),
+            ),
+          );
+        for (const item of orderedFindings) {
+          await recordFactoryAudit(
+            context,
+            { userEmail, orgId },
+            {
+              action: "report-factory-findings",
+              kind: "external_action",
+              status: "error",
+              factoryId,
+              itemId: item.id,
+              source,
+              sourceUrl: item.sourceUrl,
+              summary: `Slack findings report failed: ${message}`,
+              details: { provider: "slack-findings", reportKey },
+            },
+          );
+        }
+        fail(
+          definitelyRejected
+            ? `Factory Slack findings report was rejected: ${message}`
+            : `Factory Slack findings delivery is unknown: ${message}. The report is pending reconciliation and will not be reposted automatically.`,
+          {
+            errorCode: definitelyRejected
+              ? "slack_findings_report_rejected"
+              : "slack_findings_report_delivery_unknown",
+            statusCode: 424,
           },
         );
       }
-      fail(`Factory Slack findings report failed: ${message}`, {
-        errorCode: "slack_findings_report_failed",
-        statusCode: 424,
-      });
     }
 
     try {
@@ -447,7 +538,7 @@ export default defineAction({
                 {
                   at: acknowledgedAt,
                   state: "acknowledged",
-                  reason: `Reported in the configured Slack channel ${posted.channel}.`,
+                  reason: `Reported in #qa-agent-native (${posted.channel}).`,
                 },
               ]),
               heartbeatAt: acknowledgedAt,
@@ -525,7 +616,7 @@ export default defineAction({
             action: "report-factory-findings",
             kind: "external_action",
             status: "success",
-            summary: "Reported this finding in the configured Slack channel.",
+            summary: "Reported this finding in #qa-agent-native.",
             detailsJson: JSON.stringify({
               provider: "slack-findings",
               reportKey,
