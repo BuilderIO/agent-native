@@ -536,6 +536,15 @@ test(`${SCREEN_COUNT}-screen canvas preserves live iframes during pan and zoom`,
     await page.mouse.move(panStart.x, panStart.y);
     await page.mouse.down({ button: "middle" });
     await page.mouse.move(panStart.x + 80, panStart.y + 50);
+    await page.keyboard.down("Control");
+    await page.mouse.wheel(0, -28);
+    await page.keyboard.up("Control");
+    await page.waitForTimeout(180);
+    const cameraAfterEscapeZoom = await readWorldCamera(page);
+    expect(cameraAfterEscapeZoom.scale).not.toBeCloseTo(
+      cameraBeforeEscape.scale,
+      3,
+    );
     await page.keyboard.press("Escape");
     await expect(
       page.locator("[data-multi-screen-canvas-pan-shield]"),

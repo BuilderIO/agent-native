@@ -5823,6 +5823,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           );
         } else if (state.type === "pan") {
           panRef.current = { ...state.originPan };
+          zoomRef.current = state.originZoom;
           applyViewToDomRef.current();
         } else if (state.type === "marquee") {
           marqueeLifecycleRef.current += 1;
@@ -5964,6 +5965,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         type: "pan",
         originClient: { x: e.clientX, y: e.clientY },
         originPan: panRef.current,
+        originZoom: zoomRef.current,
       };
       panGestureActiveRef.current = true;
       const surface = surfaceRef.current;
@@ -9934,7 +9936,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
     }
     setCanvasZoom(zoomRef.current);
-    if (!panGestureActiveRef.current) {
+    if (!panGestureActiveRef.current || shouldSettleChrome) {
       setPan(panRef.current);
       recomputePenPointerForViewChange();
     }
