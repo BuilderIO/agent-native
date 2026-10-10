@@ -6706,6 +6706,7 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect(intervalCallbacks().at(-1)).toEqual(expect.any(Function));
       await flush();
       const saveCount = chatMocks.persistThreadSnapshot.mock.calls.length;
+      const metadataSaveCount = onSaveThread.mock.calls.length;
       expect(saveCount).toBeGreaterThan(0);
 
       await act(async () => {
@@ -6740,9 +6741,8 @@ describe("AgentKitAssistantChat host behavior", () => {
       });
       await flush();
 
-      expect(chatMocks.persistThreadSnapshot.mock.calls.length).toBeGreaterThan(
-        saveCount,
-      );
+      expect(chatMocks.persistThreadSnapshot).toHaveBeenCalledTimes(saveCount);
+      expect(onSaveThread.mock.calls.length).toBeGreaterThan(metadataSaveCount);
       expect(onMessageCountChange).toHaveBeenCalledWith(2);
       expect(onSaveThread).toHaveBeenCalledWith(
         chatMocks.threadId,

@@ -1787,6 +1787,15 @@ const AgentKitAssistantChatBody = forwardRef<
   });
   const lastSavedThreadDataRef = useRef<string | null>(null);
   const latestThreadDataRef = useRef<string | null>(null);
+  const lastSavedMetadataSnapshotRef = useRef({
+    persistenceKey: "",
+    threadData: null as string | null,
+  });
+  const latestMetadataSnapshotRef = useRef({
+    persistenceKey: "",
+    threadData: null as string | null,
+  });
+  const metadataSaveInFlightRef = useRef(false);
   const savingThreadDataRef = useRef(new Set<string>());
   const retryThreadSaveTimerRef = useRef<number | null>(null);
   const threadSaveRetryRef = useRef({
@@ -1799,7 +1808,10 @@ const AgentKitAssistantChatBody = forwardRef<
     threadData: null as string | null,
     generation: 0,
   });
-  const saveSnapshotRef = useRef<() => void>(() => undefined);
+  const saveMetadataSnapshotRef = useRef<() => void>(() => undefined);
+  const saveSnapshotRef = useRef<(metadataOnly?: boolean) => void>(
+    () => undefined,
+  );
   const isUnmountingRef = useRef(false);
   const localSubmissionRef = useRef(false);
   const latestAssistant = useMemo(
@@ -1883,6 +1895,10 @@ const AgentKitAssistantChatBody = forwardRef<
         }
         if (saved && latestThreadDataRef.current === snapshot.threadData) {
           lastSavedThreadDataRef.current = snapshot.threadData;
+          lastSavedMetadataSnapshotRef.current = {
+            persistenceKey,
+            threadData: snapshot.threadData,
+          };
           try {
             props.onThreadSnapshotPersisted?.(threadId, snapshot.messageCount);
           } catch (error) {
@@ -1996,6 +2012,93 @@ const AgentKitAssistantChatBody = forwardRef<
       props.createTransport,
       props.onSaveThread,
       props.onThreadSnapshotPersisted,
+      threadId,
+    ],
+  );
+  const saveThreadMetadata = useCallback(
+    (snapshot: ReturnType<typeof createAgentKitThreadSnapshot>) => {
+      const onSaveThread = props.onSaveThread;
+      if (!onSaveThread || isUnmountingRef.current) return;
+      const persistenceKey = createAgentKitThreadHandoffKey(props, threadId);
+      const lastSaved = lastSavedMetadataSnapshotRef.current;
+      if (
+        lastSaved.persistenceKey === persistenceKey &&
+        lastSaved.threadData === snapshot.threadData
+      ) {
+        return;
+      }
+      const latest = latestMetadataSnapshotRef.current;
+      if (
+        metadataSaveInFlightRef.current &&
+        latest.persistenceKey === persistenceKey &&
+        latest.threadData === snapshot.threadData
+      ) {
+        return;
+      }
+      latestMetadataSnapshotRef.current = {
+        persistenceKey,
+        threadData: snapshot.threadData,
+      };
+      if (metadataSaveInFlightRef.current) return;
+      metadataSaveInFlightRef.current = true;
+
+      void enqueueThreadSnapshotSave(persistenceKey, async (context) => {
+        const current = latestMetadataSnapshotRef.current;
+        const lastSavedSnapshot = lastSavedMetadataSnapshotRef.current;
+        if (
+          lastSavedSnapshot.persistenceKey === persistenceKey &&
+          lastSavedSnapshot.threadData === snapshot.threadData
+        ) {
+          return true;
+        }
+        if (
+          current.persistenceKey !== persistenceKey ||
+          current.threadData !== snapshot.threadData
+        ) {
+          return false;
+        }
+        try {
+          return (await onSaveThread(threadId, snapshot, context)) !== false;
+        } catch (error) {
+          console.error("Failed to save chat thread metadata.", error);
+          return false;
+        }
+      })
+        .then((saved) => {
+          const current = latestMetadataSnapshotRef.current;
+          if (
+            saved &&
+            current.persistenceKey === persistenceKey &&
+            current.threadData === snapshot.threadData
+          ) {
+            lastSavedMetadataSnapshotRef.current = {
+              persistenceKey,
+              threadData: snapshot.threadData,
+            };
+          }
+        })
+        .catch((error: unknown) => {
+          if ((error as Error)?.name !== "TimeoutError") {
+            console.error("Failed to persist chat thread metadata.", error);
+          }
+        })
+        .finally(() => {
+          metadataSaveInFlightRef.current = false;
+          const current = latestMetadataSnapshotRef.current;
+          if (
+            !isUnmountingRef.current &&
+            (current.persistenceKey !== persistenceKey ||
+              current.threadData !== snapshot.threadData)
+          ) {
+            saveMetadataSnapshotRef.current();
+          }
+        });
+    },
+    [
+      props.apiUrl,
+      props.browserTabId,
+      props.contextScope,
+      props.onSaveThread,
       threadId,
     ],
   );
@@ -2433,7 +2536,7 @@ const AgentKitAssistantChatBody = forwardRef<
     );
   }, [isRunning, props, thread, threadId, voiceTranscriptMessages]);
 
-  saveSnapshotRef.current = () => {
+  saveSnapshotRef.current = (metadataOnly = false) => {
     const transcripts = voiceTranscriptsRef.current.messages;
     if (thread.messages.length === 0 && transcripts.length === 0) {
       return;
@@ -2458,8 +2561,10 @@ const AgentKitAssistantChatBody = forwardRef<
         snapshot,
       );
     }
-    saveThreadSnapshot(snapshot);
+    if (metadataOnly) saveThreadMetadata(snapshot);
+    else saveThreadSnapshot(snapshot);
   };
+  saveMetadataSnapshotRef.current = () => saveSnapshotRef.current(true);
 
   useEffect(() => {
     isUnmountingRef.current = false;
@@ -2516,9 +2621,13 @@ const AgentKitAssistantChatBody = forwardRef<
 
   useEffect(() => {
     if (!isRunning) return;
-    const interval = window.setInterval(() => saveSnapshotRef.current(), 5000);
+    const metadataOnly = !props.createTransport;
+    const interval = window.setInterval(
+      () => saveSnapshotRef.current(metadataOnly),
+      5000,
+    );
     return () => window.clearInterval(interval);
-  }, [isRunning]);
+  }, [isRunning, props.createTransport]);
 
   const acquireSubmission = useCallback(async () => {
     if (
