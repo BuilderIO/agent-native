@@ -1168,6 +1168,74 @@ describe("chat thread store", () => {
     expect(row!.message_count).toBe(2);
   });
 
+  it("counts one durable reply when folded runs share an assistant message", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            id: "user-1",
+            role: "user",
+            content: [{ type: "text", text: "Write forty lines" }],
+          },
+          parentId: null,
+        },
+        {
+          message: {
+            id: "server-run-2",
+            role: "assistant",
+            content: [{ type: "text", text: "First half. Second half." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-2",
+              custom: { foldedRunIds: ["run-1", "run-2"] },
+            },
+          },
+          parentId: "user-1",
+        },
+      ],
+      agentKit: {
+        _mergeRootMessages: true,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Write forty lines" }],
+          },
+          {
+            id: "assistant-shared",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "First half." }],
+          },
+        ],
+        runs: [
+          {
+            id: "run-1",
+            status: "completed",
+            activeMessageId: "assistant-shared",
+          },
+          {
+            id: "run-2",
+            status: "completed",
+            activeMessageId: "assistant-shared",
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Write forty lines",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
   it("counts a fully projected folded reply once across its runs", async () => {
     const repository = {
       messages: [
@@ -1660,6 +1728,61 @@ describe("chat thread store", () => {
       JSON.stringify(repository),
       "Thread",
       "make this slide better",
+      3,
+    );
+
+    expect(row!.message_count).toBe(2);
+  });
+
+  it("counts a mirrored tool-call reply once when tool calls were not saved", async () => {
+    const repository = {
+      messages: [
+        {
+          message: {
+            ...userMessage,
+            metadata: {
+              custom: {
+                submittedRunId: "run-1",
+                agentKitMessageId: "client-user",
+              },
+            },
+          },
+        },
+        {
+          message: {
+            id: "server-run-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "lookup",
+              },
+              { type: "text", text: "Done." },
+            ],
+            metadata: { runId: "run-1" },
+          },
+        },
+      ],
+      agentKit: {
+        messages: [
+          { id: "client-user", role: "user", parts: [] },
+          {
+            id: "client-answer",
+            role: "assistant",
+            parts: [{ type: "text", text: "Done." }],
+          },
+        ],
+      },
+    };
+    row!.thread_data = JSON.stringify(repository);
+    row!.message_count = 0;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify(repository),
+      "Thread",
+      "Done.",
       3,
     );
 

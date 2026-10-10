@@ -343,6 +343,59 @@ function isExpectedTerminalFollowup(
   );
 }
 
+function claimFoldedAssistant(
+  thread: AgentThreadState,
+  runId: RunId,
+): AgentThreadState {
+  if (thread.runs[runId]?.activeMessageId) return thread;
+  let inherited: string | undefined;
+  for (const run of Object.values(thread.runs)) {
+    if (run.id === runId) break;
+    if (isTerminalRunStatus(run.status) || !run.activeMessageId) continue;
+    const message = thread.messages.find(
+      (item) => item.id === run.activeMessageId,
+    );
+    if (message?.role === "assistant" && message.status === "streaming") {
+      inherited = run.activeMessageId;
+    }
+  }
+  return inherited
+    ? updateRun(thread, runId, { activeMessageId: inherited })
+    : thread;
+}
+
+function assignActiveMessage(
+  thread: AgentThreadState,
+  runId: RunId,
+  messageId: string,
+): AgentThreadState {
+  const previous = thread.runs[runId]?.activeMessageId;
+  const next = updateRun(thread, runId, { activeMessageId: messageId });
+  if (!previous || previous === messageId) return next;
+  if (
+    Object.values(next.runs).some(
+      (run) =>
+        !isTerminalRunStatus(run.status) && run.activeMessageId === previous,
+    )
+  ) {
+    return next;
+  }
+  const owner = Object.values(next.runs).findLast(
+    (run) =>
+      isTerminalRunStatus(run.status) && run.activeMessageId === previous,
+  );
+  if (!owner) return next;
+  const status = owner.status === "completed" ? "complete" : "error";
+  return {
+    ...next,
+    messages: next.messages.map((message) =>
+      message.id === previous && message.status === "streaming"
+        ? { ...message, status }
+        : message,
+    ),
+  };
+}
+
 export function settleRunProjection(
   thread: AgentThreadState,
   runId: RunId,
@@ -351,6 +404,8 @@ export function settleRunProjection(
   activeMessageId?: string,
 ): AgentThreadState {
   const messageIds = new Set<string>();
+  const recordedMessageId = thread.runs[runId]?.activeMessageId;
+  if (recordedMessageId) messageIds.add(recordedMessageId);
   if (activeMessageId) messageIds.add(activeMessageId);
   const toolIds = new Set<string>();
   const activityIds = new Set<string>();
@@ -401,6 +456,37 @@ export function settleRunProjection(
         break;
     }
   }
+  let runs = thread.runs;
+  let seenSettlingRun = false;
+  for (const run of Object.values(thread.runs)) {
+    if (run.id === runId) {
+      seenSettlingRun = true;
+      continue;
+    }
+    if (isTerminalRunStatus(run.status)) continue;
+    if (run.activeMessageId) {
+      messageIds.delete(run.activeMessageId);
+      continue;
+    }
+    const foldedMessageId =
+      thread.runs[runId]?.activeMessageId ?? activeMessageId;
+    if (
+      !seenSettlingRun ||
+      !foldedMessageId ||
+      !messageIds.has(foldedMessageId)
+    ) {
+      continue;
+    }
+    const folded = thread.messages.find(
+      (message) => message.id === foldedMessageId,
+    );
+    if (folded?.role !== "assistant" || folded.status !== "streaming") continue;
+    messageIds.delete(foldedMessageId);
+    runs = {
+      ...runs,
+      [run.id]: { ...run, activeMessageId: foldedMessageId },
+    };
+  }
   const settleStatus = <
     T extends { status: "running" | AgentTerminalRunStatus },
   >(
@@ -427,6 +513,7 @@ export function settleRunProjection(
       : undefined;
   return {
     ...thread,
+    runs,
     messages: thread.messages.map((message) =>
       message.status === "streaming" && messageIds.has(message.id)
         ? { ...message, status: status === "completed" ? "complete" : "error" }
@@ -556,15 +643,18 @@ export function reduceAgentEvent(
   next = { ...next, events: [...next.events, event] };
   switch (event.type) {
     case "run.started":
-      return {
-        ...updateRun(next, event.runId, {
-          status: "running",
-          startedAt: event.occurredAt,
-        }),
-        ...updateActiveRuns(next, event.runId, true),
-        suggestions: [],
-        suggestionsPendingTurn: false,
-      };
+      return claimFoldedAssistant(
+        {
+          ...updateRun(next, event.runId, {
+            status: "running",
+            startedAt: event.occurredAt,
+          }),
+          ...updateActiveRuns(next, event.runId, true),
+          suggestions: [],
+          suggestionsPendingTurn: false,
+        },
+        event.runId,
+      );
     case "run.status": {
       const terminal = isTerminalRunStatus(event.status);
       const updated = {
@@ -655,6 +745,9 @@ export function reduceAgentEvent(
         event.occurredAt,
       );
     case "message.created": {
+      if (event.message.role === "assistant") {
+        next = assignActiveMessage(next, event.runId, event.message.id);
+      }
       const current = next.messages.find(
         (message) => message.id === event.message.id,
       );
@@ -675,6 +768,9 @@ export function reduceAgentEvent(
       };
     }
     case "message.completed": {
+      if (event.message.role === "assistant") {
+        next = assignActiveMessage(next, event.runId, event.message.id);
+      }
       const current = next.messages.find(
         (message) => message.id === event.message.id,
       );
@@ -703,6 +799,7 @@ export function reduceAgentEvent(
       };
     }
     case "message.delta":
+      next = assignActiveMessage(next, event.runId, event.messageId);
       return {
         ...next,
         messages: appendMessageText(
@@ -714,6 +811,7 @@ export function reduceAgentEvent(
         ),
       };
     case "reasoning.delta":
+      next = assignActiveMessage(next, event.runId, event.messageId);
       return {
         ...next,
         messages: appendMessageText(

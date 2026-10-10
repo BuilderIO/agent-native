@@ -243,8 +243,10 @@ function contentMatches(
   const toolCallMatch = Boolean(
     typeof candidate.id === "string" && toolMessageIds?.has(candidate.id),
   );
+  // Saved tool calls can be missing or trimmed. Text still identifies the
+  // reply; empty text does not, and the caller keeps a second assistant.
   if (rootToolCalls(root).length > 0 && toolMessageIds === undefined) {
-    return false;
+    return sameText;
   }
   return (
     (sameText && (rootText.length > 0 || candidateText.length > 0)) ||
@@ -296,6 +298,41 @@ function foldedProjectionMatches(
   const isSuffix =
     last === foldedIds.length - 1 && rootText.endsWith(candidateText);
   return isPrefix || isSuffix;
+}
+
+function sharedFoldedRootId(
+  snapshot: Record<string, unknown>,
+  claimedRunIds: Set<string>,
+  rootMessages: Record<string, unknown>[],
+  toolCalls: unknown,
+  takenRootIds: ReadonlySet<string>,
+): string | undefined {
+  if (claimedRunIds.size < 2) return undefined;
+  let matched: string | undefined;
+  for (const root of rootMessages) {
+    if (root.role !== "assistant" || typeof root.id !== "string") continue;
+    if (takenRootIds.has(root.id)) continue;
+    const folded = foldedRunIds(root);
+    if (
+      folded.length < 2 ||
+      folded.length !== claimedRunIds.size ||
+      !folded.every((runId) => claimedRunIds.has(runId))
+    ) {
+      continue;
+    }
+    if (
+      !contentMatches(
+        root,
+        snapshot,
+        representedToolCallMessageIds(root, toolCalls),
+      )
+    ) {
+      continue;
+    }
+    if (matched) return undefined;
+    matched = root.id;
+  }
+  return matched;
 }
 
 /** AgentKit messages that represent durable root assistant messages. */
@@ -356,6 +393,7 @@ export function projectRootAssistantMessages(input: {
   }
   const snapshotMessagesByRunId = new Map<string, Record<string, unknown>[]>();
   const snapshotRunIdsByMessageId = new Map<string, string>();
+  const sharedSnapshotIds = new Set<string>();
   let submittedRunId: string | undefined;
   for (const candidate of snapshotMessages) {
     if (candidate.role === "user") {
@@ -377,7 +415,22 @@ export function projectRootAssistantMessages(input: {
         ? submittedRunId
         : undefined;
     const runId = assistantRunId(candidate, runIdsByMessageId, inferredRunId);
-    if (!runId || typeof candidate.id !== "string") continue;
+    if (!runId || typeof candidate.id !== "string") {
+      const claimed =
+        typeof candidate.id === "string"
+          ? runIdsByMessageId.get(candidate.id)
+          : undefined;
+      if (
+        !runId &&
+        typeof candidate.id === "string" &&
+        !explicitRunId(candidate) &&
+        claimed &&
+        claimed.size > 1
+      ) {
+        sharedSnapshotIds.add(candidate.id);
+      }
+      continue;
+    }
     if (inferredRunId) snapshotRunIdsByMessageId.set(candidate.id, runId);
     const candidates = snapshotMessagesByRunId.get(runId);
     if (candidates) candidates.push(candidate);
@@ -431,6 +484,22 @@ export function projectRootAssistantMessages(input: {
     ) {
       represented.add(root.id);
     }
+  }
+  for (const snapshotId of sharedSnapshotIds) {
+    const snapshot = snapshotMessages.find(
+      (candidate) => candidate.id === snapshotId,
+    );
+    const claimed = runIdsByMessageId.get(snapshotId);
+    if (!snapshot || !claimed) continue;
+    const rootId = sharedFoldedRootId(
+      snapshot,
+      claimed,
+      rootMessages,
+      input.toolCalls,
+      represented,
+    );
+    if (!rootId) continue;
+    represented.add(rootId);
   }
   const directMatchCountBySnapshotId = new Map<string, number>();
   for (const snapshotId of directMatches.values()) {
