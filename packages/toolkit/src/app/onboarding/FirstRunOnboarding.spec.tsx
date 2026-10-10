@@ -1242,10 +1242,11 @@ describe("FirstRunOnboarding", () => {
       )?.click();
     });
 
-    mocks.useBuilderConnectFlow.mockReturnValue({
+    const accountExistsFlow = {
       ...flow,
       accountExists: true,
-    });
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(accountExistsFlow);
     act(() => {
       root.render(
         <TooltipProvider>
@@ -1285,6 +1286,24 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector(
         '[data-testid="first-run-open-key-settings"]',
       ),
+    ).toBeTruthy();
+
+    accountExistsFlow.start.mockImplementation(() => {
+      accountExistsFlow.connecting = true;
+    });
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-builder-sign-in"]',
+        )
+        ?.click();
+    });
+
+    expect(document.body.textContent).not.toContain(
+      "You already have a Builder.io account",
+    );
+    expect(
+      document.body.querySelector('[data-testid="first-run-cancel-builder"]'),
     ).toBeTruthy();
   });
 

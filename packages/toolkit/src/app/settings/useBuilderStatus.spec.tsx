@@ -1641,6 +1641,85 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("account-exists");
   });
 
+  it("clears existing-account state while starting a normal sign-in", async () => {
+    setUserAgent("Mozilla/5.0 Chrome/140.0");
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    const pendingReads: Array<(response: Response) => void> = [];
+    vi.mocked(fetch).mockReset();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: false,
+          agentNativeProvisioningEnabled: true,
+          agentNativeProvisioningToken: provisioningToken,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+          connectError: {
+            message:
+              "A Builder account already exists for this email. Log in to connect it.",
+            code: "account_exists",
+            at: Date.now(),
+          },
+        }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            pendingReads.push(resolve);
+          }),
+      );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe startProvisionAccount={false} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(container.textContent).toContain("account-exists");
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+    });
+
+    expect(container.textContent).toContain(
+      "connecting resolved no-account-exists",
+    );
+    expect(
+      container.querySelector('[data-testid="cancel-connect"]'),
+    ).toBeTruthy();
+    expect(pendingReads).toHaveLength(1);
+
+    await act(async () => {
+      pendingReads[0]?.(
+        jsonResponse({
+          configured: false,
+          agentNativeProvisioningEnabled: true,
+          agentNativeProvisioningToken: provisioningToken,
+          envManaged: false,
+          builderEnabled: true,
+          orgName: null,
+          connectUrl: signedConnectUrl,
+          connectError: {
+            message:
+              "A Builder account already exists for this email. Log in to connect it.",
+            code: "account_exists",
+            at: Date.now(),
+          },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain(
+      "connecting resolved account-exists",
+    );
+  });
+
   it("keeps existing-account mode when a login attempt is blocked", async () => {
     vi.mocked(fetch).mockImplementation(async () =>
       jsonResponse({

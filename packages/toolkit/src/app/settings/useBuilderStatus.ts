@@ -1249,7 +1249,7 @@ export function useBuilderConnectFlow(
       };
       setConnecting(true);
       setError(null);
-      if (provisionAccountForStart) setAccountExists(false);
+      setAccountExists(false);
 
       const origin = getCallbackOrigin() || window.location.origin;
       const cachedFreshUrl = isFreshSignedConnectUrl(

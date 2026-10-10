@@ -1018,7 +1018,7 @@ export function FirstRunOnboarding({
     );
   }
 
-  const accountExists = connectFlow.accountExists;
+  const accountExists = connectFlow.accountExists && !connectFlow.connecting;
   const provisioning = builderConnectionMode === "provision" && !accountExists;
   const returnToSetupChoice = () => setScreen("choice");
   return (
