@@ -305,6 +305,64 @@ describe("slide animation element parsing", () => {
     ]);
   });
 
+  it("reveals nested list items in their own steps", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><ul>
+        <li>First<ul><li>Nested point</li></ul></li>
+        <li>Second</li>
+      </ul></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0, 0],
+      [0, 0, 0, 0, 0],
+      [0, 0, 1],
+    ]);
+  });
+
+  it("does not expand into unrelated nested text blocks", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div>
+        <p>First</p>
+        <div><p>Separate block one</p><p>Separate block two</p></div>
+        <p>Second</p>
+      </div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0],
+      [0, 2],
+    ]);
+  });
+
   it("deduplicates a by-paragraph target that overlaps another animation", () => {
     const doc = new DOMParser().parseFromString(
       `<div class="fmd-slide"><div><p>First</p><p>Second</p></div></div>`,

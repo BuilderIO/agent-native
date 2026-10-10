@@ -306,23 +306,66 @@ export function expandByParagraphAnimations<T extends AnimationTarget>(
     const tagName = element.tagName.toLowerCase();
     const nativeParagraphs: Element[] = [];
     if (importedParagraphs.length < 2) {
-      const textContainer =
-        textObject ??
-        (tagName === "p" || tagName === "li"
-          ? (element.parentElement ?? element)
-          : element);
+      const collectNestedLists = (parent: Element) => {
+        for (const child of getPersistedChildren(parent)) {
+          const childTagName = child.tagName.toLowerCase();
+          if (SKIPPED_TAGS.has(childTagName)) continue;
+          if (childTagName === "ul" || childTagName === "ol") {
+            collectListItems(child);
+          } else {
+            collectNestedLists(child);
+          }
+        }
+      };
+      const collectListItems = (list: Element) => {
+        for (const child of getPersistedChildren(list)) {
+          const childTagName = child.tagName.toLowerCase();
+          if (SKIPPED_TAGS.has(childTagName)) continue;
+          if (childTagName === "li") {
+            if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+            collectNestedLists(child);
+          } else if (childTagName === "ul" || childTagName === "ol") {
+            collectListItems(child);
+          }
+        }
+      };
       const collectParagraphs = (parent: Element) => {
         for (const child of getPersistedChildren(parent)) {
           const childTagName = child.tagName.toLowerCase();
           if (SKIPPED_TAGS.has(childTagName)) continue;
-          if (childTagName === "p" || childTagName === "li") {
+          if (childTagName === "p") {
             if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+            continue;
+          }
+          if (childTagName === "li") {
+            if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+            collectNestedLists(child);
+            continue;
+          }
+          if (childTagName === "ul" || childTagName === "ol") {
+            collectListItems(child);
             continue;
           }
           collectParagraphs(child);
         }
       };
-      collectParagraphs(textContainer);
+      if (!textObject && tagName === "p") {
+        for (const sibling of getPersistedChildren(
+          element.parentElement ?? element,
+        )) {
+          const siblingTagName = sibling.tagName.toLowerCase();
+          if (siblingTagName === "p") {
+            if (hasMeaningfulContent(sibling)) nativeParagraphs.push(sibling);
+          } else if (siblingTagName === "ul" || siblingTagName === "ol") {
+            collectListItems(sibling);
+          }
+        }
+      } else {
+        const textContainer =
+          textObject ??
+          (tagName === "li" ? (element.closest("ul, ol") ?? element) : element);
+        collectParagraphs(textContainer);
+      }
     }
     const paragraphs =
       importedParagraphs.length > 1 ? importedParagraphs : nativeParagraphs;
