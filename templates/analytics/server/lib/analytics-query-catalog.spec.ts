@@ -830,7 +830,7 @@ describe("analytics query catalog", () => {
     });
   });
 
-  it("ranks exact approved and dbt definitions ahead of certified panels", () => {
+  it("ranks approved definitions ahead of certified panels but generated dbt below", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "revenue",
       limit: 6,
@@ -870,21 +870,30 @@ describe("analytics query catalog", () => {
           metric: "Revenue",
           definition: "Revenue recognized from closed-won deals",
           sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
         },
       ],
     });
 
-    expect(
-      results
-        .slice(0, 2)
-        .map((candidate) =>
-          candidate.kind === "data-dictionary" ? candidate.id : null,
-        ),
-    ).toEqual(["approved-revenue-definition", "dbt-revenue-definition"]);
-    expect(results[2]).toMatchObject({
+    expect(results[0]).toMatchObject({
+      kind: "data-dictionary",
+      id: "approved-revenue-definition",
+      approved: true,
+    });
+    expect(results[1]).toMatchObject({
       kind: "dashboard-panel",
       panelId: "revenue",
       dashboardCertified: true,
+    });
+    expect(results[2]).toMatchObject({
+      kind: "data-dictionary",
+      id: "dbt-revenue-definition",
+      origin: "source-index",
+      sourceKind: "dbt",
+      approved: false,
+      aiGenerated: true,
     });
   });
 
