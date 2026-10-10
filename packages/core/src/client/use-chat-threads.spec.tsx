@@ -1385,6 +1385,46 @@ describe("useChatThreads", () => {
     expect(hook!.isNewThread("route-thread")).toBe(false);
   });
 
+  it("does not confirm an archived route thread", async () => {
+    const archivedRouteThread: ChatThreadSummary = {
+      id: "archived-route-thread",
+      title: "Archived route",
+      preview: "archived preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      archivedAt: 5,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/archived-route-thread" && !init) {
+        return jsonResponse(archivedRouteThread);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "archived-route-test", null, {
+        routeThreadId: "archived-route-thread",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.isThreadPersisted("archived-route-thread")).toBe(false);
+    expect(hook!.threads).toEqual([]);
+  });
+
   it("confirms a route thread selected after the initial history load", async () => {
     const routeThread: ChatThreadSummary = {
       id: "later-route-thread",

@@ -928,6 +928,7 @@ export function useChatThreads(
       if (
         restoredThread &&
         restoredThread !== "forbidden" &&
+        !restoredThread.archivedAt &&
         !restoredBelongsElsewhere &&
         !isUnconfirmedClientDraftThread(
           restoredThread.id,
@@ -1067,7 +1068,7 @@ export function useChatThreads(
         }
         return;
       }
-      if (thread === null || thread === "forbidden") {
+      if (thread === null || thread === "forbidden" || thread.archivedAt) {
         return;
       }
 
