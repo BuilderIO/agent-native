@@ -1,5 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 
+import type { DbExec } from "../db/client.js";
+
 function postgresSql(sql: string): string {
   let index = 0;
   return sql.replace(/\?/g, () => `$${++index}`);
@@ -9,6 +11,25 @@ export async function createTestPglite() {
   const db = await PGlite.create("memory://");
   return {
     db,
+    transaction: <T>(fn: (tx: DbExec) => Promise<T>): Promise<T> =>
+      db.transaction(async (tx) =>
+        fn({
+          execute: async (input) => {
+            if (typeof input === "string") {
+              await tx.exec(input);
+              return { rows: [], rowsAffected: 0 };
+            }
+            const result = await tx.query(
+              postgresSql(input.sql),
+              (input.args ?? []).map((value) => value ?? null),
+            );
+            return {
+              rows: result.rows,
+              rowsAffected: result.affectedRows ?? 0,
+            };
+          },
+        }),
+      ),
     async exec(sql: string) {
       await (db as any).exec(sql);
     },
