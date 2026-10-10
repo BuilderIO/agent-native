@@ -55,14 +55,20 @@ const SELECTED_SVG_MEASUREMENT_FIXTURE = `<!doctype html><html><body style="marg
 </body></html>`;
 
 const STYLESHEET_VECTOR_GRADIENT_FIXTURE = `<!doctype html><html><head><style>
-  #gradient-a { --an-vector-fill-gradient: linear-gradient(90deg, rgb(255 0 0), rgb(0 0 255)); }
-  #gradient-b { --an-vector-fill-gradient: linear-gradient(90deg, rgb(0 128 0), rgb(255 255 0)); }
+  #gradient-a {
+    --an-vector-fill-gradient: linear-gradient(90deg, rgb(255 0 0), rgb(0 0 255));
+    --an-vector-stroke-gradient: linear-gradient(90deg, rgb(0 0 0), rgb(255 255 255));
+  }
+  #gradient-b {
+    --an-vector-fill-gradient: linear-gradient(90deg, rgb(0 128 0), rgb(255 255 0));
+    --an-vector-stroke-gradient: linear-gradient(90deg, rgb(255 0 0), rgb(0 0 255));
+  }
 </style></head><body style="margin:0">
   <svg id="gradient-a" data-agent-native-node-id="gradient-a" data-an-primitive="pasted-svg" width="120" height="80" viewBox="0 0 120 80">
-    <path d="M0 0h120v80H0z" fill="#f00" />
+    <path d="M0 0h120v80H0z" fill="#f00" stroke="#111" stroke-width="4" />
   </svg>
   <svg id="gradient-b" data-agent-native-node-id="gradient-b" data-an-primitive="pasted-svg" width="120" height="80" viewBox="0 0 120 80">
-    <path d="M0 0h120v80H0z" fill="#0f0" />
+    <path d="M0 0h120v80H0z" fill="#0f0" stroke="#111" stroke-width="4" />
   </svg>
 </body></html>`;
 
@@ -169,7 +175,12 @@ describe("editor chrome selection overlays", () => {
         )
           .getPropertyValue("--an-vector-fill-gradient")
           .trim();
-        return { payload, actual };
+        const actualStroke = getComputedStyle(
+          document.querySelector("#gradient-a path")!,
+        )
+          .getPropertyValue("--an-vector-stroke-gradient")
+          .trim();
+        return { payload, actual, actualStroke };
       });
 
       expect(
@@ -177,6 +188,12 @@ describe("editor chrome selection overlays", () => {
       ).toBe(firstSelection.actual);
       expect(
         firstSelection.payload?.inlineStyles?.["--an-vector-fill-gradient"],
+      ).toBeUndefined();
+      expect(
+        firstSelection.payload?.computedStyles["--an-vector-stroke-gradient"],
+      ).toBe(firstSelection.actualStroke);
+      expect(
+        firstSelection.payload?.inlineStyles?.["--an-vector-stroke-gradient"],
       ).toBeUndefined();
 
       await page.evaluate(() => {
@@ -201,6 +218,9 @@ describe("editor chrome selection overlays", () => {
       expect(
         measurement?.payload.computedStyles["--an-vector-fill-gradient"],
       ).toBe(firstSelection.actual);
+      expect(
+        measurement?.payload.computedStyles["--an-vector-stroke-gradient"],
+      ).toBe(firstSelection.actualStroke);
 
       await select(page, "#gradient-b");
       await page.waitForFunction(
@@ -216,16 +236,30 @@ describe("editor chrome selection overlays", () => {
         )
           .getPropertyValue("--an-vector-fill-gradient")
           .trim();
-        return { payload, actual };
+        const actualStroke = getComputedStyle(
+          document.querySelector("#gradient-b path")!,
+        )
+          .getPropertyValue("--an-vector-stroke-gradient")
+          .trim();
+        return { payload, actual, actualStroke };
       });
       expect(
         secondSelection.payload?.computedStyles["--an-vector-fill-gradient"],
       ).toBe(secondSelection.actual);
       expect(
+        secondSelection.payload?.computedStyles["--an-vector-stroke-gradient"],
+      ).toBe(secondSelection.actualStroke);
+      expect(
         mixedElementFromSelection([
           firstSelection.payload!,
           secondSelection.payload!,
         ])?.computedStyles["--an-vector-fill-gradient"],
+      ).toBe("Mixed");
+      expect(
+        mixedElementFromSelection([
+          firstSelection.payload!,
+          secondSelection.payload!,
+        ])?.computedStyles["--an-vector-stroke-gradient"],
       ).toBe("Mixed");
     } finally {
       await browser.close();

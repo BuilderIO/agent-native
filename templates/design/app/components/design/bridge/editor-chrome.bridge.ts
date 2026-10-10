@@ -6025,6 +6025,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var vectorFillGradient = paintCs
       .getPropertyValue("--an-vector-fill-gradient")
       .trim();
+    var vectorStrokeGradient = strokeCs
+      .getPropertyValue("--an-vector-stroke-gradient")
+      .trim();
     return {
       color: cs.color,
       backgroundColor: cs.backgroundColor,
@@ -6114,6 +6117,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         : {}),
       fillOpacity: paintCs.fillOpacity,
       stroke: strokeCs.stroke,
+      ...(vectorStrokeGradient
+        ? { "--an-vector-stroke-gradient": vectorStrokeGradient }
+        : {}),
       strokeWidth: strokeCs.strokeWidth,
       strokeOpacity: strokeCs.strokeOpacity,
       strokeDasharray: strokeCs.strokeDasharray,

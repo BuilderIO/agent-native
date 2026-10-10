@@ -5255,6 +5255,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         backgroundClip = webkitBackgroundClip;
       }
       var vectorFillGradient = paintCs.getPropertyValue("--an-vector-fill-gradient").trim();
+      var vectorStrokeGradient = strokeCs.getPropertyValue("--an-vector-stroke-gradient").trim();
       return {
         color: cs.color,
         backgroundColor: cs.backgroundColor,
@@ -5342,6 +5343,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         ...vectorFillGradient ? { "--an-vector-fill-gradient": vectorFillGradient } : {},
         fillOpacity: paintCs.fillOpacity,
         stroke: strokeCs.stroke,
+        ...vectorStrokeGradient ? { "--an-vector-stroke-gradient": vectorStrokeGradient } : {},
         strokeWidth: strokeCs.strokeWidth,
         strokeOpacity: strokeCs.strokeOpacity,
         strokeDasharray: strokeCs.strokeDasharray,

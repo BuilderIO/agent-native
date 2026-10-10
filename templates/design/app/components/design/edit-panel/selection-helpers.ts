@@ -15,6 +15,14 @@ export function isVectorShapeSelection(element: ElementInfo): boolean {
   return vectorShapeSelections.has(element) || isVectorShapeElement(element);
 }
 
+export function inheritVectorShapeSelection<T extends ElementInfo>(
+  source: ElementInfo,
+  target: T,
+): T {
+  if (isVectorShapeSelection(source)) vectorShapeSelections.add(target);
+  return target;
+}
+
 export function sameOrMixed(values: string[]): string {
   if (values.length === 0) return "";
   const first = values[0] ?? "";
