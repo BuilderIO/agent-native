@@ -13,14 +13,19 @@ import {
   buildReplayMarkers,
   buildReplayViewportTimeline,
   collapsePageChangeMarkers,
+  contiguousReplayChunkPrefix,
   fetchSessionReplayPlayback,
+  fetchReplayChunks,
   filterReplayMarkers,
   normalizeReplayEvents,
   partitionReplayChunkBatches,
+  replayChunkMatchesManifestRange,
+  replayManifestSupportsStreaming,
   REPLAY_OVERLAY_STYLE_RULES,
   replayDevToolsIssueCount,
   replayActionName,
   replayAvailabilityErrorKey,
+  replayOffsetAfterTimestamp,
   replayInitialViewportDimensions,
   replayPayloadEvents,
   replayViewportDimensions,
@@ -59,6 +64,10 @@ describe("session replay event normalization", () => {
     expect(shouldPublishReplayClockUpdate(1_000, 1_100, 10, 110)).toBe(true);
     expect(shouldPublishReplayClockUpdate(1_000, 1_100, 110, 110)).toBe(false);
     expect(shouldPublishReplayClockUpdate(1_000, 1_100, 110, NaN)).toBe(false);
+  });
+
+  it("seeks past a timestamp so rrweb applies events at that point before pausing", () => {
+    expect(replayOffsetAfterTimestamp(60_000)).toBe(60_001);
   });
 
   it("keeps the high-contrast replay cursor visible while playing", () => {
@@ -1370,6 +1379,77 @@ describe("session replay chunk loading", () => {
     ]);
   });
 
+  it("isolates the first chunk so the replay can start before later batches", () => {
+    const chunks = Array.from({ length: 45 }, (_, index) =>
+      replayChunkManifest(index, replayChunkPath(index)),
+    );
+
+    expect(
+      partitionReplayChunkBatches(chunks, { prioritizeFirstChunk: true }).map(
+        (batch) => batch.map((chunk) => chunk.seq),
+      ),
+    ).toEqual([
+      [0],
+      Array.from({ length: 20 }, (_, index) => index + 1),
+      Array.from({ length: 20 }, (_, index) => index + 21),
+      [41, 42, 43, 44],
+    ]);
+  });
+
+  it("streams only when ordered manifest ranges and chunk events agree", () => {
+    const ranges = [
+      {
+        ...replayChunkManifest(0, replayChunkPath(0)),
+        eventCount: 2,
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:10.000Z",
+      },
+      {
+        ...replayChunkManifest(1, replayChunkPath(1)),
+        eventCount: 2,
+        startedAt: "2026-01-01T00:00:10.001Z",
+        endedAt: "2026-01-01T00:00:20.000Z",
+      },
+    ];
+    const firstChunk = replayChunkEvents(0, [
+      { type: 4, timestamp: Date.parse(ranges[0]!.startedAt) },
+      { type: 2, timestamp: Date.parse(ranges[0]!.endedAt) },
+    ]);
+
+    expect(replayManifestSupportsStreaming(ranges)).toBe(true);
+    expect(replayChunkMatchesManifestRange(firstChunk, ranges[0]!)).toBe(true);
+    expect(
+      replayChunkMatchesManifestRange(
+        { ...firstChunk, unavailable: true },
+        ranges[0]!,
+      ),
+    ).toBe(false);
+    expect(
+      replayManifestSupportsStreaming([
+        ranges[0]!,
+        { ...ranges[1]!, startedAt: "2026-01-01T00:00:09.000Z" },
+      ]),
+    ).toBe(false);
+    expect(
+      replayChunkMatchesManifestRange(
+        replayChunkEvents(0, [
+          { type: 4, timestamp: Date.parse(ranges[0]!.startedAt) },
+          { type: 2, timestamp: Date.parse(ranges[0]!.endedAt) + 1 },
+        ]),
+        ranges[0]!,
+      ),
+    ).toBe(false);
+  });
+
+  it("does not expose a later completed chunk before the missing prefix", () => {
+    const first = replayChunkEvents(0, [{ seq: 0 }]);
+    const third = replayChunkEvents(2, [{ seq: 2 }]);
+
+    expect(contiguousReplayChunkPrefix([first, undefined, third])).toEqual([
+      first,
+    ]);
+  });
+
   it("loads chunk batches three at a time and restores manifest order", async () => {
     const manifestChunks = Array.from({ length: 45 }, (_, index) =>
       replayChunkManifest(index, replayChunkPath(index)),
@@ -1408,6 +1488,60 @@ describe("session replay chunk loading", () => {
     expect(batchRequests).toBe(3);
     expect(maxActiveBatches).toBe(3);
     expect(playback.chunks.map((chunk) => chunk.seq)).toEqual(
+      manifestChunks.map((chunk) => chunk.seq),
+    );
+  });
+
+  it("delivers the first chunk before waiting on the other concurrent batches", async () => {
+    const manifestChunks = Array.from({ length: 45 }, (_, index) =>
+      replayChunkManifest(index, replayChunkPath(index)),
+    );
+    let releaseRemaining!: () => void;
+    const remaining = new Promise<void>((resolve) => {
+      releaseRemaining = resolve;
+    });
+    let bootstrapped!: () => void;
+    const firstChunkDelivered = new Promise<void>((resolve) => {
+      bootstrapped = resolve;
+    });
+    const deliveries: number[][] = [];
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://analytics.example.test",
+        pathname: "/sessions/sr_1",
+        search: "",
+      },
+    });
+    vi.stubGlobal("location", {
+      origin: "https://analytics.example.test",
+      pathname: "/sessions/sr_1",
+      search: "",
+    });
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "https://analytics.example.test");
+      const seqs = url.searchParams.get("seqs")!.split(",").map(Number);
+      if (seqs[0] !== 0) await remaining;
+      return jsonResponse({
+        chunks: seqs.map((seq) => replayChunkEvents(seq, [{ seq }])),
+      });
+    }) as typeof fetch;
+
+    const load = fetchReplayChunks(
+      manifestChunks,
+      {},
+      (batch) => {
+        const seqs = batch.map((chunk) => chunk.seq);
+        deliveries.push(seqs);
+        if (seqs.includes(0)) bootstrapped();
+      },
+      { prioritizeFirstChunk: true },
+    );
+
+    await firstChunkDelivered;
+    expect(deliveries).toEqual([[0]]);
+    releaseRemaining();
+    const chunks = await load;
+    expect(chunks.map((chunk) => chunk.seq)).toEqual(
       manifestChunks.map((chunk) => chunk.seq),
     );
   });
