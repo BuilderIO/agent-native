@@ -1469,6 +1469,7 @@ export function useBuilderConnectFlow(
             markStatusUnavailable();
             connectStartedAtRef.current = null;
             setConnecting(false);
+            restoreExistingAccount();
             return;
           }
           markStatusAvailable();
