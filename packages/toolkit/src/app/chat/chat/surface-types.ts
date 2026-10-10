@@ -79,7 +79,7 @@ export interface AssistantChatHandle {
   /** Remove a keyed context item from the composer. */
   removeComposerContextItem(
     key: string,
-    options?: { threadScoped?: boolean; stagedAt?: number },
+    options?: { threadScoped?: boolean; stagingId?: string },
   ): void | Promise<void>;
   /** Clear all staged context items from the composer. */
   clearComposerContextItems(): void;

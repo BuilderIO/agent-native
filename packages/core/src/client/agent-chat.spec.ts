@@ -75,7 +75,7 @@ const {
   insertAgentComposerReference,
   listAgentChatContext,
   normalizeAgentComposerReference,
-  nextAgentChatStagedAt,
+  nextAgentChatStagingId,
   parseSubmitChatMessage,
   publishAgentChatContextItems,
   removeAgentChatContextItem,
@@ -216,24 +216,38 @@ describe("sendToAgentChat", () => {
     expect(parsed?.context).toBe('{"movieId":969681}');
   });
 
-  it("restaging stamps a fresh staging time over one the caller carried", () => {
+  it("restaging stamps a fresh staging identity over one the caller carried", () => {
     setAgentChatContextItem({
       key: "restage",
       title: "Restage",
       context: "first",
-      stagedAt: 1,
+      stagingId: "carried",
     });
 
     const [item] = listAgentChatContext();
-    expect(item.stagedAt).toBeGreaterThan(1);
+    expect(item.stagingId).toEqual(expect.any(String));
+    expect(item.stagingId).not.toBe("carried");
   });
 
-  it("never repeats a staging time within one page", () => {
+  it("gives every staging its own identity, even within one millisecond", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
     try {
-      const first = nextAgentChatStagedAt();
-      const second = nextAgentChatStagedAt();
-      expect(second).toBeGreaterThan(first);
+      const first = nextAgentChatStagingId();
+      const second = nextAgentChatStagingId();
+      expect(first).toEqual(expect.any(String));
+      expect(second).not.toBe(first);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("gives the same clock reading in two page realms different staging identities", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      const first = nextAgentChatStagingId();
+      vi.resetModules();
+      const otherRealm = await import("./agent-chat.js");
+      expect(otherRealm.nextAgentChatStagingId()).not.toBe(first);
     } finally {
       now.mockRestore();
     }
@@ -1690,7 +1704,7 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
-        stagedAt: expect.any(Number),
+        stagingId: expect.any(String),
       },
     });
     expect(listAgentChatContext()).toEqual([
@@ -1698,7 +1712,7 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
-        stagedAt: expect.any(Number),
+        stagingId: expect.any(String),
       },
     ]);
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
@@ -1724,7 +1738,7 @@ describe("sendToAgentChat", () => {
         title: "Cart",
         context: "Line item A",
         openSidebar: false,
-        stagedAt: expect.any(Number),
+        stagingId: expect.any(String),
       },
     });
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
@@ -1759,7 +1773,7 @@ describe("sendToAgentChat", () => {
     await expect(persistence).resolves.toEqual(
       expect.objectContaining({
         key: "prefill:thread-1",
-        stagedAt: expect.any(Number),
+        stagingId: expect.any(String),
       }),
     );
     expect(listAgentChatContext()).toEqual(requestState.items);
