@@ -2275,6 +2275,30 @@ describe("planJourneyCanvas", () => {
     );
   });
 
+  it("reserves a line for each word-wrapped Other heading", () => {
+    const otherHeight = (label: string) => {
+      const raw = rawInput();
+      const nodes = raw.tree.nodes.map((candidate) =>
+        candidate.kind === "other" ? { ...candidate, label } : candidate,
+      );
+      const fragment = plan({
+        ...raw,
+        tree: { ...raw.tree, nodes },
+      })
+        .boardFragments({ x: 0, y: 0 })
+        .find((candidate) =>
+          candidate.includes('data-agent-native-layer-name="Other paths"'),
+        );
+      const height = fragment?.match(/height:(\d+(?:\.\d+)?)px/);
+      expect(height).not.toBeNull();
+      return Number(height![1]);
+    };
+
+    expect(
+      otherHeight("Onboarding Onboarding Onboarding"),
+    ).toBeGreaterThanOrEqual(otherHeight("Other (3 branches)") + 56);
+  });
+
   it("shows full Other branch paths, counts, parent percentages, and the cap", () => {
     const raw = rawInput();
     const other = {

@@ -982,7 +982,40 @@ function wrappedLineCount(
   width: number,
   fontSize = EDGE_LABEL_FONT_SIZE,
 ): number {
-  return Math.max(1, Math.ceil(estimatedTextWidth(value, fontSize) / width));
+  const words = value.split(/\s+/u).filter(Boolean);
+  if (words.length === 0) return 1;
+
+  const spaceWidth = estimatedTextWidth(" ", fontSize);
+  let lines = 1;
+  let lineWidth = 0;
+  for (const word of words) {
+    const wordWidth = estimatedTextWidth(word, fontSize);
+    if (wordWidth <= width) {
+      const nextWidth =
+        lineWidth + (lineWidth > 0 ? spaceWidth : 0) + wordWidth;
+      if (lineWidth > 0 && nextWidth > width) {
+        lines += 1;
+        lineWidth = wordWidth;
+      } else {
+        lineWidth = nextWidth;
+      }
+      continue;
+    }
+
+    if (lineWidth > 0) {
+      lines += 1;
+      lineWidth = 0;
+    }
+    for (const character of Array.from(word)) {
+      const characterWidth = estimatedTextWidth(character, fontSize);
+      if (lineWidth > 0 && lineWidth + characterWidth > width) {
+        lines += 1;
+        lineWidth = 0;
+      }
+      lineWidth += characterWidth;
+    }
+  }
+  return lines;
 }
 
 function edgeLabelLineHeight(fontSize: number): number {
