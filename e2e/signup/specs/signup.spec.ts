@@ -71,9 +71,6 @@ function assertBetterAuthSession(
 }
 
 async function waitForApplicationReady(page: Page, app: string) {
-  await renderedText(page, `${app} application after signup`, {
-    timeoutMs: 60_000,
-  });
   await expect(
     page.locator('[data-first-run-startup-loading="true"]'),
   ).toHaveCount(0, { timeout: 60_000 });

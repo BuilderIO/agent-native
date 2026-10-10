@@ -7,6 +7,8 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { createAuthoredContentBase } from "../app/components/editor/authored-content-base";
+
 const { outcomeCounter } = vi.hoisted(() => ({ outcomeCounter: vi.fn() }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
@@ -1459,6 +1461,124 @@ describe("update-document compare-and-swap", () => {
       expect(
         history.map((version: { content: string }) => version.content),
       ).toContain(browserCandidate);
+    }
+  });
+
+  it("keeps an acknowledged edit when an interleaved stale editor snapshot drops it", async () => {
+    const base =
+      "Alpha paragraph\nBravo paragraph\nCharlie paragraph\nDelta paragraph";
+    const id = await createDocument({ content: base });
+    const baseRevision = documentRevisionToken(0, base);
+    const editorSessionId = nextId("browser-a");
+    const otherSessionId = nextId("browser-b");
+    const authoredBase = { content: base, revision: baseRevision };
+    const editorBase = createAuthoredContentBase();
+
+    const save = (args: {
+      candidate: string;
+      authoredBase: { content: string; revision: string };
+      sessionId: string;
+      generation: number;
+    }) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        updateDocumentAction.run(
+          {
+            id,
+            content: args.candidate,
+            baseRevision: args.authoredBase.revision,
+            authoredBaseRevision: args.authoredBase.revision,
+            authoredBaseContent: args.authoredBase.content,
+            authoredCandidateContent: args.candidate,
+            editorSessionId: args.sessionId,
+            editorEditGeneration: args.generation,
+            browserSaveAttemptId: nextId("interleaved-attempt"),
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+    const append = (content: string, paragraph: number, marker: string) => {
+      const lines = content.split("\n");
+      lines[paragraph] = `${lines[paragraph]} ${marker}`;
+      return lines.join("\n");
+    };
+    const markerA1 = "A-first";
+    const markerB1 = "B-first";
+    const markerA2 = "A-second";
+    const markerB2 = "B-second";
+    const markerA3 = "A-third";
+
+    const a1 = append(base, 0, markerA1);
+    editorBase.edited(a1);
+    const savedA1 = await save({
+      candidate: a1,
+      authoredBase,
+      sessionId: editorSessionId,
+      generation: 10,
+    });
+    const a1Base = { content: savedA1.content, revision: savedA1.revision };
+    editorBase.saved({
+      saved: a1Base,
+      sentContent: a1,
+      authoredOn: authoredBase,
+    });
+
+    const b1 = append(append(base, 0, markerA1), 2, markerB1);
+    const savedB1 = await save({
+      candidate: b1,
+      authoredBase,
+      sessionId: otherSessionId,
+      generation: 10,
+    });
+    const b1Base = { content: savedB1.content, revision: savedB1.revision };
+
+    const a2 = append(b1, 0, markerA2);
+    editorBase.edited(a2);
+    const savedA2 = await save({
+      candidate: a2,
+      authoredBase: a1Base,
+      sessionId: editorSessionId,
+      generation: 20,
+    });
+    const a2Base = { content: savedA2.content, revision: savedA2.revision };
+    editorBase.saved({
+      saved: a2Base,
+      sentContent: a2,
+      authoredOn: a1Base,
+    });
+
+    const b2 = append(b1, 2, markerB2);
+    const savedB2 = await save({
+      candidate: b2,
+      authoredBase: b1Base,
+      sessionId: otherSessionId,
+      generation: 20,
+    });
+
+    // A stale collaboration snapshot keeps B's latest paragraph but drops
+    // text that A's earlier save was already acknowledged with.
+    const staleSnapshot = append(
+      append(append(base, 0, markerA1), 2, markerB1),
+      2,
+      markerB2,
+    );
+    editorBase.observed(staleSnapshot, a2Base);
+    const staleEditorBase = editorBase.base(a2Base);
+    expect(staleEditorBase).toEqual(a1Base);
+    const a3 = append(staleSnapshot, 0, markerA3);
+    editorBase.edited(a3);
+
+    const savedA3 = await save({
+      candidate: a3,
+      authoredBase: staleEditorBase,
+      sessionId: editorSessionId,
+      generation: 30,
+    });
+    expect(savedA3.bodyIntentOutcome).toEqual({ status: "applied" });
+    for (const marker of [markerA1, markerB1, markerA2, markerB2]) {
+      expect(savedB2.content).toContain(marker);
+    }
+    for (const marker of [markerA1, markerB1, markerA2, markerB2, markerA3]) {
+      expect(savedA3.content.split(marker)).toHaveLength(2);
     }
   });
 

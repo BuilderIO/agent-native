@@ -1776,6 +1776,7 @@ export interface ProductionAgentOptions {
     message: string;
     displayMessage?: string;
     attachments: AgentChatAttachment[];
+    structuredHistory?: AgentChatStructuredMessage[];
     references: AgentChatReference[];
     threadId?: string;
     requestContext: string;
@@ -10495,6 +10496,9 @@ export function createProductionAgentHandler(
       message: requestMessage,
       displayMessage: requestDisplayMessage,
       attachments: requestAttachments,
+      ...(requestStructuredHistory
+        ? { structuredHistory: requestStructuredHistory }
+        : {}),
       references: requestReferences,
       threadId,
       requestContext,
