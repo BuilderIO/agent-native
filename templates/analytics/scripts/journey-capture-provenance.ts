@@ -16,12 +16,14 @@ const QUOTED_ARRAY_CREDENTIAL_FLAG =
 const SPACE_SEPARATED_CREDENTIAL_FORMS = [
   /(?:^|\s)--?([a-z][a-z0-9_.-]*)[ \t]+\S/gim,
   /\bexport[ \t]+([a-z][a-z0-9_.-]*)[ \t]+\S/gi,
-  /\b(?:(?:my|our|your|the)[ \t]+)?([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)?)[ \t]+(?:is|equals)[ \t]+\S/gi,
+  /\b(?:(?:my|our|your|the)[ \t]+)?([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)?)[ \t]+(?:is|equals|was)[ \t]+\S/gi,
 ] as const;
 const BEARER_VALUE = /\bbearer\s+[a-z0-9._~+/-]+=*/gi;
 const JWT_VALUE = /\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g;
 const SLACK_INCOMING_WEBHOOK_URL =
   /\bhttps?:\/\/hooks\.slack(?:-gov)?\.com\/services\/[a-z0-9_-]+\/[a-z0-9_-]+\/[a-z0-9_-]+(?:\?[^\s]*)?/gi;
+const LINE_CREDENTIAL_VALUE =
+  /(?:^|[\r\n;])[ \t]*(?:(?:my|our|your|the)[ \t]+)?([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)?)[ \t]+(?![:=])\S/gim;
 const PROVIDER_TOKEN =
   /\b(?:github_pat_[a-z0-9_]{20,}|gh[pousr]_[a-z0-9_]{20,}|AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16}|sk-proj-[a-z0-9_-]{20,}|sk-ant-[a-z0-9_-]{20,}|(?:sk|rk)_(?:live|test)_[a-z0-9]{16,}|AIza[a-z0-9_-]{35}|xox[baprs]-[a-z0-9-]{10,}|npm_[a-z0-9]{30,})\b/gi;
 const SQL_CODE_BLOCK = /```(?:sql|postgres(?:ql)?)\b[\s\S]*?```/gi;
@@ -111,6 +113,11 @@ function isCredentialKey(key: string): boolean {
         "pin",
         "pw",
         "pwd",
+        "session",
+        "sessionid",
+        "sessionids",
+        "sessiontoken",
+        "sessiontokens",
         "jwt",
         "otp",
         "secret",
@@ -135,12 +142,15 @@ function isCredentialKey(key: string): boolean {
     return true;
   }
   const compact = normalized.replace(/[^a-z0-9]/g, "");
-  return /(?:pass|passwords?|passwd|passphrase|pin|pw|pwd|secrets?|tokens?|credentials?|authorization|authentication|auth|cookies?|session|sigs?|signatures?|(?:api|access|private|secret|signing)key)$/.test(
+  return /(?:pass|passwords?|passwd|passphrase|pin|pw|pwd|secrets?|tokens?|credentials?|authorization|authentication|auth|cookies?|session(?:ids?|tokens?)?|sigs?|signatures?|(?:api|access|private|secret|signing)key)$/.test(
     compact,
   );
 }
 
 function hasSpaceSeparatedCredential(text: string): boolean {
+  for (const match of text.matchAll(LINE_CREDENTIAL_VALUE)) {
+    if (isCredentialKey(match[1] ?? "")) return true;
+  }
   for (const match of text.matchAll(QUOTED_ARRAY_CREDENTIAL_FLAG)) {
     if (isCredentialKey(match[2] ?? "")) return true;
   }

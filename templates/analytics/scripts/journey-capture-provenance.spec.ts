@@ -184,6 +184,64 @@ describe("sanitizePromptProvenanceCandidates", () => {
     }
   });
 
+  it("redacts plain credential lines and past-tense credential phrasings", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      { role: "user", text: "password fake-standalone-password-value" },
+      {
+        role: "user",
+        text: "the API key was fake-past-tense-api-key-value",
+      },
+      {
+        role: "user",
+        text: "I changed my password yesterday; no value is included.",
+      },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "[REDACTED]",
+      "[REDACTED]",
+      "I changed my password yesterday; no value is included.",
+    ]);
+    expect(JSON.stringify(result)).not.toContain(
+      "fake-standalone-password-value",
+    );
+    expect(JSON.stringify(result)).not.toContain(
+      "fake-past-tense-api-key-value",
+    );
+  });
+
+  it("redacts session ID and token key variants", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      { role: "user", text: "SESSION_ID=fake-session-id-value" },
+      { role: "user", text: "sessionId=fake-camel-session-id-value" },
+      { role: "user", text: "sessionid=fake-compact-session-id-value" },
+      { role: "user", text: "session_token=fake-session-token-value" },
+      { role: "user", text: "sessionToken=fake-camel-session-token-value" },
+      { role: "user", text: "sessiontoken=fake-compact-session-token-value" },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "SESSION_ID=[REDACTED]",
+      "sessionId=[REDACTED]",
+      "sessionid=[REDACTED]",
+      "session_token=[REDACTED]",
+      "sessionToken=[REDACTED]",
+      "sessiontoken=[REDACTED]",
+    ]);
+    expect(JSON.stringify(result)).not.toContain("fake-session-id-value");
+    expect(JSON.stringify(result)).not.toContain("fake-camel-session-id-value");
+    expect(JSON.stringify(result)).not.toContain(
+      "fake-compact-session-id-value",
+    );
+    expect(JSON.stringify(result)).not.toContain("fake-session-token-value");
+    expect(JSON.stringify(result)).not.toContain(
+      "fake-camel-session-token-value",
+    );
+    expect(JSON.stringify(result)).not.toContain(
+      "fake-compact-session-token-value",
+    );
+  });
+
   it("redacts password aliases and signed URL query values while retaining useful URL context", () => {
     const result = sanitizePromptProvenanceCandidates([
       {
