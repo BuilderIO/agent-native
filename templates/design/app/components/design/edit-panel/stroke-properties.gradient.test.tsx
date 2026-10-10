@@ -144,6 +144,46 @@ describe("vector stroke gradient inspector", () => {
     },
   );
 
+  it("uses shared inline stroke gradients when computed metadata differs", () => {
+    const gradientProperty = "--an-vector-stroke-gradient";
+    const inlineGradient = "linear-gradient(90deg, #ff0000 0%, #0000ff 100%)";
+    const makeVector = (
+      tagName: "path" | "rect",
+      primitiveKind: "path" | "rect",
+      computedGradient: string,
+      x: number,
+    ) =>
+      ({
+        tagName,
+        primitiveKind,
+        classes: [],
+        computedStyles: {
+          stroke: "#111827",
+          strokeWidth: "2px",
+          [gradientProperty]: computedGradient,
+        },
+        inlineStyles: { [gradientProperty]: inlineGradient },
+        boundingRect: { x, y: 0, width: 80, height: 60 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      }) as ElementInfo;
+    const selected = mixedElementFromSelection([
+      makeVector("path", "path", "linear-gradient(90deg, #111, #222)", 0),
+      makeVector("rect", "rect", "linear-gradient(90deg, #333, #444)", 100),
+    ]);
+    const markup = renderToStaticMarkup(
+      createElement(StrokeProperties, {
+        element: selected!,
+        onStyleChange: vi.fn(),
+      }),
+    );
+
+    expect(selected?.inlineStyles?.[gradientProperty]).toBe(inlineGradient);
+    expect(selected?.computedStyles[gradientProperty]).toBe("Mixed");
+    expect(markup).toContain(`data-value="${inlineGradient}"`);
+    expect(markup).not.toContain("Click + to replace mixed content");
+  });
+
   it("adds SVG stroke styles to a mixed selection of vector shape tags", async () => {
     const selected = mixedElementFromSelection([
       {
