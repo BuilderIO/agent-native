@@ -899,7 +899,7 @@ const messages = {
       "Mostre ou oculte o ditado por voz no Clips Desktop.",
     labLookbackContext: "Incluir o tempo de tela anterior",
     labLookbackContextDescription:
-      "Anexe até cinco minutos de tempo de tela anteriores a uma gravação como contexto passivo. Desativado por padrão.",
+      "Anexe até cinco minutos de tempo de tela anteriores a uma gravação como contexto passivo.",
     uploadWorkspaceTitle: "Espaço ativo",
     uploadWorkspaceDescription:
       "Escolha o espaço que o Clips usará para novas gravações, incluindo uploads do desktop.",

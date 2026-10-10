@@ -839,7 +839,7 @@ const messages = {
     labWisprFlowDescription: "显示或隐藏 Clips Desktop 中的语音听写。",
     labLookbackContext: "包含更早的屏幕时间",
     labLookbackContextDescription:
-      "将录制前最多五分钟的更早屏幕时间作为被动上下文附加到录制中。默认关闭。",
+      "将录制前最多五分钟的更早屏幕时间作为被动上下文附加到录制中。",
     uploadWorkspaceTitle: "当前工作区",
     uploadWorkspaceDescription:
       "选择 Clips 用于新录制内容（包括桌面上传）的工作区。",

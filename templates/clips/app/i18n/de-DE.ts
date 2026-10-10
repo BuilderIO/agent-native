@@ -910,7 +910,7 @@ const messages = {
       "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
     labLookbackContext: "Frühere Bildschirmzeit einbeziehen",
     labLookbackContextDescription:
-      "Bis zu fünf Minuten Bildschirmzeit vor einer Aufnahme als passiven Kontext anhängen. Standardmäßig deaktiviert.",
+      "Bis zu fünf Minuten Bildschirmzeit vor einer Aufnahme als passiven Kontext anhängen.",
     uploadWorkspaceTitle: "Aktiver Arbeitsbereich",
     uploadWorkspaceDescription:
       "Wähle den Arbeitsbereich, den Clips für neue Aufnahmen einschließlich Desktop-Uploads verwendet.",
