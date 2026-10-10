@@ -3191,6 +3191,19 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("leaves snapshot persistence to the host when the transport lacks support", async () => {
+    const client = new AgentKitClient({ transport: createTransport([]) });
+
+    await expect(
+      client.persistThreadSnapshotWithResult("thread-1"),
+    ).resolves.toBeUndefined();
+    await expect(
+      client.persistThreadSnapshot("thread-1"),
+    ).resolves.toBeUndefined();
+
+    await client.shutdown();
+  });
+
   it("reports snapshot persistence failures through the legacy API", async () => {
     const transport = createTransport([]);
     transport.persistThreadSnapshot = async () => {

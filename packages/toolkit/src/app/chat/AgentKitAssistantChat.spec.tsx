@@ -98,6 +98,7 @@ const chatMocks = vi.hoisted(() => ({
   useRealChat: false,
   routeControllerPersistenceThroughTransport: false,
   omitSnapshotPersistenceResult: false,
+  snapshotPersistenceUnavailable: false,
   omitSuggestionsSlot: false,
   voiceTranscriptRegistration: null as any,
   runtime: { kind: "runtime" },
@@ -299,6 +300,8 @@ vi.mock("../agentkit/react/index.js", async () => {
                   messages?: AgentMessage[],
                   context?: { signal?: AbortSignal },
                 ) => {
+                  if (chatMocks.snapshotPersistenceUnavailable)
+                    return undefined;
                   try {
                     const persist =
                       chatMocks.routeControllerPersistenceThroughTransport
@@ -943,6 +946,7 @@ beforeEach(() => {
   chatMocks.useRealChat = false;
   chatMocks.routeControllerPersistenceThroughTransport = false;
   chatMocks.omitSnapshotPersistenceResult = false;
+  chatMocks.snapshotPersistenceUnavailable = false;
   chatMocks.omitSuggestionsSlot = false;
   chatMocks.voiceTranscriptRegistration = null;
   chatMocks.control.sendMessage.mockReset().mockResolvedValue(undefined);
@@ -6212,6 +6216,45 @@ describe("AgentKitAssistantChat host behavior", () => {
       expect.objectContaining({ id: "custom-user-message" }),
     ]);
     expect(onSaveThread).toHaveBeenCalledOnce();
+  });
+
+  it("uses the app save when the transport does not support snapshots", async () => {
+    const createTransport = () => chatMocks.transport;
+    chatMocks.snapshotPersistenceUnavailable = true;
+    const onSaveThread = vi.fn().mockResolvedValue(true);
+    const onThreadSnapshotPersisted = vi.fn();
+    await mount(
+      baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+    );
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: null,
+      messages: [
+        {
+          id: "host-saved-message",
+          role: "user",
+          status: "complete",
+          createdAt: "2026-10-07T12:00:00.000Z",
+          parts: [{ type: "text", text: "Save through the host" }],
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            createTransport,
+            onSaveThread,
+            onThreadSnapshotPersisted,
+          })}
+        />,
+      );
+    });
+    await flush();
+
+    expect(onSaveThread).toHaveBeenCalledOnce();
+    expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
   });
 
   it("supports legacy controllers until their snapshot save resolves", async () => {

@@ -335,17 +335,21 @@ export interface AgentKitController {
   getSnapshot(): AgentKitSnapshot;
   subscribe(listener: AgentKitListener): () => void;
   getThread(threadId: ThreadId): AgentThreadState;
-  /** Persist the current snapshot, optionally filtered, and reject on failure. */
+  /**
+   * Persist through the configured transport when supported and reject on failure.
+   */
   persistThreadSnapshot(
     threadId: ThreadId,
     messages?: AgentMessage[],
   ): Promise<void>;
-  /** Persist the current snapshot and report whether the transport saved it. */
+  /**
+   * Return true when saved, false on failure, or undefined when unsupported.
+   */
   persistThreadSnapshotWithResult?(
     threadId: ThreadId,
     messages?: AgentMessage[],
     context?: AgentRequestContext,
-  ): Promise<boolean>;
+  ): Promise<boolean | undefined>;
   openThread(
     threadId: ThreadId,
     context?: AgentRequestContext,
@@ -4074,7 +4078,7 @@ export class AgentKitClient implements AgentKitController {
       threadId,
       messages,
     );
-    if (!persisted) {
+    if (persisted === false) {
       throw new Error("Thread snapshot persistence failed.");
     }
   }
@@ -4083,8 +4087,8 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     messages?: AgentMessage[],
     context?: AgentRequestContext,
-  ): Promise<boolean> {
-    if (!this.transport.persistThreadSnapshot) return false;
+  ): Promise<boolean | undefined> {
+    if (!this.transport.persistThreadSnapshot) return undefined;
     try {
       const result = await this.persistThreadSnapshotToTransport(
         threadId,
