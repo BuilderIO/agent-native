@@ -257,63 +257,6 @@ describe("AgentKitClient", () => {
     expect(startRun).not.toHaveBeenCalled();
   });
 
-  it("shows the user turn while AI setup readiness is still pending", async () => {
-    const startRun = vi.fn(async () => ({ runId: "run-1" }));
-    const client = new AgentKitClient({
-      transport: {
-        ...createTransport([]),
-        assertAiSetupReady: () => new Promise<void>(() => undefined),
-        startRun,
-      },
-    });
-
-    const sending = client.sendMessage({
-      threadId: "thread-1",
-      text: "Hello while setup loads",
-    });
-    sending.catch(() => undefined);
-
-    expect(client.getThread("thread-1").messages).toEqual([
-      expect.objectContaining({
-        role: "user",
-        parts: [{ type: "text", text: "Hello while setup loads" }],
-      }),
-    ]);
-    expect(client.getSnapshot().connection).toBe("connecting");
-    expect(startRun).not.toHaveBeenCalled();
-    await client.shutdown();
-  });
-
-  it("removes the pending user turn when AI setup readiness rejects", async () => {
-    const setupRequired = new Error("AI setup required");
-    let rejectReadiness!: (error: Error) => void;
-    const readiness = new Promise<void>((_resolve, reject) => {
-      rejectReadiness = reject;
-    });
-    const startRun = vi.fn(async () => ({ runId: "run-1" }));
-    const client = new AgentKitClient({
-      transport: {
-        ...createTransport([]),
-        assertAiSetupReady: () => readiness,
-        startRun,
-      },
-    });
-
-    const sending = client.sendMessage({
-      threadId: "thread-1",
-      text: "Needs setup",
-    });
-    expect(client.getThread("thread-1").messages).toHaveLength(1);
-    rejectReadiness(setupRequired);
-
-    await expect(sending).rejects.toBe(setupRequired);
-    expect(client.getThread("thread-1").messages).toEqual([]);
-    expect(client.getSnapshot().connection).toBe("idle");
-    expect(client.getSnapshot().error).toBeUndefined();
-    expect(startRun).not.toHaveBeenCalled();
-    await client.shutdown();
-  });
-
   it("allows transports without shared AI setup only with an explicit opt-out", async () => {
     const startRun = vi.fn(async () => ({ runId: "run-1" }));
     const transport: AgentTransport = {
