@@ -1020,6 +1020,7 @@ export function FirstRunOnboarding({
 
   const accountExists = connectFlow.accountExists;
   const provisioning = builderConnectionMode === "provision" && !accountExists;
+  const returnToSetupChoice = () => setScreen("choice");
   return (
     <OnboardingShell
       profile={profile}
@@ -1120,9 +1121,27 @@ export function FirstRunOnboarding({
                   >
                     Try again
                   </button>
+                  <button
+                    type="button"
+                    data-testid="first-run-back-to-choice"
+                    className={secondaryButtonClass}
+                    onClick={returnToSetupChoice}
+                  >
+                    {t("agentChat.onboarding.back")}
+                  </button>
                 </div>
               )}
           </>
+        )}
+        {accountExists && !connectFlow.connecting && (
+          <button
+            type="button"
+            data-testid="first-run-back-to-choice"
+            className={cn(secondaryButtonClass, "mt-3")}
+            onClick={returnToSetupChoice}
+          >
+            {t("agentChat.onboarding.back")}
+          </button>
         )}
       </div>
     </OnboardingShell>

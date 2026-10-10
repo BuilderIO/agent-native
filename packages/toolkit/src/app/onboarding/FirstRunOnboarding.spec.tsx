@@ -531,7 +531,7 @@ describe("FirstRunOnboarding", () => {
     expect(
       document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.textContent,
-    ).toBe("Use Builder.io");
+    ).toBe("Sign in with a Builder.io account");
     expect(
       document.body
         .querySelector('[data-testid="first-run-builder-sign-in"]')
@@ -806,7 +806,11 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector(
         '[data-testid="first-run-builder-create-account"]',
       )?.textContent,
-    ).toBe("Use Builder.io");
+    ).toBe("Create a Builder.io account");
+    expect(
+      document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
+        ?.textContent,
+    ).toBe("Sign in with a Builder.io account");
     expect(
       document.body
         .querySelector('[data-testid="first-run-builder-create-account"]')
@@ -1265,6 +1269,79 @@ describe("FirstRunOnboarding", () => {
       trackingFlow: "connect_llm",
       provisionAccount: false,
     });
+
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-back-to-choice"]',
+        )
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[data-onboarding-screen="choice"]'),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-open-key-settings"]',
+      ),
+    ).toBeTruthy();
+  });
+
+  it("returns to setup choices after Builder provisioning fails", () => {
+    const flow = {
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: true,
+      connecting: false,
+      terminalError: "Builder account provisioning failed (503).",
+      error: "Builder account provisioning failed (503).",
+      start: vi.fn(),
+      retry: vi.fn(),
+    };
+    mocks.useBuilderConnectFlow.mockReturnValue(flow);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>('[data-testid="first-run-role-skip"]')
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-builder-create-account"]',
+        )
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[data-testid="first-run-back-to-choice"]'),
+    ).toBeTruthy();
+
+    act(() => {
+      document.body
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="first-run-back-to-choice"]',
+        )
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[data-onboarding-screen="choice"]'),
+    ).toBeTruthy();
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-open-key-settings"]',
+      ),
+    ).toBeTruthy();
   });
 
   it("shows the role step first", () => {
