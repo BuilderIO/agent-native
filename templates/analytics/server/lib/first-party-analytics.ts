@@ -33,7 +33,9 @@ import {
 import {
   assertFirstPartyAnalyticsBigQuerySql,
   ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS,
+  ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS,
   type FirstPartyAnalyticsSink,
+  type FirstPartyAnalyticsEventSourceProjection,
   type FirstPartyAnalyticsEventsProjection,
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
@@ -108,6 +110,10 @@ export interface AnalyticsQueryOptions {
   eventDateRange?: { startDate: string; endDate: string };
   scopedEventsSingleScan?: boolean;
   scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+  scopedEventsSourceProjections?: Record<
+    string,
+    FirstPartyAnalyticsEventSourceProjection
+  >;
   /** Debugging only: metrics exclude test identities by default. */
   includeTestIdentities?: boolean;
 }
@@ -1085,6 +1091,8 @@ const TEST_IDENTITY_COLUMNS: Record<string, string> = {
 };
 
 const SCOPED_ANALYTICS_EVENTS_CTE = "agent_native_scoped_analytics_events";
+const SCOPED_ANALYTICS_EVENT_SOURCE_CTE_PREFIX =
+  "agent_native_scoped_analytics_event_source_";
 
 function scopedTableSource(
   tableName: string,
@@ -1094,7 +1102,7 @@ function scopedTableSource(
   includeTestIdentities: boolean,
   eventPushdownPredicates: string[] = [],
   scopedEventsSingleScan = false,
-  scopedEventsProjection?: FirstPartyAnalyticsEventsProjection,
+  scopedEventsProjection?: FirstPartyAnalyticsEventSourceProjection,
 ): {
   sql: string;
   args: Array<string | null>;
@@ -1145,10 +1153,13 @@ function scopedTableSource(
   }
 
   const eventSelection =
-    tableName === "analytics_events" &&
-    scopedEventsProjection === "onboarding_journey"
-      ? ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join(", ")
-      : "*";
+    tableName !== "analytics_events"
+      ? "*"
+      : scopedEventsProjection === "onboarding_journey"
+        ? ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS.join(", ")
+        : scopedEventsProjection === "onboarding_journey_response_identity"
+          ? ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join(", ")
+          : "*";
   const select = `SELECT ${eventSelection}`;
   const ownerEmail = scope.userEmail.trim().toLowerCase();
   if (scope.orgId) {
@@ -1303,11 +1314,16 @@ export function scopedAnalyticsSql(
     scopedEventsNotMaterialized = false,
     scopedEventsSingleScan = false,
     scopedEventsProjection,
+    scopedEventsSourceProjections,
   }: {
     includeTestIdentities?: boolean;
     scopedEventsNotMaterialized?: boolean;
     scopedEventsSingleScan?: boolean;
     scopedEventsProjection?: FirstPartyAnalyticsEventsProjection;
+    scopedEventsSourceProjections?: Record<
+      string,
+      FirstPartyAnalyticsEventSourceProjection
+    >;
   } = {},
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];
@@ -1332,6 +1348,51 @@ export function scopedAnalyticsSql(
       allowDirectSource: true,
     }),
   );
+  const sourceSpecificEventCtes = new Map<
+    number,
+    { name: string; sql: string }
+  >();
+  const sourceSpecificCteDefinitions: string[] = [];
+  if (scopedEventsSourceProjections && rawEventSources.length > 0) {
+    if (
+      query.ctes.some((cte) =>
+        cte.name
+          .toLowerCase()
+          .startsWith(SCOPED_ANALYTICS_EVENT_SOURCE_CTE_PREFIX),
+      )
+    ) {
+      throw new Error("Query uses a reserved first-party analytics CTE name");
+    }
+    rawEventSources.forEach((source, index) => {
+      const sourceKey = (source.alias?.name ?? source.name).toLowerCase();
+      const projection = scopedEventsSourceProjections[sourceKey];
+      if (!projection) {
+        throw new Error(
+          "Every raw analytics event source needs an explicit projection",
+        );
+      }
+      const scopedSource = scopedTableSource(
+        "analytics_events",
+        scope,
+        today,
+        args.length,
+        includeTestIdentities ||
+          projection === "onboarding_journey_response_identity",
+        sourcePredicates[index] ?? [],
+        scopedEventsSingleScan,
+        projection,
+      );
+      args.push(...scopedSource.args);
+      const name = `${SCOPED_ANALYTICS_EVENT_SOURCE_CTE_PREFIX}${index}`;
+      sourceSpecificEventCtes.set(source.start, {
+        name,
+        sql: scopedSource.sql,
+      });
+      sourceSpecificCteDefinitions.push(
+        `${name} AS ${scopedEventsNotMaterialized ? "NOT MATERIALIZED " : ""}${scopedSource.sql}`,
+      );
+    });
+  }
   const eventPushdownPredicates =
     sourcePredicates.length > 0 &&
     sourcePredicates.every((predicates) => predicates.length > 0)
@@ -1340,22 +1401,32 @@ export function scopedAnalyticsSql(
             `(${predicates.map((predicate) => `(${predicate})`).join(" AND ")})`,
         )
       : [];
-  const scopedEvents = hasRawEvents
-    ? scopedTableSource(
-        "analytics_events",
-        scope,
-        today,
-        args.length,
-        includeTestIdentities,
-        eventPushdownPredicates,
-        scopedEventsSingleScan,
-        scopedEventsProjection,
-      )
-    : null;
+  const scopedEvents =
+    hasRawEvents && !scopedEventsSourceProjections
+      ? scopedTableSource(
+          "analytics_events",
+          scope,
+          today,
+          args.length,
+          includeTestIdentities,
+          eventPushdownPredicates,
+          scopedEventsSingleScan,
+          scopedEventsProjection,
+        )
+      : null;
   if (scopedEvents) args.push(...scopedEvents.args);
   const rewritten = rewriteAgentSqlQuerySources(query, (source) => {
     if (source.cte) return configuredSql.slice(source.start, source.end);
     if (source.name === "analytics_events") {
+      const sourceSpecific = sourceSpecificEventCtes.get(source.start);
+      if (scopedEventsSourceProjections) {
+        if (!sourceSpecific) {
+          throw new Error(
+            "Every raw analytics event source needs an explicit projection",
+          );
+        }
+        return `${sourceSpecific.name}${source.alias ? "" : ` AS ${source.name}`}`;
+      }
       return `${SCOPED_ANALYTICS_EVENTS_CTE}${source.alias ? "" : ` AS ${source.name}`}`;
     }
     const scopedSource = scopedTableSource(
@@ -1368,7 +1439,9 @@ export function scopedAnalyticsSql(
     args.push(...scopedSource.args);
     return scopedSource.sql + (source.alias ? "" : ` AS ${source.name}`);
   });
-  if (!scopedEvents) return { sql: rewritten, args };
+  if (!scopedEvents && sourceSpecificCteDefinitions.length === 0) {
+    return { sql: rewritten, args };
+  }
 
   const rewrittenQuery = readAgentSqlQuery(rewritten, { dialect: "postgres" });
   const firstToken = rewrittenQuery.tokens[0];
@@ -1384,7 +1457,9 @@ export function scopedAnalyticsSql(
       ? rewrittenQuery.tokens[1]
       : null;
   const prefixEnd = recursiveToken?.end ?? withToken?.end;
-  const scopedCte = `${SCOPED_ANALYTICS_EVENTS_CTE} AS ${scopedEventsNotMaterialized ? "NOT MATERIALIZED " : ""}${scopedEvents.sql}`;
+  const scopedCte = sourceSpecificCteDefinitions.length
+    ? sourceSpecificCteDefinitions.join(", ")
+    : `${SCOPED_ANALYTICS_EVENTS_CTE} AS ${scopedEventsNotMaterialized ? "NOT MATERIALIZED " : ""}${scopedEvents!.sql}`;
   const resultSql =
     prefixEnd !== undefined
       ? `${rewritten.slice(0, prefixEnd)} ${scopedCte},${rewritten.slice(prefixEnd)}`
@@ -1512,6 +1587,7 @@ export async function queryFirstPartyAnalytics(
     includeTestIdentities: options.includeTestIdentities === true,
     scopedEventsSingleScan: options.scopedEventsSingleScan === true,
     scopedEventsProjection: options.scopedEventsProjection,
+    scopedEventsSourceProjections: options.scopedEventsSourceProjections,
   };
   const queryClass = classifyFirstPartyAnalyticsQuery(sql);
   const startedAt = Date.now();
@@ -1580,6 +1656,8 @@ export async function queryFirstPartyAnalytics(
             eventDateRange: options.eventDateRange,
             scopedEventsSingleScan: options.scopedEventsSingleScan === true,
             scopedEventsProjection: options.scopedEventsProjection,
+            scopedEventsSourceProjections:
+              options.scopedEventsSourceProjections,
             signal,
           }),
           signal,

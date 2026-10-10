@@ -388,7 +388,9 @@ describe("onboarding journey events SQL", () => {
       expect(sql).not.toContain("auth_identity_bridge");
       expect(sql).not.toContain("funnel_user_key");
       expect(sql).toContain("funnel_user_email");
-      expect(sql.match(/FROM analytics_events/g)).toHaveLength(1);
+      expect(sql.match(/FROM analytics_events/g)).toHaveLength(
+        sql === journeySql ? 2 : 1,
+      );
     }
 
     expect(sessionsOf(await run())).toEqual(["design", "normal"]);
@@ -1224,6 +1226,10 @@ describe("onboarding journey events SQL", () => {
     const projectedScope = scopedAnalyticsSql(sql, SCOPE, undefined, {
       scopedEventsSingleScan: true,
       scopedEventsProjection: "onboarding_journey",
+      scopedEventsSourceProjections: {
+        e: "onboarding_journey",
+        r: "onboarding_journey_response_identity",
+      },
     });
     const fullResult = (await client.query(fullScope.sql, fullScope.args)) as {
       rows: Array<Record<string, unknown>>;
@@ -1395,6 +1401,27 @@ describe("onboarding journey events SQL", () => {
     const rows = await run({ emailFilter: "exclude_builder" });
     expect(sessionsOf(rows)).not.toContain("employee");
     expect(rows.filter((row) => row.session_id === "employee")).toEqual([]);
+  });
+
+  it("uses response identity to exclude the whole session without response properties", async () => {
+    await setup();
+    await insert("response-employee", "signup", 1, {
+      email: "person@example.com",
+    });
+    await insert("response-employee", "onboarding_step_viewed", 2, {
+      email: "person@example.com",
+      properties: { step_id: "role" },
+    });
+    await insert("response-employee", "http.response", 3, {
+      email: "dev@builder.io",
+      properties: { ignored_payload: "large response body" },
+    });
+
+    const rows = await run({ emailFilter: "exclude_builder" });
+
+    expect(
+      rows.filter((row) => row.session_id === "response-employee"),
+    ).toEqual([]);
   });
 
   it("never returns test identities, even when employees are included", async () => {
