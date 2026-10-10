@@ -279,7 +279,7 @@ describe("DocumentToolbar in an MCP App widget", () => {
     expect(trigger?.className).not.toContain("size-11");
   });
 
-  it("draws the app's bar, Share, and icon buttons at the app's sizes", async () => {
+  it("draws the app's bar with Share at the 32px the other apps' widgets use", async () => {
     const measure = () => ({
       bar: container.querySelector<HTMLElement>(
         "[data-editor-selection-continuation]",
@@ -291,7 +291,9 @@ describe("DocumentToolbar in an MCP App widget", () => {
     await renderToolbar(1040);
     const widget = measure();
     expect(widget.bar).toContain("h-12");
-    expect(widget.share).toContain("[&>*]:h-9");
+    // The joined control sizes its children, so the height is on the group.
+    expect(widget.share).toContain("[&>*]:h-8");
+    expect(widget.share).not.toContain("[&>*]:h-9");
     expect(widget.share).not.toContain("[&>*]:h-11");
     expect(openLink()?.className).toContain("size-9");
     expect(openLink()?.className).not.toContain("size-11");
@@ -299,7 +301,11 @@ describe("DocumentToolbar in an MCP App widget", () => {
     mocks.widget.inWidget = false;
     mocks.widget.write = false;
     await renderToolbar(1040, { readOnly: false });
-    expect(measure()).toEqual(widget);
+    const app = measure();
+    expect(app.share).toContain("[&>*]:h-9");
+    expect(app.share).not.toContain("[&>*]:h-8");
+    expect(app.bar).toEqual(widget.bar);
+    expect(app.copy).toEqual(widget.copy);
   });
 
   describe("the Open link", () => {
@@ -467,7 +473,8 @@ describe("DocumentToolbar in an MCP App widget", () => {
       expect(props.hideInSearchControl).toBeUndefined();
       expect(props.agentTabContent).toBeUndefined();
       expect(props.shareTabs).toBeUndefined();
-      expect(props.quickCopy.className).toBeUndefined();
+      // The popover's own trigger group matches the one drawn before it.
+      expect(props.quickCopy.className).toBe("[&>*]:h-8");
       expect(requests()).toEqual([]);
     });
 

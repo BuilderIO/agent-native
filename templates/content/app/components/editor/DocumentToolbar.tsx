@@ -925,6 +925,10 @@ const TOOLBAR_SIDEBAR_TRIGGER_WIDTH = 40;
 // the menu, and a phone's room stays above that step.
 const TOOLBAR_FOLD_ROOMS = [384, 320, 260, 152, 112];
 
+// Slides' widget draws its Share at 32px, so a widget's Share group shrinks
+// from the app's h-9 to match. The joined control sizes its children.
+const WIDGET_SHARE_GROUP_CLASS_NAME = "[&>*]:h-8";
+
 /**
  * How far the toolbar folds its controls at `width`, when `reserved` of it
  * holds the padding, the sidebar trigger and the breadcrumb at their
@@ -1567,6 +1571,7 @@ export function DocumentToolbar({
       copyLabel={t("editor.toolbar.copyPageLink")}
       copiedLabel={t("editor.toolbar.copiedPageLink")}
       onCopy={handleCopyPageLink}
+      className={inWidget ? WIDGET_SHARE_GROUP_CLASS_NAME : undefined}
     />
   );
   const openInAgentNativeLabel = t("editor.toolbar.openInAgentNative");
@@ -1680,6 +1685,9 @@ export function DocumentToolbar({
                       label: t("editor.toolbar.copyPageLink"),
                       copiedLabel: t("editor.toolbar.copiedPageLink"),
                       onCopy: handleCopyPageLink,
+                      className: inWidget
+                        ? WIDGET_SHARE_GROUP_CLASS_NAME
+                        : undefined,
                     }}
                     basicSharingOnly={inWidget}
                     peopleTabLabel={t("editor.toolbar.sharePeople")}
