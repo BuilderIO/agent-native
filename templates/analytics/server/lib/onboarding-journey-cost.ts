@@ -89,6 +89,7 @@ export async function estimateOnboardingJourneyEventQueryCost(
       );
       const scoped = scopedAnalyticsSql(request.sql, scope, undefined, {
         scopedEventsSingleScan: true,
+        scopedEventsProjection: "onboarding_journey",
       });
       renderedSql = renderFirstPartyAnalyticsBigQueryRequestSql(
         scoped.sql,
@@ -97,6 +98,7 @@ export async function estimateOnboardingJourneyEventQueryCost(
         {
           eventDateRange: request.eventDateRange,
           scopedEventsSingleScan: true,
+          scopedEventsProjection: "onboarding_journey",
         },
       );
     } catch (error) {

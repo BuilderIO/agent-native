@@ -109,14 +109,20 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
       expect.stringContaining("LIMIT 4000 OFFSET 0"),
       scope,
       undefined,
-      { scopedEventsSingleScan: true },
+      {
+        scopedEventsSingleScan: true,
+        scopedEventsProjection: "onboarding_journey",
+      },
     );
     expect(mocks.scopedAnalyticsSql).toHaveBeenNthCalledWith(
       2,
       expect.stringContaining("LIMIT 1 OFFSET 4000"),
       scope,
       undefined,
-      { scopedEventsSingleScan: true },
+      {
+        scopedEventsSingleScan: true,
+        scopedEventsProjection: "onboarding_journey",
+      },
     );
     expect(
       mocks.renderFirstPartyAnalyticsBigQueryRequestSql,
@@ -127,6 +133,7 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
       {
         eventDateRange: { startDate: "2026-10-01", endDate: "2026-10-02" },
         scopedEventsSingleScan: true,
+        scopedEventsProjection: "onboarding_journey",
       },
     );
     expect(JSON.stringify(estimate)).not.toContain("private");
