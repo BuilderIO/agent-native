@@ -548,7 +548,7 @@ jobs:
             exit 2
           fi
           pnpm exec playwright test "$music_app_spec" \
-            --grep 'create a responsive music-app desktop shell under a Screen root$' \
+            --grep 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$' \
             --workers=1 --retries=0 --trace on
 
       - name: Upload music-app workflow diagnostics
@@ -677,7 +677,7 @@ jobs:
           fi
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
-          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert 'create a responsive music-app desktop shell under a Screen root$'
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$'
 
   pre-auth-session-replay-smoke:
     name: Pre-auth session replay smoke

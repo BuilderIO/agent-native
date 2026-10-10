@@ -2213,19 +2213,17 @@ test("sizing mode actions survive the selected layer route update", async ({
   ).toHaveCount(0);
 });
 
-test("create a responsive music-app desktop shell under a Screen root", async ({
-  page,
-}) => {
-  test.setTimeout(20 * 60_000);
-  const designId = await createFixtureDesign(
-    page,
-    `Responsive music app desktop ${Date.now()}`,
-  );
-  const chatThread404s: Array<{
-    method: string;
-    path: string;
-    status: number;
-  }> = [];
+// The tablet test reopens the design the desktop test built. Shared state is
+// valid only because CI runs this file with --workers=1, so both tests share
+// one worker process and the desktop test runs first.
+let musicAppDesktopShell: {
+  designId: string;
+  screenId: string;
+  mobileScreenId: string;
+} | null = null;
+
+function trackChatThread404s(page: Page) {
+  const responses: Array<{ method: string; path: string; status: number }> = [];
   page.on("response", (response) => {
     const url = new URL(response.url());
     if (
@@ -2233,13 +2231,26 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
       response.status() === 404 &&
       /^\/_agent-native\/agent-chat\/threads\/[^/]+$/.test(url.pathname)
     ) {
-      chatThread404s.push({
+      responses.push({
         method: response.request().method(),
         path: url.pathname,
         status: response.status(),
       });
     }
   });
+  return responses;
+}
+
+test("create a responsive music-app desktop shell under a Screen root", async ({
+  page,
+}) => {
+  test.setTimeout(20 * 60_000);
+  musicAppDesktopShell = null;
+  const designId = await createFixtureDesign(
+    page,
+    `Responsive music app desktop ${Date.now()}`,
+  );
+  const chatThread404s = trackChatThread404s(page);
   await test.info().attach("workflow-identities-design", {
     body: JSON.stringify({ designId, screenIds: [] }, null, 2),
     contentType: "application/json",
@@ -3912,6 +3923,41 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     contentType: "application/json",
   });
   await captureEditorScreenshot(page, "music-app-mobile-editor.png");
+  musicAppDesktopShell = { designId, screenId, mobileScreenId };
+  await test.info().attach("workflow-chat-thread-404s", {
+    body: JSON.stringify(
+      { count: chatThread404s.length, responses: chatThread404s },
+      null,
+      2,
+    ),
+    contentType: "application/json",
+  });
+});
+
+test("create a responsive music-app tablet Screen from the desktop shell", async ({
+  page,
+}) => {
+  test.setTimeout(20 * 60_000);
+  if (!musicAppDesktopShell) {
+    throw new Error(
+      "The desktop music-app test did not record its shell; run both music-app tests in one worker",
+    );
+  }
+  const { designId, screenId, mobileScreenId } = musicAppDesktopShell;
+  const chatThread404s = trackChatThread404s(page);
+  await page.setViewportSize({ width: 2800, height: 1600 });
+  await gotoEditor(page, designId);
+  const zoom = page
+    .getByRole("button")
+    .filter({ hasText: /^\s*\d+%\s*$/ })
+    .first();
+  await expect(zoom).toBeVisible();
+  await zoom.click();
+  await page.getByRole("menuitem", { name: "Zoom to 100%" }).click();
+  await expect(zoom).toHaveText(/100%/);
+  const desktopSaved = await readDesign(page, designId);
+  const content =
+    desktopSaved.files?.find((file) => file.id === screenId)?.content ?? "";
   const filesBeforeTablet = new Set(
     (await readDesign(page, designId)).files?.map((file) => file.id),
   );
@@ -4097,8 +4143,6 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
   expect.soft(tabletCardB.width).toBeCloseTo(400, 0);
   expect.soft(tabletCardA.height).toBeCloseTo(316, 0);
   expect.soft(tabletCardB.height).toBeCloseTo(316, 0);
-  expect.soft(desktopCardA.y).toBeCloseTo(desktopCardB.y, 0);
-  expect.soft(desktopCardB.x).toBeGreaterThan(desktopCardA.x);
   expect.soft(tabletCardA.x).toBeCloseTo(tabletCardB.x, 0);
   expect.soft(tabletCardB.y).toBeGreaterThan(tabletCardA.y);
   expect.soft(tabletRecentlyA.x).toBeCloseTo(tabletRecentlyB.x, 0);

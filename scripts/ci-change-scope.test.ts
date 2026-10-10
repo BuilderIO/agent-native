@@ -760,7 +760,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     changedSpecRegressions.includes(
-      "--grep-invert 'create a responsive music-app desktop shell under a Screen root$'",
+      "--grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$'",
     ),
     "the long music-app workflow must run only in its dedicated interaction shard",
   );
@@ -792,7 +792,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     musicAppWorkflow.includes(
-      "pnpm exec playwright test \"$music_app_spec\" \\\n            --grep 'create a responsive music-app desktop shell under a Screen root$' \\\n            --workers=1 --retries=0 --trace on",
+      "pnpm exec playwright test \"$music_app_spec\" \\\n            --grep 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$' \\\n            --workers=1 --retries=0 --trace on",
     ),
     "the dedicated shard must run only the long test once and retain a failure trace",
   );
