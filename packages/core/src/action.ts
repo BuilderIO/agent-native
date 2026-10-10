@@ -1437,7 +1437,14 @@ const actionExecutionFrames = new WeakMap<
 >();
 const actionPreExecutionFailures = new WeakMap<
   ActionRunContext,
-  WeakMap<object, ActionExecutionRun>
+  WeakMap<
+    object,
+    {
+      run: ActionExecutionRun;
+      origin: ActionExecutionRun;
+      handlerEntered: boolean;
+    }
+  >
 >();
 
 function wrapRunWithExecutionBoundary(
@@ -1451,6 +1458,7 @@ function wrapRunWithExecutionBoundary(
       byAction = new Map();
       actionExecutionFrames.set(ctx, byAction);
     }
+    if (!byAction.size) actionPreExecutionFailures.delete(ctx);
     let frames = byAction.get(key);
     if (!frames) {
       frames = new Set();
@@ -1458,21 +1466,21 @@ function wrapRunWithExecutionBoundary(
     }
     const frame: ActionExecutionFrame = { handlerEntered: false };
     frames.add(frame);
-    actionPreExecutionFailures.delete(ctx);
     try {
       return await run(args, ctx);
     } catch (error) {
       if (error !== null && typeof error === "object") {
-        if (frame.handlerEntered)
-          actionPreExecutionFailures.get(ctx)?.delete(error);
-        else {
-          let failures = actionPreExecutionFailures.get(ctx);
-          if (!failures) {
-            failures = new WeakMap();
-            actionPreExecutionFailures.set(ctx, failures);
-          }
-          failures.set(error, boundaryRun);
+        let failures = actionPreExecutionFailures.get(ctx);
+        if (!failures) {
+          failures = new WeakMap();
+          actionPreExecutionFailures.set(ctx, failures);
         }
+        const origin = failures.get(error)?.origin ?? boundaryRun;
+        failures.set(error, {
+          run: boundaryRun,
+          origin,
+          handlerEntered: frame.handlerEntered,
+        });
       }
       throw error;
     } finally {
@@ -1489,11 +1497,16 @@ export function isActionPreExecutionFailure(
   ctx: ActionRunContext | undefined,
   run: ActionExecutionRun,
 ): boolean {
+  const failure =
+    ctx !== undefined && error !== null && typeof error === "object"
+      ? actionPreExecutionFailures.get(ctx)?.get(error)
+      : undefined;
+  if (failure?.run === run && !failure.handlerEntered) return true;
+  if (failure && failure.origin !== run) return false;
   return (
-    ctx !== undefined &&
-    error !== null &&
-    typeof error === "object" &&
-    actionPreExecutionFailures.get(ctx)?.get(error) === run
+    isAgentConnectionRequiredError(error) ||
+    ((isActionContractError(error) || isAgentActionStopError(error)) &&
+      error.errorCode === "permanent_precondition")
   );
 }
 

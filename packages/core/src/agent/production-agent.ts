@@ -7946,15 +7946,11 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
-          actionRefused =
-            isActionPreExecutionFailure(
-              err,
-              invokedActionContext,
-              actionEntry.run,
-            ) ||
-            isAgentConnectionRequiredError(err) ||
-            ((isActionContractError(err) || isAgentActionStopError(err)) &&
-              err.errorCode === "permanent_precondition");
+          actionRefused = isActionPreExecutionFailure(
+            err,
+            invokedActionContext,
+            actionEntry.run,
+          );
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
             : undefined;

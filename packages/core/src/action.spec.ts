@@ -1004,6 +1004,40 @@ describe("defineAction — outputSchema (return-value validation)", () => {
 });
 
 describe("defineAction — authorize", () => {
+  it("does not inherit a nested failure's refusal guarantee after the parent handler entered", async () => {
+    const failure = new AgentConnectionRequiredError("Connect child provider", {
+      provider: "test-child",
+    });
+    const child = defineAction({
+      description: "Child",
+      schema: z.object({}),
+      run: async () => {
+        throw failure;
+      },
+    });
+    const read = defineAction({
+      description: "Read",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => "read",
+    });
+    const parent = defineAction({
+      description: "Parent write",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        try {
+          await child.run({}, ctx);
+        } catch (error) {
+          expect(error).toBe(failure);
+        }
+        await read.run({}, ctx);
+        throw failure;
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    await expect(parent.run({}, ctx)).rejects.toBe(failure);
+    expect(isActionPreExecutionFailure(failure, ctx, parent.run)).toBe(false);
+  });
   it("preserves a denial without treating the same error from a later handler as pre-execution", async () => {
     const denial = Object.assign(new Error("Not authorized"), {
       statusCode: 403,
