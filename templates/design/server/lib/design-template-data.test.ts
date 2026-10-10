@@ -174,4 +174,45 @@ describe("design template data", () => {
     });
     expect(screenMetadata.fusionBridgeScreen).not.toHaveProperty("bridgeUrl");
   });
+
+  it("clears root legacy localhost URLs when its bridge URL is stripped", () => {
+    const data = JSON.parse(
+      redactTemplateDesignData(
+        JSON.stringify({
+          bridgeUrl: "http://127.0.0.1:7331",
+          url: "http://127.0.0.1:3000/route",
+          previewUrl: "http://127.0.0.1:3000/preview",
+          title: "Legacy local design",
+        }),
+      ),
+    ) as Record<string, unknown>;
+
+    expect(data).toMatchObject({
+      sourceType: "inline",
+      title: "Legacy local design",
+    });
+    expect(data).not.toHaveProperty("bridgeUrl");
+    expect(data).not.toHaveProperty("url");
+    expect(data).not.toHaveProperty("previewUrl");
+  });
+
+  it("preserves remote root URLs for explicit non-local sources", () => {
+    const data = JSON.parse(
+      redactTemplateDesignData(
+        JSON.stringify({
+          sourceType: "fusion",
+          bridgeUrl: "http://127.0.0.1:7331",
+          url: "https://example.com/design",
+          previewUrl: "https://example.com/preview",
+        }),
+      ),
+    ) as Record<string, unknown>;
+
+    expect(data).toMatchObject({
+      sourceType: "fusion",
+      url: "https://example.com/design",
+      previewUrl: "https://example.com/preview",
+    });
+    expect(data).not.toHaveProperty("bridgeUrl");
+  });
 });

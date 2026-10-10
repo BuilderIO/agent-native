@@ -78,9 +78,15 @@ function sanitizeTemplateSourceMetadata(value: unknown): unknown {
 
 function sanitizeTemplateDesignData(data: Record<string, unknown>) {
   const sanitized = { ...data };
+  const hasLegacyBridgeSource =
+    normalizeDesignSourceType(data.sourceType) == null &&
+    normalizeDesignSourceType(data.sourceMode) == null &&
+    typeof data.bridgeUrl === "string" &&
+    Boolean(data.bridgeUrl);
   const isLocalSource =
     isLocalhostSourceType(sanitized.sourceType) ||
-    isLocalhostSourceType(sanitized.sourceMode);
+    isLocalhostSourceType(sanitized.sourceMode) ||
+    hasLegacyBridgeSource;
 
   for (const key of Object.keys(sanitized)) {
     if (TEMPLATE_LOCAL_TRANSPORT_FIELDS.has(key.toLowerCase())) {
@@ -89,7 +95,7 @@ function sanitizeTemplateDesignData(data: Record<string, unknown>) {
   }
 
   if (isLocalSource) {
-    if (isLocalhostSourceType(sanitized.sourceType)) {
+    if (isLocalhostSourceType(sanitized.sourceType) || hasLegacyBridgeSource) {
       sanitized.sourceType = "inline";
     }
     if (isLocalhostSourceType(sanitized.sourceMode)) {

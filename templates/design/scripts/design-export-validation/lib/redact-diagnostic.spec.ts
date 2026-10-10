@@ -8,7 +8,7 @@ describe("redactExportDiagnostic", () => {
       "request https://example.test/path?access_token=url-secret access_token=ACCESS_TOKEN_PLACEHOLDER refresh_token=REFRESH_TOKEN_PLACEHOLDER client_secret=CLIENT_SECRET_PLACEHOLDER api_key=API_KEY_PLACEHOLDER token=TOKEN_PLACEHOLDER secret=SECRET_PLACEHOLDER signature=SIGNATURE_PLACEHOLDER";
 
     expect(redactExportDiagnostic(value)).toBe(
-      "request [URL] access_token=[redacted] refresh_token=[redacted] client_secret=[redacted] api_key=[redacted] token=[redacted] secret=[redacted] signature=[redacted]",
+      "request [URL] access_token=[redacted]",
     );
   });
 
@@ -35,9 +35,7 @@ describe("redactExportDiagnostic", () => {
       redactExportDiagnostic(
         'previewToken=PREVIEW_TOKEN_PLACEHOLDER csrf_token=CSRF_TOKEN_PLACEHOLDER x_api_key=X_API_KEY_PLACEHOLDER "previewToken":"QUOTED_PREVIEW_TOKEN_PLACEHOLDER" "csrf_token":"QUOTED_CSRF_TOKEN_PLACEHOLDER" "x_api_key":"QUOTED_X_API_KEY_PLACEHOLDER" tokenCount=3 title=Welcome',
       ),
-    ).toBe(
-      'previewToken=[redacted] csrf_token=[redacted] x_api_key=[redacted] "previewToken":"[redacted]" "csrf_token":"[redacted]" "x_api_key":"[redacted]" tokenCount=3 title=Welcome',
-    );
+    ).toBe("previewToken=[redacted]");
   });
 
   it("redacts password and authorization values including quoted spaces", () => {
@@ -46,7 +44,7 @@ describe("redactExportDiagnostic", () => {
         "password=\"PASSWORD WITH SPACES PLACEHOLDER\" authorization='Bearer AUTHORIZATION WITH SPACES PLACEHOLDER' authorization=Bearer AUTHORIZATION_TOKEN_PLACEHOLDER passwordCount=3 title=Welcome",
       ),
     ).toBe(
-      "password=\"[redacted]\" authorization='[redacted]' authorization=[redacted] passwordCount=3 title=Welcome",
+      "password=\"[redacted]\" authorization='[redacted]' authorization=[redacted]",
     );
   });
 
@@ -79,8 +77,9 @@ describe("redactExportDiagnostic", () => {
       redactExportDiagnostic(
         "secret_key=FAKE_SECRET SECRET_KEY=FAKE_SECRET secretKey=FAKE_SECRET x_secret_key=FAKE_SECRET keyboard=music",
       ),
-    ).toBe(
-      "secret_key=[redacted] SECRET_KEY=[redacted] secretKey=[redacted] x_secret_key=[redacted] keyboard=music",
+    ).toBe("secret_key=[redacted]");
+    expect(redactExportDiagnostic("keyboard=music document_key=home")).toBe(
+      "keyboard=music document_key=home",
     );
   });
 
@@ -98,9 +97,7 @@ describe("redactExportDiagnostic", () => {
       redactExportDiagnostic(
         String.raw`client_secret="FAKE \"QUOTED\" VALUE" access_token=Bearer FAKE_TOKEN db_password='FAKE PASSWORD' adminPassword=FAKE_PASSWORD private_key="FAKE KEY" access_key=FAKE_KEY password="FAKE \"QUOTED\" PASSWORD" document_key=home passwordCount=3`,
       ),
-    ).toBe(
-      `client_secret="[redacted]" access_token=[redacted] db_password='[redacted]' adminPassword=[redacted] private_key="[redacted]" access_key=[redacted] password="[redacted]" document_key=home passwordCount=3`,
-    );
+    ).toBe(`client_secret="[redacted]" access_token=[redacted]`);
   });
 });
 
@@ -169,8 +166,9 @@ describe("redactExportDiagnostic nested credential regressions", () => {
       redactExportDiagnostic(
         "signing_key=FAKE_SIGNING_SECRET signingKey=FAKE_SIGNING_SECRET x_signing_key=FAKE_SIGNING_SECRET encryption_key=FAKE_ENCRYPTION_SECRET encryptionKey=FAKE_ENCRYPTION_SECRET x_encryption_key=FAKE_ENCRYPTION_SECRET keyboard=music document_key=home",
       ),
-    ).toBe(
-      "signing_key=[redacted] signingKey=[redacted] x_signing_key=[redacted] encryption_key=[redacted] encryptionKey=[redacted] x_encryption_key=[redacted] keyboard=music document_key=home",
+    ).toBe("signing_key=[redacted]");
+    expect(redactExportDiagnostic("keyboard=music document_key=home")).toBe(
+      "keyboard=music document_key=home",
     );
   });
 
@@ -220,7 +218,7 @@ describe("redactExportDiagnostic credential aliases and escaped quotes", () => {
     const input =
       "apikey=FAKE_API passwd=FAKE_PASS pwd=FAKE_PWD cookie=FAKE_COOKIE\nset-cookie: session=FAKE_SESSION; HttpOnly keyboard=music\nkeyboard=music document_key=home";
     expect(redactExportDiagnostic(input)).toBe(
-      "apikey=[redacted] passwd=[redacted] pwd=[redacted] cookie=[redacted]\nset-cookie: [redacted]\nkeyboard=music document_key=home",
+      "apikey=[redacted]\nset-cookie: [redacted]\nkeyboard=music document_key=home",
     );
   });
 
@@ -272,5 +270,69 @@ describe("redactExportDiagnostic encoded field boundaries", () => {
         "Set-Cookie: session=FAKE_SESSION; Path=/; HttpOnly; SameSite=Lax, refresh=FAKE_REFRESH; Secure\nkeyboard=music\ndocument_key=home",
       ),
     ).toBe("Set-Cookie: [redacted]\nkeyboard=music\ndocument_key=home");
+  });
+
+  it("redacts credentials embedded in non-HTTP connection URLs", () => {
+    expect(
+      redactExportDiagnostic(
+        "DATABASE_URL=postgresql://app:fake-password@db.internal:5432/app redis://:fake-password@cache:6379 postgresql://db.internal:5432/app",
+      ),
+    ).toBe(
+      "DATABASE_URL=postgresql://[redacted]@db.internal:5432/app redis://[redacted]@cache:6379 postgresql://db.internal:5432/app",
+    );
+  });
+
+  it("redacts bare credential tails through the line ending", () => {
+    expect(
+      redactExportDiagnostic(
+        "password=SEC RETTAIL end\npassword=SEC&RETTAIL\npassword=SEC tail=RETTAIL\ntitle=Welcome\npassword=SEC tail=RETTAIL\r\nkeyboard=music",
+      ),
+    ).toBe(
+      "password=[redacted]\npassword=[redacted]\npassword=[redacted]\ntitle=Welcome\npassword=[redacted]\r\nkeyboard=music",
+    );
+  });
+
+  it("redacts an assignment-shaped secret tail through the line ending", () => {
+    expect(redactExportDiagnostic("password=SEC tail=RETTAIL")).toBe(
+      "password=[redacted]",
+    );
+  });
+
+  it("redacts common credential aliases and access-key identifiers", () => {
+    const input = [
+      "apikey=FAKE_API",
+      "passwd=FAKE_PASSWD",
+      "pwd=FAKE_PWD",
+      "cookie=FAKE_COOKIE",
+      "pw=FAKE_PW",
+      "pass=FAKE_PASS",
+      "passphrase=FAKE_PASSPHRASE",
+      "credentials=FAKE_CREDENTIALS",
+      "AWS_ACCESS_KEY_ID=FAKE_AWS_ID",
+      "accessKeyId=FAKE_ACCESS_ID",
+      "secret_key=FAKE_SECRET_KEY",
+      "signing_key=FAKE_SIGNING_KEY",
+      "encryption_key=FAKE_ENCRYPTION_KEY",
+      "keyboard=music document_key=home",
+    ].join("\n");
+
+    expect(redactExportDiagnostic(input)).toBe(
+      [
+        "apikey=[redacted]",
+        "passwd=[redacted]",
+        "pwd=[redacted]",
+        "cookie=[redacted]",
+        "pw=[redacted]",
+        "pass=[redacted]",
+        "passphrase=[redacted]",
+        "credentials=[redacted]",
+        "AWS_ACCESS_KEY_ID=[redacted]",
+        "accessKeyId=[redacted]",
+        "secret_key=[redacted]",
+        "signing_key=[redacted]",
+        "encryption_key=[redacted]",
+        "keyboard=music document_key=home",
+      ].join("\n"),
+    );
   });
 });

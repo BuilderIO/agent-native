@@ -1,4 +1,5 @@
 const URL_PATTERN = /https?:\/\/[^\s)"'<>]+/gi;
+const URL_USERINFO_PATTERN = /\b([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^\s/?#@]*@/gi;
 const ASSIGNMENT_PREFIX_PATTERN =
   /((?:\\+["']|["'])?)([A-Za-z_$][A-Za-z0-9_$.-]*(?:[ _-]+[A-Za-z0-9_$.-]+)*)\1(\s*[:=]\s*)/gi;
 const ASSIGNMENT_BARE_VALUE_PATTERN =
@@ -22,8 +23,13 @@ function isSensitiveAssignmentKey(key: string): boolean {
     lastWord === "apikey" ||
     lastWord === "passwd" ||
     lastWord === "pwd" ||
+    lastWord === "pw" ||
+    lastWord === "pass" ||
+    lastWord === "passphrase" ||
+    lastWord === "credentials" ||
     lastWord === "cookie" ||
     lastWord === "authorization" ||
+    words.slice(-3).join(" ") === "access key id" ||
     (lastWord === "key" &&
       ["api", "private", "access", "secret", "signing", "encryption"].includes(
         words[words.length - 2],
@@ -101,6 +107,11 @@ function findNextAssignment(
   }
 }
 
+function findLineEnd(value: string, start: number): number {
+  const offset = value.slice(start).search(/[\r\n]/);
+  return offset < 0 ? value.length : start + offset;
+}
+
 function redactAssignments(value: string, depth = 0): string {
   let result = "";
   let cursor = 0;
@@ -126,11 +137,9 @@ function redactAssignments(value: string, depth = 0): string {
       !/:\s*$/.test(assignment.prefix) &&
       parsedValue?.kind !== "quoted";
     if (isCookieHeader || isBareCookieAssignment) {
-      const lineEnd = value.indexOf("\n", assignment.end);
-      const end = lineEnd < 0 ? value.length : lineEnd;
       result += "[redacted]";
-      cursor = end;
-      searchFrom = end;
+      cursor = findLineEnd(value, assignment.end);
+      searchFrom = cursor;
       continue;
     }
 
@@ -149,11 +158,15 @@ function redactAssignments(value: string, depth = 0): string {
     }
 
     if (isSensitive && parsedValue) {
-      result +=
-        parsedValue.kind === "quoted"
-          ? `${parsedValue.opening}[redacted]${parsedValue.closing}`
-          : "[redacted]";
-      cursor = parsedValue.end;
+      if (parsedValue.kind === "quoted") {
+        result += `${parsedValue.opening}[redacted]${parsedValue.closing}`;
+        cursor = parsedValue.end;
+      } else {
+        // A bare secret may contain whitespace and assignment-like text, so
+        // redact through the line ending instead of guessing where it ends.
+        result += "[redacted]";
+        cursor = findLineEnd(value, assignment.end);
+      }
       searchFrom = cursor;
       continue;
     }
@@ -178,5 +191,9 @@ function redactAssignments(value: string, depth = 0): string {
 }
 
 export function redactExportDiagnostic(value: string): string {
-  return redactAssignments(value.replace(URL_PATTERN, "[URL]"));
+  return redactAssignments(
+    value
+      .replace(URL_USERINFO_PATTERN, "$1[redacted]@")
+      .replace(URL_PATTERN, "[URL]"),
+  );
 }
