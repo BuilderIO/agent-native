@@ -193,6 +193,12 @@ type HomeSuggestionsResult =
       suggestions: [];
     };
 
+function isReadyHomeSuggestions(
+  result: HomeSuggestionsResult | undefined,
+): result is Extract<HomeSuggestionsResult, { status: "ready" }> {
+  return result?.status === "ready" && result.suggestions.length === 3;
+}
+
 export default function Index() {
   const t = useT();
   const navigate = useNavigate();
@@ -395,11 +401,13 @@ export default function Index() {
       enabled: quickActionsEnabled && homeSuggestionsSnapshot === null,
       queryKeyScope: [homeSuggestionsCacheScope],
       retry: false,
-      staleTime: Number.POSITIVE_INFINITY,
+      staleTime: (query) =>
+        isReadyHomeSuggestions(query.state.data) ? Number.POSITIVE_INFINITY : 0,
       gcTime: Number.POSITIVE_INFINITY,
-      refetchOnMount: false,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
+      refetchOnMount: (query) => !isReadyHomeSuggestions(query.state.data),
+      refetchOnWindowFocus: (query) =>
+        !isReadyHomeSuggestions(query.state.data),
+      refetchOnReconnect: (query) => !isReadyHomeSuggestions(query.state.data),
     },
   );
   const readyHomeSuggestions =
@@ -428,17 +436,9 @@ export default function Index() {
         scope: homeSuggestionsCacheScope,
         suggestions: result.suggestions,
       });
-    } else if (!homeSuggestionsQuery.isFetching && homeSuggestionsUnavailable) {
-      setHomeSuggestionsSnapshotState({
-        scope: homeSuggestionsCacheScope,
-        suggestions: fallbackHomeSuggestions,
-      });
     }
   }, [
     homeSuggestionsQuery.data,
-    homeSuggestionsQuery.isFetching,
-    homeSuggestionsUnavailable,
-    fallbackHomeSuggestions,
     homeSuggestionsSnapshot,
     homeSuggestionsCacheScope,
     quickActionsEnabled,

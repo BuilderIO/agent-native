@@ -32,7 +32,14 @@ const suggestionQuery = vi.hoisted(() => ({
   enabled: undefined as boolean | undefined,
   pending: false,
   retrying: false,
+  unavailable: false,
   cachedReady: false,
+  options: null as {
+    staleTime?: unknown;
+    refetchOnMount?: unknown;
+    refetchOnWindowFocus?: unknown;
+    refetchOnReconnect?: unknown;
+  } | null,
 }));
 const inactiveHomeQueries = vi.hoisted(() => ({
   workspaceDefaultsEnabled: true,
@@ -242,10 +249,17 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (
     name: string,
     _args: unknown,
-    options?: { enabled?: boolean },
+    options?: {
+      enabled?: boolean;
+      staleTime?: unknown;
+      refetchOnMount?: unknown;
+      refetchOnWindowFocus?: unknown;
+      refetchOnReconnect?: unknown;
+    },
   ) => {
     if (name === "generate-home-suggestions") {
       suggestionQuery.enabled = options?.enabled;
+      suggestionQuery.options = options ?? null;
       if (suggestionQuery.retrying && options?.enabled !== false) {
         return {
           data: { status: "unavailable", suggestions: [] },
@@ -259,6 +273,18 @@ vi.mock("@agent-native/core/client/hooks", () => ({
           data: undefined,
           isLoading: true,
           isFetching: true,
+          isError: false,
+        };
+      }
+      if (suggestionQuery.unavailable && options?.enabled !== false) {
+        return {
+          data: {
+            status: "unavailable",
+            reason: "timeout",
+            suggestions: [],
+          },
+          isLoading: false,
+          isFetching: false,
           isError: false,
         };
       }
@@ -523,7 +549,9 @@ beforeEach(() => {
   suggestionQuery.enabled = undefined;
   suggestionQuery.pending = false;
   suggestionQuery.retrying = false;
+  suggestionQuery.unavailable = false;
   suggestionQuery.cachedReady = false;
+  suggestionQuery.options = null;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
   inactiveHomeQueries.templateLibraryEnabled = true;
   defaultDesignSystems.systems = [];
@@ -1773,7 +1801,7 @@ describe("Slides prompt-led home", () => {
     ).toBeNull();
   });
 
-  it("keeps fallback suggestions unchanged after readiness recovers", async () => {
+  it("retries suggestions after readiness recovers", async () => {
     agentEngine.state = "unavailable";
     agentEngine.missing = false;
     const { rerenderHome } = renderHome();
@@ -1788,10 +1816,64 @@ describe("Slides prompt-led home", () => {
     rerenderHome();
 
     expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeNull();
+    expect(suggestionQuery.enabled).toBe(false);
+  });
+
+  it("retries unavailable results while keeping ready samples fresh", async () => {
+    suggestionQuery.unavailable = true;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    expect(
       screen.getByRole("button", { name: "Create a product pitch deck" }),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Build a pitch" })).toBeNull();
-    expect(suggestionQuery.enabled).toBe(false);
+    expect(suggestionQuery.enabled).toBe(true);
+
+    const staleTime = suggestionQuery.options?.staleTime as (
+      query: never,
+    ) => number;
+    const refetchOnMount = suggestionQuery.options?.refetchOnMount as (
+      query: never,
+    ) => boolean;
+    const refetchOnWindowFocus = suggestionQuery.options
+      ?.refetchOnWindowFocus as (query: never) => boolean;
+    const refetchOnReconnect = suggestionQuery.options?.refetchOnReconnect as (
+      query: never,
+    ) => boolean;
+    const unavailable = {
+      state: { data: { status: "unavailable", suggestions: [] } },
+    } as never;
+    const ready = {
+      state: {
+        data: {
+          status: "ready",
+          suggestions: [
+            { id: "one", label: "One", prompt: "One" },
+            { id: "two", label: "Two", prompt: "Two" },
+            { id: "three", label: "Three", prompt: "Three" },
+          ],
+        },
+      },
+    } as never;
+    expect(staleTime(unavailable)).toBe(0);
+    expect(refetchOnMount(unavailable)).toBe(true);
+    expect(refetchOnWindowFocus(unavailable)).toBe(true);
+    expect(refetchOnReconnect(unavailable)).toBe(true);
+    expect(staleTime(ready)).toBe(Number.POSITIVE_INFINITY);
+    expect(refetchOnMount(ready)).toBe(false);
+    expect(refetchOnWindowFocus(ready)).toBe(false);
+    expect(refetchOnReconnect(ready)).toBe(false);
+
+    suggestionQuery.unavailable = false;
+    rerenderHome();
+    expect(
+      await screen.findByRole("button", { name: "Build a pitch" }),
+    ).toBeTruthy();
   });
 
   it("shows the skeleton while retrying a cached unavailable result", async () => {

@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   fullAppBuilding: false,
   suggestionPending: false,
   suggestionRetrying: false,
+  suggestionUnavailable: false,
   suggestionCachedReady: false,
   suggestionLabel: "Generated dashboard",
   suggestionSession: {
@@ -41,6 +42,13 @@ const mocks = vi.hoisted(() => ({
     orgId: "org-a",
   },
   suggestionQueryScope: null as readonly unknown[] | null,
+  suggestionQueryOptions: null as {
+    enabled?: boolean;
+    staleTime?: unknown;
+    refetchOnMount?: unknown;
+    refetchOnWindowFocus?: unknown;
+    refetchOnReconnect?: unknown;
+  } | null,
   ownCount: 0,
   ownedCount: 0,
   ownStatus: "success",
@@ -134,7 +142,14 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   useActionQuery: (
     name: string,
     params: Record<string, unknown>,
-    options?: { enabled?: boolean; queryKeyScope?: readonly unknown[] },
+    options?: {
+      enabled?: boolean;
+      queryKeyScope?: readonly unknown[];
+      staleTime?: unknown;
+      refetchOnMount?: unknown;
+      refetchOnWindowFocus?: unknown;
+      refetchOnReconnect?: unknown;
+    },
   ) => {
     if (name === "list-designs") {
       if (params.compact === "true") {
@@ -185,6 +200,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
     }
     if (name === "generate-home-suggestions") {
       mocks.suggestionQueryScope = options?.queryKeyScope ?? null;
+      mocks.suggestionQueryOptions = options ?? null;
       if (options?.enabled === false) {
         if (mocks.suggestionCachedReady) {
           return {
@@ -226,6 +242,18 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
           isLoading: false,
           isFetching: true,
           isError: true,
+        };
+      }
+      if (mocks.suggestionUnavailable) {
+        return {
+          data: {
+            status: "unavailable",
+            reason: "timeout",
+            suggestions: [],
+          },
+          isLoading: false,
+          isFetching: false,
+          isError: false,
         };
       }
       if (mocks.suggestionPending) {
@@ -487,6 +515,7 @@ beforeEach(async () => {
   mocks.fullAppBuilding = false;
   mocks.suggestionPending = false;
   mocks.suggestionRetrying = false;
+  mocks.suggestionUnavailable = false;
   mocks.suggestionCachedReady = false;
   mocks.suggestionLabel = "Generated dashboard";
   mocks.suggestionSession = {
@@ -496,6 +525,7 @@ beforeEach(async () => {
     orgId: "org-a",
   };
   mocks.suggestionQueryScope = null;
+  mocks.suggestionQueryOptions = null;
   mocks.systemsEnabled = true;
   mocks.systemsLoading = false;
   mocks.systemsError = null;
@@ -825,7 +855,7 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Another dashboard");
   });
 
-  it("keeps fallback suggestions unchanged after readiness recovers", async () => {
+  it("retries suggestions after readiness recovers", async () => {
     await act(async () => root.render(null));
     mocks.agentEngine = {
       state: "unavailable",
@@ -840,9 +870,56 @@ describe("Index skip to editor", () => {
     mocks.agentEngine = { state: "configured", missing: false, canChat: true };
     await act(async () => root.render(<Index />));
 
-    expect(container.textContent).toContain("chat.suggestionLandingPage");
-    expect(container.textContent).not.toContain("Generated dashboard");
+    expect(container.textContent).toContain("Generated dashboard");
+    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
     expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
+  it("retries unavailable results while keeping ready samples fresh", async () => {
+    await act(async () => root.render(null));
+    mocks.suggestionUnavailable = true;
+    await act(async () => root.render(<Index />));
+
+    expect(container.textContent).toContain("chat.suggestionLandingPage");
+    expect(mocks.suggestionQueryOptions?.enabled).toBe(true);
+
+    const staleTime = mocks.suggestionQueryOptions?.staleTime as (
+      query: never,
+    ) => number;
+    const refetchOnMount = mocks.suggestionQueryOptions?.refetchOnMount as (
+      query: never,
+    ) => boolean;
+    const refetchOnWindowFocus = mocks.suggestionQueryOptions
+      ?.refetchOnWindowFocus as (query: never) => boolean;
+    const refetchOnReconnect = mocks.suggestionQueryOptions
+      ?.refetchOnReconnect as (query: never) => boolean;
+    const unavailable = {
+      state: { data: { status: "unavailable", suggestions: [] } },
+    } as never;
+    const ready = {
+      state: {
+        data: {
+          status: "ready",
+          suggestions: [
+            { id: "one", label: "One", prompt: "One" },
+            { id: "two", label: "Two", prompt: "Two" },
+            { id: "three", label: "Three", prompt: "Three" },
+          ],
+        },
+      },
+    } as never;
+    expect(staleTime(unavailable)).toBe(0);
+    expect(refetchOnMount(unavailable)).toBe(true);
+    expect(refetchOnWindowFocus(unavailable)).toBe(true);
+    expect(refetchOnReconnect(unavailable)).toBe(true);
+    expect(staleTime(ready)).toBe(Number.POSITIVE_INFINITY);
+    expect(refetchOnMount(ready)).toBe(false);
+    expect(refetchOnWindowFocus(ready)).toBe(false);
+    expect(refetchOnReconnect(ready)).toBe(false);
+
+    mocks.suggestionUnavailable = false;
+    await act(async () => root.render(<Index />));
+    expect(container.textContent).toContain("Generated dashboard");
   });
 
   it("shows the skeleton while retrying a cached unavailable result", async () => {
