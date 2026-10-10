@@ -408,15 +408,21 @@ describe("processRecordingContextItem", () => {
     );
   });
 
-  it("treats a 404 from the context read as an absent item and trashes its footage", async () => {
+  it("treats a recording_not_found 404 from the context read as an absent item and trashes its footage", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
         async () =>
-          new Response(JSON.stringify({ error: "Recording not found" }), {
-            status: 404,
-            headers: { "Content-Type": "application/json" },
-          }),
+          new Response(
+            JSON.stringify({
+              error: "Recording not found.",
+              errorCode: "recording_not_found",
+            }),
+            {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
       ),
     );
     const deps = fakeDeps({

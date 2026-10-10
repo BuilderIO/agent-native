@@ -3,14 +3,17 @@ export interface ClipsActionTarget {
   authToken: string;
 }
 
-// Keeps the HTTP status so a caller can tell a claim conflict (409) from a
-// transport or server failure.
+// Keeps the HTTP status and the action's typed errorCode, so a caller can tell
+// a claim conflict (409) or a deleted Clip (404 recording_not_found) from a
+// proxy or route 404 that carries no code.
 export class ClipsActionError extends Error {
   readonly status: number;
+  readonly code: string | undefined;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -74,7 +77,11 @@ export async function callClipsActionFor<T>(
       (response.status === 401
         ? "Sign in to transcribe meetings."
         : text.slice(0, 180) || `Request failed (${response.status})`);
-    throw new ClipsActionError(message, response.status);
+    throw new ClipsActionError(
+      message,
+      response.status,
+      typeof json?.errorCode === "string" ? json.errorCode : undefined,
+    );
   }
   if (!text) {
     throw new Error("Action returned an empty response.");

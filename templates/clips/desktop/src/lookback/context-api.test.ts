@@ -81,12 +81,31 @@ describe("getRecordingContextItem", () => {
     ).rejects.toThrow();
   });
 
-  it("returns null when the server answers 404 because the Clip is gone", async () => {
-    stubFetch({ error: "Recording not found" }, 404);
+  it("returns null when the server answers recording_not_found because the Clip is gone", async () => {
+    stubFetch(
+      { error: "Recording not found.", errorCode: "recording_not_found" },
+      404,
+    );
 
     await expect(
       getRecordingContextItem(target, "rec1", "ctx1"),
     ).resolves.toBeNull();
+  });
+
+  it("throws on a 404 without the action's error code, such as a proxy or missing route", async () => {
+    stubFetch({ error: "Not found" }, 404);
+
+    await expect(
+      getRecordingContextItem(target, "rec1", "ctx1"),
+    ).rejects.toThrow("Not found");
+  });
+
+  it("throws on a 404 carrying a different error code", async () => {
+    stubFetch({ error: "Other", errorCode: "something_else" }, 404);
+
+    await expect(
+      getRecordingContextItem(target, "rec1", "ctx1"),
+    ).rejects.toThrow("Other");
   });
 
   it("throws on a 403, since lost access does not prove the item is absent", async () => {

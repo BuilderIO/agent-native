@@ -77,8 +77,9 @@ export async function listRecordingContext(
 }
 
 // Null only when the server reports the item absent or removed, or its Clip gone
-// (404). Any other failed read throws, so an unreadable item is never mistaken
-// for an absent one.
+// (a 404 carrying the action's recording_not_found code). Any other failed read
+// throws, including a 404 with no code from a proxy or missing route, so an
+// unreadable item is never mistaken for an absent one.
 export async function getRecordingContextItem(
   target: ClipsActionTarget,
   recordingId: string,
@@ -88,7 +89,13 @@ export async function getRecordingContextItem(
   try {
     items = await listRecordingContext(target, recordingId);
   } catch (error) {
-    if (error instanceof ClipsActionError && error.status === 404) return null;
+    if (
+      error instanceof ClipsActionError &&
+      error.status === 404 &&
+      error.code === "recording_not_found"
+    ) {
+      return null;
+    }
     throw error;
   }
   return items.find((item) => item.id === id) ?? null;
