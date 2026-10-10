@@ -1464,8 +1464,12 @@ function semanticModelEntries(
     const primary = (item.children.get("entities") ?? []).find(
       (entity) => entity.type?.toLowerCase() === "primary",
     );
-    const primaryEntity =
+    const primaryEntityKey =
       safeIdentifier(primary?.expr ?? primary?.name ?? "") ?? undefined;
+    const primaryEntityName =
+      safeIdentifier(primary?.name ?? "") ?? primaryEntityKey;
+    const primaryEntity =
+      safeIdentifier(item.values.primary_entity ?? "") ?? primaryEntityName;
     const timeDimension =
       safeIdentifier(item.nested["defaults.agg_time_dimension"] ?? "") ??
       (item.children.get("dimensions") ?? [])
@@ -1481,8 +1485,8 @@ function semanticModelEntries(
       explicitGrain ??
       (uniqueGrain?.length
         ? `Unique key: ${uniqueGrain.join(", ")}`
-        : primaryEntity
-          ? `Primary entity: ${primaryEntity}`
+        : primaryEntityKey
+          ? `Primary entity: ${primaryEntityKey}`
           : undefined);
     const group = safeIdentifier(item.values.group ?? "");
     const owner =
@@ -1497,6 +1501,11 @@ function semanticModelEntries(
         description ?? `dbt semantic model ${name}`,
         ...(modelName ? [`Model: ${modelName}`] : []),
         ...(primaryEntity ? [`Primary entity: ${primaryEntity}`] : []),
+        ...(primaryEntity &&
+        primaryEntityKey &&
+        primaryEntity !== primaryEntityKey
+          ? [`Primary entity expression: ${primaryEntityKey}`]
+          : []),
         ...(timeDimension ? [`Time dimension: ${timeDimension}`] : []),
       ].join(". "),
       5_000,
