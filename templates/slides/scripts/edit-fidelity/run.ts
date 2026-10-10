@@ -864,6 +864,13 @@ async function settle(page: Page) {
       return {
         settled,
         fonts: document.fonts.status,
+        pendingFontFaces: Array.from(document.fonts)
+          .filter((font) => font.status !== "loaded")
+          .slice(0, 10)
+          .map(
+            (font) =>
+              `${font.family} ${font.style} ${font.weight} (${font.status})`,
+          ),
         pendingStylesheets: stylesheets.pending.length,
         failedStylesheets: stylesheets.failed.map((link) => link.href),
       };
@@ -926,7 +933,7 @@ async function settle(page: Page) {
   }, MASK_CSS);
   if (!settleState.settled) {
     throw new CouldNotRun(
-      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
+      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending font faces: ${settleState.pendingFontFaces.join(", ") || "none"}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
     );
   }
   // Autofit measures after paint; give it one more beat.
@@ -5238,6 +5245,7 @@ async function runAuthoringCorpusQa(
 
 async function runAuthoringFuzzQa(
   createPage: () => Promise<Page>,
+  stableCleanupPage: Page,
   base: string,
   cases: CorpusCase[],
   firstSeed: number,
@@ -5597,7 +5605,7 @@ async function runAuthoringFuzzQa(
         requestWasPendingAtNavigation: true;
       }> = [];
       let cleanupNavigationPending = false;
-      let recoveryPage: Page | null = null;
+      let recoveryPage: Page | null = stableCleanupPage;
       let lastCleanupPage: Page | null = null;
       const recordCleanupFailure = (
         label: string,
@@ -5632,6 +5640,18 @@ async function runAuthoringFuzzQa(
           cleanupNavigationPending,
         );
       };
+      if (authoringSucceeded && page && !page.isClosed()) {
+        unavailableCleanupPages.add(page);
+        try {
+          await page.close();
+        } catch (error) {
+          recordCleanupFailure(
+            "could not close authoring page before cleanup",
+            error,
+            page,
+          );
+        }
+      }
       const onConsole = (message: { type(): string; text(): string }) => {
         if (message.type() === "error") {
           if (isExpectedCleanupNavigationError(message.text())) return;
@@ -5803,15 +5823,22 @@ async function runAuthoringFuzzQa(
                   requestWasPendingAtNavigation: true as const,
                 };
               });
-            cleanupNavigationPending = true;
-            try {
-              await cleanupPage.goto(`${base}/home`, {
-                waitUntil: "domcontentloaded",
-                timeout: 120_000,
-              });
-            } finally {
-              cleanupNavigationPending = false;
-              cleanupNavigationCandidates = [];
+            const cleanupUrl = new URL(cleanupPage.url());
+            const homeUrl = new URL(`${base}/home`);
+            if (
+              cleanupUrl.origin !== homeUrl.origin ||
+              cleanupUrl.pathname !== homeUrl.pathname
+            ) {
+              cleanupNavigationPending = true;
+              try {
+                await cleanupPage.goto(`${base}/home`, {
+                  waitUntil: "domcontentloaded",
+                  timeout: 120_000,
+                });
+              } finally {
+                cleanupNavigationPending = false;
+                cleanupNavigationCandidates = [];
+              }
             }
           } catch (error) {
             recordCleanupFailure("could not leave scratch deck", error);
@@ -7240,7 +7267,7 @@ async function main() {
     });
     await ensureSignedIn(warm);
     await warmUp(warm, base);
-    await warm.close();
+    if (!authoringFuzzOnly) await warm.close();
 
     if (typingChatOnly) {
       const page = await context.newPage();
@@ -7339,6 +7366,7 @@ async function main() {
     if (authoringFuzzOnly) {
       const problems = await runAuthoringFuzzQa(
         () => context.newPage(),
+        warm,
         base,
         cases,
         fuzzSeed,

@@ -20,6 +20,7 @@ import {
   isConflictResourceConsoleError,
   isBrowserSessionPath,
   isCaretScrollOnlyChange,
+  isExpectedBrowserSessionPollNavigationConsoleError,
   isExpectedSaveReloadWatchedRequestAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
@@ -1342,6 +1343,45 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
     isExpectedCleanupBrowserSessionPollConsoleError("another poll error", [
       candidate,
     ]),
+  ).toBe(false);
+});
+
+it("recognizes Firefox poll errors only for a canceled browser-session claim navigation", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 100,
+    requestWasPendingAtNavigation: true,
+  };
+  const warning = "[Agent-Native browser session] poll failed: JSHandle@object";
+
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "save/reload", [
+      candidate,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "save/reload", [
+      { ...candidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "save/reload", [
+      { ...candidate, ageMs: 9_000 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "step 72", [
+      candidate,
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(
+      "[Agent-Native browser session] poll failed: Browser-session request failed (503)",
+      "save/reload",
+      [candidate],
+    ),
   ).toBe(false);
 });
 

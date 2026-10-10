@@ -281,13 +281,16 @@ export function isExpectedWatchedRequestCorsError(
   );
 }
 
-export function isExpectedCleanupBrowserSessionPollConsoleError(
+export function isExpectedBrowserSessionPollNavigationConsoleError(
   message: string,
+  activePhase: string,
   candidates: WatchedRequestNavigationCandidate[],
 ) {
   if (
-    message !==
-    "[Agent-Native browser session] poll failed: TypeError: Load failed"
+    ![
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      "[Agent-Native browser session] poll failed: JSHandle@object",
+    ].includes(message)
   ) {
     return false;
   }
@@ -295,9 +298,20 @@ export function isExpectedCleanupBrowserSessionPollConsoleError(
   return candidates.some((candidate) =>
     isExpectedWatchedRequestCorsError(
       `Fetch API cannot load ${candidate.url} due to access control checks.`,
-      "cleanup/navigation",
+      activePhase,
       [candidate],
     ),
+  );
+}
+
+export function isExpectedCleanupBrowserSessionPollConsoleError(
+  message: string,
+  candidates: WatchedRequestNavigationCandidate[],
+) {
+  return isExpectedBrowserSessionPollNavigationConsoleError(
+    message,
+    "cleanup/navigation",
+    candidates,
   );
 }
 
@@ -947,6 +961,7 @@ export async function runAuthoringFuzz(
   let conflictResourceErrors = 0;
   let activeIndex = -1;
   let activePhase = "setup";
+  let reloadNavigationPending = false;
   const onConsole = (message: any) => {
     if (
       traceEnabled &&
@@ -966,17 +981,25 @@ export async function runAuthoringFuzz(
       conflictResourceErrors += 1;
       return;
     }
+    const navigationCandidates = [...reloadNavigationRequests.entries()].map(
+      ([request, startedAt]) => ({
+        url: request.url(),
+        pathname: new URL(request.url()).pathname,
+        method: request.method(),
+        ageMs: Date.now() - startedAt,
+        requestWasPendingAtNavigation: true,
+      }),
+    );
     if (
       isExpectedWatchedRequestCorsError(
         message.text(),
         activePhase,
-        [...reloadNavigationRequests.entries()].map(([request, startedAt]) => ({
-          url: request.url(),
-          pathname: new URL(request.url()).pathname,
-          method: request.method(),
-          ageMs: Date.now() - startedAt,
-          requestWasPendingAtNavigation: true,
-        })),
+        navigationCandidates,
+      ) ||
+      isExpectedBrowserSessionPollNavigationConsoleError(
+        message.text(),
+        activePhase,
+        navigationCandidates,
       )
     ) {
       return;
@@ -1042,6 +1065,9 @@ export async function runAuthoringFuzz(
       isBrowserSessionPath(requestUrl.pathname)
     ) {
       watchedRequests.set(request, startedAt);
+    }
+    if (activePhase === "save/reload" && reloadNavigationPending) {
+      reloadNavigationRequests.set(request, startedAt);
     }
     if (!traceEnabled) return;
     pendingRequests.set(request, {
@@ -4767,6 +4793,8 @@ export async function runAuthoringFuzz(
 
     activePhase = "save/reload";
     const persistence = await options.finishAndReload(() => {
+      // Polls can start after navigation begins and be canceled by that route change.
+      reloadNavigationPending = true;
       for (const [request, startedAt] of watchedRequests.entries()) {
         reloadNavigationRequests.set(request, startedAt);
         if (traceEnabled) {
@@ -4776,6 +4804,7 @@ export async function runAuthoringFuzz(
         }
       }
     });
+    reloadNavigationPending = false;
     assertAuthoringPersistence(persistence);
     await checkPageErrors();
     const unexpectedConflictPaths = [
