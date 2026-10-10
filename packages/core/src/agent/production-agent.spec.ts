@@ -4841,6 +4841,101 @@ describe("createProductionAgentHandler", () => {
     expect(sentImages).toHaveLength(1);
   });
 
+  it("reports a failed earlier history image as attempted so the prior-thread fallback skips it", async () => {
+    const url = "https://storage.example.test/uploads/unreadable.png";
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 500 })),
+    );
+    const prepareAfterModel = vi.fn(async () => undefined);
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "vision-model",
+      supportedModels: ["vision-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [
+            { type: "text", text: "The earlier image could not be read." },
+          ],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe the earlier image",
+          structuredHistory: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Earlier reference" },
+                {
+                  type: "image-reference",
+                  url,
+                  name: "unreadable.png",
+                  mediaType: "image/png",
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "vision-model",
+      vision: true,
+      historyImageUrls: [url],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
+    });
+    const sentImages = streamedMessages
+      .flatMap((messages) => messages)
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "image");
+    expect(sentImages).toHaveLength(0);
+  });
+
   it("skips experiment assignment resolution for an explicit request model", async () => {
     const resolveExperiment = vi
       .spyOn(experiments, "resolveActiveExperimentConfig")

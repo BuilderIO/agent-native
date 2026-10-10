@@ -2970,12 +2970,15 @@ function durableStructuredHistoryImageUrl(value: string): string | undefined {
   return durableUrl.length <= 2_048 ? durableUrl : undefined;
 }
 
-function sentStructuredHistoryImageUrls(
+function attemptedStructuredHistoryImageUrls(
   history: AgentChatStructuredMessage[] | undefined,
   resolutions: ReadonlyMap<string, StructuredHistoryImageResolution>,
+  vision: boolean,
 ): string[] {
   const urls = new Set<string>();
-  if (!Array.isArray(history)) return [];
+  // Only a vision turn attempts hydration. A failed attempt still counts, so the
+  // prior-thread fallback must not retry the same URL and consume another slot.
+  if (!vision || !Array.isArray(history)) return [];
   for (const message of history) {
     if (message?.role !== "user" || !Array.isArray(message.content)) continue;
     for (const part of message.content) {
@@ -2983,7 +2986,7 @@ function sentStructuredHistoryImageUrls(
       const resolution = resolutions.get(
         structuredHistoryImageReferenceKey(part),
       );
-      if (resolution?.type !== "image") continue;
+      if (!resolution) continue;
       const url = durableStructuredHistoryImageUrl(part.url);
       if (url) urls.add(url);
     }
@@ -11328,9 +11331,10 @@ export function createProductionAgentHandler(
       model: effectiveModel,
       vision: modelSupportsVision,
       hydrationBudget: attachmentHydrationBudget,
-      historyImageUrls: sentStructuredHistoryImageUrls(
+      historyImageUrls: attemptedStructuredHistoryImageUrls(
         requestStructuredHistory,
         resolvedHistoryImages,
+        modelSupportsVision,
       ),
     });
     if (modelPreparedContext) {
