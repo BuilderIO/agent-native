@@ -123,6 +123,39 @@ describe("bigquery failed-query schema recovery", () => {
     expect(String(result.hint)).toContain("didYouMean");
   });
 
+  it("matches against every column and marks the bounded echoed list", async () => {
+    const table = freshTable();
+    mocks.runQuery.mockRejectedValue(
+      failedQuery("Unrecognized name: event_timestamp"),
+    );
+    mocks.fetch.mockResolvedValue(
+      jsonResponse(
+        tableMetadata(
+          table,
+          Array.from(
+            { length: 61 },
+            (_, index) =>
+              [
+                index === 60 ? "event_timestamp" : `column_${index + 1}`,
+                "STRING",
+              ] as [string, string],
+          ),
+        ),
+      ),
+    );
+
+    const result = (await bigquery.run({
+      sql: `SELECT event_timestamp FROM \`test-project.product.${table}\``,
+    })) as Record<string, unknown>;
+
+    expect(result.didYouMean).toContain("event_timestamp");
+    expect(result).toMatchObject({
+      columnCount: 61,
+      columnsTruncated: true,
+    });
+    expect(result.columns).toHaveLength(60);
+  });
+
   it("reads the table out of a two-part reference and a join", async () => {
     const table = freshTable();
     mocks.runQuery.mockRejectedValue(failedQuery("Unrecognized name: planx"));
@@ -479,18 +512,16 @@ WHERE o.a IS DISTINCT FROM u.b`,
         sql: `SELECT planx FROM \`test-project.product\`.${first} a, product.${second} b`,
       })) as Record<string, unknown>;
 
-      expect(
-        metadataFetches()
-          .map(([url]) => String(url))
-          .sort(),
-      ).toEqual([
-        expect.stringContaining(
-          `/projects/test-project/datasets/product/tables/${first}`,
-        ),
-        expect.stringContaining(
-          `/projects/test-project/datasets/product/tables/${second}`,
-        ),
-      ]);
+      expect(metadataFetches().map(([url]) => String(url))).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining(
+            `/projects/test-project/datasets/product/tables/${first}`,
+          ),
+          expect.stringContaining(
+            `/projects/test-project/datasets/product/tables/${second}`,
+          ),
+        ]),
+      );
       expect(result).toMatchObject({
         table: `test-project.product.${second}`,
         didYouMean: ["plan"],

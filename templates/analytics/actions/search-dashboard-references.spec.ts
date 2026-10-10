@@ -1,23 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  search: vi.fn(async () => [
-    {
-      id: "dashboard-1",
-      kind: "sql",
-      name: "Customer revenue",
-      description: "A saved reference",
-      ownerEmail: "alice@example.com",
-      orgId: "org-1",
-      visibility: "org",
-      updatedAt: "2026-08-13T00:00:00.000Z",
-      matchedFields: ["name"],
-    },
-  ]),
+  search: vi.fn(async () => ({
+    results: [
+      {
+        id: "dashboard-1",
+        kind: "sql",
+        name: "Customer revenue",
+        description: "A saved reference",
+        ownerEmail: "alice@example.com",
+        orgId: "org-1",
+        visibility: "org",
+        updatedAt: "2026-08-13T00:00:00.000Z",
+        matchedFields: ["name"],
+      },
+    ],
+    searched: 1,
+    of: 1,
+    truncated: false,
+    nextPage: null,
+  })),
 }));
 
 vi.mock("../server/lib/dashboards-store", () => ({
-  searchDashboardReferences: state.search,
+  searchDashboardReferencesPage: state.search,
 }));
 vi.mock("@agent-native/core", () => ({
   defineAction: (definition: unknown) => definition,
@@ -40,10 +46,19 @@ describe("search-dashboard-references action", () => {
       { email: "alice@example.com", orgId: "org-1" },
       "revenue",
       4,
+      undefined,
     );
-    expect(result[0]).toMatchObject({
-      id: "dashboard-1",
-      matchedFields: ["name"],
+    expect(result).toMatchObject({
+      searched: 1,
+      of: 1,
+      truncated: false,
+      nextPage: null,
+      results: [
+        {
+          id: "dashboard-1",
+          matchedFields: ["name"],
+        },
+      ],
     });
   });
 });

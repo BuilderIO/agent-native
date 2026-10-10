@@ -1368,131 +1368,81 @@ ORDER BY method_list.method_id`;
 const sqlNameList = (names: readonly string[]) =>
   names.map((name) => `'${name}'`).join(", ");
 /**
- * Onboarding sessions and standalone Home integration sessions are selected
- * separately so chat setup never changes onboarding cohort denominators.
- * Same window, app scope, and identity predicates as the onboarding metrics
- * above (the test-identity matcher and the @builder.io rule), applied to the
- * whole session instead of per event: an employee's anonymous pre-signup
- * events would otherwise survive as a session that appears to end at signup,
- * and `only_builder` would keep identified events but drop the anonymous ones
- * that came first.
+ * Classify each session in one pass so the reused event CTE does not need a
+ * separate source scan for identity, cohort, and standalone setup membership.
+ * Session-level identity keeps anonymous events attached to the same test or
+ * Builder decision as their identified events.
  */
-const ONBOARDING_JOURNEY_SCOPE_CTES = `, identified_events AS (
+const ONBOARDING_JOURNEY_SCOPE_CTES = `, session_summary AS (
   SELECT session_id,
-    ${testIdentityEmailSql("funnel_user_email")} AS is_test,
-    lower(coalesce(funnel_user_email, '')) LIKE '%@builder.io' AS is_builder
+    MAX(CASE WHEN coalesce(${testIdentityEmailSql("funnel_user_email")}, FALSE) THEN 1 ELSE 0 END) AS has_test,
+    MAX(CASE WHEN lower(coalesce(funnel_user_email, '')) LIKE '%@builder.io' THEN 1 ELSE 0 END) AS has_builder,
+    MAX(CASE WHEN event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)}) THEN 1 ELSE 0 END) AS has_cohort,
+    MAX(CASE WHEN event_name IN (${sqlNameList(JOURNEY_INTEGRATION_EVENT_NAMES)}) THEN 1 ELSE 0 END) AS has_standalone_setup
   FROM scoped_onboarding_events
   WHERE NULLIF(session_id, '') IS NOT NULL
-), session_identity AS (
-  SELECT session_id,
-    MAX(CASE WHEN is_test THEN 1 ELSE 0 END) AS has_test,
-    MAX(CASE WHEN is_builder THEN 1 ELSE 0 END) AS has_builder
-  FROM identified_events
   GROUP BY session_id
 ), included_sessions AS (
-  SELECT session_id
-  FROM session_identity
+  SELECT session_id, has_cohort, has_standalone_setup
+  FROM session_summary
   WHERE has_test = 0
     AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND has_builder = 0) OR ('{{emailFilter}}' = 'only_builder' AND has_builder = 1))
+), journey_sessions AS (
+  SELECT session_id,
+    CASE WHEN has_cohort = 1 THEN 'onboarding' ELSE 'standalone_setup' END AS journey_kind
+  FROM included_sessions
+  WHERE has_cohort = 1 OR has_standalone_setup = 1
  )`;
-const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
-  SELECT DISTINCT i.session_id
-  FROM included_sessions i
-  JOIN scoped_onboarding_events c ON c.session_id = i.session_id
-  WHERE c.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)})
-), standalone_setup_sessions AS (
-  SELECT DISTINCT i.session_id
-  FROM included_sessions i
-  JOIN scoped_onboarding_events setup ON setup.session_id = i.session_id
-  WHERE setup.event_name IN (${sqlNameList(JOURNEY_INTEGRATION_EVENT_NAMES)})
-    AND NOT EXISTS (
-      SELECT 1 FROM cohort_sessions c WHERE c.session_id = i.session_id
-    )
-), eligible_output_links AS (
+const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, eligible_output_links AS (
   SELECT DISTINCT lower(${TEMPLATE_EXPR}) AS template_name,
     NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
     CASE
       WHEN lower(${TEMPLATE_EXPR}) = 'clips'
         THEN NULLIF(e.properties::jsonb ->> 'recording_attempt_id', '')
-      WHEN lower(${TEMPLATE_EXPR}) = 'slides'
+      WHEN lower(${TEMPLATE_EXPR}) IN ('slides', 'design')
         THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
     END AS attempt_id,
-    e.session_id AS source_session_id
+    e.session_id AS source_session_id,
+    s.journey_kind AS source_journey_kind
   FROM scoped_onboarding_events e
-  JOIN cohort_sessions s ON s.session_id = e.session_id
+  JOIN journey_sessions s ON s.session_id = e.session_id
   WHERE (
-    (lower(${TEMPLATE_EXPR}) = 'clips'
+    (s.journey_kind = 'onboarding'
+      AND lower(${TEMPLATE_EXPR}) = 'clips'
       AND e.event_name = 'recording_started')
-    OR (lower(${TEMPLATE_EXPR}) = 'slides'
+    OR (s.journey_kind = 'onboarding'
+      AND lower(${TEMPLATE_EXPR}) = 'slides'
       AND e.event_name IN (
         'generation_started', 'generation_request_accepted', 'output_viewed'
       ))
+    OR (lower(${TEMPLATE_EXPR}) = 'design' AND e.event_name = 'pageview')
   )
     AND NULLIF(e.properties::jsonb ->> 'output_id', '') IS NOT NULL
     AND CASE
       WHEN lower(${TEMPLATE_EXPR}) = 'clips'
         THEN NULLIF(e.properties::jsonb ->> 'recording_attempt_id', '')
-      WHEN lower(${TEMPLATE_EXPR}) = 'slides'
+      WHEN lower(${TEMPLATE_EXPR}) IN ('slides', 'design')
         THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
     END IS NOT NULL
 ), unique_output_links AS (
   SELECT template_name, output_id, attempt_id,
-    MIN(source_session_id) AS session_id
-  FROM eligible_output_links
-  GROUP BY template_name, output_id, attempt_id
-  HAVING COUNT(DISTINCT source_session_id) = 1
-), design_output_links AS (
-  SELECT DISTINCT
-    NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
-    NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') AS attempt_id,
-    e.session_id AS source_session_id,
-    'onboarding' AS source_journey_kind
-  FROM scoped_onboarding_events e
-  JOIN cohort_sessions s ON s.session_id = e.session_id
-  WHERE lower(${TEMPLATE_EXPR}) = 'design'
-    AND e.event_name = 'pageview'
-    AND NULLIF(e.properties::jsonb ->> 'output_id', '') IS NOT NULL
-    AND NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') IS NOT NULL
-  UNION ALL
-  SELECT DISTINCT
-    NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
-    NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') AS attempt_id,
-    e.session_id AS source_session_id,
-    'standalone_setup' AS source_journey_kind
-  FROM scoped_onboarding_events e
-  JOIN standalone_setup_sessions s ON s.session_id = e.session_id
-  WHERE lower(${TEMPLATE_EXPR}) = 'design'
-    AND e.event_name = 'pageview'
-    AND NULLIF(e.properties::jsonb ->> 'output_id', '') IS NOT NULL
-    AND NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '') IS NOT NULL
-), unique_design_output_links AS (
-  SELECT
-    output_id,
-    attempt_id,
     MIN(source_session_id) AS session_id,
     MIN(source_journey_kind) AS journey_kind
-  FROM design_output_links
-  GROUP BY output_id, attempt_id
+  FROM eligible_output_links
+  GROUP BY template_name, output_id, attempt_id
   HAVING COUNT(DISTINCT source_session_id) = 1
     AND COUNT(DISTINCT source_journey_kind) = 1
 ), journey_events AS (
   SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
     e.properties, lower(${TEMPLATE_EXPR}) AS template_name, e.template, e.app,
-    'onboarding' AS journey_kind
+    s.journey_kind
   FROM scoped_onboarding_events e
-  JOIN cohort_sessions s ON s.session_id = e.session_id
-  WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
-  UNION ALL
-  SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
-    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, e.template, e.app,
-    'standalone_setup' AS journey_kind
-  FROM scoped_onboarding_events e
-  JOIN standalone_setup_sessions s ON s.session_id = e.session_id
+  JOIN journey_sessions s ON s.session_id = e.session_id
   WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
   UNION ALL
   SELECT e.id, links.session_id, e.timestamp, e.event_name, e.path,
     e.properties, lower(${TEMPLATE_EXPR}) AS template_name, e.template, e.app,
-    'onboarding' AS journey_kind
+    links.journey_kind
   FROM scoped_onboarding_events e
   JOIN unique_output_links links
     ON links.template_name = lower(${TEMPLATE_EXPR})
@@ -1500,7 +1450,7 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
     AND links.attempt_id = CASE
       WHEN lower(${TEMPLATE_EXPR}) = 'clips'
         THEN NULLIF(e.properties::jsonb ->> 'recording_attempt_id', '')
-      WHEN lower(${TEMPLATE_EXPR}) = 'slides'
+      WHEN lower(${TEMPLATE_EXPR}) IN ('slides', 'design')
         THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
     END
   WHERE NULLIF(e.session_id, '') IS NULL
@@ -1512,18 +1462,9 @@ const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, cohort_sessions AS (
           ...SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
           "generation_completed",
         ])}))
+      OR (lower(${TEMPLATE_EXPR}) = 'design'
+        AND e.event_name = 'generation_completed')
     )
-  UNION ALL
-  SELECT e.id, links.session_id, e.timestamp, e.event_name, e.path,
-    e.properties, 'design' AS template_name, e.template, e.app,
-    links.journey_kind
-  FROM scoped_onboarding_events e
-  JOIN unique_design_output_links links
-    ON links.output_id = NULLIF(e.properties::jsonb ->> 'output_id', '')
-    AND links.attempt_id = NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
-  WHERE lower(${TEMPLATE_EXPR}) = 'design'
-    AND e.event_name = 'generation_completed'
-    AND NULLIF(e.session_id, '') IS NULL
 )
 SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   e.journey_kind,

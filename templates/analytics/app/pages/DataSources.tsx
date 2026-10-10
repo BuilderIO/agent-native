@@ -633,18 +633,28 @@ function GoogleSheetsExportCard({
 }
 
 function SharedConnectionBadge({ status }: { status: SharedConnectionStatus }) {
-  const tone =
-    status.kind === "ready"
-      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-      : status.kind === "needs_grant"
-        ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-        : status.kind === "local_credentials"
-          ? "border-border/60 bg-muted text-muted-foreground"
-          : "border-border/60 bg-background text-muted-foreground";
+  const t = useT();
+  const tone = {
+    ready:
+      "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    needs_grant:
+      "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+    needs_credentials: "border-border/60 bg-background text-muted-foreground",
+    local_credentials: "border-border/60 bg-muted text-muted-foreground",
+    needs_reauth:
+      "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+    error: "border-destructive/30 bg-destructive/10 text-destructive",
+  }[status.kind];
+  const label =
+    status.kind === "needs_reauth"
+      ? t("dataSources.reconnect")
+      : status.kind === "error"
+        ? t("dataSources.connectionFailed")
+        : status.label;
 
   return (
     <Badge variant="outline" className={tone}>
-      {status.label}
+      {label}
     </Badge>
   );
 }
@@ -660,9 +670,13 @@ function SharedConnectionStatusRow({
       ? t("dataSources.sharedReady")
       : status.kind === "needs_grant"
         ? t("dataSources.sharedNeedsGrant")
-        : status.kind === "local_credentials"
-          ? t("dataSources.sharedLocalCredentials")
-          : t("dataSources.sharedFallback");
+        : status.kind === "needs_reauth"
+          ? t("dataSources.sharedNeedsReauth")
+          : status.kind === "error"
+            ? t("dataSources.sharedError")
+            : status.kind === "local_credentials"
+              ? t("dataSources.sharedLocalCredentials")
+              : t("dataSources.sharedFallback");
 
   return (
     <div className="mb-4 flex items-start justify-between gap-3 rounded-md bg-muted/30 p-3">
@@ -1268,6 +1282,9 @@ function DataSourceCard({
 
   const hasInputValues = Object.values(inputValues).some((v) => v.trim());
   const readyViaWorkspace = sharedConnectionStatus?.kind === "ready";
+  const sharedConnectionNeedsReauth =
+    sharedConnectionStatus?.kind === "needs_reauth";
+  const sharedConnectionHasError = sharedConnectionStatus?.kind === "error";
   const showCredentialSetup =
     !locallyConfigured && (!readyViaWorkspace || showLocalCredentials);
   const preferWorkspaceSetup =
@@ -1322,6 +1339,16 @@ function DataSourceCard({
                     ? t("dataSources.ready")
                     : t("dataSources.configured")}
                 </span>
+              ) : sharedConnectionNeedsReauth ? (
+                <span className="flex items-center gap-1.5 text-xs font-medium whitespace-nowrap text-amber-600 dark:text-amber-400">
+                  <IconAlertCircle className="h-3.5 w-3.5" />
+                  {t("dataSources.reconnect")}
+                </span>
+              ) : sharedConnectionHasError ? (
+                <span className="flex items-center gap-1.5 text-xs font-medium whitespace-nowrap text-destructive">
+                  <IconAlertCircle className="h-3.5 w-3.5" />
+                  {t("dataSources.connectionFailed")}
+                </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
                   <IconCircle className="h-3 w-3" />
@@ -1331,7 +1358,9 @@ function DataSourceCard({
               <span className="hidden text-xs font-medium text-foreground/70 sm:inline">
                 {ready
                   ? t("dataSources.editCredentials")
-                  : t("dataSources.connect")}
+                  : sharedConnectionNeedsReauth || sharedConnectionHasError
+                    ? t("dataSources.reconnect")
+                    : t("dataSources.connect")}
               </span>
               {expanded ? (
                 <IconChevronUp className="h-4 w-4 text-muted-foreground" />

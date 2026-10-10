@@ -93,7 +93,7 @@ sizes and persists the whole tree in one transaction.
 
 Options: `designId` (refresh that design), `cardWidth` (default 360),
 `maxExamplesPerNode` (default 3, at most 6), `includeScreenshotless` (default false).
-Each call accepts at most 1,000 journey nodes and 900 frame entries, with a
+Each call accepts at most 2,000 journey nodes and 900 frame entries, with a
 256 MiB total screenshot-byte limit.
 For independent app trees on one board, set `layoutMode: "appBands"`,
 `tree.app: "all"`, app-prefixed node keys such as `clips::...`, and

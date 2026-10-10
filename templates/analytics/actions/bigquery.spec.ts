@@ -1,8 +1,8 @@
 import { isAgentActionStopError } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-const { runQuery, recoverFromSchemaMiss, BigQueryBackendError } = vi.hoisted(
-  () => {
+const { runQuery, track, recoverFromSchemaMiss, BigQueryBackendError } =
+  vi.hoisted(() => {
     class MockBigQueryBackendError extends Error {
       readonly providerDetail: string | null;
 
@@ -15,11 +15,11 @@ const { runQuery, recoverFromSchemaMiss, BigQueryBackendError } = vi.hoisted(
 
     return {
       runQuery: vi.fn(),
+      track: vi.fn(),
       recoverFromSchemaMiss: vi.fn(),
       BigQueryBackendError: MockBigQueryBackendError,
     };
-  },
-);
+  });
 
 vi.mock("../server/lib/bigquery", () => ({
   runQuery,
@@ -31,7 +31,7 @@ vi.mock("../server/lib/bigquery-schema-recovery", () => ({
 }));
 
 vi.mock("@agent-native/core/tracking", () => ({
-  track: vi.fn(),
+  track,
 }));
 
 const { default: bigquery } = await import("./bigquery");
@@ -39,6 +39,7 @@ const { default: bigquery } = await import("./bigquery");
 describe("bigquery action error handling", () => {
   beforeEach(() => {
     runQuery.mockReset();
+    track.mockReset();
     recoverFromSchemaMiss.mockReset();
   });
 
@@ -136,6 +137,69 @@ describe("bigquery action error handling", () => {
       schema: [],
       bytesProcessed: 0,
     });
+  });
+
+  it("tracks bounded query diagnostics without storing SQL literals", async () => {
+    runQuery.mockResolvedValue({
+      rows: [{ count: 1 }],
+      totalRows: 1,
+      schema: [{ name: "count", type: "INTEGER" }],
+      bytesProcessed: 8192,
+    });
+
+    await bigquery.run({
+      sql: "SELECT COUNT(*) FROM `project.dataset.users` WHERE email = 'person@example.com' AND id = 123",
+    });
+    await bigquery.run({
+      sql: "SELECT COUNT(*) FROM `project.dataset.users` WHERE email = 'someone@example.com' AND id = 456",
+    });
+
+    const [eventName, properties] = track.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    const secondProperties = track.mock.calls[1]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(eventName).toBe("sql_run");
+    expect(properties).toMatchObject({
+      surface: "bigquery",
+      query_status: "success",
+      bytes_processed: 8192,
+      cache_hit: false,
+      row_count: 1,
+      total_rows: 1,
+    });
+    expect(properties.query_fingerprint).toMatch(/^[a-f0-9]{16}$/);
+    expect(secondProperties.query_fingerprint).toBe(
+      properties.query_fingerprint,
+    );
+    expect(properties.query_duration_ms).toEqual(expect.any(Number));
+    expect(JSON.stringify(properties)).not.toContain("person@example.com");
+    expect(JSON.stringify(properties)).not.toContain("SELECT COUNT");
+  });
+
+  it("records query error categories without recording provider messages", async () => {
+    runQuery.mockRejectedValue(
+      new Error("BigQuery API error 400: Unrecognized name: event_time"),
+    );
+
+    const result = (await bigquery.run({
+      sql: "SELECT event_time FROM `project.dataset.events`",
+    })) as Record<string, unknown>;
+
+    expect(result.error).toBe("bigquery_query_failed");
+    const [, properties] = track.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(properties).toMatchObject({
+      query_status: "error",
+      error_category: "schema_or_sql",
+    });
+    expect(properties).not.toHaveProperty("error_message");
+    expect(JSON.stringify(properties)).not.toContain("event_time");
   });
 
   it("forwards the agent run signal and stops cleanly when the run is cancelled", async () => {

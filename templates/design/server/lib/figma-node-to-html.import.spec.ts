@@ -166,7 +166,7 @@ describe("rotation unit conversion (bug: REST rotation is radians, not degrees)"
     const node: FigmaNode = {
       id: "rotated",
       type: "RECTANGLE",
-      rotation: -0.26179940325453416, // 15 degrees in radians
+      rotation: -Math.PI / 12, // 15 degrees in radians
       absoluteBoundingBox: box(0, 0, 120, 80),
     };
     const root: FigmaNode = {
@@ -187,8 +187,13 @@ describe("rotated-box AABB un-rotation (bug: CSS rotate() applied on top of the 
     const node: FigmaNode = {
       id: "rotatedFrame",
       type: "FRAME",
-      rotation: -0.26179940325453416, // 15 degrees in radians
-      absoluteBoundingBox: box(100, 0, 136.61663055419922, 108.3323585987091),
+      rotation: -Math.PI / 12, // 15 degrees in radians
+      absoluteBoundingBox: box(
+        100,
+        0,
+        120 * Math.cos(Math.PI / 12) + 80 * Math.sin(Math.PI / 12),
+        120 * Math.sin(Math.PI / 12) + 80 * Math.cos(Math.PI / 12),
+      ),
       children: [],
     };
     const root: FigmaNode = {

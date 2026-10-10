@@ -82,6 +82,200 @@ describe("analytics query catalog", () => {
     ).toBe(false);
   });
 
+  it("keeps approved definitions ahead of broader generated source-index matches", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "Builder.io product monthly active user count",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "generated-builder-users",
+          metric: "Builder.io product monthly active user count",
+          definition: "Generated model metadata for monthly active users",
+          table: "product_user_dimension",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+        {
+          id: "approved-builder-users",
+          metric: "Builder.io user count",
+          definition: "Reviewed definition for Builder.io user count",
+          table: "product_user_dimension",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "approved-builder-users",
+      approved: true,
+    });
+  });
+
+  it("ranks dbt grain metadata ahead of Sigma examples", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "workspace user grain",
+      limit: 6,
+      dashboards: [],
+      dictionaryEntries: [
+        {
+          id: "sigma-user-grain-example",
+          metric: "Workspace User Grain Example",
+          definition:
+            "Reviewed dashboard example for workspace users and grain.",
+          table: "workspace_user_rollup",
+          semanticScope: "membership",
+          sourceKind: "sigma",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+        {
+          id: "dbt-workspace-user-grain",
+          metric: "model:workspace_user_rollup",
+          definition: "One row per workspace user, with the canonical grain.",
+          table: "workspace_user_rollup",
+          semanticScope: "session",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "dbt-workspace-user-grain",
+      sourceKind: "dbt",
+    });
+  });
+
+  it("uses one transitive trust and scope order across catalog kinds", () => {
+    const dashboards = [
+      {
+        id: "favorite-user-count",
+        title: "User count",
+        origin: "saved-dashboard" as const,
+        favorite: true,
+        certification: {
+          status: "certified" as const,
+          certifiedAt: "2026-10-01T00:00:00.000Z",
+          certifiedBy: "reviewer@example.com",
+          certifiedForUpdatedAt: "v1",
+        },
+        updatedAt: "v1",
+        config: {
+          panels: [
+            {
+              id: "user-count",
+              title: "User count",
+              source: "bigquery",
+              sql: "SELECT user_id FROM user_dimension",
+            },
+          ],
+        },
+      },
+    ];
+    const dictionaryEntries = [
+      {
+        id: "approved-organization-users",
+        metric: "Builder product user count",
+        definition: "Approved organization user definition",
+        semanticScope: "organization",
+        approved: true,
+      },
+      {
+        id: "sigma-product-users",
+        metric: "Builder product user count",
+        definition: "Generated product user example",
+        semanticScope: "product_user",
+        sourceKind: "sigma",
+        sourceIndex: true,
+        approved: false,
+        aiGenerated: true,
+      },
+    ];
+    const rank = (entries: typeof dictionaryEntries) =>
+      rankAnalyticsQueryCatalog({
+        search: "Builder product user count",
+        limit: 6,
+        dashboards,
+        dictionaryEntries: entries,
+      }).map((candidate) =>
+        candidate.kind === "data-dictionary"
+          ? candidate.id
+          : candidate.dashboardId,
+      );
+
+    const expected = [
+      "approved-organization-users",
+      "favorite-user-count",
+      "sigma-product-users",
+    ];
+    expect(rank(dictionaryEntries)).toEqual(expected);
+    expect(rank([...dictionaryEntries].reverse())).toEqual(expected);
+  });
+
+  it("keeps Builder product users ahead of feature funnels and Analytics users", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "Builder.io users",
+      limit: 6,
+      dictionaryEntries: [
+        {
+          id: "builder-users",
+          metric: "model:product_user_dimension",
+          definition: "Canonical product user records",
+          table: "product_user_dimension",
+          semanticScope: "product_user",
+          aiGenerated: true,
+          approved: false,
+        },
+        {
+          id: "analytics-users",
+          metric: "model:analytics_app_users",
+          definition: "Users of the analytics application",
+          table: "analytics_app_users",
+          semanticScope: "analytics_user",
+          aiGenerated: true,
+          approved: false,
+        },
+      ],
+      dashboards: [
+        {
+          id: "activation-funnel",
+          title: "Product Activation Funnel",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "activation-events",
+                title: "Product Activation events",
+                source: "bigquery",
+                sql: "SELECT user_id, event_name FROM synthetic_feature_events",
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      id: "builder-users",
+      semanticScope: "product_user",
+    });
+    expect(
+      results.some((candidate) => candidate.kind === "dashboard-panel"),
+    ).toBe(false);
+    expect(
+      results.some(
+        (candidate) =>
+          candidate.kind === "data-dictionary" &&
+          candidate.id === "analytics-users",
+      ),
+    ).toBe(false);
+  });
+
   it("keeps a relevant AI generated definition when human entries are unrelated", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "monthly active users",
@@ -323,7 +517,7 @@ describe("analytics query catalog", () => {
     expect(results).toEqual([]);
   });
 
-  it("ranks certified dashboards ahead of more relevant ordinary panels", () => {
+  it("ranks exact runnable panels ahead of partial certified panels", () => {
     const certification = {
       status: "certified" as const,
       certifiedAt: "2026-08-28T00:00:00.000Z",
@@ -371,12 +565,12 @@ describe("analytics query catalog", () => {
     });
 
     expect(results[0]).toMatchObject({
-      dashboardId: "certified-revenue",
-      dashboardCertified: true,
-    });
-    expect(results[1]).toMatchObject({
       dashboardId: "ordinary-revenue-growth",
       dashboardCertified: false,
+    });
+    expect(results[1]).toMatchObject({
+      dashboardId: "certified-revenue",
+      dashboardCertified: true,
     });
   });
 
@@ -523,7 +717,7 @@ describe("analytics query catalog", () => {
     expect(results).toHaveLength(1);
   });
 
-  it("does not let generic single-token matches tie above an exact panel", () => {
+  it("lets an exact runnable panel outrank a generic single-token dictionary match", () => {
     const results = rankAnalyticsQueryCatalog({
       search: "error rate",
       limit: 6,
@@ -552,6 +746,155 @@ describe("analytics query catalog", () => {
     });
 
     expect(results[0]).toMatchObject({ panelId: "5xx-rate" });
+  });
+
+  it("does not let a partial approved definition outrank an exact runnable panel", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly active users by region",
+      limit: 6,
+      dashboards: [
+        {
+          id: "d1",
+          title: "Product Usage",
+          origin: "saved-dashboard",
+          config: {
+            panels: [
+              {
+                id: "mau-by-region",
+                title: "Monthly Active Users by Region",
+                source: "bigquery",
+                sql: "SELECT month, region, COUNT(DISTINCT user_id) FROM product_usage GROUP BY 1, 2",
+              },
+            ],
+          },
+        },
+      ],
+      dictionaryEntries: [
+        {
+          id: "monthly-active-users",
+          metric: "Monthly Active Users",
+          definition: "Distinct users active in a month",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "dashboard-panel",
+      panelId: "mau-by-region",
+    });
+  });
+
+  it("keeps partial approved definitions ahead of partial certified panels", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "monthly active users by region",
+      limit: 6,
+      dashboards: [
+        {
+          id: "certified-usage",
+          title: "Product Usage",
+          origin: "saved-dashboard",
+          certification: {
+            status: "certified",
+            certifiedAt: "2026-10-01T00:00:00.000Z",
+            certifiedBy: "reviewer@example.com",
+            certifiedForUpdatedAt: "v1",
+          },
+          updatedAt: "v1",
+          config: {
+            panels: [
+              {
+                id: "active-users-by-region",
+                title: "Active Users by Region",
+                source: "bigquery",
+                sql: "SELECT region, COUNT(DISTINCT user_id) FROM usage GROUP BY 1",
+              },
+            ],
+          },
+        },
+      ],
+      dictionaryEntries: [
+        {
+          id: "monthly-active-users",
+          metric: "Monthly Active Users",
+          definition: "Distinct users active in a month",
+          approved: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "data-dictionary",
+      id: "monthly-active-users",
+      approved: true,
+    });
+  });
+
+  it("ranks approved definitions ahead of certified panels but generated dbt below", () => {
+    const results = rankAnalyticsQueryCatalog({
+      search: "revenue",
+      limit: 6,
+      dashboards: [
+        {
+          id: "certified-revenue",
+          title: "Revenue",
+          origin: "saved-dashboard",
+          certification: {
+            status: "certified",
+            certifiedAt: "2026-10-01T00:00:00.000Z",
+            certifiedBy: "reviewer@example.com",
+            certifiedForUpdatedAt: "v1",
+          },
+          updatedAt: "v1",
+          config: {
+            panels: [
+              {
+                id: "revenue",
+                title: "Revenue",
+                source: "first-party",
+                sql: "SELECT revenue FROM revenue_events",
+              },
+            ],
+          },
+        },
+      ],
+      dictionaryEntries: [
+        {
+          id: "approved-revenue-definition",
+          metric: "Revenue",
+          definition: "Revenue recognized from closed-won deals",
+          approved: true,
+        },
+        {
+          id: "dbt-revenue-definition",
+          metric: "Revenue",
+          definition: "Revenue recognized from closed-won deals",
+          sourceKind: "dbt",
+          sourceIndex: true,
+          approved: false,
+          aiGenerated: true,
+        },
+      ],
+    });
+
+    expect(results[0]).toMatchObject({
+      kind: "data-dictionary",
+      id: "approved-revenue-definition",
+      approved: true,
+    });
+    expect(results[1]).toMatchObject({
+      kind: "dashboard-panel",
+      panelId: "revenue",
+      dashboardCertified: true,
+    });
+    expect(results[2]).toMatchObject({
+      kind: "data-dictionary",
+      id: "dbt-revenue-definition",
+      origin: "source-index",
+      sourceKind: "dbt",
+      approved: false,
+      aiGenerated: true,
+    });
   });
 
   it("returns only the bounded number of strongest matches", () => {
