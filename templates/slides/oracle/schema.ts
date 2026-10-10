@@ -81,6 +81,10 @@ export const OracleRowSchema = z
   // A gap row was never measured, so no measurement checks an expect on it.
   .refine((row) => row.status !== "gap" || row.expect === undefined, {
     message: "a gap row cannot carry an expect, since nothing measured it",
+  })
+  // Only a gap row has gap confidence, so the two cannot disagree about it.
+  .refine((row) => (row.status === "gap") === (row.confidence === "gap"), {
+    message: "status gap and confidence gap must agree",
   });
 
 export const OracleFileSchema = z.strictObject({

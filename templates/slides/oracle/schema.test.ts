@@ -174,6 +174,22 @@ describe("oracle schema rules", () => {
     expect(OracleRowSchema.safeParse(gap).success).toBe(false);
   });
 
+  it("rejects a gap status whose confidence is not gap", () => {
+    const row = {
+      ...validRow,
+      status: "gap",
+      confidence: "high",
+      expect: undefined,
+    };
+    expect(OracleRowSchema.safeParse(row).success).toBe(false);
+  });
+
+  it("rejects gap confidence on a measured row", () => {
+    expect(
+      OracleRowSchema.safeParse({ ...validRow, confidence: "gap" }).success,
+    ).toBe(false);
+  });
+
   it.each(["resize", "grab", "rotate"])(
     "rejects cursor %s, which the oracle channel does not report",
     (cursor) => {

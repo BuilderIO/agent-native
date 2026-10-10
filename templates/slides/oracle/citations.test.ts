@@ -564,6 +564,41 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual(["9.8", "9.10"]);
   });
 
+  it("counts a test through a module const that stands for a vitest function", () => {
+    const source = [
+      `const t = it;`,
+      `t.only("aliased focus (oracle 9.12)", () => {});`,
+      `it("snaps (oracle 9.13)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.12"]);
+  });
+
+  it("counts a focus through a const that holds a vitest method", () => {
+    const source = [
+      `const focus = it.only;`,
+      `focus("focus alias (oracle 9.14)", () => {});`,
+      `it("snaps (oracle 9.15)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.14"]);
+  });
+
+  it("does not read an alias that a nested parameter shadows", () => {
+    const source = [
+      `const t = it;`,
+      `function helper(t: { only(n: string, f: () => void): void }) { t.only("never (oracle 9.16)", () => {}); }`,
+      `it("moves (oracle 9.17)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.17"]);
+  });
+
+  it("counts a parenthesized callee and an optional-chained table", () => {
+    const source = [
+      `(it)("parens (oracle 9.18)", () => {});`,
+      `it?.each([1])("table %s (oracle 9.19)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.18", "9.19"]);
+  });
+
   it("counts ordinary tests when a focus sits inside a hook, which runs at test time", () => {
     const source = [
       `beforeEach(() => { it.only("never runs", () => {}); });`,

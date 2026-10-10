@@ -71,6 +71,9 @@ type Registration = {
 
 type Scope = { skipped: boolean; focused: boolean };
 
+// A Vitest function a name stands for, and the modifiers after it.
+type VitestName = { name: string; modifiers: string[] };
+
 // How this file reaches Vitest: by its named imports and by its namespace.
 type ImportContext = {
   // Local names bound to a Vitest export, to the export's name.
@@ -80,6 +83,8 @@ type ImportContext = {
   // Local names of imports from anything other than vitest. They bind the
   // module scope, so they shadow a Vitest global of the same name.
   shadowed: Set<string>;
+  // Module-level consts that stand for a Vitest function, such as `const t = it`.
+  aliases: Map<string, VitestName>;
 };
 
 // What a call sees where it is written: the file's imports, and the names each
@@ -106,6 +111,13 @@ export function titleCitations(source: string, fileName: string): string[] {
   const moduleNames = new Set(imports.shadowed);
   statementNames(ast.body, moduleNames);
   varNames(ast.body, moduleNames);
+  // An alias is a module const, so it was just counted as a module name. It
+  // reads as the Vitest function it names instead, so it leaves that set.
+  imports.aliases = readVitestAliases(ast.body, {
+    imports,
+    bindings: [moduleNames],
+  });
+  for (const name of imports.aliases.keys()) moduleNames.delete(name);
   const context: Context = { imports, bindings: [moduleNames] };
   const registrations: Registration[] = [];
   collectRegistrations(
@@ -138,6 +150,7 @@ function readVitestImports(statements: unknown): ImportContext {
     functions: new Map(),
     namespaces: new Set(),
     shadowed: new Set(),
+    aliases: new Map(),
   };
   if (!Array.isArray(statements)) return imports;
   for (const statement of statements as AstNode[]) {
@@ -165,6 +178,37 @@ function readVitestImports(statements: unknown): ImportContext {
     }
   }
   return imports;
+}
+
+/**
+ * The module-level consts that stand for a Vitest function, such as
+ * `const focus = it.only`. A call through one reads as the function it names.
+ * Only a const counts: a reassigned name would not keep its first function.
+ */
+function readVitestAliases(
+  statements: unknown,
+  context: Context,
+): Map<string, VitestName> {
+  const aliases = new Map<string, VitestName>();
+  if (!Array.isArray(statements)) return aliases;
+  for (const statement of statements as AstNode[]) {
+    const node =
+      statement.type === "ExportDeclaration"
+        ? (statement.declaration as AstNode)
+        : statement;
+    if (node.type !== "VariableDeclaration" || node.kind !== "const") continue;
+    for (const declarator of node.declarations as AstNode[]) {
+      const id = declarator.id as AstNode;
+      if (id.type !== "Identifier" || typeof id.value !== "string") continue;
+      const chain = memberChain(declarator.init);
+      if (chain === undefined || chain.length === 0) continue;
+      const resolved = resolveFunction(chain, context);
+      if (resolved !== undefined && TEST_FUNCTIONS.has(resolved.name)) {
+        aliases.set(id.value, resolved);
+      }
+    }
+  }
+  return aliases;
 }
 
 /**
@@ -369,21 +413,21 @@ function collectExpression(
   out: Registration[],
   context: Context,
 ): void {
-  const node = callOf(value);
+  const node = unchained(value);
   if (node.type !== "CallExpression") return;
   const declaration = testDeclaration(node.callee, context);
   if (declaration === undefined) return;
   // A table-driven declaration registers one test per case. A table that is not
   // a non-empty array literal cannot be shown to register any, so it is not
   // evidence that a row is covered.
+  const callee = unchained(node.callee);
   if (
     declaration.modifiers.some((m) => TABLE_FORMS.has(m)) &&
-    !tableHasCases(node.callee as AstNode)
+    !tableHasCases(callee)
   ) {
     return;
   }
-  const skipped =
-    scope.skipped || isSkipped(declaration, node.callee as AstNode);
+  const skipped = scope.skipped || isSkipped(declaration, callee);
   const hasOnly = declaration.modifiers.includes("only");
   const focused = scope.focused || hasOnly;
   out.push({
@@ -586,7 +630,7 @@ function testDeclaration(
   callee: unknown,
   context: Context,
 ): { base: string; modifiers: string[] } | undefined {
-  const node = callee as AstNode;
+  const node = unchained(callee);
   // The outer call's callee is the table call or the tagged template.
   let chainNode: AstNode = node;
   if (node.type === "CallExpression") chainNode = node.callee as AstNode;
@@ -622,12 +666,16 @@ function testDeclaration(
 function resolveFunction(
   chain: string[],
   context: Context,
-): { name: string; modifiers: string[] } | undefined {
+): VitestName | undefined {
   const [head, ...rest] = chain;
   // Only the scopes around this call can shadow it. A declaration elsewhere in
   // the file, such as a helper's parameter, does not reach it.
   if (context.bindings.some((names) => names.has(head))) return undefined;
   const { imports } = context;
+  const alias = imports.aliases.get(head);
+  if (alias !== undefined) {
+    return { name: alias.name, modifiers: [...alias.modifiers, ...rest] };
+  }
   if (imports.namespaces.has(head)) {
     const [member, ...modifiers] = rest;
     return member === undefined ? undefined : { name: member, modifiers };
@@ -639,10 +687,10 @@ function resolveFunction(
 
 /** The dotted names of an identifier or plain member chain, e.g. it.skip.each. */
 /**
- * The call a statement's expression makes. swc parses `it?.only(...)` as an
- * optional chain whose base is the call, so the chain is read through to it.
+ * The expression an optional chain wraps. swc parses `it?.only(...)` and
+ * `it?.each(table)(...)` as chains over their calls, so they are read through.
  */
-function callOf(value: unknown): AstNode {
+function unchained(value: unknown): AstNode {
   const node = value as AstNode;
   return node.type === "OptionalChainingExpression"
     ? (node.base as AstNode)
