@@ -14,6 +14,7 @@ import {
   loadActionsFromStaticRegistry,
   runAgentLoop,
   TOOL_SEARCH_ACTION_NAME,
+  type ActionEntry,
   type AgentChatEvent,
   type AgentLoopFinalResponseGuard,
 } from "@agent-native/core/server";
@@ -64,6 +65,44 @@ function appendReferences(
     )
     .join("\n\n");
   return `${systemPrompt}\n\n<resource scope="analytics-catalog">\n${references}\n</resource>`;
+}
+
+export function filterAnalyticsEvalActions(
+  registry: Record<string, ActionEntry>,
+  actionAllowlist: readonly string[],
+): Record<string, ActionEntry> {
+  const unknown = actionAllowlist.filter((name) => !registry[name]);
+  if (unknown.length > 0) {
+    throw new Error(
+      `Analytics eval action allowlist contains unknown actions: ${unknown.join(", ")}.`,
+    );
+  }
+
+  const allowed = new Set(actionAllowlist);
+  const actions = Object.fromEntries(
+    Object.entries(registry).filter(
+      ([name]) => allowed.has(name) && name !== TOOL_SEARCH_ACTION_NAME,
+    ),
+  );
+  if (allowed.has(TOOL_SEARCH_ACTION_NAME)) attachToolSearch(actions);
+  return actions;
+}
+
+function buildAnalyticsSystemPrompt(
+  actions: Record<string, ActionEntry>,
+  initialToolNames: string[],
+): string {
+  const frameworkPrompt = buildFrameworkPrompts(undefined, {
+    extensions: true,
+  }).PROD_FRAMEWORK_PROMPT_COMPACT;
+  return [
+    frameworkPrompt,
+    generateActionsPrompt(actions, "tool", initialToolNames),
+    analyticsExtraContext(),
+    "This eval uses the production Analytics read-only action surface. Do not create, edit, send, publish, or persist app data.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 async function runAnalyticsProductionPath(args: {
@@ -247,26 +286,32 @@ export function resolveProductionEvalContext(
   const initialToolNames = [
     ...new Set([...INITIAL_TOOL_NAMES, TOOL_SEARCH_ACTION_NAME]),
   ].filter((name) => Boolean(actions[name]));
-  const frameworkPrompt = buildFrameworkPrompts(undefined, {
-    extensions: true,
-  }).PROD_FRAMEWORK_PROMPT_COMPACT;
-  const systemPrompt = [
-    frameworkPrompt,
-    generateActionsPrompt(actions, "tool", initialToolNames),
-    analyticsExtraContext(),
-    "This eval uses the production Analytics read-only action surface. Do not create, edit, send, publish, or persist app data.",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  const systemPrompt = buildAnalyticsSystemPrompt(actions, initialToolNames);
 
   const productionChatPath: EvalProductionChatPath = {
-    run: (args) =>
-      runAnalyticsProductionPath({
-        ...args,
+    run: (args) => {
+      const evalActions = filterAnalyticsEvalActions(
         actions,
-        initialToolNames,
-        systemPrompt,
-      }),
+        args.actionAllowlist,
+      );
+      const evalInitialToolNames = [
+        ...new Set([...INITIAL_TOOL_NAMES, TOOL_SEARCH_ACTION_NAME]),
+      ].filter((name) => Boolean(evalActions[name]));
+      return runAnalyticsProductionPath({
+        input: args.input,
+        identity: args.identity,
+        engine: args.engine,
+        model: args.model,
+        signal: args.signal,
+        onUsage: args.onUsage,
+        actions: evalActions,
+        initialToolNames: evalInitialToolNames,
+        systemPrompt: buildAnalyticsSystemPrompt(
+          evalActions,
+          evalInitialToolNames,
+        ),
+      });
+    },
   };
 
   return {

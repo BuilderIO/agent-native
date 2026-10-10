@@ -108,7 +108,10 @@ describe("browser tab id", () => {
   it("uses projected workspace state when scoping the current app", async () => {
     (
       window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
-    ).__AGENT_NATIVE_CONFIG__ = { workspaceRuntime: true };
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/risk",
+    };
     window.history.replaceState({}, "", "/risk/register");
     stubNavigationType("reload");
 

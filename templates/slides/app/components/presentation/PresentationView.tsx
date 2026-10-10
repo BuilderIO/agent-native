@@ -488,9 +488,13 @@ export default function PresentationView({
       queuedNavigationRef.current = "prev";
       return;
     }
+    if (currentStep > 0) {
+      setCurrentStep((prev) => prev - 1);
+      return;
+    }
     if (currentIndex <= 0) return;
     startTransition(currentIndex - 1, "prev");
-  }, [animating, currentIndex, startTransition]);
+  }, [animating, currentStep, currentIndex, startTransition]);
 
   const exit = useCallback(() => {
     if (document.fullscreenElement) {
@@ -831,7 +835,7 @@ export default function PresentationView({
           <div className="flex items-center gap-2">
             <button
               onClick={goPrev}
-              disabled={currentIndex === 0}
+              disabled={currentIndex === 0 && currentStep === 0}
               className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               aria-label={t("presentation.previousSlide")}
             >

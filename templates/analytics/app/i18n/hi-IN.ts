@@ -550,6 +550,7 @@ export default {
     approved: "अनुमत",
     suggestion: "सुझाव",
     unreviewed: "समीक्षा न किए गए",
+    deprecated: "अप्रचलित",
     ai: "AI",
     source: "स्रोत",
     deleteTitle: '"{{metric}}" हटाएं?',
@@ -598,6 +599,8 @@ export default {
     indexUnreadable:
       "सहेजे गए स्रोत इंडेक्स को पढ़ा नहीं जा सका; मान्य फ़ाइल फिर से आयात करें।",
     indexReadFailed: "सहेजे गए स्रोत इंडेक्स की जाँच नहीं हो सकी। फिर से प्रयास करें।",
+    generatedEntriesMayBeMissing:
+      "जनरेट की गई स्रोत प्रविष्टियाँ अनुपस्थित हो सकती हैं; सहेजी गई प्रविष्टियाँ उपलब्ध हैं।",
     indexReady: "{{count}} स्रोत परिभाषाएँ {{date}} को जनरेट हुईं।",
     indexStale:
       "स्नैपशॉट {{days}} दिन पुराना है। नए स्रोत संशोधनों की जाँच के लिए इसे रीफ़्रेश करें।",

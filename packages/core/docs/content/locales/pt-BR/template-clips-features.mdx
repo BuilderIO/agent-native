@@ -134,13 +134,35 @@ O Rewind vem desativado por padrão. Nada é capturado até que você o ative na
 
 Ative o Rewind na aba Rewind em Configurações. Depois de ativado, você pode perguntar ao agente coisas como "o que eu estava vendo 20 minutos atrás?" e ele lê trechos de texto do buffer local de texto na tela, contexto de aplicativo e janela, e fragmentos de transcrição. O agente nunca recebe as próprias gravações, com uma exceção: uma solicitação que você revisa e aprova, que transforma um intervalo exato em um clipe privado.
 
-#### Adicionar o que aconteceu antes
+#### Adicionar o que aconteceu antes (opção antiga do editor) {#add-what-happened-before}
 
-No editor de um clipe, **Adicionar o que aconteceu antes** traz os 30 segundos ou 5 minutos anteriores do seu histórico local do Rewind e os adiciona ao início do clipe. O clipe precisa ter sido gravado neste dispositivo enquanto o Rewind estava ativado, e os momentos ainda precisam estar dentro do histórico retido do Rewind.
+Esta é a opção antiga do editor. No editor de um clipe, **Adicionar o que aconteceu antes** traz os 30 segundos ou 5 minutos anteriores do seu histórico local do Rewind e os adiciona ao início do vídeo do clipe. O clipe precisa ter sido gravado neste dispositivo enquanto o Rewind estava ativado, e os momentos ainda precisam estar dentro do histórico retido pelo Rewind. Para a opção mais recente, que mantém o tempo de tela anterior como contexto separado e não altera o vídeo, veja [Tempo de tela anterior](#earlier-screen-time).
 
 - O clipe precisa ser privado, sem ninguém mais com acesso direto concedido. O histórico do Rewind pode conter contexto de antes de você escolher gravar, então o Clipes torna o clipe privado primeiro e interrompe se qualquer outra pessoa ainda tiver acesso.
 - A mídia do clipe é substituída pela gravação combinada. A transcrição, os capítulos, os comentários e as reações se ajustam para que seus carimbos de data e hora continuem alinhados, e a linha do tempo marca onde o clipe original começou.
 - Isso é executado uma vez por clipe e apenas quando você pede. Nada é adicionado do Rewind automaticamente.
+
+### Tempo de tela anterior {#earlier-screen-time}
+
+O tempo de tela anterior adiciona até cinco minutos da sua tela, de antes de você começar uma gravação, obtidos do Rewind neste dispositivo. Ele fica anexado à gravação como contexto próprio. Ele não é unido ao vídeo da gravação.
+
+O tempo de tela anterior é um recurso experimental opcional. Ative-o em **Configurações > Labs**, "Include earlier screen time". Ele vem desativado por padrão.
+
+Com o recurso ativado, o pop-up do Clipes no aplicativo de desktop tem um controle **Incluir o último**. Escolha **Desligado** (o padrão), **30 s**, **5 min** ou **Personalizado…** para qualquer duração de até cinco minutos. O Rewind precisa estar ativado e em execução para que uma quantidade tenha efeito. Se o Rewind estiver desligado, escolher uma quantidade abre uma breve explicação com um botão **Ativar o Rewind**.
+
+Quando você inicia uma gravação, a janela de tempo escolhida em **Incluir o último** é solicitada e enviada deste dispositivo. Com **Desligado**, nada é solicitado.
+
+Para ver exatamente o que você está compartilhando, escolha **Editar** ao lado do tempo de tela anterior no aplicativo de desktop, assim que ele estiver pronto. O editor mostra uma prévia de até cinco minutos do histórico local, de antes de a gravação começar. A prévia é criada no seu dispositivo e nunca é enviada. A seleção começa na janela de tempo que você escolheu. Arraste as alças para cortá-la, e use **Reproduzir seleção** para tocar apenas essa parte.
+
+**Salvar** envia apenas a janela de tempo selecionada. Cancelar, ou fechar o editor de qualquer outra forma, descarta a prévia e não envia nada.
+
+Para remover o tempo de tela anterior de um clipe, peça ao agente que o remova. A gravação das imagens vai para a Lixeira, onde permanece até você excluí-la por lá. Descartar uma gravação também remove o tempo de tela anterior que ela tinha.
+
+Enquanto um clipe tiver tempo de tela anterior, ele permanece privado. Solicitá-lo torna o clipe privado, e a solicitação é recusada se o clipe ainda estiver compartilhado diretamente com outras pessoas. O compartilhamento fica bloqueado até você remover o tempo de tela anterior: tornar o clipe público ou visível para sua organização, ou dar acesso a alguém, é recusado.
+
+Na página do clipe, a aba Transcrição mostra o tempo de tela anterior acima da transcrição, com a sua janela de tempo e um player integrado. A edição acontece no aplicativo de desktop do Clipes. O agente pode ler a janela de tempo e o status dela.
+
+Limites: o tempo de tela anterior tem no máximo cinco minutos. O histórico é apenas o que o Rewind ainda mantém neste dispositivo, então momentos mais antigos podem não estar mais disponíveis.
 
 ### Registros do navegador da extensão do Chrome
 

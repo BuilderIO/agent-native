@@ -69,6 +69,10 @@ export default {
       "{from} a {to} · cohortes separadas por aplicación{partial}",
     sessionCount: "{count} sesiones",
     otherPaths: "Otras rutas",
+    otherBranchesShown: "Se muestran {shown} de {total} ramas",
+    otherBranchDetailsUnavailable:
+      "Este árbol de recorrido no incluye el detalle de las ramas",
+    otherBranchSourceKey: "Clave del paso de origen: {key}",
     htmlLanguage: "es-ES",
   },
   composer: { menu: { integrations: "Integraciones" } },

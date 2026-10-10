@@ -565,6 +565,7 @@ export default {
     approved: "承認された",
     suggestion: "提案",
     unreviewed: "未レビュー",
+    deprecated: "非推奨",
     ai: "AI",
     source: "ソース",
     deleteTitle: "「{{metric}}」を削除しますか？",
@@ -617,6 +618,8 @@ export default {
       "保存済みのソースインデックスを読み取れません。有効なファイルを再度インポートしてください。",
     indexReadFailed:
       "保存済みのソースインデックスを確認できませんでした。もう一度お試しください。",
+    generatedEntriesMayBeMissing:
+      "生成されたソース項目が欠けている可能性があります。保存済みの項目は引き続き利用できます。",
     indexReady: "{{count}} 件のソース定義を {{date}} に生成しました。",
     indexStale:
       "スナップショットは {{days}} 日前のものです。新しいソースのリビジョンを確認するため更新してください。",

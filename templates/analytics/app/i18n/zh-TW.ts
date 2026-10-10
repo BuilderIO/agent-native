@@ -532,6 +532,7 @@ export default {
     approved: "得到正式認可的",
     suggestion: "建議",
     unreviewed: "未經審查",
+    deprecated: "已棄用",
     ai: "AI",
     source: "來源",
     deleteTitle: "刪除“{{metric}}”？",
@@ -577,6 +578,8 @@ export default {
     indexNotImported: "尚未匯入產生的來源索引。",
     indexUnreadable: "無法讀取已儲存的來源索引；請重新匯入有效檔案。",
     indexReadFailed: "無法檢查已儲存的來源索引，請再試一次。",
+    generatedEntriesMayBeMissing:
+      "產生的來源項目可能缺漏；已儲存的項目仍可使用。",
     indexReady: "{{count}} 項來源定義，產生於 {{date}}。",
     indexStale:
       "此快照已有 {{days}} 天。請重新整理以確認是否有較新的來源修訂版本。",

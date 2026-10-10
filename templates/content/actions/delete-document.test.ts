@@ -94,6 +94,10 @@ const { schema } = vi.hoisted(() => ({
     documentBlocks: {
       fieldId: "documentBlocks.fieldId",
     },
+    documentImports: {
+      documentId: "documentImports.documentId",
+      originalBlob: "documentImports.originalBlob",
+    },
     documentSyncLinks: {
       documentId: "documentSyncLinks.documentId",
       ownerEmail: "documentSyncLinks.ownerEmail",

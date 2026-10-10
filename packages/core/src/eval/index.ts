@@ -40,6 +40,7 @@ export { formatReport } from "./report.js";
 export type {
   Eval,
   EvalInput,
+  AgentRunOptions,
   EvalRunContext,
   EvalProductionContext,
   EvalProductionIdentity,

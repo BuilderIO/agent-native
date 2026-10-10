@@ -91,11 +91,18 @@ pnpm dev
 
 ### 屏幕记忆（Rewind）
 
-| Action                                                                                                                          | 它的作用                                         |
-| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | 读取本地 Rewind 缓冲区                           |
-| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | 把 Rewind 历史记录添加到一个剪辑的审核与批准流程 |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | 应用一个已批准的扩展；先强制将该剪辑设为私密     |
+| Action                                                                                                                          | 它的作用                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | 读取本地 Rewind 缓冲区                                                       |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | 把 Rewind 历史记录添加到一个剪辑的审核与批准流程                             |
+| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | 应用一个已批准的扩展；先强制将该剪辑设为私密                                 |
+| `request-recording-context`                                                                                                     | 仅限所有者。在剪辑开始之前请求更早的屏幕时间；该剪辑会变为私密               |
+| `list-recording-context`                                                                                                        | 剪辑当前的更早屏幕时间项：其时间窗口和状态（观看者访问权限）                 |
+| `list-pending-recording-context`                                                                                                | 你拥有的剪辑中的待处理项，供桌面导出工作进程使用                             |
+| `update-recording-context`                                                                                                      | 桌面工作进程将某项标记为 `processing`、`ready` 或 `failed`                   |
+| `set-recording-context-window`                                                                                                  | 在其 5 分钟原始时间窗口内裁剪某项；该项会回到 `pending` 并重新导出           |
+| `remove-recording-context`                                                                                                      | 移除某项，并将其画面录制移到回收站                                           |
+| `rewind_preview_window`, `rewind_preview_discard`                                                                               | 仅限桌面应用（Tauri 命令，而非动作）。创建或删除某个窗口的本地预览。从不上传 |
 
 ### 跨应用和洞察
 

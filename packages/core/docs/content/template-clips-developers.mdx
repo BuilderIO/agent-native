@@ -91,11 +91,18 @@ Every operation is a TypeScript file in `templates/clips/actions/`, auto-mounted
 
 ### Screen Memory (Rewind)
 
-| Action                                                                                                                          | What it does                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | Read the local Rewind buffer                                    |
-| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | The review-and-approve flow for adding Rewind history to a clip |
-| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | Apply an approved extension; force the clip private first       |
+| Action                                                                                                                          | What it does                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `get-screen-memory-status`, `query-screen-memory-context`                                                                       | Read the local Rewind buffer                                                                                |
+| `request-rewind-extension`, `get-rewind-extension-request`, `list-rewind-extension-requests`, `update-rewind-extension-request` | The review-and-approve flow for adding Rewind history to a clip                                             |
+| `apply-rewind-extension`, `make-recording-private-for-rewind`                                                                   | Apply an approved extension; force the clip private first                                                   |
+| `request-recording-context`                                                                                                     | Owner only. Ask for earlier screen time before a clip started; the clip becomes private                     |
+| `list-recording-context`                                                                                                        | The clip's active earlier-screen-time item: its windows and status (viewer access)                          |
+| `list-pending-recording-context`                                                                                                | Pending items on clips you own, for the desktop export worker                                               |
+| `update-recording-context`                                                                                                      | Desktop worker reports an item as `processing`, `ready`, or `failed`                                        |
+| `set-recording-context-window`                                                                                                  | Trim an item inside its 5-minute original window; it returns to `pending` and re-exports                    |
+| `remove-recording-context`                                                                                                      | Remove an item and trash its footage recording                                                              |
+| `rewind_preview_window`, `rewind_preview_discard`                                                                               | Desktop app only (Tauri commands, not actions). Build or delete a local preview of a window. Never uploaded |
 
 ### Cross-app & insights
 

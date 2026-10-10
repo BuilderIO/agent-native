@@ -75,6 +75,7 @@ interface DictionaryEntry {
   knownGotchas?: string;
   exampleUseCase?: string;
   owner?: string;
+  status?: "active" | "deprecated";
   approved?: boolean;
   aiGenerated?: boolean;
   sourceUrl?: string;
@@ -132,7 +133,7 @@ const EMPTY_ENTRY: Partial<DictionaryEntry> = {
   knownGotchas: "",
   exampleUseCase: "",
   owner: "",
-  approved: true,
+  approved: false,
   aiGenerated: false,
 };
 
@@ -220,6 +221,7 @@ export default function DataDictionary() {
         of: number;
         truncated: boolean;
         nextPage: string | null;
+        sourceIndexStatus?: SourceIndexStatus["status"];
       }
     | undefined;
 
@@ -329,6 +331,12 @@ export default function DataDictionary() {
               {t("dataDictionary.indexStale", {
                 days: indexStatus.ageDays,
               })}
+            </span>
+          ) : null}
+          {dictionaryPage?.sourceIndexStatus === "unavailable" ||
+          dictionaryPage?.sourceIndexStatus === "invalid" ? (
+            <span className="ms-2 font-medium text-amber-700 dark:text-amber-400">
+              {t("dataDictionary.generatedEntriesMayBeMissing")}
             </span>
           ) : null}
           {indexError ? (
@@ -463,6 +471,17 @@ export default function DataDictionary() {
                     <DictionaryBadge tooltip={e.table} className="font-mono">
                       {e.table}
                     </DictionaryBadge>
+                  )}
+                  {e.status === "deprecated" && (
+                    <Badge
+                      variant="outline"
+                      className={
+                        ENTRY_BADGE_CLASS +
+                        " bg-amber-500/10 text-amber-700 dark:text-amber-400 border-0"
+                      }
+                    >
+                      {t("dataDictionary.deprecated")}
+                    </Badge>
                   )}
                   {e.approved ? (
                     <Badge
