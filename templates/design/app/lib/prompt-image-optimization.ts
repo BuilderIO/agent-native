@@ -6,6 +6,7 @@ import {
 
 const MAX_IMAGE_HEADER_BYTES = 1024 * 1024;
 const MAX_PNG_METADATA_BYTES = 1024 * 1024;
+const MAX_PNG_METADATA_CHUNKS = 16_384;
 const MAX_IMAGE_DECODE_PIXELS = 32_000_000;
 const MAX_IMAGE_DECODE_DIMENSION = 20_000;
 const IMAGE_COMPRESSION_PASSES = [
@@ -316,6 +317,7 @@ async function readPngMetadata(file: File): Promise<ImageMetadata | null> {
   if (width <= 0 || height <= 0 || !reader.skip(8)) return null;
 
   let animated = false;
+  let metadataChunks = 0;
   while (reader.offset + 8 <= file.size) {
     if (reader.offset > MAX_PNG_METADATA_BYTES) return null;
     let chunkHeader = reader.readBufferedBytes(8);
@@ -336,6 +338,8 @@ async function readPngMetadata(file: File): Promise<ImageMetadata | null> {
     if (chunkType === "IEND") {
       return { format: "png", width, height, animated };
     }
+    if (metadataChunks >= MAX_PNG_METADATA_CHUNKS) return null;
+    metadataChunks++;
     if (!reader.skip(chunkLength + 4)) return null;
   }
 
@@ -492,16 +496,6 @@ export async function preparePromptImageAttachment(
   if (!isVisualImageAttachment(file)) return null;
 
   const originalFile = withSupportedImageExtension(file);
-  if (
-    isSupportedChatImageType(originalFile.type) &&
-    estimatedDataUrlBytes(originalFile) <= maxDataUrlBytes
-  ) {
-    const dataUrl = await readFileDataUrl(originalFile);
-    if (dataUrl && dataUrlBytes(dataUrl) <= maxDataUrlBytes) {
-      return { file: originalFile, dataUrl };
-    }
-  }
-
   let metadata: ImageMetadata | null;
   try {
     metadata = await readImageMetadata(file);
@@ -514,11 +508,6 @@ export async function preparePromptImageAttachment(
   if (!metadata) {
     throw new PromptImageOptimizationError("invalid-or-unsupported-image");
   }
-  if (metadata.animated) {
-    throw new PromptImageOptimizationError(
-      "animated-image-exceeds-data-url-budget",
-    );
-  }
   if (
     metadata.width <= 0 ||
     metadata.height <= 0 ||
@@ -528,6 +517,20 @@ export async function preparePromptImageAttachment(
   ) {
     throw new PromptImageOptimizationError(
       "image-resolution-exceeds-safety-limit",
+    );
+  }
+  if (
+    isSupportedChatImageType(originalFile.type) &&
+    estimatedDataUrlBytes(originalFile) <= maxDataUrlBytes
+  ) {
+    const dataUrl = await readFileDataUrl(originalFile);
+    if (dataUrl && dataUrlBytes(dataUrl) <= maxDataUrlBytes) {
+      return { file: originalFile, dataUrl };
+    }
+  }
+  if (metadata.animated) {
+    throw new PromptImageOptimizationError(
+      "animated-image-exceeds-data-url-budget",
     );
   }
 

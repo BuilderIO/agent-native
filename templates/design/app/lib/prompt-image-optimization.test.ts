@@ -155,9 +155,7 @@ afterEach(() => {
 
 describe("preparePromptImageAttachment", () => {
   it("keeps small images unchanged when their visual payload fits", async () => {
-    const file = new File(["small image"], "reference.png", {
-      type: "image/png",
-    });
+    const file = pngFile("reference.png", { size: 64 });
 
     const prepared = await preparePromptImageAttachment(file, 1_000);
 
@@ -166,9 +164,7 @@ describe("preparePromptImageAttachment", () => {
   });
 
   it("adds a supported extension to extensionless pasted images", async () => {
-    const file = new File(["small image"], "clipboard", {
-      type: "image/png",
-    });
+    const file = pngFile("clipboard", { size: 64 });
 
     const prepared = await preparePromptImageAttachment(file, 1_000);
 
@@ -334,6 +330,17 @@ describe("preparePromptImageAttachment", () => {
     });
   });
 
+  it("bounds the number of PNG metadata chunks", async () => {
+    const preparation = preparePromptImageAttachment(
+      pngWithManyMetadataChunksFile(20_000),
+      1,
+    );
+
+    await expect(preparation).rejects.toMatchObject({
+      code: "invalid-or-unsupported-image",
+    });
+  });
+
   it("does not fall back to JPEG for alpha-capable source images", async () => {
     Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
       configurable: true,
@@ -389,6 +396,28 @@ describe("preparePromptImageAttachment", () => {
     );
     await expect(preparation).rejects.toBeInstanceOf(
       PromptImageOptimizationError,
+    );
+    await expect(preparation).rejects.toMatchObject({
+      code: "image-resolution-exceeds-safety-limit",
+    });
+
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("checks dimensions before keeping a small image inline", async () => {
+    const createObjectURL = vi.fn(() => "blob:source-image");
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+
+    const preparation = preparePromptImageAttachment(
+      pngFile("tiny-huge.png", {
+        width: 10_000,
+        height: 5_000,
+        size: 64,
+      }),
+      1_000,
     );
     await expect(preparation).rejects.toMatchObject({
       code: "image-resolution-exceeds-safety-limit",
