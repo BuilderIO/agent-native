@@ -18,6 +18,11 @@ import {
   type SaveLineageEvent,
   type UpdateDocumentRequestLineage,
 } from "./save-lineage";
+import {
+  captureFixtureInput,
+  parseFixtureInput,
+  type FixtureInputSnapshot,
+} from "./editor-input-lineage";
 
 export const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
@@ -252,6 +257,7 @@ export interface TabRecord {
   saveCodes: Record<string, number>;
   saveLineage: SaveLineageEvent[];
   saveLineageDropped: number;
+  inputLineage: FixtureInputSnapshot[];
   realtimeRefusals: number;
   realtimeStreams: number;
   collabPollTimes: number[];
@@ -270,6 +276,7 @@ function emptyTab(label: string): TabRecord {
     saveCodes: {},
     saveLineage: [],
     saveLineageDropped: 0,
+    inputLineage: [],
     realtimeRefusals: 0,
     realtimeStreams: 0,
     collabPollTimes: [],
@@ -502,6 +509,16 @@ export class TabSet {
     const record = this.tabs.get(page);
     if (!record) return;
     if (kind === "editor-mount") record.editorMounts++;
+    if (kind === "fixture-input" && record.inputLineage.length < 32) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(detail);
+      } catch {
+        return;
+      }
+      const snapshot = parseFixtureInput(parsed);
+      if (snapshot) record.inputLineage.push(snapshot);
+    }
     if (kind === "recovery") record.recovery.push(detail);
     if (kind === "toast" && detail.startsWith("error:"))
       record.errorToasts.push(detail.slice("error:".length));
@@ -751,6 +768,23 @@ export async function typeAtParagraphEnd(
   text: string,
   delayMs = 40,
 ): Promise<void> {
+  const capture = async (phase: FixtureInputSnapshot["phase"]) => {
+    const snapshot = await page.evaluate(captureFixtureInput, {
+      phase,
+      text,
+      editor: EDITOR,
+    });
+    if (!snapshot) return;
+    await page.evaluate((detail) => {
+      const report = (
+        globalThis as typeof globalThis & {
+          __convergenceReport?: (kind: string, detail: string) => void;
+        }
+      ).__convergenceReport;
+      report?.("fixture-input", detail);
+    }, JSON.stringify(snapshot));
+  };
+  await capture("before-caret");
   await page.locator(`${EDITOR} > p`, { hasText: anchor }).first().click();
   // "End" stops at a wrapped visual line; place the caret at the true end.
   await page.evaluate(
@@ -783,6 +817,7 @@ export async function typeAtParagraphEnd(
     { needle: anchor, editor: EDITOR },
   );
   await page.keyboard.type(text, { delay: delayMs });
+  await capture("after-input");
 }
 
 /** Select `text` in the editor and delete it with the keyboard, as a person would. */
