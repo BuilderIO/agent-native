@@ -319,12 +319,14 @@ export function isExpectedBrowserSessionPollNavigationConsoleError(
     return false;
   }
 
+  if (activePhase !== "save/reload" && activePhase !== "cleanup/navigation") {
+    return false;
+  }
+
   return candidates.some((candidate) =>
-    isExpectedWatchedRequestCorsError(
-      `Fetch API cannot load ${candidate.url} due to access control checks.`,
-      activePhase,
-      [candidate],
-    ),
+    isExpectedWatchedRequestNavigationAbort(candidate, [
+      browserSessionClaimRequestRule,
+    ]),
   );
 }
 
