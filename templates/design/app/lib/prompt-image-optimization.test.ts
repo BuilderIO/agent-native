@@ -51,6 +51,38 @@ function pngFile(
   return new File([bytes], name, { type: "image/png" });
 }
 
+function pngWithManyMetadataChunksFile(chunkCount: number): File {
+  const chunk = (type: string, dataLength: number) => {
+    const bytes = new Uint8Array(dataLength + 12);
+    new DataView(bytes.buffer).setUint32(0, dataLength);
+    bytes.set(new TextEncoder().encode(type), 4);
+    return bytes;
+  };
+  const signature = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  ]);
+  const ihdr = chunk("IHDR", 13);
+  new DataView(ihdr.buffer).setUint32(8, 1);
+  new DataView(ihdr.buffer).setUint32(12, 1);
+  const metadata = new Uint8Array(chunkCount * 12);
+  const textType = new TextEncoder().encode("tEXt");
+  for (let offset = 0; offset < metadata.length; offset += 12) {
+    metadata.set(textType, offset + 4);
+  }
+  return new File(
+    [
+      signature,
+      ihdr,
+      metadata,
+      chunk("acTL", 8),
+      chunk("IDAT", 0),
+      chunk("IEND", 0),
+    ],
+    "many-metadata.png",
+    { type: "image/png" },
+  );
+}
+
 function animatedGifFile(): File {
   const frame = [0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 1, 0x4c, 0];
   return new File(
@@ -130,6 +162,18 @@ describe("preparePromptImageAttachment", () => {
     const prepared = await preparePromptImageAttachment(file, 1_000);
 
     expect(prepared?.file).toBe(file);
+    expect(prepared?.dataUrl).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it("adds a supported extension to extensionless pasted images", async () => {
+    const file = new File(["small image"], "clipboard", {
+      type: "image/png",
+    });
+
+    const prepared = await preparePromptImageAttachment(file, 1_000);
+
+    expect(prepared?.file.name).toBe("clipboard.png");
+    expect(prepared?.file).not.toBe(file);
     expect(prepared?.dataUrl).toMatch(/^data:image\/png;base64,/);
   });
 
@@ -266,6 +310,17 @@ describe("preparePromptImageAttachment", () => {
       code: "animated-image-exceeds-data-url-budget",
     });
     expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("detects APNG animation after many small metadata chunks", async () => {
+    const preparation = preparePromptImageAttachment(
+      pngWithManyMetadataChunksFile(10_000),
+      1,
+    );
+
+    await expect(preparation).rejects.toMatchObject({
+      code: "animated-image-exceeds-data-url-budget",
+    });
   });
 
   it("does not fall back to JPEG for alpha-capable source images", async () => {

@@ -62,6 +62,10 @@ class FileByteReader {
     return this.position;
   }
 
+  async ensureBuffered(): Promise<boolean> {
+    return this.loadChunk();
+  }
+
   private async loadChunk(): Promise<boolean> {
     if (this.position >= this.file.size) return false;
     if (
@@ -81,6 +85,20 @@ class FileByteReader {
   async readByte(): Promise<number | null> {
     if (!(await this.loadChunk())) return null;
     return this.chunk[this.position++ - this.chunkStart] ?? null;
+  }
+
+  readBufferedBytes(length: number): Uint8Array | null {
+    if (
+      length < 0 ||
+      this.position < this.chunkStart ||
+      this.position + length > this.chunkStart + this.chunk.length ||
+      this.position + length > this.file.size
+    ) {
+      return null;
+    }
+    const start = this.position - this.chunkStart;
+    this.position += length;
+    return this.chunk.subarray(start, start + length);
   }
 
   async readBytes(length: number): Promise<Uint8Array | null> {
@@ -118,7 +136,7 @@ class FileByteReader {
       : null;
   }
 
-  async skip(length: number): Promise<boolean> {
+  skip(length: number): boolean {
     if (length < 0 || this.position + length > this.file.size) return false;
     this.position += length;
     return true;
@@ -191,10 +209,10 @@ async function readGifMetadata(file: File): Promise<ImageMetadata | null> {
   const height = await reader.readUint16LE();
   const packed = await reader.readByte();
   if (width === null || height === null || packed === null) return null;
-  if (!(await reader.skip(2))) return null;
+  if (!reader.skip(2)) return null;
   if (packed & 0x80) {
     const colorTableBytes = 3 * 2 ** ((packed & 0x07) + 1);
-    if (!(await reader.skip(colorTableBytes))) return null;
+    if (!reader.skip(colorTableBytes)) return null;
   }
 
   let frameCount = 0;
@@ -212,13 +230,13 @@ async function readGifMetadata(file: File): Promise<ImageMetadata | null> {
       }
       continue;
     }
-    if (marker !== 0x2c || !(await reader.skip(8))) return null;
+    if (marker !== 0x2c || !reader.skip(8)) return null;
 
     const imagePacked = await reader.readByte();
     if (imagePacked === null) return null;
     if (imagePacked & 0x80) {
       const colorTableBytes = 3 * 2 ** ((imagePacked & 0x07) + 1);
-      if (!(await reader.skip(colorTableBytes))) return null;
+      if (!reader.skip(colorTableBytes)) return null;
     }
     if ((await reader.readByte()) === null || !(await reader.skipSubBlocks())) {
       return null;
@@ -294,24 +312,29 @@ async function readPngMetadata(file: File): Promise<ImageMetadata | null> {
   const width = readUint32BE(bytes, 16);
   const height = readUint32BE(bytes, 20);
   const reader = new FileByteReader(file);
-  if (width <= 0 || height <= 0 || !(await reader.skip(8))) return null;
+  if (width <= 0 || height <= 0 || !reader.skip(8)) return null;
 
   let animated = false;
   while (reader.offset + 8 <= file.size) {
-    const chunkLength = await reader.readUint32BE();
-    const chunkType = await reader.readString(4);
-    if (
-      chunkLength === null ||
-      !chunkType ||
-      chunkLength > file.size - reader.offset - 4
-    ) {
+    let chunkHeader = reader.readBufferedBytes(8);
+    if (!chunkHeader) {
+      if (!(await reader.ensureBuffered())) return null;
+      chunkHeader = reader.readBufferedBytes(8) ?? (await reader.readBytes(8));
+    }
+    if (!chunkHeader || chunkHeader.length !== 8) {
       return null;
     }
+    const chunkLength = readUint32BE(chunkHeader, 0);
+    const chunkType = String.fromCharCode(...chunkHeader.subarray(4, 8));
+    if (chunkLength > file.size - reader.offset - 4) return null;
     if (chunkType === "acTL") animated = true;
-    if (!(await reader.skip(chunkLength + 4))) return null;
+    if (chunkType === "IDAT") {
+      return { format: "png", width, height, animated };
+    }
     if (chunkType === "IEND") {
       return { format: "png", width, height, animated };
     }
+    if (!reader.skip(chunkLength + 4)) return null;
   }
 
   return null;
@@ -357,10 +380,8 @@ async function readWebpMetadata(file: File): Promise<ImageMetadata | null> {
       animated = true;
     }
 
-    if (!(await reader.skip(chunkSize - consumed))) return null;
-    if (chunkSize & 1) {
-      if (!(await reader.skip(1))) return null;
-    }
+    if (!reader.skip(chunkSize - consumed)) return null;
+    if (chunkSize & 1 && !reader.skip(1)) return null;
   }
 
   if (!width || !height) return null;
@@ -424,6 +445,38 @@ function optimizedImageName(name: string, type: string): string {
   return `${stem}.${fileExtensionForImageType(type)}`;
 }
 
+function originalImageExtension(type: string): string | null {
+  switch (type.split(";", 1)[0]?.trim().toLowerCase()) {
+    case "image/gif":
+      return "gif";
+    case "image/jpeg":
+    case "image/jpg":
+      return "jpg";
+    case "image/png":
+      return "png";
+    case "image/webp":
+      return "webp";
+    default:
+      return null;
+  }
+}
+
+function withSupportedImageExtension(file: File): File {
+  const extension = originalImageExtension(file.type);
+  if (!extension) return file;
+  const nameParts = file.name.split(".");
+  const currentExtension = nameParts[nameParts.length - 1]?.toLowerCase();
+  const allowedExtensions = extension === "jpg" ? ["jpg", "jpeg"] : [extension];
+  if (currentExtension && allowedExtensions.includes(currentExtension)) {
+    return file;
+  }
+  const stem = file.name.replace(/\.[^.]*$/, "") || "image";
+  return new File([file], `${stem}.${extension}`, {
+    type: file.type,
+    lastModified: file.lastModified,
+  });
+}
+
 function outputTypesForFormat(format: ImageFormat): string[] {
   return format === "jpeg"
     ? ["image/webp", "image/jpeg", "image/png"]
@@ -436,13 +489,14 @@ export async function preparePromptImageAttachment(
 ): Promise<PreparedPromptImage | null> {
   if (!isVisualImageAttachment(file)) return null;
 
+  const originalFile = withSupportedImageExtension(file);
   if (
-    isSupportedChatImageType(file.type) &&
-    estimatedDataUrlBytes(file) <= maxDataUrlBytes
+    isSupportedChatImageType(originalFile.type) &&
+    estimatedDataUrlBytes(originalFile) <= maxDataUrlBytes
   ) {
-    const dataUrl = await readFileDataUrl(file);
+    const dataUrl = await readFileDataUrl(originalFile);
     if (dataUrl && dataUrlBytes(dataUrl) <= maxDataUrlBytes) {
-      return { file, dataUrl };
+      return { file: originalFile, dataUrl };
     }
   }
 
