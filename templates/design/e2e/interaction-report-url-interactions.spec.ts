@@ -12,7 +12,7 @@ import {
   expect,
   test,
   type APIRequestContext,
-  type Frame,
+  type FrameLocator,
   type Locator,
   type Page,
 } from "@playwright/test";
@@ -116,14 +116,10 @@ function screenFrame(page: Page, screenId: string) {
   );
 }
 
-async function screenContentFrame(
-  page: Page,
-  screenId: string,
-): Promise<Frame> {
-  const handle = await screenFrame(page, screenId).elementHandle();
-  const frame = await handle?.contentFrame();
-  if (!frame) throw new Error(`screen frame ${screenId} is not ready`);
-  return frame;
+function screenContentFrame(page: Page, screenId: string): FrameLocator {
+  return page.frameLocator(
+    `iframe[data-design-preview-iframe][data-screen-iframe-id="${screenId}"]`,
+  );
 }
 
 function boardFrame(page: Page) {
@@ -136,23 +132,31 @@ function center(box: { x: number; y: number; width: number; height: number }) {
 
 async function displayedFrameContentBox(
   iframe: Locator,
-  frame: Frame,
   locator: Locator,
 ): Promise<{ x: number; y: number; width: number; height: number }> {
-  const [iframeBox, localBox, viewport] = await Promise.all([
+  const [iframeBox, local] = await Promise.all([
     iframe.boundingBox(),
-    locator.evaluate((element) => element.getBoundingClientRect().toJSON()),
-    frame.evaluate(() => ({
-      width: window.innerWidth,
-      height: window.innerHeight,
-    })),
+    locator.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const viewport = element.ownerDocument.defaultView;
+      return {
+        rect: rect.toJSON(),
+        viewport: {
+          width: viewport?.innerWidth ?? 0,
+          height: viewport?.innerHeight ?? 0,
+        },
+      };
+    }),
   ]);
   if (!iframeBox) throw new Error("preview iframe has no rendered box");
+  if (!local.viewport.width || !local.viewport.height) {
+    throw new Error("preview iframe content has no viewport");
+  }
   return {
-    x: iframeBox.x + (localBox.x / viewport.width) * iframeBox.width,
-    y: iframeBox.y + (localBox.y / viewport.height) * iframeBox.height,
-    width: (localBox.width / viewport.width) * iframeBox.width,
-    height: (localBox.height / viewport.height) * iframeBox.height,
+    x: iframeBox.x + (local.rect.x / local.viewport.width) * iframeBox.width,
+    y: iframeBox.y + (local.rect.y / local.viewport.height) * iframeBox.height,
+    width: (local.rect.width / local.viewport.width) * iframeBox.width,
+    height: (local.rect.height / local.viewport.height) * iframeBox.height,
   };
 }
 
@@ -166,17 +170,18 @@ test.beforeAll(async ({ request }, workerInfo) => {
   fs.writeFileSync(screenPath, SCREEN_HTML);
 
   devServer = http.createServer((req, res) => {
+    const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
+    const isInactiveRoute = requestUrl.pathname === "/inactive";
+    const html = isInactiveRoute
+      ? fs
+          .readFileSync(screenPath, "utf8")
+          .replace(
+            "</body>",
+            `${URL_DROP_TARGET_HTML}${persistedCopyHtml}</body>`,
+          )
+      : fs.readFileSync(screenPath, "utf8");
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(
-      req.url === "/inactive"
-        ? fs
-            .readFileSync(screenPath, "utf8")
-            .replace(
-              "</body>",
-              `${URL_DROP_TARGET_HTML}${persistedCopyHtml}</body>`,
-            )
-        : fs.readFileSync(screenPath, "utf8"),
-    );
+    res.end(html);
   });
   const devPort = await listen(devServer);
   const bridgePortServer = http.createServer();
@@ -297,12 +302,13 @@ test("URL-backed nested drops stay pending and root-frame Option-drag duplicates
   await expect(screenFrame(page, activeScreenId)).toBeVisible();
   await expect(screenFrame(page, inactiveScreenId)).toBeVisible();
 
-  const activeFrame = await screenContentFrame(page, activeScreenId);
-  const inactiveFrame = await screenContentFrame(page, inactiveScreenId);
+  const activeFrame = screenContentFrame(page, activeScreenId);
+  const inactiveFrame = screenContentFrame(page, inactiveScreenId);
   const boardContentFrame = boardFrame(page).contentFrame();
-  expect(await inactiveFrame.evaluate(() => window.location.href)).toContain(
-    "/inactive",
-  );
+  const inactiveUrl = await inactiveFrame
+    .locator("html")
+    .evaluate((element) => element.ownerDocument.URL);
+  expect(inactiveUrl).toContain("/inactive");
   const boardSource = boardContentFrame.locator(
     '[data-agent-native-node-id="board-source"]',
   );
@@ -414,7 +420,6 @@ test("URL-backed nested drops stay pending and root-frame Option-drag duplicates
   );
   const rootBefore = await displayedFrameContentBox(
     screenFrame(page, activeScreenId),
-    activeFrame,
     rootFrame,
   );
   await page.mouse.click(
@@ -432,7 +437,7 @@ test("URL-backed nested drops stay pending and root-frame Option-drag duplicates
     '[data-agent-native-layer-name="Root frame"]',
   );
   await expect(activeRootNodes).toHaveCount(2, { timeout: 20_000 });
-  const rootState = await activeFrame.evaluate(() => {
+  const rootState = await activeFrame.locator("html").evaluate(() => {
     const nodes = Array.from(
       document.querySelectorAll<HTMLElement>(
         '[data-agent-native-layer-name="Root frame"]',
@@ -478,12 +483,28 @@ test("URL-backed Option-drag preserves identity and appearance across reload", a
   page,
 }) => {
   persistedCopyHtml = "";
+  await page.addInitScript(() => {
+    if (window !== window.top) return;
+    const target = window as Window & { __urlDropInsertApplied?: boolean };
+    window.addEventListener("message", (event: MessageEvent) => {
+      const message = event.data as {
+        type?: unknown;
+        applied?: unknown;
+      } | null;
+      if (
+        message?.type === "runtime-structure-insert-applied" &&
+        message.applied === true
+      ) {
+        target.__urlDropInsertApplied = true;
+      }
+    });
+  });
   await gotoEditor(page, designId);
   await expect(screenFrame(page, activeScreenId)).toBeVisible();
   await expect(screenFrame(page, inactiveScreenId)).toBeVisible();
 
-  const activeFrame = await screenContentFrame(page, activeScreenId);
-  const inactiveFrame = await screenContentFrame(page, inactiveScreenId);
+  const activeFrame = screenContentFrame(page, activeScreenId);
+  const inactiveFrame = screenContentFrame(page, inactiveScreenId);
   const source = activeFrame.locator(
     '[data-agent-native-node-id="root-frame"]',
   );
@@ -509,12 +530,10 @@ test("URL-backed Option-drag preserves identity and appearance across reload", a
 
   const sourceBefore = await displayedFrameContentBox(
     screenFrame(page, activeScreenId),
-    activeFrame,
     source,
   );
   const targetAnchorBox = await displayedFrameContentBox(
     screenFrame(page, inactiveScreenId),
-    inactiveFrame,
     targetAnchor,
   );
   const start = center(sourceBefore);
@@ -537,6 +556,16 @@ test("URL-backed Option-drag preserves identity and appearance across reload", a
   await page.mouse.up();
   await page.keyboard.up("Alt");
 
+  await page.waitForFunction(
+    () =>
+      (
+        window as Window & {
+          __urlDropInsertApplied?: boolean;
+        }
+      ).__urlDropInsertApplied === true,
+    undefined,
+    { timeout: 20_000 },
+  );
   await expect(destinationNodes).toHaveCount(destinationIdsBefore.length + 1, {
     timeout: 20_000,
   });
@@ -545,9 +574,17 @@ test("URL-backed Option-drag preserves identity and appearance across reload", a
       element.getAttribute("data-agent-native-node-id"),
     ),
   );
-  const copyId = destinationIdsAfter.find(
-    (id): id is string => Boolean(id) && !destinationIdsBefore.includes(id),
+  const retainedIds = destinationIdsAfter
+    .filter((id) => id !== null && destinationIdsBefore.includes(id))
+    .sort();
+  expect(retainedIds).toEqual(
+    destinationIdsBefore.filter((id): id is string => id !== null).sort(),
   );
+  const newIds = destinationIdsAfter.filter(
+    (id): id is string => id !== null && !destinationIdsBefore.includes(id),
+  );
+  expect(newIds).toHaveLength(1);
+  const copyId = newIds[0]!;
   expect(copyId).toMatch(/^(?:an-copy-|copy-)/);
   await expect(
     inactiveFrame.locator(`[data-agent-native-node-id="${copyId}"]`),
@@ -571,11 +608,11 @@ test("URL-backed Option-drag preserves identity and appearance across reload", a
   await expect(screenFrame(page, inactiveScreenId)).toBeVisible({
     timeout: 30_000,
   });
-  const reloadedActive = await screenContentFrame(page, activeScreenId);
+  const reloadedActive = screenContentFrame(page, activeScreenId);
   await expect(
     reloadedActive.locator('[data-agent-native-node-id="root-frame"]'),
   ).toHaveCount(1);
-  const reloadedInactive = await screenContentFrame(page, inactiveScreenId);
+  const reloadedInactive = screenContentFrame(page, inactiveScreenId);
   await expect(
     reloadedInactive.locator(`[data-agent-native-node-id="${copyId}"]`),
   ).toHaveCount(1);
@@ -604,8 +641,8 @@ test("URL-backed Option-drag preserves appearance without CSS Typed OM", async (
   await expect(screenFrame(page, activeScreenId)).toBeVisible();
   await expect(screenFrame(page, inactiveScreenId)).toBeVisible();
 
-  const activeFrame = await screenContentFrame(page, activeScreenId);
-  const inactiveFrame = await screenContentFrame(page, inactiveScreenId);
+  const activeFrame = screenContentFrame(page, activeScreenId);
+  const inactiveFrame = screenContentFrame(page, inactiveScreenId);
   const source = activeFrame.locator(
     '[data-agent-native-node-id="nested-anchor"]',
   );
@@ -631,12 +668,10 @@ test("URL-backed Option-drag preserves appearance without CSS Typed OM", async (
 
   const sourceBefore = await displayedFrameContentBox(
     screenFrame(page, activeScreenId),
-    activeFrame,
     source,
   );
   const targetBox = await displayedFrameContentBox(
     screenFrame(page, inactiveScreenId),
-    inactiveFrame,
     targetAnchor,
   );
   const start = center(sourceBefore);
@@ -692,7 +727,7 @@ test("URL-backed Option-drag preserves appearance without CSS Typed OM", async (
   await expect(screenFrame(page, inactiveScreenId)).toBeVisible({
     timeout: 30_000,
   });
-  const reloadedInactive = await screenContentFrame(page, inactiveScreenId);
+  const reloadedInactive = screenContentFrame(page, inactiveScreenId);
   const reloadedCopy = reloadedInactive.locator(
     `[data-agent-native-node-id="${copyId}"]`,
   );
