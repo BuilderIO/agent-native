@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { registerObservabilityProvider } from "../observability/otel-provider.js";
 import { BACKGROUND_DEADLINE_MS } from "./background-work.js";
 
 const mockAppStatePut = vi.hoisted(() => vi.fn());
@@ -288,6 +289,54 @@ describe("notifyActionChange", () => {
       "database unavailable",
     );
     warn.mockRestore();
+  });
+
+  it("counts each failed durable marker write once and not a landed one", async () => {
+    const recorded: Array<{
+      name: string;
+      value: number;
+      attributes: unknown;
+    }> = [];
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: () => ({ record: () => {} }),
+          createCounter: (name: string) => ({
+            add: (value: number, attributes: unknown) =>
+              recorded.push({ name, value, attributes }),
+          }),
+        }),
+      },
+    });
+    mockAppStatePut.mockRejectedValueOnce(
+      new TypeError("database unavailable"),
+    );
+    mockAppStatePut.mockResolvedValueOnce(undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { notifyActionChangeForResponse } =
+      await import("./action-change.js");
+
+    try {
+      await notifyActionChangeForResponse({
+        actionName: "update-project",
+        owner: "owner@example.com",
+      });
+      await notifyActionChangeForResponse({
+        actionName: "update-project",
+        owner: "owner@example.com",
+      });
+    } finally {
+      unregister();
+      warn.mockRestore();
+    }
+
+    expect(recorded).toEqual([
+      {
+        name: "agent_native.action_change.marker_failures",
+        value: 1,
+        attributes: { "error.type": "TypeError" },
+      },
+    ]);
   });
 });
 

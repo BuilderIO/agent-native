@@ -149,11 +149,12 @@ describe("useActionMutation resource-scoped invalidation", () => {
 
   // A batch POST gets one result per request, as the batch action answers; any
   // other reply trips the action failure circuit and blocks later fetches.
-  function actionFetchMock() {
+  // `writeHeaders` ride on the reply to a POST write, as the server sets them.
+  function actionFetchMock(writeHeaders: Record<string, string> = {}) {
     return vi.fn(async (input: unknown, init?: RequestInit) => {
-      const json = (body: unknown) =>
+      const json = (body: unknown, headers: Record<string, string> = {}) =>
         new Response(JSON.stringify(body), {
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...headers },
         });
       if (
         init?.method === "POST" &&
@@ -164,7 +165,7 @@ describe("useActionMutation resource-scoped invalidation", () => {
           results: requests.map(() => ({ status: 200, body: { ok: true } })),
         });
       }
-      return json({ ok: true });
+      return json({ ok: true }, init?.method === "POST" ? writeHeaders : {});
     });
   }
 
@@ -259,6 +260,65 @@ describe("useActionMutation resource-scoped invalidation", () => {
       "get-settings",
       "list-designs",
     ]);
+  });
+
+  function invalidationProbe({
+    skipActionQueryInvalidation,
+  }: {
+    skipActionQueryInvalidation: boolean;
+  }) {
+    return function Probe({
+      mutate,
+    }: {
+      mutate: (run: () => Promise<unknown>) => void;
+    }) {
+      useActionQuery("list-designs", undefined, { resources: ["design"] });
+      useActionQuery("get-design", { id: "d1" }, { resources: ["design"] });
+      useActionQuery("list-documents", undefined, { resources: ["document"] });
+      const mutation = useActionMutation("update-design", {
+        resources: ["design"],
+        skipActionQueryInvalidation,
+      });
+      mutate(() => mutation.mutateAsync({ id: "d1" }));
+      return null;
+    };
+  }
+
+  it("refetches a skipped write's queries when its change marker failed", async () => {
+    const fetch = actionFetchMock({
+      "X-Agent-Native-Change-Marker": "failed",
+    });
+
+    await mountAndMutate(
+      invalidationProbe({ skipActionQueryInvalidation: true }),
+      fetch,
+    );
+
+    expect(refetchedActionNames(fetch)).toEqual(["get-design", "list-designs"]);
+  });
+
+  it("leaves a skipped write's queries alone when its change marker landed", async () => {
+    const fetch = actionFetchMock();
+
+    await mountAndMutate(
+      invalidationProbe({ skipActionQueryInvalidation: true }),
+      fetch,
+    );
+
+    expect(refetchedActionNames(fetch)).toEqual([]);
+  });
+
+  it("refetches a normal write's queries once when its change marker failed", async () => {
+    const fetch = actionFetchMock({
+      "X-Agent-Native-Change-Marker": "failed",
+    });
+
+    await mountAndMutate(
+      invalidationProbe({ skipActionQueryInvalidation: false }),
+      fetch,
+    );
+
+    expect(refetchedActionNames(fetch)).toEqual(["get-design", "list-designs"]);
   });
 
   it("refetches every action query for a write that declares no resources", async () => {
