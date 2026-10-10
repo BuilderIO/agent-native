@@ -39,6 +39,21 @@ test("every reporter retains its full report artifact for 90 days", () => {
   );
 });
 
+test("health report delivery and acknowledgement require the uploaded artifact", () => {
+  const workflows = currentWorkflows();
+  const workflowPath = reporterWorkflows[1];
+  assert.deepEqual(inspectAutomatedFindingWorkflows(workflows), []);
+
+  workflows[workflowPath] = workflows[workflowPath]!.replaceAll(
+    "steps.health-report-artifact.outcome == 'success'",
+    "steps.health-report-artifact.outcome != 'success'",
+  );
+  assert.match(
+    inspectAutomatedFindingWorkflows(workflows).join("\n"),
+    /must require a successful health report artifact upload before report delivery or acknowledgement/,
+  );
+});
+
 test("unrelated 90-day artifacts do not satisfy full-report retention", () => {
   const workflows = currentWorkflows();
   const steps = workflows[reporterWorkflows[0]].split(/^      - /m);

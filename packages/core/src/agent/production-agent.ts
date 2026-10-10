@@ -1696,6 +1696,17 @@ export interface PreparedAgentRequest {
   /** Server-prepared context that must not be persisted as current-turn uploads. */
   contextAttachments?: AgentChatAttachment[];
   contextNote?: string;
+  /** Resolve model-specific context only after the effective model is known. */
+  prepareAfterModel?: (details: {
+    model: string;
+    vision: boolean;
+  }) =>
+    | void
+    | Pick<PreparedAgentRequest, "contextAttachments" | "contextNote">
+    | Promise<void | Pick<
+        PreparedAgentRequest,
+        "contextAttachments" | "contextNote"
+      >>;
   jevPromptCandidates?: JevPromptContextCandidate[];
   jevFallbackCandidateIds?: string[];
   /**
@@ -10816,6 +10827,10 @@ export function createProductionAgentHandler(
       requestEffort,
       configuredEffort: options.reasoningEffort,
     });
+    const modelSupportsVision = isAgentModelVisionCapable(
+      effectiveModel,
+      engine.capabilities.vision === true,
+    );
 
     options.onEngineResolved?.(engine, effectiveModel);
 
@@ -10883,6 +10898,27 @@ export function createProductionAgentHandler(
           controller.close();
         },
       });
+    }
+
+    const modelPreparedContext = await preparedRequest?.prepareAfterModel?.({
+      model: effectiveModel,
+      vision: modelSupportsVision,
+    });
+    if (modelPreparedContext) {
+      if (Array.isArray(modelPreparedContext.contextAttachments)) {
+        requestContextAttachments = [
+          ...requestContextAttachments,
+          ...modelPreparedContext.contextAttachments,
+        ];
+      }
+      if (typeof modelPreparedContext.contextNote === "string") {
+        requestContextNote = [
+          requestContextNote,
+          modelPreparedContext.contextNote,
+        ]
+          .filter(Boolean)
+          .join("\n");
+      }
     }
 
     setupMark("prepDone");
@@ -11484,10 +11520,7 @@ export function createProductionAgentHandler(
           : "") +
         (requestContextNote ? `\n\n${requestContextNote}` : ""),
       attachments: [...requestContextAttachments, ...requestAttachments],
-      vision: isAgentModelVisionCapable(
-        effectiveModel,
-        engine.capabilities.vision === true,
-      ),
+      vision: modelSupportsVision,
     });
 
     const historyMessages =

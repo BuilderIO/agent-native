@@ -1666,7 +1666,7 @@ process.exit(2);
       chmodSync(ghPath, 0o755);
       const outputPath = path.join(root, "github-output.txt");
       writeFileSync(outputPath, "");
-      const shell = `metadata_incomplete=false\ncurrent_data_incomplete=false\nnote() { echo "$1" >> "$REPORT_DIR/notes.txt"; }\n${collectStep.run.slice(recoveryStart)}`;
+      const shell = `metadata_incomplete=false\ncurrent_data_incomplete=false\nprevious_state_artifact_missing=false\nnote() { echo "$1" >> "$REPORT_DIR/notes.txt"; }\n${collectStep.run.slice(recoveryStart)}`;
       const result = spawnSync("bash", ["-euo", "pipefail", "-c", shell], {
         encoding: "utf8",
         env: {
@@ -1688,6 +1688,10 @@ process.exit(2);
       assert.match(
         readFileSync(outputPath, "utf8"),
         /current_data_incomplete=false/,
+      );
+      assert.match(
+        readFileSync(outputPath, "utf8"),
+        /previous_state_artifact_missing=true/,
       );
       assert.equal(
         existsSync(path.join(reportDir, "previous/state.json")),
@@ -1812,6 +1816,7 @@ process.exit(2);
   function runPreserveStep(options: {
     slackOutcome: string;
     slackOk: string;
+    previousStateArtifactMissing?: boolean;
   }): { outputState: unknown; summary: string } {
     const workflowPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
@@ -1858,6 +1863,9 @@ process.exit(2);
             SHOULD_NOTIFY: "true",
             METADATA_INCOMPLETE: "true",
             CURRENT_DATA_INCOMPLETE: "false",
+            PREVIOUS_STATE_ARTIFACT_MISSING: String(
+              options.previousStateArtifactMissing ?? false,
+            ),
             SLACK_CONFIGURED: "true",
             SLACK_OUTCOME: options.slackOutcome,
             SLACK_OK: options.slackOk,
@@ -1886,6 +1894,19 @@ process.exit(2);
 
     assert.deepEqual(outputState, redState({ run: 2000 }));
     assert.doesNotMatch(summary, /prior notification state was retained/);
+  });
+
+  it("marks state unknown when the latest prior run has no state artifact", () => {
+    const { outputState, summary } = runPreserveStep({
+      slackOutcome: "success",
+      slackOk: "true",
+      previousStateArtifactMissing: true,
+    });
+
+    assert.deepEqual(outputState, {
+      _betaE2EStateAvailability: "unknown",
+    });
+    assert.match(summary, /state was marked unknown to avoid a false recovery/);
   });
 
   it("retains unknown state so failed Slack delivery retries recovery", () => {

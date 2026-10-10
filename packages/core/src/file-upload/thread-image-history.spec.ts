@@ -26,6 +26,20 @@ function storedImage(name: string, url: string) {
   };
 }
 
+function inlineImage(name: string) {
+  return {
+    role: "user",
+    attachments: [
+      {
+        type: "image",
+        name,
+        contentType: "image/jpeg",
+        content: [{ type: "image", image: "data:image/jpeg;base64,AA==" }],
+      },
+    ],
+  };
+}
+
 describe("hydratePriorThreadImages", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -79,6 +93,58 @@ describe("hydratePriorThreadImages", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not let inline images displace retained images from the six candidates", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const bytes = Buffer.from(JPEG_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(bytes, { headers: { "content-type": "image/jpeg" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const messages = [
+      storedImage("retained-0.jpg", "https://storage.example/0.jpg"),
+      storedImage("retained-1.jpg", "https://storage.example/1.jpg"),
+      ...Array.from({ length: 7 }, (_, index) =>
+        inlineImage(`inline-${index}.jpg`),
+      ),
+    ];
+
+    const result = await hydratePriorThreadImages(JSON.stringify({ messages }));
+
+    expect(result.attachments.map((attachment) => attachment.name)).toEqual([
+      "retained-0.jpg",
+      "retained-1.jpg",
+    ]);
+    expect(result.contextNote).toContain(
+      "7 earlier image attachments had no retained upload URL",
+    );
+    expect(result.contextNote).not.toContain(
+      "not readable from configured upload storage",
+    );
+    expect(findProviderMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("distinguishes images without a retained URL from retained images that fail to read", async () => {
+    findProviderMock.mockResolvedValue(null);
+
+    const result = await hydratePriorThreadImages(
+      JSON.stringify({
+        messages: [
+          inlineImage("never-retained.jpg"),
+          storedImage("unreadable.jpg", "https://unowned.example/image.jpg"),
+        ],
+      }),
+    );
+
+    expect(result.contextNote).toContain(
+      "1 earlier image attachment had no retained upload URL",
+    );
+    expect(result.contextNote).toContain(
+      "1 retained image attachment was not readable from configured upload storage",
+    );
+  });
+
   it("keeps the six most recent images and reports older images omitted", async () => {
     findProviderMock.mockResolvedValue({ id: "owned-storage" });
     const bytes = Buffer.from(JPEG_BASE64, "base64");
@@ -104,13 +170,28 @@ describe("hydratePriorThreadImages", () => {
       "image-7.jpg",
     ]);
     expect(result.contextNote).toContain(
-      "2 older image attachments were omitted",
+      "2 older retained image attachments were omitted",
     );
     expect(findProviderMock).toHaveBeenCalledTimes(6);
   });
 
   it("fails distinctly when the trusted thread history cannot be parsed", async () => {
     await expect(hydratePriorThreadImages("{invalid")).rejects.toBeInstanceOf(
+      PriorThreadImageHistoryReadError,
+    );
+  });
+
+  it("treats blank thread data as an empty history", async () => {
+    await expect(hydratePriorThreadImages("")).resolves.toEqual({
+      attachments: [],
+    });
+    await expect(hydratePriorThreadImages(" \n\t ")).resolves.toEqual({
+      attachments: [],
+    });
+  });
+
+  it("rejects malformed nonempty thread data", async () => {
+    await expect(hydratePriorThreadImages("{ ")).rejects.toBeInstanceOf(
       PriorThreadImageHistoryReadError,
     );
   });

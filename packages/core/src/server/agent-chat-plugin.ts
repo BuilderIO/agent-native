@@ -4144,6 +4144,23 @@ export function createAgentChatPlugin(
         };
       };
 
+      const deferPriorThreadImageContext = (
+        prepared: void | PreparedAgentRequest,
+        details: Parameters<typeof priorThreadImageContext>[0],
+      ): void | PreparedAgentRequest => {
+        if (!details.threadId || !details.ownerEmail) return prepared;
+        return {
+          ...(prepared ?? {}),
+          prepareAfterModel: async (modelDetails) => {
+            const preparedContext =
+              await prepared?.prepareAfterModel?.(modelDetails);
+            if (!modelDetails.vision) return preparedContext;
+            const prior = await priorThreadImageContext(details);
+            return addPriorThreadImageContext(preparedContext, prior);
+          },
+        };
+      };
+
       // ─── Agent Teams: per-run send reference ─────────────────────────
       // Team tools need to emit events to the parent chat's SSE stream.
       // Each run gets its own send function, keyed by threadId so concurrent
@@ -4737,8 +4754,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         ...resolveInteractiveAgentRunOptions(options),
         finalResponseGuard: options?.finalResponseGuard,
         prepareRequest: async (details) => {
-          const priorImageContext = await priorThreadImageContext(details);
-
           // Drain any parent-completion injections queued by finished sub-agents
           // and prepend them to the user message so the orchestrator sees results
           // at the start of this turn rather than only after a manual poll.
@@ -4761,9 +4776,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
           // Also run the template-provided prepareRequest (if any).
           const templateResult = await options?.prepareRequest?.(details);
-          const prepared = await addPriorThreadImageContext(
+          const prepared = deferPriorThreadImageContext(
             templateResult,
-            priorImageContext,
+            details,
           );
           if (!completionPrefix) return prepared ?? undefined;
           const baseMessage =
@@ -5113,9 +5128,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           jevContextCompact: leanPrompt || lazyContext,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: async (details) => {
-            const priorImageContext = await priorThreadImageContext(details);
             const prepared = await options?.prepareRequest?.(details);
-            return addPriorThreadImageContext(prepared, priorImageContext);
+            return deferPriorThreadImageContext(prepared, details);
           },
           resolveActionSurface: resolveDevActionSurface,
           skipFilesContext,

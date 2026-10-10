@@ -47,6 +47,34 @@ function retainsFullReportArtifact(path: string, source: string): boolean {
   });
 }
 
+function requiresHealthReportArtifact(source: string): string[] {
+  const artifactOutcome = "steps.health-report-artifact.outcome == 'success'";
+  const artifactUrl = "steps.health-report-artifact.outputs.artifact-url != ''";
+  const requiredSteps = [
+    "Attach the report artifact to the pending health notification",
+    "Post the incident transition or recovery to #qa-agent-native",
+    "Acknowledge the Slack report in durable state",
+    "Acknowledge the degraded state warning",
+  ];
+  const steps = source.split(/^      - /m);
+  const problems: string[] = [];
+
+  for (const name of requiredSteps) {
+    const step = steps.find((candidate) =>
+      candidate.startsWith(`name: ${name}\n`),
+    );
+    if (
+      !step ||
+      !step.includes(artifactOutcome) ||
+      !step.includes(artifactUrl)
+    ) {
+      problems.push(name);
+    }
+  }
+
+  return problems;
+}
+
 const visualRecapCommentWorkflows = new Set([
   ".github/workflows/pr-visual-recap.yml",
   ".github/workflows/pr-visual-recap-reusable.yml",
@@ -197,6 +225,14 @@ export function inspectAutomatedFindingWorkflows(
       problems.push(
         `${path} must retain its complete report artifact for 90 days.`,
       );
+    }
+    if (path === ".github/workflows/keep-neon-warm.yml") {
+      const unguardedSteps = requiresHealthReportArtifact(source);
+      if (unguardedSteps.length > 0) {
+        problems.push(
+          `${path} must require a successful health report artifact upload before report delivery or acknowledgement: ${unguardedSteps.join(", ")}.`,
+        );
+      }
     }
   }
   for (const [path, source] of Object.entries(workflows)) {

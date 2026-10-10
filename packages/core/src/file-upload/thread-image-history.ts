@@ -8,7 +8,12 @@ import {
 interface PriorImageCandidate {
   name: string;
   contentType?: string;
-  url?: string;
+  url: string;
+}
+
+interface PriorImageCandidates {
+  retained: PriorImageCandidate[];
+  neverRetainedCount: number;
 }
 
 export class PriorThreadImageHistoryReadError extends Error {
@@ -25,10 +30,10 @@ export interface PriorThreadImageHistory {
   contextNote?: string;
 }
 
-function candidatesFromThreadData(threadData: string): PriorImageCandidate[] {
+function candidatesFromThreadData(threadData: string): PriorImageCandidates {
   let data: unknown;
   try {
-    data = JSON.parse(threadData);
+    data = threadData.trim() ? JSON.parse(threadData) : {};
   } catch {
     throw new PriorThreadImageHistoryReadError();
   }
@@ -37,10 +42,11 @@ function candidatesFromThreadData(threadData: string): PriorImageCandidate[] {
   }
 
   const messages = (data as { messages?: unknown }).messages;
-  if (messages === undefined) return [];
+  if (messages === undefined) return { retained: [], neverRetainedCount: 0 };
   if (!Array.isArray(messages)) throw new PriorThreadImageHistoryReadError();
 
   const candidates: PriorImageCandidate[] = [];
+  let neverRetainedCount = 0;
   for (
     let messageIndex = messages.length - 1;
     messageIndex >= 0;
@@ -95,21 +101,27 @@ function candidatesFromThreadData(threadData: string): PriorImageCandidate[] {
         stored.metadata && typeof stored.metadata === "object"
           ? (stored.metadata as { uploadUrl?: unknown }).uploadUrl
           : undefined;
+      const url =
+        typeof imageUrl === "string" && !imageUrl.startsWith("data:")
+          ? imageUrl
+          : typeof metadataUrl === "string" && !metadataUrl.startsWith("data:")
+            ? metadataUrl
+            : undefined;
+      if (!url) {
+        neverRetainedCount++;
+        continue;
+      }
       candidates.push({
         name: typeof stored.name === "string" ? stored.name : "image",
         ...(typeof stored.contentType === "string"
           ? { contentType: stored.contentType }
           : {}),
-        ...(typeof imageUrl === "string" && !imageUrl.startsWith("data:")
-          ? { url: imageUrl }
-          : typeof metadataUrl === "string" && !metadataUrl.startsWith("data:")
-            ? { url: metadataUrl }
-            : {}),
+        url,
       });
     }
   }
 
-  return candidates.reverse();
+  return { retained: candidates.reverse(), neverRetainedCount };
 }
 
 /**
@@ -119,7 +131,8 @@ function candidatesFromThreadData(threadData: string): PriorImageCandidate[] {
 export async function hydratePriorThreadImages(
   threadData: string,
 ): Promise<PriorThreadImageHistory> {
-  const candidates = candidatesFromThreadData(threadData);
+  const { retained: candidates, neverRetainedCount } =
+    candidatesFromThreadData(threadData);
   const selected = candidates.slice(-MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES);
   const omittedCount = candidates.length - selected.length;
   const budget = createOwnedAttachmentHydrationBudget();
@@ -127,10 +140,6 @@ export async function hydratePriorThreadImages(
   let unreadableCount = 0;
 
   for (const candidate of selected) {
-    if (!candidate.url) {
-      unreadableCount++;
-      continue;
-    }
     const result = await hydrateOwnedImageUrl(
       candidate.url,
       candidate.contentType,
@@ -149,14 +158,19 @@ export async function hydratePriorThreadImages(
   }
 
   const notes: string[] = [];
+  if (neverRetainedCount > 0) {
+    notes.push(
+      `${neverRetainedCount} earlier image attachment${neverRetainedCount === 1 ? " had" : "s had"} no retained upload URL, so its contents were not restored. Do not describe or infer them.`,
+    );
+  }
   if (unreadableCount > 0) {
     notes.push(
-      `${unreadableCount} earlier image attachment${unreadableCount === 1 ? " was" : "s were"} not readable from configured upload storage. Do not describe or infer their contents.`,
+      `${unreadableCount} retained image attachment${unreadableCount === 1 ? " was" : "s were"} not readable from configured upload storage. Do not describe or infer their contents.`,
     );
   }
   if (omittedCount > 0) {
     notes.push(
-      `Only the ${selected.length} most recent earlier images fit the bounded vision history; ${omittedCount} older image attachment${omittedCount === 1 ? " was" : "s were"} omitted.`,
+      `Only the ${selected.length} most recent earlier images with retained upload URLs fit the bounded vision history; ${omittedCount} older retained image attachment${omittedCount === 1 ? " was" : "s were"} omitted.`,
     );
   }
 

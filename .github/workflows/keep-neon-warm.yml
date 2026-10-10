@@ -266,7 +266,7 @@ jobs:
 
       - name: Attach the report artifact to the pending health notification
         if: >-
-          ${{ always() && steps.previous-state.outputs.state_mode == 'known' && steps.previous-state.outcome == 'success' && steps.report-plan.outputs.notification_id != '' && steps.health-report-artifact.outputs.artifact-url != '' }}
+          ${{ always() && steps.previous-state.outputs.state_mode == 'known' && steps.previous-state.outcome == 'success' && steps.report-plan.outputs.notification_id != '' && steps.health-report-artifact.outcome == 'success' && steps.health-report-artifact.outputs.artifact-url != '' }}
         shell: bash
         env:
           NOTIFICATION_ID: ${{ steps.report-plan.outputs.notification_id }}
@@ -378,7 +378,7 @@ jobs:
       - name: Post the incident transition or recovery to #qa-agent-native
         id: slack
         if: >-
-          ${{ always() && ((steps.report-plan.outcome == 'success' && steps.report-plan.outputs.notification_id != '') || steps.previous-state.outputs.state_mode == 'unknown' || steps.previous-state.outputs.state_mode == 'unknown-pending' || steps.previous-state.outcome != 'success') }}
+          ${{ always() && ((steps.report-plan.outcome == 'success' && steps.report-plan.outputs.notification_id != '') || steps.previous-state.outputs.state_mode == 'unknown' || steps.previous-state.outputs.state_mode == 'unknown-pending' || steps.previous-state.outcome != 'success') && steps.health-report-artifact.outcome == 'success' && steps.health-report-artifact.outputs.artifact-url != '' }}
         continue-on-error: true
         uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
         with:
@@ -389,7 +389,7 @@ jobs:
 
       - name: Acknowledge the Slack report in durable state
         if: >-
-          ${{ always() && steps.previous-state.outcome == 'success' && steps.report-plan.outcome == 'success' && steps.report-plan.outputs.notification_id != '' && steps.slack.outcome == 'success' && steps.slack.outputs.ok == 'true' }}
+          ${{ always() && steps.previous-state.outcome == 'success' && steps.report-plan.outcome == 'success' && steps.report-plan.outputs.notification_id != '' && steps.health-report-artifact.outcome == 'success' && steps.health-report-artifact.outputs.artifact-url != '' && steps.slack.outcome == 'success' && steps.slack.outputs.ok == 'true' }}
         shell: bash
         env:
           NOTIFICATION_ID: ${{ steps.report-plan.outputs.notification_id }}
@@ -402,7 +402,7 @@ jobs:
       - name: Acknowledge the degraded state warning
         id: ack_degraded_state
         if: >-
-          ${{ always() && (steps.previous-state.outputs.state_mode == 'unknown' || steps.previous-state.outputs.state_mode == 'unknown-pending') && steps.slack.outcome == 'success' && steps.slack.outputs.ok == 'true' && (steps.previous-state.outputs.state_mode != 'unknown-pending' || steps.record_unknown_sample.outcome == 'success') }}
+          ${{ always() && (steps.previous-state.outputs.state_mode == 'unknown' || steps.previous-state.outputs.state_mode == 'unknown-pending') && steps.health-report-artifact.outcome == 'success' && steps.health-report-artifact.outputs.artifact-url != '' && steps.slack.outcome == 'success' && steps.slack.outputs.ok == 'true' && (steps.previous-state.outputs.state_mode != 'unknown-pending' || steps.record_unknown_sample.outcome == 'success') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -418,6 +418,8 @@ jobs:
           STATE_READ_OUTCOME: ${{ steps.previous-state.outcome }}
           STATE_MODE: ${{ steps.previous-state.outputs.state_mode }}
           NOTIFICATION_ID: ${{ steps.report-plan.outputs.notification_id }}
+          HEALTH_REPORT_ARTIFACT_OUTCOME: ${{ steps.health-report-artifact.outcome }}
+          HEALTH_REPORT_ARTIFACT_URL: ${{ steps.health-report-artifact.outputs.artifact-url }}
           SLACK_OUTCOME: ${{ steps.slack.outcome }}
           SLACK_OK: ${{ steps.slack.outputs.ok }}
           SLACK_RESPONSE: ${{ steps.slack.outputs.response }}
@@ -427,14 +429,20 @@ jobs:
         run: |
           set -euo pipefail
           failed=0
-          if [[ ( -n "$NOTIFICATION_ID" || "$STATE_MODE" == "unknown" || "$STATE_MODE" == "unknown-pending" || "$STATE_READ_OUTCOME" != "success" ) && \
-            ( "$SLACK_OUTCOME" != "success" || "$SLACK_OK" != "true" ) ]]; then
-            reason="$(jq -r '.error // empty' <<<"${SLACK_RESPONSE:-null}" 2>/dev/null || true)"
-            reason="${reason:-no Slack API error code returned; step outcome ${SLACK_OUTCOME:-unknown}}"
-            message="Slack notification failed: chat.postMessage to #qa-agent-native returned \"$reason\". The incident remains pending in Actions state when state was available."
-            echo "::error::$message"
-            echo "$message" >> "$GITHUB_STEP_SUMMARY"
-            failed=1
+          if [[ -n "$NOTIFICATION_ID" || "$STATE_MODE" == "unknown" || "$STATE_MODE" == "unknown-pending" || "$STATE_READ_OUTCOME" != "success" ]]; then
+            if [[ "$HEALTH_REPORT_ARTIFACT_OUTCOME" != "success" || -z "$HEALTH_REPORT_ARTIFACT_URL" ]]; then
+              message="The required 90-day health report artifact was not uploaded; the Slack notification remains pending in Actions state."
+              echo "::error::$message"
+              echo "$message" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+            elif [[ "$SLACK_OUTCOME" != "success" || "$SLACK_OK" != "true" ]]; then
+              reason="$(jq -r '.error // empty' <<<"${SLACK_RESPONSE:-null}" 2>/dev/null || true)"
+              reason="${reason:-no Slack API error code returned; step outcome ${SLACK_OUTCOME:-unknown}}"
+              message="Slack notification failed: chat.postMessage to #qa-agent-native returned \"$reason\". The incident remains pending in Actions state when state was available."
+              echo "::error::$message"
+              echo "$message" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+            fi
           fi
           if [[ "$PAGERDUTY_TRIGGER_OUTCOME" == "failure" ]]; then
             echo "::error::PagerDuty trigger failed; the health audit remains failed." >&2
