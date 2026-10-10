@@ -251,6 +251,58 @@ describe("Cloudflare request database pool scope", () => {
     expect(pool.end).toHaveBeenCalledOnce();
   });
 
+  it("preserves completed response streams when pool disposal fails", async () => {
+    workerGlobal.__env__ = {};
+    const { sharedDbPool } = await import("./client.js");
+    const { runWithRequestDbPoolScope } =
+      await import("./request-pool-context.js");
+    const closeError = new Error("pool close failed");
+    const pool: Pool = {
+      id: "stream-pool",
+      query: vi.fn(async () => pool.id),
+      end: vi.fn(async () => {
+        throw closeError;
+      }),
+    };
+    const facade = sharedDbPool(
+      "request-test",
+      "postgres://db.test/app",
+      () => pool,
+    );
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const response = await runWithRequestDbPoolScope(
+        true,
+        undefined,
+        async () => {
+          await facade.query();
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode("completed"));
+                controller.close();
+              },
+            }),
+          );
+        },
+      );
+
+      await expect(response.text()).resolves.toBe("completed");
+      expect(pool.end).toHaveBeenCalledOnce();
+      expect(errorLog).toHaveBeenCalledOnce();
+      expect(errorLog).toHaveBeenCalledWith(
+        "[agent-native] Could not close request database pools:",
+        expect.any(AggregateError),
+      );
+      expect((errorLog.mock.calls[0][1] as AggregateError).errors).toContain(
+        closeError,
+      );
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
   it("closes the request pool when the response stream is cancelled", async () => {
     workerGlobal.__env__ = {};
     const { sharedDbPool } = await import("./client.js");

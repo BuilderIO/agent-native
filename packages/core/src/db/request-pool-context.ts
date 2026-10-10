@@ -70,7 +70,14 @@ async function releaseLease(scope: PoolRequestScope): Promise<void> {
   scope.leases -= 1;
   if (scope.leases === 0) {
     scope.closePromise = closeScope(scope);
-    await scope.closePromise;
+    try {
+      await scope.closePromise;
+    } catch (error) {
+      console.error(
+        "[agent-native] Could not close request database pools:",
+        error,
+      );
+    }
   }
 }
 
