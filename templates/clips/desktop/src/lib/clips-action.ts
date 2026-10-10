@@ -63,9 +63,10 @@ export async function callClipsActionFor<T>(
     throw new Error("Action returned an empty response.");
   }
   if (parseError) {
-    throw new Error("Action returned an invalid JSON response.", {
-      cause: parseError,
-    });
+    // The desktop tsconfig targets ES2021, which has no Error `cause` option.
+    const failure = new Error("Action returned an invalid JSON response.");
+    Object.assign(failure, { cause: parseError });
+    throw failure;
   }
   return (json?.result ?? json) as T;
 }
