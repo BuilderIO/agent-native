@@ -527,6 +527,56 @@ Minimal client change, because the reconnect machinery already exists:
   the JSON-then-poll variant is cleaner on Netlify because the interactive
   function returns in well under 75s.
 
+## Bounded viewer authorization leases
+
+**Policy choices recorded, 2026-10-10: 10-second maximum authorization age and
+Option A for idle expiry. Runtime implementation and independent proof remain
+pending.** Current streams authorize only at opening. This section defines the
+target, not deployed behavior. The
+[tenancy ADR](organization-team-tenancy.md#proposed-stream-policy-amendment-2026-10-10)
+defines linked-conversation access.
+
+1. **Scope:** The contract covers all authorized viewer subscriptions, including
+   non-team, standalone, and supported public access. It adds no access rights.
+   A missing linked conversation denies access. Standalone runs retain their own
+   applicable policy. A revoked grant does not deny another valid access path.
+2. **Freshness:** An approval expires no later than 10 seconds after its
+   authoritative check starts, measured with a monotonic clock. Slow checks,
+   replay, decision reuse, and delayed timers never extend that deadline.
+   Expired results cannot authorize delivery.
+3. **Demand-driven checks:** Idle connections remain open after authorization
+   expires, without protected delivery or periodic authorization reads. A fresh
+   decision precedes resumed delivery. There is no universal 5-second renewal
+   schedule. Only content-free heartbeats can bypass authorization, after proof
+   that their payload discloses no protected data.
+4. **Authoritative decision:** Each fresh check evaluates the original viewer's
+   current session or credential and complete applicable access policy. Cached
+   opening identity is insufficient. The authoritative database view must be
+   coherent and cannot predate the check start. Stale caches, lagging replicas,
+   and facts never valid together cannot approve access. Approval, denial,
+   backend failure, and timeout remain distinguishable outcomes.
+5. **Protected delivery:** A synchronous gate checks authorization immediately
+   before each protected write at the final application-controlled writer.
+   No asynchronous step separates that gate from transport handoff. The gate
+   covers live, SQL-polled, replayed, and buffered content, including protected
+   keepalives. Pending output remains bounded. No new protected writes occur
+   more than 10 seconds after committed revocation. Checks that start after
+   commit must observe current policy or refuse authorization. Bytes already
+   handed to transport can arrive later. The bound limits time, not byte volume.
+6. **Viewer and producer:** Denial closes only the viewer subscription. Late
+   approvals cannot revive a closed subscription. Reconnect requires fresh
+   authorization before replay. Client handling distinguishes subscription
+   closure from producer completion or failure. The producer continues.
+   Backend failure and timeout never grant or extend authorization. Their
+   terminal handling and availability tradeoffs remain policy approval gates.
+
+Independent runtime proof must cover faults, buffering, client behavior, and
+scaling. Approval of the disclosure
+and availability tradeoffs and measured scaling budgets remains required before
+implementation. Budgets must cover active authorization work and idle connection
+and memory costs. Demand-driven authorization does not remove SQL event polling.
+Policy approval alone does not establish runtime completion or release readiness.
+
 ## Per-model-call gateway cap
 
 Builder gateway calls now use a runtime-aware cap. Hosted foreground calls keep
