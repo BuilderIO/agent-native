@@ -4737,6 +4737,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         frame.remove();
         var fallbackHost = document.createElement("div");
         fallbackHost.setAttribute(
+          "data-agent-native-edit-overlay",
+          "portable-style-probe",
+        );
+        fallbackHost.setAttribute(
           "style",
           "all: initial !important;position: fixed !important;left: 0 !important;top: 0 !important;width: 0 !important;height: 0 !important;overflow: hidden !important;contain: strict !important;",
         );
