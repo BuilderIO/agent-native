@@ -5,7 +5,7 @@ import {
   defineAction,
   ActionContractError,
   isActionContractError,
-  isActionPreExecutionFailure,
+  runActionWithExecutionOutcome,
   type ActionRunContext,
   AgentActionStopError,
   AgentConnectionRequiredError,
@@ -1004,6 +1004,169 @@ describe("defineAction — outputSchema (return-value validation)", () => {
 });
 
 describe("defineAction — authorize", () => {
+  it("keeps concurrent failures separate when context and error objects are reused", async () => {
+    const failure = new Error("Not authorized");
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered!: () => void;
+    const handlerEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const action = defineAction({
+      description: "Concurrent write",
+      schema: z.object({ allowed: z.boolean() }),
+      authorize: (args) => {
+        if (!args.allowed) throw failure;
+      },
+      run: async () => {
+        entered();
+        await waiting;
+        throw failure;
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    const executed = { refused: false };
+    const denied = { refused: false };
+    const pending = runActionWithExecutionOutcome(
+      action.run,
+      { allowed: true },
+      ctx,
+      executed,
+    );
+    const rejection = expect(pending).rejects.toBe(failure);
+    await handlerEntered;
+    await expect(
+      runActionWithExecutionOutcome(
+        action.run,
+        { allowed: false },
+        ctx,
+        denied,
+      ),
+    ).rejects.toBe(failure);
+    release();
+    await rejection;
+    expect(denied.refused).toBe(true);
+    expect(executed.refused).toBe(false);
+  });
+
+  it("does not erase a successful child write with a later typed refusal", async () => {
+    const failure = new AgentConnectionRequiredError("Connect provider", {
+      provider: "test-child",
+    });
+    const child = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => "sent",
+    });
+    const parent = defineAction({
+      description: "Parent",
+      schema: z.object({ child: z.boolean() }),
+      run: async (args, ctx) => {
+        if (args.child) await child.run({}, ctx);
+        throw failure;
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    const executed = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent.run, { child: true }, ctx, executed),
+    ).rejects.toBe(failure);
+    expect(executed.refused).toBe(false);
+    const denied = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent.run, { child: false }, ctx, denied),
+    ).rejects.toBe(failure);
+    expect(denied.refused).toBe(true);
+    expect(executed.refused).toBe(false);
+  });
+
+  it("tracks child writes for plain action entries too", async () => {
+    const failure = new AgentConnectionRequiredError("Connect provider", {
+      provider: "test-child",
+    });
+    const child = defineAction({
+      description: "Child write",
+      run: async () => "sent",
+    });
+    const parent = async () => {
+      await child.run({});
+      throw failure;
+    };
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent, {}, undefined, outcome),
+    ).rejects.toBe(failure);
+    expect(outcome.refused).toBe(false);
+  });
+
+  it.each(["cloned", "omitted"])(
+    "does not inherit a nested refusal with a %s child context",
+    async (contextKind) => {
+      const failure = new AgentConnectionRequiredError(
+        "Connect child provider",
+        {
+          provider: "test-child",
+        },
+      );
+      const child = defineAction({
+        description: "Child",
+        schema: z.object({}),
+        run: async () => {
+          throw failure;
+        },
+      });
+      const effects: string[] = [];
+      const parent = defineAction({
+        description: "Parent write",
+        schema: z.object({}),
+        run: async (_args, ctx) => {
+          effects.push("sent");
+          return child.run(
+            {},
+            contextKind === "cloned" ? { ...ctx! } : undefined,
+          );
+        },
+      });
+      const ctx: ActionRunContext = { caller: "tool" };
+      const outcome = { refused: false };
+      await expect(
+        runActionWithExecutionOutcome(parent.run, {}, ctx, outcome),
+      ).rejects.toBe(failure);
+      expect(effects).toEqual(["sent"]);
+      expect(outcome.refused).toBe(false);
+    },
+  );
+
+  it("does not inherit a recursive invocation's refusal after a parent write", async () => {
+    const failure = new AgentConnectionRequiredError("Connect child provider", {
+      provider: "test-child",
+    });
+    const effects: string[] = [];
+    const recursive = defineAction({
+      description: "Recursive write",
+      schema: z.object({ child: z.boolean() }),
+      run: async (args, ctx): Promise<unknown> => {
+        if (args.child) throw failure;
+        effects.push("sent");
+        return recursive.run({ child: true }, ctx);
+      },
+    });
+    const ctx: ActionRunContext = { caller: "tool" };
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(
+        recursive.run,
+        { child: false },
+        ctx,
+        outcome,
+      ),
+    ).rejects.toBe(failure);
+    expect(effects).toEqual(["sent"]);
+    expect(outcome.refused).toBe(false);
+  });
+
   it("does not inherit a nested failure's refusal guarantee after the parent handler entered", async () => {
     const failure = new AgentConnectionRequiredError("Connect child provider", {
       provider: "test-child",
@@ -1035,8 +1198,11 @@ describe("defineAction — authorize", () => {
       },
     });
     const ctx: ActionRunContext = { caller: "tool" };
-    await expect(parent.run({}, ctx)).rejects.toBe(failure);
-    expect(isActionPreExecutionFailure(failure, ctx, parent.run)).toBe(false);
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(parent.run, {}, ctx, outcome),
+    ).rejects.toBe(failure);
+    expect(outcome.refused).toBe(false);
   });
   it("preserves a denial without treating the same error from a later handler as pre-execution", async () => {
     const denial = Object.assign(new Error("Not authorized"), {
@@ -1056,16 +1222,24 @@ describe("defineAction — authorize", () => {
     });
     const first: ActionRunContext = { caller: "tool" };
     const second: ActionRunContext = { caller: "tool" };
-    await expect(action.run({}, first)).rejects.toBe(denial);
+    const firstOutcome = { refused: false };
+    const secondOutcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, first, firstOutcome),
+    ).rejects.toBe(denial);
     expect(run).not.toHaveBeenCalled();
-    expect(isActionPreExecutionFailure(denial, first, action.run)).toBe(true);
-    expect(isActionPreExecutionFailure(denial, second, action.run)).toBe(false);
+    expect(firstOutcome.refused).toBe(true);
+    expect(secondOutcome.refused).toBe(false);
     allowed = true;
-    await expect(action.run({}, second)).rejects.toBe(denial);
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, second, secondOutcome),
+    ).rejects.toBe(denial);
     expect(run).toHaveBeenCalledTimes(1);
-    expect(isActionPreExecutionFailure(denial, second, action.run)).toBe(false);
-    await expect(action.run({}, first)).rejects.toBe(denial);
-    expect(isActionPreExecutionFailure(denial, first, action.run)).toBe(false);
+    expect(secondOutcome.refused).toBe(false);
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, first, firstOutcome),
+    ).rejects.toBe(denial);
+    expect(firstOutcome.refused).toBe(false);
   });
   it("runs the gate before the body and passes args + ctx through", async () => {
     const authorize = vi.fn();

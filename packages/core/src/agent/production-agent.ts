@@ -32,7 +32,7 @@ import {
   AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
-  isActionPreExecutionFailure,
+  runActionWithExecutionOutcome,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
@@ -6933,7 +6933,7 @@ export async function runAgentLoop(opts: {
       let toolDoneEmitted = false;
       let actionInvoked = false;
       let actionRefused = false;
-      let invokedActionContext: ActionRunContext | undefined;
+      const actionExecutionOutcome = { refused: false };
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ) => {
@@ -7708,10 +7708,11 @@ export async function runAgentLoop(opts: {
               ...(opts.turnId ? { turnId: opts.turnId } : {}),
             };
             actionInvoked = true;
-            invokedActionContext = actionContext;
-            return actionEntry.run(
+            return runActionWithExecutionOutcome(
+              actionEntry.run,
               toolCall.input as Record<string, string>,
               actionContext,
+              actionExecutionOutcome,
             );
           };
           const actionPromise = Promise.resolve(
@@ -7953,11 +7954,7 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
-          actionRefused = isActionPreExecutionFailure(
-            err,
-            invokedActionContext,
-            actionEntry.run,
-          );
+          actionRefused = actionExecutionOutcome.refused;
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
             : undefined;

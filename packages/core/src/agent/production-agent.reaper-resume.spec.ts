@@ -73,6 +73,8 @@ async function recover(
     | "nested-authorization"
     | "nested-validation"
     | "nested-connection"
+    | "nested-cloned"
+    | "nested-omitted"
     | "access"
     | "precondition"
     | "connection" = false,
@@ -231,7 +233,9 @@ async function recover(
           : {}),
         ...(failFinalization === "nested-authorization" ||
         failFinalization === "nested-validation" ||
-        failFinalization === "nested-connection"
+        failFinalization === "nested-connection" ||
+        failFinalization === "nested-cloned" ||
+        failFinalization === "nested-omitted"
           ? defineAction({
               description: "Send then call another action",
               readOnly: false,
@@ -246,7 +250,12 @@ async function recover(
                       () => failFinalization !== "nested-validation",
                       "Child validation failed",
                     ),
-                  authorize: () => failFinalization === "nested-connection",
+                  authorize: () =>
+                    [
+                      "nested-connection",
+                      "nested-cloned",
+                      "nested-omitted",
+                    ].includes(String(failFinalization)),
                   run: async () => {
                     throw new AgentConnectionRequiredError(
                       "Connect child provider",
@@ -254,7 +263,14 @@ async function recover(
                     );
                   },
                 });
-                return child.run({}, ctx);
+                return child.run(
+                  {},
+                  failFinalization === "nested-omitted"
+                    ? undefined
+                    : failFinalization === "nested-cloned"
+                      ? { ...ctx! }
+                      : ctx,
+                );
               },
             })
           : {}),
@@ -473,23 +489,26 @@ describe("reaper successor resume context", () => {
       );
     },
   );
-  it("keeps a parent write unknown when a child requests a connection", async () => {
-    const first = await recover([], false, false, "nested-connection");
-    expect(first.sendEmail).toHaveBeenCalledTimes(1);
-    const events = (await getRunEventsSince(first.runId, -1)).map(
-      ({ eventData }) => JSON.parse(eventData) as AgentChatEvent,
-    );
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "tool_done",
-        tool: "send-email",
-        outcomeUnknown: true,
-      }),
-    );
-    const next = await recover(events, true);
-    expect(next.sendEmail).not.toHaveBeenCalled();
-    expect(next.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
-  });
+  it.each(["nested-connection", "nested-cloned", "nested-omitted"] as const)(
+    "keeps a parent write unknown when a child requests a connection (%s)",
+    async (failure) => {
+      const first = await recover([], false, false, failure);
+      expect(first.sendEmail).toHaveBeenCalledTimes(1);
+      const events = (await getRunEventsSince(first.runId, -1)).map(
+        ({ eventData }) => JSON.parse(eventData) as AgentChatEvent,
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "send-email",
+          outcomeUnknown: true,
+        }),
+      );
+      const next = await recover(events, true);
+      expect(next.sendEmail).not.toHaveBeenCalled();
+      expect(next.run?.terminalReason).toBe("error:write_tool_outcome_unknown");
+    },
+  );
   it.each(["auto", "manual"] as const)(
     "recovers a killed %s continuation with its original prompt and unique tool ids",
     async (trigger) => {

@@ -17,6 +17,7 @@ import {
   type ActionAccessConfig,
 } from "./authorization/action-access-runtime.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
+import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export type ActionCaller =
@@ -628,12 +629,14 @@ export function defineAction(options: any) {
 
   const executionKey = {};
   const handlerRun = (args: any, ctx?: ActionRunContext) => {
-    // Nested or parallel calls may share context; any entered handler for this
-    // action makes overlapping failures uncertain rather than safe to retry.
-    const frames = ctx
-      ? actionExecutionFrames.get(ctx)?.get(executionKey)
-      : undefined;
-    for (const frame of frames ?? []) frame.handlerEntered = true;
+    const frame = actionExecutionStorage?.getStore()?.frame;
+    if (frame?.key === executionKey) {
+      frame.handlerEntered = true;
+      if (readOnly !== true) {
+        for (let parent = frame.parent; parent; parent = parent.parent)
+          parent.descendantWriteEntered = true;
+      }
+    }
     return options.run(args, ctx);
   };
   const guardedRun =
@@ -1429,86 +1432,112 @@ const preValidatedForContext = new WeakMap<
 
 export class ActionInputValidationError extends Error {}
 
-type ActionExecutionFrame = { handlerEntered: boolean };
 type ActionExecutionRun = (args: any, ctx?: ActionRunContext) => Promise<any>;
-const actionExecutionFrames = new WeakMap<
-  ActionRunContext,
-  Map<object, Set<ActionExecutionFrame>>
->();
-const actionPreExecutionFailures = new WeakMap<
-  ActionRunContext,
-  WeakMap<
-    object,
-    {
-      run: ActionExecutionRun;
-      origin: ActionExecutionRun;
-      handlerEntered: boolean;
-    }
-  >
->();
+type ActionExecutionFrame = {
+  key: object;
+  run: ActionExecutionRun;
+  parent?: ActionExecutionFrame;
+  handlerEntered: boolean;
+  descendantWriteEntered: boolean;
+  boundaryPending?: boolean;
+};
+type ActionExecutionFailure = {
+  frame: ActionExecutionFrame;
+  origin: ActionExecutionFrame;
+};
+type ActionExecutionState = {
+  frame?: ActionExecutionFrame;
+  failures: WeakMap<object, ActionExecutionFailure>;
+};
+const ActionExecutionStorage = getAsyncLocalStorageCtor();
+const actionExecutionStorage = ActionExecutionStorage
+  ? new ActionExecutionStorage<ActionExecutionState>()
+  : undefined;
 
 function wrapRunWithExecutionBoundary(
-  run: (args: any, ctx?: ActionRunContext) => Promise<any>,
+  run: ActionExecutionRun,
   key: object,
-): (args: any, ctx?: ActionRunContext) => Promise<any> {
-  const boundaryRun = async (args: any, ctx?: ActionRunContext) => {
-    if (!ctx) return run(args, ctx);
-    let byAction = actionExecutionFrames.get(ctx);
-    if (!byAction) {
-      byAction = new Map();
-      actionExecutionFrames.set(ctx, byAction);
-    }
-    if (!byAction.size) actionPreExecutionFailures.delete(ctx);
-    let frames = byAction.get(key);
-    if (!frames) {
-      frames = new Set();
-      byAction.set(key, frames);
-    }
-    const frame: ActionExecutionFrame = { handlerEntered: false };
-    frames.add(frame);
-    try {
-      return await run(args, ctx);
-    } catch (error) {
-      if (error !== null && typeof error === "object") {
-        let failures = actionPreExecutionFailures.get(ctx);
-        if (!failures) {
-          failures = new WeakMap();
-          actionPreExecutionFailures.set(ctx, failures);
+): ActionExecutionRun {
+  const boundaryRun: ActionExecutionRun = async (args, ctx) => {
+    if (!actionExecutionStorage) return run(args, ctx);
+    const parent = actionExecutionStorage.getStore();
+    const frame: ActionExecutionFrame =
+      parent?.frame?.boundaryPending && parent.frame.run === boundaryRun
+        ? parent.frame
+        : {
+            key,
+            run: boundaryRun,
+            parent: parent?.frame,
+            handlerEntered: false,
+            descendantWriteEntered: false,
+          };
+    frame.key = key;
+    frame.boundaryPending = false;
+    frame.handlerEntered = false;
+    const state: ActionExecutionState = {
+      frame,
+      failures: parent?.failures ?? new WeakMap(),
+    };
+    return actionExecutionStorage.run(state, async () => {
+      try {
+        return await run(args, ctx);
+      } catch (error) {
+        if (error !== null && typeof error === "object") {
+          const origin = state.failures.get(error)?.origin ?? frame;
+          state.failures.set(error, { frame, origin });
         }
-        const origin = failures.get(error)?.origin ?? boundaryRun;
-        failures.set(error, {
-          run: boundaryRun,
-          origin,
-          handlerEntered: frame.handlerEntered,
-        });
+        throw error;
       }
-      throw error;
-    } finally {
-      frames.delete(frame);
-      if (!frames.size) byAction.delete(key);
-      if (!byAction.size) actionExecutionFrames.delete(ctx);
-    }
+    });
   };
   return boundaryRun;
 }
 
-export function isActionPreExecutionFailure(
-  error: unknown,
-  ctx: ActionRunContext | undefined,
+export async function runActionWithExecutionOutcome(
   run: ActionExecutionRun,
-): boolean {
-  const failure =
-    ctx !== undefined && error !== null && typeof error === "object"
-      ? actionPreExecutionFailures.get(ctx)?.get(error)
-      : undefined;
-  if (failure?.run === run && !failure.handlerEntered) return true;
-  if (failure && failure.origin !== run) return false;
-  return (
-    error instanceof ActionInputValidationError ||
-    isAgentConnectionRequiredError(error) ||
-    ((isActionContractError(error) || isAgentActionStopError(error)) &&
-      error.errorCode === "permanent_precondition")
-  );
+  args: unknown,
+  ctx: ActionRunContext | undefined,
+  outcome: { refused: boolean },
+): Promise<any> {
+  outcome.refused = false;
+  // A mutable async stack cannot safely attribute overlapping invocations.
+  if (!actionExecutionStorage) return run(args, ctx);
+  const parent = actionExecutionStorage.getStore();
+  const frame: ActionExecutionFrame = {
+    key: {},
+    run,
+    parent: parent?.frame,
+    handlerEntered: true,
+    descendantWriteEntered: false,
+    boundaryPending: true,
+  };
+  const state: ActionExecutionState = {
+    frame,
+    failures: parent?.failures ?? new WeakMap(),
+  };
+  return actionExecutionStorage.run(state, async () => {
+    try {
+      return await run(args, ctx);
+    } catch (error) {
+      const failure =
+        error !== null && typeof error === "object"
+          ? state.failures.get(error)
+          : undefined;
+      const typedRefusal =
+        error instanceof ActionInputValidationError ||
+        isAgentConnectionRequiredError(error) ||
+        ((isActionContractError(error) || isAgentActionStopError(error)) &&
+          error.errorCode === "permanent_precondition");
+      outcome.refused =
+        !frame.descendantWriteEntered &&
+        (failure
+          ? failure.frame === frame &&
+            (!frame.handlerEntered ||
+              (failure.origin === frame && typedRefusal))
+          : typedRefusal);
+      throw error;
+    }
+  });
 }
 
 export async function validateActionArgs(
