@@ -41,7 +41,6 @@ import {
   MODEL_SELECTOR_POPOVER_STYLE,
   mentionItemMatchesQuery,
   resolveContextChipBackspaceAction,
-  selectableContextItemKeys,
   resolveComposerPrimaryAction,
   shouldRenderModelSelector,
   shouldShowOnlyConnectPath,
@@ -4871,17 +4870,5 @@ describe("voice composer insertion", () => {
         currentText: "sent",
       }),
     ).toBe(false);
-  });
-});
-
-describe("selectableContextItemKeys", () => {
-  it("leaves hidden and non-removable context out of Backspace selection", () => {
-    expect(
-      selectableContextItemKeys([
-        { key: "visible" },
-        { key: "hidden", hidden: true },
-        { key: "pinned", removable: false },
-      ]),
-    ).toEqual(["visible"]);
   });
 });

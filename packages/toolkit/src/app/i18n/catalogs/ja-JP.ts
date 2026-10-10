@@ -85,6 +85,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContainOptional": "返信で確認する任意のテキスト…",
   "observability.promoteMustContainLabel":
     "昇格した評価の返信で確認するテキスト",
+  "observability.promoteReviewedPromptLabel":
+    "手動で確認したプロンプト（本番環境から自動コピーされません）",
   "observability.promoteNeedsContains":
     "この実行には成功したツール呼び出しがありません。昇格する前に、返信に含めるテキストを入力してください。",
   "observability.viewDetails": "詳細を表示",
@@ -1171,9 +1173,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "コピーに失敗しました",
   "recovery.continueUnavailable":
     "この実行はもう続行できません。続けるにはメッセージを送信してください。",
+  "errorMessages.invalidAttachmentNamed":
+    "モデルプロバイダーは、形式またはサイズがサポートされていないため、{{name}} を拒否しました。画像はより小さい PNG、JPEG、GIF、または WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けて再試行してください。",
+  "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.retryAttachmentUnavailable":
     "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",
-  "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.deferredSubmissionFailed":
     "このメッセージを送信できませんでした。接続またはチャットの設定を確認して、もう一度お試しください。",
   "recovery.credentialRejected":

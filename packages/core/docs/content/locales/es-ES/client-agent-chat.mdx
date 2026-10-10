@@ -185,7 +185,7 @@ Combinar esto con el ejemplo de `askUserQuestion()` de arriba completa el maneja
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-Envía un mensaje al chat del agente a través de `postMessage`. Este es el primitivo de nivel más bajo que envuelve `useAgentChatGenerating()` arriba, útil cuando una interacción de UI no necesita su propio seguimiento de estado de carga. Pasa `context` para detalle adicional que el modelo debería ver pero el usuario no. Se agrega al mensaje enviado al agente, envuelto en etiquetas `<context>`, y se elimina antes de que el mensaje se muestre en la interfaz del chat. Pasa `submit: true` para enviar de inmediato, o `submit: false` para precompletar un borrador que el usuario revisa primero. Con `submit: false`, `context` no se escribe en el borrador: se adjunta al siguiente envío y se muestra como un chip con la etiqueta `contextLabel`. Sin `contextLabel`, se adjunta sin chip cuando `message` tiene texto, y se muestra como un chip genérico cuando `message` está vacío.
+Envía un mensaje al chat del agente a través de `postMessage`. Este es el primitivo de nivel más bajo que envuelve `useAgentChatGenerating()` arriba, útil cuando una interacción de UI no necesita su propio seguimiento de estado de carga. Pasa `context` para detalle adicional que el modelo debería ver pero el usuario no. Se agrega al mensaje enviado al agente, envuelto en etiquetas `<context>`, y se elimina antes de que el mensaje se muestre en la interfaz del chat. Pasa `submit: true` para enviar de inmediato, o `submit: false` para precompletar un borrador que el usuario revisa primero. Con `submit: false`, `context` no se escribe en el borrador: se adjunta al siguiente envío y se muestra como un chip con la etiqueta `contextLabel`. Sin `contextLabel`, el chip usa una etiqueta genérica de contexto de la aplicación.
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -206,14 +206,14 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| Opción         | Tipo       | Descripción                                                                                                        |
-| -------------- | ---------- | ------------------------------------------------------------------------------------------------------------------ |
-| `message`      | `string`   | El prompt enviado al chat, y la única parte que se muestra en la interfaz del chat                                 |
-| `context`      | `string?`  | Contexto visible para el modelo, agregado al mensaje antes de enviarlo. Se elimina de la interfaz del chat         |
-| `contextLabel` | `string?`  | Etiqueta del chip para `context` con `submit: false`. Omitir para adjuntarlo sin chip cuando `message` tiene texto |
-| `submit`       | `boolean?` | true = envío automático, false = solo precompletar                                                                 |
-| `newTab`       | `boolean?` | Crea un hilo de chat independiente para este prompt                                                                |
-| `openSidebar`  | `boolean?` | Establece falso para enviar/precompletar sin abrir la barra lateral                                                |
+| Opción         | Tipo       | Descripción                                                                                                              |
+| -------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `message`      | `string`   | El prompt enviado al chat, y la única parte que se muestra en la interfaz del chat                                       |
+| `context`      | `string?`  | Contexto visible para el modelo, agregado al mensaje antes de enviarlo. Se elimina de la interfaz del chat               |
+| `contextLabel` | `string?`  | Etiqueta del chip para `context` con `submit: false`. Omitir para usar la etiqueta genérica de contexto de la aplicación |
+| `submit`       | `boolean?` | true = envío automático, false = solo precompletar                                                                       |
+| `newTab`       | `boolean?` | Crea un hilo de chat independiente para este prompt                                                                      |
+| `openSidebar`  | `boolean?` | Establece falso para enviar/precompletar sin abrir la barra lateral                                                      |
 
 Ejecutar esto desde dentro de una inserción de aplicación MCP, o poner la ejecución en segundo plano sin abrir la barra lateral, se cubren ambos en [Avanzado](/docs/client-advanced#background-send).
 

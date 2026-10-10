@@ -185,7 +185,7 @@ Die Kombination davon mit dem `askUserQuestion()`-Beispiel oben vervollständigt
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-Sendet eine Nachricht an den Agent-Chat über `postMessage`. Dies ist die niedrigere Primitive, die `useAgentChatGenerating()` oben umschließt, nützlich, wenn eine UI-Interaktion keine eigene Ladezustandsverfolgung benötigt. Übergeben Sie `context` für zusätzliche Details, die das Modell sehen soll, der Benutzer aber nicht. Er wird an die an den Agenten gesendete Nachricht angehängt, eingeschlossen in `<context>`-Tags, und wird wieder entfernt, bevor die Nachricht im Chat angezeigt wird. Übergeben Sie `submit: true`, um sofort zu senden, oder `submit: false`, um einen Entwurf vorab auszufüllen, den der Benutzer zuerst überprüft. Mit `submit: false` wird `context` nicht in den Entwurf geschrieben: Er wird beim nächsten Senden angehängt und als Chip mit der Bezeichnung `contextLabel` angezeigt. Ohne `contextLabel` wird er ohne Chip angehängt, wenn `message` Text enthält, und als generischer Chip angezeigt, wenn `message` leer ist.
+Sendet eine Nachricht an den Agent-Chat über `postMessage`. Dies ist die niedrigere Primitive, die `useAgentChatGenerating()` oben umschließt, nützlich, wenn eine UI-Interaktion keine eigene Ladezustandsverfolgung benötigt. Übergeben Sie `context` für zusätzliche Details, die das Modell sehen soll, der Benutzer aber nicht. Er wird an die an den Agenten gesendete Nachricht angehängt, eingeschlossen in `<context>`-Tags, und wird wieder entfernt, bevor die Nachricht im Chat angezeigt wird. Übergeben Sie `submit: true`, um sofort zu senden, oder `submit: false`, um einen Entwurf vorab auszufüllen, den der Benutzer zuerst überprüft. Mit `submit: false` wird `context` nicht in den Entwurf geschrieben: Er wird beim nächsten Senden angehängt und als Chip mit der Bezeichnung `contextLabel` angezeigt. Ohne `contextLabel` verwendet der Chip eine generische App-Kontext-Bezeichnung.
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -210,7 +210,7 @@ sendToAgentChat({
 | -------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `message`      | `string`   | Der an den Chat gesendete Prompt, und der einzige Teil, der in der Chat-UI angezeigt wird                                    |
 | `context`      | `string?`  | Für das Modell sichtbarer Kontext, der vor dem Senden an die Nachricht angehängt wird. Wird aus der Chat-UI-Anzeige entfernt |
-| `contextLabel` | `string?`  | Chip-Bezeichnung für `context` bei `submit: false`. Weglassen, um es ohne Chip anzuhängen, wenn `message` Text enthält       |
+| `contextLabel` | `string?`  | Chip-Bezeichnung für `context` bei `submit: false`. Weglassen, um die generische App-Kontext-Bezeichnung zu verwenden        |
 | `submit`       | `boolean?` | true = automatisches Senden, false = nur Vorabausfüllung                                                                     |
 | `newTab`       | `boolean?` | Einen separaten Chat-Thread für diesen Prompt erstellen                                                                      |
 | `openSidebar`  | `boolean?` | Auf false setzen, um zu senden/vorab auszufüllen, ohne die Seitenleiste zu öffnen                                            |

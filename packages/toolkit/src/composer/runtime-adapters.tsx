@@ -82,12 +82,6 @@ export interface AgentChatContextItem {
   statusMessage?: string;
   removable?: boolean;
   blocksSubmission?: boolean;
-  /** Attached to the next submit without a composer chip. */
-  hidden?: boolean;
-  /** Stays with the composer that staged it; never published to the shared store. */
-  composerOnly?: boolean;
-  /** When the composer-only item was staged. Lets cleanup tell it from a replacement with the same key. */
-  stagedAt?: number;
 }
 
 export interface ComposerAgentChatMessage {

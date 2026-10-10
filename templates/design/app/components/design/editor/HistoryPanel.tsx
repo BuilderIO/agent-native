@@ -198,7 +198,10 @@ export function HistoryPanel({
                   previewFiles.map((file) => (
                     <div key={file.id ?? file.filename} className="min-w-0">
                       <div className="overflow-hidden rounded-lg border border-border">
-                        <DesignThumbnail html={file.content} />
+                        <DesignThumbnail
+                          html={file.content}
+                          designId={designId}
+                        />
                       </div>
                       <p className="mt-1.5 truncate text-[11px] text-muted-foreground">
                         {file.filename}

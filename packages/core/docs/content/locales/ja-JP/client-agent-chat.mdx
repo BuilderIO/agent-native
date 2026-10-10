@@ -183,7 +183,7 @@ const answer = await askUserQuestion({
 
 ## sendToAgentChat(opts) {#sendtoagentchat}
 
-`postMessage` 経由でエージェント チャットにメッセージを送信します。これは `useAgentChatGenerating()` がラップしている、より低レベルのプリミティブで、UI のやり取りが自前の読み込み状態の追跡を必要としない場合に便利です。モデルには見えるがユーザーには見えるべきではない追加の詳細には `context` を渡します。これはエージェントに送信されるメッセージに `<context>` タグで囲んで追加され、チャット UI にメッセージがレンダリングされる前に取り除かれます。すぐに送信するには `submit: true` を、ユーザーが最初にレビューするドラフトを事前入力するには `submit: false` を渡します。 `submit: false` の場合、`context` はドラフトに書き込まれません。次の送信時に添付され、`contextLabel` をラベルとするチップとして表示されます。`contextLabel` を省略した場合は、`message` にテキストがあればチップを表示せずに添付され、`message` が空の場合は汎用のチップとして表示されます。
+`postMessage` 経由でエージェント チャットにメッセージを送信します。これは `useAgentChatGenerating()` がラップしている、より低レベルのプリミティブで、UI のやり取りが自前の読み込み状態の追跡を必要としない場合に便利です。モデルには見えるがユーザーには見えるべきではない追加の詳細には `context` を渡します。これはエージェントに送信されるメッセージに `<context>` タグで囲んで追加され、チャット UI にメッセージがレンダリングされる前に取り除かれます。すぐに送信するには `submit: true` を、ユーザーが最初にレビューするドラフトを事前入力するには `submit: false` を渡します。 `submit: false` の場合、`context` はドラフトに書き込まれません。次の送信時に添付され、`contextLabel` をラベルとするチップとして表示されます。`contextLabel` を省略した場合は、チップに汎用のアプリケーション コンテキスト ラベルが使われます。
 
 ```ts
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -204,14 +204,14 @@ sendToAgentChat({
 
 ### AgentChatMessage {#agentchatmessage}
 
-| オプション     | タイプ     | 説明                                                                                                      |
-| -------------- | ---------- | --------------------------------------------------------------------------------------------------------- |
-| `message`      | `string`   | チャットに送信されるプロンプト。チャット UI に表示される唯一の部分                                        |
-| `context`      | `string?`  | 送信前にメッセージに追加される、モデルに見えるコンテキスト。チャット UI の表示からは取り除かれる          |
-| `contextLabel` | `string?`  | `submit: false` 時の `context` のチップラベル。省略時、`message` にテキストがあればチップを表示せずに添付 |
-| `submit`       | `boolean?` | true = 自動送信、false = 事前入力のみ                                                                     |
-| `newTab`       | `boolean?` | このプロンプト用に別のチャット スレッドを作成する                                                         |
-| `openSidebar`  | `boolean?` | サイドバーを開かずに送信/事前入力するには false を設定                                                    |
+| オプション     | タイプ     | 説明                                                                                                    |
+| -------------- | ---------- | ------------------------------------------------------------------------------------------------------- |
+| `message`      | `string`   | チャットに送信されるプロンプト。チャット UI に表示される唯一の部分                                      |
+| `context`      | `string?`  | 送信前にメッセージに追加される、モデルに見えるコンテキスト。チャット UI の表示からは取り除かれる        |
+| `contextLabel` | `string?`  | `submit: false` 時の `context` のチップラベル。省略時は汎用のアプリケーション コンテキスト ラベルを使用 |
+| `submit`       | `boolean?` | true = 自動送信、false = 事前入力のみ                                                                   |
+| `newTab`       | `boolean?` | このプロンプト用に別のチャット スレッドを作成する                                                       |
+| `openSidebar`  | `boolean?` | サイドバーを開かずに送信/事前入力するには false を設定                                                  |
 
 MCP アプリ埋め込み内からこれを実行する場合や、サイドバーを開かずに実行をバックグラウンドに送る方法は、いずれも [高度](/docs/client-advanced#background-send) で扱っています。
 

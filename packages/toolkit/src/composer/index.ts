@@ -23,7 +23,6 @@ export {
 export {
   areComposerContextItemsReady,
   composerContextFits,
-  isCapturedContextItem,
   snapshotComposerContextItems,
   ComposerContextError,
   COMPOSER_CONTEXT_MAX_ITEMS,

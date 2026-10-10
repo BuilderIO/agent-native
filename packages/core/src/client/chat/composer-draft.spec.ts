@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   assistantChatComposerDraftKey,
@@ -8,10 +8,7 @@ import {
   readAssistantChatComposerDraft,
   writeAssistantChatComposerDraft,
   readAssistantChatComposerContextDraft,
-  readAssistantChatHiddenContext,
   writeAssistantChatComposerContextDraft,
-  writeAssistantChatHiddenContext,
-  canWriteAssistantChatHiddenContext,
 } from "./composer-draft.js";
 
 describe("assistant chat composer drafts", () => {
@@ -128,179 +125,5 @@ describe("assistant chat composer drafts", () => {
         })),
       }),
     ).toThrow("size limit");
-  });
-});
-
-describe("hidden composer context", () => {
-  it("keeps hidden context per scope and removes it when cleared", () => {
-    const item = {
-      key: "prefill-context-1",
-      title: "prefill-context-1",
-      context: "Cast: Tom Holland, Sadie Sink",
-      stagedAt: Date.now(),
-    };
-    writeAssistantChatHiddenContext("thread-a", [item]);
-
-    expect(readAssistantChatHiddenContext("thread-a")).toEqual([
-      { ...item, composerOnly: true },
-    ]);
-    expect(readAssistantChatHiddenContext("thread-b")).toEqual([]);
-
-    writeAssistantChatHiddenContext("thread-a", []);
-    expect(readAssistantChatHiddenContext("thread-a")).toEqual([]);
-  });
-});
-
-describe("hidden composer context recovery", () => {
-  it("discards an unreadable entry instead of failing the read", () => {
-    const key = `agent-chat-composer-hidden-context:${encodeURIComponent("thread-c")}`;
-    window.localStorage.setItem(key, "{not json");
-
-    expect(readAssistantChatHiddenContext("thread-c")).toEqual([]);
-    expect(window.localStorage.getItem(key)).toBeNull();
-  });
-
-  it("reads back a label longer than the old title cap", () => {
-    const item = {
-      key: "prefill-context-long",
-      title: "x".repeat(3000),
-      context: "Cast: Tom Holland",
-      stagedAt: Date.now(),
-    };
-    writeAssistantChatHiddenContext("thread-d", [item]);
-
-    expect(readAssistantChatHiddenContext("thread-d")).toEqual([
-      { ...item, composerOnly: true },
-    ]);
-    writeAssistantChatHiddenContext("thread-d", []);
-  });
-});
-
-describe("hidden composer context persistence", () => {
-  it("drops the previous entry when a replacement write fails", () => {
-    const key = `agent-chat-composer-hidden-context:${encodeURIComponent("thread-f")}`;
-    const previous = {
-      key: "prefill-context-old",
-      title: "prefill-context-old",
-      context: "Old cast",
-      stagedAt: Date.now(),
-    };
-    expect(writeAssistantChatHiddenContext("thread-f", [previous])).toBe(true);
-    const setItem = vi
-      .spyOn(window.localStorage, "setItem")
-      .mockImplementation(() => {
-        throw new Error("QuotaExceededError");
-      });
-    try {
-      const saved = writeAssistantChatHiddenContext("thread-f", [
-        {
-          key: "prefill-context-new",
-          title: "prefill-context-new",
-          context: "New cast",
-          stagedAt: Date.now(),
-        },
-      ]);
-
-      expect(saved).toBe(false);
-      expect(window.localStorage.getItem(key)).toBeNull();
-    } finally {
-      setItem.mockRestore();
-    }
-  });
-});
-
-describe("hidden composer context capacity", () => {
-  beforeEach(() => {
-    window.localStorage.clear();
-  });
-
-  const item = (context: string, stagedAt: number) => ({
-    key: "agent-chat-prefill-context",
-    title: "Selected rows",
-    context,
-    composerOnly: true,
-    stagedAt,
-  });
-  // Storage counts each entry's key and value against one origin quota.
-  const storedBytes = () => {
-    let total = 0;
-    for (let i = 0; i < window.localStorage.length; i += 1) {
-      const key = window.localStorage.key(i) ?? "";
-      total += key.length + (window.localStorage.getItem(key)?.length ?? 0);
-    }
-    return total;
-  };
-  // A storage that refuses any write leaving the origin over the budget, as a full quota does.
-  const quotaStorage = (budget: number) => {
-    const write = window.localStorage.setItem.bind(window.localStorage);
-    return vi
-      .spyOn(window.localStorage, "setItem")
-      .mockImplementation((key, value) => {
-        const replaced = window.localStorage.getItem(key);
-        const after =
-          storedBytes() -
-          (replaced === null ? 0 : key.length + replaced.length) +
-          key.length +
-          value.length;
-        if (after > budget) throw new Error("QuotaExceededError");
-        write(key, value);
-      });
-  };
-
-  it("accepts a replacement that fits where the entry it replaces already sits", () => {
-    expect(
-      writeAssistantChatHiddenContext("thread-p", [item("a".repeat(300), 1)]),
-    ).toBe(true);
-    const storedKey = window.localStorage.key(0) ?? "";
-    const stored = window.localStorage.getItem(storedKey);
-
-    const quota = quotaStorage(storedBytes());
-    try {
-      expect(
-        canWriteAssistantChatHiddenContext("thread-p", [
-          item("b".repeat(300), 2),
-        ]),
-      ).toBe(true);
-    } finally {
-      quota.mockRestore();
-    }
-    expect(window.localStorage.getItem(storedKey)).toBe(stored);
-    expect(window.localStorage.length).toBe(1);
-  });
-
-  it("refuses context the storage cannot take and leaves the stored entry as it was", () => {
-    expect(
-      writeAssistantChatHiddenContext("thread-p", [item("a".repeat(20), 1)]),
-    ).toBe(true);
-    const storedKey = window.localStorage.key(0) ?? "";
-    const stored = window.localStorage.getItem(storedKey);
-
-    const quota = quotaStorage(storedBytes());
-    try {
-      expect(
-        canWriteAssistantChatHiddenContext("thread-p", [
-          item("b".repeat(2000), 2),
-        ]),
-      ).toBe(false);
-    } finally {
-      quota.mockRestore();
-    }
-    expect(window.localStorage.getItem(storedKey)).toBe(stored);
-  });
-
-  it("refuses when storage refuses every write, and stores nothing", () => {
-    const refuse = vi
-      .spyOn(window.localStorage, "setItem")
-      .mockImplementation(() => {
-        throw new Error("QuotaExceededError");
-      });
-    try {
-      expect(
-        canWriteAssistantChatHiddenContext("thread-p", [item("c", 1)]),
-      ).toBe(false);
-    } finally {
-      refuse.mockRestore();
-    }
-    expect(window.localStorage.length).toBe(0);
   });
 });

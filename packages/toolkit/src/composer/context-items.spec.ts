@@ -5,7 +5,6 @@ import {
   snapshotComposerContextItems,
   COMPOSER_CONTEXT_MAX_BYTES,
   COMPOSER_CONTEXT_MAX_ITEMS,
-  isCapturedContextItem,
 } from "./context-items.js";
 
 describe("persisted reference status", () => {
@@ -66,30 +65,4 @@ describe("persisted reference status", () => {
       expect(() => snapshotComposerContextItems([item])).toThrow("not ready");
     },
   );
-});
-
-describe("isCapturedContextItem", () => {
-  it("keeps a replacement staged under the same key after capture", () => {
-    const captured = [
-      {
-        key: "agent-chat-prefill-context",
-        title: "T",
-        context: "old",
-        stagedAt: 1,
-      },
-    ];
-
-    expect(isCapturedContextItem(captured[0], captured)).toBe(true);
-    expect(
-      isCapturedContextItem(
-        {
-          key: "agent-chat-prefill-context",
-          title: "T",
-          context: "new",
-          stagedAt: 2,
-        },
-        captured,
-      ),
-    ).toBe(false);
-  });
 });

@@ -560,14 +560,11 @@ test("board regression: overlapping board Frames keep the pointer drop without c
   expect(afterReload.parentTagName).toBe("body");
 });
 
-// PR #5644 ("Use direct selection inside design screens") made a plain click
-// inside a SCREEN select the deepest block under the pointer directly — a
-// documented, human-directed exception to standard (see
-// editor-chrome.bridge.ts's plainClickSelectionTarget). The infinite-canvas
-// board surface keeps the original standard container-first behavior, so these
-// two tests run the same nested Card/Kid A fixture as a board object
-// (newBoardDesign) instead of a screen (newDesign) to assert the contract
-// where it still holds.
+// PR #5644 made a plain click inside a SCREEN select the deepest block under
+// the pointer directly (see editor-chrome.bridge.ts's plainClickSelectionTarget).
+// The infinite-canvas board surface keeps container-first selection, so these
+// tests use the same nested Card/Kid A fixture as a board object
+// (newBoardDesign) instead of a screen (newDesign).
 test.describe("click selects the container on the board surface, not the deep child", () => {
   test("selected nested frame drag from its grandchild tracks the pointer and persists", async ({
     page,
@@ -778,7 +775,7 @@ test.describe("click selects the container on the board surface, not the deep ch
       .poll(async () => (await selectedLayerNames(page)).join("|"), {
         timeout: 10_000,
         message:
-          "cmd/ctrl+click always REPLACES the selection (spec Part 3) even " +
+          "cmd/ctrl+click always REPLACES the selection even " +
           "when it deep-selects a child of the currently-selected container — " +
           "it must not union the child onto the container's selection.",
       })
@@ -940,7 +937,7 @@ test.describe("marquee semantics", () => {
       .poll(() => selectedLayerNames(page), {
         timeout: 10_000,
         message:
-          "expected behavior Part 3: marquee selects every top-level object it " +
+          "marquee selects every top-level object it " +
           "INTERSECTS (touching counts), not only fully-enclosed ones.",
       })
       .toEqual(
@@ -1105,18 +1102,10 @@ test.describe("board objects on the overview canvas", () => {
 });
 
 /**
- * standard interaction — overview screen selection must be the single source of
- * truth for what Cmd+A treats as "the current selection".
- *
- * Repro (from the Cmd+A scope work): select a nested element inside Screen 1
- * (leaves `selectedLayerIdsState` holding a real layer id), then — WITHOUT
- * deselecting — select Screen 2's card on the overview canvas. standard ground
- * truth: once a Screen card is the selection, Cmd+A must select all Screens,
- * never the stale element's siblings from a different screen.
- *
- * Fixture: "index.html" (Screen 1) nests Alpha/Beta buttons two levels deep
- * (main > row > button), matching FIXTURE_HTML's shape so a real double-click
- * descends to the leaf. "page-two.html" (Screen 2) is a plain second screen.
+ * Overview screen selection must be the single source of truth for what Cmd+A
+ * treats as the current selection. Expected: once a Screen card is the
+ * selection, Cmd+A selects all Screens, never the stale element's siblings
+ * from a different screen.
  */
 
 const SCREEN_ONE = `<!doctype html>

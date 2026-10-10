@@ -15,7 +15,6 @@ import {
   filterAgentChatContextItems,
   getAgentChatContextState,
   isAgentChatSubmitCancelled,
-  nextAgentChatStagedAt,
   normalizeAgentChatContextItem,
   parseSubmitChatMessage,
   removeAgentChatContextItem,
@@ -51,6 +50,7 @@ import {
   resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "@agent-native/core/shared";
+import { composerContextFits } from "@agent-native/toolkit/composer";
 import {
   isClaudeCodeAgentId,
   isLunaModel,
@@ -77,7 +77,6 @@ import React, {
   useCallback,
 } from "react";
 
-import { composerContextFits } from "../../composer/context-items.js";
 import { AgentKitAssistantChat } from "./AgentKitAssistantChat.js";
 import {
   ChatHistoryList,
@@ -92,6 +91,7 @@ import type {
 import { fallbackChatTitle } from "./fallback-chat-title.js";
 
 type AgentActionScope = NonNullable<AgentChatMessage["actionScope"]>;
+const PREFILL_CONTEXT_KEY = "agent-chat-prefill-context";
 
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -104,11 +104,10 @@ interface ModelSelection {
 
 interface PendingSend {
   message: string;
+  prefillContext?: AgentChatContextItem;
   images?: string[];
   attachments?: AgentChatAttachment[];
   submit: boolean;
-  /** Prefill-only context, staged as a composer item rather than written into `message`. */
-  prefillContext?: AgentChatContextItem;
   trackInRunsTray?: boolean;
   requestMode?: "act" | "plan";
   /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
@@ -132,36 +131,68 @@ interface PendingDelivery {
   modelOverride?: ModelSelection;
 }
 
-/** The composer-only item a prefill stages; a newer prefill replaces it. */
-const PREFILL_CONTEXT_KEY = "agent-chat-prefill-context";
-
 /** The single path that hands a queued send to a mounted chat ref. */
+async function deliverPendingPrefill(
+  ref: AssistantChatHandle,
+  send: PendingSend,
+): Promise<void> {
+  if (send.prefillContext) {
+    // Checked against what the composer already holds, before the draft changes,
+    // so a refused prefill leaves no draft without its context.
+    if (!ref.canStageComposerContextItem(send.prefillContext)) {
+      console.error(
+        "Prefill context does not fit alongside the composer's existing context; the prefill was not applied.",
+      );
+      reportAgentChatSubmitResult(
+        send.submitMessageId,
+        false,
+        "context-too-large",
+      );
+      return;
+    }
+    try {
+      const contextWrite = ref.setComposerContextItem(send.prefillContext, {
+        focus: false,
+        threadScoped: true,
+      });
+      if (contextWrite && typeof contextWrite.then === "function") {
+        await contextWrite;
+      }
+    } catch {
+      reportAgentChatSubmitResult(
+        send.submitMessageId,
+        false,
+        "context-persistence-failed",
+      );
+      return;
+    }
+  }
+  if (isAgentChatSubmitCancelled(send.submitMessageId)) {
+    if (send.prefillContext) {
+      await ref.removeComposerContextItem(send.prefillContext.key, {
+        threadScoped: true,
+      });
+    }
+    return;
+  }
+  try {
+    ref.prefillMessage(send.message);
+  } catch {
+    reportAgentChatSubmitResult(send.submitMessageId, false, "prefill-failed");
+    return;
+  }
+  reportAgentChatSubmitResult(send.submitMessageId, true);
+}
+
 function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
   if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
-    // Checked against what the composer already holds, before the draft changes,
-    // so a refused prefill leaves no draft without its context.
-    const refusal = send.prefillContext
-      ? ref.composerContextRefusal(send.prefillContext)
-      : null;
-    if (refusal) {
+    void deliverPendingPrefill(ref, send).catch((error: unknown) => {
       console.error(
-        refusal === "storage-unavailable"
-          ? "Browser storage cannot keep the prefill's context; the prefill was not applied."
-          : "Prefill context does not fit alongside the composer's existing context; the prefill was not applied.",
+        "Could not finish a cancelled chat prefill cleanup.",
+        error,
       );
-      reportAgentChatSubmitResult(send.submitMessageId, false, refusal);
-      return;
-    }
-    // A context-only prefill has no text; it must not clear the user's draft.
-    if (send.message.trim()) ref.prefillMessage(send.message);
-    if (send.prefillContext) {
-      ref.setComposerContextItem(send.prefillContext);
-    } else {
-      // A text-only prefill replaces the draft, so the context staged for the
-      // previous prompt must not ride along with the new one.
-      ref.removeComposerContextItem(PREFILL_CONTEXT_KEY);
-    }
+    });
     return;
   }
   // Every field is decided once, here; a separate "has options" condition
@@ -1261,7 +1292,10 @@ export function MultiTabAssistantChat({
       item: AgentChatContextItem,
       options?: { focus?: boolean },
     ) => {
-      if (filterAgentChatContextItems([item], contextNamespace).length === 0) {
+      if (
+        filterAgentChatContextItems([item], contextNamespace, threadId)
+          .length === 0
+      ) {
         return;
       }
       const ref = chatRefs.current.get(threadId);
@@ -2124,9 +2158,7 @@ export function MultiTabAssistantChat({
         clearContextInTab(currentTabId);
         return;
       }
-      const parsed = parseSubmitChatMessage(event, {
-        allowContextOnlyPrefill: true,
-      });
+      const parsed = parseSubmitChatMessage(event);
       if (!parsed) return;
       // Dedup the live post against the cold-start replay; first one wins.
       if (!claimAgentChatSubmit(parsed.submitMessageId)) return;
@@ -2170,57 +2202,39 @@ export function MultiTabAssistantChat({
 
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
-      // A prefill keeps its context out of the draft text: it is staged as a
-      // composer item, so the draft shows only what the user will send.
+      const prefillContext =
+        context && !submit
+          ? {
+              key: PREFILL_CONTEXT_KEY,
+              title: contextLabel ?? translate("composer.activeAppContext"),
+              context,
+              ...(contextNamespace ? { contextNamespace } : {}),
+            }
+          : undefined;
+      // Checked the way a submit serializes it, so an accepted prefill cannot make
+      // every later submit fail. Refused as a whole, before the draft changes.
+      if (prefillContext && !composerContextFits([prefillContext])) {
+        console.error(
+          "Prefill context does not fit the composer context limit; the prefill was not applied.",
+        );
+        reportAgentChatSubmitResult(
+          submitMessageId,
+          false,
+          "context-too-large",
+        );
+        return;
+      }
       const fullMessage =
         context && submit
           ? appendAgentChatContextToMessage(message, context)
           : message;
-      // One prefill context per composer, like the draft it accompanies: a newer
-      // prefill replaces it, so repeated prefills cannot pile up submit-limit items.
-      const prefillKey = PREFILL_CONTEXT_KEY;
-      const hasPromptText = message.trim().length > 0;
-      let prefillContext: AgentChatContextItem | undefined;
-      if (!submit && context) {
-        const candidate: AgentChatContextItem = {
-          key: prefillKey,
-          title:
-            contextLabel ??
-            (hasPromptText
-              ? prefillKey
-              : translate("agentChat.composer.activeAppContext", {
-                  defaultValue: "Active app context",
-                })),
-          context,
-          composerOnly: true,
-          stagedAt: nextAgentChatStagedAt(),
-          // Hidden only when there is prompt text to send with it; an empty
-          // prefill would otherwise leave nothing visible to act on.
-          ...(!contextLabel && hasPromptText ? { hidden: true } : {}),
-        };
-        // Checked the way a submit serializes it, so an accepted prefill cannot
-        // make every later submit fail. Refused as a whole: a draft without its
-        // context would send an incomplete request.
-        if (!composerContextFits([candidate])) {
-          console.error(
-            "Prefill context does not fit the composer context limit; the prefill was not applied.",
-          );
-          reportAgentChatSubmitResult(
-            submitMessageId,
-            false,
-            "context-too-large",
-          );
-          return;
-        }
-        prefillContext = candidate;
-      }
 
       const send: PendingSend = {
         message: fullMessage,
+        ...(prefillContext ? { prefillContext } : {}),
         images,
         attachments,
         submit,
-        ...(prefillContext ? { prefillContext } : {}),
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
         ...(submitMessageId ? { submitMessageId } : {}),
@@ -2355,6 +2369,7 @@ export function MultiTabAssistantChat({
     availableModels,
     bumpModelSelectionVersion,
     clearContextInTab,
+    contextNamespace,
     createThread,
     isNewThread,
     openTabIds,
@@ -2364,7 +2379,6 @@ export function MultiTabAssistantChat({
     setContextInTab,
     switchThread,
     switchThreadState,
-    translate,
     writeThreadUrl,
   ]);
 

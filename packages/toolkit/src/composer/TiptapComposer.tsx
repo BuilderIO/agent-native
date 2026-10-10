@@ -271,15 +271,6 @@ export type ContextChipBackspaceAction =
   | { type: "remove"; key: string }
   | null;
 
-// Hidden context has no chip, so Backspace must not select or remove it.
-export function selectableContextItemKeys(
-  items: readonly { key: string; removable?: boolean; hidden?: boolean }[],
-): string[] {
-  return items
-    .filter((item) => item.removable !== false && !item.hidden)
-    .map((item) => item.key);
-}
-
 export function resolveContextChipBackspaceAction(options: {
   contextItemKeys: string[];
   selectedKey: string | null;
@@ -2936,9 +2927,7 @@ export function TiptapComposer({
     canSubmit: canSend,
     hasStopButton: Boolean(stopButton),
   });
-  const visibleContextItems = contextItems.filter((item) => !item.hidden);
-  const hasContextRows =
-    visibleContextItems.length > 0 || slotReferences.length > 0;
+  const hasContextRows = contextItems.length > 0 || slotReferences.length > 0;
   const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
   const composerModeRef = useRef<ComposerMode | null>(null);
   const isMac =
@@ -3676,7 +3665,9 @@ export function TiptapComposer({
         const cursorAtStart = from === to && from <= 1;
         if (event.key === "Backspace" && onRemoveContextItemRef.current) {
           const chipAction = resolveContextChipBackspaceAction({
-            contextItemKeys: selectableContextItemKeys(contextItemsRef.current),
+            contextItemKeys: contextItemsRef.current
+              .filter((item) => item.removable !== false)
+              .map((item) => item.key),
             selectedKey: selectedContextItemKeyRef.current,
             cursorAtStart,
           });
@@ -5920,7 +5911,7 @@ export function TiptapComposer({
               </button>
             </span>
           ))}
-          {visibleContextItems.map((item) => (
+          {contextItems.map((item) => (
             <React.Fragment key={item.key}>
               <span
                 data-context-key={item.key}

@@ -3,4 +3,4 @@
 "@agent-native/toolkit": patch
 ---
 
-`sendToAgentChat({ submit: false, context })` no longer writes the raw `<context>` block into the composer draft. The context attaches to the next submit instead, shown as a chip labeled by the new `contextLabel` option. Without `contextLabel` it attaches with no chip, unless the message is empty, which gets a generic chip. Prefill context stays with its composer and is kept with the draft; it is never shared with other open chats, and a newer prefill replaces it.
+`sendToAgentChat({ submit: false, context })` can name its prefill chip with the new `contextLabel` option; without it the chip uses the generic app-context label. A prefill the composer cannot hold alongside its current context is refused with a `context-too-large` result before the draft changes. A replacement prefill is no longer removed by the cleanup of an earlier send that was still in flight.

@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import {
-  getAgentChatContextState,
-  publishAgentChatContextItems,
-} from "./agent-chat.js";
-
 const parentPostMessageSpy = vi.fn();
 const selfPostMessageSpy = vi.fn();
 const windowListeners = new Map<
@@ -80,13 +75,16 @@ const {
   insertAgentComposerReference,
   listAgentChatContext,
   normalizeAgentComposerReference,
-  parseSubmitChatMessage,
   nextAgentChatStagedAt,
+  parseSubmitChatMessage,
+  publishAgentChatContextItems,
   removeAgentChatContextItem,
+  removeAgentChatContextItemAndPersist,
   reportAgentChatSubmitResult,
   sendToAgentChat,
   sendToAgentChatAndConfirm,
   setAgentChatContextItem,
+  setAgentChatContextItemAndPersist,
   setContextToAgentChat,
 } = await import("./agent-chat.js");
 const { _resetEmbedAuthForTests } = await import("./embed-auth.js");
@@ -216,6 +214,17 @@ describe("sendToAgentChat", () => {
 
     expect(parsed?.contextLabel).toBe("Spider-Man: Brand New Day");
     expect(parsed?.context).toBe('{"movieId":969681}');
+  });
+
+  it("never repeats a staging time within one page", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      const first = nextAgentChatStagedAt();
+      const second = nextAgentChatStagedAt();
+      expect(second).toBeGreaterThan(first);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("rejects malformed and oversized action scopes", () => {
@@ -1360,52 +1369,6 @@ describe("sendToAgentChat", () => {
     ]);
   });
 
-  it("parses a context-only prefill and rejects an empty submitted message", () => {
-    sendToAgentChat({
-      message: "",
-      context: '{"movieId":969681}',
-      contextLabel: "Spider-Man: Brand New Day",
-      submit: false,
-    });
-    const prefill = parentPostMessageSpy.mock.calls[0][0];
-    expect(
-      parseSubmitChatMessage({ data: prefill } as MessageEvent, {
-        allowContextOnlyPrefill: true,
-      }),
-    ).toMatchObject({
-      message: "",
-      contextLabel: "Spider-Man: Brand New Day",
-      submit: false,
-    });
-    expect(
-      parseSubmitChatMessage({ data: prefill } as MessageEvent),
-    ).toBeNull();
-
-    parentPostMessageSpy.mockClear();
-    sendToAgentChat({ message: "", context: "Hidden context" });
-    const submitted = parentPostMessageSpy.mock.calls[0][0];
-    expect(
-      parseSubmitChatMessage({ data: submitted } as MessageEvent),
-    ).toBeNull();
-  });
-
-  it("publishes shared fields and the staging time, never composer-only fields", () => {
-    publishAgentChatContextItems([
-      {
-        key: "prefill-hidden",
-        title: "Hidden",
-        context: "Cast",
-        hidden: true,
-        composerOnly: true,
-        stagedAt: 1,
-      },
-    ]);
-
-    expect(getAgentChatContextState().items).toEqual([
-      { key: "prefill-hidden", title: "Hidden", context: "Cast", stagedAt: 1 },
-    ]);
-  });
-
   it("generates distinct tabIds across calls", () => {
     const id1 = sendToAgentChat({ message: "a" });
     const id2 = sendToAgentChat({ message: "b" });
@@ -1699,17 +1662,6 @@ describe("sendToAgentChat", () => {
     ]);
   });
 
-  it("never repeats a staging time within one page", () => {
-    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
-    try {
-      const first = nextAgentChatStagedAt();
-      const second = nextAgentChatStagedAt();
-      expect(second).toBeGreaterThan(first);
-    } finally {
-      now.mockRestore();
-    }
-  });
-
   it("posts keyed context to the active chat without submitting", () => {
     setAgentChatContextItem({
       key: ".thing#hello",
@@ -1726,7 +1678,6 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
-        stagedAt: expect.any(Number),
       },
     });
     expect(listAgentChatContext()).toEqual([
@@ -1734,7 +1685,6 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
-        stagedAt: expect.any(Number),
       },
     ]);
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
@@ -1760,13 +1710,138 @@ describe("sendToAgentChat", () => {
         title: "Cart",
         context: "Line item A",
         openSidebar: false,
-        stagedAt: expect.any(Number),
       },
     });
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
       "agentNative.chatContextChanged",
       "agent-panel:prepare",
     ]);
+  });
+
+  it("persists composer context before publishing it", async () => {
+    const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy.mockImplementationOnce(() => write.promise);
+    const persistence = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "Active app context",
+      context: "Selected rows: a, b",
+      targetThreadId: "thread-1",
+    });
+
+    await flushMicrotasks();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(listAgentChatContext()).toEqual([]);
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    const requestState = JSON.parse(
+      fetchSpy.mock.calls[0]?.[1]?.body as string,
+    );
+    write.resolve({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(requestState),
+    });
+
+    await expect(persistence).resolves.toBeUndefined();
+    expect(listAgentChatContext()).toEqual(requestState.items);
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toContain(
+      "agentNative.chatContextChanged",
+    );
+  });
+
+  it("rebases concurrent persisted context updates on the latest state", async () => {
+    const firstWrite =
+      Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    const secondWrite =
+      Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy
+      .mockImplementationOnce(() => firstWrite.promise)
+      .mockImplementationOnce(() => secondWrite.promise);
+
+    const first = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-1",
+      title: "First context",
+      context: "First selection",
+      targetThreadId: "thread-1",
+    });
+    const second = setAgentChatContextItemAndPersist({
+      key: "prefill:thread-2",
+      title: "Second context",
+      context: "Second selection",
+      targetThreadId: "thread-2",
+    });
+
+    await flushMicrotasks();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const firstState = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
+    firstWrite.resolve({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(firstState),
+    });
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    const secondState = JSON.parse(fetchSpy.mock.calls[1]?.[1]?.body as string);
+    expect(secondState.items.map(({ key }: { key: string }) => key)).toEqual([
+      "prefill:thread-1",
+      "prefill:thread-2",
+    ]);
+    secondWrite.resolve({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(secondState),
+    });
+
+    await Promise.all([first, second]);
+    expect(listAgentChatContext().map(({ key }) => key)).toEqual([
+      "prefill:thread-1",
+      "prefill:thread-2",
+    ]);
+  });
+
+  it("persists removal of a staged composer context item", async () => {
+    const write = Promise.withResolvers<Awaited<ReturnType<typeof fetchSpy>>>();
+    fetchSpy.mockImplementationOnce(() => write.promise);
+    publishAgentChatContextItems(
+      [
+        {
+          key: "prefill:thread-1",
+          title: "Active app context",
+          context: "Selected rows: a, b",
+          targetThreadId: "thread-1",
+        },
+      ],
+      { persist: false },
+    );
+    const removal = removeAgentChatContextItemAndPersist("prefill:thread-1");
+
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
+    const requestState = JSON.parse(
+      fetchSpy.mock.calls[0]?.[1]?.body as string,
+    );
+    expect(requestState.items).toEqual([]);
+    write.resolve({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(requestState),
+    });
+
+    await expect(removal).resolves.toBeUndefined();
+    expect(listAgentChatContext()).toEqual([]);
+  });
+
+  it("does not publish composer context when persistence fails", async () => {
+    fetchSpy.mockRejectedValueOnce(new Error("offline"));
+
+    await expect(
+      setAgentChatContextItemAndPersist({
+        key: "prefill:thread-1",
+        title: "Active app context",
+        context: "Selected rows: a, b",
+        targetThreadId: "thread-1",
+      }),
+    ).rejects.toThrow("offline");
+
+    expect(listAgentChatContext()).toEqual([]);
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
   });
 
   it("removes a staged context item by key", () => {
@@ -1843,14 +1918,6 @@ describe("formatAgentChatContextItemsForPrompt", () => {
       ]),
     ).toBe("## Selected Element\n<button>Buy</button>\n\n## Cart\n2 items");
   });
-
-  it("sends hidden context without a heading", () => {
-    expect(
-      formatAgentChatContextItemsForPrompt([
-        { key: "a", title: "a", context: "Selected rows: a, b", hidden: true },
-      ]),
-    ).toBe("Selected rows: a, b");
-  });
 });
 
 describe("filterAgentChatContextItems", () => {
@@ -1875,5 +1942,33 @@ describe("filterAgentChatContextItems", () => {
       items[0],
       items[2],
     ]);
+  });
+
+  it("keeps thread-targeted context in its chat thread", () => {
+    const items = [
+      { key: "shared", title: "Shared", context: "Available everywhere" },
+      {
+        key: "prefill:thread-1",
+        title: "Prefill",
+        context: "First thread only",
+        targetThreadId: "thread-1",
+      },
+      {
+        key: "prefill:thread-2",
+        title: "Prefill",
+        context: "Second thread only",
+        targetThreadId: "thread-2",
+      },
+    ];
+
+    expect(filterAgentChatContextItems(items, undefined, "thread-1")).toEqual([
+      items[0],
+      items[1],
+    ]);
+    expect(filterAgentChatContextItems(items, undefined, "thread-2")).toEqual([
+      items[0],
+      items[2],
+    ]);
+    expect(filterAgentChatContextItems(items)).toEqual([items[0]]);
   });
 });

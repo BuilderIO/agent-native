@@ -52,11 +52,6 @@ export function snapshotComposerContextItems(
         title: item.title,
         context: item.context,
         ...(item.removable === undefined ? {} : { removable: item.removable }),
-        ...(item.hidden === undefined ? {} : { hidden: item.hidden }),
-        ...(item.composerOnly === undefined
-          ? {}
-          : { composerOnly: item.composerOnly }),
-        ...(item.stagedAt === undefined ? {} : { stagedAt: item.stagedAt }),
         ...(item.blocksSubmission === undefined
           ? {}
           : { blocksSubmission: item.blocksSubmission }),
@@ -90,19 +85,4 @@ export function composerContextFits(
     }
     throw error;
   }
-}
-
-// The items one submission captured, matched by key, context and staging time.
-// A newer item that reuses a key (a replacement prefill) is a different item
-// and must survive the submission's cleanup.
-export function isCapturedContextItem(
-  item: AgentChatContextItem,
-  captured: readonly AgentChatContextItem[],
-): boolean {
-  return captured.some(
-    (candidate) =>
-      candidate.key === item.key &&
-      candidate.context === item.context &&
-      candidate.stagedAt === item.stagedAt,
-  );
 }
