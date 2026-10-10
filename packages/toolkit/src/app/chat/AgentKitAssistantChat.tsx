@@ -1890,10 +1890,13 @@ const AgentKitAssistantChatBody = forwardRef<
   // appends the real message only after its own awaits, so the transcript
   // shows this copy in the meantime.
   const [pendingUserSubmission, setPendingUserSubmission] = useState<{
+    id: number;
     text: string;
     threadId: string;
     baseCount: number;
   } | null>(null);
+  // A send that settles late must not clear a newer send's pending prompt.
+  const pendingSubmissionIdRef = useRef(0);
   const messageCountRef = useRef(0);
   messageCountRef.current = thread.messages.length;
   const [continueSubmissionFailed, setContinueSubmissionFailed] =
@@ -3099,9 +3102,11 @@ const AgentKitAssistantChatBody = forwardRef<
       }
       const showsUserMessage =
         !options.hideUserMessage && !options.approvedToolCalls;
+      const pendingSubmissionId = ++pendingSubmissionIdRef.current;
       if (showsUserMessage) {
         if (!isThreadRunning()) {
           setPendingUserSubmission({
+            id: pendingSubmissionId,
             text,
             threadId,
             baseCount: messageCountRef.current,
@@ -3126,7 +3131,9 @@ const AgentKitAssistantChatBody = forwardRef<
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
       } finally {
-        setPendingUserSubmission(null);
+        setPendingUserSubmission((current) =>
+          current?.id === pendingSubmissionId ? null : current,
+        );
         release?.();
       }
     },
@@ -3163,8 +3170,10 @@ const AgentKitAssistantChatBody = forwardRef<
       const release = await acquireSubmission();
       if (!release)
         throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
+      const pendingSubmissionId = ++pendingSubmissionIdRef.current;
       if (!runWasActiveAtSubmit) {
         setPendingUserSubmission({
+          id: pendingSubmissionId,
           text,
           threadId,
           baseCount: messageCountRef.current,
@@ -3185,7 +3194,9 @@ const AgentKitAssistantChatBody = forwardRef<
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
       } finally {
-        setPendingUserSubmission(null);
+        setPendingUserSubmission((current) =>
+          current?.id === pendingSubmissionId ? null : current,
+        );
         release?.();
       }
     },
