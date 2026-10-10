@@ -2159,16 +2159,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   );
 
   useEffect(() => {
-    panRef.current = pan;
-  }, [pan]);
-
-  useEffect(() => {
     marqueeRef.current = marquee;
   }, [marquee]);
-
-  useEffect(() => {
-    zoomRef.current = canvasZoom;
-  }, [canvasZoom]);
 
   useLayoutEffect(() => {
     frameGeometryRef.current = frameGeometry;

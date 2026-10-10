@@ -541,6 +541,27 @@ test(`${SCREEN_COUNT}-screen canvas preserves live iframes during pan and zoom`,
       page.locator("[data-multi-screen-canvas-pan-shield]"),
     ).toHaveCount(0);
     await expect.poll(() => readWorldCamera(page)).toEqual(cameraBeforeEscape);
+
+    const cameraBeforeSequentialPans = await readWorldCamera(page);
+    for (const delta of [
+      { x: 45, y: 25 },
+      { x: -20, y: 10 },
+    ]) {
+      await page.mouse.move(panStart.x, panStart.y);
+      await page.mouse.down({ button: "middle" });
+      await page.mouse.move(panStart.x + delta.x, panStart.y + delta.y);
+      await page.mouse.up({ button: "middle" });
+    }
+    await expect
+      .poll(async () => {
+        const camera = await readWorldCamera(page);
+        return (
+          Math.abs(camera.x - (cameraBeforeSequentialPans.x + 25)) < 0.1 &&
+          Math.abs(camera.y - (cameraBeforeSequentialPans.y + 35)) < 0.1 &&
+          Math.abs(camera.scale - cameraBeforeSequentialPans.scale) < 0.001
+        );
+      })
+      .toBe(true);
   } finally {
     await postAction(page.request, baseURL, "delete-design", {
       id: designId,
