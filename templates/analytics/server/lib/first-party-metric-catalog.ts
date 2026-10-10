@@ -1393,79 +1393,122 @@ const ONBOARDING_JOURNEY_SCOPE_CTES = `, session_summary AS (
   FROM included_sessions
   WHERE has_cohort = 1 OR has_standalone_setup = 1
  )`;
-const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, eligible_output_links AS (
-  SELECT DISTINCT lower(${TEMPLATE_EXPR}) AS template_name,
+const ONBOARDING_JOURNEY_INCLUDED_SESSION_FILTER = `has_test = 0
+  AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND has_builder = 0) OR ('{{emailFilter}}' = 'only_builder' AND has_builder = 1))
+  AND (has_cohort = 1 OR has_standalone_setup = 1)`;
+const ONBOARDING_JOURNEY_OUTPUT_LINK_CANDIDATE_FILTER = `${ONBOARDING_JOURNEY_INCLUDED_SESSION_FILTER}
+  AND (
+    (has_cohort = 1
+      AND template_name = 'clips'
+      AND event_name = 'recording_started')
+    OR (has_cohort = 1
+      AND template_name = 'slides'
+      AND event_name IN (
+        'generation_started', 'generation_request_accepted', 'output_viewed'
+      ))
+    OR (template_name = 'design' AND event_name = 'pageview')
+  )`;
+const ONBOARDING_JOURNEY_EVENT_CTES = `, classified_onboarding_events AS (
+  SELECT e.*,
+    lower(${TEMPLATE_EXPR}) AS template_name,
     NULLIF(e.properties::jsonb ->> 'output_id', '') AS output_id,
     CASE
       WHEN lower(${TEMPLATE_EXPR}) = 'clips'
         THEN NULLIF(e.properties::jsonb ->> 'recording_attempt_id', '')
       WHEN lower(${TEMPLATE_EXPR}) IN ('slides', 'design')
         THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
-    END AS attempt_id,
-    e.session_id AS source_session_id,
-    s.journey_kind AS source_journey_kind
+    END AS output_attempt_id,
+    MAX(CASE
+      WHEN NULLIF(e.session_id, '') IS NOT NULL
+        AND coalesce(${testIdentityEmailSql("funnel_user_email")}, FALSE)
+        THEN 1 ELSE 0
+    END) OVER (PARTITION BY e.session_id) AS has_test,
+    MAX(CASE
+      WHEN NULLIF(e.session_id, '') IS NOT NULL
+        AND lower(coalesce(e.funnel_user_email, '')) LIKE '%@builder.io'
+        THEN 1 ELSE 0
+    END) OVER (PARTITION BY e.session_id) AS has_builder,
+    MAX(CASE
+      WHEN NULLIF(e.session_id, '') IS NOT NULL
+        AND e.event_name IN (${sqlNameList(JOURNEY_COHORT_EVENT_NAMES)})
+        THEN 1 ELSE 0
+    END) OVER (PARTITION BY e.session_id) AS has_cohort,
+    MAX(CASE
+      WHEN NULLIF(e.session_id, '') IS NOT NULL
+        AND e.event_name IN (${sqlNameList(JOURNEY_INTEGRATION_EVENT_NAMES)})
+        THEN 1 ELSE 0
+    END) OVER (PARTITION BY e.session_id) AS has_standalone_setup
   FROM scoped_onboarding_events e
-  JOIN journey_sessions s ON s.session_id = e.session_id
-  WHERE (
-    (s.journey_kind = 'onboarding'
-      AND lower(${TEMPLATE_EXPR}) = 'clips'
-      AND e.event_name = 'recording_started')
-    OR (s.journey_kind = 'onboarding'
-      AND lower(${TEMPLATE_EXPR}) = 'slides'
-      AND e.event_name IN (
-        'generation_started', 'generation_request_accepted', 'output_viewed'
-      ))
-    OR (lower(${TEMPLATE_EXPR}) = 'design' AND e.event_name = 'pageview')
-  )
-    AND NULLIF(e.properties::jsonb ->> 'output_id', '') IS NOT NULL
-    AND CASE
-      WHEN lower(${TEMPLATE_EXPR}) = 'clips'
-        THEN NULLIF(e.properties::jsonb ->> 'recording_attempt_id', '')
-      WHEN lower(${TEMPLATE_EXPR}) IN ('slides', 'design')
-        THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
-    END IS NOT NULL
-), unique_output_links AS (
-  SELECT template_name, output_id, attempt_id,
-    MIN(source_session_id) AS session_id,
-    MIN(source_journey_kind) AS journey_kind
-  FROM eligible_output_links
-  GROUP BY template_name, output_id, attempt_id
-  HAVING COUNT(DISTINCT source_session_id) = 1
-    AND COUNT(DISTINCT source_journey_kind) = 1
+), candidate_onboarding_events AS (
+  SELECT e.*,
+    CASE
+      WHEN ${ONBOARDING_JOURNEY_OUTPUT_LINK_CANDIDATE_FILTER}
+        AND e.output_id IS NOT NULL
+        AND e.output_attempt_id IS NOT NULL
+        THEN e.session_id
+    END AS candidate_session_id,
+    CASE
+      WHEN ${ONBOARDING_JOURNEY_OUTPUT_LINK_CANDIDATE_FILTER}
+        AND e.output_id IS NOT NULL
+        AND e.output_attempt_id IS NOT NULL
+        THEN CASE WHEN e.has_cohort = 1 THEN 'onboarding' ELSE 'standalone_setup' END
+    END AS candidate_journey_kind
+  FROM classified_onboarding_events e
+), linked_onboarding_events AS (
+  SELECT e.*,
+    MIN(e.candidate_session_id) OVER (
+      PARTITION BY e.template_name, e.output_id, e.output_attempt_id
+    ) AS unique_link_session_min,
+    MAX(e.candidate_session_id) OVER (
+      PARTITION BY e.template_name, e.output_id, e.output_attempt_id
+    ) AS unique_link_session_max,
+    MIN(e.candidate_journey_kind) OVER (
+      PARTITION BY e.template_name, e.output_id, e.output_attempt_id
+    ) AS unique_link_journey_min,
+    MAX(e.candidate_journey_kind) OVER (
+      PARTITION BY e.template_name, e.output_id, e.output_attempt_id
+    ) AS unique_link_journey_max
+  FROM candidate_onboarding_events e
 ), journey_events AS (
-  SELECT e.id, e.session_id, e.timestamp, e.event_name, e.path,
-    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, e.template, e.app,
-    s.journey_kind
-  FROM scoped_onboarding_events e
-  JOIN journey_sessions s ON s.session_id = e.session_id
-  WHERE e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
-  UNION ALL
-  SELECT e.id, links.session_id, e.timestamp, e.event_name, e.path,
-    e.properties, lower(${TEMPLATE_EXPR}) AS template_name, e.template, e.app,
-    links.journey_kind
-  FROM scoped_onboarding_events e
-  JOIN unique_output_links links
-    ON links.template_name = lower(${TEMPLATE_EXPR})
-    AND links.output_id = NULLIF(e.properties::jsonb ->> 'output_id', '')
-    AND links.attempt_id = CASE
-      WHEN lower(${TEMPLATE_EXPR}) = 'clips'
-        THEN NULLIF(e.properties::jsonb ->> 'recording_attempt_id', '')
-      WHEN lower(${TEMPLATE_EXPR}) IN ('slides', 'design')
-        THEN NULLIF(e.properties::jsonb ->> 'generation_attempt_id', '')
-    END
-  WHERE NULLIF(e.session_id, '') IS NULL
+  SELECT e.id,
+    CASE
+      WHEN NULLIF(e.session_id, '') IS NOT NULL THEN e.session_id
+      ELSE e.unique_link_session_min
+    END AS session_id,
+    e.timestamp, e.event_name, e.path, e.properties, e.template_name,
+    e.template, e.app,
+    CASE
+      WHEN NULLIF(e.session_id, '') IS NOT NULL
+        THEN CASE WHEN e.has_cohort = 1 THEN 'onboarding' ELSE 'standalone_setup' END
+      ELSE e.unique_link_journey_min
+    END AS journey_kind
+  FROM linked_onboarding_events e
+  WHERE (
+    NULLIF(e.session_id, '') IS NOT NULL
+    AND (${ONBOARDING_JOURNEY_INCLUDED_SESSION_FILTER})
+    AND e.event_name IN (${sqlNameList(JOURNEY_STEP_EVENT_NAMES)})
+  ) OR (
+    NULLIF(e.session_id, '') IS NULL
+    AND e.output_id IS NOT NULL
+    AND e.output_attempt_id IS NOT NULL
+    AND e.unique_link_session_min IS NOT NULL
+    AND e.unique_link_session_min = e.unique_link_session_max
+    AND e.unique_link_journey_min IS NOT NULL
+    AND e.unique_link_journey_min = e.unique_link_journey_max
     AND (
-      (lower(${TEMPLATE_EXPR}) = 'clips'
-        AND e.event_name = 'recording_ready')
-      OR (lower(${TEMPLATE_EXPR}) = 'slides'
+      (e.template_name = 'clips' AND e.event_name = 'recording_ready')
+      OR (e.template_name = 'slides'
         AND e.event_name IN (${sqlNameList([
           ...SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
           "generation_completed",
         ])}))
-      OR (lower(${TEMPLATE_EXPR}) = 'design'
+      OR (e.template_name = 'design'
         AND e.event_name = 'generation_completed')
     )
+  )
 )
+`;
+const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `
 SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   e.journey_kind,
   NULLIF(e.properties::jsonb ->> 'auth_user_id', '') AS auth_user_id,
@@ -1507,7 +1550,7 @@ FROM journey_events e
 ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id
 LIMIT {{journeyLimit}} OFFSET {{journeyOffset}}`;
 
-const ONBOARDING_JOURNEY_EVENTS_SQL = `${buildOnboardingEventsCte({ includeIdentityBridge: false })}${ONBOARDING_JOURNEY_SCOPE_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
+const ONBOARDING_JOURNEY_EVENTS_SQL = `${buildOnboardingEventsCte({ includeIdentityBridge: false })}${ONBOARDING_JOURNEY_EVENT_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
 
 const ONBOARDING_JOURNEY_DATE_RANGE_FILTER =
   DASHBOARD_TIME_RANGE_FILTER.replace(
@@ -1664,7 +1707,7 @@ export function buildOnboardingJourneyEventsSql(
           }
         : {}),
     });
-    query = `${cte}${ONBOARDING_JOURNEY_SCOPE_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
+    query = `${cte}${ONBOARDING_JOURNEY_EVENT_CTES}${ONBOARDING_JOURNEY_EVENTS_SUFFIX}`;
     values.observationCutoff = observation.observationCutoff;
     values.observationDate = observation.observationDate;
     if (options.freezeReceivedAt) {

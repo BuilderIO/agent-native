@@ -1395,6 +1395,15 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   );
 }
 
+export function renderFirstPartyAnalyticsBigQueryRequestSql(
+  scopedSql: string,
+  args: Array<string | null>,
+  table: BigQueryTableRef,
+  options: { eventDateRange?: { startDate: string; endDate: string } } = {},
+): string {
+  return `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, { eventDateRange: options.eventDateRange })}) AS first_party_analytics_query LIMIT 5000`;
+}
+
 export async function queryFirstPartyAnalyticsInBigQuery(
   scopedSql: string,
   args: Array<string | null>,
@@ -1428,7 +1437,9 @@ export async function queryFirstPartyAnalyticsInBigQuery(
   let result: Awaited<ReturnType<typeof runQuery>>;
   try {
     result = await runQuery(
-      `SELECT * FROM (${renderFirstPartyAnalyticsBigQuerySql(scopedSql, args, table, { eventDateRange: options.eventDateRange })}) AS first_party_analytics_query LIMIT 5000`,
+      renderFirstPartyAnalyticsBigQueryRequestSql(scopedSql, args, table, {
+        eventDateRange: options.eventDateRange,
+      }),
       {
         maxBytesBilled: options.maxBytesBilled,
         ...(signal ? { signal } : {}),
