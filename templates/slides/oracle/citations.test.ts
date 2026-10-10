@@ -509,6 +509,19 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual([]);
   });
 
+  it("counts a handler wrapped in parentheses or a type cast, which runs after focus is decided", () => {
+    const source = [
+      `it("moves (oracle 8.16)", (() => { it.only("never runs", () => {}); }));`,
+      `it("resizes (oracle 8.17)", ((() => { it.only("never runs", () => {}); }) as () => void));`,
+      `it("snaps (oracle 8.18)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([
+      "8.16",
+      "8.17",
+      "8.18",
+    ]);
+  });
+
   it("keeps a focus in a table that a test declaration evaluates at collection", () => {
     const source = [
       `it.each([1, (it.only("focused", () => {}), 2)])("moves %s (oracle 8.10)", () => {});`,

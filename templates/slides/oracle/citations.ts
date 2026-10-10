@@ -22,7 +22,9 @@ const TEST_MODIFIERS = new Set([
 ]);
 // Table-driven forms: one test per case, read from the table.
 const TABLE_FORMS = new Set(["each", "for"]);
-const TABLE_WRAPPERS = new Set([
+// Wrappers that leave the value they hold unchanged, so a table or handler behind
+// one is read as the value itself.
+const VALUE_WRAPPERS = new Set([
   "TsAsExpression",
   "TsConstAssertion",
   "TsSatisfiesExpression",
@@ -446,7 +448,7 @@ function tableHasCases(callee: AstNode): boolean {
   if (callee.type !== "CallExpression") return false;
   let table = argumentsOf(callee)[0]?.expression as AstNode | undefined;
   // `as const` and similar wrappers do not change the cases in the table.
-  while (table !== undefined && TABLE_WRAPPERS.has(String(table.type))) {
+  while (table !== undefined && VALUE_WRAPPERS.has(String(table.type))) {
     table = table.expression as AstNode | undefined;
   }
   // A spread may expand to no cases at all, so only plain entries are counted.
@@ -502,7 +504,10 @@ function containsFocus(value: unknown, context: Context): boolean {
 
 /** A function literal passed as a test's handler, which runs after collection. */
 function isHandler(value: unknown): boolean {
-  const node = value as AstNode | undefined;
+  let node = value as AstNode | undefined;
+  while (node !== undefined && VALUE_WRAPPERS.has(String(node.type))) {
+    node = node.expression as AstNode | undefined;
+  }
   return (
     node?.type === "ArrowFunctionExpression" ||
     node?.type === "FunctionExpression"
