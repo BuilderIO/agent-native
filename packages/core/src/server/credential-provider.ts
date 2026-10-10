@@ -239,10 +239,15 @@ export function isDeployCredentialFallbackAllowed(): boolean {
 export function canUseDeployCredentialFallbackForRequest(
   key?: string,
 ): boolean {
+  const requestContext = getRequestContext();
   // Synthetic checks must never fall through to a deploy-wide provider key.
-  // If the dedicated test credential is rejected, using the site's shared key
-  // would make a green retry both misleading and billable to real traffic.
-  if (getRequestContext()?.isSyntheticTraffic === true) return false;
+  // Anonymous public runs must not consume the deployment owner's key either.
+  if (
+    requestContext?.isSyntheticTraffic === true ||
+    requestContext?.agentRunAnonymous === true
+  ) {
+    return false;
+  }
   if (key && BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) {
     return isTrustedSelfHostedRuntime();
   }

@@ -506,6 +506,9 @@ function ChatRunFailure({
             custom?: {
               agentNativeRecoveryAction?: unknown;
               agentNativeRecoveryOfRunId?: unknown;
+              agentNativeQueueWhileRunning?: unknown;
+              agentNativeQueuedWhileRunActive?: unknown;
+              agentNativeInterruptActiveRun?: unknown;
             };
           }
         | undefined
@@ -553,6 +556,21 @@ function ChatRunFailure({
     originalComposerOptions.status === "valid"
       ? originalComposerOptions.options
       : { mode: "act" };
+  const originalCustomMetadata = originalRequest
+    ? recoveryMetadata(originalRequest)
+    : undefined;
+  const queueWhileRunning =
+    typeof originalCustomMetadata?.agentNativeQueueWhileRunning === "boolean"
+      ? originalCustomMetadata.agentNativeQueueWhileRunning
+      : originalComposerSettings.intent !== "immediate";
+  const queuedWhileRunActive =
+    typeof originalCustomMetadata?.agentNativeQueuedWhileRunActive === "boolean"
+      ? originalCustomMetadata.agentNativeQueuedWhileRunActive
+      : originalComposerSettings.intent === "queued";
+  const interruptActiveRun =
+    typeof originalCustomMetadata?.agentNativeInterruptActiveRun === "boolean"
+      ? originalCustomMetadata.agentNativeInterruptActiveRun
+      : originalComposerSettings.steer === true;
   const originalReferences = originalComposerSettings.references ?? [];
   const hasOriginalExecutionSettings = Boolean(
     originalMode ||
@@ -632,6 +650,9 @@ function ChatRunFailure({
       custom: {
         agentNativeRecoveryAction: "retry",
         agentNativeRecoveryOfRunId: runId,
+        agentNativeQueueWhileRunning: queueWhileRunning,
+        agentNativeQueuedWhileRunActive: queuedWhileRunActive,
+        agentNativeInterruptActiveRun: interruptActiveRun,
       },
     };
     const retryRunOptions: AgentRunOptions = {
@@ -657,6 +678,9 @@ function ChatRunFailure({
         ...(attachments.length ? { attachments } : {}),
         ...(hasOriginalExecutionSettings ? { options: retryRunOptions } : {}),
         metadata: retryMetadata,
+        queueWhileRunning,
+        queuedWhileRunActive,
+        ...(interruptActiveRun ? { interruptActiveRun: true } : {}),
       });
     } catch (error) {
       retryStartedForRunsRef.current.delete(runId);
@@ -670,6 +694,9 @@ function ChatRunFailure({
   }, [
     controller,
     originalComposerSettings,
+    queueWhileRunning,
+    queuedWhileRunActive,
+    interruptActiveRun,
     originalMode,
     originalRequest,
     runId,
@@ -805,6 +832,9 @@ function ChatInitialMessage({
     const requestText = context
       ? appendAgentChatContextToMessage(message, context)
       : message;
+    const queuedIntent =
+      composerOptions?.intent === "queued" ||
+      (composerOptions?.intent !== "immediate" && activeAtSubmit);
     const metadata = {
       ...(engine ? { engine } : {}),
       ...(model ? { model } : {}),
@@ -813,6 +843,11 @@ function ChatInitialMessage({
       ...(contextItems === undefined ? {} : { contextItems }),
       mode,
       requestMode: mode,
+      custom: {
+        agentNativeQueueWhileRunning: composerOptions?.intent !== "immediate",
+        agentNativeQueuedWhileRunActive: queuedIntent,
+        agentNativeInterruptActiveRun: composerOptions?.steer === true,
+      },
     };
     const runOptions: AgentRunOptions = {
       ...(model ? { model } : {}),
@@ -826,18 +861,17 @@ function ChatInitialMessage({
         : {}),
       metadata,
     };
-    const queuedIntent =
-      composerOptions?.intent === "queued" ||
-      (composerOptions?.intent !== "immediate" && activeAtSubmit);
     void Promise.resolve(
       control.sendMessage({
         text: requestText,
         attachments: [...(composerOptions?.uploadedAttachments ?? [])],
         options: runOptions,
         metadata,
-        queueWhileRunning: composerOptions?.intent !== "immediate",
+        queueWhileRunning: metadata.custom.agentNativeQueueWhileRunning,
         queuedWhileRunActive: queuedIntent,
-        ...(composerOptions?.steer ? { interruptActiveRun: true } : {}),
+        ...(metadata.custom.agentNativeInterruptActiveRun
+          ? { interruptActiveRun: true }
+          : {}),
       }),
     )
       .then(onAccepted)

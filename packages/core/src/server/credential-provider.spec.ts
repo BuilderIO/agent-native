@@ -11,7 +11,12 @@ const mockGetRequestUserEmail = vi.fn<[], string | undefined>();
 const mockGetRequestOrgId = vi.fn<[], string | undefined>();
 const mockGetRequestContext = vi.fn<
   [],
-  { isSyntheticTraffic?: boolean; isIntegrationCaller?: boolean } | undefined
+  | {
+      isSyntheticTraffic?: boolean;
+      isIntegrationCaller?: boolean;
+      agentRunAnonymous?: boolean;
+    }
+  | undefined
 >();
 const mockIsLocalDatabase = vi.fn<[], boolean>();
 const mockResolveOrgIdForEmail = vi.fn<[string], Promise<string | null>>();
@@ -919,6 +924,21 @@ describe("resolveBuilderCredential", () => {
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
     expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
       true,
+    );
+  });
+
+  it("does not share deployment LLM keys with anonymous public runs", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.ANTHROPIC_API_KEY = "anthropic-deploy-key";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("public-owner@example.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockGetRequestContext.mockReturnValue({ agentRunAnonymous: true });
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("ANTHROPIC_API_KEY")).toBeNull();
+    expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
+      false,
     );
   });
 

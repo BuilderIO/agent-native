@@ -2,12 +2,18 @@
 
 import { readFileSync } from "node:fs";
 
-import type { PromptComposerProps } from "@agent-native/toolkit/composer";
+import {
+  COMPOSER_CONTEXT_MAX_BYTES,
+  type PromptComposerProps,
+} from "@agent-native/toolkit/composer";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { readFailedChatHandoff } from "@/lib/chat-paths";
+import {
+  readFailedChatHandoff,
+  writeFailedChatHandoff,
+} from "@/lib/chat-paths";
 
 const routeState = vi.hoisted(() => ({
   basePath: "",
@@ -535,6 +541,9 @@ describe("ChatRoute AgentKit surface", () => {
           custom: {
             agentNativeRecoveryAction: "retry",
             agentNativeRecoveryOfRunId: "run-one",
+            agentNativeQueueWhileRunning: true,
+            agentNativeQueuedWhileRunActive: false,
+            agentNativeInterruptActiveRun: false,
           },
         },
       },
@@ -547,8 +556,13 @@ describe("ChatRoute AgentKit surface", () => {
         custom: {
           agentNativeRecoveryAction: "retry",
           agentNativeRecoveryOfRunId: "run-one",
+          agentNativeQueueWhileRunning: true,
+          agentNativeQueuedWhileRunActive: false,
+          agentNativeInterruptActiveRun: false,
         },
       },
+      queueWhileRunning: true,
+      queuedWhileRunActive: false,
     });
 
     const messageSlot = (
@@ -717,8 +731,13 @@ describe("ChatRoute AgentKit surface", () => {
         custom: {
           agentNativeRecoveryAction: "retry",
           agentNativeRecoveryOfRunId: "run-one",
+          agentNativeQueueWhileRunning: true,
+          agentNativeQueuedWhileRunActive: false,
+          agentNativeInterruptActiveRun: false,
         },
       },
+      queueWhileRunning: true,
+      queuedWhileRunActive: false,
     });
   });
 
@@ -820,6 +839,11 @@ describe("ChatRoute AgentKit surface", () => {
       contextItems,
       mode: "plan",
       requestMode: "plan",
+      custom: {
+        agentNativeQueueWhileRunning: true,
+        agentNativeQueuedWhileRunActive: true,
+        agentNativeInterruptActiveRun: true,
+      },
     };
     expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
     expect(routeState.sendMessage).toHaveBeenCalledWith({
@@ -1032,7 +1056,14 @@ describe("ChatRoute AgentKit surface", () => {
         id: "user-1",
         role: "user",
         parts: [{ type: "text", text: "Summarize this file" }, attachment],
-        metadata: { references },
+        metadata: {
+          references,
+          custom: {
+            agentNativeQueueWhileRunning: true,
+            agentNativeQueuedWhileRunActive: true,
+            agentNativeInterruptActiveRun: true,
+          },
+        },
       },
     ];
     await act(async () => root.render(<ChatRoute />));
@@ -1095,16 +1126,86 @@ describe("ChatRoute AgentKit surface", () => {
     expect(routeState.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "Summarize this file",
+        queueWhileRunning: true,
+        queuedWhileRunActive: true,
+        interruptActiveRun: true,
         metadata: {
           custom: {
             agentNativeRecoveryAction: "retry",
             agentNativeRecoveryOfRunId: "run-one",
+            agentNativeQueueWhileRunning: true,
+            agentNativeQueuedWhileRunActive: true,
+            agentNativeInterruptActiveRun: true,
           },
         },
       }),
     );
     expect(routeState.sendMessage.mock.calls[0]?.[0]).not.toHaveProperty(
       "attachments",
+    );
+  });
+
+  it("preserves an immediate run when retrying its failure", async () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Run this immediately" }],
+        metadata: {
+          custom: {
+            agentNativeQueueWhileRunning: false,
+            agentNativeQueuedWhileRunActive: false,
+            agentNativeInterruptActiveRun: false,
+          },
+        },
+      },
+    ];
+    await act(async () => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string; details?: unknown };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    await act(async () =>
+      root.render(
+        React.createElement(slots.runFailure, {
+          error: {
+            code: "missing_credentials",
+            message: "Missing credentials",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(routeState.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueWhileRunning: false,
+        queuedWhileRunActive: false,
+        metadata: {
+          custom: expect.objectContaining({
+            agentNativeQueueWhileRunning: false,
+            agentNativeQueuedWhileRunActive: false,
+            agentNativeInterruptActiveRun: false,
+          }),
+        },
+      }),
+    );
+    expect(routeState.sendMessage.mock.calls[0]?.[0]).not.toHaveProperty(
+      "interruptActiveRun",
     );
   });
 
@@ -1161,6 +1262,40 @@ describe("ChatRoute AgentKit surface", () => {
       text: message,
     });
     expect(readFailedChatHandoff("large-prompt-chat")).toEqual({
+      status: "absent",
+    });
+  });
+
+  it("sends context that fits the composer limit when the recovery envelope is too large", async () => {
+    routeState.threadId = "large-context-chat";
+    const contextItems = [
+      {
+        key: "project",
+        title: "Project",
+        context: "界".repeat(21_800),
+      },
+    ];
+    expect(
+      new TextEncoder().encode(JSON.stringify(contextItems)).byteLength,
+    ).toBeLessThanOrEqual(COMPOSER_CONTEXT_MAX_BYTES);
+    expect(
+      writeFailedChatHandoff("large-context-chat", "Use the project context", {
+        contextItems,
+      }),
+    ).toEqual({ status: "invalid", reason: "payload-too-large" });
+    routeState.locationState = {
+      initialMessage: "Use the project context",
+      initialComposerOptions: { contextItems },
+    };
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
+    expect(routeState.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: expect.stringContaining(contextItems[0]!.context),
+      metadata: { contextItems },
+    });
+    expect(readFailedChatHandoff("large-context-chat")).toEqual({
       status: "absent",
     });
   });
