@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -26,6 +34,22 @@ const priorRunUrl =
   "https://github.com/BuilderIO/agent-native/actions/runs/100";
 const artifactUrl = `${runUrl}/artifacts/456`;
 const priorArtifactUrl = `${priorRunUrl}/artifacts/789`;
+
+function workflowStepRun(workflow: string, name: string): string {
+  const start = workflow.indexOf(`      - name: ${name}\n`);
+  assert.notEqual(start, -1, `workflow step ${name} exists`);
+  const end = workflow.indexOf("\n      - ", start + 1);
+  assert.notEqual(end, -1, `workflow step ${name} has a following step`);
+  const step = workflow.slice(start, end);
+  const runMarker = "        run: |\n";
+  const runStart = step.indexOf(runMarker);
+  assert.notEqual(runStart, -1, `workflow step ${name} has a shell script`);
+  return step
+    .slice(runStart + runMarker.length)
+    .split("\n")
+    .map((line) => line.slice(10))
+    .join("\n");
+}
 
 test("legacy signup fallback is allowed only when continuity persistence was skipped", () => {
   assert.equal(
@@ -123,6 +147,124 @@ test("Signup agent workflow invokes a supported continuity CLI command", () => {
     );
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, "true");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Signup agent workflow requires explicit legacy fallback eligibility", () => {
+  const workflow = readFileSync(
+    ".github/workflows/signup-agent-scheduled.yml",
+    "utf8",
+  );
+  assert.match(
+    workflow,
+    /if ! legacy_fallback_allowed="\$\(node --experimental-strip-types scripts\/signup-report-continuity\.ts legacy-fallback-allowed[\s\S]*?--persist-step-name "Persist Signup agent continuity state"\)"; then[\s\S]*?fi\s+if \[ "\$legacy_fallback_allowed" != "true" \]; then[\s\S]*?report_unknown_continuity[\s\S]*?fi\s+legacy_name=/,
+  );
+  assert.match(
+    workflow,
+    /report_unknown_continuity\(\) \{\s+message="\$1"\s+echo "::warning::\$message"\s+echo "\$message" >> "\$GITHUB_STEP_SUMMARY"\s+touch "\$unknown_state_file"\s+exit 0\s+\}/,
+  );
+});
+
+test("Signup agent scheduled lookup failures preserve unknown state and continue", () => {
+  const workflow = readFileSync(
+    ".github/workflows/signup-agent-scheduled.yml",
+    "utf8",
+  );
+  assert.match(
+    workflow,
+    /if ! runs="\$\(gh api "repos\/\$GITHUB_REPOSITORY\/actions\/workflows\/signup-agent-scheduled\.yml\/runs\?branch=main&event=schedule&status=completed&per_page=100"\)"; then[\s\S]*?report_unknown_continuity "Previous Signup agent continuity is unknown because scheduled runs could not be loaded\.[\s\S]*?\n\s+fi/,
+  );
+  assert.match(
+    workflow,
+    /if ! artifacts="\$\(gh api "repos\/\$GITHUB_REPOSITORY\/actions\/runs\/\$previous_id\/artifacts\?per_page=100"\)"; then[\s\S]*?report_unknown_continuity[\s\S]*?\n\s+fi/,
+  );
+  assert.match(
+    workflow,
+    /if ! gh api "repos\/\$GITHUB_REPOSITORY\/actions\/runs\/\$previous_id\/jobs\?per_page=100" > "\$previous_jobs_file"; then[\s\S]*?report_unknown_continuity[\s\S]*?\n\s+fi/,
+  );
+  assert.match(
+    workflow,
+    /if \[ -f \.tmp\/signup-agent-continuity\/previous\/continuity-unknown \]; then\s+continuity_unknown=true\s+fi\s+args\+=\(--continuity-unknown "\$continuity_unknown"\)/,
+  );
+});
+
+test("a scheduled-run API failure keeps continuity unknown and succeeds", () => {
+  const workflow = readFileSync(
+    ".github/workflows/signup-agent-scheduled.yml",
+    "utf8",
+  );
+  const restoreScript = workflowStepRun(
+    workflow,
+    "Restore the previous scheduled report state",
+  );
+  const directory = mkdtempSync(join(tmpdir(), "signup-agent-continuity-"));
+  const scriptsDirectory = join(directory, "scripts");
+  const binDirectory = join(directory, "bin");
+  mkdirSync(scriptsDirectory);
+  mkdirSync(binDirectory);
+  copyFileSync(
+    "scripts/signup-report-continuity.ts",
+    join(scriptsDirectory, "signup-report-continuity.ts"),
+  );
+
+  const restorePath = join(directory, "restore.sh");
+  const ghPath = join(binDirectory, "gh");
+  const callsPath = join(directory, "gh-calls.txt");
+  const outputPath = join(directory, "github-output.txt");
+  const summaryPath = join(directory, "step-summary.md");
+  writeFileSync(restorePath, restoreScript);
+  writeFileSync(
+    ghPath,
+    '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$GH_CALLS"\nexit 1\n',
+  );
+  chmodSync(ghPath, 0o755);
+
+  try {
+    const result = spawnSync("bash", [restorePath], {
+      cwd: directory,
+      env: {
+        ...process.env,
+        PATH: `${binDirectory}:${process.env.PATH ?? ""}`,
+        GITHUB_EVENT_NAME: "schedule",
+        GITHUB_RUN_ATTEMPT: "1",
+        GITHUB_RUN_ID: "123",
+        GITHUB_REPOSITORY: "BuilderIO/agent-native",
+        GITHUB_SERVER_URL: "https://github.com",
+        GITHUB_OUTPUT: outputPath,
+        GITHUB_STEP_SUMMARY: summaryPath,
+        GH_CALLS: callsPath,
+      },
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      readFileSync(summaryPath, "utf8"),
+      /continuity is unknown because scheduled runs could not be loaded/,
+    );
+    assert.equal(
+      readFileSync(
+        join(
+          directory,
+          ".tmp/signup-agent-continuity/previous/continuity-unknown",
+        ),
+        "utf8",
+      ),
+      "",
+    );
+    assert.equal(
+      readFileSync(
+        join(directory, ".tmp/signup-agent-continuity/previous/state.json"),
+        "utf8",
+      ),
+      `${JSON.stringify(initialSignupAgentReportState(), null, 2)}\n`,
+    );
+    assert.equal(
+      readFileSync(callsPath, "utf8"),
+      "api repos/BuilderIO/agent-native/actions/workflows/signup-agent-scheduled.yml/runs?branch=main&event=schedule&status=completed&per_page=100\n",
+    );
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

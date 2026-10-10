@@ -68,15 +68,26 @@ jobs:
           state_dir=.tmp/signup-agent-continuity
           previous_dir="$state_dir/previous"
           downloaded_dir="$previous_dir/downloaded"
+          unknown_state_file="$previous_dir/continuity-unknown"
           mkdir -p "$previous_dir"
           previous_state="$previous_dir/state.json"
           node --experimental-strip-types scripts/signup-report-continuity.ts init-agent --out-file "$previous_state"
           echo "path=$previous_state" >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_EVENT_NAME" != "schedule" ]; then exit 0; fi
 
+          report_unknown_continuity() {
+            message="$1"
+            echo "::warning::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+            touch "$unknown_state_file"
+            exit 0
+          }
+
           prefix="signup-agent-continuity-"
           if [ "$GITHUB_RUN_ATTEMPT" -gt 1 ]; then
-            same_run_artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100")"
+            if ! same_run_artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100")"; then
+              report_unknown_continuity "Previous Signup agent continuity is unknown because the rerun artifact list could not be loaded."
+            fi
             previous_name="$(jq -r --arg name "${prefix}${GITHUB_RUN_ID}-$((GITHUB_RUN_ATTEMPT - 1))" '[.artifacts[] | select(.name == $name and (.expired | not))] | last | .name // empty' <<< "$same_run_artifacts")"
             if [ -n "$previous_name" ]; then
               gh run download "$GITHUB_RUN_ID" --name "$previous_name" --dir "$downloaded_dir" --repo "$GITHUB_REPOSITORY"
@@ -90,13 +101,17 @@ jobs:
             exit 1
           fi
 
-          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/signup-agent-scheduled.yml/runs?branch=main&event=schedule&status=completed&per_page=100")"
+          if ! runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/signup-agent-scheduled.yml/runs?branch=main&event=schedule&status=completed&per_page=100")"; then
+            report_unknown_continuity "Previous Signup agent continuity is unknown because scheduled runs could not be loaded. Continuing this review without prior state."
+          fi
           previous_run="$(jq -c --arg current "$GITHUB_RUN_ID" '[.workflow_runs[] | select((.id | tostring) != $current)][0] // empty' <<< "$runs")"
           if [ -z "$previous_run" ]; then exit 0; fi
           previous_id="$(jq -r '.id' <<< "$previous_run")"
           previous_conclusion="$(jq -r '.conclusion // "unknown"' <<< "$previous_run")"
           previous_run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$previous_id"
-          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/artifacts?per_page=100")"
+          if ! artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/artifacts?per_page=100")"; then
+            report_unknown_continuity "Previous Signup agent continuity is unknown because the prior run artifact list could not be loaded. Continuing this review without prior state."
+          fi
           previous_name="$(jq -r --arg prefix "$prefix$previous_id-" '[.artifacts[] | select((.name | startswith($prefix)) and (.expired | not))] | sort_by(.created_at) | last | .name // empty' <<< "$artifacts")"
           if [ -n "$previous_name" ]; then
             gh run download "$previous_id" --name "$previous_name" --dir "$downloaded_dir" --repo "$GITHUB_REPOSITORY"
@@ -108,10 +123,17 @@ jobs:
           fi
 
           previous_jobs_file="$previous_dir/jobs.json"
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/jobs?per_page=100" > "$previous_jobs_file"
-          node --experimental-strip-types scripts/signup-report-continuity.ts legacy-fallback-allowed \
+          if ! gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/jobs?per_page=100" > "$previous_jobs_file"; then
+            report_unknown_continuity "Previous Signup agent continuity is unknown because the prior run jobs could not be loaded. Continuing this review without legacy state."
+          fi
+          if ! legacy_fallback_allowed="$(node --experimental-strip-types scripts/signup-report-continuity.ts legacy-fallback-allowed \
             --jobs-file "$previous_jobs_file" \
-            --persist-step-name "Persist Signup agent continuity state"
+            --persist-step-name "Persist Signup agent continuity state")"; then
+            report_unknown_continuity "Previous Signup agent continuity is unknown because legacy fallback eligibility could not be checked. Continuing this review without legacy state."
+          fi
+          if [ "$legacy_fallback_allowed" != "true" ]; then
+            report_unknown_continuity "Previous Signup agent continuity is unknown; legacy state was not restored because fallback was not explicitly allowed. Continuing this review without prior state."
+          fi
 
           legacy_name="$(jq -r --arg name "signup-agent-$previous_id" '[.artifacts[] | select(.name == $name and (.expired | not))] | last | .name // empty' <<< "$artifacts")"
           legacy_id="$(jq -r --arg name "signup-agent-$previous_id" '[.artifacts[] | select(.name == $name and (.expired | not))] | last | .id // empty' <<< "$artifacts")"
@@ -250,6 +272,11 @@ jobs:
             --out-dir .tmp/signup-agent
             --incomplete "$REPORT_INCOMPLETE"
           )
+          continuity_unknown=false
+          if [ -f .tmp/signup-agent-continuity/previous/continuity-unknown ]; then
+            continuity_unknown=true
+          fi
+          args+=(--continuity-unknown "$continuity_unknown")
           if [ -n "$ARTIFACT_URL" ]; then args+=(--artifact-url "$ARTIFACT_URL"); fi
           node --experimental-strip-types scripts/signup-agent-rollup.ts "${args[@]}"
           jq -n --arg channel "$SLACK_CHANNEL" --rawfile text .tmp/signup-agent/signup-agent-slack.txt \
