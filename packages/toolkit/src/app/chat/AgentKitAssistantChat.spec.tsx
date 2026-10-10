@@ -13,6 +13,7 @@ import type {
 import { compareAndSetClientAppState } from "@agent-native/core/client/application-state";
 import React, { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
@@ -8457,6 +8458,7 @@ describe("AgentKitAssistantChat host behavior", () => {
   it("bounds retries when a snapshot cannot be saved", async () => {
     const createTransport = () => chatMocks.transport;
     const onSaveThread = vi.fn().mockResolvedValue(false);
+    const toastError = vi.spyOn(toast, "error").mockImplementation(() => "");
     await mount(baseProps({ createTransport, onSaveThread }));
 
     vi.useFakeTimers();
@@ -8493,15 +8495,19 @@ describe("AgentKitAssistantChat host behavior", () => {
         await vi.advanceTimersByTimeAsync(4_000);
       });
       expect(onSaveThread).toHaveBeenCalledTimes(4);
+      expect(toastError).toHaveBeenCalledOnce();
+      expect(toastError).toHaveBeenCalledWith("agentChat.common.saveFailed");
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(20_000);
       });
       expect(onSaveThread).toHaveBeenCalledTimes(4);
       await act(async () => root.render(null));
-      expect(onSaveThread).toHaveBeenCalledTimes(4);
+      expect(onSaveThread).toHaveBeenCalledTimes(5);
+      expect(toastError).toHaveBeenCalledOnce();
     } finally {
       await act(async () => root.render(null));
+      toastError.mockRestore();
       vi.useRealTimers();
     }
   });

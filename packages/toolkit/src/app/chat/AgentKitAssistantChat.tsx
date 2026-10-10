@@ -132,6 +132,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 
 import {
   AgentKitChat,
@@ -2340,7 +2341,13 @@ const AgentKitAssistantChatBody = forwardRef<
         latestThreadSnapshotGenerations.set(persistenceKey, generation);
       }
       const retry = threadSaveRetryRef.current;
-      if (retry.exhausted && retry.threadData === snapshot.threadData) return;
+      if (
+        retry.exhausted &&
+        retry.threadData === snapshot.threadData &&
+        !isUnmountingRef.current
+      ) {
+        return;
+      }
       if (retryThreadSaveTimerRef.current !== null) return;
       if (snapshot.threadData === lastSavedThreadDataRef.current) {
         return;
@@ -2409,14 +2416,14 @@ const AgentKitAssistantChatBody = forwardRef<
           latestThreadSnapshotGenerations.delete(persistenceKey);
         } else if (
           !saved &&
-          !isUnmountingRef.current &&
           latestThreadDataRef.current === snapshot.threadData &&
           threadSaveRetryRef.current.threadData === snapshot.threadData &&
           retryThreadSaveTimerRef.current === null
         ) {
           if (
+            !isUnmountingRef.current &&
             threadSaveRetryRef.current.retries <
-            MAX_THREAD_SNAPSHOT_SAVE_RETRIES
+              MAX_THREAD_SNAPSHOT_SAVE_RETRIES
           ) {
             threadSaveRetryRef.current.retries += 1;
             retryThreadSaveTimerRef.current = window.setTimeout(
@@ -2434,8 +2441,10 @@ const AgentKitAssistantChatBody = forwardRef<
                 2 ** (threadSaveRetryRef.current.retries - 1),
             );
           } else {
+            const wasExhausted = threadSaveRetryRef.current.exhausted;
             threadSaveRetryRef.current.exhausted = true;
             latestThreadSnapshotGenerations.delete(persistenceKey);
+            if (!wasExhausted) toast.error(t("agentChat.common.saveFailed"));
           }
         }
       };
@@ -2508,6 +2517,7 @@ const AgentKitAssistantChatBody = forwardRef<
       props.createTransport,
       props.onSaveThread,
       props.onThreadSnapshotPersisted,
+      t,
       threadId,
     ],
   );
