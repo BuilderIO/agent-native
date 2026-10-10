@@ -21,6 +21,7 @@ import {
 
 export type OnboardingJourneyCostFailureCode =
   | "unsupported_backend"
+  | "preparation_failed"
   | "dry_run_failed"
   | "dry_run_timeout"
   | "estimate_unavailable";
@@ -51,11 +52,21 @@ export async function estimateOnboardingJourneyEventQueryCost(
   freezeReceivedAt: boolean,
   signal?: AbortSignal,
 ): Promise<OnboardingJourneyCostEstimate> {
-  const backend = await getFirstPartyAnalyticsBackend(scope, signal);
+  let backend: Awaited<ReturnType<typeof getFirstPartyAnalyticsBackend>>;
+  try {
+    backend = await getFirstPartyAnalyticsBackend(scope, signal);
+  } catch (error) {
+    throwPreparationFailure(error, signal);
+  }
   if (backend.sink !== "bigquery") {
     throw new OnboardingJourneyCostError("unsupported_backend");
   }
-  const table = await getFirstPartyAnalyticsTable(backend.table, signal);
+  let table: Awaited<ReturnType<typeof getFirstPartyAnalyticsTable>>;
+  try {
+    table = await getFirstPartyAnalyticsTable(backend.table, signal);
+  } catch (error) {
+    throwPreparationFailure(error, signal);
+  }
   const pageOffsets = Array.from(
     { length: MAX_ONBOARDING_EVENT_READ_PAGES },
     (_unused, index) => index * ONBOARDING_EVENT_PAGE_ROWS,
@@ -64,20 +75,25 @@ export async function estimateOnboardingJourneyEventQueryCost(
 
   for (const [index, offset] of pageOffsets.entries()) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    const request = buildOnboardingJourneyEventPageRequest(
-      filters,
-      maxEventRows,
-      offset,
-      observation,
-      freezeReceivedAt,
-    );
-    const scoped = scopedAnalyticsSql(request.sql, scope);
-    const renderedSql = renderFirstPartyAnalyticsBigQueryRequestSql(
-      scoped.sql,
-      scoped.args,
-      table,
-      { eventDateRange: request.eventDateRange },
-    );
+    let renderedSql: string;
+    try {
+      const request = buildOnboardingJourneyEventPageRequest(
+        filters,
+        maxEventRows,
+        offset,
+        observation,
+        freezeReceivedAt,
+      );
+      const scoped = scopedAnalyticsSql(request.sql, scope);
+      renderedSql = renderFirstPartyAnalyticsBigQueryRequestSql(
+        scoped.sql,
+        scoped.args,
+        table,
+        { eventDateRange: request.eventDateRange },
+      );
+    } catch (error) {
+      throwPreparationFailure(error, signal);
+    }
     let dryRun: Awaited<ReturnType<typeof dryRunQuerySchema>>;
     try {
       dryRun = await dryRunQuerySchema(renderedSql, { signal });
@@ -127,4 +143,14 @@ export async function estimateOnboardingJourneyEventQueryCost(
     possiblePagesEstimatedBytes,
     pages,
   };
+}
+
+function throwPreparationFailure(error: unknown, signal?: AbortSignal): never {
+  if (
+    signal?.aborted ||
+    (error instanceof Error && error.name === "AbortError")
+  ) {
+    throw error;
+  }
+  throw new OnboardingJourneyCostError("preparation_failed");
 }

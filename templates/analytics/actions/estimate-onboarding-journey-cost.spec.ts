@@ -61,8 +61,8 @@ describe("estimate-onboarding-journey-cost action", () => {
     expect(mocks.estimate).not.toHaveBeenCalled();
   });
 
-  it("sanitizes unexpected provider details from action failures", async () => {
-    const privateDetail = "private provider error containing SQL and IDs";
+  it("sanitizes unexpected preparation failures", async () => {
+    const privateDetail = "private setup error containing SQL and IDs";
     mocks.estimate.mockRejectedValueOnce(new Error(privateDetail));
     const signal = new AbortController().signal;
 
@@ -74,10 +74,13 @@ describe("estimate-onboarding-journey-cost action", () => {
     }
 
     expect(failure).toMatchObject({
-      errorCode: "onboarding_journey_cost_dry_run_failed",
+      errorCode: "onboarding_journey_cost_preparation_failed",
       statusCode: 502,
     });
     expect((failure as Error).message).not.toContain(privateDetail);
+    expect((failure as Error).message).not.toContain(
+      "BigQuery could not estimate",
+    );
     expect(mocks.estimate).toHaveBeenCalledWith(
       { userEmail: "caller@example.test", orgId: "org-1" },
       {
@@ -94,6 +97,37 @@ describe("estimate-onboarding-journey-cost action", () => {
       false,
       signal,
     );
+  });
+
+  it("classifies observation-window preparation errors before the dry-run", async () => {
+    const privateDetail = "private watermark validation detail";
+    mocks.freezeObservation.mockImplementationOnce(() => {
+      throw new Error(privateDetail);
+    });
+
+    await expect(action.run(args)).rejects.toMatchObject({
+      errorCode: "onboarding_journey_cost_preparation_failed",
+      statusCode: 502,
+    });
+    expect(mocks.estimate).not.toHaveBeenCalled();
+    expect(mocks.freezeObservation).toHaveBeenCalledOnce();
+  });
+
+  it("preserves the BigQuery dry-run failure category", async () => {
+    mocks.estimate.mockRejectedValueOnce(new mocks.CostError("dry_run_failed"));
+
+    let failure: unknown;
+    try {
+      await action.run(args);
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toMatchObject({
+      errorCode: "onboarding_journey_cost_dry_run_failed",
+      statusCode: 502,
+    });
+    expect((failure as Error).message).toContain("BigQuery could not estimate");
   });
 
   it("maps typed missing-estimate failures without exposing internals", async () => {

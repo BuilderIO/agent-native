@@ -151,6 +151,62 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
     expect((failure as Error).message).not.toContain(privateProviderError);
   });
 
+  it.each([
+    [
+      "backend lookup",
+      () =>
+        mocks.getFirstPartyAnalyticsBackend.mockRejectedValueOnce(
+          new Error("private backend detail"),
+        ),
+    ],
+    [
+      "table lookup",
+      () =>
+        mocks.getFirstPartyAnalyticsTable.mockRejectedValueOnce(
+          new Error("private table detail"),
+        ),
+    ],
+    [
+      "scope preparation",
+      () =>
+        mocks.scopedAnalyticsSql.mockImplementationOnce(() => {
+          throw new Error("private scope detail");
+        }),
+    ],
+    [
+      "SQL rendering",
+      () =>
+        mocks.renderFirstPartyAnalyticsBigQueryRequestSql.mockImplementationOnce(
+          () => {
+            throw new Error("private render detail");
+          },
+        ),
+    ],
+  ] as const)(
+    "classifies %s errors as estimate preparation failures",
+    async (_label, failAt) => {
+      failAt();
+
+      let failure: unknown;
+      try {
+        await estimateOnboardingJourneyEventQueryCost(
+          scope,
+          filters,
+          1_000,
+          observation,
+          false,
+        );
+      } catch (error) {
+        failure = error;
+      }
+
+      expect(failure).toBeInstanceOf(OnboardingJourneyCostError);
+      expect(failure).toMatchObject({ code: "preparation_failed" });
+      expect((failure as Error).message).not.toContain("private");
+      expect(mocks.dryRunQuerySchema).not.toHaveBeenCalled();
+    },
+  );
+
   it("fails closed for non-BigQuery backends", async () => {
     mocks.getFirstPartyAnalyticsBackend.mockResolvedValueOnce({
       sink: "postgres",

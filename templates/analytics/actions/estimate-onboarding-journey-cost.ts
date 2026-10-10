@@ -113,7 +113,7 @@ export default defineAction({
       const code =
         error instanceof OnboardingJourneyCostError
           ? error.code
-          : "dry_run_failed";
+          : "preparation_failed";
       const messages: Record<
         typeof code,
         { message: string; statusCode: number }
@@ -122,6 +122,11 @@ export default defineAction({
           message:
             "A BigQuery event-page estimate is unavailable for this Analytics backend.",
           statusCode: 409,
+        },
+        preparation_failed: {
+          message:
+            "The scoped onboarding event-page estimate could not be prepared. No event rows were read.",
+          statusCode: 502,
         },
         dry_run_failed: {
           message:
