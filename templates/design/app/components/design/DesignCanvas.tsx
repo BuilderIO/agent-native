@@ -3723,6 +3723,13 @@ export function DesignCanvas({
             return;
           }
         } else {
+          if (
+            e.data.routePath !== undefined &&
+            e.data.routePath !== null &&
+            typeof e.data.routePath !== "string"
+          ) {
+            return;
+          }
           if (typeof e.data.routePath === "string" && e.data.routePath) {
             const routeIdentity = liveEditDocumentIdentityForRoute(
               externalPreviewUrlRef.current,

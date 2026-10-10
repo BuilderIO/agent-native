@@ -977,6 +977,23 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         new MessageEvent("message", {
           data: {
             type: "agent-native:editor-chrome-ready",
+            routePath: { malformed: true },
+            documentId: "document-settings",
+          },
+          origin: bridgeUrl,
+          source: liveIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(onBootReady).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Preparing live editor");
+    expect(liveIframe?.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
             routePath: "/account",
             documentId: "document-account",
           },
