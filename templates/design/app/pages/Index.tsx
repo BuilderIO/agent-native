@@ -380,18 +380,29 @@ export default function Index() {
       enabled: quickActionsEnabled && homeSuggestionsSnapshot === null,
       retry: false,
       staleTime: 0,
-      refetchOnMount: false,
-      refetchOnWindowFocus: true,
-      refetchOnReconnect: true,
+      refetchOnMount: true,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
     },
   );
   useEffect(() => {
-    if (homeSuggestionsSnapshot !== null) return;
+    if (
+      homeSuggestionsSnapshot !== null ||
+      homeSuggestionsQuery.isFetching ||
+      homeSuggestionsQuery.isError
+    ) {
+      return;
+    }
     const result = homeSuggestionsQuery.data;
     if (result?.status === "ready" && result.suggestions.length === 3) {
       setHomeSuggestionsSnapshot(result.suggestions);
     }
-  }, [homeSuggestionsQuery.data, homeSuggestionsSnapshot]);
+  }, [
+    homeSuggestionsQuery.data,
+    homeSuggestionsQuery.isError,
+    homeSuggestionsQuery.isFetching,
+    homeSuggestionsSnapshot,
+  ]);
   const homeSuggestionsUnavailable =
     agentEngine.state === "unavailable" ||
     homeSuggestionsQuery.isError ||

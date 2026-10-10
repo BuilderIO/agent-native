@@ -203,7 +203,7 @@ export default defineAction({
         appId: "design",
         systemPrompt: SYSTEM_PROMPT,
         input: roleContext(profile.onboardingRole),
-        maxOutputTokens: 800,
+        maxOutputTokens: 2_000,
         temperature: 0.7,
         timeoutMs: HOME_SUGGESTIONS_TIMEOUT_MS,
       });

@@ -357,12 +357,12 @@ describe("generate-home-suggestions", () => {
     });
   });
 
-  it("leaves room for three full-length suggestions", async () => {
+  it("leaves room for ten full-length suggestions", async () => {
     await action.run({}, { userEmail: "user@example.test" } as never);
 
     expect(
       mocks.completeText.mock.calls[0]?.[0].maxOutputTokens,
-    ).toBeGreaterThanOrEqual(600);
+    ).toBeGreaterThanOrEqual(1_600);
   });
 
   it("preserves unrelated provider failures", async () => {
