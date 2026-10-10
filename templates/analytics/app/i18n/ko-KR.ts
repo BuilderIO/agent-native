@@ -706,6 +706,8 @@ export default {
     endpoint: "엔드포인트",
     serverEnv: "서버 환경",
     browserEnv: "브라우저 환경",
+    firstPartySdkAutoCapture:
+      "공개 키를 설정하면 브라우저 SDK가 잡히지 않은 예외와 처리되지 않은 Promise 거부를 자동으로 수집하고, Sentry 스타일의 captureException() / captureMessage() API를 제공합니다. 오류는 Monitoring → Errors 아래에서 이슈로 묶이고, 각 오류가 발생한 세션 리플레이와 연결됩니다.",
     keyNamePlaceholder: "키 이름",
     generating: "생성 중...",
     generateKey: "키 생성",
@@ -1835,8 +1837,10 @@ export default {
     finalizedClosed: "열려 있던 내보내기 풀 리퀘스트가 닫혔습니다.",
     skippedHeading: "건너뛴 대시보드",
     skippedItem: "{{title}}: {{reason}}",
+  },
   semanticLayer: {
     addDefinition: "정의 추가",
+    adminOnlyNote: "조직 관리자만 정의를 변경할 수 있습니다.",
     definitionsSection: "정의",
     edit: "편집",
     editNamed: "{{name}} 편집",

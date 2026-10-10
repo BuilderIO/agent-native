@@ -677,6 +677,8 @@ export default {
     endpoint: "端点",
     serverEnv: "服务器环境",
     browserEnv: "浏览器环境",
+    firstPartySdkAutoCapture:
+      "设置公钥后，浏览器 SDK 会自动捕获未捕获的异常和未处理的 Promise 拒绝，并提供类似 Sentry 的 captureException() / captureMessage() API。错误会归入问题并显示在 Monitoring → Errors 中，同时关联到发生该错误时的会话回放。",
     keyNamePlaceholder: "按键名称",
     generating: "生成...",
     generateKey: "生成密钥",
@@ -1758,8 +1760,10 @@ export default {
     finalizedClosed: "已打开的导出拉取请求已关闭。",
     skippedHeading: "已跳过的仪表板",
     skippedItem: "{{title}}：{{reason}}",
+  },
   semanticLayer: {
     addDefinition: "添加定义",
+    adminOnlyNote: "只有组织管理员可以修改定义。",
     definitionsSection: "定义",
     edit: "编辑",
     editNamed: "编辑 {{name}}",

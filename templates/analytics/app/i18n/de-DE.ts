@@ -734,6 +734,8 @@ export default {
     endpoint: "Endpunkt",
     serverEnv: "Serverumgebung",
     browserEnv: "Browserumgebung",
+    firstPartySdkAutoCapture:
+      "Sobald ein Public Key gesetzt ist, erfasst das Browser-SDK automatisch nicht abgefangene Ausnahmen und unbehandelte Promise-Ablehnungen und stellt eine Sentry-ähnliche API mit captureException() / captureMessage() bereit. Fehler werden unter Monitoring → Errors zu Issues gruppiert und mit dem Session Replay verknüpft, in dem sie aufgetreten sind.",
     keyNamePlaceholder: "Schlüsselname",
     generating: "Generieren...",
     generateKey: "Schlüssel generieren",
@@ -1908,8 +1910,11 @@ export default {
     finalizedClosed: "Der offene Export-Pull-Request wurde geschlossen.",
     skippedHeading: "Übersprungene Dashboards",
     skippedItem: "{{title}}: {{reason}}",
+  },
   semanticLayer: {
     addDefinition: "Definition hinzufügen",
+    adminOnlyNote:
+      "Nur Organisationsadministratoren können Definitionen ändern.",
     definitionsSection: "Definitionen",
     edit: "Bearbeiten",
     editNamed: "{{name}} bearbeiten",

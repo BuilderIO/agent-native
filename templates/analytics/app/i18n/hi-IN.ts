@@ -699,6 +699,8 @@ export default {
     endpoint: "endpoint",
     serverEnv: "सर्वर एन.वी",
     browserEnv: "ब्राउज़र env",
+    firstPartySdkAutoCapture:
+      "सार्वजनिक कुंजी (public key) सेट होने के बाद, ब्राउज़र SDK अपने-आप अनकैप्चर्ड अपवाद और बिना हैंडल किए गए promise रिजेक्शन कैप्चर करता है, और Sentry-जैसा captureException() / captureMessage() API देता है। एरर Monitoring → Errors के तहत issues में समूहित होते हैं और जिस सेशन रीप्ले में वे हुए थे उससे लिंक होते हैं।",
     keyNamePlaceholder: "कुंजी का नाम",
     generating: "उत्पन्न हो रहा है...",
     generateKey: "कुंजी जनरेट करें",
@@ -1813,8 +1815,10 @@ export default {
     finalizedClosed: "खुली एक्सपोर्ट पुल रिक्वेस्ट बंद कर दी गई।",
     skippedHeading: "छोड़े गए डैशबोर्ड",
     skippedItem: "{{title}}: {{reason}}",
+  },
   semanticLayer: {
     addDefinition: "परिभाषा जोड़ें",
+    adminOnlyNote: "केवल संगठन के एडमिन परिभाषाएँ बदल सकते हैं।",
     definitionsSection: "परिभाषाएँ",
     edit: "संपादित करें",
     editNamed: "{{name}} संपादित करें",

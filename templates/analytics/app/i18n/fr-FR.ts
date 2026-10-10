@@ -735,6 +735,8 @@ export default {
     endpoint: "Point de terminaison",
     serverEnv: "Environnement du serveur",
     browserEnv: "Environnement du navigateur",
+    firstPartySdkAutoCapture:
+      "Une fois une clé publique définie, le SDK du navigateur capture automatiquement les exceptions non interceptées et les rejets de promesses non gérés, et expose une API de style Sentry avec captureException() / captureMessage(). Les erreurs sont regroupées en problèmes sous Monitoring → Errors et liées au replay de session où chacune s'est produite.",
     keyNamePlaceholder: "Nom de la clé",
     generating: "Générateur...",
     generateKey: "Générer une clé",
@@ -1909,8 +1911,11 @@ export default {
     finalizedClosed: "La pull request d’export ouverte a été fermée.",
     skippedHeading: "Tableaux de bord ignorés",
     skippedItem: "{{title}} : {{reason}}",
+  },
   semanticLayer: {
     addDefinition: "Ajouter une définition",
+    adminOnlyNote:
+      "Seuls les administrateurs de l'organisation peuvent modifier les définitions.",
     definitionsSection: "Définitions",
     edit: "Modifier",
     editNamed: "Modifier {{name}}",

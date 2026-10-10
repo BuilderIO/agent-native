@@ -718,6 +718,8 @@ export default {
     endpoint: "終点",
     serverEnv: "サーバー環境",
     browserEnv: "ブラウザ環境",
+    firstPartySdkAutoCapture:
+      "公開キーを設定すると、ブラウザ SDK は未キャッチの例外と未処理の Promise の拒否を自動的に取得し、Sentry 形式の captureException() / captureMessage() API を提供します。エラーは Monitoring → Errors の下で課題にまとめられ、発生したセッションのリプレイにリンクされます。",
     keyNamePlaceholder: "キー名",
     generating: "生成中...",
     generateKey: "キーの生成",
@@ -1880,8 +1882,10 @@ export default {
       "開いていたエクスポートのプルリクエストはクローズされました。",
     skippedHeading: "スキップしたダッシュボード",
     skippedItem: "{{title}}: {{reason}}",
+  },
   semanticLayer: {
     addDefinition: "定義を追加",
+    adminOnlyNote: "組織の管理者のみが定義を変更できます。",
     definitionsSection: "定義",
     edit: "編集",
     editNamed: "{{name}} を編集",

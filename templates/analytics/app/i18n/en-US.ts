@@ -1162,6 +1162,8 @@ export default {
     endpoint: "Endpoint",
     serverEnv: "Server env",
     browserEnv: "Browser env",
+    firstPartySdkAutoCapture:
+      "Once a public key is set, the browser SDK automatically captures uncaught exceptions and unhandled promise rejections, and exposes a Sentry-style captureException() / captureMessage() API. Errors are grouped into issues under Monitoring → Errors and linked to the session replay where each one happened.",
     keyNamePlaceholder: "Key name",
     generating: "Generating...",
     generateKey: "Generate Key",
@@ -1833,8 +1835,10 @@ export default {
     finalizedClosed: "The open export pull request was closed.",
     skippedHeading: "Skipped dashboards",
     skippedItem: "{{title}}: {{reason}}",
+  },
   semanticLayer: {
     addDefinition: "Add definition",
+    adminOnlyNote: "Only organization admins can change definitions.",
     definitionsSection: "Definitions",
     edit: "Edit",
     editNamed: "Edit {{name}}",

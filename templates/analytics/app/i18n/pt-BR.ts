@@ -722,6 +722,8 @@ export default {
     endpoint: "Ponto final",
     serverEnv: "Ambiente do servidor",
     browserEnv: "Ambiente do navegador",
+    firstPartySdkAutoCapture:
+      "Depois que uma chave pública é definida, o SDK do navegador captura automaticamente exceções não tratadas e rejeições de promessas não tratadas, e expõe uma API no estilo Sentry com captureException() / captureMessage(). Os erros são agrupados em problemas em Monitoring → Errors e vinculados ao replay da sessão em que cada um ocorreu.",
     keyNamePlaceholder: "Nome da chave",
     generating: "Gerando...",
     generateKey: "Gerar chave",
@@ -1883,8 +1885,11 @@ export default {
     finalizedClosed: "A pull request de exportação aberta foi fechada.",
     skippedHeading: "Dashboards ignorados",
     skippedItem: "{{title}}: {{reason}}",
+  },
   semanticLayer: {
     addDefinition: "Adicionar definição",
+    adminOnlyNote:
+      "Somente administradores da organização podem alterar as definições.",
     definitionsSection: "Definições",
     edit: "Editar",
     editNamed: "Editar {{name}}",

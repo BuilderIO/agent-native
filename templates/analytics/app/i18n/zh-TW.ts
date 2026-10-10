@@ -674,6 +674,8 @@ export default {
     endpoint: "端點",
     serverEnv: "伺服器環境",
     browserEnv: "瀏覽器環境",
+    firstPartySdkAutoCapture:
+      "設定公開金鑰後，瀏覽器 SDK 會自動擷取未捕捉的例外與未處理的 Promise 拒絕，並提供類似 Sentry 的 captureException() / captureMessage() API。錯誤會依問題分組，並顯示在「監控 → 錯誤」中，同時連結到錯誤發生時的工作階段重播。",
     keyNamePlaceholder: "按鍵名稱",
     generating: "生成...",
     generateKey: "生成金鑰",
@@ -1754,8 +1756,10 @@ export default {
     finalizedClosed: "已開啟的匯出拉取請求已關閉。",
     skippedHeading: "已略過的儀表板",
     skippedItem: "{{title}}：{{reason}}",
+  },
   semanticLayer: {
     addDefinition: "新增定義",
+    adminOnlyNote: "只有組織管理員可以修改定義。",
     definitionsSection: "定義",
     edit: "編輯",
     editNamed: "編輯 {{name}}",

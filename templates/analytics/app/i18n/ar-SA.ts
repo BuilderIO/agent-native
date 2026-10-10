@@ -706,6 +706,8 @@ export default {
     endpoint: "نقطة النهاية",
     serverEnv: "بيئة الخادم",
     browserEnv: "بيئة المتصفح",
+    firstPartySdkAutoCapture:
+      "بعد تعيين مفتاح عام، يلتقط SDK المتصفح تلقائياً الاستثناءات غير المعالجة ورفض الوعود غير المعالجة، ويوفر واجهة برمجة تطبيقات على غرار Sentry باسم captureException() / captureMessage(). تُجمَّع الأخطاء في مشكلات ضمن Monitoring → Errors وتُربط بإعادة تشغيل الجلسة التي حدث فيها كل خطأ.",
     keyNamePlaceholder: "اسم المفتاح",
     generating: "جارٍ الإنشاء...",
     generateKey: "توليد المفتاح",
@@ -1831,8 +1833,10 @@ export default {
     finalizedClosed: "تم إغلاق طلب سحب التصدير المفتوح.",
     skippedHeading: "لوحات معلومات تم تخطيها",
     skippedItem: "{{title}}: {{reason}}",
+  },
   semanticLayer: {
     addDefinition: "إضافة تعريف",
+    adminOnlyNote: "يمكن لمسؤولي المؤسسة فقط تغيير التعريفات.",
     definitionsSection: "التعريفات",
     edit: "تعديل",
     editNamed: "تعديل {{name}}",
