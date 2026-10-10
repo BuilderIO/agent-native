@@ -1,4 +1,7 @@
-import { dryRunQuerySchema } from "./bigquery.js";
+import {
+  BigQueryDryRunPreparationError,
+  dryRunQuerySchema,
+} from "./bigquery.js";
 import {
   getFirstPartyAnalyticsBackend,
   getFirstPartyAnalyticsTable,
@@ -96,7 +99,10 @@ export async function estimateOnboardingJourneyEventQueryCost(
     }
     let dryRun: Awaited<ReturnType<typeof dryRunQuerySchema>>;
     try {
-      dryRun = await dryRunQuerySchema(renderedSql, { signal });
+      dryRun = await dryRunQuerySchema(renderedSql, {
+        signal,
+        wrapPreparationErrors: true,
+      });
     } catch (error) {
       if (
         signal?.aborted ||
@@ -104,7 +110,11 @@ export async function estimateOnboardingJourneyEventQueryCost(
       ) {
         throw error;
       }
-      throw new OnboardingJourneyCostError("dry_run_failed");
+      throw new OnboardingJourneyCostError(
+        error instanceof BigQueryDryRunPreparationError
+          ? "preparation_failed"
+          : "dry_run_failed",
+      );
     }
     if (dryRun.error !== null) {
       throw new OnboardingJourneyCostError(

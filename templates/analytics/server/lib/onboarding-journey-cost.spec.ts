@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   dryRunQuerySchema: vi.fn(),
+  BigQueryDryRunPreparationError: class BigQueryDryRunPreparationError extends Error {
+    constructor() {
+      super("BigQuery dry-run request preparation failed");
+      this.name = "BigQueryDryRunPreparationError";
+    }
+  },
   getFirstPartyAnalyticsBackend: vi.fn(),
   getFirstPartyAnalyticsTable: vi.fn(),
   renderFirstPartyAnalyticsBigQueryRequestSql: vi.fn(),
@@ -10,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./bigquery.js", () => ({
   dryRunQuerySchema: mocks.dryRunQuerySchema,
+  BigQueryDryRunPreparationError: mocks.BigQueryDryRunPreparationError,
 }));
 
 vi.mock("./first-party-analytics-backend.js", () => ({
@@ -96,7 +103,7 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
     expect(mocks.dryRunQuerySchema).toHaveBeenNthCalledWith(
       1,
       "private rendered SQL",
-      { signal },
+      { signal, wrapPreparationErrors: true },
     );
     expect(mocks.scopedAnalyticsSql).toHaveBeenCalledWith(
       expect.stringContaining("LIMIT 4000 OFFSET 0"),
@@ -149,6 +156,45 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
     expect(failure).toBeInstanceOf(OnboardingJourneyCostError);
     expect(failure).toMatchObject({ code: "dry_run_failed" });
     expect((failure as Error).message).not.toContain(privateProviderError);
+  });
+
+  it("classifies thrown BigQuery preparation errors separately", async () => {
+    mocks.dryRunQuerySchema.mockRejectedValueOnce(
+      new mocks.BigQueryDryRunPreparationError(),
+    );
+
+    await expect(
+      estimateOnboardingJourneyEventQueryCost(
+        scope,
+        filters,
+        1_000,
+        observation,
+        false,
+      ),
+    ).rejects.toMatchObject({ code: "preparation_failed" });
+  });
+
+  it("classifies unknown thrown request errors as BigQuery dry-run failures", async () => {
+    const privateNetworkError = "private BigQuery request response detail";
+    mocks.dryRunQuerySchema.mockRejectedValueOnce(
+      new Error(privateNetworkError),
+    );
+
+    let failure: unknown;
+    try {
+      await estimateOnboardingJourneyEventQueryCost(
+        scope,
+        filters,
+        1_000,
+        observation,
+        false,
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toMatchObject({ code: "dry_run_failed" });
+    expect((failure as Error).message).not.toContain(privateNetworkError);
   });
 
   it.each([
