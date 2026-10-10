@@ -5,18 +5,23 @@ const MAX_TOTAL_CHARACTERS = 8_000;
 const AUTHORIZATION_ASSIGNMENT =
   /(["']?)(authorization|proxy-authorization|cookie2?|set-cookie)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\\r\n])*)"|'((?:\\.|[^'\\\r\n])*)'|([^\r\n]*))/gi;
 const ASSIGNMENT =
-  /(["']?)([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
+  /(["']?)((?:--?)?[a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
 const MARKUP_ASSIGNMENT =
-  /(`{1,3}|\*{1,2}|_{1,2})([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
+  /(`{1,3}|\*{1,2}|_{1,2})((?:--?)?[a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\r\n]*))/gi;
 const ASSIGNMENT_KEY =
-  /(["']?)([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)/gi;
+  /(["']?)((?:--?)?[a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)*)\1(\s*[:=]\s*)/gi;
 const URL_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi;
+const QUOTED_ARRAY_CREDENTIAL_FLAG =
+  /(["'])(--?[a-z][a-z0-9_.-]*)\1\s*,\s*["']/gi;
 const SPACE_SEPARATED_CREDENTIAL_FORMS = [
   /(?:^|\s)--?([a-z][a-z0-9_.-]*)[ \t]+\S/gim,
   /\bexport[ \t]+([a-z][a-z0-9_.-]*)[ \t]+\S/gi,
   /\b(?:(?:my|our|your|the)[ \t]+)?([a-z][a-z0-9_.-]*(?:[ \t]+[a-z][a-z0-9_.-]*)?)[ \t]+(?:is|equals)[ \t]+\S/gi,
 ] as const;
 const BEARER_VALUE = /\bbearer\s+[a-z0-9._~+/-]+=*/gi;
+const JWT_VALUE = /\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g;
+const SLACK_INCOMING_WEBHOOK_URL =
+  /\bhttps?:\/\/hooks\.slack(?:-gov)?\.com\/services\/[a-z0-9_-]+\/[a-z0-9_-]+\/[a-z0-9_-]+(?:\?[^\s]*)?/gi;
 const PROVIDER_TOKEN =
   /\b(?:github_pat_[a-z0-9_]{20,}|gh[pousr]_[a-z0-9_]{20,}|AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16}|sk-proj-[a-z0-9_-]{20,}|sk-ant-[a-z0-9_-]{20,}|(?:sk|rk)_(?:live|test)_[a-z0-9]{16,}|AIza[a-z0-9_-]{35}|xox[baprs]-[a-z0-9-]{10,}|npm_[a-z0-9]{30,})\b/gi;
 const SQL_CODE_BLOCK = /```(?:sql|postgres(?:ql)?)\b[\s\S]*?```/gi;
@@ -106,6 +111,8 @@ function isCredentialKey(key: string): boolean {
         "pin",
         "pw",
         "pwd",
+        "jwt",
+        "otp",
         "secret",
         "secrets",
         "sig",
@@ -134,6 +141,9 @@ function isCredentialKey(key: string): boolean {
 }
 
 function hasSpaceSeparatedCredential(text: string): boolean {
+  for (const match of text.matchAll(QUOTED_ARRAY_CREDENTIAL_FLAG)) {
+    if (isCredentialKey(match[2] ?? "")) return true;
+  }
   for (const pattern of SPACE_SEPARATED_CREDENTIAL_FORMS) {
     for (const match of text.matchAll(pattern)) {
       if (isCredentialKey(match[1] ?? "")) return true;
@@ -227,7 +237,9 @@ function redactCredentials(text: string): string {
   if (hasSpaceSeparatedCredential(text)) return "[REDACTED]";
 
   return redactCredentialAssignments(
-    text.replace(URL_USERINFO, (_match, scheme) => `${scheme}[REDACTED]@`),
+    text
+      .replace(SLACK_INCOMING_WEBHOOK_URL, "[REDACTED]")
+      .replace(URL_USERINFO, (_match, scheme) => `${scheme}[REDACTED]@`),
   )
     .replace(
       MARKUP_ASSIGNMENT,
@@ -277,6 +289,7 @@ function redactCredentials(text: string): string {
       },
     )
     .replace(BEARER_VALUE, "Bearer [REDACTED]")
+    .replace(JWT_VALUE, "[REDACTED]")
     .replace(PROVIDER_TOKEN, "[REDACTED]");
 }
 

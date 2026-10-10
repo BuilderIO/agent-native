@@ -139,6 +139,51 @@ describe("sanitizePromptProvenanceCandidates", () => {
     }
   });
 
+  it("redacts dash-prefixed JSON keys and credential values in argv arrays", () => {
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: '{"--password":"fake-json-flag-value","next":"visible"}',
+      },
+      { role: "user", text: '["--api-key", "fake-array-key-value"]' },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      '{"--password":"[REDACTED]","next":"visible"}',
+      "[REDACTED]",
+    ]);
+    expect(JSON.stringify(result)).not.toContain("fake-json-flag-value");
+    expect(JSON.stringify(result)).not.toContain("fake-array-key-value");
+  });
+
+  it("redacts bare JWTs, Slack webhooks, and JWT or OTP assignments", () => {
+    const jwtPlaceholder = [
+      "eyJ",
+      "fakeheader",
+      ".",
+      "eyJfakepayload",
+      ".",
+      "fakesignature",
+    ].join("");
+    const webhookUrl =
+      "https://hooks.slack.com/services/TFAKEWORKSPACE/BFAKECHANNEL/fake-webhook-token-123456";
+    const result = sanitizePromptProvenanceCandidates([
+      {
+        role: "user",
+        text: `jwt=${jwtPlaceholder}\notp=fake-one-time-code\n${webhookUrl}`,
+      },
+      { role: "user", text: jwtPlaceholder },
+    ]);
+
+    expect(result.messages.map(({ text }) => text)).toEqual([
+      "jwt=[REDACTED]\notp=[REDACTED]\n[REDACTED]",
+      "[REDACTED]",
+    ]);
+    for (const value of [jwtPlaceholder, webhookUrl, "fake-one-time-code"]) {
+      expect(JSON.stringify(result)).not.toContain(value);
+    }
+  });
+
   it("redacts password aliases and signed URL query values while retaining useful URL context", () => {
     const result = sanitizePromptProvenanceCandidates([
       {
