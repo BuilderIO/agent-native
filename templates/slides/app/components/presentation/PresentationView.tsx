@@ -29,6 +29,7 @@ import {
   resolveSlideAnimationTargets,
 } from "@/lib/slide-animation-elements";
 import { isMediaKeyboardEvent } from "@/lib/slide-video";
+import { trackSlidesRelay } from "@/lib/slides-relay-tracking";
 
 import type { DesignSystemData } from "../../../shared/api";
 import { openPresentChannel, type PresentMessage } from "./present-channel";
@@ -57,10 +58,11 @@ function PdfExportStage({
       data-pdf-export-stage="true"
       style={{ left: "-10000px", width: dims.width }}
     >
-      {slides.map((slide) => (
+      {slides.map((slide, index) => (
         <div key={slide.id} style={{ width: dims.width, height: dims.height }}>
           <SlideRenderer
             slide={slide}
+            slidePosition={{ number: index + 1, count: slides.length }}
             thumbnail={false}
             disableVideoAutoplay
             aspectRatio={aspectRatio}
@@ -268,12 +270,14 @@ export default function PresentationView({
   useEffect(() => {
     if (trackedDeckRef.current === deckId) return;
     trackedDeckRef.current = deckId;
-    trackEvent("presented", {
+    const properties = {
       ...(isShared ? {} : { output_id: deckId }),
       output_type: "deck",
       slide_count: safeSlides.length,
       is_shared: isShared,
-    });
+    };
+    if (isShared) trackEvent("presented", properties);
+    else trackSlidesRelay("presented", properties);
   }, [deckId, isShared, safeSlides.length]);
 
   const visibleRawIndices = useMemo(() => {
@@ -292,6 +296,64 @@ export default function PresentationView({
 
   const currentIndexRef = useRef(currentIndex);
   currentIndexRef.current = currentIndex;
+
+  const presentationStatsRef = useRef<{
+    lastIndex: number;
+    slidesAdvanced: number;
+    maxSlideIndex: number;
+    fullscreen: boolean;
+  } | null>(null);
+  useEffect(() => {
+    if (isShared) return;
+    const startedAt = Date.now();
+    const stats = {
+      lastIndex: currentIndexRef.current,
+      slidesAdvanced: 0,
+      maxSlideIndex: currentIndexRef.current,
+      fullscreen: Boolean(document.fullscreenElement),
+    };
+    presentationStatsRef.current = stats;
+    let ended = false;
+    const end = () => {
+      if (ended) return;
+      ended = true;
+      if (presentationStatsRef.current === stats) {
+        presentationStatsRef.current = null;
+      }
+      trackSlidesRelay("presentation_ended", {
+        output_id: deckId,
+        output_type: "deck",
+        duration_ms: Math.max(0, Date.now() - startedAt),
+        slides_advanced: stats.slidesAdvanced,
+        max_slide_index: stats.maxSlideIndex,
+        fullscreen: stats.fullscreen,
+      });
+    };
+    const noteFullscreen = () => {
+      if (document.fullscreenElement) stats.fullscreen = true;
+    };
+    // Mobile browsers often kill a backgrounded tab without firing pagehide,
+    // so the first hide ends the presentation (once; returning doesn't restart it).
+    const endWhenHidden = () => {
+      if (document.visibilityState === "hidden") end();
+    };
+    window.addEventListener("pagehide", end);
+    document.addEventListener("visibilitychange", endWhenHidden);
+    document.addEventListener("fullscreenchange", noteFullscreen);
+    return () => {
+      window.removeEventListener("pagehide", end);
+      document.removeEventListener("visibilitychange", endWhenHidden);
+      document.removeEventListener("fullscreenchange", noteFullscreen);
+      end();
+    };
+  }, [deckId, isShared]);
+  useEffect(() => {
+    const stats = presentationStatsRef.current;
+    if (!stats || stats.lastIndex === currentIndex) return;
+    if (currentIndex > stats.lastIndex) stats.slidesAdvanced += 1;
+    stats.lastIndex = currentIndex;
+    stats.maxSlideIndex = Math.max(stats.maxSlideIndex, currentIndex);
+  }, [currentIndex]);
   const visibleRawIndicesRef = useRef(visibleRawIndices);
   visibleRawIndicesRef.current = visibleRawIndices;
   const deckIdRef = useRef(deckId);
@@ -641,6 +703,9 @@ export default function PresentationView({
           {
             signal: abortController.signal,
             shareToken: pdfExportRequest.shareToken,
+            // Owner exports count toward activation; shared viewers stay
+            // untracked here because their deck id carries the share token.
+            ...(isShared ? {} : { analytics: { deckId } }),
           },
         );
       } catch (error) {
@@ -657,7 +722,7 @@ export default function PresentationView({
       cancelled = true;
       abortController.abort();
     };
-  }, [deckId, pdfExportRequest, t]);
+  }, [deckId, isShared, pdfExportRequest, t]);
 
   const displaySlide = useMemo(() => {
     if (!currentSlide || !animSteps || animSteps.length === 0)
@@ -724,6 +789,7 @@ export default function PresentationView({
         >
           <SlideRenderer
             slide={safeSlides[prevIndex]}
+            slidePosition={{ number: prevIndex + 1, count: safeSlides.length }}
             thumbnail={false}
             aspectRatio={aspectRatio}
             designSystem={designSystem}
@@ -739,6 +805,10 @@ export default function PresentationView({
       >
         <SlideRenderer
           slide={displaySlide}
+          slidePosition={{
+            number: currentIndex + 1,
+            count: safeSlides.length,
+          }}
           thumbnail={false}
           aspectRatio={aspectRatio}
           designSystem={designSystem}

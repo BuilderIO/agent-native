@@ -1,9 +1,15 @@
 import { isScreenshotSize } from "@shared/png";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
+import {
+  MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS,
+  SESSION_REPLAY_CAPTURE_THROUGH_MS_PARAM,
+} from "@shared/session-replay-capture";
 import { useEffect, useRef, useState } from "react";
 
+import { resolveReplayOffsetFromRecordingStart } from "../../../shared/replay-playback.js";
 import {
   blobToBase64,
+  extractVisibleReplayUserMessages,
   replayFrameFailureReason,
   replayFramePath,
   type ReplayFrameCapture,
@@ -59,11 +65,26 @@ export default function SessionReplayFrame({
         new URLSearchParams(window.location.search).get(
           SESSION_REPLAY_AGENT_ACCESS_PARAM,
         ) ?? "";
+      const query = new URLSearchParams(window.location.search);
+      const captureThroughOffsetRaw = query.get(
+        SESSION_REPLAY_CAPTURE_THROUGH_MS_PARAM,
+      );
+      if (captureThroughOffsetRaw === null) {
+        throw new Error("replay_capture_offset_required");
+      }
+      const captureThroughOffsetMs = Number(captureThroughOffsetRaw);
+      if (
+        !/^(?:0|[1-9]\d*)$/.test(captureThroughOffsetRaw) ||
+        !Number.isSafeInteger(captureThroughOffsetMs) ||
+        captureThroughOffsetMs > MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS
+      ) {
+        throw new Error("replay_capture_offset_invalid");
+      }
       const playback = await fetchSessionReplayPlayback(recordingId, {
         agentAccessToken,
+        captureThroughOffsetMs,
       });
       if (
-        !playback.isComplete ||
         playback.unavailableChunks > 0 ||
         playback.chunks.some((chunk) => chunk.unavailable)
       ) {
@@ -72,6 +93,10 @@ export default function SessionReplayFrame({
       const events = normalizeReplayEvents(
         playback.chunks.flatMap((chunk) => chunk.events),
       );
+      const recordingStartedAtMs = Date.parse(playback.recording.startedAt);
+      if (!Number.isSafeInteger(recordingStartedAtMs)) {
+        throw new Error("replay_start_time_unavailable");
+      }
       const unavailable = replayAvailabilityErrorKey(events);
       if (unavailable) throw new Error(unavailable);
       const initial = replayInitialViewportDimensions(events);
@@ -120,27 +145,61 @@ export default function SessionReplayFrame({
       await nextPaint();
 
       let queue: Promise<unknown> = Promise.resolve();
+      let lastSeekedTarget: {
+        recordingOffsetMs: number;
+        playheadOffsetMs: number;
+      } | null = null;
       const captureOne = async (
-        offsetMs: number,
+        recordingOffsetMs: number,
       ): Promise<ReplayFrameCapture> => {
-        if (!Number.isFinite(offsetMs) || offsetMs < 0) {
+        lastSeekedTarget = null;
+        if (!Number.isFinite(recordingOffsetMs) || recordingOffsetMs < 0) {
           throw new Error("offset_invalid");
         }
-        if (offsetMs > totalTimeMs) throw new Error("offset_out_of_range");
+        const resolution = resolveReplayOffsetFromRecordingStart(
+          events,
+          recordingStartedAtMs,
+          recordingOffsetMs,
+        );
+        if (!resolution) throw new Error("offset_invalid");
+        if (resolution.range === "before") {
+          throw new Error("offset_before_replay_start");
+        }
+        if (resolution.range === "after") {
+          throw new Error("offset_out_of_range");
+        }
+        const { playheadOffsetMs } = resolution;
+        if (playheadOffsetMs > totalTimeMs) {
+          throw new Error("offset_out_of_range");
+        }
         const dimensions =
-          replayViewportDimensionsAtTime(timeline, offsetMs) ?? initial;
-        replayer.pause(offsetMs);
+          replayViewportDimensionsAtTime(timeline, playheadOffsetMs) ?? initial;
+        replayer.pause(playheadOffsetMs);
         replayer.handleResize?.(dimensions);
         sizeStage(dimensions.width, dimensions.height);
         await nextPaint();
         const iframe = replayer.iframe as HTMLIFrameElement | undefined;
         if (!iframe) throw new Error("replay_frame_missing");
-        const blob = await captureReplayScreenshot(stage, stageRoot, iframe);
+        lastSeekedTarget = { recordingOffsetMs, playheadOffsetMs };
+        const blob = await captureReplayScreenshot(
+          stage,
+          stageRoot,
+          iframe,
+          undefined,
+          { assetCredentials: "omit" },
+        );
+        if (blob.type !== "image/png" || blob.size <= 0) {
+          throw new Error("screenshot_invalid");
+        }
+        if (blob.size > 24 * 1024 * 1024) {
+          throw new Error("screenshot_too_large");
+        }
         return {
-          offsetMs,
+          offsetMs: recordingOffsetMs,
+          playheadOffsetMs,
           width: dimensions.width,
           height: dimensions.height,
-          route: replayFramePath(replayRouteAtOffset(events, offsetMs)),
+          route: replayFramePath(replayRouteAtOffset(events, playheadOffsetMs)),
           capturedAt: new Date().toISOString(),
           png: await blobToBase64(blob),
         };
@@ -149,11 +208,28 @@ export default function SessionReplayFrame({
       window.__anReplayFrame = {
         status: "ready",
         recordingId,
+        recordingStartedAt: playback.recording.startedAt,
         totalTimeMs,
         eventCount: playback.recording.eventCount,
         // One seek at a time: rrweb has a single playhead.
-        capture: (offsetMs) => {
-          const run = queue.then(() => captureOne(offsetMs));
+        capture: (recordingOffsetMs) => {
+          const run = queue.then(() => captureOne(recordingOffsetMs));
+          queue = run.catch(() => undefined);
+          return run;
+        },
+        extractUserMessages: (recordingOffsetMs) => {
+          const run = queue.then(() => {
+            if (lastSeekedTarget?.recordingOffsetMs !== recordingOffsetMs) {
+              throw new Error("prompt_provenance_capture_mismatch");
+            }
+            const iframe = replayer.iframe as HTMLIFrameElement | undefined;
+            return extractVisibleReplayUserMessages(
+              iframe?.contentDocument ?? null,
+              lastSeekedTarget.recordingOffsetMs,
+              lastSeekedTarget.playheadOffsetMs,
+              new Date().toISOString(),
+            );
+          });
           queue = run.catch(() => undefined);
           return run;
         },

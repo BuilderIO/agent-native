@@ -21,6 +21,7 @@ vi.mock("../analytics.js", () => ({
 }));
 
 import {
+  __resetOnboardingEventDedupeForTests,
   __resetOnboardingSummaryReadsForTests,
   createOnboardingCorrelationId,
   requestCustomKeyOnboardingAbandonment,
@@ -39,6 +40,7 @@ import {
 // test's settled or stalled read must not answer the next test.
 beforeEach(() => {
   __resetOnboardingSummaryReadsForTests();
+  __resetOnboardingEventDedupeForTests();
   analyticsSessionIdMock.mockReturnValue("browser-session-42");
   analyticsIdentityKeyMock.mockReturnValue("browser-identity-42");
   analyticsIdentityResolverMock.mockImplementation(() =>
@@ -312,6 +314,78 @@ describe("trackOnboardingEvent", () => {
   beforeEach(() => {
     trackEventMock.mockReset();
     analyticsSessionIdMock.mockReturnValue("browser-session-42");
+  });
+
+  it("deduplicates a stable step view and allows a later step revisit", async () => {
+    const properties = { flow: "first_run", step_id: "role" };
+    function ViewOnMount() {
+      React.useEffect(() => {
+        trackOnboardingEvent("onboarding_step_viewed", properties);
+      }, [properties]);
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          <React.StrictMode>
+            <ViewOnMount />
+          </React.StrictMode>,
+        );
+      });
+      expect(trackEventMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      trackOnboardingEvent("onboarding_step_viewed", properties);
+      expect(trackEventMock).toHaveBeenCalledTimes(1);
+
+      trackOnboardingEvent("onboarding_step_viewed", {
+        flow: "first_run",
+        step_id: "choice",
+      });
+      trackOnboardingEvent("onboarding_step_viewed", properties);
+      expect(trackEventMock).toHaveBeenCalledTimes(3);
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("does not deduplicate step views across analytics sessions", () => {
+    const properties = { flow: "first_run", step_id: "role" };
+    trackOnboardingEvent("onboarding_step_viewed", properties);
+    analyticsSessionIdMock.mockReturnValue("session-2");
+    trackOnboardingEvent("onboarding_step_viewed", properties);
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+
+    trackOnboardingEvent("onboarding_reopened", { flow: "first_run" });
+    trackOnboardingEvent("onboarding_step_viewed", properties);
+    expect(trackEventMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps a completion refetch from duplicating the same step view", () => {
+    const properties = { flow: "first_run", step_id: "role" };
+    trackOnboardingEvent("onboarding_step_viewed", properties);
+    trackOnboardingEvent("onboarding_step_completed", properties);
+    trackOnboardingEvent("onboarding_step_viewed", properties);
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps one-time events deduped within each analytics session", () => {
+    const properties = { flow: "first_run" };
+    trackOnboardingEvent("onboarding_started", properties);
+    trackOnboardingEvent("onboarding_started", properties);
+    analyticsSessionIdMock.mockReturnValue("session-2");
+    trackOnboardingEvent("onboarding_started", properties);
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
   });
 
   it("keeps distinct integration and role intents distinct", () => {

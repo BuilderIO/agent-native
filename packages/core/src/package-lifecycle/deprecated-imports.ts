@@ -25,6 +25,7 @@ const SOURCE_EXTENSIONS = new Set([
 const SKIP_DIRECTORIES = new Set([
   ".git",
   ".next",
+  ".react-router",
   ".output",
   ".turbo",
   "build",

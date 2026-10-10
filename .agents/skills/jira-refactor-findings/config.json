@@ -1,0 +1,14 @@
+{
+  "baseUrl": "https://builder-io.atlassian.net",
+  "projectKey": "ENG",
+  "issueType": "Task",
+  "label": "refactor-findings",
+  "podField": "customfield_10089",
+  "podOptionId": "13822",
+  "propertyKey": "fragility-finding",
+  "sightingCooldownDays": 7,
+  "maxNewTicketsPerRun": 6,
+  "email": "sami@builder.io",
+  "emailEnv": "JIRA_REFACTORY_EMAIL",
+  "tokenEnv": "JIRA_SAMI_REFACTORY_TOKEN"
+}

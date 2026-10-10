@@ -457,8 +457,12 @@ Messages contain typed parts:
 | Part type | Fields                              | Use for                    |
 | --------- | ----------------------------------- | -------------------------- |
 | `text`    | `{ type: "text", text: "..." }`     | Natural language messages  |
-| `file`    | `{ type: "file", file: { ... } }`   | Files (bytes or URI)       |
+| `file`    | `{ type: "file", file: { ... } }`   | Stored file URI            |
 | `data`    | `{ type: "data", data: { ... } }`   | Structured JSON data       |
+
+The receiver rejects inline file bytes and `data:` URLs before creating a task:
+task history, status messages, artifacts, and approval inputs are durable SQL
+records. Upload files to configured storage first, then send the returned URI.
 
 ## Custom mount
 

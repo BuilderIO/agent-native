@@ -22,7 +22,6 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 
 import { resolveContentSpaceTarget } from "../../actions/_content-space-target.js";
-import { isUniqueConstraintError } from "../../actions/_database-row-mutation.js";
 import createDocument, {
   withinDocumentCreation,
 } from "../../actions/create-document.js";
@@ -554,6 +553,8 @@ async function createImportedPage(input: {
     ctx?.caller === "mcp" ||
     ctx?.caller === "webmcp" ||
     ctx?.caller === "a2a";
+  let recordedHere = false;
+  let failure: unknown;
   try {
     await withinDocumentCreation(
       id,
@@ -630,6 +631,7 @@ async function createImportedPage(input: {
           reportJson: JSON.stringify(page.report),
           createdAt: now,
         });
+        recordedHere = true;
       },
       async () =>
         createDocument.run(
@@ -648,60 +650,65 @@ async function createImportedPage(input: {
           ctx,
         ),
     );
-    return { report: page.report, created: true };
+    if (recordedHere) return { report: page.report, created: true };
   } catch (error) {
-    // The whole import, as the locked path reads it: page ids come from the
-    // import id, so this page's record is among them.
-    const records = await db
-      .select({
-        documentId: schema.documentImports.documentId,
-        requestSha256: schema.documentImports.requestSha256,
-        originalBlob: schema.documentImports.originalBlob,
-        reportJson: schema.documentImports.reportJson,
-        trashedAt: schema.documents.trashedAt,
-      })
-      .from(schema.documentImports)
-      .leftJoin(
-        schema.documents,
-        eq(schema.documents.id, schema.documentImports.documentId),
-      )
-      .where(eq(schema.documentImports.importId, input.importId))
-      .catch((lookupError: unknown) => {
-        // Without the record there's no telling whether this attempt's page
-        // was saved, or another attempt kept this original, so the original
-        // and the page's images stay, and the first failure is reported.
-        input.keepUploads();
-        captureError(lookupError, {
-          tags: { source: "content-import" },
-          extra: { importId: input.importId, documentId: id },
-        });
-        throw error;
-      });
-    const recorded = records.find((record) => record.documentId === id);
-    // This attempt's page committed and only a step after it failed. The page
-    // is live and points at this attempt's uploads, so it counts as created.
-    if (recorded?.originalBlob === originalBlob) {
-      captureError(error, {
+    failure = error;
+  }
+  // The page wasn't saved here, or create-document replayed one another
+  // attempt with this key created first, which it does without an error.
+  // Read the whole import, as the locked path does: page ids come from the
+  // import id, so this page's record is among them.
+  const records = await db
+    .select({
+      documentId: schema.documentImports.documentId,
+      requestSha256: schema.documentImports.requestSha256,
+      originalBlob: schema.documentImports.originalBlob,
+      reportJson: schema.documentImports.reportJson,
+      trashedAt: schema.documents.trashedAt,
+    })
+    .from(schema.documentImports)
+    .leftJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.documentImports.documentId),
+    )
+    .where(eq(schema.documentImports.importId, input.importId))
+    .catch((lookupError: unknown) => {
+      // Without the record there's no telling whether this attempt's page
+      // was saved, or another attempt kept this original, so the original
+      // and the page's images stay, and the first failure is reported.
+      input.keepUploads();
+      captureError(lookupError, {
         tags: { source: "content-import" },
         extra: { importId: input.importId, documentId: id },
       });
-      return { report: page.report, created: true };
-    }
-    await deletePrivateBlob(original).catch((cleanupError: unknown) => {
-      console.error(
-        `[content] Original import file ${original.id} for unsaved page ${id} was not deleted:`,
-        cleanupError,
-      );
+      throw failure ?? lookupError;
     });
-    // Another attempt with this key created the page first, and pages from
-    // the import may have gone to Trash since.
-    if (!recorded || !isUniqueConstraintError(error)) throw error;
-    assertImportOpen(records, input.requestSha256);
-    return {
-      report: JSON.parse(recorded.reportJson) as ImportedPageReport,
-      created: false,
-    };
+  const recorded = records.find((record) => record.documentId === id);
+  // This attempt's page committed and only a step after it failed. The page
+  // is live and points at this attempt's uploads, so it counts as created.
+  if (recorded?.originalBlob === originalBlob) {
+    captureError(failure, {
+      tags: { source: "content-import" },
+      extra: { importId: input.importId, documentId: id },
+    });
+    return { report: page.report, created: true };
   }
+  await deletePrivateBlob(original).catch((cleanupError: unknown) => {
+    console.error(
+      `[content] Original import file ${original.id} for unsaved page ${id} was not deleted:`,
+      cleanupError,
+    );
+  });
+  if (!recorded) {
+    throw failure ?? new Error(`Page ${id} exists without its import record.`);
+  }
+  // Another attempt with this key created the page first, however this one
+  // learned of it, and pages from the import may have gone to Trash since.
+  assertImportOpen(records, input.requestSha256);
+  return {
+    report: JSON.parse(recorded.reportJson) as ImportedPageReport,
+    created: false,
+  };
 }
 
 /**

@@ -460,7 +460,6 @@ const editor = {
   pageBodySyncing: "O conteúdo desta página ainda está sincronizando",
   pageBodySyncingDescription:
     "A edição fica pausada até o conteúdo da página terminar de sincronizar, para não sobrescrever o conteúdo existente.",
-  createCollection: "Criar coleção",
   creatingDatabase: "Criando coleção embutida...",
   databaseCreated: "Coleção criada",
   emptyBlockPlaceholder: "Pressione “/” para comandos",
@@ -817,10 +816,12 @@ const editor = {
     linkToNotionPage: "Link para a página de noção",
     localFile: "Arquivo local",
     morePageActions: "Mais ações de página",
+    formatting: "Formatação",
     noPagesFound: "Nenhuma página encontrada",
     notifications: "Notificações",
     notionSync: "Sincronização de noções",
     openInNotion: "Aberto em noção",
+    openInAgentNative: "Abrir no Agent-Native",
     orgCanFindAndView:
       "Qualquer pessoa na sua organização pode encontrar e visualizar",
     orgLinkCanView:
@@ -1475,6 +1476,9 @@ const overrides = {
     aiUndo: "Desfazer",
     aiDone: "Concluído",
     aiMoreChanges: "+{{count}} a mais",
+    suggestionReplaced: "Substituída",
+    suggestionWithdrawn: "Retirada",
+    suggestedChange: "Alteração sugerida",
     aiUndoUnavailable:
       "O texto removido não pode ser restaurado automaticamente",
     aiUndoFailed: "Não foi possível desfazer a alteração",
@@ -1519,6 +1523,11 @@ const overrides = {
     resize: "Redimensionar barra lateral",
     expand: "Expandir barra lateral",
     failedCreatePage: "Falha ao criar página",
+    failedCreatePageDraftDescription:
+      "Seu rascunho está salvo neste navegador. Você pode tentar criar a página novamente ou descartar o rascunho.",
+    discardFailedCreatePageQuestion: "Descartar a criação pendente?",
+    discardFailedCreatePageDescription:
+      "Isso limpa a criação pendente e qualquer rascunho não salvo. Se a página já tiver sido salva, ela permanecerá no seu espaço de trabalho.",
     failedDeletePage: "Falha ao excluir página",
     failedPermanentDeletePage: "Falha ao excluir a página permanentemente",
     failedRestorePage: "Falha ao restaurar a página",

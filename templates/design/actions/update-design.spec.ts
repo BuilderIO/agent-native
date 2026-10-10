@@ -1,9 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+
 type Predicate =
   | { kind: "eq"; left: unknown; right: unknown }
   | { kind: "and"; conditions: Predicate[] }
-  | { kind: "isNull"; value: unknown };
+  | { kind: "isNull"; value: unknown }
+  | { kind: "inArray"; value: unknown; values: unknown[] };
+
+interface ConnectionRow {
+  id: string;
+  ownerEmail: string;
+  orgId: string | null;
+}
 
 interface DesignRow {
   id: string;
@@ -11,6 +21,23 @@ interface DesignRow {
   data: string | null;
   dataOperationRevisions: string | null;
   updatedAt: string;
+}
+
+interface RestoreClaimRow {
+  id: string;
+  designId: string;
+  sourceFileId: string;
+  snapshot: string;
+  consumedAt: string | null;
+  restoredFileId: string | null;
+}
+
+interface DesignFileRow {
+  id: string;
+  designId: string;
+  filename: string;
+  fileType: string;
+  content: string;
 }
 
 type ResultShape =
@@ -35,6 +62,12 @@ const mocks = vi.hoisted(() => {
     gatedReadCount: 0,
     releaseGatedReads: null as (() => void) | null,
     resultShape: "changes" as ResultShape,
+    connections: [] as ConnectionRow[],
+    restoreClaims: [] as RestoreClaimRow[],
+    failRestoreClaimConsumptionForId: null as string | null,
+    designFiles: [] as DesignFileRow[],
+    selectForUpdateTables: [] as string[],
+    resolveScope: vi.fn(),
   };
 
   const resetReadGate = (count: number) => {
@@ -64,12 +97,20 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@agent-native/core/action", () => ({
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (config: unknown) => config,
+  fail: (message: string, options: Record<string, unknown>) => {
+    throw Object.assign(new Error(message), options);
+  },
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+}));
+
+vi.mock("../server/lib/design-versions.js", () => ({
+  snapshotDesignBeforeAgentEdit: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -84,6 +125,15 @@ vi.mock("drizzle-orm", () => ({
   }),
   sql: vi.fn(),
   isNull: (value: unknown): Predicate => ({ kind: "isNull", value }),
+  inArray: (value: unknown, values: unknown[]): Predicate => ({
+    kind: "inArray",
+    value,
+    values,
+  }),
+}));
+
+vi.mock("../server/lib/localhost-connection.js", () => ({
+  resolveLocalhostConnectionScope: mocks.state.resolveScope,
 }));
 
 vi.mock("../server/db/index.js", () => {
@@ -93,55 +143,164 @@ vi.mock("../server/db/index.js", () => {
       data: "designs.data",
       dataOperationRevisions: "designs.dataOperationRevisions",
     },
+    designLocalhostConnections: {
+      id: "connections.id",
+      ownerEmail: "connections.ownerEmail",
+      orgId: "connections.orgId",
+    },
+    designScreenRestoreClaims: {
+      id: "restoreClaims.id",
+      designId: "restoreClaims.designId",
+      sourceFileId: "restoreClaims.sourceFileId",
+      snapshot: "restoreClaims.snapshot",
+      consumedAt: "restoreClaims.consumedAt",
+      restoredFileId: "restoreClaims.restoredFileId",
+    },
+    designFiles: {
+      id: "designFiles.id",
+      designId: "designFiles.designId",
+      filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
+      content: "designFiles.content",
+    },
   };
 
-  const matches = (predicate: Predicate): boolean => {
+  const matches = (
+    predicate: Predicate,
+    row: DesignRow | ConnectionRow | RestoreClaimRow | DesignFileRow,
+  ): boolean => {
     if (predicate.kind === "and") {
-      return predicate.conditions.every(matches);
+      return predicate.conditions.every((condition) => matches(condition, row));
+    }
+    if (predicate.kind === "inArray") {
+      return (
+        [
+          schema.designLocalhostConnections.id,
+          schema.designScreenRestoreClaims.id,
+          schema.designFiles.id,
+        ].includes(predicate.value as string) &&
+        predicate.values.includes(row.id)
+      );
     }
     if (predicate.kind === "isNull") {
+      if (predicate.value === schema.designLocalhostConnections.orgId) {
+        return "orgId" in row && row.orgId === null;
+      }
       if (predicate.value === schema.designs.data) {
-        return mocks.state.row.data === null;
+        return "data" in row && row.data === null;
       }
       if (predicate.value === schema.designs.dataOperationRevisions) {
-        return mocks.state.row.dataOperationRevisions === null;
+        return (
+          "dataOperationRevisions" in row && row.dataOperationRevisions === null
+        );
+      }
+      if (predicate.value === schema.designScreenRestoreClaims.consumedAt) {
+        return "consumedAt" in row && row.consumedAt === null;
       }
       return true;
     }
+    if (predicate.left === schema.designLocalhostConnections.id) {
+      return "id" in row && row.id === predicate.right;
+    }
+    if (predicate.left === schema.designLocalhostConnections.ownerEmail) {
+      return "ownerEmail" in row && row.ownerEmail === predicate.right;
+    }
+    if (predicate.left === schema.designLocalhostConnections.orgId) {
+      return "orgId" in row && row.orgId === predicate.right;
+    }
+    if (
+      predicate.left === schema.designScreenRestoreClaims.id ||
+      predicate.left === schema.designFiles.id
+    ) {
+      return "id" in row && row.id === predicate.right;
+    }
+    if (
+      predicate.left === schema.designScreenRestoreClaims.designId ||
+      predicate.left === schema.designFiles.designId
+    ) {
+      return "designId" in row && row.designId === predicate.right;
+    }
+    if (predicate.left === schema.designScreenRestoreClaims.consumedAt) {
+      return "consumedAt" in row && row.consumedAt === predicate.right;
+    }
+    if (predicate.left === schema.designScreenRestoreClaims.sourceFileId) {
+      return "sourceFileId" in row && row.sourceFileId === predicate.right;
+    }
     if (predicate.left === schema.designs.id) {
-      return mocks.state.row.id === predicate.right;
+      return row.id === predicate.right;
     }
     if (predicate.left === schema.designs.data) {
-      return mocks.state.row.data === predicate.right;
+      return "data" in row && row.data === predicate.right;
     }
     if (predicate.left === schema.designs.dataOperationRevisions) {
-      return mocks.state.row.dataOperationRevisions === predicate.right;
+      return (
+        "dataOperationRevisions" in row &&
+        row.dataOperationRevisions === predicate.right
+      );
     }
     return true;
   };
 
   const select = () => ({
-    from: () => ({
-      where: async (predicate: Predicate) => {
-        const snapshot = { ...mocks.state.row };
-        await mocks.waitAtReadGate();
-        return matches(predicate)
-          ? [
-              {
-                id: snapshot.id,
-                data: snapshot.data,
-                dataOperationRevisions: snapshot.dataOperationRevisions,
-              },
-            ]
-          : [];
+    from: (table: unknown) => ({
+      where: (predicate: Predicate) => {
+        const result = (async () => {
+          if (table === schema.designLocalhostConnections) {
+            return mocks.state.connections.filter((connection) =>
+              matches(predicate, connection),
+            );
+          }
+          if (table === schema.designScreenRestoreClaims) {
+            return mocks.state.restoreClaims.filter((claim) =>
+              matches(predicate, claim),
+            );
+          }
+          if (table === schema.designFiles) {
+            return mocks.state.designFiles.filter((file) =>
+              matches(predicate, file),
+            );
+          }
+          const snapshot = { ...mocks.state.row };
+          await mocks.waitAtReadGate();
+          return matches(predicate, snapshot)
+            ? [
+                {
+                  id: snapshot.id,
+                  data: snapshot.data,
+                  dataOperationRevisions: snapshot.dataOperationRevisions,
+                },
+              ]
+            : [];
+        })();
+        return Object.assign(result, {
+          for: (lock: "update") => {
+            if (lock === "update" && table === schema.designFiles) {
+              mocks.state.selectForUpdateTables.push("designFiles");
+            }
+            return result;
+          },
+        });
       },
     }),
   });
 
-  const update = () => ({
+  const update = (table: unknown) => ({
     set: (updates: Partial<DesignRow>) => ({
       where: async (predicate: Predicate) => {
-        const affected = matches(predicate) ? 1 : 0;
+        if (table === schema.designScreenRestoreClaims) {
+          let affected = 0;
+          for (const claim of mocks.state.restoreClaims) {
+            if (matches(predicate, claim)) {
+              if (claim.id === mocks.state.failRestoreClaimConsumptionForId) {
+                continue;
+              }
+              Object.assign(claim, updates);
+              affected += 1;
+            }
+          }
+          return { changes: affected };
+        }
+        const affected = matches(predicate, mocks.state.row) ? 1 : 0;
         if (affected > 0) Object.assign(mocks.state.row, updates);
         switch (mocks.state.resultShape) {
           case "rowsAffected":
@@ -167,7 +326,7 @@ vi.mock("../server/db/index.js", () => {
   const db = {
     select,
     update,
-    transaction: async (run: (transaction: typeof tx) => Promise<void>) =>
+    transaction: async (run: (transaction: typeof tx) => Promise<unknown>) =>
       run(tx),
   };
 
@@ -188,6 +347,15 @@ const BASE_DATA = {
 };
 
 describe("update-design data concurrency", () => {
+  const widgetWriteContext = {
+    caller: "mcp-widget-write" as const,
+    mcpDirectoryWidgetWrite: {
+      appId: "design",
+      resourceIds: { designId: "design-1" },
+      actionNames: ["update-design"],
+    },
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.state.row = {
@@ -200,6 +368,120 @@ describe("update-design data concurrency", () => {
     mocks.resetReadGate(0);
     mocks.state.resultShape = "changes";
     mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.state.connections = [];
+    mocks.state.restoreClaims = [];
+    mocks.state.failRestoreClaimConsumptionForId = null;
+    mocks.state.designFiles = [];
+    mocks.state.selectForUpdateTables = [];
+    mocks.state.resolveScope.mockReset();
+    mocks.state.resolveScope.mockResolvedValue({
+      ownerEmail: "editor@example.com",
+      orgId: null,
+    });
+  });
+
+  it("accepts a restore claim for every file in the supported delete batch", () => {
+    const restoreClaims = Array.from({ length: 101 }, (_, index) => ({
+      claimId: `claim-${index}`,
+      sourceFileId: `source-${index}`,
+      targetFileId: `target-${index}`,
+    }));
+    const input = {
+      id: "design-1",
+      dataOperations: [
+        {
+          op: "set",
+          path: ["canvasFrames", "frame-a"],
+          value: { x: 0, y: 0, width: 400, height: 300 },
+        },
+      ],
+      restoreClaims,
+      operationSource: "restore-batch-test",
+      operationRevision: 1,
+    };
+
+    expect(action.schema.safeParse(input).success).toBe(true);
+    expect(
+      action.schema.safeParse({
+        ...input,
+        restoreClaims: [
+          ...restoreClaims,
+          {
+            claimId: "claim-101",
+            sourceFileId: "source-101",
+            targetFileId: "target-101",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("identifies only the restore target whose one-use claim was rejected", async () => {
+    const content = "<html><body><main>Restored</main></body></html>";
+    const contentHashes = screenRestoreContentHashes(content, "html");
+    const restoreClaims = [
+      {
+        claimId: "restore-claim-1",
+        sourceFileId: "deleted-file-1",
+        targetFileId: "restored-file-1",
+      },
+      {
+        claimId: "restore-claim-2",
+        sourceFileId: "deleted-file-2",
+        targetFileId: "restored-file-2",
+      },
+    ];
+    const screenMetadata = (title: string) => ({
+      title,
+      connectionId: "editor-connection",
+    });
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "editor-connection",
+        ownerEmail: "editor@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.restoreClaims = restoreClaims.map((reference) => ({
+      id: reference.claimId,
+      designId: "design-1",
+      sourceFileId: reference.sourceFileId,
+      snapshot: JSON.stringify({
+        filename: "restored.html",
+        fileType: "html",
+        contentHashes,
+        screenMetadata: screenMetadata(reference.targetFileId),
+      }),
+      consumedAt: null,
+      restoredFileId: reference.targetFileId,
+    }));
+    mocks.state.designFiles = restoreClaims.map((reference) => ({
+      id: reference.targetFileId,
+      designId: "design-1",
+      filename: "restored.html",
+      fileType: "html",
+      content: annotateScreenHtmlForPersist(content, "html"),
+    }));
+    mocks.state.failRestoreClaimConsumptionForId = "restore-claim-1";
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: restoreClaims.map((reference) => ({
+          op: "set" as const,
+          path: ["screenMetadata", reference.targetFileId],
+          value: screenMetadata(reference.targetFileId),
+        })),
+        restoreClaims,
+        operationSource: "undo-session",
+        operationRevision: 1,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "screen_restore_claim_used",
+      statusCode: 403,
+      details: { restoreTargetFileIds: ["restored-file-1"] },
+    });
   });
 
   it("rejects an ID-only update instead of reporting a content change", async () => {
@@ -210,6 +492,909 @@ describe("update-design data concurrency", () => {
     );
     expect(mocks.state.row.updatedAt).toBe(previousUpdatedAt);
   });
+
+  it("rejects a shared editor adding another user's localhost connection", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-a"],
+            value: { title: "A", connectionId: "owner-connection" },
+          },
+        ],
+      } as never),
+    ).rejects.toMatchObject({
+      message:
+        "Only local app connections in your workspace can be added to this design.",
+      statusCode: 403,
+    });
+
+    expect(JSON.parse(mocks.state.row.data!)).toEqual(BASE_DATA);
+  });
+
+  it("rejects assigning a foreign connection to another Screen in the same design", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.row.data = JSON.stringify({
+      ...BASE_DATA,
+      screenMetadata: {
+        ...BASE_DATA.screenMetadata,
+        "frame-a": { title: "A", connectionId: "owner-connection" },
+      },
+    });
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-b"],
+            value: { title: "B", connectionId: "owner-connection" },
+          },
+        ],
+      } as never),
+    ).rejects.toMatchObject({
+      message:
+        "Only local app connections in your workspace can be added to this design.",
+      statusCode: 403,
+    });
+  });
+
+  it("does not trust a caller-supplied duplicate source to authorize an existing target", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.row.data = JSON.stringify({
+      ...BASE_DATA,
+      screenMetadata: {
+        ...BASE_DATA.screenMetadata,
+        source: { title: "Source", connectionId: "owner-connection" },
+      },
+    });
+    mocks.state.designFiles = [
+      {
+        id: "source",
+        designId: "design-1",
+        filename: "source.html",
+        fileType: "html",
+        content: "<main>Source</main>",
+      },
+      {
+        id: "copy",
+        designId: "design-1",
+        filename: "source copy.html",
+        fileType: "html",
+        content: "<main>Source</main>",
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        duplicateSourceFileId: "source",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "copy"],
+            value: { title: "Copy", connectionId: "owner-connection" },
+          },
+        ],
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_connection_scope_mismatch",
+      statusCode: 403,
+    });
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata.copy,
+    ).toBeUndefined();
+  });
+
+  it("does not turn a connection-scope service failure into an authorization error", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.resolveScope.mockRejectedValueOnce(
+      new Error("workspace lookup unavailable"),
+    );
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-a"],
+            value: { title: "A", connectionId: "editor-connection" },
+          },
+        ],
+      } as never),
+    ).rejects.toThrow("workspace lookup unavailable");
+  });
+
+  it("allows a shared editor to add their own localhost connection", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "editor-connection",
+        ownerEmail: "editor@example.com",
+        orgId: null,
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-a"],
+            value: { title: "A", connectionId: "editor-connection" },
+          },
+        ],
+      } as never),
+    ).resolves.toMatchObject({ changed: true });
+
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata["frame-a"].connectionId,
+    ).toBe("editor-connection");
+  });
+
+  it("allows the design owner to add a local app connection", async () => {
+    mocks.assertAccess.mockResolvedValueOnce({ role: "owner" });
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-a"],
+            value: { title: "A", connectionId: "owner-connection" },
+          },
+        ],
+      } as never),
+    ).resolves.toMatchObject({ changed: true });
+
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata["frame-a"].connectionId,
+    ).toBe("owner-connection");
+  });
+
+  it("allows exact one-use restoration of deleted Screen connection metadata", async () => {
+    const snapshot = {
+      filename: "restored.html",
+      fileType: "html",
+      content: "<html><body><main>Restored</main></body></html>",
+      screenMetadata: {
+        title: "Restored",
+        connectionId: "owner-connection",
+      },
+    };
+    const claimSnapshot = {
+      filename: snapshot.filename,
+      fileType: snapshot.fileType,
+      contentHashes: screenRestoreContentHashes(
+        snapshot.content,
+        snapshot.fileType,
+      ),
+      screenMetadata: snapshot.screenMetadata,
+    };
+    const editedMetadata = {
+      ...snapshot.screenMetadata,
+      title: "Renamed after restore",
+      description: "Preserved while the restore is pending",
+    };
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.restoreClaims = [
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        sourceFileId: "deleted-file-1",
+        snapshot: JSON.stringify(claimSnapshot),
+        consumedAt: null,
+        restoredFileId: "restored-file-1",
+      },
+    ];
+    mocks.state.designFiles = [
+      {
+        id: "restored-file-1",
+        designId: "design-1",
+        filename: snapshot.filename,
+        fileType: snapshot.fileType,
+        content: annotateScreenHtmlForPersist(
+          snapshot.content,
+          snapshot.fileType,
+        ),
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-file-1"],
+            value: editedMetadata,
+          },
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-b"],
+            value: { title: "B", connectionId: "owner-connection" },
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "restored-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 1,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_connection_scope_mismatch",
+      statusCode: 403,
+      details: { restoreTargetFileIds: [] },
+    });
+    expect(mocks.state.restoreClaims[0]?.consumedAt).toBeNull();
+
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-file-1"],
+            value: editedMetadata,
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "restored-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 1,
+      } as never),
+    ).resolves.toMatchObject({ changed: true });
+    expect(mocks.state.selectForUpdateTables).toContain("designFiles");
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata["restored-file-1"],
+    ).toEqual(editedMetadata);
+    expect(mocks.state.restoreClaims[0]).toMatchObject({
+      restoredFileId: "restored-file-1",
+    });
+    expect(mocks.state.restoreClaims[0]?.consumedAt).toEqual(
+      expect.any(String),
+    );
+
+    mocks.state.designFiles.push({
+      id: "restored-file-2",
+      designId: "design-1",
+      filename: snapshot.filename,
+      fileType: snapshot.fileType,
+      content: annotateScreenHtmlForPersist(
+        snapshot.content,
+        snapshot.fileType,
+      ),
+    });
+    mocks.assertAccess.mockResolvedValueOnce({ role: "editor" });
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-file-2"],
+            value: snapshot.screenMetadata,
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "restored-file-2",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 2,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_connection_scope_mismatch",
+      statusCode: 403,
+      details: { restoreTargetFileIds: ["restored-file-2"] },
+    });
+  });
+
+  it("rejects a restore claim that is not bound to the target Screen", async () => {
+    const snapshot = {
+      filename: "restored.html",
+      fileType: "html",
+      content: "<html><body><main>Restored</main></body></html>",
+      screenMetadata: {
+        title: "Restored",
+        connectionId: "owner-connection",
+      },
+    };
+    mocks.assertAccess.mockResolvedValue({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.restoreClaims = [
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        sourceFileId: "deleted-file-1",
+        snapshot: JSON.stringify({
+          filename: snapshot.filename,
+          fileType: snapshot.fileType,
+          contentHashes: screenRestoreContentHashes(
+            snapshot.content,
+            snapshot.fileType,
+          ),
+          screenMetadata: snapshot.screenMetadata,
+        }),
+        consumedAt: null,
+        restoredFileId: null,
+      },
+    ];
+    mocks.state.designFiles = [
+      {
+        id: "restored-file-1",
+        designId: "design-1",
+        filename: snapshot.filename,
+        fileType: snapshot.fileType,
+        content: annotateScreenHtmlForPersist(
+          "<html><body><main>Changed</main></body></html>",
+          snapshot.fileType,
+        ),
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-file-1"],
+            value: snapshot.screenMetadata,
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "restored-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 1,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_connection_scope_mismatch",
+      statusCode: 403,
+    });
+    expect(mocks.state.restoreClaims[0]?.consumedAt).toBeNull();
+  });
+
+  it("does not let a pending restore claim block unrelated design data", async () => {
+    const snapshot = {
+      filename: "restored.html",
+      fileType: "html",
+      content: "<html><body><main>Restored</main></body></html>",
+      screenMetadata: {
+        title: "Restored",
+        connectionId: "owner-connection",
+      },
+    };
+    mocks.assertAccess.mockResolvedValue({ role: "editor" });
+    mocks.state.restoreClaims = [
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        sourceFileId: "deleted-file-1",
+        snapshot: JSON.stringify({
+          filename: snapshot.filename,
+          fileType: snapshot.fileType,
+          contentHashes: screenRestoreContentHashes(
+            snapshot.content,
+            snapshot.fileType,
+          ),
+          screenMetadata: snapshot.screenMetadata,
+        }),
+        consumedAt: null,
+        restoredFileId: null,
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["canvasFrames", "frame-a"],
+            value: { x: 40, y: 0, width: 400, height: 300 },
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "deleted-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 2,
+      } as never),
+    ).resolves.toMatchObject({ changed: true });
+
+    expect(JSON.parse(mocks.state.row.data!).canvasFrames["frame-a"].x).toBe(
+      40,
+    );
+    expect(mocks.state.restoreClaims[0]?.consumedAt).toBeNull();
+  });
+
+  it("rejects a restored connection when the restored Screen content changes before save", async () => {
+    const snapshot = {
+      filename: "restored.html",
+      fileType: "html",
+      content: "<html><body><main>Restored</main></body></html>",
+      screenMetadata: {
+        title: "Restored",
+        connectionId: "owner-connection",
+      },
+    };
+    mocks.assertAccess.mockResolvedValue({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.restoreClaims = [
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        sourceFileId: "deleted-file-1",
+        snapshot: JSON.stringify({
+          filename: snapshot.filename,
+          fileType: snapshot.fileType,
+          contentHashes: screenRestoreContentHashes(
+            snapshot.content,
+            snapshot.fileType,
+          ),
+          screenMetadata: snapshot.screenMetadata,
+        }),
+        consumedAt: null,
+        restoredFileId: "restored-file-1",
+      },
+    ];
+    mocks.state.designFiles = [
+      {
+        id: "restored-file-1",
+        designId: "design-1",
+        filename: snapshot.filename,
+        fileType: snapshot.fileType,
+        content: annotateScreenHtmlForPersist(
+          "<html><body><main>Edited</main></body></html>",
+          snapshot.fileType,
+        ),
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "restored-file-1"],
+            value: {
+              title: "Edited after Undo",
+              connectionId: "owner-connection",
+            },
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "restored-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 2,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_connection_scope_mismatch",
+      statusCode: 403,
+    });
+    expect(mocks.state.restoreClaims[0]?.consumedAt).toBeNull();
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata["restored-file-1"],
+    ).toBeUndefined();
+  });
+
+  it("does not let a consumed restore claim reapply a removed connection", async () => {
+    const snapshot = {
+      filename: "restored.html",
+      fileType: "html",
+      content: "<html><body><main>Restored</main></body></html>",
+      screenMetadata: {
+        title: "Restored",
+        connectionId: "owner-connection",
+      },
+    };
+    mocks.assertAccess.mockResolvedValue({ role: "editor" });
+    mocks.state.connections = [
+      {
+        id: "owner-connection",
+        ownerEmail: "design-owner@example.com",
+        orgId: null,
+      },
+    ];
+    mocks.state.restoreClaims = [
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        sourceFileId: "deleted-file-1",
+        snapshot: JSON.stringify({
+          filename: snapshot.filename,
+          fileType: snapshot.fileType,
+          contentHashes: screenRestoreContentHashes(
+            snapshot.content,
+            snapshot.fileType,
+          ),
+          screenMetadata: snapshot.screenMetadata,
+        }),
+        consumedAt: "2026-10-08T00:00:00.000Z",
+        restoredFileId: "deleted-file-1",
+      },
+    ];
+    mocks.state.designFiles = [
+      {
+        id: "deleted-file-1",
+        designId: "design-1",
+        filename: snapshot.filename,
+        fileType: snapshot.fileType,
+        content: annotateScreenHtmlForPersist(
+          snapshot.content,
+          snapshot.fileType,
+        ),
+      },
+    ];
+
+    await expect(
+      action.run({
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "deleted-file-1"],
+            value: snapshot.screenMetadata,
+          },
+        ],
+        restoreClaims: [
+          {
+            claimId: "restore-claim-1",
+            sourceFileId: "deleted-file-1",
+            targetFileId: "deleted-file-1",
+          },
+        ],
+        operationSource: "undo-session",
+        operationRevision: 3,
+      } as never),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_connection_scope_mismatch",
+      statusCode: 403,
+    });
+  });
+
+  it("fails closed when a widget write is missing a matching action grant", async () => {
+    await expect(
+      action.run(
+        { id: "design-1", title: "Widget edit" } as never,
+        { caller: "mcp-widget-write" } as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_grant_required",
+      statusCode: 403,
+    });
+
+    await expect(
+      action.run(
+        { id: "design-elsewhere", title: "Widget edit" } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_resource_mismatch",
+      statusCode: 403,
+    });
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "source mode",
+      operation: { op: "set", path: ["sourceType"], value: "fusion" },
+    },
+    {
+      label: "fusion URL",
+      operation: { op: "set", path: ["fusionUrl"], value: "https://host" },
+    },
+    {
+      label: "nested screen source type",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a", "sourceType"],
+        value: "fusion",
+      },
+    },
+    {
+      label: "whole screen bridge metadata",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a"],
+        value: { width: 400, bridgeUrl: "https://host" },
+      },
+    },
+    {
+      label: "malformed responsive breakpoint heights",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a"],
+        value: { width: 400, breakpointHeights: { "390px": 800 } },
+      },
+    },
+    {
+      label: "localhost connection metadata",
+      operation: {
+        op: "set",
+        path: ["localhostScreens", "frame-a"],
+        value: { width: 400, connectionId: "connection-1" },
+      },
+    },
+    {
+      label: "extra layout-grid metadata",
+      operation: {
+        op: "set",
+        path: ["layoutGrids", "frame-a"],
+        value: {
+          kind: "uniform",
+          size: 8,
+          visible: true,
+          previewUrl: "https://host",
+        },
+      },
+    },
+  ])(
+    "rejects widget data operations that write $label",
+    async ({ operation }) => {
+      const before = mocks.state.row.data;
+
+      await expect(
+        action.run(
+          { id: "design-1", dataOperations: [operation] } as never,
+          widgetWriteContext as never,
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "mcp_widget_data_path_not_allowed",
+        statusCode: 403,
+      });
+
+      expect(mocks.state.row.data).toBe(before);
+    },
+  );
+
+  it.each([
+    {
+      label: "a nonnumeric nested frame coordinate",
+      operation: {
+        op: "set",
+        path: ["canvasFrames", "frame-a", "x"],
+        value: "800px",
+      },
+    },
+    {
+      label: "a nonfinite nested frame dimension",
+      operation: {
+        op: "set",
+        path: ["canvasFrames", "frame-a", "width"],
+        value: Number.POSITIVE_INFINITY,
+      },
+    },
+    {
+      label: "a malformed whole frame entry",
+      operation: {
+        op: "set",
+        path: ["canvasFrames", "frame-a"],
+        value: { x: 0, y: 0, width: "800", height: 600 },
+      },
+    },
+  ])("rejects widget writes with $label", async ({ operation }) => {
+    const before = mocks.state.row.data;
+
+    await expect(
+      action.run(
+        { id: "design-1", dataOperations: [operation] } as never,
+        widgetWriteContext as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_data_path_not_allowed",
+      statusCode: 403,
+    });
+
+    expect(mocks.state.row.data).toBe(before);
+  });
+
+  it("allows the editor geometry and layout operations in a widget write grant", async () => {
+    await action.run(
+      {
+        id: "design-1",
+        dataOperations: [
+          { op: "set", path: ["canvasFrames", "frame-a", "x"], value: 24 },
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-c"],
+            value: {
+              width: 900,
+              height: 1200,
+              heightPinned: true,
+              heightMode: "fixed",
+              breakpointHeights: { "390": 820 },
+            },
+          },
+          {
+            op: "set",
+            path: ["localhostScreens", "frame-c"],
+            value: { width: 900, height: 1200 },
+          },
+          {
+            op: "set",
+            path: ["layoutGrids", "frame-c"],
+            value: { kind: "uniform", size: 8, visible: true },
+          },
+        ],
+      } as never,
+      widgetWriteContext as never,
+    );
+
+    const persisted = JSON.parse(mocks.state.row.data!);
+    expect(persisted.canvasFrames["frame-a"].x).toBe(24);
+    expect(persisted.screenMetadata["frame-c"]).toEqual({
+      width: 900,
+      height: 1200,
+      heightPinned: true,
+      heightMode: "fixed",
+      breakpointHeights: { "390": 820 },
+    });
+    expect(persisted.localhostScreens["frame-c"]).toEqual({
+      width: 900,
+      height: 1200,
+    });
+    expect(persisted.layoutGrids["frame-c"]).toEqual({
+      kind: "uniform",
+      size: 8,
+      visible: true,
+    });
+  });
+
+  it("allows the measured responsive breakpoint height the editor writes on first paint", async () => {
+    await action.run(
+      {
+        id: "design-1",
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", "frame-a", "breakpointHeights", "390"],
+            value: 1181,
+          },
+        ],
+      } as never,
+      widgetWriteContext as never,
+    );
+
+    expect(
+      JSON.parse(mocks.state.row.data!).screenMetadata["frame-a"]
+        .breakpointHeights,
+    ).toEqual({ "390": 1181 });
+  });
+
+  it.each([
+    {
+      label: "a nonnumeric height",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a", "breakpointHeights", "390"],
+        value: "1181px",
+      },
+    },
+    {
+      label: "a non-width key",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a", "breakpointHeights", "390px"],
+        value: 800,
+      },
+    },
+    {
+      label: "a nested value",
+      operation: {
+        op: "set",
+        path: ["screenMetadata", "frame-a", "breakpointHeights", "390", "x"],
+        value: 800,
+      },
+    },
+    {
+      label: "a deleted breakpoint height",
+      operation: {
+        op: "delete",
+        path: ["screenMetadata", "frame-a", "breakpointHeights", "390"],
+      },
+    },
+    {
+      label: "a nested localhost field",
+      operation: {
+        op: "set",
+        path: ["localhostScreens", "frame-a", "width", "390"],
+        value: 800,
+      },
+    },
+  ])(
+    "rejects widget breakpoint-height writes with $label",
+    async ({ operation }) => {
+      const before = mocks.state.row.data;
+
+      await expect(
+        action.run(
+          { id: "design-1", dataOperations: [operation] } as never,
+          widgetWriteContext as never,
+        ),
+      ).rejects.toThrow();
+
+      expect(mocks.state.row.data).toBe(before);
+    },
+  );
 
   it("rejects one ambiguous legacy snapshot instead of silently losing a concurrent frame edit", async () => {
     mocks.resetReadGate(2);

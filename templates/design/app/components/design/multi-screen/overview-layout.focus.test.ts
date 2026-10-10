@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getFocusedLineupFitScale,
   getFocusedLineupFillHeight,
   getFocusedLineupScale,
+  getWidgetFitCamera,
+  getWidgetFitPaddingPx,
   resolveFocusedLineupScreenId,
+  SURFACE_PADDING,
 } from "./overview-layout";
 
 describe("resolveFocusedLineupScreenId", () => {
   const screenIds = ["a", "b", "c"];
 
-  it("prefers the selected screen, then the requested one, then the active one", () => {
+  it("prefers the requested screen, then selection, then active screen", () => {
     expect(
       resolveFocusedLineupScreenId({
         screenIds,
@@ -17,15 +21,15 @@ describe("resolveFocusedLineupScreenId", () => {
         requestedScreenId: "b",
         activeScreenId: "a",
       }),
-    ).toBe("c");
+    ).toBe("b");
     expect(
       resolveFocusedLineupScreenId({
         screenIds,
-        selectedScreenIds: [],
-        requestedScreenId: "b",
+        selectedScreenIds: ["c"],
+        requestedScreenId: null,
         activeScreenId: "a",
       }),
-    ).toBe("b");
+    ).toBe("c");
     expect(
       resolveFocusedLineupScreenId({
         screenIds,
@@ -117,6 +121,26 @@ describe("getFocusedLineupScale", () => {
   });
 });
 
+describe("getFocusedLineupFitScale", () => {
+  it.each([
+    [620, 860],
+    [1100, 900],
+  ])("fits a tall screen inside a %ipx by %ipx pane", (width, height) => {
+    const scale = getFocusedLineupFitScale({
+      frameWidth: 1440,
+      frameHeight: 2560,
+      availableWidth: width,
+      availableHeight: height,
+      minScale: 0.1,
+      maxScale: 1,
+    });
+
+    expect(scale).toBeCloseTo(Math.min(width / 1440, height / 2560), 6);
+    expect(1440 * scale).toBeLessThanOrEqual(width);
+    expect(2560 * scale).toBeLessThanOrEqual(height);
+  });
+});
+
 describe("getFocusedLineupFillHeight", () => {
   const base = {
     frameWidth: 1440,
@@ -157,5 +181,95 @@ describe("getFocusedLineupFillHeight", () => {
         maxScale: 1,
       }),
     ).toBe(860);
+  });
+});
+
+describe("getWidgetFitPaddingPx", () => {
+  it("caps the margin in a very large pane", () => {
+    expect(getWidgetFitPaddingPx(2400, 2000)).toBe(96);
+  });
+
+  it("scales the margin down so a narrow pane keeps room for the artboard", () => {
+    expect(getWidgetFitPaddingPx(1040, 800)).toBe(40);
+    expect(getWidgetFitPaddingPx(360, 700)).toBe(18);
+  });
+
+  it("gives a larger pane at least as much room to fit into", () => {
+    const room = (width: number, height: number) =>
+      height - 2 * getWidgetFitPaddingPx(width, height);
+    expect(room(1100, 900)).toBeGreaterThan(room(620, 860));
+  });
+
+  it("never drops below a visible margin", () => {
+    expect(getWidgetFitPaddingPx(120, 90)).toBe(16);
+  });
+});
+
+describe("getWidgetFitCamera", () => {
+  const base = {
+    bounds: { left: 0, top: 0, width: 1854, height: 2200 },
+    pane: { width: 640, height: 560 },
+    insetLeft: 0,
+    insetRight: 0,
+    minScale: 0.1,
+    maxScale: 1,
+  };
+  const framed = (
+    camera: ReturnType<typeof getWidgetFitCamera>,
+    args = base,
+  ) => {
+    const scale = camera.zoom / 100;
+    const left = camera.x + (SURFACE_PADDING + args.bounds.left) * scale;
+    const top = camera.y + (SURFACE_PADDING + args.bounds.top) * scale;
+    return {
+      left,
+      top,
+      right: left + args.bounds.width * scale,
+      bottom: top + args.bounds.height * scale,
+    };
+  };
+
+  it("fits the bounds whole and centered in the pane", () => {
+    const rect = framed(getWidgetFitCamera(base));
+    expect(rect.left).toBeGreaterThan(0);
+    expect(rect.top).toBeGreaterThan(0);
+    expect(rect.right).toBeLessThan(base.pane.width);
+    expect(rect.bottom).toBeLessThan(base.pane.height);
+    expect(rect.left).toBeCloseTo(base.pane.width - rect.right, 6);
+    expect(rect.top).toBeCloseTo(base.pane.height - rect.bottom, 6);
+  });
+
+  it("fits whatever the bounds measure, so a taller group zooms further out", () => {
+    const short = getWidgetFitCamera(base);
+    const tall = getWidgetFitCamera({
+      ...base,
+      bounds: { ...base.bounds, height: 4400 },
+    });
+    expect(tall.zoom).toBeLessThan(short.zoom);
+  });
+
+  it("never zooms in past maxScale, centering a small group instead", () => {
+    const args = {
+      ...base,
+      bounds: { ...base.bounds, width: 200, height: 100 },
+    };
+    const camera = getWidgetFitCamera(args);
+    expect(camera.zoom).toBe(100);
+    const rect = framed(camera, args);
+    expect(rect.left).toBeCloseTo(args.pane.width - rect.right, 6);
+    expect(rect.top).toBeCloseTo(args.pane.height - rect.bottom, 6);
+  });
+
+  it("centers between the chrome insets", () => {
+    const args = { ...base, insetLeft: 200, insetRight: 40 };
+    const rect = framed(getWidgetFitCamera(args), args);
+    expect(rect.left - args.insetLeft).toBeCloseTo(
+      args.pane.width - args.insetRight - rect.right,
+      6,
+    );
+  });
+
+  it("is the same camera for the same pane and bounds", () => {
+    expect(getWidgetFitCamera(base)).toEqual(getWidgetFitCamera({ ...base }));
   });
 });

@@ -5,6 +5,7 @@ import { registerFirstRunOnboardingExtension } from "@agent-native/core/client/o
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createToolkitI18nCatalog } from "../i18n.js";
@@ -31,6 +32,8 @@ const mocks = vi.hoisted(() => ({
   completeFirstRun: vi.fn(),
   useBuilderConnectFlow: vi.fn(),
   routePathname: "/",
+  useActualRouter: false,
+  navigate: vi.fn(),
   trackOnboardingEvent: vi.fn(),
   setCustomKeyOnboardingAttempt: vi.fn(),
   useOnboarding: vi.fn(),
@@ -42,7 +45,12 @@ vi.mock("react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-router")>();
   return {
     ...actual,
-    useLocation: () => ({ pathname: mocks.routePathname }),
+    useLocation: () =>
+      mocks.useActualRouter
+        ? actual.useLocation()
+        : { pathname: mocks.routePathname },
+    useNavigate: () =>
+      mocks.useActualRouter ? actual.useNavigate() : mocks.navigate,
   };
 });
 
@@ -80,6 +88,8 @@ describe("FirstRunOnboarding", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.completeFirstRun.mockReset();
     mocks.routePathname = "/";
+    mocks.useActualRouter = false;
+    mocks.navigate.mockReset();
     mocks.completeFirstRun.mockResolvedValue(undefined);
     mocks.useBuilderConnectFlow.mockReset();
     mocks.trackOnboardingEvent.mockReset();
@@ -508,6 +518,11 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.textContent,
     ).toBe("Use Builder.io");
+    expect(
+      document.body
+        .querySelector('[data-testid="first-run-builder-sign-in"]')
+        ?.querySelector("svg"),
+    ).toBeNull();
   });
 
   it("keeps existing-account sign-in available when provisioning is unavailable", () => {
@@ -773,6 +788,16 @@ describe("FirstRunOnboarding", () => {
         .querySelector("[data-testid='first-run-role-skip']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
+    expect(
+      document.body.querySelector(
+        '[data-testid="first-run-builder-create-account"]',
+      )?.textContent,
+    ).toBe("Use Builder.io");
+    expect(
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
+        ?.querySelector("svg"),
+    ).toBeNull();
     act(() => {
       document.body
         .querySelector('[data-testid="first-run-builder-create-account"]')
@@ -1417,6 +1442,7 @@ describe("FirstRunOnboarding", () => {
       completeFirstRun: mocks.completeFirstRun,
       completeFirstRunError: null,
     });
+    mocks.routePathname = "/library";
 
     await act(async () => {
       root.render(
@@ -1460,7 +1486,8 @@ describe("FirstRunOnboarding", () => {
     });
 
     expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
-    expect(window.location.pathname).toBe("/");
+    expect(mocks.navigate).toHaveBeenCalledOnce();
+    expect(mocks.navigate).toHaveBeenCalledWith("/record", { replace: true });
     expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
       "onboarding_step_skipped",
       expect.objectContaining({
@@ -1473,6 +1500,63 @@ describe("FirstRunOnboarding", () => {
       "onboarding_method_clicked",
       expect.anything(),
     );
+  });
+
+  it("navigates to Clips recording inside the router basename", async () => {
+    mocks.useActualRouter = true;
+    mocks.useOnboardingPreviewMode.mockReturnValue(true);
+    mocks.useOnboardingPreviewStep.mockReturnValue("choice");
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "clips",
+        appName: "Clips",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+    vi.stubEnv("VITE_APP_BASE_PATH", "/clips");
+    window.history.replaceState(
+      null,
+      "",
+      "/clips/library?onboarding=preview&step=choice",
+    );
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          basename="/clips"
+          initialEntries={["/clips/library?onboarding=preview&step=choice"]}
+        >
+          <Routes>
+            <Route path="/library" element={<FirstRunOnboarding />} />
+            <Route
+              path="/record"
+              element={<div data-testid="clips-record-route" />}
+            />
+            <Route path="*" element={<div data-testid="not-found-route" />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+    });
+
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-setup-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      document.body.querySelector('[data-testid="clips-record-route"]'),
+    ).not.toBeNull();
+    expect(
+      document.body.querySelector('[data-testid="not-found-route"]'),
+    ).toBeNull();
   });
 
   it("does not start duplicate manual setup attempts while completion is pending", async () => {
@@ -1678,6 +1762,56 @@ describe("FirstRunOnboarding", () => {
       "onboarding_role_save_started",
       { flow: "first_run", step_id: "role", role: "other" },
     );
+  });
+
+  it("does not reuse a failed skip redirect for manual setup completion", async () => {
+    mocks.completeFirstRun
+      .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
+      .mockResolvedValueOnce(undefined);
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "clips",
+        appName: "Clips",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.click();
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-setup-skip']")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledOnce();
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-open-key-settings']")
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/settings/model");
   });
 
   it("preserves the completed step when first-run completion succeeds on retry", async () => {
@@ -2043,5 +2177,70 @@ describe("FirstRunOnboarding", () => {
         '[data-testid="first-run-builder-status-error"]',
       ),
     ).toBeNull();
+  });
+
+  it("preserves a skip redirect when the diverted completion is retried", async () => {
+    mocks.completeFirstRun
+      .mockRejectedValueOnce(new Error("first-run completion failed: 500"))
+      .mockResolvedValueOnce(undefined);
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "clips",
+        appName: "Clips",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-role-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      document.body
+        .querySelector("[data-testid='first-run-setup-skip']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const extensionSkip = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Extension Skip",
+    );
+    if (extensionSkip) {
+      await act(async () => {
+        extensionSkip.click();
+        await Promise.resolve();
+      });
+    }
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain(
+      "first-run completion failed: 500",
+    );
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Try again")
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(2);
+    expect(mocks.navigate).toHaveBeenCalledOnce();
+    expect(mocks.navigate).toHaveBeenCalledWith("/record", {
+      replace: true,
+    });
   });
 });

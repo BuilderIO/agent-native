@@ -1,3 +1,4 @@
+import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { IconTemplate } from "@tabler/icons-react";
 import {
   useEffect,
@@ -7,6 +8,10 @@ import {
   type CSSProperties,
 } from "react";
 
+import {
+  connectPrivateReplayScreenshotPreview,
+  preparePrivateReplayScreenshotPreviewDocument,
+} from "@/components/design/design-canvas/private-replay-screenshot-preview";
 import { SCALED_IFRAME_PAINT_RETENTION_STYLE } from "@/components/design/scaled-iframe-paint";
 import { cn } from "@/lib/utils";
 
@@ -14,32 +19,59 @@ import { templatePreviewDocument } from "./template-preview-document";
 
 export function TemplatePreview({
   html,
+  designId,
   title,
   width,
   height,
   className,
   interactive = false,
+  recordSessionReplay = false,
   onNavigate,
   onEscape,
 }: {
   html?: string | null;
+  designId?: string;
   title: string;
   width?: number | null;
   height?: number | null;
   className?: string;
   interactive?: boolean;
+  recordSessionReplay?: boolean;
   onNavigate?: (href: string) => void;
   onEscape?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [scale, setScale] = useState(0.25);
+  const [sessionReplayVisibility, setSessionReplayVisibility] = useState({
+    enabled: recordSessionReplay,
+    html,
+    visible: false,
+  });
+  if (
+    sessionReplayVisibility.html !== html ||
+    sessionReplayVisibility.enabled !== recordSessionReplay
+  ) {
+    setSessionReplayVisibility({
+      enabled: recordSessionReplay,
+      html,
+      visible: false,
+    });
+  }
+  const sessionReplayVisible =
+    recordSessionReplay &&
+    sessionReplayVisibility.html === html &&
+    sessionReplayVisibility.enabled &&
+    sessionReplayVisibility.visible;
   const naturalWidth = Math.max(width ?? 1280, 320);
   const naturalHeight = Math.max(height ?? 720, 240);
-  const document = useMemo(
-    () => (html ? templatePreviewDocument(html) : undefined),
-    [html],
-  );
+  const document = useMemo(() => {
+    if (!html) return undefined;
+    return preparePrivateReplayScreenshotPreviewDocument(
+      templatePreviewDocument(html, { recordSessionReplay }),
+      { designId },
+    );
+  }, [designId, html, recordSessionReplay]);
 
   useEffect(() => {
     if (!interactive) return;
@@ -81,6 +113,96 @@ export function TemplatePreview({
     return () => observer.disconnect();
   }, [naturalHeight, naturalWidth]);
 
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!recordSessionReplay || !frame) return;
+    let latestIntersection: IntersectionObserverEntry | undefined;
+    let hasMarkedVisible = false;
+    const markVisiblePreview = () => {
+      if (hasMarkedVisible) return;
+      const entry = latestIntersection;
+      const hasVisibleArea =
+        entry?.isIntersecting &&
+        entry.intersectionRatio > 0 &&
+        entry.intersectionRect.width > 0 &&
+        entry.intersectionRect.height > 0;
+      if (!hasVisibleArea) return;
+
+      for (
+        let current: Element | null = frame;
+        current;
+        current = current.parentElement
+      ) {
+        const styles = window.getComputedStyle(current);
+        const hasZeroOpacityFilter =
+          /(?:^|\s)opacity\(\s*(?:0+(?:\.0*)?|\.0+)%?\s*\)(?:\s|$)/i.test(
+            styles.filter || "",
+          );
+        if (
+          styles.display === "none" ||
+          styles.contentVisibility === "hidden" ||
+          (styles.opacity !== "" && Number(styles.opacity) === 0) ||
+          hasZeroOpacityFilter ||
+          (current === frame &&
+            (styles.visibility === "hidden" ||
+              styles.visibility === "collapse"))
+        ) {
+          return;
+        }
+      }
+
+      hasMarkedVisible = true;
+      setSessionReplayVisibility({
+        enabled: recordSessionReplay,
+        html,
+        visible: true,
+      });
+    };
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        latestIntersection = entry;
+        markVisiblePreview();
+      },
+      { threshold: [0, Number.MIN_VALUE] },
+    );
+    const styleObserver = new MutationObserver(markVisiblePreview);
+    for (
+      let current: Element | null = frame;
+      current;
+      current = current.parentElement
+    ) {
+      styleObserver.observe(current, {
+        attributes: true,
+        attributeFilter: ["class", "hidden", "style"],
+      });
+    }
+    for (const eventName of [
+      "animationend",
+      "animationcancel",
+      "transitionend",
+      "transitioncancel",
+    ]) {
+      window.document.addEventListener(eventName, markVisiblePreview, true);
+    }
+    observer.observe(frame);
+    return () => {
+      observer.disconnect();
+      styleObserver.disconnect();
+      for (const eventName of [
+        "animationend",
+        "animationcancel",
+        "transitionend",
+        "transitioncancel",
+      ]) {
+        window.document.removeEventListener(
+          eventName,
+          markVisiblePreview,
+          true,
+        );
+      }
+    };
+  }, [html, recordSessionReplay]);
+
   if (!html) {
     return (
       <div
@@ -105,12 +227,25 @@ export function TemplatePreview({
     >
       <iframe
         ref={frameRef}
+        {...(recordSessionReplay && sessionReplayVisible
+          ? { [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }
+          : {})}
         title={title}
-        srcDoc={document}
+        srcDoc={document?.html}
         sandbox="allow-scripts"
         {...{ credentialless: "" }}
         referrerPolicy="no-referrer"
         loading={interactive ? "eager" : "lazy"}
+        onLoad={(event) => {
+          const frame = event.currentTarget;
+          if (designId)
+            connectPrivateReplayScreenshotPreview(
+              frame,
+              document?.screenshotPaths ?? [],
+              document?.nonce ?? null,
+              designId,
+            );
+        }}
         tabIndex={interactive ? 0 : -1}
         aria-hidden={!interactive || undefined}
         className={cn(

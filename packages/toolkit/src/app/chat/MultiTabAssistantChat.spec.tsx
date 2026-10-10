@@ -652,7 +652,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
   });
 
-  it("prefills the active composer without submitting when submit is false", () => {
+  it("prefills the active composer with hidden context when submit is false", () => {
     act(() => {
       dispatchSubmitChat({
         message: "Review this before sending",
@@ -663,9 +663,185 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
-      'Review this before sending\n\n<context data-agentkit-context-encoding="entities-v1">\nSelected rows: a, b\n</context>',
+      "Review this before sending",
+    );
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "agent-chat-prefill-context",
+        title: "Active app context",
+        context: "Selected rows: a, b",
+      }),
+      { focus: false, threadScoped: true },
     );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("waits for thread context persistence before prefilling", async () => {
+    const persisted = Promise.withResolvers<void>();
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+      persisted.promise,
+    );
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        submitMessageId: "prefill-persisted",
+      });
+    });
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    await act(async () => {
+      persisted.resolve();
+      await persisted.promise;
+    });
+
+    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+      "Review this before sending",
+    );
+    expect(results).toEqual([
+      { submitMessageId: "prefill-persisted", delivered: true },
+    ]);
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+  });
+
+  it("removes persisted thread context when its prefill is cancelled", async () => {
+    const persisted = Promise.withResolvers<void>();
+    chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+      persisted.promise,
+    );
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        submitMessageId: "prefill-cancelled-after-persist",
+      });
+    });
+    cancelAgentChatSubmit("prefill-cancelled-after-persist");
+
+    await act(async () => {
+      persisted.resolve();
+      await persisted.promise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(chatHandleMocks.removeComposerContextItem).toHaveBeenCalledWith(
+      "agent-chat-prefill-context",
+      { threadScoped: true },
+    );
+  });
+
+  it("reports a failed context write without saving the draft", async () => {
+    const results: unknown[] = [];
+    const onResult = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+    chatHandleMocks.setComposerContextItem.mockImplementationOnce(() =>
+      Promise.reject(new Error("offline")),
+    );
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        submitMessageId: "prefill-persist-failed",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+    expect(results).toEqual([
+      {
+        submitMessageId: "prefill-persist-failed",
+        delivered: false,
+        reason: "context-persistence-failed",
+      },
+    ]);
+    window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, onResult);
+  });
+
+  it("replaces the staged context when prefilled again", () => {
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        openSidebar: true,
+      });
+    });
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: c, d",
+        submit: false,
+        openSidebar: true,
+      });
+    });
+
+    const calls = chatHandleMocks.setComposerContextItem.mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.[0].key).toBe("agent-chat-prefill-context");
+    expect(calls[1]?.[0].key).toBe(calls[0]?.[0].key);
+    expect(calls[1]?.[0].context).toBe("Selected rows: c, d");
+    expect(calls[0]?.[1]).toEqual({ focus: false, threadScoped: true });
+    expect(calls[1]?.[1]).toEqual({ focus: false, threadScoped: true });
+  });
+
+  it("uses the current context namespace for a prefilled context", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "desktop-app",
+            id: "calendar",
+            contextKey: "desktop-app:calendar",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "desktop-app",
+            id: "mail",
+            contextKey: "desktop-app:mail",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected message: hello",
+        submit: false,
+      });
+    });
+
+    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: "Selected message: hello",
+        contextNamespace: "desktop-app:mail",
+      }),
+      { focus: false, threadScoped: true },
+    );
   });
 
   it("reports a rejected queued submission instead of leaving it unhandled", async () => {

@@ -95,6 +95,108 @@ export interface FilePart {
   mediaType?: string;
   url?: string;
   fileId?: string;
+  /**
+   * The inline bytes were dropped before the part was stored and no durable
+   * copy exists, so history still names the file without carrying its body.
+   */
+  omitted?: "inline-bytes" | "unsafe-url";
+}
+
+export function isInlineDataUrl(value: unknown): value is string {
+  return typeof value === "string" && /^\s*data:/i.test(value);
+}
+
+function isInlineFileBody(value: string): boolean {
+  const normalized = value.trim();
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  if (/^\s*data:/i.test(normalized)) return true;
+  if (normalized.length < 24 || normalized.length % 4 === 1) return false;
+  return /^[A-Za-z0-9+/_-]+={0,2}$/.test(normalized);
+}
+
+export function isPersistableAttachmentUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !value.trim()) return false;
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" &&
+    Boolean(url.hostname) &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}
+
+/**
+ * SQL may retain provider-issued HTTP references. Consumers that fetch them
+ * must still enforce their own origin policy.
+ */
+export function isPersistableAttachmentReferenceUrl(
+  value: unknown,
+): value is string {
+  if (typeof value !== "string" || !value.trim() || value.length > 8192) {
+    return false;
+  }
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    ["http:", "https:"].includes(url.protocol) &&
+    Boolean(url.hostname) &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}
+
+/** The storable form of a file part: a durable reference, never inline bytes. */
+export function persistableFilePart(part: FilePart): FilePart {
+  const url = isPersistableAttachmentReferenceUrl(part.url)
+    ? part.url
+    : undefined;
+  const inlineFileId =
+    typeof part.fileId === "string" && isInlineFileBody(part.fileId);
+  const fileId =
+    typeof part.fileId === "string" && part.fileId.trim() && !inlineFileId
+      ? part.fileId
+      : undefined;
+  return {
+    type: "file",
+    name: part.name,
+    ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+    ...(url ? { url } : {}),
+    ...(fileId ? { fileId } : {}),
+    ...(!url && !fileId && part.omitted
+      ? { omitted: part.omitted }
+      : !url && !fileId && (part.url || inlineFileId)
+        ? {
+            omitted:
+              isInlineDataUrl(part.url) || inlineFileId
+                ? ("inline-bytes" as const)
+                : ("unsafe-url" as const),
+          }
+        : {}),
+  };
+}
+
+/** Request-only image bytes paired with a durable reference when available. */
+export interface AgentRequestAttachment {
+  type: "image";
+  name: string;
+  contentType?: string;
+  /** A bounded data URL sent only with a new run, never stored in thread history. */
+  data?: string;
+  /** The resized image URL used when a request is queued for later execution. */
+  url?: string;
+  /** The user's original upload URL, retained for embedding or reference. */
+  referenceUrl?: string;
 }
 
 export interface AgentWidgetAction {
@@ -973,6 +1075,7 @@ export interface AgentQueuedMessage {
   text: string;
   createdAt: string;
   attachments?: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
 }
@@ -1023,6 +1126,7 @@ export interface QueueMessageInput {
   id?: string;
   text: string;
   attachments?: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
 }
@@ -1096,6 +1200,11 @@ export interface AgentTransportThreadOperations {
 export interface AgentTransport extends AgentTransportThreadOperations {
   dispose?(): void | Promise<void>;
   capabilities?: AgentCapabilities;
+  /** Checks whether a new user-initiated chat dispatch is allowed to start. */
+  assertAiSetupReady?(
+    input: { engine?: string; threadId?: ThreadId },
+    context?: AgentRequestContext,
+  ): Promise<void>;
   discoverCapabilities?(
     input: DiscoverCapabilitiesInput,
     context?: AgentRequestContext,
@@ -1163,6 +1272,7 @@ export interface AgentTransport extends AgentTransportThreadOperations {
 export interface StartRunInput {
   threadId: ThreadId;
   messages: AgentMessage[];
+  requestAttachments?: AgentRequestAttachment[];
   options?: AgentRunOptions;
   resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;
@@ -1190,6 +1300,8 @@ export interface ContinueRunInput {
   threadId: ThreadId;
   /** The stopped run to continue. */
   runId: RunId;
+  /** Durable references to the turn's attachments; never inline bytes. */
+  attachments?: FilePart[];
 }
 
 export interface StartRunResult {

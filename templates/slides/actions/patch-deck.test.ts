@@ -1,6 +1,7 @@
 import { isAgentActionStopError } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { getPreset } from "../app/lib/design-systems.js";
 import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import { buildSourceImportMetadata } from "../server/lib/source-import.js";
 import { hashSlideContent } from "../shared/slide-fit";
@@ -9,6 +10,7 @@ import {
   assertPatchedSlideAnimationsResolve,
   assertSourceImportSlidesCovered,
   clearOmittedAnimationsForAgentContentPatches,
+  isMcpWidgetPatchAllowed,
   isAgentPatchCaller,
   OperationSchema,
   resolveDeckColumnUpdates,
@@ -24,6 +26,11 @@ vi.mock("../app/lib/normalize-slide-padding.js", () => ({
 
 const mockAssertAccess = vi.fn();
 const mockNotifyClients = vi.fn();
+const mockTrack = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/tracking", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
+}));
 
 let mockDeckRow: Record<string, unknown> | undefined;
 let lastUpdatedDeckData: string | undefined;
@@ -167,6 +174,18 @@ async function runPatchDeckAction(args: any, context?: any) {
       })
     : args.operations;
   return patchDeckAction.run({ ...args, operations }, context);
+}
+
+function widgetWriteContext(overrides: Record<string, unknown> = {}) {
+  return {
+    caller: "mcp-widget-write",
+    mcpDirectoryWidgetWrite: {
+      appId: "slides",
+      resourceIds: { deckId: "deck-1" },
+      actionNames: ["patch-deck"],
+    },
+    ...overrides,
+  };
 }
 
 describe("applyOperation — patch-slide", () => {
@@ -1777,6 +1796,782 @@ describe("run() — asynchronous layout fit metadata", () => {
     };
   });
 
+  it.each([
+    { visibility: "public" },
+    { shareToken: "share-token" },
+    { designSystemId: "another-design-system" },
+    { generationContext: { prompt: "unrelated" } },
+  ])("rejects widget writes to unrelated deck metadata: %o", async (fields) => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [{ op: "patch-deck-fields", fields }],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_outside_editor_scope",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("allows widget title and slide edits while preserving normal callers", async () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        { op: "patch-deck-fields", fields: { title: "Updated" } },
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: {
+            content:
+              '<div class="fmd-slide"><h1 style="left: 24px; width: 280px; color: #123456">Updated</h1></div>',
+            background: "#101010",
+          },
+          baseContentHash: hashSlideContent("<div>One</div>"),
+          baseFields: { background: { present: false } },
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("frontend", [
+        { op: "patch-deck-fields", fields: { visibility: "public" } },
+      ]),
+    ).toBe(true);
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          { op: "patch-deck-fields", fields: { title: "Updated" } },
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content: "<div>Edited in widget</div>",
+              background: "#101010",
+            },
+            baseContentHash: hashSlideContent("<div>One</div>"),
+            baseFields: { background: { present: false } },
+          },
+          {
+            op: "add-slide",
+            slideId: "slide-3",
+            afterSlideId: "slide-2",
+            fields: {
+              content: "<div>New widget slide</div>",
+              notes: "",
+              layout: "blank",
+              background: "#202020",
+              layoutWarningDismissed: false,
+            },
+          },
+          { op: "delete-slide", slideId: "slide-2" },
+          { op: "reorder-slides", orderedIds: ["slide-3", "slide-1"] },
+        ],
+      },
+      widgetWriteContext(),
+    );
+
+    const savedDeck = JSON.parse(String(mockDeckRow?.data));
+    expect(savedDeck.title).toBe("Updated");
+    expect(savedDeck.slides).toMatchObject([
+      {
+        id: "slide-3",
+        content: "<div>New widget slide</div>",
+        layoutWarningDismissed: false,
+      },
+      {
+        id: "slide-1",
+        content: "<div>Edited in widget</div>",
+        background: "#101010",
+      },
+    ]);
+  });
+
+  it("allows widget tweaks only from the opened deck's preset", () => {
+    const tweakDefinitions = getPreset("light").tweaks;
+    const validOperation = {
+      op: "patch-deck-fields" as const,
+      fields: {
+        tweaks: { accentColor: "#2563EB", paperBackground: "white" },
+      },
+    };
+
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [validOperation], {
+        tweakDefinitions,
+      }),
+    ).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { accentColor: "#00E5FF" } },
+          },
+        ],
+        { tweakDefinitions },
+      ),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { customCss: "background: url(...)" } },
+          },
+        ],
+        { tweakDefinitions },
+      ),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [
+          {
+            op: "patch-deck-fields",
+            fields: {
+              title: "Updated",
+              tweaks: { accentColor: "#2563EB" },
+            },
+          },
+        ],
+        { tweakDefinitions },
+      ),
+    ).toBe(false);
+  });
+
+  it("persists a valid scoped widget tweak selection on its deck", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        designSystemId: "light",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { accentColor: "#2563EB" } },
+          },
+        ],
+      },
+      widgetWriteContext(),
+    );
+
+    expect(JSON.parse(String(mockDeckRow.data)).tweaks).toEqual({
+      accentColor: "#2563EB",
+    });
+  });
+
+  it("rejects a widget tweak value unavailable to the deck's preset", async () => {
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        designSystemId: "light",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { tweaks: { accentColor: "#00E5FF" } },
+          },
+        ],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_outside_editor_scope",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("allows widget background and slide-rail edits within the deck", () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: {
+            content: "<div>Edited</div>",
+            background: "#000000",
+          },
+          baseContentHash: "source-hash",
+          baseFields: {
+            background: { present: true, value: "#ffffff" },
+          },
+        },
+        {
+          op: "add-slide",
+          slideId: "slide-3",
+          afterSlideId: "slide-2",
+          fields: {
+            content: "<div>New</div>",
+            notes: "",
+            layout: "blank",
+            background: "#000000",
+            layoutWarningDismissed: true,
+          },
+        },
+        { op: "delete-slide", slideId: "slide-2" },
+        { op: "reorder-slides", orderedIds: ["slide-3", "slide-1"] },
+      ]),
+    ).toBe(true);
+  });
+
+  it("denies unlisted passthrough fields on widget slide creation", () => {
+    const operation = {
+      op: "add-slide",
+      slideId: "slide-3",
+      fields: {
+        content: "<div>New</div>",
+        linkedResourceId: "design-system-1",
+      },
+    } as unknown as Operation;
+
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [operation])).toBe(
+      false,
+    );
+  });
+
+  it("allows boolean overflow-warning state on copied widget slides", () => {
+    const addSlide = {
+      op: "add-slide",
+      slideId: "slide-3",
+      fields: {
+        content: "<div>New</div>",
+        layoutWarningDismissed: false,
+      },
+    } as unknown as Operation;
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [addSlide])).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          ...addSlide,
+          fields: {
+            content: "<div>New</div>",
+            layoutWarningDismissed: "false",
+          },
+        } as unknown as Operation,
+      ]),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["layoutFitRevision", "client-revision"],
+    ["imageLoading", true],
+    ["imagePrompt", "Generate a landscape"],
+  ])("rejects widget writes to internal slide field %s", (field, value) => {
+    const fields = { content: "<div>New</div>", [field]: value };
+    const addOperation = {
+      op: "add-slide",
+      slideId: "slide-3",
+      fields,
+    } as unknown as Operation;
+    const patchOperation = {
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields,
+      baseContentHash: "source-hash",
+    } as unknown as Operation;
+
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [addOperation])).toBe(
+      false,
+    );
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [patchOperation])).toBe(
+      false,
+    );
+  });
+
+  it("allows only baseline-checked widget overflow-warning dismissal patches", async () => {
+    const dismissal: Operation = {
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: { layoutWarningDismissed: true },
+      baseFields: { layoutWarningDismissed: { present: false } },
+    };
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [dismissal])).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          ...dismissal,
+          fields: { layoutWarningDismissed: false },
+          baseFields: undefined,
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        { ...dismissal, baseFields: undefined },
+      ]),
+    ).toBe(false);
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [dismissal],
+      },
+      widgetWriteContext(),
+    );
+
+    const savedDeck = JSON.parse(String(mockDeckRow?.data));
+    expect(savedDeck.slides[0].layoutWarningDismissed).toBe(true);
+  });
+
+  it("restores a dismissed widget overflow warning from its exact baseline", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            layoutWarningDismissed: true,
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+    const restoration: Operation = {
+      op: "patch-slide",
+      slideId: "slide-1",
+      fields: { layoutWarningDismissed: false },
+      baseFields: { layoutWarningDismissed: { present: true, value: true } },
+    };
+
+    expect(isMcpWidgetPatchAllowed("mcp-widget-write", [restoration])).toBe(
+      true,
+    );
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [restoration],
+      },
+      widgetWriteContext(),
+    );
+
+    const savedDeck = JSON.parse(String(mockDeckRow?.data));
+    expect(savedDeck.slides[0].layoutWarningDismissed).toBe(false);
+  });
+
+  it("rejects a widget warning restoration with a stale baseline", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content: "<div>One</div>",
+            layoutWarningDismissed: true,
+          },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { layoutWarningDismissed: false },
+            baseFields: { layoutWarningDismissed: { present: false } },
+          },
+        ],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ errorCode: "slide_field_stale" });
+    expect(
+      JSON.parse(String(mockDeckRow?.data)).slides[0].layoutWarningDismissed,
+    ).toBe(true);
+  });
+
+  it("rejects extra widget operation metadata", () => {
+    const operations = [
+      {
+        op: "patch-deck-fields",
+        fields: { title: "Updated" },
+        resourceId: "another-deck",
+      },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "<div>Edited</div>" },
+        baseContentHash: "source-hash",
+        sourceImport: { sourceDeckId: "another-deck" },
+      },
+      {
+        op: "add-slide",
+        slideId: "slide-3",
+        fields: { content: "<div>New</div>" },
+        linkedResourceId: "design-system-1",
+      },
+      { op: "delete-slide", slideId: "slide-2", deckId: "another-deck" },
+      {
+        op: "reorder-slides",
+        orderedIds: ["slide-2", "slide-1"],
+        expectedUpdatedAt: "stale-revision",
+      },
+    ] as unknown as Operation[];
+
+    for (const operation of operations) {
+      expect(isMcpWidgetPatchAllowed("mcp-widget-write", [operation])).toBe(
+        false,
+      );
+    }
+  });
+
+  it("requires exact snapshots and content hashes for widget slide patches", () => {
+    const operations = [
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { background: "#000000" },
+      },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { background: "#000000" },
+        baseFields: {
+          background: { present: false },
+          notes: { present: false },
+        },
+      },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "<div>Edited</div>" },
+      },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { background: "#000000" },
+        baseContentHash: "source-hash",
+        baseFields: { background: { present: false } },
+      },
+    ] as unknown as Operation[];
+
+    for (const operation of operations) {
+      expect(isMcpWidgetPatchAllowed("mcp-widget-write", [operation])).toBe(
+        false,
+      );
+    }
+  });
+
+  it("still denies source rewrites and creative-context metadata to widgets", () => {
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+        { rewriteSource: true },
+      ),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+        { hasCreativeContext: true },
+      ),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed(
+        "mcp-widget-write",
+        [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+        { requireAllSourceSlides: true },
+      ),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div>Rewritten</div>" },
+          baseContentHash: "source-hash",
+          preserveSource: false,
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-deck-fields",
+          fields: { title: "Updated", visibility: "public" },
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("rejects widget content patches with extra stale-write metadata", () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div>Changed</div>" },
+          baseContentHash: "source-hash",
+          baseFields: {},
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("renames through the widget but leaves deck access to the share actions", () => {
+    expect(
+      isMcpWidgetPatchAllowed("mcp-widget-write", [
+        { op: "patch-deck-fields", fields: { title: "Renamed" } },
+      ]),
+    ).toBe(true);
+    for (const fields of [{ visibility: "public" }, { shareToken: "token" }]) {
+      for (const options of [undefined, { tweakDefinitions: [] }]) {
+        expect(
+          isMcpWidgetPatchAllowed(
+            "mcp-widget-write",
+            [{ op: "patch-deck-fields", fields }],
+            options,
+          ),
+        ).toBe(false);
+      }
+    }
+  });
+
+  it.each([
+    ["source-import metadata", { rewriteSource: true }],
+    [
+      "creative-context metadata",
+      { creativeContext: { contextModeOverride: "off" } },
+    ],
+    ["source coverage metadata", { requireAllSourceSlides: true }],
+  ])("rejects widget writes to %s before writing", async (_name, extraArgs) => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        ...extraArgs,
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: { title: "Updated" },
+          },
+        ],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_outside_editor_scope",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("requires a loaded deck revision for widget saves", async () => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_revision_required",
+      statusCode: 409,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it.each([
+    ["missing grant", { caller: "mcp-widget-write" }],
+    [
+      "wrong app",
+      widgetWriteContext({
+        mcpDirectoryWidgetWrite: {
+          appId: "design",
+          resourceIds: { deckId: "deck-1" },
+          actionNames: ["patch-deck"],
+        },
+      }),
+    ],
+    [
+      "wrong deck",
+      widgetWriteContext({
+        mcpDirectoryWidgetWrite: {
+          appId: "slides",
+          resourceIds: { deckId: "deck-elsewhere" },
+          actionNames: ["patch-deck"],
+        },
+      }),
+    ],
+    [
+      "missing action",
+      widgetWriteContext({
+        mcpDirectoryWidgetWrite: {
+          appId: "slides",
+          resourceIds: { deckId: "deck-1" },
+          actionNames: [],
+        },
+      }),
+    ],
+  ])("fails closed for a widget patch with %s", async (_name, context) => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+      },
+      context,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "mcp_widget_write_scope_mismatch",
+      statusCode: 403,
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("rejects widget writes when stored slide IDs are not unique", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        { id: "duplicate-slide", content: "First" },
+        { id: "duplicate-slide", content: "Second" },
+      ],
+    });
+
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        operations: [{ op: "patch-deck-fields", fields: { title: "Updated" } }],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "duplicate_deck_slide_ids",
+      statusCode: 409,
+      details: { slideId: "duplicate-slide" },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+    expect(mockNotifyClients).not.toHaveBeenCalled();
+  });
+
+  it("rejects stale widget slide-rail writes", async () => {
+    const error = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "widget-editor",
+          sequence: 1,
+          expectedUpdatedAt: "2025-12-31T23:59:59.000Z",
+        },
+        operations: [{ op: "delete-slide", slideId: "slide-2" }],
+      },
+      widgetWriteContext(),
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ errorCode: "deck_revision_conflict" });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("keeps structural and metadata operations available to normal callers", () => {
+    const operations: Operation[] = [
+      { op: "delete-slide", slideId: "slide-1" },
+      {
+        op: "add-slide",
+        slideId: "slide-3",
+        fields: { content: "<div>New slide</div>" },
+      },
+      { op: "reorder-slides", orderedIds: ["slide-2", "slide-1"] },
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { notes: "Presenter notes" },
+      },
+      { op: "patch-deck-fields", fields: { visibility: "public" } },
+    ];
+
+    expect(isMcpWidgetPatchAllowed("frontend", operations)).toBe(true);
+    expect(isMcpWidgetPatchAllowed("tool", operations)).toBe(true);
+    expect(
+      isMcpWidgetPatchAllowed("tool", operations, {
+        rewriteSource: true,
+        hasCreativeContext: true,
+      }),
+    ).toBe(true);
+  });
+
   it.each(["tool", "webmcp"] as const)(
     "rejects an agent add that would exceed the persisted target for %s callers",
     async (caller) => {
@@ -1896,6 +2691,72 @@ describe("run() — asynchronous layout fit metadata", () => {
       statusCode: 409,
     });
     expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("reports hygiene warnings for agent patches, only for slides it changed", async () => {
+    const stale = "<div><svg></svg><p>One</p></div>";
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: stale },
+        { id: "slide-2", content: "<div>Two</div>" },
+      ],
+    });
+
+    const result = (await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div><svg></svg><p>One!</p></div>" },
+            baseContentHash: hashSlideContent(stale),
+          },
+          {
+            op: "add-slide",
+            slideId: "slide-3",
+            fields: {
+              content: "<div><footer>03 / 12</footer><svg></svg></div>",
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    )) as { hygieneWarnings?: { warnings: Array<Record<string, unknown>> } };
+
+    // slide-1 kept the svg it already had; only the new slide is blamed.
+    expect(result.hygieneWarnings?.warnings).toEqual([
+      expect.objectContaining({
+        code: "inline-svg",
+        count: 1,
+        slideIds: ["slide-3"],
+      }),
+      expect.objectContaining({ code: "typed-page-number" }),
+    ]);
+    expect(JSON.parse(lastUpdatedDeckData!).slides).toHaveLength(3);
+  });
+
+  it("leaves the editor's patch result free of hygiene warnings", async () => {
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div>One</div>" }],
+    });
+
+    const result = await runPatchDeckAction({
+      deckId: "deck-1",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { content: "<div><svg></svg></div>" },
+        },
+      ],
+    });
+
+    expect(result).not.toHaveProperty("hygieneWarnings");
   });
 
   it("keeps reveal metadata when patch-deck applies a styleOnly batch", async () => {
@@ -3980,5 +4841,105 @@ describe("run() — deck history", () => {
       chatContext: { runId: "run-1", turnId: "turn-1" },
     });
     expect(JSON.parse(mockDeckRow!.data as string).slides).toHaveLength(6);
+  });
+});
+
+describe("run() — tracking", () => {
+  const ctx = { caller: "frontend" } as never;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    nextDeckWriteMiss = undefined;
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        generationContext: { generationAttemptId: "attempt-1" },
+        slides: [
+          { id: "slide-1", content: "<div>One</div>" },
+          { id: "slide-2", content: "<div>Two</div>" },
+        ],
+      }),
+    };
+  });
+
+  function trackedNames() {
+    return mockTrack.mock.calls.map(([name]) => name);
+  }
+
+  it("emits deck_edited once for a slide content patch", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { content: "<div>Updated</div>" },
+          },
+          { op: "reorder-slides", orderedIds: ["slide-2", "slide-1"] },
+        ],
+      },
+      ctx,
+    );
+
+    expect(trackedNames()).toEqual(["deck_edited"]);
+    expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
+      caller: "frontend",
+      output_id: "deck-1",
+      edit_mode: "patch_deck",
+      change_kinds: ["content", "reorder"],
+      slides_changed: 2,
+      slide_count: 2,
+      generation_attempt_id: "attempt-1",
+    });
+  });
+
+  it("emits nothing for a title-only patch", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          { op: "patch-deck-fields", fields: { title: "Renamed deck" } },
+        ],
+      },
+      ctx,
+    );
+
+    expect(lastUpdatedDeckData).toBeDefined();
+    expect(mockTrack).not.toHaveBeenCalled();
+  });
+
+  it("emits deck_creation_started when a new generation attempt is persisted", async () => {
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-deck-fields",
+            fields: {
+              generationContext: {
+                originalPrompt: "Board update",
+                files: [],
+                mode: "new",
+                generationAttemptId: "attempt-2",
+              },
+            },
+          },
+        ],
+      },
+      ctx,
+    );
+
+    expect(trackedNames()).toEqual(["deck_creation_started"]);
+    expect(mockTrack.mock.calls[0]?.[1]).toMatchObject({
+      generation_attempt_id: "attempt-2",
+      is_retry: true,
+    });
   });
 });

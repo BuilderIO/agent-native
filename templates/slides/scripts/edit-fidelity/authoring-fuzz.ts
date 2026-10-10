@@ -1,5 +1,6 @@
 import type { OutsideSnapshot } from "./lib/in-page.ts";
 import { outsideChangesFor } from "./lib/metrics.ts";
+import { rethrowIfHarnessUnavailable } from "./run-outcomes.ts";
 
 export const AUTHORING_FUZZ_STYLE_PROPERTIES = [
   "font-family",
@@ -172,6 +173,177 @@ export function isBrowserSessionPath(pathname: string) {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
+type SaveReloadRequestAbortRule = {
+  path: string | RegExp;
+  method?: string;
+  errorTexts: readonly string[];
+};
+
+const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
+// Browser-session requests abort after at least ten seconds; leave timer slack.
+const reloadNavigationAbortMaxRequestAgeMs = 9_000;
+
+const browserSessionClaimRequestRule: SaveReloadRequestAbortRule = {
+  path: /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/,
+  method: "POST",
+  errorTexts: ["Load request cancelled", "cancelled", ...navigationAbortErrors],
+};
+
+const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
+  {
+    path: "/_agent-native/actions/get-lab-states",
+    errorTexts: navigationAbortErrors,
+  },
+  {
+    path: "/_agent-native/actions/get-deck-access-status",
+    errorTexts: navigationAbortErrors,
+  },
+  {
+    path: "/_agent-native/browser-sessions",
+    method: "POST",
+    errorTexts: [
+      "Load request cancelled",
+      "cancelled",
+      ...navigationAbortErrors,
+    ],
+  },
+  browserSessionClaimRequestRule,
+];
+
+export function isExpectedSaveReloadWatchedRequestAbort(
+  pathname: string,
+  errorText: string,
+  activePhase: string,
+  method?: string,
+  requestWasPendingAtReloadNavigation = false,
+  requestAgeMs = Number.POSITIVE_INFINITY,
+) {
+  return (
+    activePhase === "save/reload" &&
+    requestWasPendingAtReloadNavigation &&
+    requestAgeMs >= 0 &&
+    requestAgeMs < reloadNavigationAbortMaxRequestAgeMs &&
+    saveReloadRequestAbortRules.some((rule) => {
+      const matchesPath =
+        typeof rule.path === "string"
+          ? rule.path === pathname
+          : rule.path.test(pathname);
+      return (
+        matchesPath &&
+        (!rule.method || rule.method === method) &&
+        rule.errorTexts.includes(errorText)
+      );
+    })
+  );
+}
+
+type WatchedRequestNavigationCandidate = {
+  url: string;
+  pathname: string;
+  method: string;
+  ageMs: number;
+  requestWasPendingAtNavigation?: boolean;
+};
+
+export function isExpectedWatchedRequestCorsError(
+  message: string,
+  activePhase: string,
+  candidates: WatchedRequestNavigationCandidate[],
+) {
+  const rules =
+    activePhase === "save/reload"
+      ? saveReloadRequestAbortRules
+      : activePhase === "cleanup/navigation"
+        ? [browserSessionClaimRequestRule]
+        : null;
+  if (!rules) return false;
+  const match =
+    /^Fetch API cannot load (https?:\/\/\S+) due to access control checks\.(?:\s+at\b[\s\S]*)?$/.exec(
+      message,
+    );
+  if (!match) return false;
+
+  return candidates.some(
+    (candidate) =>
+      candidate.url === match[1] &&
+      candidate.requestWasPendingAtNavigation === true &&
+      candidate.ageMs >= 0 &&
+      candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
+      rules.some((rule) => {
+        const matchesPath =
+          typeof rule.path === "string"
+            ? rule.path === candidate.pathname
+            : rule.path.test(candidate.pathname);
+        return (
+          matchesPath && (!rule.method || rule.method === candidate.method)
+        );
+      }),
+  );
+}
+
+export function isExpectedCleanupBrowserSessionPollConsoleError(
+  message: string,
+  candidates: WatchedRequestNavigationCandidate[],
+) {
+  if (
+    message !==
+    "[Agent-Native browser session] poll failed: TypeError: Load failed"
+  ) {
+    return false;
+  }
+
+  return candidates.some((candidate) =>
+    isExpectedWatchedRequestCorsError(
+      `Fetch API cannot load ${candidate.url} due to access control checks.`,
+      "cleanup/navigation",
+      [candidate],
+    ),
+  );
+}
+
+export function isExpectedCleanupNavigationError(
+  message: string,
+  candidates: WatchedRequestNavigationCandidate[],
+  navigationPending: boolean,
+) {
+  return (
+    navigationPending &&
+    (isExpectedWatchedRequestCorsError(
+      message,
+      "cleanup/navigation",
+      candidates,
+    ) ||
+      isExpectedCleanupBrowserSessionPollConsoleError(message, candidates))
+  );
+}
+
+export function isExpectedSaveReloadWatchedRequestCorsConsoleError(
+  message: string,
+  activePhase: string,
+  candidates: Array<{
+    url: string;
+    pathname: string;
+    method: string;
+    ageMs: number;
+    requestWasPendingAtReloadNavigation?: boolean;
+  }>,
+) {
+  if (activePhase !== "save/reload") return false;
+  return isExpectedWatchedRequestCorsError(
+    message,
+    activePhase,
+    candidates.map((candidate) => ({
+      ...candidate,
+      requestWasPendingAtNavigation:
+        candidate.requestWasPendingAtReloadNavigation,
+    })),
+  );
+}
+
+export function isConflictResourceConsoleError(message: string) {
+  return /\bstatus of 409\b/.test(message);
+}
+
 export function authoringFuzzLineNavigationKeys(
   platform: string,
   override?: ReturnType<typeof lineNavigationKeys>,
@@ -184,6 +356,79 @@ export function authoringFuzzProfileIndex(seed: number): number | null {
     throw new Error("seed must be a non-negative safe integer");
   if (seed === 0 || seed % 2 === 1) return null;
   return (seed / 2 - 1) % 6;
+}
+
+export function findAuthoringFuzzScratchDeckId(
+  decks: Array<{ id?: string; title?: string }>,
+  title: string,
+): string | null {
+  return (
+    decks.find(
+      (deck) => deck.title === title && typeof deck.id === "string" && deck.id,
+    )?.id ?? null
+  );
+}
+
+export function resolveAuthoringFuzzScratchDeck(
+  result: { decks?: Array<{ id?: string; title?: string }> },
+  title: string,
+) {
+  if (!Array.isArray(result.decks)) return { status: "missing-decks" as const };
+  const deckId = findAuthoringFuzzScratchDeckId(result.decks, title);
+  return deckId
+    ? { status: "found" as const, deckId }
+    : { status: "not-found" as const };
+}
+
+export async function retryAuthoringFuzzScratchDeckLookup(
+  lookup: () => Promise<{ decks?: Array<{ id?: string; title?: string }> }>,
+  title: string,
+  options: {
+    windowMs?: number;
+    intervalMs?: number;
+    now?: () => number;
+    wait?: (ms: number) => Promise<void>;
+  } = {},
+) {
+  const windowMs = Math.max(1, options.windowMs ?? 60_000);
+  const intervalMs = Math.max(1, options.intervalMs ?? 5_000);
+  const now = options.now ?? Date.now;
+  const wait =
+    options.wait ??
+    ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const deadline = now() + windowMs;
+  let lastRecovery: ReturnType<typeof resolveAuthoringFuzzScratchDeck> | null =
+    null;
+  let lastError: unknown;
+  let lastAttemptFailed = false;
+
+  while (now() < deadline) {
+    try {
+      lastRecovery = resolveAuthoringFuzzScratchDeck(await lookup(), title);
+      lastError = undefined;
+      lastAttemptFailed = false;
+      if (lastRecovery.status === "found") return lastRecovery;
+    } catch (error) {
+      lastError = error;
+      lastAttemptFailed = true;
+    }
+
+    const remainingMs = deadline - now();
+    if (remainingMs <= 0) break;
+    await wait(Math.min(intervalMs, remainingMs));
+  }
+
+  if (lastAttemptFailed) throw lastError;
+  if (lastRecovery) return lastRecovery;
+  throw new Error("scratch-deck lookup window expired before a lookup");
+}
+
+export function formatAuthoringFuzzCleanupIssue(
+  label: string,
+  deckId: string | null,
+  error: unknown,
+) {
+  return `${label} [deckId=${deckId || "unknown"}]: ${String(error)}`;
 }
 
 export function outsideAuthoringChangesFor(
@@ -321,8 +566,12 @@ export interface AuthoringFuzzOptions {
   /** Target and slide markup captured before entering edit mode. */
   originalHtml: string;
   originalSlideHtml: string;
+  /** Watched browser requests already pending when the page was created. */
+  initialPendingWatchedRequests?: ReadonlyMap<any, number>;
   /** Exit editing, wait for the save, read the stored HTML, then reload/read it. */
-  finishAndReload: () => Promise<AuthoringFuzzPersistence>;
+  finishAndReload: (
+    markReloadNavigationStart: () => void,
+  ) => Promise<AuthoringFuzzPersistence>;
   modifier: "Meta" | "Control";
   /** The in-place editor's undo snapshot cap. */
   historyLimit?: number;
@@ -543,6 +792,7 @@ export function createAuthoringFuzzPlan(
     { kind: "slash-away" },
     { kind: "slash-delete" },
     { kind: "slash-position" },
+    { kind: "slash-outside" },
     { kind: "shortcut-undo" },
     { kind: "slash-undo" },
     { kind: "heading-backspace" },
@@ -582,6 +832,50 @@ export function createAuthoringFuzzPlan(
 
 const MAX_FAILURE_LOG_OPERATIONS = 20;
 const MAX_FAILURE_MESSAGE_LENGTH = 3500;
+const MAX_PRIOR_REGRESSION_SUMMARIES = 5;
+const MAX_PRIOR_REGRESSION_SUMMARY_LENGTH = 300;
+
+export function formatAuthoringFuzzUnavailable(
+  message: string,
+  problems: readonly string[],
+  cleanupIssues: readonly string[] = [],
+) {
+  const summarize = (items: readonly string[], overflowLabel: string) => {
+    const summaries = items
+      .slice(0, MAX_PRIOR_REGRESSION_SUMMARIES)
+      .map(
+        (item) =>
+          `- ${item.replaceAll(/\s+/g, " ").slice(0, MAX_PRIOR_REGRESSION_SUMMARY_LENGTH)}`,
+      );
+    if (items.length > summaries.length) {
+      summaries.push(
+        `- ${items.length - summaries.length} more ${overflowLabel}`,
+      );
+    }
+    return summaries;
+  };
+
+  const lines = [message];
+  if (problems.length) {
+    lines.push(
+      `Earlier authoring regression(s) before the harness became unavailable (${problems.length}):`,
+      ...summarize(problems, "regression(s)"),
+    );
+  }
+  if (cleanupIssues.length) {
+    lines.push(
+      `Authoring fuzz cleanup issue(s) (${cleanupIssues.length}):`,
+      ...summarize(cleanupIssues, "cleanup issue(s)"),
+    );
+  }
+  return lines.join("\n");
+}
+
+export function authoringFuzzUnavailableExitCode(
+  priorRegressionCount: number,
+): 1 | 2 {
+  return priorRegressionCount > 0 ? 1 : 2;
+}
 
 export function formatAuthoringFuzzFailure(
   seed: number,
@@ -622,10 +916,6 @@ export async function assertSlideIsScaled(page: Page, selector: string) {
   }
 }
 
-export function isConflictResourceConsoleError(message: string) {
-  return /\bstatus of 409\b/.test(message);
-}
-
 export async function runAuthoringFuzz(
   page: Page,
   options: AuthoringFuzzOptions,
@@ -637,19 +927,58 @@ export async function runAuthoringFuzz(
   const { start: lineStartKey, end: lineEndKey } =
     authoringFuzzLineNavigationKeys(process.platform, options.lineKeys);
   const historyLimit = options.historyLimit ?? 100;
+  const traceEnabled = process.env.SLIDES_AUTHORING_FUZZ_TRACE === "1";
   if (!Number.isSafeInteger(historyLimit) || historyLimit < 1) {
     throw new Error("historyLimit must be a positive safe integer");
   }
   const editor: Locator = page.locator(editorSelector);
   const slideContent: Locator = page.locator(slideContentSelector);
   const pageErrors: string[] = [];
+  const pendingRequests = new Map<
+    any,
+    { method: string; path: string; startedAt: number }
+  >();
+  const watchedRequests = new Map(options.initialPendingWatchedRequests);
+  const reloadNavigationRequests = new Map<any, number>();
   const pendingSaveConflicts: Promise<void>[] = [];
+  const conflictResponsePaths: string[] = [];
+  const patchDeckActionPath = "/_agent-native/actions/patch-deck";
   let patchDeckConflicts = 0;
   let conflictResourceErrors = 0;
+  let activeIndex = -1;
+  let activePhase = "setup";
   const onConsole = (message: any) => {
+    if (
+      traceEnabled &&
+      message.type() === "debug" &&
+      message.text().startsWith("[authoring-fuzz heartbeat]")
+    ) {
+      console.log(message.text());
+      return;
+    }
     if (message.type() !== "error") return;
+    if (traceEnabled) {
+      console.log(
+        `[edit-fidelity] console error phase=${activePhase}: ${message.text()}`,
+      );
+    }
     if (isConflictResourceConsoleError(message.text())) {
       conflictResourceErrors += 1;
+      return;
+    }
+    if (
+      isExpectedWatchedRequestCorsError(
+        message.text(),
+        activePhase,
+        [...reloadNavigationRequests.entries()].map(([request, startedAt]) => ({
+          url: request.url(),
+          pathname: new URL(request.url()).pathname,
+          method: request.method(),
+          ageMs: Date.now() - startedAt,
+          requestWasPendingAtNavigation: true,
+        })),
+      )
+    ) {
       return;
     }
     pageErrors.push(message.text());
@@ -657,19 +986,97 @@ export async function runAuthoringFuzz(
   const onPageError = (error: Error) =>
     pageErrors.push(error.stack ?? error.message);
   const onRequestFailed = (request: any) => {
+    const requestStartedAt = watchedRequests.get(request);
+    const requestPendingAtReloadNavigation =
+      reloadNavigationRequests.has(request);
+    pendingRequests.delete(request);
+    watchedRequests.delete(request);
     const url = request.url();
-    if (!isBrowserSessionPath(new URL(url).pathname)) return;
-    pageErrors.push(
-      `browser-session request failed: ${url} (${request.failure()?.errorText ?? "unknown"})`,
-    );
-  };
-  const onResponse = (response: any) => {
+    const pathname = new URL(url).pathname;
+    const errorText = request.failure()?.errorText ?? "unknown";
+    if (traceEnabled) {
+      console.log(
+        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText})`,
+      );
+    }
     if (
-      response.status() !== 409 ||
-      !response.url().includes("/_agent-native/actions/patch-deck")
+      isExpectedSaveReloadWatchedRequestAbort(
+        pathname,
+        errorText,
+        activePhase,
+        request.method(),
+        requestPendingAtReloadNavigation,
+        requestStartedAt === undefined
+          ? Number.POSITIVE_INFINITY
+          : Date.now() - requestStartedAt,
+      )
     ) {
       return;
     }
+    if (
+      [
+        "/_agent-native/actions/get-lab-states",
+        "/_agent-native/actions/get-deck-access-status",
+      ].includes(pathname) ||
+      isBrowserSessionPath(pathname)
+    ) {
+      pageErrors.push(
+        `watched request failed: ${request.method()} ${url} (${errorText})`,
+      );
+    }
+  };
+  const onRequest = (request: any) => {
+    const requestUrl = new URL(request.url());
+    const startedAt = Date.now();
+    if (
+      [
+        "/_agent-native/actions/get-lab-states",
+        "/_agent-native/actions/get-deck-access-status",
+      ].includes(requestUrl.pathname) ||
+      isBrowserSessionPath(requestUrl.pathname)
+    ) {
+      watchedRequests.set(request, startedAt);
+    }
+    if (!traceEnabled) return;
+    pendingRequests.set(request, {
+      method: request.method(),
+      path: requestUrl.pathname,
+      startedAt,
+    });
+    if (
+      [
+        "/_agent-native/actions/get-lab-states",
+        "/_agent-native/actions/get-deck-access-status",
+      ].includes(requestUrl.pathname)
+    ) {
+      console.log(
+        `[edit-fidelity] navigation candidate request ${request.method()} ${requestUrl.href} phase=${activePhase}`,
+      );
+    }
+  };
+  const onRequestSettled = (request: any) => {
+    pendingRequests.delete(request);
+    watchedRequests.delete(request);
+    reloadNavigationRequests.delete(request);
+  };
+  const onResponse = (response: any) => {
+    if (traceEnabled) {
+      const responseUrl = new URL(response.url());
+      if (
+        [
+          "/_agent-native/actions/get-lab-states",
+          "/_agent-native/actions/get-deck-access-status",
+        ].includes(responseUrl.pathname)
+      ) {
+        console.log(
+          `[edit-fidelity] navigation candidate response ${response.status()} ${responseUrl.href} phase=${activePhase}`,
+        );
+      }
+    }
+    if (response.status() !== 409) return;
+    const responsePath = new URL(response.url()).pathname;
+    conflictResponsePaths.push(responsePath);
+    if (responsePath !== patchDeckActionPath) return;
     patchDeckConflicts += 1;
     pendingSaveConflicts.push(
       response
@@ -686,7 +1093,9 @@ export async function runAuthoringFuzz(
   page.on("pageerror", onPageError);
   page.on("response", onResponse);
   page.on("requestfailed", onRequestFailed);
-  await page.evaluate(() => {
+  page.on("request", onRequest);
+  page.on("requestfinished", onRequestSettled);
+  await page.evaluate((traceHeartbeat: boolean) => {
     const scope = window as Window & {
       __slidesAuthoringInputTrace?: Array<Record<string, unknown>>;
       __slidesAuthoringInputTraceInstalled?: boolean;
@@ -730,10 +1139,33 @@ export async function runAuthoringFuzz(
     document.addEventListener("input", record, true);
     scope.__slidesAuthoringInputTraceInstalled = true;
     scope.__slidesAuthoringInputTrace = trace;
-  });
+    if (traceHeartbeat) {
+      let heartbeat = 0;
+      window.setInterval(() => {
+        console.debug(`[authoring-fuzz heartbeat] ${++heartbeat}`);
+      }, 5000);
+    }
+  }, traceEnabled);
 
-  let activeIndex = -1;
-  let activePhase = "setup";
+  const tracePhase = (phase: string) => {
+    if (!traceEnabled) return;
+    console.log(
+      `[edit-fidelity] trace seed=${seed} step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${phase} at=${Date.now()}`,
+    );
+  };
+  const traceWatchdog = traceEnabled
+    ? setInterval(() => {
+        const pending = [...pendingRequests.values()]
+          .filter((request) => Date.now() - request.startedAt >= 10_000)
+          .map(
+            (request) =>
+              `${request.method} ${request.path} ${Date.now() - request.startedAt}ms`,
+          );
+        console.log(
+          `[edit-fidelity] trace seed=${seed} node-heartbeat step=${activeIndex} operation=${plan[activeIndex]?.kind ?? "setup"} phase=${activePhase} pending=${pending.length ? pending.join(" | ") : "none"}`,
+        );
+      }, 15_000)
+    : null;
   const replay = () => plan.slice(0, Math.max(1, activeIndex + 1));
   const checkPageErrors = async () => {
     await Promise.all(pendingSaveConflicts.splice(0));
@@ -2178,6 +2610,14 @@ export async function runAuthoringFuzz(
       range.collapse(true);
       selection.removeAllRanges();
       selection.addRange(range);
+      const caretTarget =
+        range.startContainer instanceof Element
+          ? range.startContainer
+          : range.startContainer.parentElement;
+      (caretTarget ?? root).scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+      });
     });
     let state = await plainLineState();
     let attempts = 0;
@@ -2195,70 +2635,154 @@ export async function runAuthoringFuzz(
     await snapshotEditorSiblings("capture", operation);
   };
   const openSlashMenu = async () => {
+    tracePhase("slash.new-line:start");
     await newLine();
+    tracePhase("slash.new-line:end");
+    tracePhase("slash.type:start");
     await typeText("/");
-    const options = page.locator('[role="listbox"] [role="option"]');
-    await options.first().waitFor({ state: "visible", timeout: 1500 });
+    tracePhase("slash.type:end");
+    const listbox = await waitForControlledSlashListbox();
+    const options = listbox.locator('[role="option"]');
+    tracePhase("slash.wait-visible:start");
+    await options.first().waitFor({ state: "visible", timeout: 5_000 });
+    tracePhase("slash.wait-visible:end");
     if ((await options.count()) !== SLASH_COMMANDS.length)
       throw new Error("slash menu did not expose all eight commands");
     const focused = await editor.evaluate(
       (root: HTMLElement) => document.activeElement === root,
     );
     if (!focused) throw new Error("slash menu stole focus from the editor");
-    const position = await page
-      .locator('[role="listbox"]')
-      .evaluate((menu: HTMLElement) => {
-        const bounds = (rect: DOMRect) => ({
-          left: rect.left,
-          top: rect.top,
-          right: rect.right,
-          bottom: rect.bottom,
-          width: rect.width,
-          height: rect.height,
-        });
-        const rect = menu.getBoundingClientRect();
-        const anchor = window
-          .getSelection()
-          ?.getRangeAt(0)
-          .getBoundingClientRect();
-        return {
-          menu: bounds(rect),
-          anchor: anchor ? bounds(anchor) : null,
-          viewport: { width: window.innerWidth, height: window.innerHeight },
-          anchorInViewport:
-            !!anchor &&
-            anchor.right >= 0 &&
-            anchor.left <= window.innerWidth &&
-            anchor.bottom >= 0 &&
-            anchor.top <= window.innerHeight,
-          side: menu.getAttribute("data-side"),
-          within:
-            rect.width > 0 &&
-            rect.height > 0 &&
-            rect.left >= 0 &&
-            rect.top >= 0 &&
-            rect.right <= window.innerWidth &&
-            rect.bottom <= window.innerHeight,
-        };
+    const position = await listbox.evaluate((menu: HTMLElement) => {
+      const bounds = (rect: DOMRect) => ({
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
       });
+      const rect = menu.getBoundingClientRect();
+      const anchor = window
+        .getSelection()
+        ?.getRangeAt(0)
+        .getBoundingClientRect();
+      return {
+        menu: bounds(rect),
+        anchor: anchor ? bounds(anchor) : null,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        anchorInViewport:
+          !!anchor &&
+          anchor.right >= 0 &&
+          anchor.left <= window.innerWidth &&
+          anchor.bottom >= 0 &&
+          anchor.top <= window.innerHeight,
+        side: menu.getAttribute("data-side"),
+        within:
+          rect.width > 0 &&
+          rect.height > 0 &&
+          rect.left >= 0 &&
+          rect.top >= 0 &&
+          rect.right <= window.innerWidth &&
+          rect.bottom <= window.innerHeight,
+      };
+    });
     if (!position.within && position.anchorInViewport)
       throw new Error(
         `slash menu is clipped beyond the viewport (${JSON.stringify(position)})`,
       );
+    return listbox;
+  };
+  const waitForControlledSlashListbox = async () => {
+    await page.waitForFunction(
+      (selector: string) => {
+        const editingEl = document.querySelector<HTMLElement>(selector);
+        const listboxId = editingEl?.getAttribute("aria-controls");
+        const optionId = editingEl?.getAttribute("aria-activedescendant");
+        const listbox = listboxId ? document.getElementById(listboxId) : null;
+        const activeOption = optionId
+          ? document.getElementById(optionId)
+          : null;
+        return (
+          listbox?.getAttribute("role") === "listbox" &&
+          activeOption?.getAttribute("role") === "option" &&
+          listbox.contains(activeOption)
+        );
+      },
+      editorSelector,
+      { timeout: 5000 },
+    );
+    const listboxId = await editor.getAttribute("aria-controls");
+    if (!listboxId) throw new Error("slash menu did not expose its listbox");
+    return page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`);
+  };
+  const assertSlashMenuStaysHidden = async () => {
+    const menuOpened = await page.evaluate(
+      ({ selector, durationMs }: { selector: string; durationMs: number }) => {
+        const editingEl = document.querySelector<HTMLElement>(selector);
+        if (!editingEl) throw new Error("slash menu editor is unavailable");
+        const isVisibleListbox = (listbox: HTMLElement) => {
+          const style = getComputedStyle(listbox);
+          return (
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            listbox.getClientRects().length > 0
+          );
+        };
+        const hasVisibleListbox = () =>
+          Array.from(
+            document.querySelectorAll<HTMLElement>('[role="listbox"]'),
+          ).some(isVisibleListbox);
+        return new Promise<boolean>((resolve) => {
+          let observer: MutationObserver | undefined;
+          let timer: number | undefined;
+          const finish = (opened: boolean) => {
+            observer?.disconnect();
+            if (timer !== undefined) window.clearTimeout(timer);
+            resolve(opened);
+          };
+          const check = () => {
+            if (hasVisibleListbox()) finish(true);
+          };
+          observer = new MutationObserver(check);
+          observer.observe(document.documentElement, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            attributeFilter: [
+              "aria-activedescendant",
+              "aria-controls",
+              "aria-hidden",
+              "class",
+              "data-state",
+              "hidden",
+              "id",
+              "role",
+              "style",
+            ],
+          });
+          timer = window.setTimeout(() => finish(false), durationMs);
+          check();
+        });
+      },
+      { selector: editorSelector, durationMs: 1_500 },
+    );
+    if (menuOpened)
+      throw new Error("slash menu opened for a slash within text or a URL");
   };
   const runSlashCommand = async (
     command: string,
     key: "Enter" | "Tab" = "Enter",
   ) => {
-    await openSlashMenu();
+    const listbox = await openSlashMenu();
     const commandIndex = SLASH_COMMANDS.findIndex(
       ([value]) => value === command,
     );
     if (commandIndex < 0) throw new Error(`unknown slash command ${command}`);
+    tracePhase(`slash.navigate:start:${command}`);
     for (let index = 0; index < commandIndex; index += 1)
       await page.keyboard.press("ArrowDown");
-    const activeOptionId = await page
-      .locator(`[role="listbox"] [role="option"][data-value="${command}"]`)
+    const activeOptionId = await listbox
+      .locator(`[role="option"][data-value="${command}"]`)
       .getAttribute("id");
     if (
       !activeOptionId ||
@@ -2267,10 +2791,12 @@ export async function runAuthoringFuzz(
       throw new Error(`slash menu did not select ${command}`);
     }
     const withTrigger = await inspectSelection();
+    tracePhase(`slash.command-key:start:${command}:${key}`);
     await page.keyboard.press(key);
-    await page
-      .locator('[role="listbox"]')
-      .waitFor({ state: "hidden", timeout: 1500 });
+    tracePhase(`slash.command-key:end:${command}:${key}`);
+    tracePhase(`slash.wait-hidden:start:${command}`);
+    await listbox.waitFor({ state: "hidden", timeout: 1500 });
+    tracePhase(`slash.wait-hidden:end:${command}`);
     if (
       slashCount((await inspectSelection()).text) !==
       slashCount(withTrigger.text) - 1
@@ -2747,7 +3273,10 @@ export async function runAuthoringFuzz(
       activePhase = `step ${activeIndex}`;
       const operation = plan[activeIndex];
       let skipFinalSiblingCheck = false;
+      tracePhase("sibling-capture:start");
       await snapshotEditorSiblings("capture", operation);
+      tracePhase("sibling-capture:end");
+      tracePhase("operation:start");
       switch (operation.kind) {
         case "type":
           await typeText(operation.value);
@@ -2775,14 +3304,12 @@ export async function runAuthoringFuzz(
           break;
         case "slash-escape": {
           const before = await inspectSelection();
-          await openSlashMenu();
+          const listbox = await openSlashMenu();
           const withTrigger = await inspectSelection();
           if (slashCount(withTrigger.text) !== slashCount(before.text) + 1)
             throw new Error("slash menu did not insert a single trigger token");
           await page.keyboard.press("Escape");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           if (
             slashCount((await inspectSelection()).text) !==
             slashCount(withTrigger.text)
@@ -2791,14 +3318,12 @@ export async function runAuthoringFuzz(
           break;
         }
         case "slash-filter": {
-          await openSlashMenu();
+          const emptyListbox = await openSlashMenu();
           await typeText("zz-no-command");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
-          await openSlashMenu();
+          await emptyListbox.waitFor({ state: "hidden", timeout: 1500 });
+          const listbox = await openSlashMenu();
           await typeText("heading 2");
-          const options = page.locator('[role="listbox"] [role="option"]');
+          const options = listbox.locator('[role="option"]');
           if ((await options.count()) !== 1)
             throw new Error("slash query did not filter to one command");
           const headingOptionId = await options.getAttribute("id");
@@ -2811,9 +3336,7 @@ export async function runAuthoringFuzz(
           }
           const withQuery = await inspectSelection();
           await page.keyboard.press("Enter");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           if (
             slashCount((await inspectSelection()).text) !==
             slashCount(withQuery.text) - 1
@@ -2821,62 +3344,50 @@ export async function runAuthoringFuzz(
             throw new Error("filtered slash command did not consume its query");
           break;
         }
-        case "slash-away":
-          await openSlashMenu();
+        case "slash-away": {
+          const listbox = await openSlashMenu();
           await page.keyboard.press("ArrowLeft");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           break;
-        case "slash-delete":
-          await openSlashMenu();
-          {
-            const beforeDelete = await inspectSelection();
-            await page.keyboard.press("Backspace");
-            await page
-              .locator('[role="listbox"]')
-              .waitFor({ state: "hidden", timeout: 1500 });
-            if (
-              slashCount((await inspectSelection()).text) !==
-              slashCount(beforeDelete.text) - 1
-            )
-              throw new Error(
-                "deleting slash did not remove its trigger token",
-              );
-          }
+        }
+        case "slash-delete": {
+          const listbox = await openSlashMenu();
+          const beforeDelete = await inspectSelection();
+          await page.keyboard.press("Backspace");
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
+          if (
+            slashCount((await inspectSelection()).text) !==
+            slashCount(beforeDelete.text) - 1
+          )
+            throw new Error("deleting slash did not remove its trigger token");
           break;
+        }
         case "slash-position": {
           await newLine();
           await typeText("and");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
           await typeText("/");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await assertSlashMenuStaysHidden();
           await typeText("or https:");
           await typeText("/");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await assertSlashMenuStaysHidden();
           await typeText("/example.com ");
           await typeText("/");
-          await page
-            .locator('[role="listbox"] [role="option"]')
+          const listbox = await waitForControlledSlashListbox();
+          await listbox
+            .locator('[role="option"]')
             .first()
             .waitFor({ state: "visible", timeout: 1500 });
           await page.keyboard.press("Escape");
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           break;
         }
-        case "slash-outside":
-          await openSlashMenu();
-          {
-            const point = await editor.evaluate((root: HTMLElement) => {
-              const menu = document.querySelector('[role="listbox"]');
+        case "slash-outside": {
+          const listbox = await openSlashMenu();
+          const listboxId = await listbox.getAttribute("id");
+          if (!listboxId) throw new Error("slash menu has no listbox id");
+          const point = await editor.evaluate(
+            (root: HTMLElement, id: string) => {
+              const menu = document.getElementById(id);
               const overlay =
                 menu?.closest<HTMLElement>(
                   "[data-radix-popper-content-wrapper]",
@@ -2896,19 +3407,19 @@ export async function runAuthoringFuzz(
                 const hit = document.elementFromPoint(x, y);
                 return !!hit && root.contains(hit) && !overlay?.contains(hit);
               });
-            });
-            if (!point) {
-              throw new Error(
-                "could not find an in-editor point outside the slash menu",
-              );
-            }
-            await page.mouse.click(point[0], point[1]);
+            },
+            listboxId,
+          );
+          if (!point) {
+            throw new Error(
+              "could not find an in-editor point outside the slash menu",
+            );
           }
-          await page
-            .locator('[role="listbox"]')
-            .waitFor({ state: "hidden", timeout: 1500 });
+          await page.mouse.click(point[0], point[1]);
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           await assertCaret();
           break;
+        }
         case "shortcut-undo": {
           await newLine();
           await typeText("# ", true, true);
@@ -2927,13 +3438,14 @@ export async function runAuthoringFuzz(
           break;
         }
         case "slash-undo": {
-          await newLine();
-          await typeText("/heading 2");
-          await page
-            .locator('[role="listbox"] [role="option"]')
+          const listbox = await openSlashMenu();
+          await typeText("heading 2");
+          await listbox
+            .locator('[role="option"]')
             .first()
             .waitFor({ state: "visible", timeout: 1500 });
           await page.keyboard.press("Enter");
+          await listbox.waitFor({ state: "hidden", timeout: 1500 });
           await page.keyboard.press(`${modifier}+Z`);
           if (!(await inspectSelection()).text.includes("/heading 2")) {
             throw new Error("undo did not restore literal slash command text");
@@ -4028,9 +4540,16 @@ export async function runAuthoringFuzz(
           break;
       }
 
+      tracePhase("operation:end");
+      tracePhase("caret-check:start");
       await assertCaret();
+      tracePhase("caret-check:end");
+      tracePhase("page-errors:start");
       await checkPageErrors();
+      tracePhase("page-errors:end");
+      tracePhase("sibling-assert:start");
       const siblingChanges = await snapshotEditorSiblings("assert", operation);
+      tracePhase("sibling-assert:end");
       if (
         siblingChanges.length &&
         !skipFinalSiblingCheck &&
@@ -4043,7 +4562,9 @@ export async function runAuthoringFuzz(
             siblingChanges.slice(0, 5).join(", "),
         );
       }
+      tracePhase("outside-assert:start");
       await assertOutsideUnchanged();
+      tracePhase("outside-assert:end");
       if ((activeIndex + 1) % 100 === 0) {
         console.log(
           `[edit-fidelity] fuzz seed=${seed} checked ${activeIndex + 1}/${plan.length} steps`,
@@ -4239,12 +4760,26 @@ export async function runAuthoringFuzz(
     );
 
     activePhase = "save/reload";
-    const persistence = await options.finishAndReload();
+    const persistence = await options.finishAndReload(() => {
+      for (const [request, startedAt] of watchedRequests.entries()) {
+        reloadNavigationRequests.set(request, startedAt);
+      }
+    });
     assertAuthoringPersistence(persistence);
     await checkPageErrors();
-    if (conflictResourceErrors > patchDeckConflicts) {
+    const unexpectedConflictPaths = [
+      ...new Set(
+        conflictResponsePaths.filter(
+          (responsePath) => responsePath !== patchDeckActionPath,
+        ),
+      ),
+    ];
+    if (
+      conflictResourceErrors > patchDeckConflicts ||
+      unexpectedConflictPaths.length > 0
+    ) {
       throw new Error(
-        "a 409 resource error did not match a patch-deck conflict response",
+        `a 409 resource error did not match a patch-deck conflict response (${conflictResourceErrors} console error(s), ${patchDeckConflicts} patch-deck response(s); paths: ${conflictResponsePaths.length ? [...new Set(conflictResponsePaths)].join(", ") : "none captured"})`,
       );
     }
     if (patchDeckConflicts > 0) {
@@ -4260,6 +4795,7 @@ export async function runAuthoringFuzz(
       redoSteps: redoCount,
     };
   } catch (error) {
+    rethrowIfHarnessUnavailable(error);
     const prefix = replay();
     let diagnostics:
       | { status: "available"; value: Record<string, unknown> }
@@ -4270,6 +4806,35 @@ export async function runAuthoringFuzz(
         const scope = window as Window & {
           __slidesAuthoringInputTrace?: Array<Record<string, unknown>>;
         };
+        const selection = window.getSelection();
+        const anchor = selection?.anchorNode ?? null;
+        const anchorElement =
+          anchor instanceof Element ? anchor : (anchor?.parentElement ?? null);
+        const block = anchorElement?.closest<HTMLElement>(
+          "p,div,li,blockquote,h1,h2,h3,h4,h5,h6,pre",
+        );
+        let prefix = "";
+        if (block && anchor && selection?.rangeCount) {
+          try {
+            const range = document.createRange();
+            range.selectNodeContents(block);
+            range.setEnd(anchor, selection.anchorOffset);
+            prefix = range
+              .toString()
+              .replaceAll(String.fromCharCode(0x200b), "");
+          } catch {
+            prefix = "";
+          }
+        }
+        const controls =
+          root instanceof HTMLElement
+            ? root.getAttribute("aria-controls")
+            : null;
+        const listboxes = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="listbox"]'),
+        );
+        const listbox = controls ? document.getElementById(controls) : null;
+        const listboxStyle = listbox ? getComputedStyle(listbox) : null;
         return {
           historyStats:
             root instanceof HTMLElement
@@ -4279,6 +4844,65 @@ export async function runAuthoringFuzz(
                   }
                 ).__slidesInPlaceTextHistoryStats ?? null)
               : null,
+          focus: {
+            rootFocused: document.activeElement === root,
+            activeTag: document.activeElement?.tagName ?? null,
+          },
+          selection: {
+            collapsed: selection?.isCollapsed ?? null,
+            insideRoot:
+              root instanceof HTMLElement &&
+              !!anchor &&
+              !!selection?.focusNode &&
+              root.contains(anchor) &&
+              root.contains(selection.focusNode),
+            anchorType: anchor?.nodeType ?? null,
+            anchorTag: anchorElement?.tagName ?? null,
+            anchorOffset: selection?.anchorOffset ?? null,
+            blockTag: block?.tagName ?? null,
+            blockLength: block?.textContent?.length ?? null,
+            prefixLength: prefix.length,
+            prefixEmpty: prefix.length === 0,
+            prefixEndsInWhitespace: /\s$/.test(prefix),
+            slashOffset: prefix.lastIndexOf("/"),
+          },
+          slashMenu: {
+            count: listboxes.length,
+            controlledId: controls,
+            id: listbox?.id ?? null,
+            dataState: listbox?.getAttribute("data-state") ?? null,
+            visible:
+              !!listbox &&
+              listboxStyle?.visibility !== "hidden" &&
+              listboxStyle?.display !== "none" &&
+              listbox.getClientRects().length > 0,
+            optionCount:
+              listbox?.querySelectorAll('[role="option"]').length ?? 0,
+            listboxes: listboxes.map((menu) => {
+              const style = getComputedStyle(menu);
+              const rect = menu.getBoundingClientRect();
+              return {
+                id: menu.id,
+                dataState: menu.getAttribute("data-state"),
+                optionCount: menu.querySelectorAll('[role="option"]').length,
+                visible:
+                  style.visibility !== "hidden" &&
+                  style.display !== "none" &&
+                  menu.getClientRects().length > 0,
+                rect: {
+                  left: rect.left,
+                  top: rect.top,
+                  width: rect.width,
+                  height: rect.height,
+                },
+              };
+            }),
+            activeDescendant:
+              root instanceof HTMLElement
+                ? root.getAttribute("aria-activedescendant")
+                : null,
+            controls,
+          },
           recentInputEvents:
             scope.__slidesAuthoringInputTrace?.slice(-12) ?? [],
         };
@@ -4295,9 +4919,12 @@ export async function runAuthoringFuzz(
       options.browser,
     );
   } finally {
+    if (traceWatchdog) clearInterval(traceWatchdog);
     page.off("console", onConsole);
     page.off("pageerror", onPageError);
     page.off("response", onResponse);
+    page.off("request", onRequest);
+    page.off("requestfinished", onRequestSettled);
     page.off("requestfailed", onRequestFailed);
   }
 }

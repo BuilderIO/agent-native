@@ -1424,6 +1424,16 @@ export const runContentMigrations = runMigrations(
     }),
     {
       version: 118,
+      name: "content-document-create-request-digest",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS creation_request_digest TEXT`,
+    },
+    {
+      version: 119,
+      name: "content-document-create-context-snapshot",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS creation_creative_context TEXT`,
+    },
+    {
+      version: 120,
       name: "content-document-imports",
       sql: `CREATE TABLE IF NOT EXISTS document_imports (
           document_id TEXT PRIMARY KEY,

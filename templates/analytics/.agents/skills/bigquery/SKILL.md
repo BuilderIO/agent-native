@@ -18,7 +18,7 @@ description: >-
 
 **Before writing any SQL, verify the metric definition and exact table/column names.**
 
-1. Call `list-data-dictionary` with a focused search first; dictionary definitions are loaded on demand rather than injected into every chat request.
+1. Call `find-data` with the user’s metric or entity question first; it ranks dictionary definitions, saved SQL examples, and generated source metadata together.
 2. Use `search-bigquery-schema` to confirm exact dataset, table, and column names.
 3. Only write SQL after you know the correct table and columns. Do not guess.
 
@@ -31,7 +31,7 @@ writing the query is always faster than debugging a wrong result.
 
 Before writing SQL, use the highest-confidence source available:
 
-1. `list-data-dictionary` with a focused search or department filter.
+1. `find-data` with a focused metric or entity question.
 2. Existing dashboard SQL or saved analyses that already answer the same metric.
 3. `search-bigquery-schema` metadata for exact datasets, tables, and columns.
 4. A concise user clarification when the business meaning cannot be inferred.
@@ -75,7 +75,7 @@ Never label a current partial-month snapshot as last month's completed usage.
 | Action                                  | Use                                                                 |
 | --------------------------------------- | ------------------------------------------------------------------- |
 | `data-source-status --key bigquery`     | Check whether BigQuery credentials and project are configured.      |
-| `list-data-dictionary --search <topic>` | Find canonical metric/table definitions before SQL.                 |
+| `find-data --question <topic>` | Find ranked metric definitions and saved query examples before SQL. |
 | `search-bigquery-schema`                | List datasets, list tables in a dataset, or describe table columns. |
 | `bigquery --sql "<sql>"`                | Run a real warehouse query after table/column names are known.      |
 
@@ -159,7 +159,13 @@ Require both for exact matches; flag email-only or id-only joins as low-confiden
 - DATE columns need `DATE('2025-11-01')`.
 - Use `DATE(timestamp_col)` before `DATE_TRUNC` to avoid type mismatch errors.
 - Use `QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY updated_at DESC) = 1`
-  for deduplication — cleaner than a subquery.
+  for deduplication — cleaner than a subquery. Put the partition-date filter in
+  the same `WHERE`: a dedupe over a whole table, or a view that dedupes before
+  your filter, scans every partition. For first-party events, read
+  `first_party_analytics_events_raw_query_range(start_date, end_date)`, not the
+  `first_party_analytics_events_raw_query` view. It leaves out `http.response`,
+  which holds most of the `properties` bytes; read that event from the raw table
+  with a narrow date range and an `event_name` filter.
 
 ### Type Casting
 

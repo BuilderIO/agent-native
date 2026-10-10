@@ -71,7 +71,7 @@ export function renderProjectMenu({
     editorHistory;
   const { canEditDesign, canCommentDesign, pinMode } =
     editorGenerationAndAccess;
-  const { files, overviewScreens } = editorFilesAndSaving;
+  const { files } = editorFilesAndSaving;
   const { activeFile, handleZoomOut, handleZoomIn, handleOpenMakeReal } =
     editorActiveScreenAndGeometry;
   const { setSaveTemplateOpen } = editorLiveEditsAndPresence;
@@ -181,9 +181,7 @@ export function renderProjectMenu({
                       selectedElement,
                       selectedLayerIds: selectedLayerIdsState,
                       fileIds: files.map((file) => file.id),
-                    }) &&
-                    (overviewScreens.length <= 1 ||
-                      overviewSelectedScreenIds.length === 0)
+                    }) && overviewSelectedScreenIds.length === 0
                   : !selectedElement && !activeFile
               }
             >

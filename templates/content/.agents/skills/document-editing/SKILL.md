@@ -66,6 +66,10 @@ pnpm action create-document --title "Research" --description "Evidence and sourc
 pnpm action create-document --title "Placeholder 1" --spaceName "Foobar"
 ```
 
+If the result has `creativeContextProjectionStatus: "pending"`, the Page is
+already committed. Retry the same arguments with the returned `id` to repair
+its Creative Context projection; do not create another Page.
+
 When a user asks for a Page in an interactive Content conversation, creation is
 not a complete handoff. After `create-document` succeeds, call `navigate` with
 the returned document `id`, then call `view-screen` and compare its document ID

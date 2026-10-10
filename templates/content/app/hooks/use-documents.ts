@@ -40,6 +40,8 @@ import {
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 
+import { contentSaveTelemetryHeaders } from "@/lib/content-save-telemetry";
+
 import type {
   DocumentUpdateConflictResponse,
   DocumentUpdateSupersededResponse,
@@ -59,7 +61,10 @@ import {
   documentScopedReadRetryOptions,
   isWithinCreateSettlingWindow,
 } from "../lib/document-scoped-read-retry";
-import { isDocumentCreationPending } from "../lib/optimistic-document";
+import {
+  isDocumentCreationConfirmed,
+  isDocumentCreationPending,
+} from "../lib/optimistic-document";
 import {
   adoptPageOpenRead,
   claimPageOpenRead,
@@ -791,13 +796,13 @@ function documentReadParams(id: string, context: DocumentQueryContext) {
 export function useDocument(
   id: string | null,
   context: DocumentQueryContext = {},
-  options: { refetchOnMount?: false } = {},
+  options: { enabled?: boolean; refetchOnMount?: false } = {},
 ) {
   return useActionQuery<Document>(
     "get-document",
     id ? documentReadParams(id, context) : undefined,
     {
-      enabled: !!id,
+      enabled: !!id && options.enabled !== false,
       ...DOCUMENT_QUERY_FRESHNESS_OPTIONS,
       ...options,
     },
@@ -829,11 +834,13 @@ export function usePageOpenDocument(
   }
   const claim = claimRef.current;
   const { adoption } = claim;
-  const query = useDocument(
-    documentId,
-    context,
-    adoption === "fresh" ? { refetchOnMount: false } : {},
-  );
+  const cachedDocument = queryClient.getQueryData<Document>(queryKey);
+  const query = useDocument(documentId, context, {
+    enabled: !(
+      cachedDocument && isDocumentCreationPending(queryClient, cachedDocument)
+    ),
+    ...(adoption === "fresh" ? { refetchOnMount: false } : {}),
+  });
   // Runs after the query's own subscription, so from here on sync reaches
   // this read as a mounted query.
   useEffect(() => {
@@ -857,9 +864,10 @@ export function startPageOpenDocumentReads(
 ) {
   const queryKey = documentQueryKey(documentId, context);
   const cached = queryClient.getQueryData<Document>(queryKey);
-  if (cached && isDocumentCreationPending(cached)) return;
+  if (cached && isDocumentCreationPending(queryClient, cached)) return;
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
-  const readsDraft = !widgetBridgeActive && previewDocumentDraftIsRead(cached);
+  const readsDraft =
+    !widgetBridgeActive && previewDocumentDraftIsRead(queryClient, cached);
   // One request answers the page and its draft, so the draft read cannot hold
   // the page back on its own. Each read takes that answer once: a refetch
   // through either key sends its own request rather than replaying this one.
@@ -1023,11 +1031,15 @@ export function usePreviewDocumentDraft(
 
 // A page that is known not to need recovery skips the draft read, as does the
 // ChatGPT widget, which never recovers drafts.
-function previewDocumentDraftIsRead(known?: Document) {
+function previewDocumentDraftIsRead(
+  queryClient: QueryClient,
+  known?: Document,
+) {
   if (isOpenAiMcpAppHost()) return false;
   return !(
     known &&
-    (isDocumentCreationPending(known) ||
+    (isDocumentCreationPending(queryClient, known) ||
+      isDocumentCreationConfirmed(queryClient, known) ||
       known.canEdit === false ||
       known.source?.mode === "local-files")
   );
@@ -1040,7 +1052,7 @@ export function startPreviewDocumentDraftRead(
   documentId: string,
   known?: Document,
 ) {
-  if (!previewDocumentDraftIsRead(known)) return;
+  if (!previewDocumentDraftIsRead(queryClient, known)) return;
   startPageOpenRead(
     queryClient,
     documentId,
@@ -1217,7 +1229,7 @@ function recoverRecentAfterDocumentSaves(queryClient: QueryClient) {
   reconcile();
 }
 
-export function useUpdateDocument() {
+export function useUpdateDocument(options?: { saveOrigin?: "recovery" }) {
   const queryClient = useQueryClient();
   const t = useT();
   const restoreContentDatabase = useRestoreContentDatabase();
@@ -1228,10 +1240,14 @@ export function useUpdateDocument() {
     "update-document",
     {
       mutationKey: DOCUMENT_UPDATE_MUTATION_KEY,
+      headers: (payload) =>
+        contentSaveTelemetryHeaders(payload, options?.saveOrigin),
       skipActionQueryInvalidation: true,
       onMutate: async (variables) => {
         // This tab's own saves never come back through sync.
         spoilPageOpenReads(queryClient, variables.id);
+        const documentFilter = documentQueryFilter(variables.id);
+        await queryClient.cancelQueries(documentFilter);
         const optimisticPatch: Partial<Document> = {
           ...(variables.title !== undefined ? { title: variables.title } : {}),
           ...(variables.icon !== undefined ? { icon: variables.icon } : {}),
@@ -1241,7 +1257,6 @@ export function useUpdateDocument() {
         };
         if (Object.keys(optimisticPatch).length === 0) return undefined;
 
-        const documentFilter = documentQueryFilter(variables.id);
         const databaseFilter = {
           queryKey: ["action", "get-content-database"],
         } as const;
@@ -1264,7 +1279,6 @@ export function useUpdateDocument() {
         const sidebarStateKey = sidebarStateEntry?.[0];
         const documentSpaceId = sidebarStateKey?.[2].spaceId;
         await Promise.all([
-          queryClient.cancelQueries(documentFilter),
           queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
           queryClient.cancelQueries(databaseFilter),
           queryClient.cancelQueries(databasePageFilter),

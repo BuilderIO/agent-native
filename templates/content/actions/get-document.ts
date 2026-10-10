@@ -4,7 +4,11 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, roleSatisfies } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  currentAccess,
+  roleSatisfies,
+} from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -14,7 +18,7 @@ import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   getDatabaseByDocumentId,
-  getBuilderBodyHydrationMembershipByDocumentId,
+  getBuilderBodyHydrationMembershipFromDatabaseItems,
   getDocumentContextPath,
   isSoftDeletedDatabaseDocument,
   listDatabaseItemsByDocumentId,
@@ -22,6 +26,7 @@ import {
 } from "./_database-utils.js";
 import {
   accessibleDocumentIds,
+  directDocumentAccessSql,
   resolveDocumentAccess,
 } from "./_document-access.js";
 import {
@@ -33,7 +38,6 @@ import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
   getDatabaseById,
   listPropertiesForDocument,
-  resolvePropertyDatabaseForDocument,
   serializeDatabase,
 } from "./_property-utils.js";
 import {
@@ -41,6 +45,7 @@ import {
   documentHasInlineDatabase,
   hasSuggestionBodyTarget,
 } from "./_suggestion-eligibility.js";
+import { contentWidgetEditCapabilities } from "./_widget-edit-capabilities.js";
 
 function canEditRole(role: string) {
   return role === "owner" || role === "admin" || role === "editor";
@@ -135,7 +140,6 @@ export default defineAction({
       memberships,
       database,
       databaseItems,
-      bodyHydrationTarget,
       favoriteIds,
       externalLink,
       previewDraft,
@@ -145,8 +149,14 @@ export default defineAction({
         .select({
           databaseId: schema.contentDatabases.id,
           databaseDocumentId: schema.contentDatabases.documentId,
+          databaseTitle: schema.contentDatabases.title,
           systemRole: schema.contentDatabases.systemRole,
           primaryId: schema.documentPropertyDefinitions.id,
+          databaseDocumentDescription: schema.documents.description,
+          databaseDocumentDirectlyGranted: directDocumentAccessSql(
+            schema.documents,
+            currentAccess(),
+          ),
         })
         .from(schema.contentDatabaseItems)
         .innerJoin(
@@ -155,6 +165,10 @@ export default defineAction({
             schema.contentDatabases.id,
             schema.contentDatabaseItems.databaseId,
           ),
+        )
+        .leftJoin(
+          schema.documents,
+          eq(schema.documents.id, schema.contentDatabases.documentId),
         )
         .leftJoin(
           schema.documentPropertyDefinitions,
@@ -179,7 +193,6 @@ export default defineAction({
         .orderBy(schema.contentDatabases.id),
       getDatabaseByDocumentId(doc.id),
       listDatabaseItemsByDocumentId(doc.id),
-      getBuilderBodyHydrationMembershipByDocumentId(doc.id),
       userEmail
         ? favoriteDocumentIds(db, userEmail, [doc.id])
         : new Set<string>(),
@@ -209,6 +222,8 @@ export default defineAction({
           )
         : undefined,
     ]);
+    const bodyHydrationTarget =
+      getBuilderBodyHydrationMembershipFromDatabaseItems(doc.id, databaseItems);
     if (softDeleted) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
         statusCode: 404,
@@ -251,12 +266,35 @@ export default defineAction({
             (row) => row.item.databaseId === selectedDatabaseId,
           )
         : databaseItems[0]) ?? null;
+    const contextMembership = (() => {
+      const row = args.databaseId
+        ? memberships.find(
+            (membership) => membership.databaseId === args.databaseId,
+          )
+        : (memberships.find((membership) => membership.systemRole === null) ??
+          memberships[0]);
+      return row
+        ? {
+            database: {
+              id: row.databaseId,
+              documentId: row.databaseDocumentId,
+              title: row.databaseTitle,
+              systemRole: row.systemRole,
+            },
+            databaseDocumentDescription: row.databaseDocumentDescription,
+            databaseDocumentDirectlyGranted:
+              row.databaseDocumentDirectlyGranted,
+          }
+        : null;
+    })();
+    // The initial read wave proves the empty case; retain the resolver's
+    // existing selection behavior when memberships are present.
     const propertyDatabase = selectedDatabaseId
       ? (databaseMembership?.database ??
         (database?.id === selectedDatabaseId
           ? database
           : await getDatabaseById(selectedDatabaseId)))
-      : await resolvePropertyDatabaseForDocument(doc);
+      : (database ?? databaseMembership?.database ?? null);
     const hasPropertyDatabaseAccess = Boolean(
       propertyDatabase && accessibleDatabases.has(propertyDatabase.documentId),
     );
@@ -281,7 +319,6 @@ export default defineAction({
     if (selectedDatabaseId && !propertyDatabase) {
       throw new Error(`Database "${selectedDatabaseId}" not found`);
     }
-    const bodyHydrationAccess = await readBodyHydrationAccess();
     const bodyHydration = bodyHydrationMembership
       ? serializeDatabaseMembership(bodyHydrationMembership).bodyHydration
       : null;
@@ -289,11 +326,19 @@ export default defineAction({
     // read only when it will be returned, and its errors surface after the
     // property checks that preceded it.
     const readContextPath =
-      databaseMembership && !hasPropertyDatabaseAccess
+      (!doc.parentId && !databaseMembership) ||
+      (databaseMembership && !hasPropertyDatabaseAccess)
         ? null
         : deferFailure(
-            getDocumentContextPath(doc, { databaseId: args.databaseId }),
+            getDocumentContextPath(doc, {
+              databaseId: args.databaseId,
+              preloaded: {
+                membership: contextMembership,
+                backingDatabaseExists: Boolean(database),
+              },
+            }),
           );
+    const bodyHydrationAccess = await readBodyHydrationAccess();
     const [properties] = await Promise.all([
       listPropertiesForDocument(doc, selectedDatabaseId, {
         // A share authorizes the exact page and its membership-local fields,
@@ -338,6 +383,12 @@ export default defineAction({
       hasInlineDatabase,
     });
     const revision = documentRevisionToken(doc.bodyRevision, doc.content ?? "");
+    const widgetEditCapabilities = contentWidgetEditCapabilities(ctx, {
+      id: doc.id,
+      spaceId: doc.spaceId,
+      databaseId: database?.id,
+      databaseDocumentId: database?.documentId,
+    });
 
     track(
       "document_viewed",
@@ -383,6 +434,12 @@ export default defineAction({
       canManage: canManageRole(access.role),
       ...(ctx?.mcpDirectoryWidgetReadOnly
         ? { mcpDirectoryWidgetReadOnly: true as const }
+        : {}),
+      ...(widgetEditCapabilities.canEditDocument
+        ? { mcpDirectoryWidgetCanEditDocument: true as const }
+        : {}),
+      ...(widgetEditCapabilities.canEditDatabaseRows
+        ? { mcpDirectoryWidgetCanEditDatabaseRows: true as const }
         : {}),
       database: database
         ? serializeDatabase(database, doc.description)

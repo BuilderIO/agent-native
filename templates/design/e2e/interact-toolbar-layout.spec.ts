@@ -169,7 +169,6 @@ async function enterInteractAndSampleImmediately(
   }, actionLabels);
 }
 
-// oracle: none — verifies hit-testing and layout bounds, not parity with a design reference.
 test("Interact actions clear the right rail at Tiana's 1751×897 viewport", async ({
   page,
 }, testInfo) => {

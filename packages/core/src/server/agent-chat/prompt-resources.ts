@@ -44,6 +44,7 @@ import {
 import {
   isRuntimeVisibleScope,
   parseSkillFrontmatter,
+  sortResourceSkills,
 } from "./skill-frontmatter.js";
 
 const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
@@ -435,14 +436,14 @@ export function buildCompactSkillsSummary(
     const description = s.meta.description?.trim()
       ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
       : "";
-    return `- \`${s.meta.name}\`${description} Read with \`${skillReadTool} --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for subsequent steps in this turn.`;
+    return `- \`${s.meta.name}\`${description} Read with \`${skillReadTool} --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for the rest of the conversation.`;
   });
   if (skills.length > listedSkills.length) {
     lines.push(
       `- ...${skills.length - listedSkills.length} more codebase skills. Use \`${skillReadTool} --query "<topic>"\` to discover the relevant one.`,
     );
   }
-  return `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as ${skillReadTool} pages. Do not use MCP resource reads for these skills. Read each relevant page once per turn and reuse it; do not repeat an equivalent ${skillReadTool} lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`;
+  return `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as ${skillReadTool} pages. Do not use MCP resource reads for these skills. Read each relevant page once per conversation and reuse it; do not repeat an equivalent ${skillReadTool} lookup unless the page or question is different.\n\n${lines.join("\n")}\n</skills-summary>`;
 }
 
 function escapeXmlAttribute(value: string): string {
@@ -752,7 +753,6 @@ async function loadResourceSkillPromptEntries(
   metadataRead: number;
 }> {
   try {
-    const organizationOwner = sharedResourceOwner(orgId);
     const resources =
       owner === SHARED_OWNER
         ? [
@@ -760,29 +760,7 @@ async function loadResourceSkillPromptEntries(
             ...(await resourceList(WORKSPACE_OWNER, "skills/", { orgId })),
           ]
         : await resourceListAccessible(owner, "skills/", { orgId });
-    const sorted = resources.sort((a, b) => {
-      const ownerOrder =
-        (a.owner === owner
-          ? 0
-          : a.owner === organizationOwner
-            ? 1
-            : a.owner === SHARED_OWNER
-              ? 2
-              : isWorkspaceResourceOwner(a.owner)
-                ? 3
-                : 4) -
-        (b.owner === owner
-          ? 0
-          : b.owner === organizationOwner
-            ? 1
-            : b.owner === SHARED_OWNER
-              ? 2
-              : isWorkspaceResourceOwner(b.owner)
-                ? 3
-                : 4);
-      if (ownerOrder !== 0) return ownerOrder;
-      return a.path.localeCompare(b.path);
-    });
+    const sorted = sortResourceSkills(resources, { owner, orgId });
     const skillCandidates = sorted.slice(0, PROMPT_SKILL_METADATA_READ_LIMIT);
     const loaded = await Promise.all(
       skillCandidates.map(async (resource) => ({

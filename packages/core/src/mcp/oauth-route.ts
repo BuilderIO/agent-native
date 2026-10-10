@@ -1083,6 +1083,7 @@ async function issueTokenSet(
     scope: string;
     resource: string;
     issuer: string;
+    grantCreatedAtMs: number | null;
   },
   tx: DbExec,
 ): Promise<Record<string, unknown>> {
@@ -1096,6 +1097,7 @@ async function issueTokenSet(
       orgDomain: params.orgDomain ?? null,
       scope: params.scope,
       resource: params.resource,
+      grantCreatedAtMs: params.grantCreatedAtMs,
     },
     tx,
   );
@@ -1169,6 +1171,7 @@ async function handleAuthorizationCodeGrant(
               scope: consumed.scope,
               resource: consumed.resource,
               issuer,
+              grantCreatedAtMs: consumed.createdAt,
             },
             tx,
           ),
@@ -1243,6 +1246,7 @@ async function handleRefreshTokenGrant(
           scope: existing.scope,
           resource: existing.resource,
           issuer,
+          grantCreatedAtMs: existing.grantCreatedAtMs,
         });
         return json({
           access_token: accessToken,
