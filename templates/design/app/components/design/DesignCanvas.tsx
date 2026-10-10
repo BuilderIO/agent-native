@@ -5661,7 +5661,7 @@ export function DesignCanvas({
     applyOffset();
     iframe.addEventListener("load", applyOffset);
     return () => iframe.removeEventListener("load", applyOffset);
-  }, [embeddedContentOffsetX, embeddedContentOffsetY]);
+  }, [embeddedContentOffsetX, embeddedContentOffsetY, iframeElementIdentity]);
 
   const layoutGridStepRef = useRef(layoutGridStep);
   layoutGridStepRef.current = layoutGridStep;
