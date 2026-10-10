@@ -13,6 +13,7 @@ import {
   AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
   AGENT_CHAT_INSERT_REFERENCE_EVENT,
   cancelAgentChatSubmit,
+  claimAgentChatOpenRequest,
   parseSubmitChatMessage,
   reportAgentChatSubmitResult,
   consumeAgentSidebarUrlOpenOverride,
@@ -78,6 +79,8 @@ import {
   AGENT_PANEL_OPEN_SETTINGS_EVENT,
   AGENT_PANEL_PREPARE_EVENT,
   AGENT_PANEL_SET_MODE_EVENT,
+  getAgentChatNavigationKey,
+  type AgentChatNavigationKey,
   shouldHandleAgentPanelChatShortcut,
   shouldHandleAgentSidebarToggle,
 } from "./agent-sidebar-events.js";
@@ -137,7 +140,7 @@ type PendingPanelEvent = {
   order: number;
   referenceTargetId?: string | null;
   targetId?: string | null;
-  navigation?: Event;
+  navigation?: AgentChatNavigationKey;
   reference?: PendingPanelEvent;
 };
 
@@ -624,7 +627,7 @@ export function AgentSidebar({
   const pendingEventOrder = useRef(0);
   const replayingPanelEvent = useRef<Event | null>(null);
   const drainScheduled = useRef(false);
-  const activeNavigations = useRef(new Set<Event>());
+  const activeNavigations = useRef(new Map<AgentChatNavigationKey, Event>());
   const getReferenceTargetId = useCallback(
     () =>
       panelElementRef.current
@@ -718,6 +721,8 @@ export function AgentSidebar({
           reportAgentChatSubmitResult(submit.submitMessageId, false, reason);
           cancelAgentChatSubmit(submit.submitMessageId);
         } else {
+          if (isPanelNavigationEvent(pending.event))
+            claimAgentChatOpenRequest(getAgentChatNavigationKey(pending.event));
           console.warn("[agent-chat] cancelled retained conversation event", {
             type: pending.event.type,
             reason,
@@ -732,15 +737,16 @@ export function AgentSidebar({
     NonNullable<MultiTabAssistantChatProps["onNavigationChange"]>
   >(
     (event, outcome) => {
+      const key = getAgentChatNavigationKey(event);
       if (outcome === "started") {
-        activeNavigations.current.add(event);
+        activeNavigations.current.set(key, event);
         setHasPendingPanelEvents(true);
         return;
       }
-      activeNavigations.current.delete(event);
+      activeNavigations.current.delete(key);
       if (outcome !== "selected") {
         cancelPendingEvents(
-          (pending) => pending.navigation === event,
+          (pending) => pending.navigation === key,
           `navigation-${outcome}`,
         );
       }
@@ -751,7 +757,25 @@ export function AgentSidebar({
   const onTabsClosed = useCallback(
     (tabIds: string[]) => {
       const closed = new Set(tabIds);
+      const closedNavigations = new Set(
+        [
+          ...activeNavigations.current.values(),
+          ...pendingPanelEvents.current
+            .filter((pending) => isPanelNavigationEvent(pending.event))
+            .map((pending) => pending.event),
+        ]
+          .filter((event) =>
+            closed.has((event as CustomEvent).detail?.threadId),
+          )
+          .map(getAgentChatNavigationKey),
+      );
       cancelPendingEvents((pending) => {
+        if (
+          closedNavigations.has(getAgentChatNavigationKey(pending.event)) ||
+          (pending.navigation !== undefined &&
+            closedNavigations.has(pending.navigation))
+        )
+          return true;
         const targetId =
           pending.referenceTargetId ??
           pending.targetId ??
@@ -893,8 +917,9 @@ export function AgentSidebar({
       const precedingNavigation = [...pendingPanelEvents.current]
         .reverse()
         .find((pending) => isPanelNavigationEvent(pending.event));
-      const navigation =
-        precedingNavigation?.event ?? [...activeNavigations.current].at(-1);
+      const navigation = precedingNavigation
+        ? getAgentChatNavigationKey(precedingNavigation.event)
+        : [...activeNavigations.current.keys()].at(-1);
       const reference = [...pendingPanelEvents.current]
         .reverse()
         .find(
@@ -965,6 +990,19 @@ export function AgentSidebar({
     };
 
     const handleOpenThread = (event: Event) => {
+      const key = getAgentChatNavigationKey(event);
+      if (
+        event !== replayingPanelEvent.current &&
+        (activeNavigations.current.has(key) ||
+          pendingPanelEvents.current.some(
+            (pending) =>
+              isPanelNavigationEvent(pending.event) &&
+              getAgentChatNavigationKey(pending.event) === key,
+          ))
+      ) {
+        event.stopImmediatePropagation();
+        return;
+      }
       if (
         !shouldRetainEvent(
           event,

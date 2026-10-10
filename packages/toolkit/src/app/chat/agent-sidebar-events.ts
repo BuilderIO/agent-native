@@ -3,6 +3,16 @@ export const AGENT_PANEL_SET_MODE_EVENT = "agent-panel:set-mode";
 export const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
 export const AGENT_CHAT_RUNNING_EVENT = "agentNative.chatRunning";
 
+export type AgentChatNavigationKey = string | Event;
+
+export function getAgentChatNavigationKey(
+  event: Event,
+): AgentChatNavigationKey {
+  const id = (event as CustomEvent<{ openRequestId?: unknown }>).detail
+    ?.openRequestId;
+  return typeof id === "string" && id ? id : event;
+}
+
 export function shouldHandleAgentSidebarToggle(
   event: Event,
   toggleScopeId?: string | null,
