@@ -1489,8 +1489,12 @@ export function nextAgentChatStagedAt(): number {
 export function setAgentChatContextItem(
   opts: AgentChatContextSetOptions,
 ): void {
-  const item = normalizeAgentChatContextItem(opts);
-  if (!item || typeof window === "undefined") return;
+  const normalized = normalizeAgentChatContextItem(opts);
+  if (!normalized || typeof window === "undefined") return;
+  const item = {
+    ...normalized,
+    stagedAt: normalized.stagedAt ?? nextAgentChatStagedAt(),
+  };
 
   publishAgentChatContextItems(
     withReplacedAgentChatContextItem(agentChatContextState.items, item),

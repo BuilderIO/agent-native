@@ -1678,6 +1678,7 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
+        stagedAt: expect.any(Number),
       },
     });
     expect(listAgentChatContext()).toEqual([
@@ -1685,6 +1686,7 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
+        stagedAt: expect.any(Number),
       },
     ]);
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
@@ -1710,6 +1712,7 @@ describe("sendToAgentChat", () => {
         title: "Cart",
         context: "Line item A",
         openSidebar: false,
+        stagedAt: expect.any(Number),
       },
     });
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([

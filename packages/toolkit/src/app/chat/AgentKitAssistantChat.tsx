@@ -34,6 +34,7 @@ import {
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   getAgentChatContextState,
+  nextAgentChatStagedAt,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
   removeAgentChatContextItemAndPersist,
@@ -3803,8 +3804,12 @@ const AgentKitAssistantChatBody = forwardRef<
 
   const setContextItem = useCallback(
     (rawItem: AgentChatContextItem, focus = true) => {
-      const item = normalizeAgentChatContextItem(rawItem);
-      if (!item) return;
+      const normalized = normalizeAgentChatContextItem(rawItem);
+      if (!normalized) return;
+      const item = {
+        ...normalized,
+        stagedAt: normalized.stagedAt ?? nextAgentChatStagedAt(),
+      };
       const current = getAgentChatContextState().items;
       const next = current
         .filter((candidate) => candidate.key !== item.key)

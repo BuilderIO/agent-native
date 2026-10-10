@@ -998,6 +998,41 @@ describe("AgentKitAssistantChat host behavior", () => {
     ]);
   });
 
+  it("keeps a replacement staged on the shared path while an earlier send was in flight", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const stage = (context: string) =>
+      act(async () =>
+        ref.current!.setComposerContextItem(
+          { key: "shared-reference", title: "Reference", context },
+          { focus: false },
+        ),
+      );
+    await stage("Reference: a");
+    let finishSend: (value: unknown) => void = () => {};
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSend = resolve;
+        }),
+    );
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Use the reference", [], [], {
+        intent: "immediate",
+      });
+    });
+
+    await stage("Reference: b");
+    await act(async () => finishSend(undefined));
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "shared-reference",
+        context: "Reference: b",
+      }),
+    ]);
+  });
+
   it("uses the action widget renderer for action chat UI output", async () => {
     await mount(baseProps());
 
@@ -2122,7 +2157,10 @@ describe("AgentKitAssistantChat host behavior", () => {
       context: "Core selection",
     };
     await act(async () => ref.current!.setComposerContextItem(ambient));
-    expect(chatMocks.composerProps.contextItems).toEqual([ambient, item]);
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      { ...ambient, stagedAt: expect.any(Number) },
+      item,
+    ]);
     expect(chatMocks.composerProps.contextMenuItems).toBe(context.menuItems);
     expect(chatMocks.composerProps.onInspectContextItem).toBeUndefined();
     expect(chatMocks.composerProps.plusMenuMode).toBe("full");
