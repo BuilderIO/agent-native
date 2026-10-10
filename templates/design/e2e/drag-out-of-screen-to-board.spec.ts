@@ -75,7 +75,6 @@ function designData(record: { data?: unknown }): Record<string, any> {
     : ((record.data ?? {}) as Record<string, any>);
 }
 
-// oracle: none — verifies cross-document drop persistence, not Figma parity.
 test("a layer dragged below the rendered Screen card moves to the board", async ({
   page,
 }) => {
@@ -129,8 +128,6 @@ test("a layer dragged below the rendered Screen card moves to the board", async 
       await page.waitForTimeout(25);
     }
     await page.waitForTimeout(700);
-    await page.mouse.move(end.x + 1, end.y);
-    await page.waitForTimeout(300);
     await page.mouse.up();
 
     await expect

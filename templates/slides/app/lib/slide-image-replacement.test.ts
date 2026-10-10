@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   applyOptimisticImagePreview,
+  captureCropTransitionAnimations,
   captureSlideImageUploadProvenance,
   captureOptimisticImagePreview,
   createPlaceholderImageTarget,
@@ -17,6 +18,7 @@ import {
   swapImageSourcesInPlace,
   replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
+  restoreCropTransitionAnimations,
   registerSlideImageUploadProvenance,
   stripOptimisticImagePreviews,
   takeSlideImageUploadProvenance,
@@ -32,6 +34,49 @@ function firstImage(html: string): HTMLImageElement | null {
 }
 
 describe("slide image replacement", () => {
+  it("captures crop animations safely without the Web Animations API", () => {
+    const root = document.createElement("div");
+    const image = document.createElement("img");
+    Object.defineProperty(image, "getAnimations", { value: undefined });
+    root.append(image);
+
+    expect(captureCropTransitionAnimations(root)).toEqual([]);
+  });
+
+  it("reports when a captured crop transition cannot be restored", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-pptx-image" data-slide-object-id="image-1"><img></div>';
+    const image = root.querySelector("img")!;
+    Object.defineProperty(image, "animate", {
+      configurable: true,
+      value: () => {
+        throw new Error("Web Animations API failed");
+      },
+    });
+    const cancel = vi.fn();
+    const originalAnimation = { cancel } as unknown as Animation;
+
+    const restored = restoreCropTransitionAnimations(root, [
+      {
+        kind: "transition",
+        animation: originalAnimation,
+        animationId: "fmd-crop-transition-opacity",
+        objectId: "image-1",
+        targetKind: "image",
+        currentTime: 250,
+        playbackRate: 1,
+        playState: "running",
+        property: "opacity",
+        keyframes: [{ opacity: 0 }, { opacity: 1 }],
+        timing: { duration: 1000 },
+      },
+    ]);
+
+    expect(restored).toBe(false);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it("swaps hosted sources without replacing a live transformed image", () => {
     const previousContent =
       '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';

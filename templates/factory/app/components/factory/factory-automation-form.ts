@@ -415,14 +415,14 @@ export function dispatchIntegrationsHref(apps: unknown): string {
     const absolute = /^https?:\/\//.test(raw);
     const url = new URL(raw, "https://workspace.local");
     const basePath = stripDispatchLeaf(url.pathname).replace(/\/+$/, "");
-    url.pathname = `${basePath || (absolute ? "" : "/dispatch")}/admin/integrations`;
+    url.pathname = `${basePath || (absolute ? "" : "/dispatch")}/settings/integrations`;
     url.search = "";
     url.hash = "";
     if (absolute) return url.toString();
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     const basePath = stripDispatchLeaf(raw).replace(/\/+$/, "");
-    return `${basePath || "/dispatch"}/admin/integrations`;
+    return `${basePath || "/dispatch"}/settings/integrations`;
   }
 }
 

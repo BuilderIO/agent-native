@@ -13,6 +13,10 @@ import {
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
 import {
+  trackDeckCreated,
+  trackDeckCreationStarted,
+} from "./_deck-tracking.js";
+import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
   deckDesignSystemId,
@@ -29,9 +33,17 @@ export default defineAction({
     deck: z
       .record(z.string(), z.unknown())
       .describe("Full deck JSON payload, including its client-generated id"),
+    creationMethod: z
+      .enum(["generated", "import_pdf", "import_docx", "blank", "template"])
+      .optional()
+      .describe("How the deck came to exist; used only for analytics"),
+    purpose: z
+      .enum(["direct", "reference"])
+      .optional()
+      .describe("Whether the user made this deck or it is a reference input"),
   }),
   agentTool: false,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const deck = args.deck as DeckPayload;
     if (Array.isArray(deck.slides)) {
       const normalized = ensureUniqueSlideIds(
@@ -81,6 +93,19 @@ export default defineAction({
         createdAt: now,
         updatedAt: now,
       });
+
+    const slideCount = Array.isArray(deck.slides) ? deck.slides.length : 0;
+    trackDeckCreated(
+      id,
+      {
+        creationMethod: args.creationMethod ?? "unknown",
+        purpose: args.purpose ?? (args.creationMethod ? "direct" : "unknown"),
+        slideCount,
+        generationContext: deck.generationContext,
+      },
+      ctx,
+    );
+    trackDeckCreationStarted(id, undefined, deck.generationContext, ctx);
 
     await notifyClients(id);
     return deck;

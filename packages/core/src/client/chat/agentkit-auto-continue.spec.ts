@@ -44,6 +44,9 @@ function fakeServer(
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const method = String(init?.method ?? "GET").toUpperCase();
+    if (url.pathname.endsWith("/_agent-native/agent-engine/status")) {
+      return Response.json({ configured: true, chatEligible: true });
+    }
     if (method === "POST" && url.pathname === API) {
       const body = JSON.parse(String(init?.body)) as Wire;
       posts.push(body);

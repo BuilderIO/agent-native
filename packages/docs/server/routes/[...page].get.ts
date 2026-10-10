@@ -16,6 +16,7 @@ import {
 } from "h3";
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
+import { isLegacyChunkRecoveryRequest } from "../../../core/src/shared/route-chunk-recovery-bootstrap.js";
 import {
   applyCommunityAppSsrCacheHeaders,
   applyDocsSsrCacheKeyHeaders,
@@ -77,11 +78,7 @@ export default async function docsPageHandler(event: H3Event) {
     return buildMarkdownNotFoundResponse();
   }
   const requestUrl = getRequestURL(event);
-  return responseWithVaryAccept(
-    response,
-    requestUrl.pathname,
-    isCloudGettingStartedPath(requestUrl),
-  );
+  return responseWithVaryAccept(response, requestUrl);
 }
 
 function setSsrCacheHeaders(event: H3Event) {
@@ -93,15 +90,20 @@ function setSsrCacheHeaders(event: H3Event) {
   }
 }
 
-function responseWithVaryAccept(
-  response: Response,
-  pathname: string,
-  varyByQuery = false,
-): Response {
+function responseWithVaryAccept(response: Response, requestUrl: URL): Response {
   const headers = new Headers(response.headers);
   appendVary(headers, ["Accept", "Accept-Encoding"]);
-  applyDocsSsrCacheKeyHeaders(headers, { varyByQuery });
-  applyCommunityAppSsrCacheHeaders(headers, pathname, response.status);
+  const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
+  applyDocsSsrCacheKeyHeaders(headers, {
+    varyByQuery: isCloudGettingStartedPath(requestUrl),
+    varyByLegacyRecovery: isLegacyRecovery,
+  });
+  applyCommunityAppSsrCacheHeaders(
+    headers,
+    requestUrl.pathname,
+    response.status,
+    { isLegacyRecovery },
+  );
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

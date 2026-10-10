@@ -93,6 +93,7 @@ export {
   autoMountAuth,
   registerAuthPublicPaths,
   getSession,
+  isSessionResolutionUnavailable,
   getMcpOAuthBearerSession,
   logout,
   COOKIE_NAME,
@@ -285,6 +286,10 @@ export {
   loadResourcesForPrompt,
   type AgentChatPluginOptions,
 } from "./agent-chat-plugin.js";
+export {
+  buildFrameworkPrompts,
+  generateActionsPrompt,
+} from "./agent-chat/framework-prompts.js";
 export { refreshMcpManagerForPrincipal } from "./agent-chat/mcp-glue.js";
 export {
   AGENT_CHAT_STREAM_PATH,
@@ -840,6 +845,7 @@ export {
   type RecurringSweepContext,
   type RecurringSweepHandler,
 } from "../jobs/sweep-hooks.js";
+export { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 export {
   scheduledTriggerAvailability,
   type ScheduledTriggerAvailability,

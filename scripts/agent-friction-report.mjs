@@ -688,18 +688,6 @@ const DESIGN_FEEDBACK_REGEX_CASES = [
   [false, "The design needs a little more contrast."],
 ];
 
-const FIGMA_PARITY_UNMEASURED_RE =
-  /\bwhere (?:is|are)\b[^.!?]{0,80}\b(?:measured|native|actual)\b[^.!?]{0,60}\b(?:figma|oracle|evidence|record)\b|\b(?:unmeasured|unverified|no\s+(?:native\s+)?(?:figma\s+)?evidence|without\s+(?:a\s+)?(?:native\s+)?figma\s+(?:measurement|oracle)|not\s+(?:a\s+)?figma\s+(?:oracle|measurement|evidence)|cannot be cited|can't be cited|don't\s+(?:claim|say|cite|treat)|do not\s+(?:claim|say|cite|treat)|does(?: not|n't)\s+(?:prove|establish))\b[^.!?]{0,120}\b(?:figma|parity|design behavior|oracle)\b|\b(?:figma|parity|design behavior|oracle)\b[^.!?]{0,120}\b(?:unmeasured|unverified|no\s+(?:native\s+)?(?:figma\s+)?evidence|without\s+(?:a\s+)?(?:native\s+)?figma\s+(?:measurement|oracle)|not\s+(?:a\s+)?figma\s+(?:oracle|measurement|evidence)|cannot be cited|can't be cited|don't\s+(?:claim|say|cite|treat)|do not\s+(?:claim|say|cite|treat)|does(?: not|n't)\s+(?:prove|establish))\b/i;
-const FIGMA_PARITY_UNMEASURED_REGEX_CASES = [
-  [true, "Don't claim Figma parity without a native Figma measurement."],
-  [true, "That Design behavior is unmeasured; the screenshot is not evidence."],
-  [true, "Where is the measured Figma oracle record for this behavior?"],
-  [true, "The old screenshot does not prove parity."],
-  [false, "The Figma icon is larger in the Design toolbar."],
-  [false, "The parity E2E test failed on CI."],
-  [false, "Figma behavior was measured against the current build."],
-];
-
 const FEEDBACK_EYES_RE =
   /(?:\b(?:no|not|zero|without|missing)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:put|add|place|react|mark)\b[^.!?]{0,80}(?:\beyes?\b|👀)|\b(?:remove|clear|take off)\b[^.!?]{0,80}(?:\beyes?\b|👀)[^.!?]{0,80}\b(?:confiden\w*|sure|fix\w*)\b)/i;
 
@@ -2292,6 +2280,942 @@ const E2E_ISSUE_FANOUT_NORMALIZATION_CASES = [
 const LEGACY_LINE_NORMALIZATION_CASES = [
   [true, "Signup pages should always show\nthe WebGL wave, not this graphic."],
 ];
+const FEEDBACK_REPLY_CONTEXT =
+  /(?:reply|repl(?:y|ies)|respond(?:s|ed|ing)?|responses?|answer\s+(?:in|using)|feedback\s+(?:responses?|replies?|updates?))(?!\s+(?:feature|endpoint|api|tool|method|function|route|component|rate|rates|time|times|template|templates)\b)/i
+    .source;
+const FEEDBACK_REPLY_DETAIL_ISSUE_BASE =
+  /(?:too\s+technical|overly\s+technical|excessively\s+technical|too\s+detailed|overly\s+detailed|excessively\s+detailed|too\s+jargon[- ]heavy|overly\s+jargon[- ]heavy|excessively\s+jargon[- ]heavy|too\s+much\s+jargon|too\s+much\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|too\s+many\s+(?:(?:technical|implementation|internal|deployment)\s+)?details?|too\s+many\s+commit\s+hashes?|less\s+technical|less\s+(?:(?:technical|implementation|internal|deployment)\s+)?detail|more\s+concise|more\s+succinct|succinct|briefer|shorter|(?:should\s+not|shouldn't)\s+(?:(?:include|contain|have)\s+)?(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|should\s+(?:include|contain|have)\s+no\s+(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information)|(?:without|free\s+of)\s+(?:any\s+)?(?:(?:technical|implementation|internal|deployment)\s+)?(?:details?|information))/i
+    .source;
+const FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION =
+  /\b(?:shorten|trim|simplify)\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\s+)?(?:feedback\s+(?:repl(?:y|ies)|responses?|updates?)|(?:repl(?:y|ies)|responses?|updates?)\s+(?:to|about|for)\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\s+)?(?:(?:customer|user|reporter)\s+)?feedback)\b/i
+    .source;
+const FEEDBACK_REPLY_DETAIL_TARGET =
+  /(?:(?:technical|implementation|internal|deployment)\s+(?:details?|information)|(?:commit|branch|ci|publisher|deployment|run|workflow)(?:\s+(?:details?|hash(?:es)?|results?|mentions?|status|ids?|names?))?|jargon(?:[- ]heavy)?|hash(?:es)?|results?)/i
+    .source;
+const FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE =
+  "\\bkeep\\s+(?:(?:technical|implementation|internal|deployment|all|any|the|these|those|more|additional|extra|unnecessary)\\s+){0,3}\\b(?:" +
+  FEEDBACK_REPLY_DETAIL_TARGET +
+  ")\\b\\s+out\\s+of";
+const FEEDBACK_REPLY_DETAIL_ISSUE = `(?:${FEEDBACK_REPLY_DETAIL_ISSUE_BASE}|${FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION}|${FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE}|verbose|too\\s+(?:wordy|long)|less\\s+wordy)`;
+const FEEDBACK_REPLY_DETAIL_HIGH_LEVEL_REQUEST =
+  "\\b(?:keep|make|write|use)\\s+(?:(?:the|a|an|my|your|our|these|those)\\s+)?(?:(?:(?:feedback\\s+)?(?:repl(?:y|ies)|responses?|updates?)\\s+(?:at\\s+(?:a\\s+)?)?high[- ]level)|(?:high[- ]level\\s+(?:feedback\\s+)?(?:repl(?:y|ies)|responses?|updates?)))(?:\\s+(?:like|as)\\s+(?:this|that|these|those|it))?\\b";
+const FEEDBACK_REPLY_DETAIL_OTHER_SURFACE =
+  "(?![^.!?;]{0,80}\\b(?:in|on|for|to)\\s+(?:(?:the|a|an)\\s+)?(?:dashboard|pr\\s+description|release\\s+notes?|changelog|readme|docs?|documentation)\\b)";
+const FEEDBACK_REPLY_DETAIL_OMISSION =
+  /(?:(?:don['’]t|do not|shouldn['’]t|should not)\s+(?:include|contain|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote|give|put|provide)|(?:never|must\s+not|mustn['’]t|cannot|can['’]t|could\s+not|couldn['’]t|may\s+not|will\s+not|won['’]t|shall\s+not)\s+(?:include|contain|mention|say|write|share|post|list|describe|cover|discuss|add|use|quote|give|put|provide)|(?:avoid|skip|omit|remove)(?:\s+(?:including|containing|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))?|leave out|stop\s+(?:including|containing|mentioning|saying|writing|sharing|posting|listing|describing|covering|discussing|adding|using|giving|putting|providing))/i
+    .source;
+const FEEDBACK_REPLY_DETAIL_EXAMPLE_PREFIX =
+  "(?:\\b(?:for\\s+(?:example|instance|illustration)|as\\s+an?\\s+(?:example|illustration)|such\\s+as)(?:\\s*[, :]\\s*)?|\\b(?:examples?|samples?|illustrations?)(?:\\s+(?:instruction|request|sentence|reply|response|correction))?\\s*:|\\be\\.g\\.\\s*,?\\s*)[^.!?;,]{0,100}\\b";
+const FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION =
+  FEEDBACK_REPLY_DETAIL_EXAMPLE_PREFIX +
+  FEEDBACK_REPLY_DETAIL_OMISSION +
+  "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
+  FEEDBACK_REPLY_DETAIL_TARGET +
+  "\\b[^.!?;]{0,100}\\b" +
+  FEEDBACK_REPLY_CONTEXT +
+  "\\b";
+const FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION,
+  "i",
+);
+const FEEDBACK_REPLY_DETAIL_EXAMPLE_DIRECT_STYLE_ACTION =
+  FEEDBACK_REPLY_DETAIL_EXAMPLE_PREFIX +
+  FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION;
+const FEEDBACK_REPLY_DETAIL_EXAMPLE_CORRECTION_SCAN_RE = new RegExp(
+  `(?:${FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION}|${FEEDBACK_REPLY_DETAIL_EXAMPLE_DIRECT_STYLE_ACTION})`,
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_FOLLOWUP_RE = new RegExp(
+  "\\b(?:api|server|http|endpoint|webhook|provider)\\s+responses?\\b[^.!?;]{0,100}[.!?]\\s*(?:please\\s+)?\\b(?:shorten|trim|simplify)\\s+(?:(?:the|a|an|my|your|our|these|those|this|that)\\s+)?responses?\\b",
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_OMISSION_RE = new RegExp(
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;]{0,100}(?:,\\s*|;\\s*|\\b(?:but|and)\\b\\s+)(?:please\\s+)?" +
+    FEEDBACK_REPLY_DETAIL_OMISSION +
+    "\\b\\s*(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
+    FEEDBACK_REPLY_DETAIL_TARGET +
+    "\\b" +
+    FEEDBACK_REPLY_DETAIL_OTHER_SURFACE,
+  "i",
+);
+const FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION =
+  "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+(?:make|keep|write|use)\\s+(?:them|it|replies?|responses?)\\b[^.!?;]{0,40}\\b(?:less\\s+(?:technical|detail|verbose)|too\\s+(?:brief|concise|short))\\b";
+const FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION_WITH_OMISSION_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION +
+    "(?:\\s*;\\s*|\\s+and\\s+|[.!?]\\s*(?:but\\s+)?)" +
+    "(?:please\\s+)?" +
+    FEEDBACK_REPLY_DETAIL_OMISSION +
+    "\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
+    FEEDBACK_REPLY_DETAIL_TARGET,
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_NEGATED_OMISSION_RE = new RegExp(
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;]{0,100}(?:,\\s*|;\\s*|\\b(?:but|and)\\b\\s+)" +
+    "(?:please\\s+)?(?:don['’]t|do\\s+not|shouldn['’]t|should\\s+not)\\s+" +
+    "(?:skip|omit|avoid|remove|leave\\s+out)\\b",
+  "i",
+);
+const FEEDBACK_REPLY_DETAIL_ISSUE_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_ISSUE,
+  "i",
+);
+const FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE =
+  "(?:\\b(?:api|server|http|endpoint|webhook|provider)\\s+responses?\\b|\\bresponses?\\s+to\\s+(?:an?\\s+)?(?:the\\s+)?(?:api|server|endpoint|webhook|provider)\\b)";
+const FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE,
+  "i",
+);
+// Negated requests and praise are not corrections about excessive detail.
+const FEEDBACK_REPLY_DETAIL_NON_CORRECTION = [
+  FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE,
+  "\\b(?:reply|replies|respond)\\s+(?:feature|endpoint)\\b",
+  "(?:\\b(?:for\\s+(?:example|instance|illustration)s?|as\\s+an?\\s+(?:example|illustration)|such\\s+as)\\b|\\b(?:examples?|samples?|illustrations?)(?:\\s+(?:instruction|request|sentence|reply|response|correction))?\\s*:|\\be\\.g\\.)[^.!?;]{0,100}\\b(?:reply|respond|answer|write|use)\\b[^.!?;]{0,100}\\b(?:plain\\s+english|plain[- ]language)\\b",
+  FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION,
+  "\\b(?:i|we)\\s+(?:don['’]t|do\\s+not|wouldn['’]t|would\\s+not)\\s+(?:think|believe|say|feel)\\b[^.!?;,]{0,100}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;,]{0,100}\\b" +
+    FEEDBACK_REPLY_DETAIL_ISSUE +
+    "\\b",
+  "\\b(?:i|we)\\s+(?:like|love|enjoy|prefer)\\b[^.!?;,]{0,100}\\b(?:write|use|reply)\\b[^.!?;,]{0,100}\\b(?:plain\\s+english|plain[- ]language)\\b[^.!?;,]{0,100}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b",
+  "\\b(?:i|we)\\s+(?:like|love|enjoy|prefer)\\b[^.!?;,]{0,100}\\b(?:write|use|reply)\\b[^.!?;,]{0,100}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;,]{0,100}\\b(?:plain\\s+english|plain[- ]language)\\b",
+  "\\b(?:i|we)\\s+(?:like|love|enjoy|prefer)\\b[^.!?;,]{0,100}\\b(?:less\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail|less\\s+technical|less\\s+verbose|verbose|wordy|long|concise|succinct|briefer|brief|short|trim|simplify|non[- ]?technical)\\b[^.!?;,]{0,100}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b",
+  "\\b(?:i|we)\\s+(?:do\\s+not|don't|would\\s+not|wouldn't)\\s+(?:want|prefer|need)\\b[^.!?;]{0,100}\\b(?:less\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail|less\\s+(?:technical|verbose|wordy)|more\\s+(?:concise|succinct)|succinct|briefer|shorter|shorten|trim|simplify|too\\s+(?:brief|concise|short))\\b[^.!?;]{0,60}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b",
+  "\\b(?:i|we)\\s+(?:do\\s+not|don't|would\\s+not|wouldn't)\\s+(?:want|prefer|need)\\b[^.!?;]{0,100}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;]{0,60}\\b(?:to\\s+be\\s+)?(?:more\\s+(?:concise|succinct)|succinct|briefer|shorter|shortened)\\b",
+  "\\b(?:i|we)\\s+(?:like|love|enjoy|prefer)\\b[^.!?;,]{0,60}\\b(?:reply|write)\\s+(?:in|using)\\s+(?:plain\\s+english|plain[- ]language)\\b",
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;,]{0,100}\\b(?:(?:is|are|seem|seems|look|looks|sound|sounds)\\s+)?(?:not|no\\s+longer|isn't|aren't|wasn't|weren't)\\s+(?:too\\s+)?(?:technical|detailed?|too\\s+much\\s+(?:(?:technical|implementation|internal|deployment)\\s+)?detail)\\b",
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b(?:(?![.!?;,]|\\b(?:but|and)\\b)[^.!?]){0,80}\\b(?:(?:is|are|seem|seems|look|looks|sound|sounds)\\s+)?(?:not|no\\s+longer|isn't|aren't|wasn't|weren't)\\s+(?:too\\s+)?(?:long|wordy)\\b",
+  "\\bskip\\s+(?:the\\s+)?ci\\s+(?:wait|waiting)\\b",
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;,]{0,40}\\b(?:is|are|was|were|seems?|looks?|sounds?)\\s+less\\s+verbose\\b",
+  "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\b[^.!?;]{0,100}\\b(?:make|keep|write|use)\\b[^.!?;]{0,100}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;]{0,100}\\b(?:less\\s+(?:technical|detail|verbose)|more\\s+(?:concise|succinct)|succinct|briefer|shorter|shorten|trim|simplify|too\\s+(?:brief|concise|short))\\b",
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;]{0,60}\\b(?:should|could|need\\s+to)\\s+not\\b[^.!?;]{0,40}\\b(?:be\\s+)?(?:more\\s+(?:concise|succinct)|succinct|briefer|shorter|shortened)\\b",
+  "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+(?:shorten|trim|simplify)\\b[^.!?;]{0,60}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b",
+  "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+(?:skip|omit|avoid|remove|leave\\s+out)\\b[^.!?;]{0,100}\\b" +
+    FEEDBACK_REPLY_DETAIL_TARGET +
+    "\\b[^.!?;]{0,100}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b",
+  "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+(?:skip|omit|avoid|remove|leave\\s+out)\\b[^.!?;]{0,100}\\b" +
+    FEEDBACK_REPLY_DETAIL_TARGET +
+    "\\b",
+  "\\b(?:don['’]t|do not|shouldn['’]t|should not)\\s+" +
+    FEEDBACK_REPLY_DETAIL_KEEP_OUT_ISSUE +
+    "\\b[^.!?;]{0,40}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b",
+  "\\b(?:keep|make|write|use)\\b[^.!?;]{0,100}\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;]{0,100}\\b(?:at\\s+)?(?:a\\s+)?high[- ]level\\b[^.!?;]{0,80}\\b(?:like|as)\\s+(?:this|that|these|those|it)\\b",
+].join("|");
+const FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE_SOURCE =
+  FEEDBACK_REPLY_DETAIL_NON_CORRECTION;
+const FEEDBACK_REPLY_DETAIL_RE = new RegExp(
+  "(?:^|[.!?;]|,(?!\\s*(?:or|nor)\\b)|\\b(?:but|and)\\b)\\s*(?![^.!?;,]*(?:" +
+    FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE_SOURCE +
+    "))[^.!?;,]*?(?:" +
+    [
+      FEEDBACK_REPLY_DETAIL_DIRECT_STYLE_ACTION,
+      "\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;,]{0,100}\\b" +
+        FEEDBACK_REPLY_DETAIL_ISSUE +
+        "\\b(?![^.!?;]{0,160}\\bbut\\b[^.!?;]{0,100}(?:" +
+        FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION +
+        "))",
+      "\\b" +
+        FEEDBACK_REPLY_DETAIL_ISSUE +
+        "\\b[^.!?;,]{0,100}\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b(?![^.!?;]{0,160}\\bbut\\b[^.!?;]{0,100}(?:" +
+        FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION +
+        "))",
+      FEEDBACK_REPLY_DETAIL_HIGH_LEVEL_REQUEST,
+      "\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;]{0,80}\\b(?:should|could|must)\\s+be\\s+(?:at\\s+(?:a\\s+)?)?high[- ]level\\b",
+      "\\b(?:keep|make|write|use)\\b[^.!?;]{0,100}\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;]{0,100}\\b(?:concise|brief|short|non[- ]?technical|plain\\s+english|plain[- ]language)\\b",
+      "\\b(?:keep|make|write|use)\\b[^.!?;]{0,100}\\b(?:plain\\s+english|plain[- ]language)\\b[^.!?;]{0,100}\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b",
+      "\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;]{0,80}\\b(?:should|could|must|needs?\\s+to)\\b[^.!?;]{0,40}\\b(?:be\\s+)?less\\s+verbose\\b",
+      "\\b(?:please\\s+)?(?:keep|make|write|use)\\b[^.!?;]{0,80}\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;]{0,80}\\bless\\s+verbose\\b",
+      "(?:^|[.!?;,:]\\s*|\\bbut\\s*)(?:please\\s+)?(?:reply|respond|answer|write)\\b[^.!?;]{0,20}\\b(?:in|using)\\s+(?:plain\\s+english|plain[- ]language)\\b",
+      "\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;]{0,100};\\s*[^.!?;]{0,40}\\b(?:keep|make|write|use)\\b[^.!?;]{0,40}\\b(?:it|them)\\b[^.!?;]{0,80}\\b(?:concise|brief|plain\\s+english|plain[- ]language)\\b",
+      "\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;]{0,100};\\s*(?!(?:don['’]t|do not|shouldn['’]t|should not)\\s+post\\s+(?:until|after|once|before|when)\\b)" +
+        FEEDBACK_REPLY_DETAIL_OMISSION +
+        "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
+        FEEDBACK_REPLY_DETAIL_TARGET +
+        "\\b" +
+        FEEDBACK_REPLY_DETAIL_OTHER_SURFACE,
+      "\\b" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b[^.!?;]{0,100}\\b" +
+        FEEDBACK_REPLY_DETAIL_OMISSION +
+        "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
+        FEEDBACK_REPLY_DETAIL_TARGET +
+        "\\b" +
+        FEEDBACK_REPLY_DETAIL_OTHER_SURFACE,
+      "\\b" +
+        FEEDBACK_REPLY_DETAIL_OMISSION +
+        "\\b\\s+(?:(?:all|any|these|those|the|some|more|additional|extra|unnecessary)\\s+){0,3}" +
+        FEEDBACK_REPLY_DETAIL_TARGET +
+        "\\b[^.!?;]{0,120}\\b(?:in|from|for|when)\\b[^.!?;]{0,30}\\b(?:you\\s+)?" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b",
+      "\\bno\\b[^.!?;]{0,120}\\b" +
+        FEEDBACK_REPLY_DETAIL_TARGET +
+        "\\b[^.!?;]{0,120}\\b(?:in|from|for|when)\\b[^.!?;]{0,30}\\b(?:you\\s+)?" +
+        FEEDBACK_REPLY_CONTEXT +
+        "\\b(?![^.!?;]{0,100}\\b(?:which\\s+is\\s+)?(?:exactly|just)\\s+what\\s+(?:we|i)\\s+(?:want|need)\\b)",
+    ].join("|") +
+    ")",
+  "i",
+);
+const FEEDBACK_REPLY_DETAIL_MATCH_SCAN_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_RE.source,
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE_SOURCE,
+  "i",
+);
+const FEEDBACK_REPLY_DETAIL_COMMA_ASIDE_RE = new RegExp(
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?;]{0,60},\\s*(?:honestly|frankly|unfortunately|sadly|regrettably|personally|in\\s+my\\s+view|in\\s+my\\s+opinion|to\\s+be\\s+honest|i\\s+think)\\s*,?[^.!?;]{0,60}\\b" +
+    FEEDBACK_REPLY_DETAIL_ISSUE +
+    "\\b",
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_COMMA_ASIDE_NEGATION_RE =
+  /\b(?:not|no\s+longer|isn't|aren't|wasn't|weren't)\b/i;
+const FEEDBACK_REPLY_DETAIL_RETRACTION_RE =
+  /^\s*(?:no|actually)\s*,?\s*(?:(?:they|it)\s+(?:(?:are|is)\s+not|aren['’]t|isn['’]t)|(?:they|it)['’](?:re|s)\s+not)\s*[.!?]?\s*$/i;
+const FEEDBACK_REPLY_DETAIL_AFFIRMATIVE_FOLLOWUP_RE = new RegExp(
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b[^.!?]{0,100}\\b(?:not|no\\s+longer|aren['’]t|isn['’]t|wasn['’]t|weren['’]t)\\b[^.!?]{0,40}\\b(?:(?:way|much|very)\\s+)?(?:too\\s+)?(?:technical|verbose|detailed?|jargon[- ]heavy|wordy|long)\\b[^.!?]{0,100}[.!?]\\s*(?:actually|yes|right)\\s*,?\\s*(?:(?:they|it)\\s+(?:are|is)|(?:they|it)['’](?:re|s))(?:\\s+(?:(?:way|much|very)\\s+)?(?:too\\s+)?(?:technical|verbose|detailed?|jargon[- ]heavy|wordy|long))?\\s*[.!?]",
+  "i",
+);
+const FEEDBACK_REPLY_DETAIL_PRONOUN_FOLLOWUP_RE = new RegExp(
+  "\\b" +
+    FEEDBACK_REPLY_CONTEXT +
+    "\\b(?:[^.!?;,:]{0,100}[.!?;,:]\\s*(?:(?:but|and)\\s+)?|\\s+(?:but|and)\\s+)" +
+    "(?!(?:they|it)(?:['’](?:re|s))?\\b[^.!?]{0,80}\\b(?:not|no\\s+longer|shouldn['’]t|should\\s+not|isn't|aren't|wasn't|weren't)\\b)(?:(?:(?:please\\s+)?(?:make|keep|write|use)\\s+(?:them|it)|(?:they|it)(?:['’](?:re|s))?\\s+(?:should|could|must|need\\s+to))[^.!?]{0,60}\\b(?:" +
+    FEEDBACK_REPLY_DETAIL_ISSUE +
+    "|concise|brief|short)\\b|(?:they|it)(?:['’](?:re|s))?\\s+(?:are|is)\\s+(?:(?:way|much|very)\\s+)?(?:too|overly|excessively)\\s+(?:technical|verbose|detailed?|jargon[- ]heavy|wordy|long)\\b)",
+  "i",
+);
+const FEEDBACK_REPLY_DETAIL_CONTEXT_RE = new RegExp(
+  "\\b" + FEEDBACK_REPLY_CONTEXT + "\\b",
+  "i",
+);
+const FEEDBACK_REPLY_DETAIL_CANDIDATE_RE =
+  /\b(?:too|overly|excessively|less|should(?:n['’]t|\s+not)?|do\s+not|don['’]t|never|must|mustn['’]t|cannot|can['’]t|could|may|will|won['’]t|shall|avoid|skip|omit|remove|leave\s+out|stop|keep|contain|no|without|free\s+of|concise|succinct|briefer|brief|short|shorten|shorter|trim|simplify|verbose|wordy|long|non[- ]?technical|plain\s+(?:english|language)|jargon(?:[- ]heavy)?|high[- ]level)\b/i;
+const FEEDBACK_REPLY_DETAIL_SIGNAL_RE =
+  /\b(?:technical|implementation|internal|deployment|detailed|details?|information|jargon|commit|branch|ci|publisher|run|workflow|hash(?:es)?|results?|verbose|wordy|long|shorten|shorter|trim|simplify|succinct|briefer|concise|brief|short|non[- ]?technical|plain\s+(?:english|language)|high[- ]level)\b/i;
+const FEEDBACK_REPLY_DETAIL_SCAN_BUCKET_SIZE = 256;
+const FEEDBACK_REPLY_DETAIL_CANDIDATE_SCAN_RE = new RegExp(
+  FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.source,
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_NON_CORRECTION_SCAN_RE = new RegExp(
+  `(?=(?:${FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE_SOURCE}))`,
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION_SCAN_RE = new RegExp(
+  `(?=${FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION})`,
+  "gi",
+);
+const FEEDBACK_REPLY_DETAIL_BOUNDARY_SCAN_RE =
+  /(?:\.(?<![Ee]\.[Gg]\.)(?![Gg]\.)|[!?;]|,(?!\s*(?:or|nor)\b)(?<![Ee]\.[Gg]\.,)|\b(?:but|and)\b)/gi;
+const FEEDBACK_REPLY_DETAIL_END_SCAN_RE =
+  /[!?;]|,(?<![Ee]\.[Gg]\.,)|\.(?<![Ee]\.[Gg]\.)(?![Gg]\.)/g;
+const FEEDBACK_REPLY_DETAIL_SENTENCE_END_SCAN_RE =
+  /[!?]|\.(?<![Ee]\.[Gg]\.)(?![Gg]\.)/g;
+const FEEDBACK_REPLY_DETAIL_SENTENCE_BUT_RETRACTION_SCAN_RE = new RegExp(
+  `[.!?]\\s*but\\s*(?=${FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION})`,
+  "gi",
+);
+
+function isCrossClauseExampleOmission(input, match) {
+  const matchEnd = match.index + match[0].length;
+  const suffix = input.slice(matchEnd, matchEnd + 150);
+  const nextBoundary = suffix.search(FEEDBACK_REPLY_DETAIL_BOUNDARY_SCAN_RE);
+  const scopeEnd =
+    nextBoundary === -1 ? matchEnd + suffix.length : matchEnd + nextBoundary;
+  const example = FEEDBACK_REPLY_DETAIL_EXAMPLE_OMISSION_RE.exec(
+    input.slice(match.index, scopeEnd),
+  );
+  return example !== null && example.index < match[0].length;
+}
+
+function hasFeedbackReplyDetailFollowup(input, followupPattern) {
+  if (!followupPattern.test(input)) return false;
+  const followupMatches = input.matchAll(
+    new RegExp(followupPattern.source, `${followupPattern.flags}g`),
+  );
+  const clauseSpans = [];
+  let clauseStart = 0;
+  for (const boundary of input.matchAll(
+    FEEDBACK_REPLY_DETAIL_BOUNDARY_SCAN_RE,
+  )) {
+    const end = boundary.index;
+    clauseSpans.push({
+      end: end + boundary[0].length,
+      isNonFeedbackResponse:
+        FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_RE.test(
+          input.slice(clauseStart, end),
+        ),
+    });
+    clauseStart = end + boundary[0].length;
+  }
+  clauseSpans.push({
+    end: input.length,
+    isNonFeedbackResponse: FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_RE.test(
+      input.slice(clauseStart),
+    ),
+  });
+
+  let clauseIndex = 0;
+  for (const match of followupMatches) {
+    while (
+      clauseIndex < clauseSpans.length - 1 &&
+      clauseSpans[clauseIndex].end <= match.index
+    ) {
+      clauseIndex += 1;
+    }
+    if (!clauseSpans[clauseIndex].isNonFeedbackResponse) return true;
+  }
+  return false;
+}
+
+function hasFeedbackReplyDetailCorrection(message) {
+  const input = textForPattern(message, true);
+  if (!FEEDBACK_REPLY_DETAIL_CANDIDATE_RE.test(input)) return false;
+  if (!FEEDBACK_REPLY_DETAIL_SIGNAL_RE.test(input)) return false;
+  const crossClauseOmission =
+    FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_OMISSION_RE.exec(input);
+  if (
+    crossClauseOmission &&
+    !isCrossClauseExampleOmission(input, crossClauseOmission) &&
+    !FEEDBACK_REPLY_DETAIL_CROSS_CLAUSE_NEGATED_OMISSION_RE.test(
+      crossClauseOmission[0],
+    )
+  ) {
+    return true;
+  }
+  if (
+    hasFeedbackReplyDetailFollowup(
+      input,
+      FEEDBACK_REPLY_DETAIL_AFFIRMATIVE_FOLLOWUP_RE,
+    )
+  ) {
+    return true;
+  }
+  if (
+    hasFeedbackReplyDetailFollowup(
+      input,
+      FEEDBACK_REPLY_DETAIL_PRONOUN_FOLLOWUP_RE,
+    )
+  ) {
+    return true;
+  }
+
+  const candidates = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_CANDIDATE_SCAN_RE),
+  ];
+  const exampleCorrections = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_EXAMPLE_CORRECTION_SCAN_RE),
+  ];
+  const nonFeedbackResponseFollowups = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_NON_FEEDBACK_RESPONSE_FOLLOWUP_RE),
+  ];
+  const boundaries = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_BOUNDARY_SCAN_RE),
+  ].map(({ index }) => index);
+  const ends = [...input.matchAll(FEEDBACK_REPLY_DETAIL_END_SCAN_RE)].map(
+    ({ index }) => index,
+  );
+  const nonCorrections = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_NON_CORRECTION_SCAN_RE),
+  ].map(({ index }) => index);
+  const styleRetractions = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION_SCAN_RE),
+  ].map(({ index }) => index);
+  const sentenceEnds = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_SENTENCE_END_SCAN_RE),
+  ].map(({ index }) => index);
+  const sentenceButRetractions = [
+    ...input.matchAll(FEEDBACK_REPLY_DETAIL_SENTENCE_BUT_RETRACTION_SCAN_RE),
+  ].map(({ index }) => index);
+
+  let boundaryIndex = 0;
+  let endIndex = 0;
+  let nonCorrectionIndex = 0;
+  let exampleCorrectionIndex = 0;
+  let nonFeedbackResponseFollowupIndex = 0;
+  let styleRetractionIndex = 0;
+  let sentenceEndIndex = 0;
+  let sentenceButRetractionIndex = 0;
+  let lastScannedBucket = -1;
+  let lastScannedStart = 0;
+  let lastScannedWindow = "";
+  let lastScannedWindowHasContextAndSignal = false;
+  let lastScannedIntervals = null;
+  for (const candidate of candidates) {
+    while (
+      exampleCorrectionIndex < exampleCorrections.length &&
+      exampleCorrections[exampleCorrectionIndex].index +
+        exampleCorrections[exampleCorrectionIndex][0].length <=
+        candidate.index
+    ) {
+      exampleCorrectionIndex += 1;
+    }
+    if (exampleCorrections[exampleCorrectionIndex]?.index <= candidate.index) {
+      continue;
+    }
+    while (
+      nonFeedbackResponseFollowupIndex < nonFeedbackResponseFollowups.length &&
+      nonFeedbackResponseFollowups[nonFeedbackResponseFollowupIndex].index +
+        nonFeedbackResponseFollowups[nonFeedbackResponseFollowupIndex][0]
+          .length <=
+        candidate.index
+    ) {
+      nonFeedbackResponseFollowupIndex += 1;
+    }
+    if (
+      nonFeedbackResponseFollowups[nonFeedbackResponseFollowupIndex]?.index <=
+      candidate.index
+    ) {
+      continue;
+    }
+    const scanBucket = Math.floor(
+      candidate.index / FEEDBACK_REPLY_DETAIL_SCAN_BUCKET_SIZE,
+    );
+    if (scanBucket !== lastScannedBucket) {
+      lastScannedBucket = scanBucket;
+      lastScannedStart = Math.max(
+        0,
+        scanBucket * FEEDBACK_REPLY_DETAIL_SCAN_BUCKET_SIZE - 384,
+      );
+      const end = Math.min(
+        input.length,
+        (scanBucket + 1) * FEEDBACK_REPLY_DETAIL_SCAN_BUCKET_SIZE + 384,
+      );
+      lastScannedWindow = input.slice(lastScannedStart, end);
+      lastScannedWindowHasContextAndSignal =
+        FEEDBACK_REPLY_DETAIL_CONTEXT_RE.test(lastScannedWindow) &&
+        FEEDBACK_REPLY_DETAIL_SIGNAL_RE.test(lastScannedWindow);
+      lastScannedIntervals = null;
+    }
+    if (!lastScannedWindowHasContextAndSignal) continue;
+
+    while (
+      boundaryIndex < boundaries.length &&
+      boundaries[boundaryIndex] < candidate.index
+    ) {
+      boundaryIndex += 1;
+    }
+    while (endIndex < ends.length && ends[endIndex] < candidate.index) {
+      endIndex += 1;
+    }
+
+    const boundary = boundaries[boundaryIndex - 1] ?? 0;
+    const lastEnd = ends[endIndex - 1] ?? -1;
+    if (boundary < lastEnd) continue;
+
+    while (
+      nonCorrectionIndex < nonCorrections.length &&
+      nonCorrections[nonCorrectionIndex] < boundary
+    ) {
+      nonCorrectionIndex += 1;
+    }
+    const nextEnd = ends[endIndex] ?? input.length;
+    if (nonCorrections[nonCorrectionIndex] <= nextEnd) continue;
+
+    while (
+      styleRetractionIndex < styleRetractions.length &&
+      styleRetractions[styleRetractionIndex] < boundary
+    ) {
+      styleRetractionIndex += 1;
+    }
+    while (
+      sentenceEndIndex < sentenceEnds.length &&
+      sentenceEnds[sentenceEndIndex] < candidate.index
+    ) {
+      sentenceEndIndex += 1;
+    }
+    const nextSentenceEnd = sentenceEnds[sentenceEndIndex] ?? input.length;
+    const followingSentenceEnd =
+      sentenceEnds[sentenceEndIndex + 1] ?? input.length;
+    const followingSentence = input.slice(
+      nextSentenceEnd + 1,
+      followingSentenceEnd + 1,
+    );
+    if (FEEDBACK_REPLY_DETAIL_RETRACTION_RE.test(followingSentence)) continue;
+    while (
+      sentenceButRetractionIndex < sentenceButRetractions.length &&
+      sentenceButRetractions[sentenceButRetractionIndex] < candidate.index
+    ) {
+      sentenceButRetractionIndex += 1;
+    }
+    if (styleRetractions[styleRetractionIndex] <= nextSentenceEnd) continue;
+    if (
+      sentenceButRetractions[sentenceButRetractionIndex] === nextSentenceEnd
+    ) {
+      const previousSentenceEnd = sentenceEnds[sentenceEndIndex - 1] ?? -1;
+      const sentenceStart = previousSentenceEnd + 1;
+      const previousSentence = input.slice(sentenceStart, nextSentenceEnd);
+      const issue = FEEDBACK_REPLY_DETAIL_ISSUE_RE.exec(previousSentence);
+      if (issue && sentenceStart + issue.index === candidate.index) continue;
+    }
+
+    if (lastScannedIntervals === null) {
+      // A bucket shares one bounded scan with enough room for nearby context.
+      lastScannedIntervals = [];
+      for (const match of lastScannedWindow.matchAll(
+        FEEDBACK_REPLY_DETAIL_MATCH_SCAN_RE,
+      )) {
+        const matchStart = lastScannedStart + match.index;
+        lastScannedIntervals.push({
+          start: matchStart,
+          end: matchStart + match[0].length,
+        });
+      }
+      for (const match of lastScannedWindow.matchAll(
+        FEEDBACK_REPLY_DETAIL_STYLE_RETRACTION_WITH_OMISSION_RE,
+      )) {
+        const matchStart = lastScannedStart + match.index;
+        const contextWindow = input.slice(
+          Math.max(0, matchStart - 160),
+          matchStart + match[0].length,
+        );
+        if (FEEDBACK_REPLY_DETAIL_CONTEXT_RE.test(contextWindow)) {
+          lastScannedIntervals.push({
+            start: matchStart,
+            end: matchStart + match[0].length,
+          });
+        }
+      }
+      for (const match of lastScannedWindow.matchAll(
+        FEEDBACK_REPLY_DETAIL_COMMA_ASIDE_RE,
+      )) {
+        if (
+          !FEEDBACK_REPLY_DETAIL_COMMA_ASIDE_NEGATION_RE.test(match[0]) &&
+          !FEEDBACK_REPLY_DETAIL_NON_CORRECTION_RE.test(match[0])
+        ) {
+          const matchStart = lastScannedStart + match.index;
+          lastScannedIntervals.push({
+            start: matchStart,
+            end: matchStart + match[0].length,
+          });
+        }
+      }
+    }
+    if (
+      lastScannedIntervals.some(
+        ({ start, end }) => start <= candidate.index && candidate.index < end,
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+const FEEDBACK_REPLY_DETAIL_PATTERN = {
+  lineSensitive: true,
+  matches: hasFeedbackReplyDetailCorrection,
+};
+
+function matchesPattern(pattern, text) {
+  return pattern.matches
+    ? pattern.matches(text)
+    : pattern.re.test(textForPattern(text, pattern.lineSensitive));
+}
+
+const FEEDBACK_REPLY_DETAIL_REGEX_CASES = [
+  [true, "When you reply, don't include all those technical details."],
+  [true, "Too much technical detail in replies."],
+  [true, "Make replies less technical."],
+  [true, "Use less detail in replies."],
+  [true, "Your replies\nare too technical."],
+  [true, "Replies are too technical."],
+  [true, "Don’t put technical details in replies."],
+  [true, "Please don't give technical information in replies."],
+  [true, "There are too many commit hashes in replies."],
+  [true, "The feedback reply is too jargon-heavy."],
+  [true, "Avoid jargon in replies."],
+  [true, "Use plain language in replies."],
+  [true, "Reply in plain English."],
+  [true, "Please respond in plain English."],
+  [true, "Please answer using plain language."],
+  [true, "Write replies in plain language."],
+  [true, "Please use less internal detail in replies."],
+  [true, "The feedback response should be less verbose."],
+  [true, "Responses are too verbose."],
+  [true, "The response should be shorter."],
+  [true, "Replies are too verbose."],
+  [true, "Replies are verbose."],
+  [true, "Reply is overly verbose."],
+  [true, "Replies are too detailed."],
+  [true, "Replies are too wordy."],
+  [true, "Replies should be less wordy."],
+  [true, "Replies are way too long; please shorten them."],
+  [true, "Replies should be more concise."],
+  [true, "Replies should be shorter."],
+  [true, "Can you shorten the feedback reply?"],
+  [true, "Make the replies briefer."],
+  [true, "Replies should be more succinct."],
+  [true, "Trim the feedback replies."],
+  [true, "Simplify the feedback replies."],
+  [false, "I don't want replies to be shorter."],
+  [false, "I don't want replies to be more succinct."],
+  [false, "Please don't make replies more concise."],
+  [false, "Replies should not be shorter."],
+  [false, "I like succinct replies."],
+  [false, "Don't trim replies."],
+  [false, "Don't shorten replies."],
+  [false, "Don't simplify replies."],
+  [true, "Replies are great. Make them shorter."],
+  [true, "Replies are great. They should be shorter."],
+  [true, "Replies are great. They are too wordy."],
+  [true, "Replies are good. They should be concise."],
+  [true, "Replies are good. They should be brief."],
+  [true, "Replies are good. Keep them concise."],
+  [true, "Replies were nice, but they are too technical."],
+  [true, "Replies are good, but please make them shorter."],
+  [true, "Replies are good; they should be concise."],
+  [true, "Replies are not too long, but they are too technical."],
+  [true, "Replies are too technical, but they are not too long."],
+  [true, "Replies should be high-level."],
+  [true, "Replies should be at a high level."],
+  [true, "Replies could be high-level."],
+  [true, "Replies must be at a high level."],
+  [false, "Replies should not be high-level."],
+  [false, "Replies are great. They are not too wordy."],
+  [false, "Replies are good. They are shorter now."],
+  [false, "Replies were nice, but they are not too technical."],
+  [false, "Replies were nice; they are no longer too technical."],
+  [false, "The reply feature is too technical for end users."],
+  [false, "The respond endpoint is too technical; please document it better."],
+  [false, "Our reply rate is too long to measure."],
+  [false, "Our reply templates are too long; trim the onboarding email."],
+  [true, "Replies are not too technical, but please remove CI results."],
+  [true, "Replies are not too technical, and don't mention CI."],
+  [
+    false,
+    "The feedback reply was helpful, but don't include CI results in the dashboard.",
+  ],
+  [
+    false,
+    "Reply to the reporter, but don't include CI logs in the PR description.",
+  ],
+  [
+    true,
+    "Replies are too technical. But don't make replies less technical. Please remove commit hashes.",
+  ],
+  [false, "The API response is too verbose; trim the JSON payload."],
+  [false, "The API response is too verbose. Please shorten the response."],
+  [
+    true,
+    "The feedback response is too verbose. Please shorten the feedback response.",
+  ],
+  [false, "This answer key is too long."],
+  [false, "Our response times are too long."],
+  [true, "Please keep feedback updates short and non-technical."],
+  [false, "I like replies in plain English."],
+  [false, "Replies in plain English read well."],
+  [false, "The reply in plain English was clear."],
+  [false, "The response in plain English was clear."],
+  [false, "I like to write replies in plain English."],
+  [false, "I like to reply in plain English."],
+  [false, "I like the less internal detail in replies."],
+  [false, "I like the less verbose responses."],
+  [false, "I like verbose replies."],
+  [false, "I prefer verbose responses."],
+  [false, "I like long replies."],
+  [false, "I do not want less wordy replies."],
+  [false, "Don't make the replies too brief though."],
+  [false, "I do not want less technical replies."],
+  [false, "The response is less verbose now."],
+  [false, "Please don't make replies less verbose."],
+  [false, "E.g. reply in plain English. Too many PRs are open this week."],
+  [false, "E.g., reply in plain English. Too many PRs are open this week."],
+  [false, "E.g., reply in plain English, too many PRs are open this week."],
+  [false, "I like replies in plain English, but the roadmap is too detailed."],
+  [false, "Replies are too technical? No, they are not."],
+  [true, "Your replies are, honestly, too technical."],
+  [true, "Replies, in my view, are too technical."],
+  [true, "Replies are, unfortunately, too technical."],
+  [true, "Replies are, sadly, too technical."],
+  [true, "Replies are, sadly, too detailed."],
+  [false, "Replies are, honestly, not too technical."],
+  [false, "Replies are, sadly, not too technical."],
+  [true, "Replies are not too technical. Actually, they are."],
+  [false, "Replies are not too technical. Actually, they are not."],
+  [true, "Replies are not too technical. Actually, they are too technical."],
+  [
+    false,
+    "API responses are not too verbose. Actually, they are too technical.",
+  ],
+  [
+    true,
+    "Replies are not too technical, and the API response is fine. Actually, they are too technical.",
+  ],
+  [false, "Server responses aren't too detailed. Yes, they are."],
+  [
+    true,
+    "API responses are not too verbose. The feedback reply is too technical.",
+  ],
+  [
+    true,
+    "Replies are not too technical. Actually, they are too technical. API responses are fine.",
+  ],
+  [true, "Replies are not too technical. Yes, they are too verbose."],
+  [true, "Don't include commit hashes, or CI results, in replies."],
+  [true, "Don't include commit hashes, nor branch details, in replies."],
+  [true, "Replies must not mention commit hashes."],
+  [true, "Never mention commit hashes in replies."],
+  [true, "Replies cannot mention CI results."],
+  [false, "Replies can mention CI results."],
+  [false, "For example: reply in plain English."],
+  [false, "For example, reply in plain English."],
+  [false, "For instance: reply in plain English."],
+  [false, "As an example, reply in plain English."],
+  [false, "Example instruction: answer in plain English."],
+  [false, "Examples: reply in plain English."],
+  [false, "E.g., reply in plain English."],
+  [false, "E.g. reply in plain English."],
+  [false, "Such as: reply in plain English."],
+  [false, "Sample instruction: answer in plain English."],
+  [false, "For illustration: respond in plain English."],
+  [false, "As an illustration, reply in plain English."],
+  [true, "Examples aside, please reply in plain English."],
+  [
+    true,
+    "E.g., reply in plain English. Also, I need replies to be less technical.",
+  ],
+  [true, "Leave out publisher details from replies."],
+  [true, "Please keep replies at a high level."],
+  [true, "Please use high-level replies."],
+  [true, "Please keep feedback replies concise and in plain English."],
+  [true, "Reply after deployment; don't mention deployment details."],
+  [
+    false,
+    "Reply after deployment; don't include deployment details in release notes.",
+  ],
+  [
+    false,
+    "Reply after deployment; don't include deployment details in the changelog.",
+  ],
+  [true, "Reply after deployment; keep it concise."],
+  [true, "Don't include commit hashes or CI results in replies."],
+  [true, "Don't include commit hashes in feedback responses."],
+  [false, "Replies are great, but don't skip the CI results."],
+  [false, "Replies are good, but don't remove the commit hashes."],
+  [
+    true,
+    "Replies are great, but please remove the commit hashes from the reply.",
+  ],
+  [false, "Reply to the reporter and simplify the migration script."],
+  [
+    false,
+    "Please respond on the issue and trim the trailing whitespace in the README.",
+  ],
+  [true, "Please simplify the feedback reply."],
+  [true, "Trim the feedback response."],
+  [true, "Shorten your feedback reply."],
+  [
+    true,
+    "Please shorten the feedback reply, although replies are not too technical.",
+  ],
+  [true, "Please shorten the feedback reply, which is not too technical."],
+  [true, "Please shorten the feedback reply."],
+  [true, "Trim the feedback response."],
+  [true, "Simplify our feedback replies."],
+  [true, "Trim the response to customer feedback."],
+  [true, "Simplify the reply about feedback."],
+  [false, "Simplify the response schema for the endpoint."],
+  [false, "Trim the response payload from the provider."],
+  [false, "Shorten server responses."],
+  [false, "Trim API responses."],
+  [false, "Shorten the replies in the dashboard."],
+  [false, "For example, shorten the reply."],
+  [false, "Example instruction: trim the response."],
+  [false, "E.g., simplify a feedback reply."],
+  [
+    true,
+    "For example, the message has a clear cause, but shorten the feedback reply.",
+  ],
+  [
+    true,
+    "For example, shorten the feedback reply, but trim the feedback response.",
+  ],
+  [true, "For example, this reply is too technical, so shorten the reply."],
+  [false, "For example, don't include commit hashes in replies."],
+  [
+    false,
+    "Replies are great, but for example, don't include commit hashes in replies.",
+  ],
+  [
+    true,
+    "Replies are great, but don't include commit hashes, and for example, don't mention CI in replies.",
+  ],
+  [false, "E.g., don't include commit hashes in replies."],
+  [true, "Keep technical details out of the reply."],
+  [false, "Don't keep technical details out of the reply."],
+  [false, "Responses to the API are too technical."],
+  [true, "Replies should not include any more technical details."],
+  [true, "Do not include additional technical details in replies."],
+  [true, "Do not mention CI in replies."],
+  [true, "Leave out publisher from replies."],
+  [true, "Avoid CI in replies."],
+  [true, "Skip CI in replies."],
+  [true, "Omit publisher from replies."],
+  [true, "Remove publisher from replies."],
+  [true, "Replies should not contain technical details."],
+  [true, "Replies must not contain commit hashes."],
+  [true, "Replies should contain no technical details."],
+  [true, "Keep commit hashes out of replies."],
+  [false, "Don't keep commit hashes out of replies."],
+  [true, "Replies should not include commit hashes."],
+  [true, "Keep replies without technical details."],
+  [true, "Replies should be free of technical details."],
+  [true, "No technical details in replies."],
+  [false, "Please reply with technical details."],
+  [false, "Please reply with very technical details."],
+  [false, "Don't make replies less technical."],
+  [false, "Replies are too high level."],
+  [false, "Your replies are already high level."],
+  [false, "I like the high-level replies."],
+  [false, "We will keep moving on the fix and the replies look high level."],
+  [false, "Don't make them less technical; don't include commit hashes."],
+  [false, "I like concise and plain-English replies."],
+  [false, "Replies are no longer too technical."],
+  [false, "I don't think replies are too technical."],
+  [false, "I don't believe the reply is too detailed."],
+  [false, "I wouldn't say the reply is too technical."],
+  [
+    true,
+    "I don't think replies are too technical, but don't include commit hashes in replies.",
+  ],
+  [
+    true,
+    "I don't think replies are too technical and don't include commit hashes in replies.",
+  ],
+  [
+    false,
+    "There are no technical details in replies, which is exactly what we want.",
+  ],
+  [false, "Nice work. Keep the replies high-level like this one."],
+  [false, "Replies are too technical, but don't make them less technical."],
+  [false, "Do not make replies, or responses, less technical."],
+  [false, "Don't skip technical details in your reply."],
+  [false, "Replies are great; don't omit technical details in your reply."],
+  [false, "Replies are great; don’t omit technical details in your reply."],
+  [false, "Replies are not too technical."],
+  [false, "Replies are not too long."],
+  [false, "Replies aren't too technical."],
+  [false, "Replies are too technical. But don't make replies less technical."],
+  [
+    false,
+    "Replies are not too technical. Replies are too technical. But don't make replies less technical.",
+  ],
+  [
+    true,
+    "Replies are too technical. But don't make replies less technical; don't include commit hashes.",
+  ],
+  [
+    false,
+    `Replies are too technical ${"background ".repeat(40)}but don't make replies less technical.`,
+  ],
+  [
+    false,
+    `Replies are too technical, ${"background ".repeat(40)}but don't make replies less technical.`,
+  ],
+  [false, "Replies are too technical; but don't make replies less technical."],
+  [
+    true,
+    "Replies aren't too technical. Please stop including CI results in replies.",
+  ],
+  [
+    true,
+    "Replies are not too technical. But don't include commit hashes in replies.",
+  ],
+  [
+    true,
+    "Replies are not too technical, but don't include commit hashes in replies.",
+  ],
+  [
+    true,
+    "Replies are too technical, but don't make them less technical; don't include commit hashes.",
+  ],
+  [
+    true,
+    "Replies are too technical but don't make them less technical and don't include commit hashes.",
+  ],
+  [
+    true,
+    "Replies are not too technical but don't include commit hashes in replies.",
+  ],
+  [
+    true,
+    `Replies are not too technical ${"background ".repeat(40)}but don't include commit hashes in replies.`,
+  ],
+  [false, "Reply once there are no CI results yet."],
+  [false, "Reply once there are\nno CI results yet."],
+  [false, "Reply after CI is green; don't post until deployment is done."],
+  [false, "Please skip the CI wait when you reply."],
+  [true, "Keep replies high level; do not mention commit hashes."],
+  [true, `${"x".repeat(440)} Replies are too technical.`],
+  [
+    false,
+    `${"x".repeat(440)} There are no technical details in replies, which is exactly what we want.`,
+  ],
+  [false, `${"x".repeat(440)} Don't make replies less technical.`],
+  [
+    false,
+    `${"x".repeat(440)} Nice work. Keep the replies high-level like this one.`,
+  ],
+  [false, "CI results and branch details are useful."],
+];
 
 if (process.argv.includes("--self-test")) {
   const failures = FEEDBACK_REGEX_CASES.filter(
@@ -2303,6 +3227,152 @@ if (process.argv.includes("--self-test")) {
       ([expected, message]) => RESOURCE_CLEANUP_RE.test(message) !== expected,
     ),
   );
+  failures.push(
+    ...FEEDBACK_REPLY_DETAIL_REGEX_CASES.filter(
+      ([expected, message]) =>
+        matchesPattern(FEEDBACK_REPLY_DETAIL_PATTERN, message) !== expected,
+    ),
+  );
+  const stressMessage = "reply and but ".repeat(7_000);
+  const stressCorrection = `${stressMessage}reply too technical`;
+  const stressNegation = "Replies are not too technical. ".repeat(3_500);
+  const stressDenseNegative = "reply too ".repeat(4_000);
+  const stressDenseCorrection = `${"reply too ".repeat(12_000)}Don't include commit hashes in replies.`;
+  const stressBoundaryDensePrefix = "Replies are not too technical. ".repeat(
+    12_000,
+  );
+  const stressStart = process.hrtime.bigint();
+  const stressMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressMessage,
+  );
+  const stressCorrectionMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressCorrection,
+  );
+  const stressNegationMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressNegation,
+  );
+  const stressDurationMs =
+    Number(process.hrtime.bigint() - stressStart) / 1_000_000;
+  if (
+    !stressCorrectionMatched ||
+    stressMatched ||
+    stressNegationMatched ||
+    stressDurationMs > 2_000
+  ) {
+    failures.push([
+      false,
+      `Long feedback message took ${stressDurationMs.toFixed(1)} ms or matched unexpectedly`,
+    ]);
+  }
+  const denseStart = process.hrtime.bigint();
+  const denseNegativeMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressDenseNegative,
+  );
+  const denseCorrectionMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressDenseCorrection,
+  );
+  const denseDurationMs =
+    Number(process.hrtime.bigint() - denseStart) / 1_000_000;
+  if (
+    denseNegativeMatched ||
+    !denseCorrectionMatched ||
+    denseDurationMs > 2_000
+  ) {
+    failures.push([
+      false,
+      `Dense feedback message took ${denseDurationMs.toFixed(1)} ms or matched unexpectedly`,
+    ]);
+  }
+  const boundaryDenseStart = process.hrtime.bigint();
+  const boundaryDenseNegativeMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressBoundaryDensePrefix,
+  );
+  const boundaryDenseCorrectionMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    `${stressBoundaryDensePrefix} Please use less internal detail in replies.`,
+  );
+  const boundaryDenseDurationMs =
+    Number(process.hrtime.bigint() - boundaryDenseStart) / 1_000_000;
+  if (
+    boundaryDenseNegativeMatched ||
+    !boundaryDenseCorrectionMatched ||
+    boundaryDenseDurationMs > 2_000
+  ) {
+    failures.push([
+      false,
+      `Boundary-dense feedback message took ${boundaryDenseDurationMs.toFixed(1)} ms or matched unexpectedly`,
+    ]);
+  }
+  const commaDenseNegative =
+    "Please shorten the timeout in feedback replies, ".repeat(270);
+  const commaDenseCorrection = `${commaDenseNegative} Please shorten the feedback reply.`;
+  const commaDenseStart = process.hrtime.bigint();
+  const commaDenseNegativeMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    commaDenseNegative,
+  );
+  const commaDenseCorrectionMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    commaDenseCorrection,
+  );
+  const commaDenseDurationMs =
+    Number(process.hrtime.bigint() - commaDenseStart) / 1_000_000;
+  if (
+    commaDenseNegativeMatched ||
+    !commaDenseCorrectionMatched ||
+    commaDenseDurationMs > 2_000
+  ) {
+    failures.push([
+      false,
+      `Comma-dense feedback message took ${commaDenseDurationMs.toFixed(1)} ms or matched unexpectedly`,
+    ]);
+  }
+  const stressApiResponseFollowups =
+    "API responses are not too verbose. Actually, they are too technical. ".repeat(
+      3_000,
+    );
+  const apiResponseFollowupStart = process.hrtime.bigint();
+  const apiResponseFollowupsMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressApiResponseFollowups,
+  );
+  const apiResponseFollowupDurationMs =
+    Number(process.hrtime.bigint() - apiResponseFollowupStart) / 1_000_000;
+  if (apiResponseFollowupsMatched || apiResponseFollowupDurationMs > 5_000) {
+    failures.push([
+      false,
+      `API response follow-ups took ${apiResponseFollowupDurationMs.toFixed(1)} ms or matched unexpectedly`,
+    ]);
+  }
+  const stressLargeDenseNegative = "reply too ".repeat(100_000);
+  const stressLargeDenseCorrection = `${stressLargeDenseNegative}Don't include commit hashes in replies.`;
+  const largeDenseStart = process.hrtime.bigint();
+  const largeDenseNegativeMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressLargeDenseNegative,
+  );
+  const largeDenseCorrectionMatched = matchesPattern(
+    FEEDBACK_REPLY_DETAIL_PATTERN,
+    stressLargeDenseCorrection,
+  );
+  const largeDenseDurationMs =
+    Number(process.hrtime.bigint() - largeDenseStart) / 1_000_000;
+  if (
+    largeDenseNegativeMatched ||
+    !largeDenseCorrectionMatched ||
+    largeDenseDurationMs > 2_000
+  ) {
+    failures.push([
+      false,
+      `Large dense feedback message took ${largeDenseDurationMs.toFixed(1)} ms or matched unexpectedly`,
+    ]);
+  }
   failures.push(
     ...AUTH_PAGE_BACKGROUND_REGRESSION_CASES.filter(
       ([expected, message]) =>
@@ -2400,12 +3470,6 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
-    ...FIGMA_PARITY_UNMEASURED_REGEX_CASES.filter(
-      ([expected, message]) =>
-        FIGMA_PARITY_UNMEASURED_RE.test(message) !== expected,
-    ),
-  );
-  failures.push(
     ...FEEDBACK_EYES_REGEX_CASES.filter(
       ([expected, message]) => FEEDBACK_EYES_RE.test(message) !== expected,
     ),
@@ -2458,7 +3522,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FIGMA_PARITY_UNMEASURED_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + AUTH_PAGE_BACKGROUND_REGRESSION_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + OWN_PR_COMMENT_AUTHORIZATION_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length + SLOW_EDITOR_RUNTIME_REGEX_CASES.length + FEEDBACK_RELEASE_COVERAGE_REGEX_CASES.length + FEEDBACK_NO_LOCAL_REPRO_REGEX_CASES.length + E2E_ISSUE_FANOUT_REGEX_CASES.length + E2E_ISSUE_FANOUT_NORMALIZATION_CASES.length + LEGACY_LINE_NORMALIZATION_CASES.length + FEEDBACK_REPLY_DETAIL_REGEX_CASES.length + 1} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2543,13 +3607,6 @@ const PATTERNS = [
     re: FEEDBACK_NO_LOCAL_REPRO_RE,
   },
   {
-    key: "figma-parity-unmeasured",
-    label: "Had to correct a Design parity claim without native Figma evidence",
-    fixedBy:
-      ".agents/skills/design-figma-parity + parity oracle ledger and citation guard",
-    re: FIGMA_PARITY_UNMEASURED_RE,
-  },
-  {
     key: "false-done",
     label: "Reported done while still broken",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
@@ -2621,6 +3678,13 @@ const PATTERNS = [
     label: "Had to ask whether sibling call sites were swept",
     fixedBy: ".agents/skills/fix-at-the-boundary (2026-07-31)",
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
+  },
+  {
+    key: "ai-gate-bypass",
+    label: "Had to repeat that prompts must not send without connected AI",
+    fixedBy:
+      "guard:chat-send-gate + shared readiness dispatch gate (2026-10-08)",
+    re: /\b(?:never|can(?:not|'t)|must not|should not|shouldn't)\b[^.!?\n]{0,100}\b(?:send|submit)\b[^.!?\n]{0,80}\b(?:prompt|message)s?\b[^.!?\n]{0,100}\b(?:without|unless)\b[^.!?\n]{0,60}\b(?:AI|LLM|provider)\b|\b(?:send|submit)\b[^.!?\n]{0,80}\b(?:prompt|message)s?\b[^.!?\n]{0,60}\bwithout\b[^.!?\n]{0,40}\b(?:AI|LLM|provider)\b|\b(?:AI|LLM) provider\b[^.!?\n]{0,40}\b(?:not connected|not configured|missing)\b/i,
   },
   {
     key: "credential-wrong-namespace",
@@ -2698,6 +3762,13 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/address-feedback* + .agents/skills/review-prs (first-contact thanks, 2026-09-24)",
     re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
+  },
+  {
+    key: "feedback-reply-detail",
+    label: "Had to correct overly technical feedback replies",
+    fixedBy:
+      ".agents/skills/review-latest-feedback + address-feedback-with-replies (concise, plain-language replies, 2026-10-09)",
+    ...FEEDBACK_REPLY_DETAIL_PATTERN,
   },
   {
     key: "pr-review-handoff",
@@ -2897,8 +3968,7 @@ async function scan(file, read) {
     if (!at || at < cutoff) continue;
     messages += 1;
     for (const pattern of selected) {
-      if (!pattern.re.test(textForPattern(text, pattern.lineSensitive)))
-        continue;
+      if (!matchesPattern(pattern, text)) continue;
       const week = weekOf(at);
       const bucket = counts.get(pattern.key);
       bucket.set(week, (bucket.get(week) ?? 0) + 1);

@@ -3,7 +3,12 @@ import { z } from "zod";
 
 import { getAnalyticsProviderApiRuntime } from "../server/lib/provider-api";
 
-const ProviderSchema = z.string().min(1);
+const ProviderSchema = z
+  .string()
+  .min(1)
+  .refine((provider) => provider !== "dbt", {
+    message: "Use query-dbt-semantic-metric for dbt Semantic Layer metrics.",
+  });
 const BooleanFromQuerySchema = z.preprocess(
   (value) => (typeof value === "string" ? value === "true" : value),
   z.boolean(),
@@ -25,7 +30,7 @@ export default createProviderApiDocsAction(getAnalyticsProviderApiRuntime(), {
     "Inspect provider API docs/spec metadata, or fetch a public provider docs/spec/changelog URL. Use this before arbitrary provider-api-request calls when the exact endpoint, filter operator, payload shape, pagination, or API version is uncertain.",
   schema: z.object({
     provider: ProviderSchema.describe(
-      "Built-in or custom provider whose API docs/spec to inspect.",
+      "Built-in or custom provider whose API docs/spec to inspect. Use query-dbt-semantic-metric for dbt Semantic Layer metrics.",
     ),
     url: z
       .string()

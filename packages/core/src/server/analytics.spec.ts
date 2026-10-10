@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/store.js";
 import { injectAnalyticsIntoHtml, wrapWithAnalytics } from "./analytics.js";
 import { runWithRequestContext } from "./request-context.js";
 
@@ -16,7 +20,12 @@ const previousViteAgentNativeAnalyticsPublicKey =
 const previousAgentNativeAnalyticsEndpoint =
   process.env.AGENT_NATIVE_ANALYTICS_ENDPOINT;
 
+beforeEach(() => {
+  resetAppConfigForTests();
+});
+
 afterEach(() => {
+  resetAppConfigForTests();
   if (previousGaMeasurementId === undefined) {
     delete process.env.GA_MEASUREMENT_ID;
   } else {
@@ -218,9 +227,30 @@ describe("injectAnalyticsIntoHtml", () => {
     expect(html).toContain(
       '"agentNativeAnalyticsEndpoint":"https://analytics.example.test/track"',
     );
+    expect(html).toContain('"authSessionReplay":false');
     expect(html.indexOf("data-agent-native-analytics-config")).toBeLessThan(
       html.indexOf("</head>"),
     );
+  });
+
+  it("projects the auth replay opt-in only when Analytics has a public key", () => {
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_auth_test";
+    delete process.env.GA_MEASUREMENT_ID;
+    delete process.env.GTM_CONTAINER_ID;
+    defineAppConfig({ analytics: { authSessionReplay: true } });
+
+    const html = injectAnalyticsIntoHtml(
+      "<html><head></head><body>signup</body></html>",
+    );
+
+    expect(html).toContain('"authSessionReplay":true');
+
+    delete process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+    const withoutKey = injectAnalyticsIntoHtml(
+      "<html><head></head><body>signup</body></html>",
+    );
+    expect(withoutKey).not.toContain("data-agent-native-analytics-config");
+    expect(withoutKey).not.toContain('"authSessionReplay":true');
   });
 
   it("injects the configured analytics scripts into auth HTML", () => {

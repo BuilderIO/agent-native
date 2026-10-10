@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isTopBarVisible } from "./top-bar";
+import { isTopBarVisible, minimalUiBarTopPaddingPx } from "./top-bar";
 
 const docked = {
   embedded: false,
@@ -21,5 +21,33 @@ describe("isTopBarVisible", () => {
     ["hidden UI", { uiHidden: true }],
   ])("is absent in %s", (_name, override) => {
     expect(isTopBarVisible({ ...docked, ...override })).toBe(false);
+  });
+
+  it("keeps the real top bar visible in a minimal MCP widget", () => {
+    expect(
+      isTopBarVisible({
+        embedded: true,
+        isVisualEditSurface: false,
+        minimalUi: true,
+        uiHidden: false,
+        widgetEmbed: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("respects the explicit hidden state in a widget", () => {
+    expect(
+      isTopBarVisible({ ...docked, widgetEmbed: true, uiHidden: true }),
+    ).toBe(false);
+  });
+});
+
+describe("minimalUiBarTopPaddingPx", () => {
+  it("places the widget Interact toolbar below its top bar", () => {
+    expect(minimalUiBarTopPaddingPx(true)).toBe(60);
+  });
+
+  it("keeps the regular minimal toolbar's existing offset", () => {
+    expect(minimalUiBarTopPaddingPx(false)).toBe(12);
   });
 });

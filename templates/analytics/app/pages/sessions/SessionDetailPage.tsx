@@ -15,6 +15,14 @@ import {
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
+  MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS,
+  MAX_SESSION_REPLAY_CAPTURE_BYTES,
+  MAX_SESSION_REPLAY_CAPTURE_CHUNK_BYTES,
+  MAX_SESSION_REPLAY_CAPTURE_CHUNKS,
+  MAX_SESSION_REPLAY_CAPTURE_EVENTS,
+  MAX_SESSION_REPLAY_CAPTURE_MANIFEST_BYTES,
+} from "@shared/session-replay-capture";
+import {
   isFailedSessionReplayNetworkStatus,
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
@@ -460,6 +468,7 @@ function AskSessionPopover({
         </div>
         <PromptComposer
           autoFocus
+          requireAgentEngine
           disabled={isGenerating}
           placeholder={t("sessions.askSessionPlaceholder")}
           draftScope={`analytics:session-replay:${recording.id}`}
@@ -2000,6 +2009,7 @@ function useSessionReplayPlayback(recordingId: string) {
 
 interface FetchSessionReplayPlaybackOptions {
   agentAccessToken?: string;
+  captureThroughOffsetMs?: number;
 }
 
 export async function fetchSessionReplayPlayback(
@@ -2007,6 +2017,34 @@ export async function fetchSessionReplayPlayback(
   options: FetchSessionReplayPlaybackOptions = {},
 ): Promise<SessionReplayPlaybackResponse> {
   const manifest = await fetchReplayManifest(recordingId, options);
+  if (options.captureThroughOffsetMs !== undefined) {
+    if (
+      !isRecord(manifest) ||
+      !isRecord(manifest.recording) ||
+      manifest.recording.id !== recordingId
+    ) {
+      throw new Error("replay_capture_manifest_invalid");
+    }
+    const chunks = await fetchBoundedReplayCaptureChunks(
+      manifest,
+      options,
+      recordingId,
+      options.captureThroughOffsetMs,
+    );
+    const unavailableChunks = chunks.filter(
+      (chunk) => chunk.unavailable,
+    ).length;
+    const loadedBytes = chunks.reduce(
+      (sum, chunk) => sum + chunk.byteLength,
+      0,
+    );
+    return playbackResponseFromChunks(manifest, chunks, {
+      isComplete: chunks.length === manifest.chunks.length,
+      loadedChunks: chunks.length,
+      loadedBytes,
+      unavailableChunks,
+    });
+  }
   const chunks = await fetchReplayChunks(manifest.chunks, options);
   const unavailableChunks = chunks.filter((chunk) => chunk.unavailable).length;
   const loadedBytes = manifest.chunks.reduce(
@@ -2043,7 +2081,7 @@ function playbackResponseFromChunks(
     recording: manifest.recording,
     chunks,
     eventCount,
-    truncated: false,
+    truncated: !progress.isComplete,
     unavailableChunks: progress.unavailableChunks,
     loadedChunks: progress.loadedChunks,
     totalChunks: manifest.chunks.length,
@@ -2064,7 +2102,274 @@ async function fetchReplayManifest(
     options.agentAccessToken,
   );
   if (!response.ok) throw await replayFetchError(response);
-  return (await response.json()) as SessionReplayManifestResponse;
+  const payload =
+    options.captureThroughOffsetMs === undefined
+      ? await response.json()
+      : (
+          await readReplayJsonBounded(
+            response,
+            MAX_SESSION_REPLAY_CAPTURE_MANIFEST_BYTES,
+            "replay_capture_manifest_too_large",
+          )
+        ).value;
+  return payload as SessionReplayManifestResponse;
+}
+
+async function readReplayJsonBounded(
+  response: Response,
+  maxBytes: number,
+  limitError: string,
+): Promise<{
+  value: unknown;
+  byteLength: number;
+  bytes: Uint8Array<ArrayBuffer>;
+}> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("replay_response_body_unavailable");
+  const parts: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > maxBytes) {
+        await reader.cancel();
+        throw new Error(limitError);
+      }
+      parts.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const part of parts) {
+    bytes.set(part, offset);
+    offset += part.byteLength;
+  }
+  try {
+    return {
+      value: JSON.parse(new TextDecoder().decode(bytes)),
+      byteLength,
+      bytes,
+    };
+  } catch {
+    throw new Error("replay_response_invalid");
+  }
+}
+
+async function fetchBoundedReplayCaptureChunks(
+  manifest: SessionReplayManifestResponse,
+  options: FetchSessionReplayPlaybackOptions,
+  recordingId: string,
+  captureThroughOffsetMs: number,
+): Promise<ReplayChunkEvents[]> {
+  if (
+    !isRecord(manifest) ||
+    !isRecord(manifest.recording) ||
+    !Array.isArray(manifest.chunks)
+  ) {
+    throw new Error("replay_capture_manifest_invalid");
+  }
+  const recording = manifest.recording as SessionRecordingSummary;
+  const chunks = manifest.chunks as SessionReplayManifestResponse["chunks"];
+  const recordingStartedAtMs = Date.parse(recording.startedAt);
+  if (
+    !recording ||
+    !Number.isSafeInteger(recordingStartedAtMs) ||
+    !Number.isSafeInteger(captureThroughOffsetMs) ||
+    captureThroughOffsetMs < 0 ||
+    captureThroughOffsetMs > MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS ||
+    !Array.isArray(chunks) ||
+    chunks.length === 0 ||
+    !Number.isSafeInteger(recording.chunkCount) ||
+    recording.chunkCount !== chunks.length ||
+    !Number.isSafeInteger(recording.eventCount) ||
+    recording.eventCount < 0 ||
+    !Number.isSafeInteger(recording.totalBytes) ||
+    recording.totalBytes < 0
+  ) {
+    throw new Error("replay_capture_manifest_invalid");
+  }
+  const targetTimestamp = recordingStartedAtMs + captureThroughOffsetMs;
+  if (!Number.isSafeInteger(targetTimestamp)) {
+    throw new Error("replay_capture_offset_invalid");
+  }
+
+  let manifestBytes = 0;
+  let manifestEvents = 0;
+  for (const [index, chunk] of chunks.entries()) {
+    if (
+      !isRecord(chunk) ||
+      chunk.seq !== index ||
+      !Number.isSafeInteger(chunk.byteLength) ||
+      chunk.byteLength <= 0 ||
+      chunk.byteLength > MAX_SESSION_REPLAY_CAPTURE_CHUNK_BYTES ||
+      !Number.isSafeInteger(chunk.eventCount) ||
+      chunk.eventCount < 0 ||
+      typeof chunk.checksum !== "string" ||
+      !/^[\da-f]{64}$/i.test(chunk.checksum) ||
+      typeof chunk.bytesPath !== "string" ||
+      !isReplayCaptureChunkPath(
+        chunk.bytesPath,
+        recordingId,
+        chunk.seq,
+        options.agentAccessToken,
+      )
+    ) {
+      throw new Error("replay_capture_manifest_invalid");
+    }
+    manifestBytes += chunk.byteLength;
+    manifestEvents += chunk.eventCount;
+    if (
+      !Number.isSafeInteger(manifestBytes) ||
+      !Number.isSafeInteger(manifestEvents)
+    ) {
+      throw new Error("replay_capture_manifest_invalid");
+    }
+  }
+  if (
+    manifestBytes !== recording.totalBytes ||
+    manifestEvents !== recording.eventCount
+  ) {
+    throw new Error("replay_capture_manifest_incomplete");
+  }
+
+  const loaded: ReplayChunkEvents[] = [];
+  let prefixDeclaredBytes = 0;
+  let prefixDeclaredEvents = 0;
+  let receivedBytes = 0;
+  let previousTimestamp = Number.NEGATIVE_INFINITY;
+  for (const chunk of chunks) {
+    if (loaded.length >= MAX_SESSION_REPLAY_CAPTURE_CHUNKS) {
+      throw new Error("replay_capture_chunk_limit_exceeded");
+    }
+    prefixDeclaredBytes += chunk.byteLength;
+    prefixDeclaredEvents += chunk.eventCount;
+    if (
+      prefixDeclaredBytes > MAX_SESSION_REPLAY_CAPTURE_BYTES ||
+      prefixDeclaredEvents > MAX_SESSION_REPLAY_CAPTURE_EVENTS ||
+      !Number.isSafeInteger(prefixDeclaredBytes) ||
+      !Number.isSafeInteger(prefixDeclaredEvents)
+    ) {
+      throw new Error("replay_capture_limit_exceeded");
+    }
+
+    const response = await fetchReplayApi(
+      chunk.bytesPath,
+      options.agentAccessToken,
+    );
+    if (!response.ok) {
+      const error = await replayFetchError(response);
+      if (isUnavailableReplayChunk(response, error)) {
+        loaded.push(replayUnavailableChunk(chunk));
+        break;
+      }
+      throw error;
+    }
+    const responseSequence = response.headers.get("x-session-replay-seq");
+    const responseChecksum = response.headers.get("x-session-replay-checksum");
+    if (
+      responseSequence !== String(chunk.seq) ||
+      responseChecksum?.toLowerCase() !== chunk.checksum.toLowerCase()
+    ) {
+      throw new Error("replay_capture_chunk_header_mismatch");
+    }
+    const {
+      value: payload,
+      byteLength: responseBytes,
+      bytes: responseBody,
+    } = await readReplayJsonBounded(
+      response,
+      MAX_SESSION_REPLAY_CAPTURE_CHUNK_BYTES,
+      "replay_capture_chunk_too_large",
+    );
+    if (responseBytes !== chunk.byteLength) {
+      throw new Error("replay_capture_chunk_size_mismatch");
+    }
+    if (
+      (await replaySha256Hex(responseBody)) !== chunk.checksum.toLowerCase()
+    ) {
+      throw new Error("replay_capture_chunk_checksum_mismatch");
+    }
+    receivedBytes += responseBytes;
+    if (receivedBytes > MAX_SESSION_REPLAY_CAPTURE_BYTES) {
+      throw new Error("replay_capture_limit_exceeded");
+    }
+    const events = replayPayloadEvents(payload);
+    if (events.length !== chunk.eventCount) {
+      throw new Error("replay_capture_chunk_incomplete");
+    }
+    for (const event of events) {
+      if (
+        !isRecord(event) ||
+        !Number.isInteger(event.type) ||
+        event.type < 0 ||
+        event.type > 6 ||
+        typeof event.timestamp !== "number" ||
+        !Number.isFinite(event.timestamp) ||
+        event.timestamp < previousTimestamp
+      ) {
+        throw new Error("replay_capture_event_invalid");
+      }
+      previousTimestamp = event.timestamp;
+    }
+    loaded.push({
+      seq: chunk.seq,
+      checksum: chunk.checksum,
+      byteLength: chunk.byteLength,
+      eventCount: chunk.eventCount,
+      events,
+    });
+    if (previousTimestamp > targetTimestamp) break;
+  }
+  return loaded;
+}
+
+async function replaySha256Hex(
+  bytes: Uint8Array<ArrayBuffer>,
+): Promise<string> {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("replay_capture_checksum_unavailable");
+  }
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function isReplayCaptureChunkPath(
+  bytesPath: string,
+  recordingId: string,
+  seq: number,
+  agentAccessToken?: string,
+): boolean {
+  const origin =
+    globalThis.window?.location?.origin ??
+    globalThis.location?.origin ??
+    "http://localhost";
+  const url = new URL(bytesPath, origin);
+  const queryIsScoped = agentAccessToken
+    ? url.searchParams.size === 1 &&
+      url.searchParams.get(SESSION_REPLAY_AGENT_ACCESS_PARAM) ===
+        agentAccessToken
+    : url.searchParams.size === 0;
+  if (
+    url.origin !== origin ||
+    url.username ||
+    url.password ||
+    !queryIsScoped ||
+    url.hash
+  ) {
+    return false;
+  }
+  const match =
+    /^\/api\/session-replay\/recordings\/([^/]+)\/chunks\/(\d+)$/.exec(
+      url.pathname,
+    );
+  if (!match || Number(match[2]) !== seq) return false;
+  return decodeURIComponent(match[1]!) === recordingId;
 }
 
 async function fetchReplayChunks(
@@ -2927,6 +3232,7 @@ function visitorLabel(
 ): string {
   const email = emailLike(recording.userId) || emailLike(recording.userKey);
   if (email) return email;
+  if (recording.userId === null) return t("sessions.anonymous");
   return (
     recording.userId ||
     recording.userKey ||

@@ -6,6 +6,8 @@ import {
   JOURNEY_COHORT_EVENT_NAMES,
   JOURNEY_STEP_EVENT_NAMES,
   normalizeJourneyPath,
+  SLIDES_GENERATION_ATTEMPT_EVENT_NAMES,
+  projectSessionSteps,
   type JourneyEventRow,
 } from "./journey-steps";
 
@@ -18,10 +20,13 @@ function row(
   return {
     id: `e${nextId++}`,
     sessionId: "s1",
+    journeyKind: "onboarding",
     tsMs,
     eventName,
+    templateName: "clips",
     path: null,
     flow: null,
+    source: null,
     stepId: null,
     stepIndex: null,
     methodId: null,
@@ -42,6 +47,7 @@ describe("normalizeJourneyPath", () => {
     expect(normalizeJourneyPath("/design/aB3dE5gH7jK9mN2pQ4")).toBe(
       "/design/:id",
     );
+    expect(normalizeJourneyPath("/r/ifsHSxM8iCbH")).toBe("/r/:id");
   });
 
   it("replaces a segment that holds an email address", () => {
@@ -50,6 +56,47 @@ describe("normalizeJourneyPath", () => {
     );
     expect(normalizeJourneyPath("/invite/alice%40example.com/accept")).toBe(
       "/invite/:email/accept",
+    );
+  });
+
+  it("normalizes short resource ids at resource routes", () => {
+    for (const route of [
+      "r",
+      "deck",
+      "design",
+      "recording",
+      "share",
+      "visual-edit",
+    ]) {
+      expect(normalizeJourneyPath(`/${route}/AbCdEfGhIj`)).toBe(
+        `/${route}/:id`,
+      );
+      expect(normalizeJourneyPath(`/${route}/x_y-Z/present?q=1#slide`)).toBe(
+        `/${route}/:id/present`,
+      );
+    }
+    expect(normalizeJourneyPath("/design-systems/setup")).toBe(
+      "/design-systems/setup",
+    );
+    expect(normalizeJourneyPath("/settings/model")).toBe("/settings/model");
+    expect(normalizeJourneyPath("/templates/landing-page")).toBe(
+      "/templates/landing-page",
+    );
+    expect(normalizeJourneyPath("/design/new-copy")).toBe("/design/:id");
+  });
+
+  it("preserves static share sub-routes while replacing their resource id", () => {
+    expect(normalizeJourneyPath("/share/meeting/m123?token=secret")).toBe(
+      "/share/meeting/:id",
+    );
+  });
+
+  it("preserves the static Visual Edit shell route", () => {
+    expect(normalizeJourneyPath("/visual-edit/shell")).toBe(
+      "/visual-edit/shell",
+    );
+    expect(normalizeJourneyPath("/visual-edit/design_1")).toBe(
+      "/visual-edit/:id",
     );
   });
 
@@ -66,6 +113,84 @@ describe("normalizeJourneyPath", () => {
 });
 
 describe("deriveJourneyStep", () => {
+  it("retains chat setup exposure, choices, and connection outcomes separately from onboarding", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_method_clicked", 1, {
+        methodId: "custom_keys",
+        flow: "first_run",
+      }),
+      row("integration_setup_exposed", 2, {
+        methodId: "setup_card",
+        flow: "chat_setup",
+      }),
+      row("integration_method_clicked", 3, {
+        methodId: "custom_keys",
+        flow: "chat_setup",
+      }),
+      row("integration_method_clicked", 4, {
+        methodId: "builder",
+        flow: "chat_setup",
+      }),
+      row("integration_method_outcome", 5, {
+        methodId: "builder",
+        flow: "chat_setup",
+        outcome: "connected",
+      }),
+    ]);
+    expect(steps.map((step) => step.key)).toEqual([
+      "method:custom_keys",
+      "integration:chat_setup:exposed:setup_card",
+      "integration:chat_setup:method:custom_keys",
+      "integration:chat_setup:method:builder",
+      "integration:chat_setup:outcome:builder:connected",
+    ]);
+    for (const event of [
+      "integration_setup_exposed",
+      "integration_method_clicked",
+      "integration_method_outcome",
+    ]) {
+      expect(JOURNEY_STEP_EVENT_NAMES).toContain(event);
+      expect(JOURNEY_COHORT_EVENT_NAMES).not.toContain(event);
+    }
+  });
+
+  it("keeps unexpected chat setup properties out of journey labels and keys", () => {
+    expect(
+      deriveJourneyStep(
+        row("integration_method_outcome", 1, {
+          flow: "private-user-value",
+          methodId: "private-provider-name",
+          outcome: "customer-error-message",
+        }),
+      ),
+    ).toEqual({
+      key: "integration:unknown:outcome:unknown:unknown",
+      label: "unknown: unknown",
+    });
+  });
+
+  it("retains the actual custom-key outcome contract", () => {
+    for (const outcome of [
+      "credential_entry_started",
+      "credential_validated",
+      "credential_saved",
+      "credential_skipped",
+      "credential_abandoned",
+      "local_endpoint_saved",
+      "local_endpoint_skipped",
+      "local_endpoint_abandoned",
+    ]) {
+      expect(
+        deriveJourneyStep(
+          row("onboarding_method_outcome", 1, {
+            methodId: "custom_keys",
+            outcome,
+          }),
+        ),
+      ).toMatchObject({ key: `outcome:custom_keys:${outcome}` });
+    }
+  });
+
   it("maps each onboarding event to a stable key and label", () => {
     const cases: Array<[JourneyEventRow, string, string]> = [
       [row("pageview", 1, { path: "/home" }), "page:/home", "/home"],
@@ -80,6 +205,11 @@ describe("deriveJourneyStep", () => {
         }),
         "method:builder_create_account",
         "Chose: Use Builder.io",
+      ],
+      [
+        row("onboarding_method_started", 1, { methodId: "custom_keys" }),
+        "method:custom_keys:started",
+        "Configure custom keys: setup started",
       ],
       [
         row("onboarding_step_skipped", 1, { stepId: "private-step-name" }),
@@ -112,20 +242,236 @@ describe("deriveJourneyStep", () => {
         "First action: chat_submit",
       ],
       [
-        row("generation_completed", 1),
+        row("generation_completed", 1, {
+          templateName: "slides",
+        }),
         "output:generation_completed",
         "Generation completed",
       ],
       [
-        row("design_output_created", 1),
+        row("design_output_created", 1, {
+          templateName: "design",
+        }),
         "output:design_output_created",
         "Design output created",
       ],
-      [row("recording_ready", 1), "output:recording_ready", "Recording ready"],
+      [row("recording_ready", 1), "output:recording_ready", "Clip saved"],
     ];
     for (const [input, key, label] of cases) {
       expect(deriveJourneyStep(input)).toEqual({ key, label });
     }
+  });
+
+  it("keeps generation and recording attempts separate from saved outputs", () => {
+    expect(deriveJourneyStep(row("generation_started", 1))).toEqual({
+      key: "attempt:generation_started",
+      label: "Generation attempt started",
+    });
+    expect(deriveJourneyStep(row("recording_started", 1))).toEqual({
+      key: "attempt:recording_started",
+      label: "Recording attempt started",
+    });
+
+    for (const eventName of [
+      "recording_completed",
+      "clip_viewed",
+      "deck_edited",
+      "output_viewed",
+    ]) {
+      expect(deriveJourneyStep(row(eventName, 2))).toBeNull();
+      expect(JOURNEY_STEP_EVENT_NAMES).not.toContain(eventName);
+    }
+    expect(JOURNEY_STEP_EVENT_NAMES).toContain("recording_started");
+    expect(JOURNEY_STEP_EVENT_NAMES).toContain("generation_started");
+  });
+
+  it("keeps Slides request and outcome events as distinct attempt steps", () => {
+    const cases: Array<[string, string, string]> = [
+      [
+        "generation_request_accepted",
+        "attempt:generation_request_accepted",
+        "Generation request accepted",
+      ],
+      [
+        "generation_outcome_unresolved",
+        "attempt:generation_outcome_unresolved",
+        "Generation outcome unresolved",
+      ],
+      [
+        "generation_failed",
+        "attempt:generation_failed",
+        "Generation attempt failed",
+      ],
+      [
+        "generation_stuck",
+        "attempt:generation_stuck",
+        "Generation attempt stalled",
+      ],
+      [
+        "generation_cancelled",
+        "attempt:generation_cancelled",
+        "Generation attempt cancelled",
+      ],
+      [
+        "generation_abandoned",
+        "attempt:generation_abandoned",
+        "Generation attempt abandoned",
+      ],
+    ];
+
+    for (const [eventName, key, label] of cases) {
+      expect(
+        deriveJourneyStep(row(eventName, 2, { templateName: "slides" })),
+      ).toEqual({ key, label });
+      expect(
+        deriveJourneyStep(row(eventName, 2, { templateName: "clips" })),
+      ).toBeNull();
+      expect(JOURNEY_STEP_EVENT_NAMES).toContain(eventName);
+    }
+  });
+
+  it("requires the app's source-confirmed saved-output event shape", () => {
+    expect(
+      deriveJourneyStep(
+        row("generation_completed", 1, {
+          templateName: "slides",
+        }),
+      )?.key,
+    ).toBe("output:generation_completed");
+    expect(
+      deriveJourneyStep(
+        row("generation_completed", 1, {
+          templateName: "clips",
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      deriveJourneyStep(
+        row("recording_ready", 1, {
+          templateName: "clips",
+        }),
+      )?.key,
+    ).toBe("output:recording_ready");
+    expect(
+      deriveJourneyStep(
+        row("recording_ready", 1, {
+          templateName: "slides",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("maps Builder connection aliases to bounded shared steps", () => {
+    const cases: Array<[string, string, string]> = [
+      [
+        "builder_connect_clicked",
+        "builder:connect:clicked",
+        "Builder connection CTA clicked",
+      ],
+      [
+        "builder connect clicked",
+        "builder:connect:clicked",
+        "Builder connection CTA clicked",
+      ],
+      [
+        "builder_connect_popup_blocked",
+        "builder:connect:popup_blocked",
+        "Builder connection popup blocked",
+      ],
+      [
+        "builder_connect_started",
+        "builder:connect:started",
+        "Builder connection started",
+      ],
+      [
+        "builder_connect_succeeded",
+        "builder:connect:succeeded",
+        "Builder connected",
+      ],
+      [
+        "builder_connect_failed",
+        "builder:connect:failed",
+        "Builder connection failed",
+      ],
+    ];
+
+    for (const [eventName, key, label] of cases) {
+      expect(deriveJourneyStep(row(eventName, 1))).toEqual({ key, label });
+    }
+  });
+
+  it("keeps custom-key validation and save outcomes distinct and bounded", () => {
+    expect(
+      deriveJourneyStep(
+        row("onboarding_method_outcome", 1, {
+          methodId: "custom_keys",
+          outcome: "credential_validated",
+        }),
+      )?.key,
+    ).toBe("outcome:custom_keys:credential_validated");
+    expect(
+      deriveJourneyStep(
+        row("onboarding_method_outcome", 1, {
+          methodId: "custom_keys",
+          outcome: "credential_saved",
+        }),
+      )?.key,
+    ).toBe("outcome:custom_keys:credential_saved");
+    expect(
+      deriveJourneyStep(
+        row("integration_key_validation_outcome", 1, {
+          flow: "settings",
+          outcome: "accepted",
+        }),
+      ),
+    ).toEqual({
+      key: "custom_key:settings:validation:accepted",
+      label: "Custom key validation (settings): accepted",
+    });
+    expect(
+      deriveJourneyStep(
+        row("integration_key_save_outcome", 1, {
+          flow: "settings",
+          outcome: "saved",
+        }),
+      ),
+    ).toEqual({
+      key: "custom_key:settings:save:saved",
+      label: "Custom key save (settings): saved",
+    });
+    expect(
+      deriveJourneyStep(
+        row("integration_key_validation_outcome", 1, {
+          flow: "user-controlled-flow",
+          outcome: "customer-secret-like-value",
+        }),
+      ),
+    ).toEqual({
+      key: "custom_key:unknown:validation:unknown",
+      label: "Custom key validation (unknown): unknown",
+    });
+
+    for (const outcome of ["constructor", "__proto__"]) {
+      expect(
+        deriveJourneyStep(
+          row("integration_key_validation_outcome", 1, {
+            flow: "settings",
+            outcome,
+          }),
+        ),
+      ).toEqual({
+        key: "custom_key:settings:validation:unknown",
+        label: "Custom key validation (settings): unknown",
+      });
+    }
+  });
+
+  it("does not treat inherited method labels as configured labels", () => {
+    expect(
+      deriveJourneyStep(
+        row("onboarding_method_clicked", 1, { methodId: "constructor" }),
+      ),
+    ).toEqual({ key: "method:constructor", label: "Chose: constructor" });
   });
 
   it("gives the dotted and underscored auth events one key", () => {
@@ -153,7 +499,14 @@ describe("deriveJourneyStep", () => {
 
   it("covers every event name the SQL selects", () => {
     for (const name of JOURNEY_STEP_EVENT_NAMES) {
-      const input = row(name, 1, { path: "/x" });
+      const input = row(name, 1, {
+        path: "/x",
+        ...(SLIDES_GENERATION_ATTEMPT_EVENT_NAMES.includes(name) ||
+        name === "generation_completed"
+          ? { templateName: "slides" }
+          : {}),
+        ...(name === "design_output_created" ? { templateName: "design" } : {}),
+      });
       expect(deriveJourneyStep(input), name).not.toBeNull();
     }
     for (const name of JOURNEY_COHORT_EVENT_NAMES) {
@@ -183,6 +536,230 @@ describe("deriveJourneyStep", () => {
 });
 
 describe("buildSessionSteps", () => {
+  it("keeps failure, unresolved, retry, and completion states distinct", () => {
+    const slides = (eventName: string, tsMs: number) =>
+      row(eventName, tsMs, { templateName: "slides" });
+    const steps = buildSessionSteps([
+      slides("generation_started", 1),
+      slides("generation_failed", 2),
+      slides("generation_started", 3),
+      slides("generation_outcome_unresolved", 4),
+      slides("generation_started", 5),
+      slides("generation_completed", 6),
+      slides("generation_started", 7),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "attempt:generation_started",
+      "attempt:generation_failed",
+      "attempt:generation_started",
+      "attempt:generation_outcome_unresolved",
+      "attempt:generation_started",
+      "output:generation_completed",
+      "attempt:generation_started",
+    ]);
+  });
+
+  it("keeps distinct adjacent attempts separate without exposing their ids", () => {
+    const steps = buildSessionSteps([
+      row("generation_started", 1, {
+        templateName: "slides",
+        attemptId: "private-attempt-one",
+      }),
+      row("generation_started", 2, {
+        templateName: "slides",
+        attemptId: "private-attempt-two",
+      }),
+      row("generation_started", 3, {
+        templateName: "slides",
+        attemptId: "private-attempt-two",
+      }),
+    ]);
+
+    expect(steps).toEqual([
+      {
+        key: "attempt:generation_started",
+        label: "Generation attempt started",
+        tsMs: 1,
+      },
+      {
+        key: "attempt:generation_started:2",
+        label: "Generation attempt started",
+        tsMs: 2,
+      },
+    ]);
+    expect(JSON.stringify(steps)).not.toContain("private-attempt");
+  });
+
+  it("keeps adjacent saved outputs from distinct attempts separate", () => {
+    const steps = buildSessionSteps([
+      row("recording_ready", 1, {
+        templateName: "clips",
+        attemptId: "private-recording-attempt-one",
+      }),
+      row("recording_ready", 2, {
+        templateName: "clips",
+        attemptId: "private-recording-attempt-two",
+      }),
+      row("generation_completed", 3, {
+        templateName: "slides",
+        attemptId: "private-generation-attempt-one",
+      }),
+      row("generation_completed", 4, {
+        templateName: "slides",
+        attemptId: "private-generation-attempt-two",
+      }),
+    ]);
+
+    expect(steps).toEqual([
+      { key: "output:recording_ready", label: "Clip saved", tsMs: 1 },
+      {
+        key: "output:recording_ready:2",
+        label: "Clip saved",
+        tsMs: 2,
+      },
+      {
+        key: "output:generation_completed",
+        label: "Generation completed",
+        tsMs: 3,
+      },
+      {
+        key: "output:generation_completed:2",
+        label: "Generation completed",
+        tsMs: 4,
+      },
+    ]);
+    const serialized = JSON.stringify(steps);
+    expect(serialized).not.toContain("private-recording-attempt");
+    expect(serialized).not.toContain("private-generation-attempt");
+  });
+
+  it("retains the terminal selected step key and timestamp for aggregation", () => {
+    const selected = projectSessionSteps([
+      row("signup", 100),
+      row("onboarding_step_viewed", 200, { stepId: "role" }),
+      row("onboarding_step_viewed", 250, { stepId: "role" }),
+    ]);
+
+    expect(selected[selected.length - 1]).toEqual({
+      key: "step:role",
+      label: "Onboarding step: role",
+      tsMs: 200,
+    });
+  });
+
+  it("retains canonical identity and app on attempt-keyed steps", () => {
+    const selected = projectSessionSteps([
+      row("generation_started", 300, {
+        templateName: "slides",
+        authUserId: "canonical-person",
+        app: "slides",
+        attemptId: "private-attempt-id",
+      }),
+    ]);
+
+    expect(selected).toEqual([
+      {
+        key: "attempt:generation_started",
+        label: "Generation attempt started",
+        tsMs: 300,
+        authUserId: "canonical-person",
+        app: "slides",
+      },
+    ]);
+    expect(JSON.stringify(selected)).not.toContain("private-attempt-id");
+  });
+
+  it("deduplicates legacy and canonical aliases and orders first-run Builder events", () => {
+    const steps = buildSessionSteps([
+      row("onboarding_method_outcome", 100, {
+        id: "z-outcome",
+        methodId: "builder_create_account",
+        outcome: "connected",
+      }),
+      row("builder_connect_started", 100, {
+        id: "d-builder-started",
+        source: "first_run_onboarding",
+      }),
+      row("builder_connect_clicked", 100, {
+        id: "b-builder-clicked",
+        source: "first_run_onboarding",
+      }),
+      row("onboarding_method_started", 100, {
+        id: "a-method-started",
+        methodId: "builder_create_account",
+      }),
+      row("onboarding_method_clicked", 100, {
+        id: "c-method-clicked",
+        methodId: "builder_create_account",
+      }),
+      row("builder connect clicked", 100, {
+        id: "e-legacy-builder-clicked",
+        source: "first_run_onboarding",
+      }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "method:builder_create_account",
+      "method:builder_create_account:started",
+      "builder:connect:clicked",
+      "builder:connect:started",
+      "outcome:builder_create_account:connected",
+    ]);
+  });
+
+  it("groups same-time Builder aliases before collapsing them", () => {
+    const steps = buildSessionSteps([
+      row("builder connect clicked", 100, { id: "a-legacy" }),
+      row("integration_key_entry_started", 100, {
+        id: "b-key-entry",
+        flow: "settings",
+      }),
+      row("builder_connect_clicked", 100, { id: "c-canonical" }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "builder:connect:clicked",
+      "custom_key:settings:entry_started",
+    ]);
+  });
+
+  it("deduplicates an alias pair across interleaved events and keeps a later retry", () => {
+    const steps = buildSessionSteps([
+      row("builder connect clicked", 100, {
+        id: "a-legacy-clicked",
+        aliasId: "click-pair-1",
+      }),
+      row("builder_connect_popup_blocked", 100, {
+        id: "b-popup-blocked",
+      }),
+      row("builder_connect_clicked", 102, {
+        id: "c-canonical-clicked",
+        aliasId: "click-pair-1",
+      }),
+      row("onboarding_method_outcome", 103, {
+        id: "d-retry-outcome",
+        methodId: "builder_create_account",
+        outcome: "failed",
+      }),
+      row("builder connect clicked", 104, {
+        id: "e-retry-legacy-clicked",
+        aliasId: "click-pair-2",
+      }),
+      row("builder_connect_clicked", 105, {
+        id: "f-retry-canonical-clicked",
+        aliasId: "click-pair-2",
+      }),
+    ]);
+
+    expect(steps.map((step) => step.key)).toEqual([
+      "builder:connect:clicked",
+      "builder:connect:popup_blocked",
+      "outcome:builder_create_account:failed",
+      "builder:connect:clicked",
+    ]);
+  });
+
   it("orders by timestamp, then by journey position, then by id", () => {
     const steps = buildSessionSteps([
       row("onboarding_step_viewed", 200, { stepId: "role" }),
@@ -344,13 +921,17 @@ describe("buildSessionSteps", () => {
 
   it("orders a renderable design output after generation activity", () => {
     const steps = buildSessionSteps([
-      row("design_output_created", 110),
+      row("design_output_created", 110, {
+        templateName: "design",
+      }),
       row("generation_started", 100),
-      row("design_output_created", 120),
+      row("design_output_created", 120, {
+        templateName: "design",
+      }),
     ]);
 
     expect(steps.map((step) => [step.key, step.tsMs])).toEqual([
-      ["output:generation_started", 100],
+      ["attempt:generation_started", 100],
       ["output:design_output_created", 110],
     ]);
   });

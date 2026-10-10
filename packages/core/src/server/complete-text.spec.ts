@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  resolveOwnerEngineApiKey: vi.fn(),
+}));
+
+vi.mock("../agent/production-agent.js", () => ({
+  resolveOwnerEngineApiKey: mocks.resolveOwnerEngineApiKey,
+}));
 
 import type {
   AgentEngine,
@@ -26,6 +34,20 @@ function createFakeEngine(
 }
 
 describe("completeText", () => {
+  it("preserves failures while resolving the active engine setting", async () => {
+    const error = new Error("Unable to read the active agent engine setting");
+    mocks.resolveOwnerEngineApiKey.mockRejectedValueOnce(error);
+
+    await expect(
+      completeText({
+        engine: createFakeEngine(async function* () {
+          yield { type: "stop", reason: "end_turn" };
+        }),
+        input: "Summarize this.",
+      }),
+    ).rejects.toBe(error);
+  });
+
   it("runs one tool-free engine call and returns final assistant text", async () => {
     const calls: EngineStreamOptions[] = [];
     const engine = createFakeEngine(async function* (opts) {

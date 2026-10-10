@@ -471,8 +471,10 @@ Do not apply author-reply or screenshot requests to PRs that were auto-approved
 under an explicit exception; keep their existing recap and approval behavior
 unchanged.
 
-This handoff is measured by `pr-review-handoff`; first-contact thanks also
-contribute to the existing `feedback-reply-tone` measure.
+Measure this handoff with `pr-review-handoff`; first-contact thanks with
+`feedback-reply-tone`, and reply-detail corrections with
+`feedback-reply-detail`. Verify the latter with
+`node scripts/agent-friction-report.mjs --weeks 2 --pattern feedback-reply-detail`.
 
 ## Worktrees and PR provenance
 
