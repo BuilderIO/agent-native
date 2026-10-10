@@ -682,7 +682,7 @@ function ReplayPlayer({
     targetMs: number;
     autoplay: boolean;
   } | null>(null);
-  const bufferedPlaybackTimeRef = useRef<number | null>(null);
+  const replayResumeTimeRef = useRef<number | null>(null);
 
   const displayDims = resolveReplayDisplayDimensions(
     streamedDims ?? initialDims,
@@ -819,19 +819,21 @@ function ReplayPlayer({
           return;
         }
         pendingSeekRef.current = { targetMs: clamped, autoplay };
-        bufferedPlaybackTimeRef.current = null;
+        replayResumeTimeRef.current = null;
         setBuffering(true);
         setPlaying(autoplay);
         updateTime(clamped);
         return;
       }
+      const atFinalTimestamp = completeRef.current && clamped === totalTime;
       pendingSeekRef.current = null;
       setBuffering(false);
-      bufferedPlaybackTimeRef.current = null;
+      replayResumeTimeRef.current =
+        !autoplay && !atFinalTimestamp ? clamped : null;
       try {
         const seekOffset =
-          completeRef.current && clamped === totalTime
-            ? replayFinalFrameOffset(clamped)
+          atFinalTimestamp || !autoplay
+            ? replayOffsetAfterTimestamp(clamped)
             : clamped;
         if (autoplay) {
           replayer.play(seekOffset);
@@ -1055,7 +1057,7 @@ function ReplayPlayer({
       appendedEventCountRef.current = 0;
       loadedEndMsRef.current = 0;
       pendingSeekRef.current = null;
-      bufferedPlaybackTimeRef.current = null;
+      replayResumeTimeRef.current = null;
       if (stageRootRef.current) stageRootRef.current.innerHTML = "";
     };
   }, [
@@ -1099,12 +1101,15 @@ function ReplayPlayer({
         const target = completeRef.current
           ? clamp(pending.targetMs, 0, totalTimeRef.current)
           : pending.targetMs;
+        const atFinalTimestamp =
+          completeRef.current && target === totalTimeRef.current;
         const replayTarget =
-          completeRef.current && target === totalTimeRef.current
-            ? replayFinalFrameOffset(target)
+          atFinalTimestamp || !pending.autoplay
+            ? replayOffsetAfterTimestamp(target)
             : target;
         pendingSeekRef.current = null;
-        bufferedPlaybackTimeRef.current = null;
+        replayResumeTimeRef.current =
+          !pending.autoplay && !atFinalTimestamp ? target : null;
         setBuffering(false);
         try {
           if (pending.autoplay) {
@@ -1121,16 +1126,18 @@ function ReplayPlayer({
         }
         return;
       }
-      const resumeAt = bufferedPlaybackTimeRef.current;
+      const resumeAt = replayResumeTimeRef.current;
       if (resumeAt !== null && playingRef.current) {
-        bufferedPlaybackTimeRef.current = null;
+        replayResumeTimeRef.current = null;
         setBuffering(false);
         try {
-          replayer.play(resumeAt);
+          replayer.play(replayOffsetAfterTimestamp(resumeAt));
         } catch (resumeError) {
           console.warn("[session-replay] playback resume failed", resumeError);
           setPlaying(false);
         }
+      } else if (resumeAt !== null) {
+        setBuffering(false);
       } else if (completeRef.current) {
         setBuffering(false);
       }
@@ -1167,10 +1174,10 @@ function ReplayPlayer({
           nextTime >= loadedEndMsRef.current - 40
         ) {
           const frontier = loadedEndMsRef.current;
-          if (bufferedPlaybackTimeRef.current === null) {
-            bufferedPlaybackTimeRef.current = frontier;
+          if (replayResumeTimeRef.current === null) {
+            replayResumeTimeRef.current = frontier;
             try {
-              replayer.pause(frontier);
+              replayer.pause(replayOffsetAfterTimestamp(frontier));
             } catch (bufferError) {
               console.warn(
                 "[session-replay] playback buffer failed",
@@ -1187,7 +1194,7 @@ function ReplayPlayer({
         ) {
           nextTime = totalTimeRef.current;
           try {
-            replayer.pause(replayFinalFrameOffset(nextTime));
+            replayer.pause(replayOffsetAfterTimestamp(nextTime));
           } catch (finalFramePauseError) {
             console.warn(
               "[session-replay] final frame pause failed",
@@ -1202,7 +1209,7 @@ function ReplayPlayer({
           skipInactiveRef.current &&
           (!streamingPlayerRef.current ||
             completeRef.current ||
-            bufferedPlaybackTimeRef.current === null)
+            replayResumeTimeRef.current === null)
         ) {
           const range = skipRangesRef.current.find(
             (candidate) =>
@@ -1281,13 +1288,13 @@ function ReplayPlayer({
       setPlaying(true);
       return;
     }
-    const bufferedAt = bufferedPlaybackTimeRef.current;
-    if (bufferedAt !== null) {
-      bufferedPlaybackTimeRef.current = null;
+    const resumeAt = replayResumeTimeRef.current;
+    if (resumeAt !== null) {
+      replayResumeTimeRef.current = null;
       setBuffering(false);
       try {
-        replayer.play(bufferedAt);
-        updateTime(bufferedAt);
+        replayer.play(replayOffsetAfterTimestamp(resumeAt));
+        updateTime(resumeAt);
         setPlaying(true);
       } catch (playError) {
         setError(
@@ -3652,8 +3659,8 @@ export function shouldPublishReplayClockUpdate(
 }
 
 // rrweb queues an event at the baseline, and a same-tick pause would clear it.
-export function replayFinalFrameOffset(totalTimeMs: number): number {
-  return totalTimeMs + 1;
+export function replayOffsetAfterTimestamp(timeMs: number): number {
+  return timeMs + 1;
 }
 
 function isRecord(value: unknown): value is AnyRecord {

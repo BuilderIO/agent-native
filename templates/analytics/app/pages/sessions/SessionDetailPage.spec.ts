@@ -25,7 +25,7 @@ import {
   replayDevToolsIssueCount,
   replayActionName,
   replayAvailabilityErrorKey,
-  replayFinalFrameOffset,
+  replayOffsetAfterTimestamp,
   replayInitialViewportDimensions,
   replayPayloadEvents,
   replayViewportDimensions,
@@ -66,8 +66,8 @@ describe("session replay event normalization", () => {
     expect(shouldPublishReplayClockUpdate(1_000, 1_100, 110, NaN)).toBe(false);
   });
 
-  it("seeks past the final timestamp so rrweb applies the last event before pausing", () => {
-    expect(replayFinalFrameOffset(60_000)).toBe(60_001);
+  it("seeks past a timestamp so rrweb applies events at that point before pausing", () => {
+    expect(replayOffsetAfterTimestamp(60_000)).toBe(60_001);
   });
 
   it("keeps the high-contrast replay cursor visible while playing", () => {
