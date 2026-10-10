@@ -390,6 +390,94 @@ export function buildJourneyTree(
   let otherBranchSummaryCount = 0;
   let otherBranchSummaryBytes = 0;
   let otherBranchSummaryBudgetExhausted = false;
+  const otherGroups: Array<{
+    parent: TrieNode;
+    parentPath: string[];
+    merged: TrieNode[];
+    aggregateN: number;
+  }> = [];
+  const collectOtherGroups = (parent: TrieNode, parentPath: string[]) => {
+    const ordered = [...parent.children.values()].sort(
+      (a, b) => b.n - a.n || compareKeys(a.stepKey, b.stepKey),
+    );
+    const merged = ordered.filter((node) => node.n < options.minNodeSessions);
+    if (merged.length) {
+      otherGroups.push({
+        parent,
+        parentPath,
+        merged,
+        aggregateN: merged.reduce((sum, branch) => sum + branch.n, 0),
+      });
+    }
+    for (const node of ordered) {
+      if (node.n < options.minNodeSessions) continue;
+      collectOtherGroups(node, [...parentPath, node.label]);
+    }
+  };
+  collectOtherGroups(root, []);
+
+  const otherSummariesByParent = new Map<
+    TrieNode,
+    NonNullable<JourneyNode["otherBranches"]>
+  >();
+  otherGroups.sort(
+    (a, b) =>
+      a.parent.depth - b.parent.depth ||
+      b.aggregateN - a.aggregateN ||
+      b.merged.length - a.merged.length ||
+      compareKeys(a.parent.key, b.parent.key),
+  );
+  for (const { parent, parentPath, merged } of otherGroups) {
+    const otherBranches: NonNullable<JourneyNode["otherBranches"]> = [];
+    for (const branch of merged) {
+      if (
+        otherBranches.length >= MAX_OTHER_BRANCH_SUMMARIES ||
+        otherBranchSummaryBudgetExhausted
+      ) {
+        break;
+      }
+      if (otherBranchSummaryCount >= MAX_OTHER_BRANCH_SUMMARIES_PER_TREE) {
+        otherBranchSummaryBudgetExhausted = true;
+        break;
+      }
+      const path = [...parentPath, branch.label].map((label) =>
+        boundedJourneyText(label, MAX_JOURNEY_LABEL_CHARS),
+      );
+      const key = boundedJourneyText(branch.key, MAX_JOURNEY_KEY_CHARS);
+      const sourceStepKey = boundedJourneyText(
+        branch.stepKey,
+        MAX_JOURNEY_KEY_CHARS,
+      );
+      const summary = {
+        path: path.map((segment) => segment.value),
+        ...(path.some((segment) => segment.truncated)
+          ? { pathTruncated: true }
+          : {}),
+        key: key.value,
+        ...(key.truncated ? { keyTruncated: true } : {}),
+        sourceStepKey: sourceStepKey.value,
+        ...(sourceStepKey.truncated ? { sourceStepKeyTruncated: true } : {}),
+        n: branch.n,
+        pctOfParent: pct(branch.n, parent.n),
+      };
+      const summaryBytes = utf8Encoder.encode(
+        JSON.stringify(summary),
+      ).byteLength;
+      const arrayOverheadBytes = otherBranches.length === 0 ? 2 : 1;
+      if (
+        otherBranchSummaryBytes + summaryBytes + arrayOverheadBytes >
+        MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE
+      ) {
+        otherBranchSummaryBudgetExhausted = true;
+        break;
+      }
+      otherBranches.push(summary);
+      otherBranchSummaryCount += 1;
+      otherBranchSummaryBytes += summaryBytes + arrayOverheadBytes;
+    }
+    otherSummariesByParent.set(parent, otherBranches);
+  }
+
   const emitChildren = (parent: TrieNode, parentPath: string[]) => {
     const ordered = [...parent.children.values()].sort(
       (a, b) => b.n - a.n || compareKeys(a.stepKey, b.stepKey),
@@ -417,53 +505,7 @@ export function buildJourneyTree(
     if (merged.length) {
       const n = merged.reduce((sum, node) => sum + node.n, 0);
       const dropoffN = merged.reduce((sum, node) => sum + subtreeEnds(node), 0);
-      const otherBranches: NonNullable<JourneyNode["otherBranches"]> = [];
-      for (const branch of merged) {
-        if (
-          otherBranches.length >= MAX_OTHER_BRANCH_SUMMARIES ||
-          otherBranchSummaryBudgetExhausted
-        ) {
-          break;
-        }
-        if (otherBranchSummaryCount >= MAX_OTHER_BRANCH_SUMMARIES_PER_TREE) {
-          otherBranchSummaryBudgetExhausted = true;
-          break;
-        }
-        const path = [...parentPath, branch.label].map((label) =>
-          boundedJourneyText(label, MAX_JOURNEY_LABEL_CHARS),
-        );
-        const key = boundedJourneyText(branch.key, MAX_JOURNEY_KEY_CHARS);
-        const sourceStepKey = boundedJourneyText(
-          branch.stepKey,
-          MAX_JOURNEY_KEY_CHARS,
-        );
-        const summary = {
-          path: path.map((segment) => segment.value),
-          ...(path.some((segment) => segment.truncated)
-            ? { pathTruncated: true }
-            : {}),
-          key: key.value,
-          ...(key.truncated ? { keyTruncated: true } : {}),
-          sourceStepKey: sourceStepKey.value,
-          ...(sourceStepKey.truncated ? { sourceStepKeyTruncated: true } : {}),
-          n: branch.n,
-          pctOfParent: pct(branch.n, parent.n),
-        };
-        const summaryBytes = utf8Encoder.encode(
-          JSON.stringify(summary),
-        ).byteLength;
-        const arrayOverheadBytes = otherBranches.length === 0 ? 2 : 1;
-        if (
-          otherBranchSummaryBytes + summaryBytes + arrayOverheadBytes >
-          MAX_OTHER_BRANCH_SUMMARY_BYTES_PER_TREE
-        ) {
-          otherBranchSummaryBudgetExhausted = true;
-          break;
-        }
-        otherBranches.push(summary);
-        otherBranchSummaryCount += 1;
-        otherBranchSummaryBytes += summaryBytes + arrayOverheadBytes;
-      }
+      const otherBranches = otherSummariesByParent.get(parent) ?? [];
       const branchSummariesPartial = otherBranches.length < merged.length;
       nodes.push({
         key: `${parent.key} > other`,

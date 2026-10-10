@@ -262,6 +262,47 @@ describe("buildJourneyTree", () => {
     ).toBe(true);
   });
 
+  it("prioritizes shallow Other details before descendant summaries use the tree budget", () => {
+    const sessions = [
+      ...Array.from({ length: 12 }, (_, parentIndex) =>
+        Array.from({ length: 21 }, (_, branchIndex) =>
+          session(`s${parentIndex}-${branchIndex}`, [
+            `major-${String(parentIndex).padStart(2, "0")}`,
+            `branch-${String(branchIndex).padStart(2, "0")}`,
+          ]),
+        ),
+      ).flat(),
+      session("root-rare-a", ["root-rare-a"]),
+      session("root-rare-b", ["root-rare-b"]),
+    ];
+    const { rootN, nodes } = buildJourneyTree(sessions, new Map(), {
+      ...OPTIONS,
+      maxDepth: 2,
+      minNodeSessions: 20,
+      examplesPerNode: 0,
+    });
+    const rootOther = nodes.find(
+      (candidate) => candidate.key === "root > other",
+    );
+    const summaryCount = nodes.reduce(
+      (sum, candidate) => sum + (candidate.otherBranches?.length ?? 0),
+      0,
+    );
+
+    expect(rootN).toBe(254);
+    expect(rootOther).toMatchObject({
+      n: 2,
+      pctOfRoot: 0.79,
+      pctOfParent: 0.79,
+      otherBranchCount: 2,
+      otherBranches: [
+        { path: ["ROOT-RARE-A"], n: 1 },
+        { path: ["ROOT-RARE-B"], n: 1 },
+      ],
+    });
+    expect(summaryCount).toBe(MAX_OTHER_BRANCH_SUMMARIES_PER_TREE);
+  });
+
   it("caps serialized branch summary bytes across the tree", () => {
     const sessions = Array.from({ length: 20 }, (_, index) =>
       session(`s${index}`, [
