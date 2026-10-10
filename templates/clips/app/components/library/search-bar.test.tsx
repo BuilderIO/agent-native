@@ -141,6 +141,24 @@ describe("SearchBar command-menu handoff", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("focuses search when / requires Shift on the current keyboard layout", () => {
+    act(() => root.render(<SearchBar />));
+
+    const input = container.querySelector<HTMLInputElement>("input");
+    expect(input).not.toBeNull();
+    const event = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "/",
+      shiftKey: true,
+    });
+
+    act(() => window.dispatchEvent(event));
+
+    expect(document.activeElement).toBe(input);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it("leaves / available while typing in a text field", () => {
     act(() => root.render(<SearchBar />));
 

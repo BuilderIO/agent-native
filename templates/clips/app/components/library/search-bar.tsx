@@ -116,8 +116,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
         event.defaultPrevented ||
         event.metaKey ||
         event.ctrlKey ||
-        event.altKey ||
-        event.shiftKey
+        event.altKey
       ) {
         return;
       }
