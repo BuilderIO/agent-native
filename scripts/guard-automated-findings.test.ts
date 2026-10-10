@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
@@ -137,6 +138,65 @@ test("the guard rejects GitHub issue commands and API creation", () => {
       /(?:gh issue create command|GitHub Issues API POST request|GitHub Issues API creation call|GitHub issue creation action)/,
     );
   }
+});
+
+test("the guard recognizes implicit and equals-form GitHub API POST requests", () => {
+  for (const operation of [
+    "gh api --method=POST repos/org/repo/issues --field title=finding",
+    "gh api -XPOST /repos/org/repo/issues -F=title=finding",
+    "gh api repos/$GITHUB_REPOSITORY/issues --raw-field title=finding",
+    'curl --data \'{"title":"finding"}\' https://api.github.com/repos/org/repo/issues',
+    'curl -d\'{"title":"finding"}\' https://api.github.com/repos/org/repo/issues',
+    "curl -d=title=finding https://api.github.com/repos/org/repo/issues",
+    'curl -X=POST https://api.github.com/repos/org/repo/issues --json \'{"title":"finding"}\'',
+    "wget --post-data=title=finding https://api.github.com/repos/org/repo/issues",
+  ]) {
+    const workflows = currentWorkflows();
+    workflows[reporterWorkflows[1]] += `\n${operation}\n`;
+    assert.match(
+      inspectAutomatedFindingWorkflows(workflows).join("\n"),
+      /keep-neon-warm\.yml contains GitHub Issues API POST request/,
+      operation,
+    );
+  }
+
+  const workflows = currentWorkflows();
+  workflows[reporterWorkflows[1]] +=
+    "\ngh api --method=GET repos/org/repo/issues --field title=search\n";
+  assert.doesNotMatch(
+    inspectAutomatedFindingWorkflows(workflows).join("\n"),
+    /keep-neon-warm\.yml contains GitHub Issues API POST request/,
+  );
+});
+
+test("the degraded Beta fallback renders actual Slack line breaks", () => {
+  const source = readFileSync(reporterWorkflows[0], "utf8");
+  const assignment = source.match(
+    /report_text="\$\((printf '%s\\n'[\s\S]*?)\)"/,
+  )?.[0];
+  assert.ok(
+    assignment,
+    "fallback report should use printf to create line breaks",
+  );
+
+  const result = spawnSync(
+    "bash",
+    [
+      "-c",
+      `run_url=https://github.com/org/repo/actions/runs/123\n${assignment}\nprintf '%s' "$report_text"`,
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.split("\n").length, 5);
+  assert.doesNotMatch(result.stdout, /\\n/);
+});
+
+test("the Beta workflow persists explicit state availability markers", () => {
+  const source = readFileSync(reporterWorkflows[0], "utf8");
+  assert.match(source, /_betaE2EStateAvailability: "absent"/);
+  assert.match(source, /_betaE2EStateAvailability: "unknown"/);
+  assert.doesNotMatch(source, /printf 'null\\n' > [^\n]*state\.json/);
 });
 
 test("the guard rejects issue-by-issue Slack posts", () => {

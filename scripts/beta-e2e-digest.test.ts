@@ -1467,9 +1467,21 @@ describe("state artifact", () => {
     assert.deepEqual(extractState(JSON.stringify(state)), state);
   });
 
-  it("returns null for absent state and rejects invalid artifacts", () => {
+  it("distinguishes absent state from unavailable or damaged artifacts", () => {
     assert.equal(extractState(null), null);
-    assert.equal(extractState("null"), null);
+    assert.equal(
+      extractState(JSON.stringify({ _betaE2EStateAvailability: "absent" })),
+      null,
+    );
+    assert.throws(
+      () =>
+        extractState(JSON.stringify({ _betaE2EStateAvailability: "unknown" })),
+      /notification state was unavailable/,
+    );
+    assert.throws(
+      () => extractState("null"),
+      /does not distinguish absent state from unavailable state/,
+    );
     assert.throws(() => extractState(""), /JSON/);
     assert.throws(() => extractState("{"), /JSON/);
     assert.throws(

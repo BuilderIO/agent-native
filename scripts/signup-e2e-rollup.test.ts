@@ -94,6 +94,57 @@ test("signup E2E reports a failed job when its log has no test titles", () => {
   assert.match(findings[0]?.summary ?? "", /Type error/);
 });
 
+test("signup E2E recognizes test titles and annotations in timestamped logs", () => {
+  const timestampedJob = {
+    ...jobs[0]!,
+    log: [
+      "Full signup flow (chat, beta)\t2026-10-10T10:11:12.1234567Z\t  1) [chromium] › e2e/signup/specs/signup.spec.ts:101:7 › email link opens the signed-in app",
+      "Full signup flow (chat, beta)\t2026-10-10T10:11:13.1234567Z\t     Error: expect(page).toHaveURL(expected) failed",
+      "Full signup flow (chat, beta)\t2026-10-10T10:11:14.1234567Z\t::error title=Test failed: verification link keeps the session::Error: expected session cookie",
+    ].join("\n"),
+  };
+
+  const findings = parseSignupE2EFindings([timestampedJob]);
+  assert.equal(findings.length, 2);
+  assert.equal(
+    findings[0]?.title,
+    "e2e/signup/specs/signup.spec.ts:101:7 › email link opens the signed-in app",
+  );
+  assert.match(findings[0]?.summary ?? "", /toHaveURL/);
+  assert.equal(findings[1]?.title, "verification link keeps the session");
+  assert.match(findings[1]?.summary ?? "", /expected session cookie/);
+});
+
+test("signup E2E report text cannot create Slack mentions or links", () => {
+  const maliciousJob = {
+    ...jobs[0]!,
+    name: "Signup <@U123> <!channel>",
+    url: "https://evil.test/actions/runs/123/job/456",
+    log: "  1) [chromium] › e2e/signup/spec.ts:1:1 › failure <@U123> <!channel> https://evil.test\n     Error: <https://evil.test|click> @here",
+  };
+  const rollup = buildSignupE2ERollup({
+    jobs: [maliciousJob],
+    workflowResult: "failure <!channel>",
+    apps: "chat @here",
+    environments: "beta",
+    runUrl: "https://github.com/BuilderIO/agent-native/actions/runs/123",
+    collectionErrors: [
+      "Could not read @here <https://evil.test|click> www.evil.test",
+    ],
+  });
+
+  assert.doesNotMatch(rollup.slackText, /<@U123>|<!channel>/);
+  assert.ok(!rollup.slackText.includes("<https://evil.test"));
+  assert.ok(rollup.slackText.includes("evil.\u200btest"));
+  assert.doesNotMatch(rollup.slackText, /@(?:here|U123)/);
+  assert.ok(rollup.slackText.includes("https://\u200b"));
+  assert.ok(
+    rollup.slackText.includes(
+      "<https://github.com/BuilderIO/agent-native/actions/runs/123|workflow run>",
+    ),
+  );
+});
+
 test("signup E2E includes collection warnings and preserves all warnings in the full report", () => {
   const collectionErrors = Array.from(
     { length: 40 },

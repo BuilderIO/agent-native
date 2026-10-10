@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   acknowledgeHealthNotification,
   extractFailureDetails,
+  hasSuccessfulStatePersistenceStep,
   initialHealthReportState,
   parseHealthReportState,
   planHealthReport,
@@ -324,4 +325,37 @@ test("degraded state reads report findings, unknown history, and artifact fallba
 test("state parsing fails loudly for absent or malformed artifact data", () => {
   assert.throws(() => parseHealthReportState("not-json"), /not valid JSON/);
   assert.throws(() => parseHealthReportState("{}"), /unsupported version/);
+});
+
+test("only a successful state persistence step requires its artifact", () => {
+  const jobsWithStep = (conclusion: string) => ({
+    jobs: [
+      {
+        steps: [
+          {
+            name: "Ping /_agent-native/health for every app",
+            conclusion: "success",
+          },
+          { name: "Persist health reporter state", conclusion },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(
+    hasSuccessfulStatePersistenceStep(jobsWithStep("success")),
+    true,
+  );
+  assert.equal(
+    hasSuccessfulStatePersistenceStep(jobsWithStep("skipped")),
+    false,
+  );
+  assert.equal(
+    hasSuccessfulStatePersistenceStep(jobsWithStep("failure")),
+    false,
+  );
+  assert.equal(
+    hasSuccessfulStatePersistenceStep({ jobs: [{ steps: [] }] }),
+    false,
+  );
 });

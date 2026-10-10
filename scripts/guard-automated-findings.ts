@@ -70,7 +70,7 @@ const issueCreationOperations = [
   {
     description: "GitHub Issues API POST request",
     pattern:
-      /\bgh\s+api\b[^\n]*(?:(?:-X\s+POST|--method\s+POST|-f\s+(?:title|body)=|--raw-field\s+(?:title|body)=)[^\n]*\/issues(?:$|[\s"'`?])|\/issues(?:$|[\s"'`?])[^\n]*(?:-X\s+POST|--method\s+POST|-f\s+(?:title|body)=|--raw-field\s+(?:title|body)=))|\b(?:curl|wget)\b[^\n]*(?:(?:-X\s+POST|--request\s+POST)[^\n]*\/repos\/(?:[^/\s"'`]+\/[^/\s"'`]+|\$\{?[A-Z_][A-Z0-9_]*\}?)\/issues(?:$|[\s"'`?])|\/repos\/(?:[^/\s"'`]+\/[^/\s"'`]+|\$\{?[A-Z_][A-Z0-9_]*\}?)\/issues(?:$|[\s"'`?])[^\n]*(?:-X\s+POST|--request\s+POST))|\brequest\s*\(\s*["']POST\s+\/repos\/[^/]+\/[^/]+\/issues(?:$|[\s"'`?])|\b(?:axios|requests|httpx)\.post\s*\([^\n]*\/repos\/[^/\s"'`]+\/[^/\s"'`]+\/issues(?:$|[\s"'`?])|\bfetch\s*\(\s*["'`][^"'`]*\/repos\/[^/\s"'`]+\/[^/\s"'`]+\/issues(?:$|[?"'`])[^\n]*\bmethod\s*:\s*["'`]POST/i,
+      /\brequest\s*\(\s*["']POST\s+\/repos\/[^/]+\/[^/]+\/issues(?:$|[\s"'`?])|\b(?:axios|requests|httpx)\.post\s*\([^\n]*\/repos\/[^/\s"'`]+\/[^/\s"'`]+\/issues(?:$|[\s"'`?])|\bfetch\s*\(\s*["'`][^"'`]*\/repos\/[^/\s"'`]+\/[^/\s"'`]+\/issues(?:$|[?"'`])[^\n]*\bmethod\s*:\s*["'`]POST/i,
   },
   {
     description: "GitHub issue creation action",
@@ -78,6 +78,32 @@ const issueCreationOperations = [
       /^\s*uses:\s*[^\n]*(?:(?:create|new)[-_](?:[\w]+[-_]){0,3}issues?|issues?[-_].*(?:create|new))[^\n]*$/im,
   },
 ];
+
+function postsToGitHubIssues(source: string): boolean {
+  const issueEndpoint =
+    /(?:^|[\/\s"'`])repos\/[^\s"'`]*\/issues(?:[?\s"'`]|$)/i;
+  const explicitMethod =
+    /(?:--method\b|--request\b|-X)(?:\s*=\s*|\s+|(?=[A-Za-z]))([A-Za-z]+)\b/i;
+  const ghFields =
+    /(?:^|\s)(?:-f|-F|--field|--raw-field)(?:(?:=|\s+)\s*)?(?:title|body)=/i;
+  const requestBody =
+    /(?:^|\s)(?:(?:-d|-F)(?:\s+|=|(?=\S))|(?:--data(?:-raw|-binary|-urlencode|-ascii)?|--json|--form|--post-data|--post-file)(?:\s+|=|(?=["'])))/i;
+
+  return source.split(/\r?\n/).some((line) => {
+    if (!issueEndpoint.test(line)) return false;
+
+    const method = line.match(explicitMethod)?.[1]?.toUpperCase();
+    if (/\bgh\s+api\b/i.test(line)) {
+      if (method) return method === "POST";
+      return ghFields.test(line);
+    }
+    if (/\b(?:curl|wget)\b/i.test(line)) {
+      if (method) return method === "POST";
+      return requestBody.test(line);
+    }
+    return false;
+  });
+}
 
 export function inspectAutomatedFindingWorkflows(
   workflows: Record<string, string>,
@@ -115,6 +141,11 @@ export function inspectAutomatedFindingWorkflows(
       );
     }
     const normalizedSource = source.replace(/\\\r?\n[ \t]*/g, " ");
+    if (postsToGitHubIssues(normalizedSource)) {
+      problems.push(
+        `${path} contains GitHub Issues API POST request; workflow issue creation is forbidden. PR Visual Recap sticky comments remain allowed.`,
+      );
+    }
     for (const { description, pattern } of issueCreationOperations) {
       if (pattern.test(normalizedSource)) {
         problems.push(

@@ -90,10 +90,10 @@ export function buildSignupAgentRollup(input: {
   }
   const details = findings.map((finding) =>
     [
-      `• [${finding.severity}] ${finding.target}: ${finding.title}`,
-      `  Step: ${finding.step}`,
+      `• [${finding.severity}] ${slackText(finding.target)}: ${slackText(finding.title)}`,
+      `  Step: ${slackText(finding.step)}`,
       `  Signature: \`signup-agent-${finding.signature}\``,
-      `  Evidence: ${finding.evidence || "No evidence summary was recorded."}`,
+      `  Evidence: ${slackText(finding.evidence || "No evidence summary was recorded.")}`,
     ].join("\n"),
   );
 
@@ -121,7 +121,7 @@ export function buildSignupAgentRollup(input: {
   ].join("\n");
 
   const lines = [
-    `Signup agent review ${input.status} for ${input.targets} on ${input.environments}.`,
+    `Signup agent review ${slackText(input.status)} for ${slackText(input.targets)} on ${slackText(input.environments)}.`,
     `Findings: ${findings.length} total; showing ${visible.length}; ${omittedFindingCount} omitted from this Slack message.`,
     ...(input.reportIncomplete
       ? ["The review did not produce complete evidence."]
@@ -139,9 +139,9 @@ export function buildSignupAgentRollup(input: {
       : []),
     "",
     input.artifactUrl
-      ? `Full findings and screenshot evidence: <${input.artifactUrl}|90-day report artifact>.`
-      : `Full report artifact is unavailable; see <${input.runUrl}|the workflow run>.`,
-    `Run: <${input.runUrl}|workflow run>`,
+      ? `Full findings and screenshot evidence: ${slackLink(input.artifactUrl, "90-day report artifact")}.`
+      : `Full report artifact is unavailable; see ${slackLink(input.runUrl, "the workflow run")}.`,
+    `Run: ${slackLink(input.runUrl, "workflow run")}`,
   ];
 
   return {
@@ -159,6 +159,46 @@ function unescapeCell(value: string): string {
     .replace(/\u0000/g, "|")
     .replace(/\\\|/g, "|")
     .trim();
+}
+
+function slackText(value: string): string {
+  return value
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/@/g, "@\u200b")
+    .replace(/\bhttps?:\/\//gi, (scheme) => `${scheme}\u200b`)
+    .replace(/\bwww\./gi, "www\u200b.")
+    .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b/gi, (domain) =>
+      domain.replace(/\./g, ".\u200b"),
+    )
+    .replace(/`/g, "'")
+    .trim();
+}
+
+function slackLink(url: string, label: string): string {
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.hostname !== "github.com" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port ||
+      parsed.search ||
+      parsed.hash ||
+      !/^\/BuilderIO\/agent-native\/actions\/runs\/\d+(?:\/artifacts\/\d+)?$/.test(
+        parsed.pathname,
+      )
+    ) {
+      return slackText(label);
+    }
+    return `<${parsed.href}|${slackText(label)}>`;
+  } catch {
+    return slackText(label);
+  }
 }
 
 function parseArgs(args: string[]): Map<string, string> {

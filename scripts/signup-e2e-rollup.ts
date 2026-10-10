@@ -39,7 +39,10 @@ export function parseSignupE2EFindings(
 ): SignupE2EFinding[] {
   const findings: SignupE2EFinding[] = [];
   for (const job of jobs) {
-    const lines = job.log.replace(/\u001b\[[0-9;]*m/g, "").split(/\r?\n/);
+    const lines = job.log
+      .replace(/\u001b\[[0-9;]*m/g, "")
+      .split(/\r?\n/)
+      .map(stripLogPrefix);
     const headers: Array<{
       index: number;
       title: string;
@@ -96,7 +99,7 @@ export function buildSignupE2ERollup(input: {
   const findings = parseSignupE2EFindings(input.jobs);
   const details = findings.map(
     (finding) =>
-      `• ${finding.title} — signature \`signup-e2e-${finding.signature}\` — ${finding.summary} (<${finding.jobUrl}|${finding.jobName}>)`,
+      `• ${slackText(finding.title)} — signature \`signup-e2e-${finding.signature}\` — ${slackText(finding.summary)} (${slackLink(finding.jobUrl, finding.jobName)})`,
   );
   let used = 0;
   const visible: string[] = [];
@@ -111,9 +114,10 @@ export function buildSignupE2ERollup(input: {
   let collectionCharacters = 0;
   const visibleCollectionErrors: string[] = [];
   for (const error of collectionErrors) {
-    const size = Array.from(error).length + 1;
+    const safeError = slackText(error);
+    const size = Array.from(safeError).length + 1;
     if (collectionCharacters + size > MAX_SLACK_COLLECTION_DETAILS) break;
-    visibleCollectionErrors.push(error);
+    visibleCollectionErrors.push(safeError);
     collectionCharacters += size;
   }
   const omittedCollectionErrorCount =
@@ -147,7 +151,7 @@ export function buildSignupE2ERollup(input: {
       : ["No test-level finding details were collected.", ""]),
   ].join("\n");
   const lines = [
-    `Signup E2E ${input.workflowResult} for ${input.apps} on ${input.environments}.`,
+    `Signup E2E ${slackText(input.workflowResult)} for ${slackText(input.apps)} on ${slackText(input.environments)}.`,
     `Failure summary: ${failedJobCount} failed job${failedJobCount === 1 ? "" : "s"}; ${findings.length} finding${findings.length === 1 ? "" : "s"} total; showing ${visible.length}; ${omittedFindingCount} omitted from this Slack message.`,
     ...(collectionErrors.length
       ? [
@@ -174,12 +178,12 @@ export function buildSignupE2ERollup(input: {
       : []),
     "",
     input.reportArtifactUrl
-      ? `Complete findings and failed-job logs: <${input.reportArtifactUrl}|90-day report artifact>.`
-      : `Full report artifact unavailable; see <${input.runUrl}|workflow run>.`,
+      ? `Complete findings and failed-job logs: ${slackLink(input.reportArtifactUrl, "90-day report artifact")}.`
+      : `Full report artifact unavailable; see ${slackLink(input.runUrl, "workflow run")}.`,
     input.evidenceUrl
-      ? `Signup test evidence: <${input.evidenceUrl}|test-result artifact>.`
+      ? `Signup test evidence: ${slackLink(input.evidenceUrl, "test-result artifact")}.`
       : "No signup test-result artifact was uploaded.",
-    `Run: <${input.runUrl}|workflow run>`,
+    `Run: ${slackLink(input.runUrl, "workflow run")}`,
   ];
 
   return {
@@ -224,9 +228,49 @@ function findErrorSummary(lines: string[]): string {
 
 function stripLogPrefix(line: string): string {
   return line.replace(
-    /^.*?\t\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\t/,
+    /^(?:[^\t]*\t)?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\t/,
     "",
   );
+}
+
+function slackText(value: string): string {
+  return value
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/@/g, "@\u200b")
+    .replace(/\bhttps?:\/\//gi, (scheme) => `${scheme}\u200b`)
+    .replace(/\bwww\./gi, "www\u200b.")
+    .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b/gi, (domain) =>
+      domain.replace(/\./g, ".\u200b"),
+    )
+    .replace(/`/g, "'")
+    .trim();
+}
+
+function slackLink(url: string, label: string): string {
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.hostname !== "github.com" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port ||
+      parsed.search ||
+      parsed.hash ||
+      !/^\/BuilderIO\/agent-native\/actions\/runs\/\d+(?:\/(?:job|artifacts)\/\d+)?$/.test(
+        parsed.pathname,
+      )
+    ) {
+      return slackText(label);
+    }
+    return `<${parsed.href}|${slackText(label)}>`;
+  } catch {
+    return slackText(label);
+  }
 }
 
 function conciseSummary(value: string): string {

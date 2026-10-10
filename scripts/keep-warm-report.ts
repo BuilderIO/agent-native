@@ -49,6 +49,38 @@ export type HealthReportPlan = {
 
 const MAX_PENDING_NOTIFICATIONS = 100;
 const MAX_FAILURE_DETAILS_LENGTH = 5_000;
+const STATE_PERSISTENCE_STEP = "Persist health reporter state";
+
+export function hasSuccessfulStatePersistenceStep(value: unknown): boolean {
+  if (!isRecord(value) || !Array.isArray(value.jobs)) {
+    throw new Error("health reporter previous run has an invalid job list");
+  }
+
+  return value.jobs.some((job, jobIndex) => {
+    if (!isRecord(job)) {
+      throw new Error(
+        `health reporter previous run has an invalid job at index ${jobIndex}`,
+      );
+    }
+    if (job.steps === undefined) return false;
+    if (!Array.isArray(job.steps)) {
+      throw new Error(
+        `health reporter previous run has an invalid steps list at job ${jobIndex}`,
+      );
+    }
+
+    return job.steps.some((step, stepIndex) => {
+      if (!isRecord(step)) {
+        throw new Error(
+          `health reporter previous run has an invalid step at job ${jobIndex}, index ${stepIndex}`,
+        );
+      }
+      return (
+        step.name === STATE_PERSISTENCE_STEP && step.conclusion === "success"
+      );
+    });
+  });
+}
 
 export function initialHealthReportState(): HealthReportState {
   return {
@@ -597,6 +629,11 @@ function runValidate(args: CliArgs): void {
   parseHealthReportState(readFileSync(requireArg(args, "state"), "utf8"));
 }
 
+function runPersistenceStatus(args: CliArgs): void {
+  const jobs = JSON.parse(readFileSync(requireArg(args, "jobs"), "utf8"));
+  process.stdout.write(`${hasSuccessfulStatePersistenceStep(jobs)}\n`);
+}
+
 function main(): void {
   const command = process.argv[2];
   const args = parseCliArgs(process.argv.slice(3));
@@ -605,6 +642,7 @@ function main(): void {
   if (command === "attach-report") return runAttachReport(args);
   if (command === "degraded") return runDegraded(args);
   if (command === "validate") return runValidate(args);
+  if (command === "persistence-status") return runPersistenceStatus(args);
   throw new Error(`unknown command: ${command ?? ""}`);
 }
 

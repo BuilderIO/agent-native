@@ -213,13 +213,18 @@ jobs:
             fi
             if [ ! -f scripts/beta-e2e-digest.ts ] || ! node --experimental-strip-types -e '' >/dev/null 2>&1; then
               run_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$RUN_ID"
-              report_text=":warning: *Beta E2E report is degraded*\nRun metadata collection failed before the full digest could be built.\nFindings: 1 total; showing 1; 0 omitted from this Slack message.\n• Report collection failure: findings and deduplication history are unknown.\nFull report artifact and collector logs: <$run_url|workflow run>."
+              report_text="$(printf '%s\n' \
+                ':warning: *Beta E2E report is degraded*' \
+                'Run metadata collection failed before the full digest could be built.' \
+                'Findings: 1 total; showing 1; 0 omitted from this Slack message.' \
+                '• Report collection failure: findings and deduplication history are unknown.' \
+                "Full report artifact and collector logs: <$run_url|workflow run>.")"
               jq -n --arg channel "$SLACK_CHANNEL" --arg text "$report_text" \
                 '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' \
                 > "$REPORT_DIR/out/slack-payload.json"
               printf '%s\n' "$report_text" > "$REPORT_DIR/out/slack.txt"
               printf '# Beta E2E degraded report\n\n%s\n' "$report_text" > "$REPORT_DIR/out/report.md"
-              printf 'null\n' > "$REPORT_DIR/out/state.json"
+              jq -n '{_betaE2EStateAvailability: "unknown"}' > "$REPORT_DIR/out/state.json"
               jq -n '{previousStateAvailable: false, status: "red", failing: 1, newFailures: 1, notifyReason: "degraded-collection"}' \
                 > "$REPORT_DIR/out/decision.json"
               {
@@ -247,8 +252,9 @@ jobs:
           done < "$REPORT_DIR/notes.txt"
           node --experimental-strip-types scripts/beta-e2e-digest.ts "${args[@]}"
           if [ -s "$REPORT_DIR/previous/state.json" ]; then
-            prior_state_type="$(jq -r 'type' "$REPORT_DIR/previous/state.json" 2>/dev/null || echo invalid)"
-            if [ "$prior_state_type" != "null" ] && \
+            prior_state_availability="$(jq -r '._betaE2EStateAvailability // empty' "$REPORT_DIR/previous/state.json" 2>/dev/null || true)"
+            if [ "$prior_state_availability" != "absent" ] && \
+              [ "$prior_state_availability" != "unknown" ] && \
               [ "$(jq -r .previousStateAvailable "$REPORT_DIR/out/decision.json")" != "true" ]; then
               metadata_incomplete=true
             fi
@@ -335,8 +341,17 @@ jobs:
           if [ "$SHOULD_NOTIFY" = "true" ] && { [ "$METADATA_INCOMPLETE" = "true" ] || [ "$SLACK_CONFIGURED" != "true" ] || [ "$SLACK_OUTCOME" != "success" ] || [ "$SLACK_OK" != "true" ]; }; then
             if [ "$(jq -r .previousStateAvailable "$REPORT_DIR/out/decision.json")" = "true" ]; then
               cp "$REPORT_DIR/previous/state.json" "$REPORT_DIR/out/state.json"
+            elif [ -s "$REPORT_DIR/previous/state.json" ]; then
+              prior_state_availability="$(jq -r '._betaE2EStateAvailability // empty' "$REPORT_DIR/previous/state.json" 2>/dev/null || true)"
+              if [ "$prior_state_availability" = "absent" ] || [ "$prior_state_availability" = "unknown" ]; then
+                cp "$REPORT_DIR/previous/state.json" "$REPORT_DIR/out/state.json"
+              else
+                jq -n '{_betaE2EStateAvailability: "unknown"}' > "$REPORT_DIR/out/state.json"
+              fi
+            elif [ "$METADATA_INCOMPLETE" = "true" ]; then
+              jq -n '{_betaE2EStateAvailability: "unknown"}' > "$REPORT_DIR/out/state.json"
             else
-              printf 'null\n' > "$REPORT_DIR/out/state.json"
+              jq -n '{_betaE2EStateAvailability: "absent"}' > "$REPORT_DIR/out/state.json"
             fi
             if [ "$METADATA_INCOMPLETE" = "true" ]; then
               message="Run metadata collection was incomplete; the prior notification state was retained to avoid a false recovery."

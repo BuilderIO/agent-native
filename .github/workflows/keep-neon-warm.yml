@@ -150,7 +150,9 @@ jobs:
                 echo "::error::Actions returned an invalid job list for previous health run ${previous_run_id}."
                 exit 1
               fi
-              wrote_state="$(jq -r '[.jobs[].steps[]? | select(.name == "Persist health reporter state")] | length > 0' <<<"$previous_jobs")"
+              previous_jobs_path="$REPORT_DIR/previous-jobs.json"
+              printf '%s\n' "$previous_jobs" > "$previous_jobs_path"
+              wrote_state="$(node --experimental-strip-types scripts/keep-warm-report.ts persistence-status --jobs "$previous_jobs_path")"
               if [[ "$wrote_state" == "true" ]]; then
                 echo "::error::Previous health run ${previous_run_id} was expected to upload state, but its artifact is missing or expired."
                 exit 1
@@ -164,7 +166,7 @@ jobs:
                 --arg latest_failure_updated_at "$latest_failure_updated_at" \
                 '{version: 1, incidentActive: false, failureSignature: null, lastScheduledHealthOutcome: (if $previous_conclusion == "success" or $previous_conclusion == "failure" then $previous_conclusion else null end), lastScheduledHealthAt: ($previous_updated_at | select(length > 0) // null), latestHealthFailureAt: ($latest_failure_updated_at | select(length > 0) // null), pendingNotifications: []}' \
                 > "$state_path"
-              echo "::warning::The previous run predates durable health state; initialized reporter state from verified Actions history."
+              echo "::warning::The previous run did not successfully persist reporter state; initialized reporter state from verified Actions history."
             fi
           fi
 

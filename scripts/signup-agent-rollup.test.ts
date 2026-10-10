@@ -85,3 +85,33 @@ test("an incomplete signup agent run surfaces a missing findings report", () => 
   assert.match(rollup.slackText, /did not produce a findings report/);
   assert.match(rollup.slackText, /report artifact is unavailable/);
 });
+
+test("signup agent report text cannot create Slack mentions or links", () => {
+  const maliciousMarkdown = [
+    "### <@U123> <!channel> https://evil.test",
+    "",
+    "| Severity | Step | Issue | Evidence |",
+    "| --- | --- | --- | --- |",
+    "| high | step @here | title <@U456> <!channel> https://evil.test | evidence www.evil.test @everyone |",
+  ].join("\n");
+  const rollup = buildSignupAgentRollup({
+    markdown: maliciousMarkdown,
+    status: "review <!channel> @here",
+    targets: "app @here",
+    environments: "beta",
+    runUrl: "https://github.com/BuilderIO/agent-native/actions/runs/123",
+    artifactUrl:
+      "https://github.com/BuilderIO/agent-native/actions/runs/123/artifacts/456",
+  });
+
+  assert.doesNotMatch(rollup.slackText, /<@U123>|<!channel>/);
+  assert.ok(!rollup.slackText.includes("<https://evil.test"));
+  assert.ok(rollup.slackText.includes("evil.\u200btest"));
+  assert.doesNotMatch(rollup.slackText, /@(?:here|everyone|U123|U456)/);
+  assert.ok(rollup.slackText.includes("https://\u200b"));
+  assert.ok(
+    rollup.slackText.includes(
+      "<https://github.com/BuilderIO/agent-native/actions/runs/123|workflow run>",
+    ),
+  );
+});

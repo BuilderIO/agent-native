@@ -1156,8 +1156,25 @@ export function extractState(
   json: string | null | undefined,
 ): DigestState | null {
   if (json === null || json === undefined) return null;
-  const parsed = JSON.parse(json) as Partial<DigestState> | null;
-  if (parsed === null) return null;
+  const parsed = JSON.parse(json) as unknown;
+  if (parsed === null) {
+    throw new Error(
+      "The previous beta-e2e state artifact does not distinguish absent state from unavailable state.",
+    );
+  }
+  if (typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("The previous beta-e2e state artifact is invalid.");
+  }
+  const availability = (parsed as Record<string, unknown>)[
+    "_betaE2EStateAvailability"
+  ];
+  if (availability === "absent") return null;
+  if (availability === "unknown") {
+    throw new Error(
+      "The previous beta-e2e state artifact records that notification state was unavailable.",
+    );
+  }
+  const state = parsed as Partial<DigestState>;
   const validRun = (value: unknown): value is number =>
     Number.isInteger(value) && (value as number) > 0;
   const validTimestamp = (value: unknown): value is string =>
@@ -1182,24 +1199,23 @@ export function extractState(
     );
   };
   if (
-    parsed.v !== 1 ||
-    (parsed.status !== "red" && parsed.status !== "green") ||
-    !validRun(parsed.run) ||
-    !validTimestamp(parsed.at) ||
-    !Number.isInteger(parsed.consecutiveRed) ||
-    (parsed.consecutiveRed as number) < 0 ||
-    (parsed.firstRed !== null && !validRun(parsed.firstRed)) ||
-    (parsed.lastGreen !== null && !validRun(parsed.lastGreen)) ||
-    (parsed.lastNotifiedAt !== null &&
-      !validTimestamp(parsed.lastNotifiedAt)) ||
-    !Array.isArray(parsed.failing) ||
-    !parsed.failing.every(validStateEntry) ||
-    !Number.isInteger(parsed.overflow) ||
-    (parsed.overflow as number) < 0
+    state.v !== 1 ||
+    (state.status !== "red" && state.status !== "green") ||
+    !validRun(state.run) ||
+    !validTimestamp(state.at) ||
+    !Number.isInteger(state.consecutiveRed) ||
+    (state.consecutiveRed as number) < 0 ||
+    (state.firstRed !== null && !validRun(state.firstRed)) ||
+    (state.lastGreen !== null && !validRun(state.lastGreen)) ||
+    (state.lastNotifiedAt !== null && !validTimestamp(state.lastNotifiedAt)) ||
+    !Array.isArray(state.failing) ||
+    !state.failing.every(validStateEntry) ||
+    !Number.isInteger(state.overflow) ||
+    (state.overflow as number) < 0
   ) {
     throw new Error("The previous beta-e2e state artifact is invalid.");
   }
-  return parsed as DigestState;
+  return state as DigestState;
 }
 
 // ---------------------------------------------------------------------------
