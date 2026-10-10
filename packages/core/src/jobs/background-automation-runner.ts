@@ -107,6 +107,10 @@ import {
   withAutomationRecoveryStorage,
   type AutomationResume,
 } from "./automation-recovery.js";
+import {
+  automationRunTerminalError,
+  type AutomationTerminalEvent,
+} from "./automation-terminal-error.js";
 import { inspectAutomationWork } from "./automation-work-evidence.js";
 import { effectiveTimezone } from "./cron.js";
 import {
@@ -465,40 +469,12 @@ async function assertLlmCredentialsUsable(input: {
  */
 export function backgroundRunTerminalError(run: {
   events?: readonly {
-    event: {
-      type: string;
-      error?: string;
-      details?: string;
-      errorCode?: string;
-      provider?: string;
-    };
+    event: AutomationTerminalEvent;
   }[];
 }): { message: string; errorCode?: string } | null {
-  const events = run.events ?? [];
-  const connection = events.find(
-    ({ event }) => event.type === "connection_required",
-  )?.event;
-  if (connection) {
-    return {
-      message: `The run stopped because ${connection.provider || "a provider"} is not connected. Connect it for this automation's owner so the automation can use it.`,
-      errorCode: CONNECTION_REQUIRED_ERROR_CODE,
-    };
-  }
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i].event;
-    if (event.type === "missing_api_key") {
-      return {
-        message: LLM_MISSING_CREDENTIALS_MESSAGE,
-        errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
-      };
-    }
-    if (event.type === "error") {
-      const message = (event.error || event.details || "").trim();
-      return message ? { message, errorCode: event.errorCode } : null;
-    }
-    if (event.type === "done") return null;
-  }
-  return null;
+  return automationRunTerminalError(
+    (run.events ?? []).map(({ event }) => event),
+  );
 }
 
 /**

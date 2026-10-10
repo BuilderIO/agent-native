@@ -62,3 +62,5 @@ Reconcile durably finished history on a later scheduler tick when projecting its
 Preserve every own JSON key in saved dispatch requests while removing inline attachment bytes, including nested request and attachment metadata.
 
 Keep authorization inside the action deadline and cancellation race, preventing late authorization from starting a write after the worker has stopped.
+
+Share terminal failure classification between live and recovered automation runs so a connection request retains its precondition status and prior confirmed delivery evidence after a crash.

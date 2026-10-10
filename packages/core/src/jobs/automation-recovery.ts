@@ -9,6 +9,7 @@ import {
   getRunTurnRef,
   reapIfStale,
   STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN,
+  type CurrentTurnRunEvent,
 } from "../agent/run-store.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { automationOutcomeMessagesForLocale } from "../localization/automation-outcome-messages.js";
@@ -17,6 +18,7 @@ import type { LocaleCode } from "../localization/shared.js";
 import type { Resource } from "../resources/store.js";
 import { AutomationNoOpEvidenceUnreadableError } from "./actions/automation-no-op.js";
 import { withDeliveryNote } from "./automation-outcome.js";
+import { automationRunTerminalError } from "./automation-terminal-error.js";
 import { inspectAutomationWork } from "./automation-work-evidence.js";
 import {
   recoveredFactoryOwnerOrgId,
@@ -258,14 +260,34 @@ export async function inspectAutomationRecovery(
   if (run.status === "running") return { state: "active" };
   const ref = await getRunTurnRef(run.id);
   if (!ref || ref.threadId !== history.threadId) return unavailable();
-  let events: AgentChatEvent[];
+  let runEvents: CurrentTurnRunEvent[];
   try {
-    events = await getCurrentTurnEventsForThread(ref.threadId, ref.turnId);
+    runEvents = await getCurrentTurnRunEventsForThread(
+      ref.threadId,
+      ref.turnId,
+    );
   } catch (error) {
     if (!(error instanceof AgentRunJournalUnreadableError)) throw error;
     return unavailable(error.errorCode);
   }
+  const events = runEvents.map(({ event }) => event);
   if (run.status === "completed") {
+    const failure = automationRunTerminalError(
+      runEvents
+        .filter((event) => event.runId === run.id)
+        .map(({ event }) => event),
+    );
+    if (failure) {
+      const deliveryNote = deliveryNoteForEvents(events);
+      return {
+        state: "settle",
+        status: "error",
+        history,
+        error: withDeliveryNote(failure.message, deliveryNote),
+        errorCode: failure.errorCode,
+        deliveryNote,
+      };
+    }
     const actions = await getActions?.();
     let evidence: ReturnType<typeof inspectAutomationWork>;
     try {

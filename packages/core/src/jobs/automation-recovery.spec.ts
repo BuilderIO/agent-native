@@ -98,7 +98,13 @@ describe("automation worker recovery", () => {
     mocks.ref.mockResolvedValue({ threadId: "thread-1", turnId: "job-1" });
     mocks.count.mockResolvedValue(1);
     mocks.events.mockResolvedValue(sent);
-    mocks.runEvents.mockResolvedValue([]);
+    mocks.runEvents.mockImplementation(async () =>
+      ((await mocks.events()) as AgentChatEvent[]).map((event, seq) => ({
+        runId: "job-1",
+        seq,
+        event,
+      })),
+    );
   });
 
   it("keeps permanently corrupt recovery evidence distinct from unavailable storage", async () => {
@@ -488,6 +494,81 @@ describe("automation worker recovery", () => {
         now,
       ),
     ).toMatchObject({ state: "unrecoverable", status: "error" });
+  });
+
+  it.each([
+    { prior: sent, destination: undefined },
+    { prior: sent, destination: "test-destination" },
+    { prior: [], destination: undefined },
+    { prior: [], destination: "test-destination" },
+    {
+      prior: [
+        {
+          type: "tool_done" as const,
+          tool: "automation-no-op",
+          result: JSON.stringify({ status: "skipped", reason: "No work." }),
+        },
+      ],
+      destination: undefined,
+    },
+  ])(
+    "preserves a completed connection request before outcome settlement %j",
+    async ({ prior, destination }) => {
+      mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+      mocks.events.mockResolvedValue([
+        ...prior,
+        {
+          type: "connection_required",
+          requestId: "request-1",
+          provider: "hubspot",
+          reason: "connect",
+        },
+        { type: "done" },
+      ]);
+      const recovery = await inspectAutomationRecovery(
+        resource,
+        { ...meta, deliveryDestination: destination },
+        now,
+      );
+      expect(recovery).toMatchObject({
+        state: "settle",
+        status: "error",
+        history,
+        errorCode: "connection_required",
+        error: expect.stringContaining("hubspot"),
+      });
+      if (prior === sent) {
+        expect(recovery?.state === "settle" && recovery.error).toContain(
+          "send-test-email",
+        );
+        expect(recovery?.state === "settle" && recovery.error).not.toContain(
+          "No delivery was confirmed",
+        );
+      }
+    },
+  );
+
+  it("does not let a predecessor connection request overwrite a successful successor", async () => {
+    mocks.get.mockResolvedValue({ id: "job-1", status: "completed" });
+    mocks.runEvents.mockResolvedValue([
+      {
+        runId: "predecessor",
+        seq: 0,
+        event: {
+          type: "connection_required",
+          requestId: "request-1",
+          provider: "hubspot",
+          reason: "connect",
+        },
+      },
+      ...sent.map((event, seq) => ({ runId: "job-1", seq, event })),
+      { runId: "job-1", seq: 2, event: { type: "done" } },
+    ]);
+    expect(await inspectAutomationRecovery(resource, meta, now)).toMatchObject({
+      state: "settle",
+      status: "success",
+      history,
+    });
   });
 
   it.each([undefined, "test-destination"])(
