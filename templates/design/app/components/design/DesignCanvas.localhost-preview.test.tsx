@@ -90,6 +90,89 @@ afterEach(async () => {
 });
 
 describe("DesignCanvas authenticated localhost source hydration", () => {
+  it("ignores invalid preview route reports and keeps absolute routes", async () => {
+    const onRoutePathChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="<main>Inline preview</main>"
+          contentKey="inline-route-path"
+          screenId="inline-route-path"
+          sourceType="inline"
+          onRoutePathChange={onRoutePathChange}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    );
+    expect(iframe?.contentWindow).toBeTruthy();
+
+    const reportRoute = async (
+      type: "agent-native:editor-chrome-ready" | "agent-native:live-route-path",
+      routePath: string,
+    ) => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type, routePath },
+            origin: window.location.origin,
+            source: iframe!.contentWindow,
+          }),
+        );
+      });
+    };
+
+    for (const invalidRoutePath of [
+      "srcdoc",
+      "/\\external.example/path",
+      "/\\\\external.example/path",
+      "/\n/external.example/path",
+      "/\t/external.example/path",
+      "/\r/external.example/path",
+      "https://external.example/path",
+    ]) {
+      await reportRoute("agent-native:editor-chrome-ready", invalidRoutePath);
+      await reportRoute("agent-native:live-route-path", invalidRoutePath);
+    }
+    expect(onRoutePathChange).not.toHaveBeenCalled();
+
+    const doubleSlashUrl = new URL(
+      `${window.location.origin}//same-origin/path`,
+    );
+    expect(doubleSlashUrl.origin).toBe(window.location.origin);
+    expect(doubleSlashUrl.pathname).toBe("//same-origin/path");
+    await reportRoute("agent-native:live-route-path", doubleSlashUrl.pathname);
+    expect(onRoutePathChange).toHaveBeenLastCalledWith(
+      "inline-route-path",
+      "//same-origin/path",
+    );
+
+    await reportRoute(
+      "agent-native:editor-chrome-ready",
+      "/settings?tab=profile",
+    );
+    expect(onRoutePathChange).toHaveBeenLastCalledWith(
+      "inline-route-path",
+      "/settings?tab=profile",
+    );
+
+    await reportRoute("agent-native:live-route-path", "/profile#details");
+    expect(onRoutePathChange).toHaveBeenLastCalledWith(
+      "inline-route-path",
+      "/profile#details",
+    );
+  });
+
   it("keeps Chrome settings help available when the prompt is gone", async () => {
     await act(async () => {
       root.render(
@@ -904,6 +987,23 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
         new MessageEvent("message", {
           data: {
             type: "agent-native:editor-chrome-ready",
+            routePath: { malformed: true },
+            documentId: "document-settings",
+          },
+          origin: bridgeUrl,
+          source: liveIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(onBootReady).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Preparing live editor");
+    expect(liveIframe?.style.pointerEvents).toBe("none");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
             routePath: "/account",
             documentId: "document-account",
           },
@@ -1028,6 +1128,56 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
       "screen-account",
       "/designer",
     );
+
+    await act(async () => {
+      root.render(
+        <DesignCanvas
+          content="http://localhost:5173/account"
+          contentKey="screen-account"
+          screenId="screen-account"
+          sourceType="localhost"
+          previewUrlOverride="http://localhost:5173//same-origin/path"
+          bridgeUrl={bridgeUrl}
+          connectionId="localhost_connection"
+          previewToken="registration-preview-token"
+          liveEditCapability="test-live-edit-capability"
+          onBootReady={onBootReady}
+          onRoutePathChange={onRoutePathChange}
+          zoom={100}
+          deviceFrame="none"
+          editMode
+          interactMode={false}
+          onElementSelect={() => {}}
+          onElementHover={() => {}}
+          tweakValues={{}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      const currentUrl = new URL(liveIframe!.src);
+      expect(currentUrl.searchParams.get("url")).toBe(
+        "http://localhost:5173//same-origin/path",
+      );
+    });
+
+    const readyCallsBeforeDoubleSlashRoute = onBootReady.mock.calls.length;
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:editor-chrome-ready",
+            routePath: "//same-origin/path",
+            documentId: "document-double-slash-route",
+          },
+          origin: bridgeUrl,
+          source: liveIframe?.contentWindow,
+        }),
+      );
+    });
+    expect(onBootReady).toHaveBeenCalledTimes(
+      readyCallsBeforeDoubleSlashRoute + 1,
+    );
+    expect(liveIframe?.style.pointerEvents).toBe("");
   });
 
   it("stops retrying a stale bridge token and tells the user to reconnect the screen", async () => {

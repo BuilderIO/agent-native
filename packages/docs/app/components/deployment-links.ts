@@ -8,12 +8,16 @@ function currentHostname(): string | undefined {
   return typeof window === "undefined" ? undefined : window.location.hostname;
 }
 
+export function isBetaDocsBuild(environment = BUILD_ENVIRONMENT): boolean {
+  return environment === "beta";
+}
+
 export function isBetaDocsDeployment(
   hostname = currentHostname(),
   environment = BUILD_ENVIRONMENT,
 ): boolean {
   return (
-    environment === "beta" ||
+    isBetaDocsBuild(environment) ||
     hostname?.trim().toLowerCase().replace(/\.$/, "") === BETA_DOCS_HOST
   );
 }

@@ -23,6 +23,7 @@ import {
 import { communityApps } from "./components/community-apps";
 import {
   DOCS_LOCALES,
+  docsLocaleFromSegment,
   docsMarkdownPathForSlug,
   docsPathForSlug,
   localizeDocsMarkdownLinks,
@@ -60,6 +61,7 @@ export function sitemapPlugin(): Plugin {
     description:
       "Open source framework for building apps where AI agents and UI share one state model.",
     pages: () => buildAgentWebPages(rootDir),
+    sitemapGroup: sitemapGroupForPage,
     whenToUse: [
       "Use Agent-Native when an AI agent and a user-facing UI need to share the same actions, SQL data, and application state.",
       "Start with the documentation when you are building an agentic app, adding an action, or exposing a safe capability to external agents.",
@@ -141,6 +143,11 @@ export function sitemapPlugin(): Plugin {
       },
     },
   }) as unknown as Plugin;
+}
+
+export function sitemapGroupForPage(page: AgentWebPage): string {
+  const firstSegment = page.path.split("/").filter(Boolean)[0];
+  return (docsLocaleFromSegment(firstSegment) ?? DEFAULT_LOCALE).toLowerCase();
 }
 
 export function buildSitemapPaths(rootDir: string): string[] {
