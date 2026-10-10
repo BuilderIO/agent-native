@@ -903,6 +903,61 @@ Legacy webhook.`,
       );
     });
 
+    it("updates an existing organization skill when a legacy shared path collides", async () => {
+      mockGetOrgContext.mockResolvedValue({
+        email: "test@test.com",
+        orgId: "org-1",
+        orgName: "QA Org",
+        role: "owner",
+      });
+      const path = "skills/review-feedback/SKILL.md";
+      const legacy = {
+        id: "legacy-skill",
+        owner: "__shared__",
+        path,
+        content: "---\nname: review-feedback\n---\nLegacy",
+        updatedAt: 1000,
+      };
+      const existing = {
+        id: "org-skill",
+        owner: "__organization__:org-1",
+        path,
+        content: "---\nname: review-feedback\n---\nOld org version",
+        updatedAt: 1000,
+      };
+      const updated = {
+        ...existing,
+        content: "---\nname: review-feedback\n---\nNew org version",
+      };
+      mockResourceGetByPath
+        .mockResolvedValueOnce(legacy)
+        .mockResolvedValue(existing);
+      mockResourcePutIfCurrent.mockResolvedValue(updated);
+
+      const result = await handleCreateResource({
+        _body: {
+          path,
+          content: updated.content,
+          mimeType: "text/markdown",
+          shared: true,
+          uniqueSkillPath: true,
+        },
+      });
+
+      expect(lastStatus).toBe(200);
+      expect(result).toEqual(updated);
+      expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+      expect(mockResourcePutIfCurrent).toHaveBeenCalledExactlyOnceWith({
+        owner: "__organization__:org-1",
+        path,
+        content: updated.content,
+        expectedId: existing.id,
+        expectedUpdatedAt: existing.updatedAt,
+        expectedContent: existing.content,
+        mimeType: "text/markdown",
+      });
+    });
+
     it("creates shared resource when shared flag is set", async () => {
       mockResourcePut.mockResolvedValue({ id: "s1" });
 

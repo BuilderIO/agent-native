@@ -506,32 +506,41 @@ export async function handleCreateResource(event: any) {
     for (let suffix = 1; suffix <= 1000; suffix += 1) {
       const path =
         suffix === 1 ? body.path : `skills/${match[1]}-${suffix}/SKILL.md`;
+      const legacySharedResource = organizationId
+        ? await resourceGetByPath(SHARED_OWNER, path, { orgId: organizationId })
+        : null;
       if (
-        organizationId &&
-        (await resourceGetByPath(SHARED_OWNER, path, {
-          orgId: organizationId,
-        }))
+        legacySharedResource &&
+        !(await resourceGetByPath(owner, path, { orgId: organizationId }))
       ) {
         continue;
       }
       let nextPath = false;
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        const resource = await resourcePutIfAbsent(
-          owner,
-          path,
-          content,
-          body.mimeType,
-          writeOptions,
-        );
-        if (resource) {
-          setResponseStatus(event, 201);
-          return resource;
+        if (!legacySharedResource) {
+          const resource = await resourcePutIfAbsent(
+            owner,
+            path,
+            content,
+            body.mimeType,
+            writeOptions,
+          );
+          if (resource) {
+            setResponseStatus(event, 201);
+            return resource;
+          }
         }
 
         const existing = await resourceGetByPath(owner, path, {
           orgId: organizationId,
         });
-        if (!existing) continue;
+        if (!existing) {
+          if (legacySharedResource) {
+            nextPath = true;
+            break;
+          }
+          continue;
+        }
 
         const existingName = parseSkillMetadata(existing.content, path)?.name;
         if (!skillName || existingName !== skillName) {
