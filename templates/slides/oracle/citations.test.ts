@@ -369,4 +369,48 @@ describe("titleCitations counts only test titles", () => {
       ),
     ).toEqual(["2.5"]);
   });
+
+  it("keeps reading after a break that belongs to a loop", () => {
+    const source = [
+      `describe("group", () => {`,
+      `  for (const x of [1, 2]) { if (x) break; }`,
+      `  it("moves (oracle 3.1)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["3.1"]);
+  });
+
+  it("reads a suite declared with suite from vitest", () => {
+    const source = [
+      `import { suite } from "vitest";`,
+      `suite("group", () => { it("moves (oracle 3.2)", () => {}); });`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["3.2"]);
+  });
+
+  it("reads a test declared through an aliased vitest import", () => {
+    const source = [
+      `import { it as check } from "vitest";`,
+      `check("moves (oracle 3.3)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["3.3"]);
+  });
+
+  it("reads a test declared through a vitest namespace import", () => {
+    const source = [
+      `import * as v from "vitest";`,
+      `v.it("moves (oracle 3.4)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["3.4"]);
+  });
+
+  it("ignores a sibling of an it.only inside a focused suite", () => {
+    const source = [
+      `describe.only("group", () => {`,
+      `  it.only("moves (oracle 3.5)", () => {});`,
+      `  it("snaps (oracle 3.6)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["3.5"]);
+  });
 });
