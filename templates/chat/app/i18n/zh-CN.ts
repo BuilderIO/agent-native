@@ -1,4 +1,8 @@
 const messages = {
+  composer: {
+    removeAttachment: "移除 {{name}}",
+    removeReference: "移除 {{name}} 引用",
+  },
   settings: {
     title: "设置",
     workspaceTitle: "工作区",

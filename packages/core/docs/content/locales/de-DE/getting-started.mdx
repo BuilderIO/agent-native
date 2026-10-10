@@ -70,9 +70,9 @@ Die App öffnet sich auf der Seite **Loslegen**. Fügen Sie für die lokale Entw
 ANTHROPIC_API_KEY=replace-with-your-key
 ```
 
-Der lokale Server verwendet diesen Schlüssel als gemeinsamen Fallback. Nutzer der lokalen App müssen daher keinen Schlüssel in der UI hinzufügen. Bei einer entfernten Datenbank muss eine selbst gehostete App außerdem `AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK=true` in der Deployment-Umgebung setzen, um den Provider-Schlüssel appweit zu teilen. Hosted-Workspace-Deployments blockieren diese Freigabe immer. Gespeicherte Benutzer- oder Organisationsschlüssel haben Vorrang.
+Selbst gehostete Apps verwenden den Schlüssel aus der Umgebungsvariable als appweiten Fallback. Nutzer müssen daher keinen eigenen Schlüssel in der UI hinzufügen. Produktionsumgebungen von Hosted workspace blockieren Deployment-Provider-Schlüssel. Gespeicherte Benutzer- oder Organisationsschlüssel haben Vorrang.
 
-Mit lokalem PGlite ist dieser Fallback automatisch aktiviert. Wenn er aktiviert ist, können alle angemeldeten Nutzer ohne eigenen Schlüssel das Provider-Konto des Deployments appweit über alle Organisationen hinweg verwenden; die Nutzung wird diesem Konto berechnet. Richten Sie den Schlüssel nur ein, wenn Zugriff und Abrechnung appweit geteilt werden sollen. Verwenden Sie scoped Schlüssel, wenn Tenants getrennte Zugangsdaten oder Abrechnung benötigen.
+Angemeldete Nutzer ohne scoped Schlüssel können das Provider-Konto des Deployments organisationsübergreifend verwenden; die Nutzung wird diesem Konto berechnet. Lege einen Schlüssel in der Umgebung nur fest, wenn Zugriff und Abrechnung appweit geteilt werden sollen. Nutze scoped Schlüssel, wenn Tenants getrennte Zugangsdaten oder Abrechnung benötigen.
 
 Mit PostgreSQL können Nutzer außerdem über **Custom keys** einen Schlüssel speichern. Mit dem persönlichen Geltungsbereich bleibt er auf das eigene Konto beschränkt; Admins können den Organisationsbereich wählen, um ihn im Workspace zu teilen. Gespeicherte Schlüssel liegen im verschlüsselten, datenbankgestützten Anmeldedatenspeicher.
 

@@ -1,4 +1,8 @@
 const messages = {
+  composer: {
+    removeAttachment: "{{name}} を削除",
+    removeReference: "{{name}} の参照を削除",
+  },
   settings: {
     title: "設定",
     workspaceTitle: "ワークスペース",

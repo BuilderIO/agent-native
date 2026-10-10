@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const routeState = vi.hoisted(() => ({
   basePath: "",
   threadId: undefined as string | undefined,
+  activeRunIds: [] as string[],
   messages: [] as Array<{
     id: string;
     role?: string;
@@ -133,8 +134,14 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/components", () => ({
   },
   AgentKitChat: (props: Record<string, unknown>) => {
     routeState.chatProps = props;
+    const composerProps = props.composerProps as
+      | { toolbarSlot?: React.ReactNode }
+      | undefined;
     return (
       <div data-agentkit-chat="">
+        <div data-testid="composer-toolbar-slot">
+          {composerProps?.toolbarSlot}
+        </div>
         {routeState.messages.length > 0
           ? (props.toolbar as React.ReactNode)
           : null}
@@ -175,7 +182,7 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/context", () => ({
     uploadFiles: routeState.uploadFiles,
   }),
   useAgentThread: () => ({
-    activeRunIds: [],
+    activeRunIds: routeState.activeRunIds,
     events: [],
     messages: routeState.messages,
     thread: routeState.title ? { title: routeState.title } : undefined,
@@ -231,6 +238,7 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.uploadFiles.mockResolvedValue([]);
     routeState.locationState = null;
     routeState.threadId = undefined;
+    routeState.activeRunIds = [];
     routeState.messages = [];
     routeState.title = undefined;
     routeState.navigate.mockReset();
@@ -640,6 +648,37 @@ describe("ChatRoute AgentKit surface", () => {
     expect(container.querySelector("[role='alert']")?.textContent).toBe(
       "chat.retryAttachmentUnavailable",
     );
+    expect(
+      container.querySelector('[data-recovery-source="attachment"]'),
+    ).not.toBeNull();
+
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='remove-recovery-attachment-0']",
+        )
+        ?.click(),
+    );
+    expect(
+      container.querySelector('[data-recovery-source="attachment"]'),
+    ).toBeNull();
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
+        ?.click(),
+    );
+    expect(routeState.sendMessage).toHaveBeenCalledWith({
+      threadId: "thread-one",
+      text: "Summarize this file",
+      metadata: {
+        custom: {
+          agentNativeRecoveryAction: "retry",
+          agentNativeRecoveryOfRunId: "run-one",
+        },
+      },
+    });
   });
 
   it("captures rejected retry sends", async () => {
@@ -752,7 +791,7 @@ describe("ChatRoute AgentKit surface", () => {
       },
       metadata: expectedMetadata,
       queueWhileRunning: true,
-      queuedWhileRunActive: false,
+      queuedWhileRunActive: true,
       interruptActiveRun: true,
     });
     expect(routeState.navigate).toHaveBeenCalledWith(
@@ -760,6 +799,46 @@ describe("ChatRoute AgentKit surface", () => {
       { replace: true, state: null },
     );
   });
+
+  it.each([
+    {
+      intent: "immediate" as const,
+      active: true,
+      queueWhileRunning: false,
+      queuedWhileRunActive: false,
+    },
+    {
+      intent: "queued" as const,
+      active: false,
+      queueWhileRunning: true,
+      queuedWhileRunActive: true,
+    },
+    {
+      intent: undefined,
+      active: true,
+      queueWhileRunning: true,
+      queuedWhileRunActive: true,
+    },
+  ])(
+    "preserves $intent handoff intent with active=$active",
+    async ({ intent, active, queueWhileRunning, queuedWhileRunActive }) => {
+      routeState.threadId = "chat-from-home";
+      routeState.activeRunIds = active ? ["run-active"] : [];
+      routeState.locationState = {
+        initialMessage: "Continue with the requested work",
+        initialComposerOptions: intent ? { intent } : undefined,
+      };
+
+      await act(async () => root.render(<ChatRoute />));
+
+      expect(routeState.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          queueWhileRunning,
+          queuedWhileRunActive,
+        }),
+      );
+    },
+  );
 
   it("restores failed handoff settings and clears recovery after a successful retry", async () => {
     routeState.threadId = "chat-from-home";
@@ -783,6 +862,8 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.locationState = {
       initialMessage: "Call the hello action",
       initialComposerOptions: {
+        intent: "queued",
+        steer: true,
         engine: "anthropic",
         model: "claude-example",
         effort: "high",
@@ -798,6 +879,17 @@ describe("ChatRoute AgentKit surface", () => {
     );
 
     await act(async () => root.render(<ChatRoute />));
+
+    const storageKey = "agent-native.chat.failed-handoff:chat-from-home";
+    expect(window.sessionStorage.getItem(storageKey)).toContain(
+      "Call the hello action",
+    );
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    routeState.sendMessage.mockClear();
+    await act(async () => root.render(<ChatRoute />));
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
 
     expect(routeState.chatProps).toMatchObject({
       composerProps: {
@@ -824,11 +916,14 @@ describe("ChatRoute AgentKit surface", () => {
       }),
     );
 
-    expect(routeState.sendMessage).toHaveBeenCalledTimes(2);
+    expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
     expect(routeState.sendMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({
         text: expect.stringContaining("Use the selected action."),
         attachments: [uploadedAttachment],
+        queueWhileRunning: true,
+        queuedWhileRunActive: true,
+        interruptActiveRun: true,
         options: expect.objectContaining({
           model: "claude-example",
           mode: "plan",
@@ -846,6 +941,7 @@ describe("ChatRoute AgentKit surface", () => {
         onLocalSubmit,
       }),
     );
+    expect(window.sessionStorage.getItem(storageKey)).toBeNull();
     expect(routeState.chatProps).toMatchObject({
       composerProps: { initialText: undefined },
     });
@@ -857,6 +953,103 @@ describe("ChatRoute AgentKit surface", () => {
     expect(routeState.chatProps).toMatchObject({
       composerProps: { initialText: undefined },
     });
+  });
+
+  it("shows failed-request references and attachments and lets people remove them before retry", async () => {
+    routeState.threadId = "thread-one";
+    const references = [
+      {
+        type: "file",
+        path: "actions/hello.ts",
+        name: "hello.ts",
+        source: "workspace",
+      },
+    ];
+    const attachment = {
+      type: "file" as const,
+      name: "brief.pdf",
+      url: "/uploads/brief.pdf",
+      mediaType: "application/pdf",
+    };
+    routeState.messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Summarize this file" }, attachment],
+        metadata: { references },
+      },
+    ];
+    await act(async () => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string; details?: unknown };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    await act(async () =>
+      root.render(
+        React.createElement(slots.runFailure, {
+          error: {
+            code: "missing_credentials",
+            message: "Missing credentials",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    expect(
+      container.querySelector('[data-recovery-source="reference"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-recovery-source="attachment"]'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='remove-recovery-reference-0']",
+        )
+        ?.click();
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='remove-recovery-attachment-0']",
+        )
+        ?.click();
+    });
+
+    expect(
+      container.querySelector('[data-recovery-source="reference"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-recovery-source="attachment"]'),
+    ).toBeNull();
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(routeState.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Summarize this file",
+        metadata: {
+          custom: {
+            agentNativeRecoveryAction: "retry",
+            agentNativeRecoveryOfRunId: "run-one",
+          },
+        },
+      }),
+    );
+    expect(routeState.sendMessage.mock.calls[0]?.[0]).not.toHaveProperty(
+      "attachments",
+    );
   });
 
   it("reports a handed-over prompt that fails to send", async () => {

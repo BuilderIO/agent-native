@@ -67,9 +67,9 @@ Welcome screen पर **Continue as local dev** चुनें। Local develop
 ANTHROPIC_API_KEY=replace-with-your-key
 ```
 
-लोकल सर्वर इस key को साझा fallback की तरह इस्तेमाल करता है, इसलिए लोकल ऐप के उपयोगकर्ताओं को UI में key जोड़ने की ज़रूरत नहीं होती। Remote database वाले self-hosted app में app भर में provider key साझा करने के लिए deployment environment में `AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK=true` भी सेट करें। Hosted-workspace deployments इस sharing को हमेशा रोकते हैं। सेव की गई user या organization keys को प्राथमिकता मिलती है।
+स्व-होस्ट किए गए ऐप पर्यावरण में रखी कुंजी को पूरे ऐप के लिए fallback के रूप में इस्तेमाल करते हैं, इसलिए उपयोगकर्ताओं को UI में अपनी कुंजी जोड़ने की ज़रूरत नहीं होती। Hosted workspace के production runtime deployment provider keys को साझा होने से रोकते हैं। सहेजी गई user या organization scoped keys को प्राथमिकता मिलती है।
 
-Local PGlite के साथ यह fallback अपने आप चालू रहता है। चालू होने पर, scoped key के बिना sign in किए हुए सभी users app की सभी organizations में deployment provider account इस्तेमाल कर सकते हैं, और खर्च उसी account पर जाएगा। इसे तभी configure करें जब app भर में access और billing साझा करना चाहते हों; अलग tenants के लिए अलग credentials या billing चाहिए तो scoped keys इस्तेमाल करें।
+बिना scoped key वाला कोई भी signed-in उपयोगकर्ता ऐप के सभी संगठनों में deployment provider account इस्तेमाल कर सकता है; उपयोग का बिल उसी account को दिया जाता है। पर्यावरण में कुंजी तभी जोड़ें जब पूरे ऐप में access और billing साझा करना चाहते हों। अलग-अलग tenant के credentials या billing के लिए scoped keys इस्तेमाल करें।
 
 PostgreSQL के साथ, उपयोगकर्ता **Custom keys** से भी key सेव कर सकते हैं। अपने account तक सीमित रखने के लिए Personal scope चुनें; admins इसे workspace में साझा करने के लिए Organization scope चुन सकते हैं। सेव की गई keys encrypted, database-backed credential store में रहती हैं।
 

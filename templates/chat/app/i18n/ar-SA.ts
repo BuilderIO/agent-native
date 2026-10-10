@@ -1,4 +1,8 @@
 const messages = {
+  composer: {
+    removeAttachment: "إزالة {{name}}",
+    removeReference: "إزالة مرجع {{name}}",
+  },
   settings: {
     title: "الإعدادات",
     workspaceTitle: "مساحة العمل",

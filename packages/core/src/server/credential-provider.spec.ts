@@ -146,7 +146,6 @@ beforeEach(() => {
   delete process.env.AGENT_NATIVE_WORKSPACE_APP_ID;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID;
   delete process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV;
-  delete process.env.AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK;
   delete process.env.AGENT_VAULT_ORG_ID;
   delete process.env.FUSION_ENVIRONMENT;
   delete process.env.FUSION_ENV_ORIGIN;
@@ -887,7 +886,22 @@ describe("resolveBuilderCredential", () => {
     );
   });
 
-  it("keeps deployment LLM keys private on a remote database by default", async () => {
+  it("blocks deployment LLM keys in Hosted workspaces using local PGlite", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.OPENAI_API_KEY = "openai-deploy-key";
+    mockIsLocalDatabase.mockReturnValue(true);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(canUseDeployCredentialFallbackForRequest("OPENAI_API_KEY")).toBe(
+      false,
+    );
+  });
+
+  it("uses deployment LLM keys as shared fallbacks for self-hosted remote databases", async () => {
     process.env.NODE_ENV = "production";
     process.env.ANTHROPIC_API_KEY = "anthropic-deploy-key";
     process.env.OPENAI_API_KEY = "openai-deploy-key";
@@ -897,38 +911,20 @@ describe("resolveBuilderCredential", () => {
     mockGetRequestOrgId.mockReturnValue("builder_io");
     mockReadAppSecret.mockResolvedValue(null);
 
-    expect(await resolveSecret("ANTHROPIC_API_KEY")).toBeNull();
-    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
-    expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
-    expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
-    expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
-      false,
-    );
-  });
-
-  it("uses deployment LLM keys as shared fallbacks when self-hosted opts in", async () => {
-    process.env.NODE_ENV = "production";
-    process.env.AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK = "true";
-    process.env.ANTHROPIC_API_KEY = "anthropic-deploy-key";
-    process.env.OPENAI_API_KEY = "openai-deploy-key";
-    mockIsLocalDatabase.mockReturnValue(false);
-    mockGetRequestUserEmail.mockReturnValue("a@b.com");
-    mockGetRequestOrgId.mockReturnValue("builder_io");
-    mockReadAppSecret.mockResolvedValue(null);
-
     expect(await resolveSecret("ANTHROPIC_API_KEY")).toBe(
       "anthropic-deploy-key",
     );
     expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
+    expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
     expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
       true,
     );
   });
 
-  it("does not allow the self-hosted opt-in to share keys in Hosted workspaces", async () => {
+  it("blocks deployment LLM key sharing in Hosted workspaces", async () => {
     process.env.NODE_ENV = "production";
     process.env.AGENT_NATIVE_WORKSPACE = "1";
-    process.env.AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK = "true";
     process.env.ANTHROPIC_API_KEY = "anthropic-deploy-key";
     mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
@@ -968,6 +964,17 @@ describe("resolveBuilderCredential", () => {
     expect(readDeployCredentialEnv("GOOGLE_APPLICATION_CREDENTIALS")).toBe(
       "/tmp/service-account.json",
     );
+  });
+
+  it("never uses deployment Google credentials for synthetic traffic", () => {
+    process.env.NODE_ENV = "production";
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/service-account.json";
+    mockIsLocalDatabase.mockReturnValue(true);
+    mockGetRequestContext.mockReturnValue({ isSyntheticTraffic: true });
+
+    expect(
+      readDeployCredentialEnv("GOOGLE_APPLICATION_CREDENTIALS"),
+    ).toBeUndefined();
   });
 
   it("blocks deploy-level LLM keys for hosted workspace background requests", async () => {

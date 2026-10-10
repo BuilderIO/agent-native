@@ -165,7 +165,9 @@ export function assertCredentialStoreReadable(result: {
 export function readDeployCredentialEnv(key: string): string | undefined {
   if (
     key === "GOOGLE_APPLICATION_CREDENTIALS" &&
-    (isHostedWorkspaceRuntime() || !isDeployCredentialFallbackAllowed())
+    (getRequestContext()?.isSyntheticTraffic === true ||
+      isHostedWorkspaceRuntime() ||
+      !isDeployCredentialFallbackAllowed())
   ) {
     return undefined;
   }
@@ -246,9 +248,9 @@ export function canUseDeployCredentialFallbackForRequest(
   }
   if (key && DEPLOY_LLM_PROVIDER_ENV_KEYS.has(key)) {
     const hostedWorkspace = isHostedWorkspaceRuntime();
+    if (hostedWorkspace && isProductionLikeRuntime()) return false;
     if (isLocalDatabase()) return true;
-    if (hostedWorkspace) return false;
-    return getAppConfig().runtime.allowSharedLlmKeyFallback;
+    return !hostedWorkspace;
   }
   const email = getRequestUserEmail();
   if (!email) return true;

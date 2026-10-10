@@ -1,4 +1,8 @@
 const messages = {
+  composer: {
+    removeAttachment: "Remove {{name}}",
+    removeReference: "Remove {{name}} reference",
+  },
   settings: {
     title: "Settings",
     workspaceTitle: "Workspace",

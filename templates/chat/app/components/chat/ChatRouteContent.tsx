@@ -2,6 +2,7 @@ import type {
   AgentConnectionRequest,
   AgentMessage,
   AgentRunOptions,
+  FilePart,
 } from "@agent-native/agentkit";
 import { appendAgentChatContextToMessage } from "@agent-native/agentkit";
 import { hasActiveAgentRuns } from "@agent-native/agentkit/client";
@@ -49,10 +50,11 @@ import type {
   PromptComposerSubmitOptions,
   Reference,
 } from "@agent-native/toolkit/composer";
-import { IconLayoutSidebarRight } from "@tabler/icons-react";
+import { IconLayoutSidebarRight, IconX } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -69,10 +71,17 @@ import {
 import { APP_TITLE } from "@/lib/app-config";
 import { consumeChatHomeThreadId } from "@/lib/chat-home-thread";
 import {
+  clearFailedChatHandoff,
   chatThreadPath,
+  readFailedChatHandoff,
   type ChatInitialComposerOptions,
+  type FailedChatHandoffClearResult,
+  type FailedChatHandoffEnvelope,
+  type FailedChatHandoffReadResult,
+  type FailedChatHandoffWriteResult,
   initialComposerOptionsFromState,
   initialMessageFromState,
+  writeFailedChatHandoff,
 } from "@/lib/chat-paths";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -111,24 +120,144 @@ function ChatThreadRouteContent({
 }) {
   const t = useT();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [handoffStorageRevision, setHandoffStorageRevision] = useState(0);
+  const failedHandoffStorageFailureReportedRef = useRef(new Set<string>());
+  const reportHandoffStorageFailure = useCallback(
+    (
+      result:
+        | FailedChatHandoffReadResult
+        | FailedChatHandoffWriteResult
+        | FailedChatHandoffClearResult,
+      message: string,
+    ) => {
+      if (result.status !== "invalid" && result.status !== "unavailable") {
+        return;
+      }
+      if (
+        failedHandoffStorageFailureReportedRef.current.has(resolvedThreadId)
+      ) {
+        return;
+      }
+      failedHandoffStorageFailureReportedRef.current.add(resolvedThreadId);
+      captureException(
+        result.status === "unavailable"
+          ? result.cause
+          : new Error(`${message}: ${result.reason}`),
+        { tags: { area: "chat_handoff_storage" } },
+      );
+    },
+    [resolvedThreadId],
+  );
+  const restoredHandoffResult = useMemo(
+    () => readFailedChatHandoff(resolvedThreadId),
+    [handoffStorageRevision, resolvedThreadId],
+  );
+  const restoredHandoff =
+    restoredHandoffResult.status === "found"
+      ? restoredHandoffResult.handoff
+      : null;
   const [failedInitialDraft, setFailedInitialDraft] = useState<{
     text: string;
     options: ChatInitialComposerOptions;
     attempt: number;
     threadId: string;
-  } | null>(null);
+  } | null>(() => {
+    return restoredHandoff
+      ? {
+          text: restoredHandoff.text,
+          options: restoredHandoff.options,
+          attempt: 0,
+          threadId: resolvedThreadId,
+        }
+      : null;
+  });
+  const restoredForRoute = restoredHandoff;
+  const failedDraftForRoute =
+    failedInitialDraft?.threadId === resolvedThreadId
+      ? failedInitialDraft
+      : restoredForRoute
+        ? {
+            text: restoredForRoute.text,
+            options: restoredForRoute.options,
+            attempt: 0,
+            threadId: resolvedThreadId,
+          }
+        : null;
+  const failedInitialDraftRef = useRef(failedDraftForRoute);
+  failedInitialDraftRef.current = failedDraftForRoute;
   const failedInitialDraftAttemptRef = useRef(0);
+  useEffect(() => {
+    reportHandoffStorageFailure(
+      restoredHandoffResult,
+      "Could not restore the failed Chat handoff",
+    );
+    setFailedInitialDraft((current) => {
+      if (current?.threadId === resolvedThreadId) return current;
+      return restoredHandoff
+        ? {
+            text: restoredHandoff.text,
+            options: restoredHandoff.options,
+            attempt: 0,
+            threadId: resolvedThreadId,
+          }
+        : null;
+    });
+  }, [
+    reportHandoffStorageFailure,
+    resolvedThreadId,
+    restoredHandoff,
+    restoredHandoffResult,
+  ]);
   const handleInitialMessageFailure = useCallback(
     (text: string, options: ChatInitialComposerOptions) => {
       failedInitialDraftAttemptRef.current += 1;
-      setFailedInitialDraft({
+      reportHandoffStorageFailure(
+        writeFailedChatHandoff(resolvedThreadId, text, options),
+        "Could not save the failed Chat handoff",
+      );
+      const failedDraft = {
         text,
         options,
         attempt: failedInitialDraftAttemptRef.current,
         threadId: resolvedThreadId,
-      });
+      };
+      failedInitialDraftRef.current = failedDraft;
+      setFailedInitialDraft(failedDraft);
     },
-    [resolvedThreadId],
+    [reportHandoffStorageFailure, resolvedThreadId],
+  );
+  const handleInitialMessageAccepted = useCallback(() => {
+    reportHandoffStorageFailure(
+      clearFailedChatHandoff(resolvedThreadId),
+      "Could not clear the accepted Chat handoff",
+    );
+    if (failedInitialDraftRef.current?.threadId === resolvedThreadId) {
+      failedInitialDraftRef.current = null;
+      setFailedInitialDraft(null);
+    }
+    setHandoffStorageRevision((revision) => revision + 1);
+  }, [reportHandoffStorageFailure, resolvedThreadId]);
+  const updateFailedInitialDraft = useCallback(
+    (
+      update: Partial<FailedChatHandoffEnvelope> & {
+        options?: Partial<ChatInitialComposerOptions>;
+      },
+    ) => {
+      const current = failedInitialDraftRef.current;
+      if (current?.threadId !== resolvedThreadId) return;
+      const next = {
+        ...current,
+        ...update,
+        options: { ...current.options, ...update.options },
+      };
+      failedInitialDraftRef.current = next;
+      reportHandoffStorageFailure(
+        writeFailedChatHandoff(next.threadId, next.text, next.options),
+        "Could not save the failed Chat handoff",
+      );
+      setFailedInitialDraft(next);
+    },
+    [reportHandoffStorageFailure, resolvedThreadId],
   );
 
   const [transport] = useState(() =>
@@ -179,39 +308,30 @@ function ChatThreadRouteContent({
             <ChatLifecycleTracking threadId={resolvedThreadId} />
             <ChatInitialMessage
               threadId={resolvedThreadId}
-              onStart={() => setFailedInitialDraft(null)}
+              hasRestoredDraft={failedDraftForRoute !== null}
               onFailure={handleInitialMessageFailure}
+              onAccepted={handleInitialMessageAccepted}
             />
             <ChatMcpConnectionResume />
             <ChatCanvas
               workspaceOpen={workspaceOpen}
               setWorkspaceOpen={setWorkspaceOpen}
               initialText={
-                failedInitialDraft?.threadId === resolvedThreadId
-                  ? failedInitialDraft.text
-                  : undefined
+                failedDraftForRoute ? failedDraftForRoute.text : undefined
               }
               initialTextKey={
-                failedInitialDraft?.threadId === resolvedThreadId
-                  ? `${resolvedThreadId}:${failedInitialDraft.attempt}`
+                failedDraftForRoute
+                  ? `${resolvedThreadId}:${failedDraftForRoute.attempt}`
                   : undefined
               }
               recoveryOptions={
-                failedInitialDraft?.threadId === resolvedThreadId
-                  ? failedInitialDraft.options
-                  : undefined
+                failedDraftForRoute ? failedDraftForRoute.options : undefined
               }
               onRecoveryOptionsChange={(options) =>
-                setFailedInitialDraft((current) =>
-                  current?.threadId === resolvedThreadId
-                    ? {
-                        ...current,
-                        options: { ...current.options, ...options },
-                      }
-                    : current,
-                )
+                updateFailedInitialDraft({ options })
               }
-              onRecoverySubmitAccepted={() => setFailedInitialDraft(null)}
+              onRecoveryDraftChange={updateFailedInitialDraft}
+              onRecoverySubmitAccepted={handleInitialMessageAccepted}
             />
           </CoreAgentKitRoot>
         </CoreComposerRuntimeProvider>
@@ -253,6 +373,74 @@ type ChatRetryError = {
   runId: string;
 };
 
+function RecoveryIncludedSources({
+  references,
+  attachments,
+  onRemoveReference,
+  onRemoveAttachment,
+}: {
+  references: readonly Reference[];
+  attachments: readonly FilePart[];
+  onRemoveReference: (index: number) => void;
+  onRemoveAttachment: (index: number) => void;
+}) {
+  const t = useT();
+  if (references.length === 0 && attachments.length === 0) return null;
+  return (
+    <div
+      className="flex max-w-full flex-wrap gap-1.5"
+      data-testid="recovery-included-sources"
+    >
+      {references.map((reference, index) => (
+        <span
+          key={`reference:${index}:${reference.path}`}
+          className="inline-flex min-w-0 items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs"
+          data-recovery-source="reference"
+        >
+          <span className="max-w-48 truncate">
+            {reference.name || reference.path}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="-me-1"
+            aria-label={t("composer.removeReference", {
+              name: reference.name || reference.path,
+            })}
+            data-testid={`remove-recovery-reference-${index}`}
+            onClick={() => onRemoveReference(index)}
+          >
+            <IconX aria-hidden="true" className="size-3" />
+          </Button>
+        </span>
+      ))}
+      {attachments.map((attachment, index) => (
+        <span
+          key={`attachment:${index}:${attachment.name}`}
+          className="inline-flex min-w-0 items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-1 text-xs"
+          data-recovery-source="attachment"
+        >
+          <span className="max-w-48 truncate">{attachment.name}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="-me-1"
+            aria-label={t("composer.removeAttachment", {
+              name: attachment.name,
+            })}
+            data-testid={`remove-recovery-attachment-${index}`}
+            onClick={() => onRemoveAttachment(index)}
+          >
+            <IconX aria-hidden="true" className="size-3" />
+          </Button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function ChatRunFailure({
   error,
   runId,
@@ -280,6 +468,47 @@ function ChatRunFailure({
     return action !== "continue" && action !== "retry";
   });
   const originalRequest = userRequests[0];
+  const originalMetadata =
+    originalRequest?.metadata &&
+    typeof originalRequest.metadata === "object" &&
+    !Array.isArray(originalRequest.metadata)
+      ? (originalRequest.metadata as Record<string, unknown>)
+      : {};
+  const originalReferences =
+    initialComposerOptionsFromState({
+      initialComposerOptions: { references: originalMetadata.references },
+    })?.references ?? [];
+  const originalAttachments =
+    originalRequest?.parts?.filter((part) => part.type === "file") ?? [];
+  const [retryItems, setRetryItems] = useState<{
+    runId: string;
+    references: Reference[];
+    attachments: FilePart[];
+  } | null>(null);
+  const visibleRetryItems =
+    retryItems?.runId === runId
+      ? retryItems
+      : {
+          runId,
+          references: originalReferences,
+          attachments: originalAttachments,
+        };
+  const updateRetryItems = (update: {
+    references?: Reference[];
+    attachments?: FilePart[];
+  }) => {
+    setRetryError(null);
+    setRetryItems((current) => ({
+      ...(current?.runId === runId
+        ? current
+        : {
+            runId,
+            references: [...originalReferences],
+            attachments: originalAttachments,
+          }),
+      ...update,
+    }));
+  };
   const hasRetryForThisRun = thread.messages.some(
     (message) =>
       recoveryMetadata(message)?.agentNativeRecoveryAction === "retry" &&
@@ -287,8 +516,7 @@ function ChatRunFailure({
   );
   const retryFirstMessage = useCallback(async () => {
     if (retryStartedForRunsRef.current.has(runId)) return;
-    const attachments =
-      originalRequest?.parts.filter((part) => part.type === "file") ?? [];
+    const attachments = visibleRetryItems.attachments;
     if (attachments.some((part) => part.fileId && !part.url)) {
       setRetryError({ code: "attachment_id_unavailable", runId });
       return;
@@ -307,6 +535,9 @@ function ChatRunFailure({
         text: prompt || t("chat.retryPreviousRequest"),
         ...(attachments.length ? { attachments } : {}),
         metadata: {
+          ...(visibleRetryItems.references.length
+            ? { references: visibleRetryItems.references }
+            : {}),
           custom: {
             agentNativeRecoveryAction: "retry",
             agentNativeRecoveryOfRunId: runId,
@@ -322,7 +553,7 @@ function ChatRunFailure({
       retryStartedForRunsRef.current.delete(runId);
       captureException(error, { tags: { area: "chat_retry" } });
     });
-  }, [controller, originalRequest, runId, t, threadId]);
+  }, [controller, originalRequest, runId, t, threadId, visibleRetryItems]);
   const isFirstMessage = userRequests.length === 1 && !hasRetryForThisRun;
   if (
     isFirstMessage &&
@@ -339,6 +570,24 @@ function ChatRunFailure({
           layout="sidebar"
           onRetry={retryFirstMessage}
         />
+        <RecoveryIncludedSources
+          references={visibleRetryItems.references}
+          attachments={visibleRetryItems.attachments}
+          onRemoveReference={(index) =>
+            updateRetryItems({
+              references: visibleRetryItems.references.filter(
+                (_reference, candidate) => candidate !== index,
+              ),
+            })
+          }
+          onRemoveAttachment={(index) =>
+            updateRetryItems({
+              attachments: visibleRetryItems.attachments.filter(
+                (_attachment, candidate) => candidate !== index,
+              ),
+            })
+          }
+        />
         {retryError?.runId === runId &&
         retryError.code === "attachment_id_unavailable" ? (
           <p role="alert" className="mt-2 px-3 text-sm text-destructive">
@@ -353,12 +602,14 @@ function ChatRunFailure({
 
 function ChatInitialMessage({
   threadId,
-  onStart,
+  hasRestoredDraft,
   onFailure,
+  onAccepted,
 }: {
   threadId: string;
-  onStart: () => void;
+  hasRestoredDraft: boolean;
   onFailure: (text: string, options: ChatInitialComposerOptions) => void;
+  onAccepted: () => void;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -377,10 +628,27 @@ function ChatInitialMessage({
 
   useEffect(() => {
     if (!message || sentRef.current) return;
+    if (hasRestoredDraft) {
+      sentRef.current = true;
+      return;
+    }
     sentRef.current = true;
-    onStart();
+    const options = composerOptions ?? {};
+    const persistence = writeFailedChatHandoff(threadId, message, options);
+    if (persistence.status !== "stored") {
+      onFailure(message, options);
+      captureException(
+        persistence.status === "unavailable"
+          ? persistence.cause
+          : new Error(
+              `Failed to persist the pending chat handoff: ${persistence.reason}`,
+            ),
+        { tags: { area: "chat_initial_message" } },
+      );
+      return;
+    }
     // Router state survives a reload, so drop it before sending or a refresh
-    // would send the prompt a second time.
+    // cannot distinguish a pending send from a failed one.
     navigate(
       { pathname: location.pathname, search: location.search },
       { replace: true, state: null },
@@ -415,26 +683,32 @@ function ChatInitialMessage({
         : {}),
       metadata,
     };
+    const queuedIntent =
+      composerOptions?.intent === "queued" ||
+      (composerOptions?.intent !== "immediate" && activeAtSubmit);
     void Promise.resolve(
       control.sendMessage({
         text: requestText,
         attachments: [...(composerOptions?.uploadedAttachments ?? [])],
         options: runOptions,
         metadata,
-        queueWhileRunning: true,
-        queuedWhileRunActive: activeAtSubmit,
+        queueWhileRunning: composerOptions?.intent !== "immediate",
+        queuedWhileRunActive: queuedIntent,
         ...(composerOptions?.steer ? { interruptActiveRun: true } : {}),
       }),
-    ).catch((error: unknown) => {
-      onFailure(message, composerOptions ?? {});
-      captureException(error, { tags: { area: "chat_initial_message" } });
-      toast.error(error instanceof Error ? error.message : String(error));
-    });
+    )
+      .then(onAccepted)
+      .catch((error: unknown) => {
+        onFailure(message, composerOptions ?? {});
+        captureException(error, { tags: { area: "chat_initial_message" } });
+        toast.error(error instanceof Error ? error.message : String(error));
+      });
   }, [
     composerOptions,
     control,
     contextItems,
     activeAtSubmit,
+    hasRestoredDraft,
     engine,
     effort,
     location.pathname,
@@ -442,8 +716,9 @@ function ChatInitialMessage({
     message,
     model,
     navigate,
+    onAccepted,
     onFailure,
-    onStart,
+    threadId,
   ]);
 
   return null;
@@ -682,6 +957,7 @@ function ChatCanvas({
   initialTextKey,
   recoveryOptions,
   onRecoveryOptionsChange,
+  onRecoveryDraftChange,
   onRecoverySubmitAccepted,
 }: {
   workspaceOpen: boolean;
@@ -692,11 +968,17 @@ function ChatCanvas({
   onRecoveryOptionsChange: (
     options: Partial<ChatInitialComposerOptions>,
   ) => void;
+  onRecoveryDraftChange: (
+    update: Partial<FailedChatHandoffEnvelope> & {
+      options?: Partial<ChatInitialComposerOptions>;
+    },
+  ) => void;
   onRecoverySubmitAccepted: () => void;
 }) {
   const t = useT();
+  const { threadId } = useAgentKit();
   const thread = useAgentThread();
-  const control = useAgentKitControl();
+  const control = useAgentKitControl(threadId);
   const stopButton = useAgentKitStopButton({
     label: t("agentChat.composer.stopResponse"), // i18n-key-ignore shared framework catalog
     onError: (error) => toast.error(error.message),
@@ -741,6 +1023,25 @@ function ChatCanvas({
               candidate.refId === reference.refId,
           ) === index,
       );
+      const retryIntent = options.intent ?? recoveryOptions.intent;
+      const queuedIntent =
+        retryIntent === "queued" ||
+        (retryIntent === undefined && activeAtSubmit);
+      const retrySteer = options.steer ?? recoveryOptions.steer;
+      const retryOptions: ChatInitialComposerOptions = {
+        ...recoveryOptions,
+        mode: runMode,
+        ...(model ? { model } : {}),
+        ...(engine ? { engine } : {}),
+        ...(effort ? { effort } : {}),
+        ...(retryIntent === undefined ? {} : { intent: retryIntent }),
+        ...(retrySteer === undefined ? {} : { steer: retrySteer }),
+        ...(contextItems === undefined ? {} : { contextItems }),
+        ...(composerModeContext === undefined ? {} : { composerModeContext }),
+        references: mergedReferences,
+        uploadedAttachments: recoveryOptions.uploadedAttachments ?? [],
+      };
+      onRecoveryDraftChange({ text, options: retryOptions });
       const uploadedAttachments = files.length
         ? await control.uploadFiles(
             files.map((file) => ({
@@ -751,6 +1052,14 @@ function ChatCanvas({
             })),
           )
         : [];
+      const acceptedOptions = {
+        ...retryOptions,
+        uploadedAttachments: [
+          ...(recoveryOptions.uploadedAttachments ?? []),
+          ...uploadedAttachments,
+        ],
+      };
+      onRecoveryDraftChange({ text, options: acceptedOptions });
       const metadata = {
         ...(engine ? { engine } : {}),
         ...(model ? { model } : {}),
@@ -780,14 +1089,21 @@ function ChatCanvas({
         ],
         options: runOptions,
         metadata,
-        queueWhileRunning: true,
-        queuedWhileRunActive: activeAtSubmit,
-        ...(options.steer ? { interruptActiveRun: true } : {}),
+        queueWhileRunning: retryIntent !== "immediate",
+        queuedWhileRunActive: queuedIntent,
+        ...(retrySteer ? { interruptActiveRun: true } : {}),
         onLocalSubmit: options.onLocalSubmit,
       });
       onRecoverySubmitAccepted();
     },
-    [activeAtSubmit, control, onRecoverySubmitAccepted, recoveryOptions],
+    [
+      activeAtSubmit,
+      control,
+      threadId,
+      onRecoveryDraftChange,
+      onRecoverySubmitAccepted,
+      recoveryOptions,
+    ],
   );
 
   useEffect(() => {
@@ -843,6 +1159,28 @@ function ChatCanvas({
                     (item) => item.key !== key,
                   ),
                 }),
+              onTextChange: (text: string) => onRecoveryDraftChange({ text }),
+              toolbarSlot: (
+                <RecoveryIncludedSources
+                  references={recoveryOptions.references ?? []}
+                  attachments={recoveryOptions.uploadedAttachments ?? []}
+                  onRemoveReference={(index) =>
+                    onRecoveryOptionsChange({
+                      references: recoveryOptions.references?.filter(
+                        (_reference, candidate) => candidate !== index,
+                      ),
+                    })
+                  }
+                  onRemoveAttachment={(index) =>
+                    onRecoveryOptionsChange({
+                      uploadedAttachments:
+                        recoveryOptions.uploadedAttachments?.filter(
+                          (_attachment, candidate) => candidate !== index,
+                        ),
+                    })
+                  }
+                />
+              ),
               onSubmit: retryInitialDraft,
             }
           : {}),

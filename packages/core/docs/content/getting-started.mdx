@@ -73,16 +73,14 @@ provider key to the app's `.env` file before starting `pnpm dev`:
 ANTHROPIC_API_KEY=replace-with-your-key
 ```
 
-The local server uses this as a shared fallback, so users of your local app do
-not need to add a key in the UI. With a remote database, a self-hosted app must
-also set `AGENT_NATIVE_ALLOW_SHARED_LLM_KEY_FALLBACK=true` in its deployment
-environment to opt in. Hosted-workspace deployments always block deployment
+Self-hosted apps use this as a deployment-wide fallback, so users do not need
+to add a key in the UI. Hosted-workspace production runtimes block deployment
 provider-key sharing. Scoped user or organization keys take precedence.
 
-When enabled, any signed-in user without a scoped key can use the deployment
-provider account across all organizations in the app, and usage is billed to
-that account. Configure it only when app-wide access and billing are intended;
-use scoped keys when tenants need separate credentials or billing.
+Any signed-in user without a scoped key can use the deployment provider account
+across all organizations in the app, and usage is billed to that account. Add a
+key to the environment only when app-wide access and billing are intended; use
+scoped keys when tenants need separate credentials or billing.
 
 With PostgreSQL, users can also save a key through **Custom keys**. Choose
 Personal scope to keep it to your account; admins can choose Organization scope
