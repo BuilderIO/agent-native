@@ -139,6 +139,7 @@ async function deliverPendingPrefill(
   ref: AssistantChatHandle,
   send: PendingSend,
 ): Promise<void> {
+  let stagedAt: number | undefined;
   if (send.prefillContext) {
     // Checked against what the composer already holds, before the draft changes,
     // so a refused prefill leaves no draft without its context.
@@ -178,7 +179,7 @@ async function deliverPendingPrefill(
         threadScoped: true,
       });
       if (contextWrite && typeof contextWrite.then === "function") {
-        await contextWrite;
+        stagedAt = (await contextWrite)?.stagedAt;
       }
     } catch {
       reportAgentChatSubmitResult(
@@ -191,9 +192,18 @@ async function deliverPendingPrefill(
   }
   if (isAgentChatSubmitCancelled(send.submitMessageId)) {
     if (send.prefillContext) {
-      await ref.removeComposerContextItem(send.prefillContext.key, {
-        threadScoped: true,
-      });
+      // Removes only the item this delivery staged, so a newer prefill with the same
+      // key that replaced it while the write was in flight keeps its place.
+      if (stagedAt === undefined) {
+        console.error(
+          "Could not identify the staged prefill context; it was not removed after the cancelled send.",
+        );
+      } else {
+        await ref.removeComposerContextItem(send.prefillContext.key, {
+          threadScoped: true,
+          stagedAt,
+        });
+      }
     }
     return;
   }

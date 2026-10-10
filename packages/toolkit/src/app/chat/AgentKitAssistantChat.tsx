@@ -3826,10 +3826,12 @@ const AgentKitAssistantChatBody = forwardRef<
     [props.contextNamespace, requestComposerFocus, threadId],
   );
   const removeContextItem = useCallback(
-    (key: string, options?: { threadScoped?: boolean }) => {
+    (key: string, options?: { threadScoped?: boolean; stagedAt?: number }) => {
       const targetKey = options?.threadScoped ? `${key}:${threadId}` : key;
       if (options?.threadScoped) {
-        return removeAgentChatContextItemAndPersist(targetKey).then(() => {
+        return removeAgentChatContextItemAndPersist(targetKey, {
+          stagedAt: options.stagedAt,
+        }).then(() => {
           setContextItems(
             filterAgentChatContextItems(
               getAgentChatContextState().items,
@@ -3890,7 +3892,7 @@ const AgentKitAssistantChatBody = forwardRef<
           key: `${item.key}:${threadId}`,
           targetThreadId: threadId,
         };
-        return setAgentChatContextItemAndPersist(scopedItem).then(() => {
+        return setAgentChatContextItemAndPersist(scopedItem).then((staged) => {
           setContextItems(
             filterAgentChatContextItems(
               getAgentChatContextState().items,
@@ -3899,6 +3901,7 @@ const AgentKitAssistantChatBody = forwardRef<
             ),
           );
           if (focus) requestComposerFocus(threadId);
+          return staged;
         });
       },
       removeComposerContextItem: removeContextItem,

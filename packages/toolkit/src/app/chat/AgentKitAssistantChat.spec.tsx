@@ -585,13 +585,17 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
       chatMocks.contextItems = items;
     }),
     setAgentChatContextItemAndPersist: async (item: unknown) => {
-      await actual.setAgentChatContextItemAndPersist(
+      const staged = await actual.setAgentChatContextItemAndPersist(
         item as Parameters<typeof actual.setAgentChatContextItemAndPersist>[0],
       );
       chatMocks.contextItems = actual.getAgentChatContextState().items;
+      return staged;
     },
-    removeAgentChatContextItemAndPersist: async (key: string) => {
-      await actual.removeAgentChatContextItemAndPersist(key);
+    removeAgentChatContextItemAndPersist: async (
+      key: string,
+      options?: { stagedAt?: number },
+    ) => {
+      await actual.removeAgentChatContextItemAndPersist(key, options);
       chatMocks.contextItems = actual.getAgentChatContextState().items;
     },
     refreshAgentChatContext: vi.fn(async () => undefined),
@@ -1112,6 +1116,37 @@ describe("AgentKitAssistantChat host behavior", () => {
         context: "x".repeat(8 * 1024),
       }),
     ).toBe(false);
+  });
+
+  it("removing a superseded prefill leaves the replacement that took its key", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    const stage = (context: string) =>
+      ref.current!.setComposerContextItem(
+        { key: "agent-chat-prefill-context", title: "Selected rows", context },
+        { focus: false, threadScoped: true },
+      );
+    let first: { stagedAt?: number } | void = undefined;
+    await act(async () => {
+      first = await stage("Selected rows: a");
+    });
+    await act(async () => {
+      await stage("Selected rows: b");
+    });
+
+    await act(async () =>
+      ref.current!.removeComposerContextItem("agent-chat-prefill-context", {
+        threadScoped: true,
+        stagedAt: first?.stagedAt,
+      }),
+    );
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "agent-chat-prefill-context:thread-1",
+        context: "Selected rows: b",
+      }),
+    ]);
   });
 
   it("uses the action widget renderer for action chat UI output", async () => {

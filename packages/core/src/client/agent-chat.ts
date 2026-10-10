@@ -1510,7 +1510,7 @@ export function setAgentChatContextItem(
 /** Persist a staged context item before exposing it to a composer. */
 export async function setAgentChatContextItemAndPersist(
   opts: AgentChatContextSetOptions,
-): Promise<void> {
+): Promise<AgentChatContextItem> {
   const normalized = normalizeAgentChatContextItem(opts);
   if (!normalized) {
     throw new TypeError("Agent chat context must include a valid item.");
@@ -1521,7 +1521,7 @@ export async function setAgentChatContextItemAndPersist(
     throw new Error("Agent chat context can only be persisted in a browser.");
   }
 
-  await queueAgentChatContextPersistence(async () => {
+  return queueAgentChatContextPersistence(async () => {
     const nextState: AgentChatContextState = {
       items: withReplacedAgentChatContextItem(
         agentChatContextState.items,
@@ -1552,12 +1552,14 @@ export async function setAgentChatContextItemAndPersist(
       persist: false,
       updatedAt: persistedState.updatedAt,
     });
+    return item;
   });
 }
 
 /** Remove a staged context item from persisted state before clearing its composer. */
 export async function removeAgentChatContextItemAndPersist(
   key: string,
+  options?: { stagedAt?: number },
 ): Promise<void> {
   const normalizedKey = key.trim();
   if (!normalizedKey) {
@@ -1568,6 +1570,14 @@ export async function removeAgentChatContextItemAndPersist(
   }
 
   await queueAgentChatContextPersistence(async () => {
+    // Read here, not when called: a replacement staged while this removal waited keeps its place.
+    if (
+      options?.stagedAt !== undefined &&
+      agentChatContextState.items.find((item) => item.key === normalizedKey)
+        ?.stagedAt !== options.stagedAt
+    ) {
+      return;
+    }
     const nextState: AgentChatContextState = {
       items: agentChatContextState.items.filter(
         (item) => item.key !== normalizedKey,

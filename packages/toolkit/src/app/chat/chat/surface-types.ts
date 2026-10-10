@@ -73,13 +73,13 @@ export interface AssistantChatHandle {
   setComposerContextItem(
     item: AgentChatContextItem,
     options?: { focus?: boolean; threadScoped?: boolean },
-  ): void | Promise<void>;
+  ): void | Promise<AgentChatContextItem | void>;
   /** Whether the composer can hold this item alongside the context it already has. */
   canStageComposerContextItem(item: AgentChatContextItem): boolean;
   /** Remove a keyed context item from the composer. */
   removeComposerContextItem(
     key: string,
-    options?: { threadScoped?: boolean },
+    options?: { threadScoped?: boolean; stagedAt?: number },
   ): void | Promise<void>;
   /** Clear all staged context items from the composer. */
   clearComposerContextItems(): void;

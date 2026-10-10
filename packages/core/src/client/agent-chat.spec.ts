@@ -1756,7 +1756,12 @@ describe("sendToAgentChat", () => {
       text: async () => JSON.stringify(requestState),
     });
 
-    await expect(persistence).resolves.toBeUndefined();
+    await expect(persistence).resolves.toEqual(
+      expect.objectContaining({
+        key: "prefill:thread-1",
+        stagedAt: expect.any(Number),
+      }),
+    );
     expect(listAgentChatContext()).toEqual(requestState.items);
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toContain(
       "agentNative.chatContextChanged",

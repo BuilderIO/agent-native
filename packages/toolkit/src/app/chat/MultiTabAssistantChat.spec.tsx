@@ -799,7 +799,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
   });
 
   it("removes persisted thread context when its prefill is cancelled", async () => {
-    const persisted = Promise.withResolvers<void>();
+    const persisted = Promise.withResolvers<{ stagedAt: number }>();
     chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
       persisted.promise,
     );
@@ -815,7 +815,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     cancelAgentChatSubmit("prefill-cancelled-after-persist");
 
     await act(async () => {
-      persisted.resolve();
+      persisted.resolve({ stagedAt: 7 });
       await persisted.promise;
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -823,8 +823,40 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
     expect(chatHandleMocks.removeComposerContextItem).toHaveBeenCalledWith(
       "agent-chat-prefill-context",
-      { threadScoped: true },
+      { threadScoped: true, stagedAt: 7 },
     );
+  });
+
+  it("does not remove by key alone when the staged prefill's identity is unknown", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const persisted = Promise.withResolvers<undefined>();
+    chatHandleMocks.setComposerContextItem.mockReturnValueOnce(
+      persisted.promise,
+    );
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Review this before sending",
+        context: "Selected rows: a, b",
+        submit: false,
+        submitMessageId: "prefill-cancelled-without-identity",
+      });
+    });
+    cancelAgentChatSubmit("prefill-cancelled-without-identity");
+
+    await act(async () => {
+      persisted.resolve(undefined);
+      await persisted.promise;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(chatHandleMocks.removeComposerContextItem).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Could not identify the staged prefill context"),
+    );
+    consoleError.mockRestore();
   });
 
   it("reports a failed context write without saving the draft", async () => {
