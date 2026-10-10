@@ -8,6 +8,7 @@ export default {
     overview: "概要",
     dashboard: "ダッシュボード",
     dataSources: "データソース",
+    sourceStatus: "ソースの状態",
     dataDictionary: "データ辞書",
     sessions: "セッション",
     monitoring: "Monitoring",
@@ -522,6 +523,34 @@ export default {
       resourcesSubmitted: "{{count}}件のリソースを送信しました。",
     },
   },
+  dataStatus: {
+    sources: "ソース",
+    index: "インデックス",
+    connected: "接続済み",
+    notConnected: "未接続",
+    needsReauth: "再認証が必要",
+    error: "エラー",
+    loadingSources: "ソースの状態を読み込み中",
+    indexNotImported: "生成されたインデックスはまだインポートされていません。",
+    indexUnreadable:
+      "保存されたインデックスを読み取れません。有効なインデックスをアップロードしてください。",
+    indexReadFailed: "インデックスの状態を読み込めませんでした。",
+    lastBuilt: "最終生成",
+    freshness: "鮮度",
+    fresh: "最新 · {{age}}",
+    stale: "古い · {{age}}",
+    generatedUnapproved: "生成済み · 未承認",
+    entriesBySource: "ソース別 {{count}} 件",
+    noSourceEntries: "ソース別の件数はありません。",
+    countUnavailable: "利用不可",
+    adminUpload: "管理者によるアップロード",
+    exportDictionary: "辞書をエクスポート",
+    exportingDictionary: "辞書をエクスポート中…",
+    exportFailed: "辞書のエクスポートに失敗しました。もう一度お試しください。",
+    exportEmpty: "エクスポートする辞書項目はありません。",
+    exportLimitReached:
+      "辞書がエクスポート上限を超えています。管理者にお問い合わせください。",
+  },
   dataDictionary: {
     intro:
       "分析エージェントがプロンプトからダッシュボードを構築するときに使用するメトリクス、テーブル、ビジネス定義のカタログ。エントリを正確に保つと、エージェントがデータを推測することがなくなります。",
@@ -581,6 +610,29 @@ export default {
     exampleUseCasePlaceholder: "いつこの指標に到達すべきでしょうか?",
     saving: "保存中...",
     saveEntry: "エントリを保存する",
+    importIndex: "ソースインデックスをインポート",
+    indexNotImported:
+      "生成されたソースインデックスはまだインポートされていません。",
+    indexUnreadable:
+      "保存済みのソースインデックスを読み取れません。有効なファイルを再度インポートしてください。",
+    indexReadFailed:
+      "保存済みのソースインデックスを確認できませんでした。もう一度お試しください。",
+    indexReady: "{{count}} 件のソース定義を {{date}} に生成しました。",
+    indexStale:
+      "スナップショットは {{days}} 日前のものです。新しいソースのリビジョンを確認するため更新してください。",
+    indexFileInvalid:
+      "750 KB 以下の有効なソースインデックス JSON ファイルを選択してください。",
+    replaceIndexTitle: "ソースインデックスを置き換えますか？",
+    replaceIndexDescription:
+      "組織の現在のソースインデックスを置き換えます。インポートした定義は未承認の候補であり、ライブクエリの結果ではありません。",
+    indexPreview: "{{sources}} の {{count}} 件の定義。生成日 {{date}}。",
+    replaceIndex: "インデックスを置き換える",
+    importingIndex: "インポート中…",
+    indexImportFailed:
+      "ソースインデックスをインポートできませんでした。ファイルを確認して再試行してください。",
+    dictionaryPage: "{{total}}件中{{count}}件 · {{page}}ページ目",
+    previousPage: "前へ",
+    nextPage: "次へ",
   },
   dataSources: {
     uploadFile: "ファイルをアップロードする",
@@ -618,6 +670,10 @@ export default {
       "このアプリに保存されている認証情報を使用します。アプリ間で再利用するには、Dispatch でこのプロバイダーに接続して付与します。",
     sharedFallback:
       "Dispatch でこのプロバイダーを接続または付与してアプリ間で再利用するか、以下のローカル認証情報を保存します。",
+    sharedNeedsReauth:
+      "この共有接続は再認証が必要です。Dispatch で再接続してください。",
+    sharedError:
+      "この共有接続でエラーが報告されました。Dispatch を開いて確認し、修復してください。",
     workspaceReadyDescription:
       "このソースは、共有ワークスペース接続を通じて準備できます。 Dispatch で共有アクセスを管理するか、このアプリのみのローカル認証情報を追加します。",
     testing: "テスト中...",
@@ -985,6 +1041,7 @@ export default {
     dashboard: "ダッシュボード - Analytics",
     dataDictionary: "データディクショナリ - Analytics",
     dataSources: "データソース - Analytics",
+    sourceStatus: "ソースの状態 - Analytics",
     sessions: "セッション - Analytics",
     eventCatalog: "イベントカタログ - Analytics",
     routePerformance: "ルート別パフォーマンス - Analytics",

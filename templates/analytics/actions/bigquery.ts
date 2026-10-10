@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { AgentActionStopError, defineAction } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { getRequestRunContext } from "@agent-native/core/server";
@@ -69,6 +71,54 @@ function normalizeSqlForRepeat(sql: string): string {
   return sql.trim().replace(/\s+/g, " ");
 }
 
+function fingerprintSql(sql: string): string {
+  const shape = sql
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--[^\r\n]*/g, " ")
+    .replace(/(?:[rR])?'''[\s\S]*?'''|(?:[rR])?"""[\s\S]*?"""/g, "?")
+    .replace(/(?:[rR])?'(?:\\.|''|[^'])*'|(?:[rR])?"(?:\\.|""|[^"])*"/g, "?")
+    .replace(/(?<![\w.])[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?(?![\w.])/g, "?")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return createHash("sha256").update(shape).digest("hex").slice(0, 16);
+}
+
+function trackBigQueryOutcome(
+  sql: string,
+  context: ActionRunContext | undefined,
+  properties: Record<string, number | boolean | string>,
+): void {
+  track(
+    "sql_run",
+    {
+      app_name: "analytics",
+      template_name: "analytics",
+      surface: "bigquery",
+      query_fingerprint: fingerprintSql(sql),
+      ...properties,
+    },
+    context,
+  );
+}
+
+function classifyBigQueryError(message: string): string {
+  if (/timed out/i.test(message)) return "timeout";
+  if (/permission|access denied|not authorized|forbidden/i.test(message)) {
+    return "permission";
+  }
+  if (/quota|rate limit|billing|bytes billed/i.test(message)) return "quota";
+  if (
+    /unrecognized name|not found|no such|syntax|invalid query/i.test(message)
+  ) {
+    return "schema_or_sql";
+  }
+  if (/credentials|service account|token exchange/i.test(message)) {
+    return "configuration";
+  }
+  return "other";
+}
+
 function hasPriorFailedBigQueryCall(sql: string): boolean {
   const runContext = getRequestRunContext();
   const priorCalls = runContext?.toolCalls ?? [];
@@ -132,28 +182,47 @@ export default defineAction({
   toolCallable: true,
   grounding: true,
   run: async (args, context?: ActionRunContext) => {
+    const startedAt = Date.now();
     if (hasPriorFailedBigQueryCall(args.sql)) {
+      trackBigQueryOutcome(args.sql, context, {
+        query_status: "blocked",
+        error_category: "repeated_query",
+        query_duration_ms: 0,
+        row_count: 0,
+        total_rows: 0,
+        bytes_processed: 0,
+        cache_hit: false,
+        truncated: false,
+      });
       stopForRepeatedBigQueryQuery();
     }
     try {
       const result = await runQuery(args.sql, { signal: context?.signal });
-      track(
-        "sql_run",
-        {
-          app_name: "analytics",
-          template_name: "analytics",
-          surface: "bigquery",
-          row_count: result.rows.length,
-          total_rows: result.totalRows,
-          truncated: result.truncated === true,
-        },
-        context,
-      );
+      trackBigQueryOutcome(args.sql, context, {
+        query_status: "success",
+        query_duration_ms: Math.max(0, Date.now() - startedAt),
+        row_count: result.rows.length,
+        total_rows: result.totalRows,
+        bytes_processed: result.cached ? 0 : result.bytesProcessed,
+        cache_hit: result.cached === true,
+        truncated: result.truncated === true,
+      });
       return result;
     } catch (err) {
-      if (context?.signal?.aborted) stopForBigQueryCancellation();
-
       const msg = err instanceof Error ? err.message : String(err);
+      const cancelled = context?.signal?.aborted === true;
+      trackBigQueryOutcome(args.sql, context, {
+        query_status: cancelled ? "cancelled" : "error",
+        error_category: cancelled ? "cancelled" : classifyBigQueryError(msg),
+        query_duration_ms: Math.max(0, Date.now() - startedAt),
+        row_count: 0,
+        total_rows: 0,
+        bytes_processed: 0,
+        cache_hit: false,
+        truncated: false,
+      });
+      if (cancelled) stopForBigQueryCancellation();
+
       const providerDetail =
         err instanceof BigQueryBackendError ? err.providerDetail : null;
       if (

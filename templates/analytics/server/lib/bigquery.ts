@@ -277,10 +277,25 @@ export async function listBigQueryTables(
   limit: number,
   signal?: AbortSignal,
 ): Promise<BigQueryTableSummary[]> {
+  return (await listBigQueryTablesPage(projectId, datasetId, limit, { signal }))
+    .tables;
+}
+
+export async function listBigQueryTablesPage(
+  projectId: string,
+  datasetId: string,
+  limit: number,
+  { pageToken, signal }: { pageToken?: string; signal?: AbortSignal } = {},
+): Promise<{
+  tables: BigQueryTableSummary[];
+  nextPageToken?: string;
+  totalItems?: number;
+}> {
   const url = new URL(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(projectId)}/datasets/${encodeURIComponent(datasetId)}/tables`,
   );
   url.searchParams.set("maxResults", String(Math.min(limit, 1000)));
+  if (pageToken) url.searchParams.set("pageToken", pageToken);
   const result = await bigQueryGet<{
     tables?: Array<{
       tableReference?: {
@@ -292,15 +307,23 @@ export async function listBigQueryTables(
       friendlyName?: string;
       labels?: Record<string, string>;
     }>;
+    nextPageToken?: string;
+    totalItems?: number;
   }>(url.toString(), signal);
-  return (result.tables ?? []).map((table) => ({
-    projectId: table.tableReference?.projectId,
-    datasetId: table.tableReference?.datasetId,
-    tableId: table.tableReference?.tableId,
-    type: table.type,
-    friendlyName: table.friendlyName,
-    labels: table.labels,
-  }));
+  return {
+    tables: (result.tables ?? []).map((table) => ({
+      projectId: table.tableReference?.projectId,
+      datasetId: table.tableReference?.datasetId,
+      tableId: table.tableReference?.tableId,
+      type: table.type,
+      friendlyName: table.friendlyName,
+      labels: table.labels,
+    })),
+    ...(result.nextPageToken ? { nextPageToken: result.nextPageToken } : {}),
+    ...(typeof result.totalItems === "number"
+      ? { totalItems: result.totalItems }
+      : {}),
+  };
 }
 
 const TABLE_METADATA_TTL_MS = 10 * 60_000;
