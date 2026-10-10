@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -9,6 +9,12 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid, stringifySpaceIds } from "../server/lib/recordings.js";
 import { encryptSharePassword } from "../server/lib/share-password.js";
+import {
+  ChapterSchema,
+  StoredChapterSchema,
+  parseList,
+  saveChapters,
+} from "./lib/save-chapters.js";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -31,7 +37,18 @@ export default defineAction({
     animatedThumbnailEnabled: z.union([z.boolean(), cliBoolean]).optional(),
     password: z.string().nullish(),
     expiresAt: z.string().nullish(),
-    chaptersJson: z.string().optional(),
+    chaptersJson: z
+      .string()
+      .optional()
+      .describe(
+        "JSON array of {startMs,title}. Needs expectedChapters; set-chapters is the usual way to change chapters.",
+      ),
+    expectedChapters: z
+      .union([z.string(), z.array(StoredChapterSchema)])
+      .optional()
+      .describe(
+        "Required with chaptersJson: the chapters this edit started from. If the stored chapters differ, nothing is written and the call fails with errorCode chapters_changed.",
+      ),
   }),
   run: async (args) => {
     await assertAccess("recording", args.id, "editor");
@@ -43,6 +60,34 @@ export default defineAction({
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.id));
     if (!existing) throw new Error(`Recording not found: ${args.id}`);
+
+    // Chapters first: a refused chapter save writes nothing else either. If
+    // a later write fails, a retry finds the chapters already saved.
+    if (typeof args.chaptersJson === "string") {
+      if (args.expectedChapters === undefined) {
+        fail(
+          "chaptersJson needs expectedChapters, the chapters this edit started from, so it can't replace chapters changed elsewhere.",
+          { errorCode: "expected_chapters_required", statusCode: 400 },
+        );
+      }
+      await saveChapters({
+        recordingId: args.id,
+        chapters: parseList(
+          args.chaptersJson,
+          "chaptersJson",
+          ChapterSchema,
+          "invalid_chapters",
+        ),
+        expectedChapters: parseList(
+          args.expectedChapters,
+          "expectedChapters",
+          StoredChapterSchema,
+          "invalid_chapters",
+        ),
+        expectedVersion: null,
+        expectedCuts: null,
+      });
+    }
 
     const patch: Record<string, unknown> = {
       updatedAt: new Date().toISOString(),
@@ -71,8 +116,6 @@ export default defineAction({
       patch.sharePasswordVersion = randomUUID();
     }
     if (args.expiresAt !== undefined) patch.expiresAt = args.expiresAt ?? null;
-    if (typeof args.chaptersJson === "string")
-      patch.chaptersJson = args.chaptersJson;
 
     await db
       .update(schema.recordings)

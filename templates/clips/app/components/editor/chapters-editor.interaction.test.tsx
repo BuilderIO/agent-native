@@ -227,6 +227,83 @@ describe("ChaptersEditor saves", () => {
     expect(titles()).toEqual(["Opening part"]);
   });
 
+  it("keeps an edit queued behind a save that was stored but whose reply was lost", async () => {
+    const first = deferred<unknown>();
+    mocks.save.mockImplementationOnce(() => first.promise);
+    mocks.save.mockRejectedValueOnce(refusal([{ ...intro, title: "Opening" }]));
+    render([intro]);
+    type(0, "Opening ");
+    await settle();
+    type(0, "Opening part");
+    await settle();
+    await act(async () => {
+      first.reject(new Error("network"));
+    });
+    await settle(0);
+    expect(mocks.save).toHaveBeenCalledTimes(3);
+    expect(mocks.save.mock.calls[2][0]).toMatchObject({
+      chapters: [{ ...intro, title: "Opening part" }],
+      expectedChapters: [{ ...intro, title: "Opening" }],
+    });
+    expect(mocks.toastError).not.toHaveBeenCalledWith(
+      "chapters.changedElsewhere",
+    );
+    expect(titles()).toEqual(["Opening part"]);
+  });
+
+  it("re-sends the refused edit itself when the lost save was stored", async () => {
+    mocks.save.mockRejectedValueOnce(new Error("network"));
+    mocks.save.mockRejectedValueOnce(refusal([{ ...intro, title: "Opening" }]));
+    render([intro]);
+    type(0, "Opening");
+    await settle();
+    type(0, "Opening part");
+    await settle();
+    expect(mocks.save).toHaveBeenCalledTimes(3);
+    expect(mocks.save.mock.calls[2][0]).toMatchObject({
+      chapters: [{ ...intro, title: "Opening part" }],
+      expectedChapters: [{ ...intro, title: "Opening" }],
+    });
+    expect(titles()).toEqual(["Opening part"]);
+  });
+
+  it("still drops a queued edit when a lost save's list is not what was stored", async () => {
+    const first = deferred<unknown>();
+    mocks.save.mockImplementationOnce(() => first.promise);
+    mocks.save.mockRejectedValueOnce(refusal([demo]));
+    render([intro]);
+    type(0, "Opening");
+    await settle();
+    type(0, "Opening part");
+    await settle();
+    await act(async () => {
+      first.reject(new Error("network"));
+    });
+    await settle(0);
+    expect(mocks.save).toHaveBeenCalledTimes(2);
+    expect(titles()).toEqual(["Demo"]);
+    expect(mocks.toastError).toHaveBeenCalledWith("chapters.changedElsewhere");
+  });
+
+  it("doesn't take a change made elsewhere for a lost save that matches it", async () => {
+    mocks.save.mockRejectedValueOnce(new Error("network"));
+    render([intro]);
+    type(0, "Opening");
+    await settle();
+    // Someone else makes the same rename; the page shows it.
+    render([{ ...intro, title: "Opening" }]);
+    // Then a third writer changes it again, unseen here.
+    mocks.save.mockRejectedValueOnce(refusal([{ ...intro, title: "Opening" }]));
+    render([demo]);
+    type(0, "Demo two");
+    await settle();
+    expect(mocks.save.mock.calls[1][0].expectedChapters).toEqual([demo]);
+    expect(mocks.save).toHaveBeenCalledTimes(2);
+    expect(mocks.toastError).toHaveBeenLastCalledWith(
+      "chapters.changedElsewhere",
+    );
+  });
+
   it("still saves a waiting edit when another title is cleared", async () => {
     render([intro, demo]);
     type(0, "Opening");

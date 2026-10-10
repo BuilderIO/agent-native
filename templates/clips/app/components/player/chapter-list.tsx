@@ -495,15 +495,10 @@ function EditableChapterList({
             from: server ? { ...server, draft: null } : from,
             failure,
           });
-          if (changed) {
-            void queryClient.invalidateQueries({
-              queryKey: [
-                "action",
-                "get-recording-player-data",
-                { recordingId },
-              ],
-            });
-          }
+          // A save whose reply was lost may still have been stored.
+          void queryClient.invalidateQueries({
+            queryKey: ["action", "get-recording-player-data", { recordingId }],
+          });
           // The hook's error text is English and for developers.
           console.error("[clips] set-chapters failed", err);
           toast.error(t(FAILURE_MESSAGE[failure]));

@@ -54,6 +54,12 @@ function rowsFor(list: readonly Chapter[], before: readonly Row[]): Row[] {
   }));
 }
 
+/** A list as set-chapters stores it: titles trimmed, in time order. */
+const asStored = (list: readonly Chapter[]): Chapter[] =>
+  list
+    .map((c) => ({ startMs: c.startMs, title: c.title.trim() }))
+    .sort((a, b) => a.startMs - b.startMs);
+
 const FAILURE_MESSAGE = {
   changed: "chapters.changedElsewhere",
   unreadable: "chapters.unreadable",
@@ -92,6 +98,10 @@ export function ChaptersEditor({
   // so they go out as a single save.
   const unsentRef = useRef<Chapter[] | null>(null);
   const sendingRef = useRef(false);
+  // Lists sent by saves whose reply never came back readable: each may have
+  // been stored. A refusal naming one of them is this editor's own save, not
+  // a change made elsewhere, so the edit it refused still goes out.
+  const unconfirmedRef = useRef<Chapter[][]>([]);
   const pressedRef = useRef<Row | null>(null);
 
   const mutation = useActionMutation("set-chapters");
@@ -108,6 +118,8 @@ export function ChaptersEditor({
     // Page data fetched while an edit is unsaved can predate it.
     if (unsentRef.current || sendingRef.current) return;
     if (sameChapters(chapters, storedRef.current)) return;
+    // A later change can match a lost save's list; it isn't this editor's.
+    unconfirmedRef.current = [];
     storedRef.current = chapters;
     showStored();
   }, [chapters]);
@@ -129,6 +141,7 @@ export function ChaptersEditor({
           throw new Error("set-chapters returned no chapters");
         }
         storedRef.current = result.chapters as Chapter[];
+        unconfirmedRef.current = [];
         failure = null;
         break;
       } catch (err) {
@@ -142,7 +155,22 @@ export function ChaptersEditor({
       const latest = failure?.details?.chapters;
       const changed =
         failure?.errorCode === CHAPTERS_CHANGED && Array.isArray(latest);
+      if (
+        changed &&
+        unconfirmedRef.current.some((sent) => sameChapters(sent, latest))
+      ) {
+        storedRef.current = latest;
+        unconfirmedRef.current = [];
+        unsentRef.current ??= next;
+        return send();
+      }
+      // A refusal comes from the server's checks, so nothing was written;
+      // without one, the save may have been stored.
+      if (failure?.errorCode === undefined) {
+        unconfirmedRef.current.push(asStored(next));
+      }
       if (changed) {
+        unconfirmedRef.current = [];
         // Newer edits were made on the list that was refused; drop them.
         storedRef.current = latest;
         unsentRef.current = null;
