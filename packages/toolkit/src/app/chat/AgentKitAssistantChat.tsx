@@ -1878,9 +1878,10 @@ const AgentKitAssistantChatBody = forwardRef<
     return subscribeAgentChatContext(apply);
   }, [props.contextNamespace, props.isActiveComposer]);
 
-  // Clearing the draft abandons the prompt its composer-only context was staged
-  // with, so the context goes too. A switch between chats also empties the draft,
-  // which is not an abandonment, so only a clear within the same chat counts.
+  // Clearing the draft abandons the prompt its hidden context was staged with, so
+  // that context goes too. A visible chip was not tied to the prompt and stays until
+  // the user removes it. A switch between chats also empties the draft, which is not
+  // an abandonment, so only a clear within the same chat counts.
   const draftRef = useRef({ scope: hiddenContextScope, text: composerText });
   useEffect(() => {
     const previous = draftRef.current;
@@ -1893,8 +1894,8 @@ const AgentKitAssistantChatBody = forwardRef<
     if (previous.text.trim() === "" || composerText.trim() !== "") return;
     if (previous.text.trim() === submittedText?.trim()) return;
     setContextItems((items) =>
-      items.some((item) => item.composerOnly)
-        ? items.filter((item) => !item.composerOnly)
+      items.some((item) => item.hidden)
+        ? items.filter((item) => !item.hidden)
         : items,
     );
   }, [composerText, hiddenContextScope]);

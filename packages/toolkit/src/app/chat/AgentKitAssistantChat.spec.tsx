@@ -898,6 +898,13 @@ afterEach(async () => {
   await unmount();
   chatMocks.realComposerController?.dispose();
   window.sessionStorage.clear();
+  // Hidden context is restored per scope on mount, so a test's staged context must not reach the next mount.
+  for (let i = window.localStorage.length - 1; i >= 0; i--) {
+    const storageKey = window.localStorage.key(i);
+    if (storageKey?.startsWith("agent-chat-composer-hidden-context:")) {
+      window.localStorage.removeItem(storageKey);
+    }
+  }
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
@@ -2103,6 +2110,34 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () => chatMocks.composerProps.onTextChange(""));
 
     expect(chatMocks.composerProps.contextItems).toEqual([]);
+  });
+
+  it("clearing the draft keeps a visible prefill chip the user has not removed", async () => {
+    const ref = createRef<AssistantChatHandle>();
+    await mount(baseProps(), ref);
+    await act(async () => chatMocks.composerProps.onTextChange("Tell me more"));
+    await act(async () =>
+      ref.current!.setComposerContextItem(
+        {
+          key: "agent-chat-prefill-context",
+          title: "Selected rows",
+          context: "Selected rows: a, b",
+          composerOnly: true,
+          stagedAt: Date.now(),
+        },
+        { focus: false },
+      ),
+    );
+    expect(chatMocks.composerProps.contextItems).toHaveLength(1);
+
+    await act(async () => chatMocks.composerProps.onTextChange(""));
+
+    expect(chatMocks.composerProps.contextItems).toEqual([
+      expect.objectContaining({
+        key: "agent-chat-prefill-context",
+        title: "Selected rows",
+      }),
+    ]);
   });
 
   it("keeps hidden prefill context out of the shared context store", async () => {
