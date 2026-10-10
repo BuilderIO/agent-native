@@ -390,7 +390,11 @@ export default function Index() {
     const result = homeSuggestionsQuery.data;
     if (result?.status === "ready" && result.suggestions.length === 3) {
       setHomeSuggestionsSnapshot(result.suggestions);
-    } else if (result || homeSuggestionsQuery.isError) {
+    } else if (
+      result ||
+      homeSuggestionsQuery.isError ||
+      agentEngine.state === "unavailable"
+    ) {
       setHomeSuggestionsSnapshot(fallbackHomeSuggestions);
     }
   }, [
@@ -398,10 +402,16 @@ export default function Index() {
     homeSuggestionsQuery.data,
     homeSuggestionsQuery.isError,
     homeSuggestionsSnapshot,
+    agentEngine.state,
   ]);
-  const homeSuggestions = homeSuggestionsSnapshot ?? [];
+  const homeSuggestionsUnavailable = agentEngine.state === "unavailable";
+  const homeSuggestions =
+    homeSuggestionsSnapshot ??
+    (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);
   const homeSuggestionsLoading =
-    !agentEngineMissing && homeSuggestionsSnapshot === null;
+    !agentEngineMissing &&
+    !homeSuggestionsUnavailable &&
+    homeSuggestionsSnapshot === null;
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -1277,7 +1287,9 @@ export default function Index() {
         }
         quickActions={
           !agentEngineMissing &&
-          (homeSuggestionsLoading || homeSuggestionsSnapshot !== null) ? (
+          (homeSuggestionsLoading ||
+            homeSuggestionsUnavailable ||
+            homeSuggestionsSnapshot !== null) ? (
             <AgentSuggestionBar
               loading={homeSuggestionsLoading}
               layout="single-line"

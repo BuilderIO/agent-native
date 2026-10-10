@@ -699,7 +699,11 @@ export default function Index({ active = true }: { active?: boolean }) {
     const result = homeSuggestionsQuery.data;
     if (result?.status === "ready" && result.suggestions.length === 3) {
       setHomeSuggestionsSnapshot(result.suggestions);
-    } else if (result || homeSuggestionsQuery.isError) {
+    } else if (
+      result ||
+      homeSuggestionsQuery.isError ||
+      agentEngine.state === "unavailable"
+    ) {
       setHomeSuggestionsSnapshot(fallbackHomeSuggestions);
     }
   }, [
@@ -707,12 +711,17 @@ export default function Index({ active = true }: { active?: boolean }) {
     homeSuggestionsQuery.data,
     homeSuggestionsQuery.isError,
     homeSuggestionsSnapshot,
+    agentEngine.state,
   ]);
-  const homeSuggestions = homeSuggestionsSnapshot ?? [];
+  const homeSuggestionsUnavailable = agentEngine.state === "unavailable";
+  const homeSuggestions =
+    homeSuggestionsSnapshot ??
+    (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);
   const homeSuggestionsLoading =
     isHome &&
     showNewDeckPrompt &&
     !agentEngineMissing &&
+    !homeSuggestionsUnavailable &&
     homeSuggestionsSnapshot === null;
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2683,7 +2692,9 @@ export default function Index({ active = true }: { active?: boolean }) {
         isHome &&
         showNewDeckPrompt &&
         !agentEngineMissing &&
-        (homeSuggestionsLoading || homeSuggestionsSnapshot !== null) ? (
+        (homeSuggestionsLoading ||
+          homeSuggestionsUnavailable ||
+          homeSuggestionsSnapshot !== null) ? (
           <AgentSuggestionBar
             loading={homeSuggestionsLoading}
             layout="single-line"

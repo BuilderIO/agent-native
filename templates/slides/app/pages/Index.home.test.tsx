@@ -1837,14 +1837,22 @@ describe("Slides prompt-led home", () => {
       expect(promptProps.mock.lastCall![0].onBeforeSubmit).toBeUndefined();
       expect(promptProps.mock.lastCall![0].submissionDisabled).toBeUndefined();
       const suggestionBar = screen.queryByLabelText("home.suggestedPrompts");
-      const loading = state === "unknown" || state === "unavailable";
-      expect(Boolean(suggestionBar)).toBe(ready || loading);
+      const loading = state === "unknown";
+      const unavailable = state === "unavailable";
+      expect(Boolean(suggestionBar)).toBe(ready || loading || unavailable);
       expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBe(
         loading ? "true" : null,
       );
       expect(
         Boolean(screen.queryByRole("button", { name: "Build a pitch" })),
       ).toBe(ready);
+      expect(
+        Boolean(
+          screen.queryByRole("button", {
+            name: "Create a product pitch deck",
+          }),
+        ),
+      ).toBe(unavailable);
       if (ready) {
         expect(
           screen.getByRole<HTMLButtonElement>("button", {

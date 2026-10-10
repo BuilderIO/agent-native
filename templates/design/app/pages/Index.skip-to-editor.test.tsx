@@ -784,15 +784,22 @@ describe("Index skip to editor", () => {
       const suggestionBar = container.querySelector<HTMLElement>(
         '[aria-label="home.suggestedPrompts"]',
       );
-      const loading = state === "unknown" || state === "unavailable";
-      expect(Boolean(suggestionBar)).toBe(ready || loading);
+      const loading = state === "unknown";
+      const unavailable = state === "unavailable";
+      expect(Boolean(suggestionBar)).toBe(ready || loading || unavailable);
       expect(suggestionBar?.getAttribute("aria-busy") ?? null).toBe(
         loading ? "true" : null,
       );
       expect(container.textContent?.includes("Generated dashboard")).toBe(
         ready,
       );
-      expect(container.textContent).not.toContain("chat.suggestionLandingPage");
+      if (unavailable) {
+        expect(container.textContent).toContain("chat.suggestionLandingPage");
+      } else {
+        expect(container.textContent).not.toContain(
+          "chat.suggestionLandingPage",
+        );
+      }
     },
   );
 

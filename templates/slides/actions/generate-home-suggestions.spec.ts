@@ -70,6 +70,22 @@ describe("generate-home-suggestions", () => {
     );
   });
 
+  it.each([9, 11])(
+    "samples three suggestions when the returned bank contains %i items",
+    async (bankSize) => {
+      vi.spyOn(Math, "random").mockReturnValue(0.999);
+      const bank = Array.from({ length: bankSize }, (_, index) => ({
+        label: `Presentation task ${index + 1}`,
+        prompt: `Create a presentation for task ${index + 1}.`,
+      }));
+      mocks.completeText.mockResolvedValue({ text: JSON.stringify(bank) });
+
+      await expect(
+        action.run({}, { userEmail: "user@example.test" } as never),
+      ).resolves.toEqual({ status: "ready", suggestions: bank.slice(0, 3) });
+    },
+  );
+
   it("samples three distinct suggestions from the role-specific bank", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const result = await action.run({}, {
@@ -84,6 +100,38 @@ describe("generate-home-suggestions", () => {
     expect(
       result.suggestions.every(({ prompt }) => promptBank.has(prompt)),
     ).toBe(true);
+  });
+
+  it("omits repeated prompts when sampling the bank", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.999);
+    const bank = [...suggestions];
+    bank[2] = { ...bank[2]!, prompt: bank[0]!.prompt };
+    mocks.completeText.mockResolvedValue({ text: JSON.stringify(bank) });
+
+    const result = await action.run({}, {
+      userEmail: "user@example.test",
+    } as never);
+
+    expect(result.suggestions).toHaveLength(3);
+    expect(new Set(result.suggestions.map(({ prompt }) => prompt)).size).toBe(
+      3,
+    );
+  });
+
+  it("rejects a bank with fewer than three distinct prompts", async () => {
+    const bank = suggestions.map((suggestion) => ({
+      ...suggestion,
+      prompt: suggestions[0]!.prompt,
+    }));
+    mocks.completeText.mockResolvedValue({ text: JSON.stringify(bank) });
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).rejects.toMatchObject({
+      message: "Home suggestions did not contain three distinct prompts.",
+      errorCode: "invalid_model_response",
+      statusCode: 502,
+    });
   });
 
   it("uses the selected role when it is available", async () => {
