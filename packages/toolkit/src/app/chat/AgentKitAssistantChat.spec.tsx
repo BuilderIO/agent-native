@@ -9270,6 +9270,79 @@ describe("AgentKitAssistantChat host behavior", () => {
     }
   });
 
+  it("retries one extra bounded epoch when a completed snapshot exhausts", async () => {
+    const createTransport = () => chatMocks.transport;
+    const onSaveThread = vi.fn().mockResolvedValue(false);
+    const toastError = vi.spyOn(toast, "error").mockImplementation(() => "");
+    await mount(baseProps({ createTransport, onSaveThread }));
+
+    vi.useFakeTimers();
+    try {
+      const userMessage = {
+        id: "completed-retry-user-message",
+        role: "user",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:00.000Z",
+        parts: [{ type: "text", text: "Retry this completed save" }],
+      };
+      const assistantMessage = {
+        id: "completed-retry-assistant-message",
+        role: "assistant",
+        status: "complete",
+        createdAt: "2026-10-07T12:00:01.000Z",
+        parts: [{ type: "text", text: "The run is complete" }],
+      };
+      chatMocks.thread = {
+        ...chatMocks.thread,
+        activeRunIds: [],
+        messages: [userMessage, assistantMessage],
+      };
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      expect(onSaveThread).toHaveBeenCalledOnce();
+      for (const delay of [1_000, 2_000, 4_000]) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(delay);
+        });
+      }
+      expect(onSaveThread).toHaveBeenCalledTimes(5);
+      expect(toastError).not.toHaveBeenCalled();
+      const completedThreadData = onSaveThread.mock.calls[0]?.[1].threadData;
+      expect(onSaveThread.mock.calls[4]?.[1].threadData).toBe(
+        completedThreadData,
+      );
+
+      for (const delay of [1_000, 2_000, 4_000]) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(delay);
+        });
+      }
+      expect(onSaveThread).toHaveBeenCalledTimes(8);
+      expect(toastError).toHaveBeenCalledOnce();
+
+      await act(async () => {
+        root.render(
+          <AgentKitAssistantChat
+            {...baseProps({ createTransport, onSaveThread })}
+          />,
+        );
+        await Promise.resolve();
+      });
+      expect(onSaveThread).toHaveBeenCalledTimes(8);
+    } finally {
+      await act(async () => root.render(null));
+      toastError.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("does not retry an in-flight snapshot save after the chat unmounts", async () => {
     const createTransport = () => chatMocks.transport;
     let resolveFirstSave: ((saved: boolean) => void) | undefined;

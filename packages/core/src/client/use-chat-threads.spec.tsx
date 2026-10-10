@@ -1214,7 +1214,10 @@ describe("useChatThreads", () => {
 
     await act(async () => {
       root.render(<Harness />);
-      await new Promise((resolve) => window.setTimeout(resolve, 550));
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+    });
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
       for (let i = 0; i < 12; i++) await Promise.resolve();
     });
 
@@ -1491,6 +1494,12 @@ describe("useChatThreads", () => {
       if (url === "/chat/threads" && !init) {
         return jsonResponse({ threads: [savedThread, routeThread] });
       }
+      if (url === "/chat/threads/route-thread" && !init) {
+        return jsonResponse({
+          ...routeThread,
+          threadData: JSON.stringify({ messages: [{ id: "route-message" }] }),
+        });
+      }
       throw new Error(`Unexpected fetch: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1512,6 +1521,7 @@ describe("useChatThreads", () => {
     });
 
     expect(hook!.activeThreadId).toBe("route-thread");
+    expect(hook!.isThreadPersisted("route-thread")).toBe(true);
     expect(
       window.localStorage.getItem("agent-chat-active-thread:route-test"),
     ).toBe("route-thread");
@@ -1532,7 +1542,10 @@ describe("useChatThreads", () => {
         return jsonResponse({ threads: [] });
       }
       if (url === "/chat/threads/route-thread" && !init) {
-        return jsonResponse(routeThread);
+        return jsonResponse({
+          ...routeThread,
+          threadData: JSON.stringify({ messages: [{ id: "route-message" }] }),
+        });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -1555,6 +1568,47 @@ describe("useChatThreads", () => {
     expect(hook!.activeThreadId).toBe("route-thread");
     expect(hook!.isThreadPersisted("route-thread")).toBe(true);
     expect(hook!.isNewThread("route-thread")).toBe(false);
+  });
+
+  it("does not confirm an initial route from a history summary without a transcript", async () => {
+    const routeThread: ChatThreadSummary = {
+      id: "initial-summary-route-thread",
+      title: "Route",
+      preview: "route preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [routeThread] });
+      }
+      if (url === "/chat/threads/initial-summary-route-thread" && !init) {
+        return jsonResponse({ ...routeThread, threadData: "" });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "initial-summary-route-test", null, {
+        routeThreadId: "initial-summary-route-thread",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("initial-summary-route-thread");
+    expect(hook!.isThreadPersisted("initial-summary-route-thread")).toBe(false);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/chat/threads/initial-summary-route-thread",
+    );
   });
 
   it("keeps a chat created on the create route new once the route adopts its id", async () => {
@@ -1647,7 +1701,10 @@ describe("useChatThreads", () => {
         return jsonResponse({ threads: [] });
       }
       if (url === "/chat/threads/later-route-thread" && !init) {
-        return jsonResponse(routeThread);
+        return jsonResponse({
+          ...routeThread,
+          threadData: JSON.stringify({ messages: [{ id: "route-message" }] }),
+        });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -1700,7 +1757,12 @@ describe("useChatThreads", () => {
         lookups += 1;
         return lookups === 1
           ? new Response(null, { status: 503 })
-          : jsonResponse(routeThread);
+          : jsonResponse({
+              ...routeThread,
+              threadData: JSON.stringify({
+                messages: [{ id: "route-message" }],
+              }),
+            });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -1722,6 +1784,52 @@ describe("useChatThreads", () => {
     expect(lookups).toBe(2);
     expect(hook!.isThreadPersisted("retry-route-thread")).toBe(true);
     expect(hook!.isNewThread("retry-route-thread")).toBe(false);
+  });
+
+  it("does not confirm a later route with an unreadable transcript", async () => {
+    const routeThread: ChatThreadSummary = {
+      id: "unreadable-route-thread",
+      title: "Route",
+      preview: "route preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/unreadable-route-thread" && !init) {
+        return jsonResponse({ ...routeThread, threadData: "{" });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    let routeThreadId: string | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "unreadable-route-test", null, {
+        routeThreadId,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+    routeThreadId = "unreadable-route-thread";
+    await act(async () => {
+      root.render(<Harness />);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    expect(hook!.isThreadPersisted("unreadable-route-thread")).toBe(false);
+    expect(hook!.threads.some((thread) => thread.id === routeThread.id)).toBe(
+      false,
+    );
   });
 
   it("ignores a route lookup that completes after its history scope changes", async () => {
@@ -1818,7 +1926,10 @@ describe("useChatThreads", () => {
           "/chat/threads/scope-cache-route-thread?scopeType=workspace-app&scopeId=app-a" &&
         !init
       ) {
-        return jsonResponse(savedThread);
+        return jsonResponse({
+          ...savedThread,
+          threadData: JSON.stringify({ messages: [{ id: "route-message" }] }),
+        });
       }
       if (
         url ===

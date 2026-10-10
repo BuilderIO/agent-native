@@ -2411,6 +2411,12 @@ const AgentKitAssistantChatBody = forwardRef<
     threadData: null as string | null,
     retries: 0,
     exhausted: false,
+    failureReported: false,
+  });
+  const completionSnapshotRetryRef = useRef({
+    threadData: null as string | null,
+    pending: false,
+    retried: false,
   });
   const snapshotGenerationRef = useRef({
     persistenceKey: "",
@@ -2418,9 +2424,9 @@ const AgentKitAssistantChatBody = forwardRef<
     generation: 0,
   });
   const saveMetadataSnapshotRef = useRef<() => void>(() => undefined);
-  const saveSnapshotRef = useRef<(metadataOnly?: boolean) => void>(
-    () => undefined,
-  );
+  const saveSnapshotRef = useRef<
+    (metadataOnly?: boolean, allowCompletionRetry?: boolean) => void
+  >(() => undefined);
   const isUnmountingRef = useRef(false);
   const localSubmissionRef = useRef(false);
   const latestAssistant = useMemo(
@@ -2432,7 +2438,10 @@ const AgentKitAssistantChatBody = forwardRef<
   );
 
   const saveThreadSnapshot = useCallback(
-    (snapshot: ReturnType<typeof createAgentKitThreadSnapshot>) => {
+    (
+      snapshot: ReturnType<typeof createAgentKitThreadSnapshot>,
+      allowCompletionRetry = false,
+    ) => {
       const onSaveThread = props.onSaveThread;
       if (!onSaveThread) return;
       const persistenceKey = createAgentKitThreadHandoffKey(props, threadId);
@@ -2445,6 +2454,12 @@ const AgentKitAssistantChatBody = forwardRef<
           threadData: snapshot.threadData,
           retries: 0,
           exhausted: false,
+          failureReported: false,
+        };
+        completionSnapshotRetryRef.current = {
+          threadData: snapshot.threadData,
+          pending: false,
+          retried: false,
         };
         if (retryThreadSaveTimerRef.current !== null) {
           window.clearTimeout(retryThreadSaveTimerRef.current);
@@ -2458,7 +2473,26 @@ const AgentKitAssistantChatBody = forwardRef<
         };
         latestThreadSnapshotGenerations.set(persistenceKey, generation);
       }
-      const retry = threadSaveRetryRef.current;
+      let retry = threadSaveRetryRef.current;
+      const completionRetry = completionSnapshotRetryRef.current;
+      if (
+        allowCompletionRetry &&
+        retry.threadData === snapshot.threadData &&
+        completionRetry.threadData === snapshot.threadData &&
+        !completionRetry.retried
+      ) {
+        completionRetry.pending = true;
+        if (retry.exhausted) {
+          completionRetry.pending = false;
+          completionRetry.retried = true;
+          retry = {
+            ...retry,
+            retries: 0,
+            exhausted: false,
+          };
+          threadSaveRetryRef.current = retry;
+        }
+      }
       if (
         retry.exhausted &&
         retry.threadData === snapshot.threadData &&
@@ -2530,6 +2564,7 @@ const AgentKitAssistantChatBody = forwardRef<
             threadData: snapshot.threadData,
             retries: 0,
             exhausted: false,
+            failureReported: false,
           };
           latestThreadSnapshotGenerations.delete(persistenceKey);
         } else if (
@@ -2559,10 +2594,32 @@ const AgentKitAssistantChatBody = forwardRef<
                 2 ** (threadSaveRetryRef.current.retries - 1),
             );
           } else {
-            const wasExhausted = threadSaveRetryRef.current.exhausted;
             threadSaveRetryRef.current.exhausted = true;
             latestThreadSnapshotGenerations.delete(persistenceKey);
-            if (!wasExhausted) toast.error(t("agentChat.common.saveFailed"));
+            const completionRetry = completionSnapshotRetryRef.current;
+            const shouldRetryCompletionSnapshot =
+              !isUnmountingRef.current &&
+              completionRetry.threadData === snapshot.threadData &&
+              completionRetry.pending &&
+              !completionRetry.retried;
+            if (
+              !shouldRetryCompletionSnapshot &&
+              !threadSaveRetryRef.current.failureReported
+            ) {
+              threadSaveRetryRef.current.failureReported = true;
+              toast.error(t("agentChat.common.saveFailed"));
+            }
+            if (shouldRetryCompletionSnapshot) {
+              completionRetry.pending = false;
+              completionRetry.retried = true;
+              threadSaveRetryRef.current = {
+                threadData: snapshot.threadData,
+                retries: 0,
+                exhausted: false,
+                failureReported: threadSaveRetryRef.current.failureReported,
+              };
+              saveSnapshotRef.current();
+            }
           }
         }
       };
@@ -3147,14 +3204,15 @@ const AgentKitAssistantChatBody = forwardRef<
         terminalEventAdded = true;
       }
     }
-    if (
-      addedUserMessage ||
-      terminalEventAdded ||
-      (!isRunning &&
-        thread.messages.at(-1)?.role === "assistant" &&
-        thread.messages.at(-1)?.status === "complete")
-    ) {
-      saveSnapshotRef.current();
+    const completedAssistantSnapshot =
+      !isRunning &&
+      thread.messages.at(-1)?.role === "assistant" &&
+      thread.messages.at(-1)?.status === "complete";
+    if (addedUserMessage || terminalEventAdded || completedAssistantSnapshot) {
+      saveSnapshotRef.current(
+        false,
+        terminalEventAdded || completedAssistantSnapshot,
+      );
     }
     reportMessageCount(
       thread.messages.length +
@@ -3164,7 +3222,10 @@ const AgentKitAssistantChatBody = forwardRef<
     );
   }, [isRunning, props, thread, threadId, voiceTranscriptMessages]);
 
-  saveSnapshotRef.current = (metadataOnly = false) => {
+  saveSnapshotRef.current = (
+    metadataOnly = false,
+    allowCompletionRetry = false,
+  ) => {
     const transcripts = voiceTranscriptsRef.current.messages;
     if (thread.messages.length === 0 && transcripts.length === 0) {
       return;
@@ -3190,7 +3251,7 @@ const AgentKitAssistantChatBody = forwardRef<
       );
     }
     if (metadataOnly) saveThreadMetadata(snapshot);
-    else saveThreadSnapshot(snapshot);
+    else saveThreadSnapshot(snapshot, allowCompletionRetry);
   };
   saveMetadataSnapshotRef.current = () => saveSnapshotRef.current(true);
 

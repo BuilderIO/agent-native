@@ -713,7 +713,10 @@ export function useChatThreads(
         }
         for (const thread of loaded) {
           knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
+          const isRouteThread =
+            routeControlsActiveThread && thread.id === routeThreadId;
           if (
+            !isRouteThread &&
             !isUnconfirmedClientDraftThread(thread.id, newlyCreatedRef.current)
           ) {
             serverConfirmedThreadIdsRef.current.add(
@@ -1004,7 +1007,7 @@ export function useChatThreads(
         ? loadedThreads.find((t) => t.id === restoredId)
         : undefined;
       const restoredThread =
-        lookupRestored && !restoredOnPage
+        lookupRestored && (!restoredOnPage || routeControlsActiveThread)
           ? await fetchThreadById(apiUrl, restoredId!, historyScope)
           : restoredOnPage;
       if (
@@ -1040,7 +1043,12 @@ export function useChatThreads(
         !isUnconfirmedClientDraftThread(
           restoredThread.id,
           newlyCreatedRef.current,
-        )
+        ) &&
+        (!routeControlsActiveThread ||
+          persistedThreadTranscriptStatus(
+            restoredThread,
+            routeThreadId ?? restoredId!,
+          ) === "verified")
       ) {
         serverConfirmedThreadIdsRef.current.add(
           serverConfirmedThreadKey(apiUrl, historyScopeKey, restoredThread.id),
@@ -1186,6 +1194,11 @@ export function useChatThreads(
           historyScope,
           isolateHistory,
         )
+      ) {
+        return;
+      }
+      if (
+        persistedThreadTranscriptStatus(thread, routeThreadId) !== "verified"
       ) {
         return;
       }
