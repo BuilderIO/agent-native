@@ -165,6 +165,12 @@ export function tryNormalizeAgentActionScope(
 export type AgentChatStructuredContentPart =
   | { type: "text"; text: string }
   | {
+      type: "image-reference";
+      url: string;
+      mediaType?: string;
+      name?: string;
+    }
+  | {
       type: "tool-call";
       id?: string;
       toolCallId?: string;

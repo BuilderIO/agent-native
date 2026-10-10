@@ -549,7 +549,9 @@ ${cloudflareSweepTriggerScript(publicRecurringJobsSweepPath(env))}
 export default {
   async fetch(request, env, ctx) {
     if (typeof ctx?.waitUntil === "function") {
-      request.waitUntil = ctx.waitUntil.bind(ctx);
+      const requestWithWaitUntil = new Request(request);
+      requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);
+      request = requestWithWaitUntil;
     }
     initializeBindings(env);
     const h = await loadHandler();
@@ -2529,7 +2531,9 @@ export default {
   async fetch(request, env, ctx) {
     // Attach the request-scoped continuation hook before any URL rewrite.
     if (typeof ctx?.waitUntil === "function") {
-      request.waitUntil = ctx.waitUntil.bind(ctx);
+      const requestWithWaitUntil = new Request(request);
+      requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);
+      request = requestWithWaitUntil;
     }
     initializeBindings(env);
     // Unlike the Module entry, every dependency here is statically imported

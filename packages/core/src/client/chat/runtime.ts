@@ -6,7 +6,10 @@ import {
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   CONTINUE_OF_RUN_METADATA_KEY,
 } from "../../agent/auto-continue.js";
-import type { AgentChatStructuredMessage } from "../../agent/types.js";
+import type {
+  AgentChatStructuredContentPart,
+  AgentChatStructuredMessage,
+} from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import {
@@ -1714,6 +1717,44 @@ function durableHistoryAttachmentUrl(
   return sanitized.length <= 2_048 ? sanitized : undefined;
 }
 
+function historyImageReference(
+  message: AgentChatRuntimeMessage,
+  part: AgentChatRuntimeMessage["content"][number],
+):
+  | Extract<AgentChatStructuredContentPart, { type: "image-reference" }>
+  | undefined {
+  if (message.role !== "user" || part.type !== "image" || !part.url) {
+    return undefined;
+  }
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(part.url);
+  } catch (error) {
+    if (error instanceof TypeError) return undefined;
+    throw error;
+  }
+  if (parsedUrl.search || parsedUrl.hash) return undefined;
+  const url = durableHistoryAttachmentUrl(part.url);
+  if (!url) return undefined;
+
+  const name = part.alt
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  const mediaType = part.mediaType
+    ?.replace(/[\u0000-\u001f\u007f\[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+  return {
+    type: "image-reference",
+    url,
+    ...(name ? { name } : {}),
+    ...(mediaType ? { mediaType } : {}),
+  };
+}
+
 /** Reasoning is the model's scratch work and is never replayed as history. */
 function runtimeMessageText(message: AgentChatRuntimeMessage): string {
   return message.content
@@ -1835,12 +1876,14 @@ const MAX_ADDED_TOOL_HISTORY_BYTES = 256 * 1024;
 const MAX_TOOL_HISTORY_RESULT_SUMMARY_BYTES = 4 * 1024;
 const MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
 const MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS = MAX_TOOL_HISTORY_CALLS * 2;
+const MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES = 6;
 const MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES = 1024;
 const MAX_STRUCTURED_HISTORY_PINNED_PROMPT_PARTS =
   MAX_STRUCTURED_HISTORY_SOURCE_MESSAGES;
 const MAX_STRUCTURED_HISTORY_SOURCE_PARTS =
   MAX_STRUCTURED_HISTORY_TOOL_SOURCE_PARTS +
   MAX_STRUCTURED_HISTORY_TEXT_SOURCE_PARTS +
+  MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES +
   MAX_STRUCTURED_HISTORY_PINNED_PROMPT_PARTS;
 const MAX_PINNED_PRIOR_USER_PROMPT_CHARS = 16 * 1024;
 /** Above every other candidate, so the byte budget drops pinned asks last. */
@@ -2490,7 +2533,9 @@ function boundStructuredToolHistory(
   );
 }
 
-type StructuredHistorySourcePart = AgentChatRuntimeMessage["content"][number];
+type StructuredHistorySourcePart =
+  | AgentChatRuntimeMessage["content"][number]
+  | Extract<AgentChatStructuredContentPart, { type: "image-reference" }>;
 
 interface StructuredHistorySourceMessage {
   message: AgentChatRuntimeMessage;
@@ -2648,9 +2693,13 @@ function boundedStructuredHistorySources(
 
   const selectedReversed: StructuredHistorySourceMessage[] = [];
   const pinnedPromptsAdded = new Set<number>();
+  const selectedImageParts = new Set<
+    AgentChatRuntimeMessage["content"][number]
+  >();
   let selectedToolPartCount = 0;
   let selectedTextPartCount = 0;
   let selectedRegularTextPartCount = 0;
+  let selectedImagePartCount = 0;
   let scannedPartCount = 0;
   let visitedMessageCount = 0;
   let toolBoundary: StructuredHistorySourceBoundary | undefined;
@@ -2678,6 +2727,21 @@ function boundedStructuredHistorySources(
     }
     selectedTextPartCount++;
     parts.push({ type: "text", text });
+  };
+  const addImageReference = (
+    parts: StructuredHistorySourcePart[],
+    message: AgentChatRuntimeMessage,
+    part: AgentChatRuntimeMessage["content"][number],
+  ): void => {
+    const reference = historyImageReference(message, part);
+    if (!reference || selectedImageParts.has(part)) return;
+    if (selectedImagePartCount >= MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES) {
+      omitted = true;
+      return;
+    }
+    selectedImageParts.add(part);
+    selectedImagePartCount++;
+    parts.push(reference);
   };
   const visitMessage = (
     message: AgentChatRuntimeMessage,
@@ -2716,6 +2780,8 @@ function boundedStructuredHistorySources(
       }
       scannedPartCount++;
       const attachmentStub = historyAttachmentStub(message, part);
+      const imageReference = historyImageReference(message, part);
+      if (imageReference) addImageReference(partsReversed, message, part);
       const isToolPart =
         (part.type === "tool-call" && message.role === "assistant") ||
         part.type === "tool-result";
@@ -2725,6 +2791,7 @@ function boundedStructuredHistorySources(
         if (!pinnedPromptsAdded.has(messageIndex)) {
           addPinnedPromptText(partsReversed, messageIndex);
         }
+        addImageReference(partsReversed, message, part);
         continue;
       }
       if (
@@ -2793,6 +2860,16 @@ function boundedStructuredHistorySources(
     if (pinnedPromptsAdded.has(index)) continue;
     const parts: StructuredHistorySourcePart[] = [];
     addPinnedPromptText(parts, index);
+    const message = historyMessages[index]!;
+    for (const part of message.content) {
+      if (scannedPartCount >= MAX_STRUCTURED_HISTORY_SOURCE_SCAN_STEPS) {
+        omitted = true;
+        toolHistoryOmitted = true;
+        break;
+      }
+      scannedPartCount++;
+      addImageReference(parts, message, part);
+    }
     if (parts.length) {
       selectedReversed.push({
         message: historyMessages[index]!,
@@ -3044,6 +3121,10 @@ function nativeStructuredHistoryFromMessages(
           textHistoryParts.add(textPart);
           pendingTextParts.push(textPart);
         }
+      } else if (part.type === "image-reference" && message.role === "user") {
+        flushTextCandidate();
+        flushResults();
+        content.push(part);
       } else if (part.type === "tool-call" && message.role === "assistant") {
         hasToolHistory = true;
         flushTextCandidate();

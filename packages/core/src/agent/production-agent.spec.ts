@@ -20,6 +20,7 @@ import {
 } from "../app-config/run-lifecycle-invariants.js";
 import * as chatThreadStore from "../chat-threads/store.js";
 import * as dbClient from "../db/client.js";
+import { createOwnedAttachmentHydrationBudget } from "../file-upload/owned-attachment.js";
 import * as preUploadAttachmentsModule from "../file-upload/pre-upload-attachments.js";
 import * as fileUploadRegistry from "../file-upload/registry.js";
 import {
@@ -115,6 +116,7 @@ import {
   shouldGuardRepeatedSourceSweep,
   resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
+  hydrateStructuredHistoryImageReferences,
   trimOldToolResults,
   type ActionEntry,
   type AgentActionSurfaceDetails,
@@ -1953,6 +1955,148 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("reference-only file");
     expect(text).toContain("https://cdn.example.com/logo.svg");
     expect(text).toContain("Use this logo in the deck");
+  });
+
+  it("hydrates an earlier image reference into a later text-only turn", async () => {
+    const url = "https://storage.example.test/uploads/reference.png";
+    const history = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: "Use this as the visual reference." },
+          {
+            type: "image-reference" as const,
+            url,
+            name: "reference.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(Buffer.from(PNG_BASE64, "base64"), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(messages).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Use this as the visual reference." },
+            { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+          ],
+        },
+      ]);
+      expect(findProvider).toHaveBeenCalledWith(url);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(JSON.stringify(history)).not.toContain(PNG_BASE64);
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps honest text context when a prior image is not available", async () => {
+    const history = [
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url: "https://outside.example.test/reference.png",
+            name: "reference.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(messages?.[0]?.content).toEqual([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining(
+            "does not belong to a configured upload provider",
+          ),
+        }),
+      ]);
+      expect(
+        messages?.flatMap((message) => message.content),
+      ).not.toContainEqual(expect.objectContaining({ type: "image" }));
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not download prior images for a model without vision", async () => {
+    const history = [
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url: "https://storage.example.test/uploads/reference.png",
+            name: "reference.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi.spyOn(
+      fileUploadRegistry,
+      "findFileUploadProviderOwningUrl",
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: false,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(messages?.[0]?.content).toEqual([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining(
+            "selected model does not support vision",
+          ),
+        }),
+      ]);
+      expect(findProvider).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("preserves orphan tool-results as text so history is not lost before backfill", () => {

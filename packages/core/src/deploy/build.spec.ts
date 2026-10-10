@@ -790,7 +790,12 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).toContain("globalThis.__env__ = env;");
     expect(entry).toContain('process.env.NODE_ENV === "production";\n}');
     expect(entry).not.toContain("globalThis.__cf_ctx");
-    expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
+    expect(entry).toContain(
+      "const requestWithWaitUntil = new Request(request);",
+    );
+    expect(entry).toContain(
+      "requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);",
+    );
     expect(entry).toContain("function initializeBindings(env)");
     expect(entry).not.toContain("export * from");
     expect(entry).toContain(
@@ -845,6 +850,81 @@ export default {
         globalThis as Record<string, unknown>,
         "__cfModuleOrigSetInterval",
       );
+    }
+  });
+
+  it("copies immutable incoming Requests before attaching waitUntil", async () => {
+    const dir = makeTempDir();
+    const marker = "__test_cloudflare_module_request__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+export default {
+  async fetch(request) {
+    const body = await request.text();
+    globalThis.${marker} = {
+      request,
+      url: request.url,
+      method: request.method,
+      contentType: request.headers.get("content-type"),
+      body,
+      waitUntil: typeof request.waitUntil,
+      waitUntilConfigurable: Object.getOwnPropertyDescriptor(request, "waitUntil")?.configurable,
+    };
+    request.waitUntil(Promise.resolve("module-background-work"));
+    return new Response("ok");
+  },
+};
+`,
+    );
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const request = Object.freeze(
+      new Request("https://app.test/api/pools?mode=module", {
+        method: "POST",
+        headers: { "content-type": "text/plain" },
+        body: "module-payload",
+      }),
+    );
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil(promise: Promise<unknown>) {
+        waitUntilPromises.push(promise);
+      },
+    };
+
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+      const response = await worker.fetch(request, {}, ctx);
+
+      expect(await response.text()).toBe("ok");
+      const observed = (globalThis as Record<string, unknown>)[marker] as {
+        request: Request;
+        url: string;
+        method: string;
+        contentType: string | null;
+        body: string;
+        waitUntil: string;
+        waitUntilConfigurable: boolean;
+      };
+      expect(observed.request).not.toBe(request);
+      expect(observed.url).toBe("https://app.test/api/pools?mode=module");
+      expect(observed.method).toBe("POST");
+      expect(observed.contentType).toBe("text/plain");
+      expect(observed.body).toBe("module-payload");
+      expect(observed.waitUntil).toBe("function");
+      expect(observed.waitUntilConfigurable).toBe(true);
+      expect(request.waitUntil).toBeUndefined();
+      expect(waitUntilPromises).toHaveLength(1);
+      await expect(waitUntilPromises[0]).resolves.toBe(
+        "module-background-work",
+      );
+    } finally {
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 
@@ -1629,6 +1709,93 @@ describe("generateWorkerEntry", () => {
           "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__"
         ],
       ).toBe(true);
+    });
+
+    it("copies immutable incoming Requests and preserves waitUntil through mounted path rewrites", async () => {
+      const dir = makeTempDir();
+      const routePath = path.join(dir, "pools.post.mjs");
+      const marker = "__test_cloudflare_pages_request__";
+      fs.writeFileSync(
+        routePath,
+        `
+export default async (event) => {
+  const request = event.req;
+  const body = await request.text();
+  globalThis.${marker} = {
+    request,
+    url: request.url,
+    method: request.method,
+    contentType: request.headers.get("content-type"),
+    body,
+    waitUntil: typeof request.waitUntil,
+    waitUntilConfigurable: Object.getOwnPropertyDescriptor(request, "waitUntil")?.configurable,
+  };
+  request.waitUntil(Promise.resolve("pages-background-work"));
+  return new Response("ok");
+};
+`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [
+            {
+              method: "post",
+              route: "/api/pools",
+              filePath: "api/pools.post.ts",
+              absPath: routePath,
+            },
+          ],
+          [],
+          [],
+          [],
+          null,
+          [],
+          "/docs",
+          { includeReactRouterSsr: false },
+        ),
+      );
+      const request = Object.freeze(
+        new Request("https://app.test/docs/api/pools?mode=pages", {
+          method: "POST",
+          headers: { "content-type": "text/plain" },
+          body: "pages-payload",
+        }),
+      );
+      const waitUntilPromises: Promise<unknown>[] = [];
+      const ctx = {
+        waitUntil(promise: Promise<unknown>) {
+          waitUntilPromises.push(promise);
+        },
+      };
+
+      try {
+        const response = await worker.fetch(request, {}, ctx);
+
+        expect(await response.text()).toBe("ok");
+        const observed = (globalThis as Record<string, unknown>)[marker] as {
+          request: Request;
+          url: string;
+          method: string;
+          contentType: string | null;
+          body: string;
+          waitUntil: string;
+          waitUntilConfigurable: boolean;
+        };
+        expect(observed.request).not.toBe(request);
+        expect(observed.url).toBe("https://app.test/api/pools?mode=pages");
+        expect(observed.method).toBe("POST");
+        expect(observed.contentType).toBe("text/plain");
+        expect(observed.body).toBe("pages-payload");
+        expect(observed.waitUntil).toBe("function");
+        expect(observed.waitUntilConfigurable).toBe(true);
+        expect(request.waitUntil).toBeUndefined();
+        expect(waitUntilPromises).toHaveLength(1);
+        await expect(waitUntilPromises[0]).resolves.toBe(
+          "pages-background-work",
+        );
+      } finally {
+        Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      }
     });
 
     it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {

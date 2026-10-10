@@ -2570,6 +2570,80 @@ describe("createAgentNativeChatRuntime", () => {
     expect(plainHistoryText).not.toContain(privateImageBytes);
   });
 
+  it("preserves safe prior image references without replaying inline bytes", async () => {
+    const privateImageBytes = "PRIVATE_PRIOR_IMAGE_BYTES";
+    const safeUrl = "https://files.example.test/reference.png";
+    const signedUrl =
+      "https://files.example.test/signed.png?token=private-image-secret";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-image-reference-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "What is in the picture?",
+      messages: [
+        {
+          id: "user-prior-images",
+          role: "user",
+          content: [
+            { type: "text", text: "Use these as visual references." },
+            {
+              type: "image",
+              alt: "reference.png",
+              mediaType: "image/png",
+              data: `data:image/png;base64,${privateImageBytes}`,
+              url: safeUrl,
+            },
+            {
+              type: "image",
+              alt: "signed.png",
+              mediaType: "image/png",
+              data: `data:image/png;base64,${privateImageBytes}`,
+              url: signedUrl,
+            },
+          ],
+        },
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "What is in the picture?" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; url?: string; name?: string }>;
+    }>;
+    const parts = structuredHistory.flatMap((message) => message.content);
+    const serializedHistory = JSON.stringify(structuredHistory);
+
+    expect(parts).toContainEqual({
+      type: "image-reference",
+      url: safeUrl,
+      name: "reference.png",
+      mediaType: "image/png",
+    });
+    expect(
+      parts.some(
+        (part) => part.type === "image-reference" && part.name === "signed.png",
+      ),
+    ).toBe(false);
+    expect(serializedHistory).toContain(
+      "[attached: signed.png image/png https://files.example.test/signed.png]",
+    );
+    expect(serializedHistory).not.toContain("token=private-image-secret");
+    expect(serializedHistory).not.toContain("data:image/");
+    expect(serializedHistory).not.toContain(privateImageBytes);
+  });
+
   it("pins every attachment-bearing prompt across 45 prior user turns", async () => {
     const initialAsk =
       "Create a LinkedIn ad at exactly 1200x627 and keep one fixed canvas.";
