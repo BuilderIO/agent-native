@@ -68,6 +68,10 @@ import {
 } from "../shared/slide-fit.js";
 import { assertStyleOnlyEdit } from "../shared/slide-style-only.js";
 import {
+  trackDeckCreationStarted,
+  trackSlideContentEdited,
+} from "./_deck-tracking.js";
+import {
   assertDeckWriteApplied,
   assertDeckClientWriteCurrent,
   deckRevisionWhere,
@@ -1303,6 +1307,10 @@ export default defineAction({
         };
       }
 
+      const previousSlides = Array.isArray(deck.slides)
+        ? deck.slides.map((slide: Record<string, unknown>) => ({ ...slide }))
+        : [];
+      const previousGenerationContext = deck.generationContext;
       const existingContext = storedCreativeContext(deck.creativeContext);
       const previousDeckFitFields = {
         aspectRatio: deck.aspectRatio,
@@ -1837,6 +1845,24 @@ export default defineAction({
           );
         }
       });
+
+      if (
+        operations.some((operation) => operation.op !== "patch-deck-fields")
+      ) {
+        trackSlideContentEdited(
+          "patch_deck",
+          deckId,
+          previousSlides,
+          deck,
+          ctx,
+        );
+      }
+      trackDeckCreationStarted(
+        deckId,
+        previousGenerationContext,
+        deck.generationContext,
+        ctx,
+      );
 
       const updatedSlideIds = requestedSlideIds.filter((slideId) =>
         changedSlideIds.has(slideId),

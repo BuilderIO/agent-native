@@ -239,26 +239,52 @@ function problems(raw: unknown): string[] {
 }
 
 describe("create-journey-canvas input", () => {
-  it("plans up to 1,000 journey nodes and rejects larger trees", () => {
-    const root = node("root", null, 1000);
-    const nodes = [
-      root,
-      ...Array.from({ length: 999 }, (_, index) =>
-        node(`root > branch-${index}`, "root", 1),
+  it("plans 2,000 app-band nodes with screenshot examples and rejects larger trees", () => {
+    const nodes = Array.from({ length: 2_000 }, (_, index) =>
+      node(
+        `clips::node-${index}`,
+        index === 0 ? null : `clips::node-${index - 1}`,
+        1_000,
+        {
+          depth: index + 1,
+          pctOfRoot: 100,
+          pctOfParent: 100,
+        },
       ),
-    ];
+    );
     const raw = rawInput({
+      layoutMode: "appBands",
       includeScreenshotless: true,
-      frames: [],
-      tree: { ...rawInput().tree, nodes },
+      tree: {
+        ...rawInput().tree,
+        app: "all",
+        rootN: 1_000,
+        appRootN: { clips: 1_000 },
+        nodes,
+      },
+      frames: nodes.slice(0, 900).map((candidate) => frame(candidate.key, 0)),
     });
 
-    expect(planJourneyCanvas(parse(raw), "design-1").nodeCount).toBe(1000);
+    const result = planJourneyCanvas(parse(raw), "design-1");
+    expect(result.nodeCount).toBe(2_000);
+    expect(result.screens).toHaveLength(2_000);
+    expect(
+      result.screens.filter((screen) =>
+        screen.html.includes("https://img.example.test/"),
+      ),
+    ).toHaveLength(900);
     const oversized = createJourneyCanvasInputSchema.safeParse({
       ...raw,
       tree: {
         ...raw.tree,
-        nodes: [...nodes, node("root > overflow", "root", 1)],
+        nodes: [
+          ...nodes,
+          node("clips::overflow", "clips::node-1999", 1_000, {
+            depth: 2_001,
+            pctOfRoot: 100,
+            pctOfParent: 100,
+          }),
+        ],
       },
     });
     expect(oversized.success).toBe(false);

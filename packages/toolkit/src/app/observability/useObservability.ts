@@ -168,6 +168,7 @@ export function usePromoteTraceEval() {
   return useMutation({
     mutationFn: async (payload: {
       runId: string;
+      reviewedPrompt: string;
       mustContain?: string;
       datasetName?: string;
     }) => {
@@ -177,6 +178,7 @@ export function usePromoteTraceEval() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            reviewedPrompt: payload.reviewedPrompt,
             ...(payload.mustContain
               ? { mustContain: payload.mustContain }
               : {}),

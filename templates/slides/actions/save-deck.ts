@@ -27,6 +27,10 @@ import {
 } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 import {
+  trackDeckCreationStarted,
+  trackSlideContentEdited,
+} from "./_deck-tracking.js";
+import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
   assertDeckWriteApplied,
@@ -65,7 +69,7 @@ export default defineAction({
   }),
   http: { method: "PUT" },
   agentTool: false,
-  run: async ({ deckId, deck: inputDeck, clientWrite }) =>
+  run: async ({ deckId, deck: inputDeck, clientWrite }, ctx) =>
     withDeckLock(deckId, async () => {
       const deck = inputDeck as DeckPayload;
       if (Array.isArray(deck.slides)) {
@@ -108,7 +112,7 @@ export default defineAction({
           };
         }
       }
-      stampChangedSlideRevisions(access?.resource.data, deck);
+      const previous = stampChangedSlideRevisions(access?.resource.data, deck);
 
       if (!access) {
         const ownerEmail = getRequestUserEmail();
@@ -209,6 +213,24 @@ export default defineAction({
         throw deckHttpError(404, "Deck not found");
       }
 
+      // An insert here is an undo/restore of a deleted deck (or a save racing
+      // add-deck), not a new deck; only add-deck records creations.
+      if (access) {
+        trackSlideContentEdited(
+          "save_deck",
+          deckId,
+          previous.slides,
+          deck,
+          ctx,
+        );
+        trackDeckCreationStarted(
+          deckId,
+          previous.generationContext,
+          deck.generationContext,
+          ctx,
+        );
+      }
+
       await notifyClients(deckId);
       return { ...deck, appUrl: getDeckUrl(deckId) };
     }),
@@ -220,15 +242,22 @@ function firstSlideContent(deck: DeckPayload): string | null {
   return typeof content === "string" ? content : null;
 }
 
+/** Returns the parsed stored deck so callers don't parse it a second time. */
 export function stampChangedSlideRevisions(
   previousData: string | null | undefined,
   nextDeck: DeckPayload,
-): void {
+): {
+  aspectRatio?: unknown;
+  designSystemId?: unknown;
+  slides?: unknown;
+  generationContext?: unknown;
+} {
   const previous = previousData
     ? (JSON.parse(previousData) as {
         aspectRatio?: unknown;
         designSystemId?: unknown;
         slides?: unknown;
+        generationContext?: unknown;
       })
     : {};
   const deckFitFieldsChanged = deckFitRenderFieldsChanged(previous, nextDeck);
@@ -253,4 +282,5 @@ export function stampChangedSlideRevisions(
       delete slide.layoutFitRevision;
     }
   }
+  return previous;
 }

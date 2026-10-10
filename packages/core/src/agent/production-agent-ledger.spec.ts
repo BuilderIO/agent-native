@@ -43,6 +43,14 @@ const clearLedgerMock = vi.hoisted(() => vi.fn<() => Promise<void>>());
 const currentTurnEventsMock = vi.hoisted(() =>
   vi.fn<() => Promise<any[]>>(() => Promise.resolve([])),
 );
+const resolveAppAuthorizationContextMock = vi.hoisted(() =>
+  vi.fn(async () => null),
+);
+
+vi.mock("../org/app-roles.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../org/app-roles.js")>()),
+  resolveAppAuthorizationContext: resolveAppAuthorizationContextMock,
+}));
 
 vi.mock("./run-store.js", () => ({
   writeLedgerEntry: writeLedgerMock,
@@ -1233,6 +1241,77 @@ describe("tool-call result ledger", () => {
     expect(toolDone?.isError).toBe(true);
     expect(toolDone?.result).toContain("timed out after");
     expect(toolDone?.result).not.toContain("Interrupted before");
+  });
+
+  it("times out a tool whose app authorization never resolves", async () => {
+    resolveAppAuthorizationContextMock.mockReturnValueOnce(
+      new Promise<never>(() => {}),
+    );
+    const action: ActionEntry = {
+      ...makeWriteAction(),
+      timeoutMs: 20,
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "x" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      appId: "analytics",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    expect(action.run).not.toHaveBeenCalled();
+    const toolDone = events.find((e: any) => e.type === "tool_done");
+    expect(toolDone?.isError).toBe(true);
+    expect(toolDone?.result).toContain("timed out before the action started");
+    expect(toolDone?.result).not.toMatch(/tool call timed out after/i);
+  });
+
+  it("does not invoke a timed-out tool when app authorization resolves late", async () => {
+    let resolveAuthorization!: (value: null) => void;
+    resolveAppAuthorizationContextMock.mockReturnValueOnce(
+      new Promise<null>((resolve) => {
+        resolveAuthorization = resolve;
+      }),
+    );
+    const action: ActionEntry = {
+      ...makeWriteAction(),
+      timeoutMs: 20,
+    };
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine: singleToolEngine("save-data", { content: "x" }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: { "save-data": action },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      appId: "analytics",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    const toolDone = events.find((e: any) => e.type === "tool_done");
+    expect(toolDone?.isError).toBe(true);
+    expect(toolDone?.result).toContain("timed out before the action started");
+    expect(action.run).not.toHaveBeenCalled();
+
+    // A macrotask drains the whole microtask chain behind the authorization
+    // promise; a single microtask flush can finish before the guard runs.
+    resolveAuthorization(null);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(action.run).not.toHaveBeenCalled();
   });
 
   it("never consults the ledger for read-only tools", async () => {

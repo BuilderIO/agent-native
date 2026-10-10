@@ -1850,15 +1850,18 @@ export function useEditorActiveScreenAndGeometry({
           },
           overviewDataReady,
           viewModeRef,
-          requestCameraFit: (camera) => {
-            cameraCommandNonceRef.current += 1;
-            setCameraCommand({
-              ...camera,
-              nonce: cameraCommandNonceRef.current,
-            });
-          },
-          // A widget opens on the whole canvas, not on a selected screen with
-          // its inspector over the artboard.
+          // A widget opens on the whole canvas with nothing selected, and its
+          // canvas frames the opened screen itself (MultiScreenCanvas
+          // widgetFit), so neither a selection nor a one-off camera command.
+          requestCameraFit: widgetEmbed
+            ? undefined
+            : (camera) => {
+                cameraCommandNonceRef.current += 1;
+                setCameraCommand({
+                  ...camera,
+                  nonce: cameraCommandNonceRef.current,
+                });
+              },
           selectTargetScreen: !widgetEmbed,
         },
         command,

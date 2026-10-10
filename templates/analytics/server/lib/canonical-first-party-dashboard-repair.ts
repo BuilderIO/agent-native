@@ -22,6 +22,11 @@ import {
 export const FIRST_PARTY_BIGQUERY_DASHBOARD_ID =
   "agent-native-templates-first-party-bigquery-v2";
 
+export const FIRST_PARTY_BIGQUERY_DASHBOARD_IDS = [
+  FIRST_PARTY_BIGQUERY_DASHBOARD_ID,
+  "agent-native-templates-first-party-bigquery-v3",
+];
+
 const BIGQUERY_SESSION_STATUS_EVENT_FILTER =
   "event_name IN ('session status', 'session_status')";
 const BIGQUERY_SIGNED_IN_ACTIVITY_FILTER = `(((${BIGQUERY_SESSION_STATUS_EVENT_FILTER} AND signed_in = 'true') OR (event_name = 'app_entered' AND NULLIF(user_id, '') IS NOT NULL)) AND NULLIF(user_key, '') IS NOT NULL)`;
@@ -34,7 +39,7 @@ const BIGQUERY_CONTENT_OR_CHAT_ACTIVITY_FILTER = `(
   OR (event_name = 'core_action_started' AND JSON_VALUE(properties, '$.action_name') = 'chat_submit')
 ) AND NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') IS NOT NULL`;
 
-export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
+export const PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
   SELECT
     event_date,
     user_key AS visitor_key,
@@ -93,8 +98,69 @@ SELECT date, template, visitors
 FROM wau
 ORDER BY date, template`;
 
+export const FIRST_PARTY_BIGQUERY_WAU_SQL = `WITH base AS (
+  SELECT
+    event_date,
+    user_key AS visitor_key,
+    COALESCE(
+      NULLIF(template, ''),
+      NULLIF(JSON_VALUE(properties, '$.templateId'), ''),
+      NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''),
+      NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''),
+      NULLIF(app, ''),
+      NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''),
+      NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''),
+      'unknown'
+    ) AS template
+  FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw_query_range\`(
+    CASE
+      WHEN '{{timeRange}}' IN ('', 'all') THEN DATE '1970-01-01'
+      WHEN '{{timeRange}}' = 'custom' THEN DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 6 DAY)
+      WHEN '{{timeRange}}' = '7d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 13 DAY)
+      WHEN '{{timeRange}}' = '30d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 36 DAY)
+      WHEN '{{timeRange}}' = '90d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 96 DAY)
+      WHEN '{{timeRange}}' = '180d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 186 DAY)
+      WHEN '{{timeRange}}' = '365d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 371 DAY)
+      ELSE DATE_SUB(CURRENT_DATE(), INTERVAL 96 DAY)
+    END,
+    IF('{{timeRange}}' = 'custom', LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), CURRENT_DATE())
+  )
+  WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'
+    AND ${BIGQUERY_SIGNED_IN_ACTIVITY_FILTER}
+    AND ('{{emailFilter}}' IN ('', 'all')
+      OR ('{{emailFilter}}' = 'exclude_builder' AND LOWER(COALESCE(user_id, '')) NOT LIKE '%@builder.io')
+      OR ('{{emailFilter}}' = 'only_builder' AND LOWER(COALESCE(user_id, '')) LIKE '%@builder.io'))
+    AND ('{{appFilter}}' IN ('', 'all')
+      OR LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), 'unknown')) = LOWER('{{appFilter}}'))
+    AND LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeTemplate'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), NULLIF(JSON_VALUE(properties, '$.agentNativeApp'), ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')
+), date_spine AS (
+  SELECT date
+  FROM UNNEST(GENERATE_DATE_ARRAY(
+    CASE
+      WHEN '{{timeRange}}' = 'custom' THEN DATE('{{timeRangeStart}}')
+      WHEN '{{timeRange}}' = '7d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 6 DAY)
+      WHEN '{{timeRange}}' = '30d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 29 DAY)
+      WHEN '{{timeRange}}' = '90d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 89 DAY)
+      WHEN '{{timeRange}}' = '180d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 179 DAY)
+      WHEN '{{timeRange}}' = '365d' THEN DATE_SUB(CURRENT_DATE(), INTERVAL 364 DAY)
+      WHEN '{{timeRange}}' IN ('', 'all') THEN COALESCE((SELECT MIN(event_date) FROM base), CURRENT_DATE())
+      ELSE DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+    END,
+    IF('{{timeRange}}' = 'custom', LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()), CURRENT_DATE())
+  )) AS date
+), wau AS (
+  SELECT d.date, b.template, COUNT(DISTINCT b.visitor_key) AS visitors
+  FROM date_spine d
+  JOIN base b
+    ON b.event_date BETWEEN DATE_SUB(d.date, INTERVAL 6 DAY) AND d.date
+  GROUP BY d.date, b.template
+)
+SELECT date, template, visitors
+FROM wau
+ORDER BY date, template`;
+
 export const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL =
-  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+  PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
     "      WHEN '{{timeRange}}' = 'custom' THEN DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 6 DAY)\n",
     "",
   )
@@ -405,13 +471,13 @@ export const PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL =
     );
 
 const MALFORMED_FIRST_PARTY_BIGQUERY_WAU_SQL =
-  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+  PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
     "WHEN '{{timeRange}}' = '7d'",
     "WHEN '{{timeRange}}' = '{{timeRange}}'",
   );
 
 const LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL =
-  FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
+  PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL.replace(
     `    AND ${BIGQUERY_SIGNED_IN_ACTIVITY_FILTER}`,
     "    AND event_name = 'session status'\n    AND signed_in = 'true'\n    AND NULLIF(user_key, '') IS NOT NULL",
   );
@@ -435,6 +501,7 @@ function isMalformedFirstPartyBigQueryWauSql(sql: string): boolean {
 
 function isLegacyFirstPartyBigQueryWauSql(sql: string): boolean {
   return [
+    PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
     LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL,
     PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
     PRE_CUSTOM_LEGACY_FIRST_PARTY_BIGQUERY_WAU_SQL,
@@ -819,6 +886,16 @@ export function repairKnownFirstPartyDashboardQueries(
       changed:
         historical.changed || repaired.changed || defaultsRepaired.changed,
     };
+  }
+  if (FIRST_PARTY_BIGQUERY_DASHBOARD_IDS.includes(dashboardId)) {
+    return repairFingerprintedPanelQueries(config, [
+      {
+        id: "wau-over-time",
+        source: "bigquery",
+        sha256: fingerprintPanelSql(PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL),
+        sql: FIRST_PARTY_BIGQUERY_WAU_SQL,
+      },
+    ]);
   }
   if (dashboardId === FIRST_PARTY_DASHBOARD_ID) {
     return repairCanonicalFirstPartyDashboardQueries(config);

@@ -217,6 +217,11 @@ import {
   videoFileLooksSupported,
   type PendingSlideVideoPreview,
 } from "@/lib/slide-video";
+import {
+  firstDeckReadyView,
+  runWhenTabVisible,
+  trackSlidesRelay,
+} from "@/lib/slides-relay-tracking";
 import { TAB_ID } from "@/lib/tab-id";
 import {
   shouldActivateRectangleTool,
@@ -694,6 +699,16 @@ export default function DeckEditor() {
   const generationSettlingAttemptRef = useRef<string | null>(null);
   const generationTerminalAttemptRef = useRef<string | null>(null);
   const generationLifecycleAttemptKeyRef = useRef<string | null>(null);
+  const deckReadyViewCancelRef = useRef<(() => void) | null>(null);
+  const openDeckIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    openDeckIdRef.current = id;
+    return () => {
+      openDeckIdRef.current = undefined;
+      deckReadyViewCancelRef.current?.();
+      deckReadyViewCancelRef.current = null;
+    };
+  }, [id]);
   const generationLifecyclePauseRef = useRef({
     waitingOnQuestions: false,
     generating: false,
@@ -1014,6 +1029,12 @@ export default function DeckEditor() {
     typeof generationContext?.generationAttemptId === "string"
       ? generationContext.generationAttemptId
       : searchParams.get("generation_attempt_id");
+  const deckExportAnalytics = {
+    deckId: id,
+    ...(typeof generationContext?.generationAttemptId === "string"
+      ? { generationAttemptId: generationContext.generationAttemptId }
+      : {}),
+  };
   const generationRetryPending =
     retryEmptyGenerationPending ||
     (generationContext !== null &&
@@ -2157,6 +2178,35 @@ export default function DeckEditor() {
             ...properties,
             failure_code: failureCode,
             failure_stage: "agent",
+          });
+        }
+        // A turn the agent finished with slides is a completed deck, even if
+        // it made fewer than the prompt asked for; errors, timeouts and
+        // cancels did not finish the turn.
+        const turnCompleted =
+          !failureCode || failureCode === "incomplete_output";
+        if (
+          turnCompleted &&
+          settledSlideCount > 0 &&
+          outcomeRefreshResult.deck.createdByMe === true
+        ) {
+          const readyProperties = {
+            generation_attempt_id: generationAttemptId,
+            output_id: id,
+            output_type: "deck",
+            slide_count: settledSlideCount,
+            view_mode: "live",
+            ...(targetSlideCount !== null
+              ? { target_slide_count: targetSlideCount }
+              : {}),
+          };
+          deckReadyViewCancelRef.current?.();
+          deckReadyViewCancelRef.current = runWhenTabVisible(() => {
+            deckReadyViewCancelRef.current = null;
+            if (openDeckIdRef.current !== id) return;
+            if (firstDeckReadyView(generationAttemptId)) {
+              trackSlidesRelay("deck_ready_viewed", readyProperties);
+            }
           });
         }
         // Success is `generation_completed`, reported by the server when the
@@ -4326,7 +4376,9 @@ export default function DeckEditor() {
             if (exportSlides.length === 0) {
               throw new Error(t("deckEditor.deckHasNoSlides"));
             }
-            await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio);
+            await exportDeckAsPdf(deck.title, exportSlides, deck.aspectRatio, {
+              analytics: deckExportAnalytics,
+            });
           }}
           onExportPptx={async () => {
             trackEvent("slide_export_started", {
@@ -4341,7 +4393,12 @@ export default function DeckEditor() {
             if (slides.length === 0) {
               throw new Error(t("deckEditor.deckHasNoSlides"));
             }
-            await exportDeckAsPptx(deck.title, slides, deck.aspectRatio);
+            await exportDeckAsPptx(
+              deck.title,
+              slides,
+              deck.aspectRatio,
+              deckExportAnalytics,
+            );
           }}
           onExportGoogleSlides={async () => {
             trackEvent("slide_export_started", {
@@ -4366,13 +4423,17 @@ export default function DeckEditor() {
                   fetchDeckPptxFromServer(
                     id,
                     t("editorExport.exportPptxError"),
+                    "google_slides",
                   ),
+                deckExportAnalytics,
               );
             }
             return exportDeckToGoogleSlides(
               deck.title,
               slides,
               deck.aspectRatio,
+              undefined,
+              deckExportAnalytics,
             );
           }}
         />

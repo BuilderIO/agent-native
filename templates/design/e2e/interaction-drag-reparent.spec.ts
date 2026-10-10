@@ -1387,7 +1387,7 @@ test.describe("drag reparent interaction", () => {
         {
           timeout: 10_000,
           message:
-            "standard: holding Space while dragging must keep the object in its current parent even while hovering a frame",
+            "holding Space while dragging must keep the object in its current parent even while hovering a frame",
         },
       )
       .toBe("main");
