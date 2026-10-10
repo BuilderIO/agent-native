@@ -5111,20 +5111,31 @@ describe("createProductionAgentHandler", () => {
       }
     };
 
-    await Promise.all([
-      runThread("thread-alpha", "alpha@example.com"),
-      runThread("thread-beta", "beta@example.com"),
-    ]);
+    const readLedger = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue([]);
+    try {
+      await Promise.all([
+        runThread("thread-alpha", "alpha@example.com"),
+        runThread("thread-beta", "beta@example.com"),
+      ]);
 
-    expect(seenTools).toHaveLength(4);
-    expect(seenTools).toContainEqual([
-      "suggest-follow-ups",
-      "alpha",
-      "tool-search",
-    ]);
-    expect(seenTools).toContainEqual(["suggest-follow-ups"]);
-    expect(seenContinuations).toContainEqual(["thread-alpha", false]);
-    expect(seenContinuations).toContainEqual(["thread-beta", true]);
+      expect(seenTools).toHaveLength(4);
+      expect(seenTools).toContainEqual([
+        "suggest-follow-ups",
+        "alpha",
+        "tool-search",
+      ]);
+      expect(seenTools).toContainEqual(["suggest-follow-ups"]);
+      expect(seenContinuations).toContainEqual(["thread-alpha", false]);
+      expect(seenContinuations).toContainEqual(["thread-beta", true]);
+      expect(readLedger).toHaveBeenCalledWith(
+        "thread-beta",
+        expect.any(String),
+      );
+    } finally {
+      readLedger.mockRestore();
+    }
   });
 
   it("fails closed when resolveActionSurface returns an unknown action", async () => {
