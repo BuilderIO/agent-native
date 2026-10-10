@@ -1,12 +1,22 @@
 // @vitest-environment happy-dom
 
 import type { OrgInfo } from "@agent-native/core/org/types";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  IsRestoringProvider,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useOrg, useOrgMembers } from "./hooks.js";
+import { notifySessionInvalidated } from "../use-session.js";
+import { useOrg, useOrgMembers, useSwitchOrg } from "./hooks.js";
+
+vi.mock("../use-session.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../use-session.js")>()),
+  notifySessionInvalidated: vi.fn(() => Promise.resolve()),
+}));
 
 const org: OrgInfo = {
   email: "admin@example.test",
@@ -108,5 +118,103 @@ describe("useOrgMembers", () => {
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refetches org-scoped queries only after the session re-read resolves", async () => {
+    let finishSessionRead!: () => void;
+    vi.mocked(notifySessionInvalidated).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishSessionRead = resolve;
+      }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ success: true })),
+    );
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    let switchOrg!: (orgId: string) => Promise<unknown>;
+
+    function Probe() {
+      switchOrg = useSwitchOrg().mutateAsync;
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+    });
+
+    let switching!: Promise<unknown>;
+    await act(async () => {
+      switching = switchOrg("org-2");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(notifySessionInvalidated).toHaveBeenCalledTimes(1);
+    expect(invalidate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishSessionRead();
+      await switching;
+    });
+    expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useOrg while the action cache restore holds queries", () => {
+  let container: HTMLDivElement;
+  let queryClient: QueryClient;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    queryClient.clear();
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("reports the org as loading, not as absent, until the held query fetches it", async () => {
+    const fetchMock = vi.fn(async () => Response.json(org));
+    vi.stubGlobal("fetch", fetchMock);
+    const seen: Array<{ isLoading: boolean; orgId?: string }> = [];
+
+    function Probe() {
+      const result = useOrg();
+      seen.push({ isLoading: result.isLoading, orgId: result.data?.orgId });
+      return null;
+    }
+
+    const render = (restoring: boolean) =>
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <IsRestoringProvider value={restoring}>
+            <Probe />
+          </IsRestoringProvider>
+        </QueryClientProvider>,
+      );
+
+    await act(async () => render(true));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(seen.at(-1)).toEqual({ isLoading: true, orgId: undefined });
+
+    await act(async () => render(false));
+    await vi.waitFor(() => expect(seen.at(-1)?.orgId).toBe("org-1"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(seen.at(-1)).toEqual({ isLoading: false, orgId: "org-1" });
   });
 });

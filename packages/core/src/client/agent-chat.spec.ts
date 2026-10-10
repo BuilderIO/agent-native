@@ -75,6 +75,7 @@ const {
   insertAgentComposerReference,
   listAgentChatContext,
   normalizeAgentComposerReference,
+  nextAgentChatStagingId,
   parseSubmitChatMessage,
   publishAgentChatContextItems,
   removeAgentChatContextItem,
@@ -199,6 +200,57 @@ describe("sendToAgentChat", () => {
       kind: "content-comment-ai",
       requestId: "request-1",
     });
+  });
+
+  it("carries a prefill context chip label through the postMessage payload", () => {
+    sendToAgentChat({
+      message: "Tell me more",
+      context: '{"movieId":969681}',
+      contextLabel: "Spider-Man: Brand New Day",
+      submit: false,
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+
+    expect(parsed?.contextLabel).toBe("Spider-Man: Brand New Day");
+    expect(parsed?.context).toBe('{"movieId":969681}');
+  });
+
+  it("restaging stamps a fresh staging identity over one the caller carried", () => {
+    setAgentChatContextItem({
+      key: "restage",
+      title: "Restage",
+      context: "first",
+      stagingId: "carried",
+    });
+
+    const [item] = listAgentChatContext();
+    expect(item.stagingId).toEqual(expect.any(String));
+    expect(item.stagingId).not.toBe("carried");
+  });
+
+  it("gives every staging its own identity, even within one millisecond", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      const first = nextAgentChatStagingId();
+      const second = nextAgentChatStagingId();
+      expect(first).toEqual(expect.any(String));
+      expect(second).not.toBe(first);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("gives the same clock reading in two page realms different staging identities", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      const first = nextAgentChatStagingId();
+      vi.resetModules();
+      const otherRealm = await import("./agent-chat.js");
+      expect(otherRealm.nextAgentChatStagingId()).not.toBe(first);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("rejects malformed and oversized action scopes", () => {
@@ -1652,6 +1704,7 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
+        stagingId: expect.any(String),
       },
     });
     expect(listAgentChatContext()).toEqual([
@@ -1659,6 +1712,7 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
+        stagingId: expect.any(String),
       },
     ]);
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
@@ -1684,6 +1738,7 @@ describe("sendToAgentChat", () => {
         title: "Cart",
         context: "Line item A",
         openSidebar: false,
+        stagingId: expect.any(String),
       },
     });
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
@@ -1715,7 +1770,12 @@ describe("sendToAgentChat", () => {
       text: async () => JSON.stringify(requestState),
     });
 
-    await expect(persistence).resolves.toBeUndefined();
+    await expect(persistence).resolves.toEqual(
+      expect.objectContaining({
+        key: "prefill:thread-1",
+        stagingId: expect.any(String),
+      }),
+    );
     expect(listAgentChatContext()).toEqual(requestState.items);
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toContain(
       "agentNative.chatContextChanged",

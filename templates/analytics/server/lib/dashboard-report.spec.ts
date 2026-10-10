@@ -567,7 +567,8 @@ describe("dashboard report email", () => {
       filters: { f_plan: "__empty__", f_tier: "pro,," },
     });
 
-    expect(snapshot.filters).toEqual({ f_tier: "pro" });
+    // A cleared selection stays an empty override, so a dashboard variable cannot fill it.
+    expect(snapshot.filters).toEqual({ f_plan: "", f_tier: "pro" });
     // The link must reopen with the selection cleared, not with the default.
     expect(snapshot.dashboardUrl).toContain("f_plan=__empty__");
   });

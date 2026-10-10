@@ -1,4 +1,3 @@
-import { appMountedPath } from "@agent-native/core/client/api-path";
 import { useFeatureFlagState } from "@agent-native/core/client/feature-flags/use-feature-flag";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -22,7 +21,6 @@ import { SETTINGS_REDESIGN_FLAG } from "@agent-native/core/feature-flags/registr
 import {
   buildSettingsRoute,
   SETTINGS_PAGE_IDS,
-  STANDARD_APP_ROUTES,
 } from "@agent-native/core/navigation";
 import type {
   OnboardingAppProfile,
@@ -39,7 +37,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import {
@@ -167,7 +165,6 @@ export function FirstRunOnboarding({
   initialFirstRun = false,
 }: FirstRunOnboardingProps = {}) {
   const t = useT();
-  const { pathname } = useLocation();
   const navigate = useNavigate();
   const previewMode = useOnboardingPreviewMode();
   const previewStep = useOnboardingPreviewStep();
@@ -367,13 +364,7 @@ export function FirstRunOnboarding({
         completionInFlightRef.current = false;
       }
     },
-    [
-      completeFirstRun,
-      extensionIndex,
-      navigate,
-      pathname,
-      trackFirstRunStepCompleted,
-    ],
+    [completeFirstRun, extensionIndex, navigate, trackFirstRunStepCompleted],
   );
   useEffect(() => {
     if (!previewMode && firstRun && !loading && profile) {
@@ -614,7 +605,6 @@ export function FirstRunOnboarding({
     const attemptStorage = attempt
       ? setCustomKeyOnboardingAttempt(attempt.id)
       : null;
-    trackFirstRunSetupOutcome(attempt, "settings_opened");
     if (attempt && attemptStorage) {
       void attemptStorage.then((status) => {
         if (status !== "stored") {
@@ -633,15 +623,9 @@ export function FirstRunOnboarding({
     search.delete(ONBOARDING_PREVIEW_QUERY_PARAM);
     search.delete(ONBOARDING_PREVIEW_STEP_QUERY_PARAM);
     const query = search.toString();
-    window.history.pushState(
-      null,
-      "",
-      `${appMountedPath(
-        manualSetupSettingsRoute({ redesign: redesign.enabled }),
-        pathname || STANDARD_APP_ROUTES.home,
-      )}${query ? `?${query}` : ""}`,
-    );
-    window.dispatchEvent(new Event("popstate"));
+    const path = manualSetupSettingsRoute({ redesign: redesign.enabled });
+    await navigate(`${path}${query ? `?${query}` : ""}`);
+    trackFirstRunSetupOutcome(attempt, "settings_opened");
   };
 
   const handleRoleContinue = async () => {

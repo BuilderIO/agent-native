@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "na fila",
   "agent.completed": "concluiu",
   "agent.failed": "precisa de atenção",
+  "agent.failureReason.failed": "Não foi concluído",
+  "agent.failureReason.setup": "Requer configuração",
+  "agent.failureReason.auth": "Acesso recusado",
+  "agent.failureReason.timeout": "Demorou demais",
+  "agent.failureReason.budget": "Tempo esgotado",
+  "agent.failureReason.response": "Sem resultado útil",
   "agent.closed": "encerrou",
   "approval.alwaysAllow": "Sempre permitir",
   "approval.alwaysAllowHint": "Aprovar e sempre permitir este comando exato",
@@ -814,9 +820,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "Falha ao copiar",
   "recovery.continueUnavailable":
     "Esta execução não pode mais ser continuada. Envie uma mensagem para seguir.",
+  "errorMessages.invalidAttachmentNamed":
+    "O provedor do modelo rejeitou {{name}} porque o formato ou o tamanho não é compatível. Para imagens, exporte um PNG, JPEG, GIF ou WebP menor; para documentos, use um formato compatível ou cole o texto relevante e tente novamente.",
+  "recovery.retryWithoutAttachment": "Tentar novamente sem o anexo",
   "recovery.retryAttachmentUnavailable":
     "Esta solicitação incluía um arquivo que não pode ser reenviado. Anexe-o novamente no campo de mensagem e tente outra vez.",
-  "recovery.retryWithoutAttachment": "Tentar novamente sem o anexo",
   "recovery.deferredSubmissionFailed":
     "Não foi possível enviar esta mensagem. Verifique sua conexão ou a configuração do chat e tente novamente.",
   "recovery.credentialRejected":

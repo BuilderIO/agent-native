@@ -4,6 +4,7 @@ import {
   ensureColumnExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 
 let _initPromise: Promise<void> | undefined;
 export const MAX_PENDING_TASK_ATTEMPTS = 3;
@@ -11,6 +12,25 @@ export const MAX_PENDING_TASK_ATTEMPTS = 3;
 // longer answer it, so older unfinished rows are never run again and no longer
 // hold their thread's queue. The rows themselves are left exactly as they are.
 export const MAX_RECOVERABLE_PENDING_TASK_AGE_MS = 24 * 60 * 60 * 1000;
+
+export class PendingTaskPayloadNotPersistableError extends Error {
+  readonly code = "pending_task_attachment_not_persistable";
+
+  constructor() {
+    super(
+      "Integration task payload cannot include inline image bytes. Upload the image to durable storage and send its URL instead.",
+    );
+    this.name = "PendingTaskPayloadNotPersistableError";
+  }
+}
+
+function validatePendingTaskPayload(payload: string): void {
+  try {
+    assertNoInlineImageBytes(payload, "integration pending task payload");
+  } catch {
+    throw new PendingTaskPayloadNotPersistableError();
+  }
+}
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -147,6 +167,7 @@ export async function insertPendingTask(input: {
   externalEventKey?: string | null;
   dispatchScope?: string | null;
 }): Promise<void> {
+  validatePendingTaskPayload(input.payload);
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -416,6 +437,7 @@ export async function stageTaskDeliveryPayload(
   id: string,
   payload: string,
 ): Promise<void> {
+  validatePendingTaskPayload(payload);
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -440,6 +462,7 @@ export async function markTaskDeliveryRetryable(
   payload: string,
   errorMessage: string,
 ): Promise<void> {
+  validatePendingTaskPayload(payload);
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({

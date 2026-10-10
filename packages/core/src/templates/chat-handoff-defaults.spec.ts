@@ -67,11 +67,12 @@ describe("page-chat handoff defaults", () => {
     },
   );
 
-  it("lets Assets restore the shared active thread at chat home", () => {
+  it("route-controls the Assets chat thread: create is blank, thread routes own their id", () => {
     const route = readTemplateFile("assets", "app/routes/home.tsx");
-    expect(route).toContain("const threadUrlSync = threadId");
+    expect(route).toContain("routeThreadId: threadId ?? null");
+    expect(route).toContain("getPath: chatThreadPath");
     expect(route).toContain("threadUrlSync={threadUrlSync}");
-    expect(route).not.toContain("routeThreadId: threadId ?? null");
+    expect(route).not.toContain("const threadUrlSync = threadId");
   });
 
   it("routes Chat home to AgentKit Chat with a URL-backed thread", () => {

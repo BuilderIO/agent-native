@@ -380,7 +380,7 @@ describe("fit text box handles", () => {
     ["se", { dx: 30, dy: 50 }, { left: "100px", top: "100px", width: "330px" }],
     ["nw", { dx: -20, dy: -10 }, { left: "80px", top: "90px", width: "320px" }],
   ])(
-    "%s writes width and top edge but never a height",
+    "%s writes width and top edge but never a height (oracle H.1, oracle H.2, oracle H.3, oracle H.4, oracle H.5, oracle H.7)",
     async (name, delta, expected) => {
       const editor = await mountEditor(FIT_SLIDE);
       editor.click("box", { x: 420, y: 110 });
@@ -639,7 +639,7 @@ describe("outline while typing", () => {
     "width:300px;height:60px",
   );
 
-  it("follows a fit text box as it wraps, without contain or height", async () => {
+  it("follows a fit text box as it wraps, without contain or height (oracle T.3, oracle T.4, oracle T.5)", async () => {
     const editor = await mountEditor(FIT_SLIDE);
     editor.click("box", { x: 110, y: 110 });
     const box = editor.el("box");
@@ -737,7 +737,7 @@ describe("outline while typing", () => {
     expect(editor.outline()!.style.height).toBe("104px");
   });
 
-  it("keeps the authored frame of a fixed-height object", async () => {
+  it("keeps the authored frame of a fixed-height object (oracle T.8)", async () => {
     const editor = await mountEditor(FIXED_SLIDE);
     editor.click("box", { x: 110, y: 110 });
     const box = editor.el("box");
@@ -1155,7 +1155,7 @@ describe("starting to crop an image", () => {
     ["scale", "scale:1.3"],
     ["translate", "translate:40px 10px"],
   ])(
-    "moves the image's %s onto the crop frame so nothing shifts",
+    "moves the image's %s onto the crop frame so nothing shifts (oracle 3.6)",
     async (_name, declaration) => {
       const editor = await mountEditor(`
         <div class="fmd-slide" style="position:relative">
@@ -1244,7 +1244,7 @@ describe("starting to crop an image", () => {
       },
     );
 
-    it("puts the image back exactly as it was when the crop ends unchanged", async () => {
+    it("puts the image back exactly as it was when the crop ends unchanged (oracle 3.6)", async () => {
       await withRule(
         ".ruled { transform: rotate(20deg); rotate: 5deg; }",
         async () => {
@@ -1393,7 +1393,7 @@ describe("releasing the press of a gesture Escape cancelled", () => {
       },
     ],
   ])(
-    "swallows the release click of the pointer that began %s",
+    "swallows the release click of the pointer that began %s (oracle 4.7)",
     async (_name, props, begin) => {
       const editor = await mountEditor(PAIR_SLIDE, props);
       begin(editor);

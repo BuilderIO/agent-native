@@ -107,7 +107,6 @@ import {
   parseUploadResponse,
   promptImportResponseError,
 } from "@/lib/upload-response";
-import { cn } from "@/lib/utils";
 
 import {
   registerEditorCommands,
@@ -245,8 +244,9 @@ export default function EditorToolbar({
   canComment = canEdit,
 }: EditorToolbarProps) {
   const t = useT();
-  // The host owns navigation and chat, so the widget drops the way back to the
-  // deck list and the agent panel controls.
+  // The top bar is the app's own in a widget. It drops only what the host owns
+  // (the way back to the deck list, the agent panel) and what the widget's
+  // write grant cannot run (comments, saved versions, export, import).
   const widgetEmbed = useIsMcpAppWidgetEmbed();
   // A read-only widget session refuses every save, so an offline or failed-save
   // pill would only restate that it is read-only.
@@ -867,12 +867,7 @@ export default function EditorToolbar({
         readOnly={!canEdit}
         onChange={(e) => onTitleChange(e.target.value)}
         style={{ width: `${titleInputWidth}px` }}
-        className={cn(
-          "min-w-0 max-w-[500px] bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground",
-          // The widget pane is narrower than the toolbar's controls, so a long
-          // title gives way to Share instead of pushing it out of view.
-          widgetEmbed ? "shrink truncate" : "shrink-0",
-        )}
+        className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
         spellCheck={false}
       />
 
@@ -1166,7 +1161,6 @@ export default function EditorToolbar({
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}
           showShareLinks={showShareLink}
-          mobileSheet={widgetEmbed}
           basicSharingOnly={widgetEmbed}
           shareTabs={
             creativeContextEnabled && !widgetEmbed
@@ -1217,7 +1211,7 @@ export default function EditorToolbar({
         </Tooltip>
       )}
       {/* Present button — matches Share trigger height (h-9) */}
-      {!widgetEmbed && hasSlides ? (
+      {hasSlides ? (
         <Link
           to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
           onClick={onPresent ? handlePresentClick : undefined}
@@ -1227,7 +1221,7 @@ export default function EditorToolbar({
           <IconPlayerPlay className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
         </Link>
-      ) : !widgetEmbed ? (
+      ) : (
         <Button
           type="button"
           disabled
@@ -1236,7 +1230,7 @@ export default function EditorToolbar({
           <IconPlayerPlay className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
         </Button>
-      ) : null}
+      )}
 
       {/* Hidden file input for "Import" overflow menu item */}
       <input

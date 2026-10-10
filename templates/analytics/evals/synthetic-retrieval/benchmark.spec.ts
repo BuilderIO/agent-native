@@ -17,7 +17,7 @@ describe("SYNTHETIC Analytics retrieval benchmark", () => {
     expect(checkedIn).toBe(`${renderSyntheticBenchmarkCsv()}\n`);
   });
 
-  it("covers aliases, panel SQL, semantic scope, and trust ordering", () => {
+  it("covers aliases, panel SQL, semantic scope, trust, and off-topic naming", () => {
     const rows = computeSyntheticBenchmark();
 
     expect(rows.map((row) => row.caseId)).toEqual([
@@ -25,8 +25,10 @@ describe("SYNTHETIC Analytics retrieval benchmark", () => {
       "panel-sql-only-term",
       "semantic-scope-membership",
       "approved-over-generated",
+      "builder-users-organization-vs-connect",
     ]);
     expect(rows.map((row) => row.afterExpectedRank)).toEqual([
+      "1",
       "1",
       "1",
       "1",
@@ -35,16 +37,17 @@ describe("SYNTHETIC Analytics retrieval benchmark", () => {
     expect(rows.map((row) => row.baselineExpectedRank)).toEqual([
       "1",
       "1",
-      "2",
       "1",
+      "1",
+      "2",
     ]);
     expect(summarizeSyntheticBenchmark(rows)).toMatchObject({
-      cases: 4,
-      baselineTop1: "3/4",
-      baselineHitAt5: "4/4",
-      baselineMrr: 0.875,
-      afterTop1: "4/4",
-      afterHitAt5: "4/4",
+      cases: 5,
+      baselineTop1: "4/5",
+      baselineHitAt5: "5/5",
+      baselineMrr: 0.9,
+      afterTop1: "5/5",
+      afterHitAt5: "5/5",
       afterMrr: 1,
     });
   });

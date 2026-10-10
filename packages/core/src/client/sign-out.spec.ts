@@ -90,6 +90,36 @@ describe("signOut", () => {
     expect(replace.mock.calls[0][0]).toContain("/sign-in?c=");
   });
 
+  it("drops cached action results before navigating away", async () => {
+    const { signOut } = await loadSignOut();
+    const cache = await import("./action-query-cache.js");
+    const records = new Map<string, unknown>([["alice", {}]]);
+    cache.setActionQueryCacheStorage({
+      get: async () => undefined,
+      set: async () => {},
+      del: async () => {},
+      keys: async () => [...records.keys()],
+      clear: async () => {
+        records.clear();
+      },
+    } as never);
+    let recordsAtNavigation: number | undefined;
+    replace.mockImplementation(() => {
+      recordsAtNavigation = records.size;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      ),
+    );
+
+    await signOut();
+
+    expect(recordsAtNavigation).toBe(0);
+    cache.setActionQueryCacheStorage(undefined);
+  });
+
   it("signals the early redirect before revocation and clears it before leaving", async () => {
     const { signOut } = await loadSignOut();
     const originalSessionStorage = Object.getOwnPropertyDescriptor(

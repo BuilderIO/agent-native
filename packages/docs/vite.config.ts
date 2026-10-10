@@ -3,6 +3,7 @@ import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 
+import { betaNoindexHeadersPlugin } from "./app/vite-beta-noindex-plugin";
 import { sitemapPlugin } from "./app/vite-sitemap-plugin";
 
 const reactRouterPlugins = reactRouter as unknown as () => any[];
@@ -15,6 +16,7 @@ export default defineConfig({
     tailwindcss(),
     ...reactRouterPlugins(),
     sitemapPlugin(),
+    betaNoindexHeadersPlugin(),
     ...agentNativePlugins({
       tailwind: false,
       // Syntax highlighting is hydrated after the document loads. Keeping

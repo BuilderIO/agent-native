@@ -18,10 +18,16 @@ import { isTestIdentity } from "../server/test-identity.js";
 import type { JobFrontmatter, JobFrontmatterPatch } from "./frontmatter.js";
 
 /**
- * Failures a retry cannot fix: the run never started because something the
- * automation depends on is absent. They are typed outcomes of their own, never
- * folded into a generic "errored", so the owner sees the real cause and the
- * scheduler can stop re-failing every tick.
+ * Failures a retry cannot fix because something the automation depends on is
+ * absent. They are typed outcomes of their own, never folded into a generic
+ * "errored", so the owner sees the real cause and the scheduler can stop
+ * re-failing every tick.
+ *
+ * Most are caught before a run starts. `connection_required` is only known
+ * after the run has yielded to a connection request, so every failed attempt
+ * already has a thread. It skips the runtime backoff like the rest, pauses
+ * after `PRECONDITION_PAUSE_AFTER` identical failures, and the pause is not
+ * transient: it lasts until the owner enables the automation again.
  */
 export const AUTOMATION_PRECONDITION_CODES = [
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -29,12 +35,14 @@ export const AUTOMATION_PRECONDITION_CODES = [
   "owner_missing",
   "owner_reserved",
   "config_invalid",
+  "connection_required",
 ] as const;
 
 export type AutomationPreconditionCode =
   (typeof AUTOMATION_PRECONDITION_CODES)[number];
 
 export const MISSING_TOOLS_ERROR_CODE = "missing_tools";
+export const CONNECTION_REQUIRED_ERROR_CODE = "connection_required";
 export const OWNER_MISSING_ERROR_CODE = "owner_missing";
 export const OWNER_RESERVED_ERROR_CODE = "owner_reserved";
 export const CONFIG_INVALID_ERROR_CODE = "config_invalid";

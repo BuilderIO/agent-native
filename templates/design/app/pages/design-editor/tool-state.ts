@@ -163,7 +163,10 @@ export function getDesignBottomToolbarMode(args: {
   canEditDesign: boolean;
   canCommentDesign: boolean;
   hasActiveFile: boolean;
+  /** A widget's write ticket authorizes editing without a signed-in session. */
+  scopedWidget: boolean;
 }): DesignBottomToolbarMode {
+  if (args.scopedWidget && args.canEditDesign) return "editor";
   if (!args.isSignedIn || !args.canCommentDesign) return "hidden";
   if (args.canEditDesign) return "editor";
   return args.hasActiveFile ? "commenter" : "hidden";
@@ -188,4 +191,25 @@ export function getSingleScreenCreationTool(args: {
     default:
       return null;
   }
+}
+
+/**
+ * The keyboard entries into annotate mode. Drawing needs both edit rights and
+ * the comment capability that shows the comment and annotate tools.
+ */
+export function annotationHotkeyHandlers<Handler>({
+  canEditDesign,
+  canCommentDesign,
+  onComment,
+  onDraw,
+}: {
+  canEditDesign: boolean;
+  canCommentDesign: boolean;
+  onComment: Handler;
+  onDraw: Handler;
+}): { onCommentTool: Handler | undefined; onDrawTool: Handler | undefined } {
+  return {
+    onCommentTool: canCommentDesign ? onComment : undefined,
+    onDrawTool: canEditDesign && canCommentDesign ? onDraw : undefined,
+  };
 }

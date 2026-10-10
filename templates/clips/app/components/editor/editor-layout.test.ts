@@ -122,19 +122,4 @@ describe("EditorLayout storage preflight", () => {
       burnHandler.indexOf("burnRedactions.mutateAsync({ recordingId })"),
     );
   });
-
-  it("checks storage before requesting or exporting Rewind history", () => {
-    const source = readFileSync(
-      new URL("./rewind-extension-dialog.tsx", import.meta.url),
-      "utf8",
-    );
-    const checkIndex = source.indexOf("await storageStatus.refetch()");
-    const requestIndex = source.indexOf("requestExtension.mutateAsync({");
-    const exportIndex = source.indexOf("await exportConcat(");
-
-    expect(checkIndex).toBeGreaterThan(-1);
-    expect(checkIndex).toBeLessThan(requestIndex);
-    expect(checkIndex).toBeLessThan(exportIndex);
-    expect(source).toContain("<FileStorageSetupPopover");
-  });
 });

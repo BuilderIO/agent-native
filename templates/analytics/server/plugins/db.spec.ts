@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import * as schema from "../db/schema";
+import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs";
 
 /**
  * Regression guard for the bug fixed here: `network_error_count` was added to
@@ -30,6 +31,9 @@ const analyticsRollupsTsSource = readFileSync(
   new URL("../lib/first-party-analytics-rollups.ts", import.meta.url),
   "utf8",
 );
+// db.ts runs SOURCE_INDEX_RUNS_MIGRATION_SQL, so its DDL is migration history
+// even though db.ts does not spell the columns out.
+const migrationHistorySource = `${dbTsSource}\n${SOURCE_INDEX_RUNS_MIGRATION_SQL.join("\n")}`;
 
 interface DrizzleColumn {
   name: string;
@@ -66,7 +70,8 @@ describe("analytics db migrations cover every schema.ts column", () => {
       const missing = columns
         .map((c) => c.name)
         .filter(
-          (columnName) => !new RegExp(`\\b${columnName}\\b`).test(dbTsSource),
+          (columnName) =>
+            !new RegExp(`\\b${columnName}\\b`).test(migrationHistorySource),
         );
       expect(missing).toEqual([]);
     });

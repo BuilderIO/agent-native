@@ -38,6 +38,7 @@ import {
   IconChevronDown,
   IconCopy,
   IconDownload,
+  IconFileImport,
   IconDotsVertical,
   IconExternalLink,
   IconFileTypeHtml,
@@ -290,15 +291,12 @@ export function ToolbarBreadcrumb({
   ariaLabel,
   untitledLabel,
   onOpen,
-  fillCurrent = false,
 }: {
   items: ToolbarBreadcrumbItem[];
   currentDocumentId: string;
   ariaLabel: string;
   untitledLabel: string;
   onOpen: ToolbarBreadcrumbOpen;
-  /** Lets the current page's title use the room the bar has instead of capping it. */
-  fillCurrent?: boolean;
 }) {
   const navRef = useRef<HTMLElement>(null);
   const foldWidth = useElementWidthValue<number | undefined>(
@@ -321,7 +319,6 @@ export function ToolbarBreadcrumb({
           currentDocumentId={currentDocumentId}
           untitledLabel={untitledLabel}
           onOpen={onOpen}
-          fillCurrent={fillCurrent}
         />
       ))}
     </nav>
@@ -334,7 +331,6 @@ type ToolbarBreadcrumbSegmentProps = {
   currentDocumentId: string;
   untitledLabel: string;
   onOpen: ToolbarBreadcrumbOpen;
-  fillCurrent: boolean;
 };
 
 function ToolbarBreadcrumbSegment(props: ToolbarBreadcrumbSegmentProps) {
@@ -368,7 +364,6 @@ function ToolbarBreadcrumbSegmentView({
   untitledLabel,
   onOpen,
   hasMenu,
-  fillCurrent,
 }: ToolbarBreadcrumbSegmentProps & { hasMenu: boolean }) {
   const label = item.title.trim() || untitledLabel;
   const content = (
@@ -424,8 +419,7 @@ function ToolbarBreadcrumbSegmentView({
       ) : (
         <span
           className={cn(
-            "flex min-w-0 items-center gap-1 truncate px-1.5 py-1",
-            !(isLast && fillCurrent) && "max-w-56",
+            "flex min-w-0 max-w-56 items-center gap-1 truncate px-1.5 py-1",
             isLast ? "text-foreground" : "text-muted-foreground",
           )}
         >
@@ -918,6 +912,7 @@ interface DocumentToolbarProps {
   onRestoreEditorSelection?: () => void;
   onSuggestingChange?: (suggesting: boolean) => void;
   editorEscapeTargetRef?: Ref<HTMLButtonElement>;
+  onImport?: () => void;
 }
 
 // PresenceBar's default.
@@ -936,28 +931,18 @@ const TOOLBAR_SIDEBAR_TRIGGER_WIDTH = 40;
 // the menu, and a phone's room stays above that step.
 const TOOLBAR_FOLD_ROOMS = [384, 320, 260, 152, 112];
 
-// An MCP App widget's bar holds the page title, Share and one Open link. It
-// is not folded by `reserved`: the title keeps what the other controls leave,
-// and under this width the link moves into the page-actions menu.
-export const WIDGET_TOOLBAR_FOLD_ROOMS = [480];
-
-// Every control in a widget keeps a touch-sized hit area. The joined Share
-// control sizes its children, so the class goes on the group.
-const WIDGET_TOUCH_TARGET_CLASS_NAME = "size-11";
-const WIDGET_SHARE_GROUP_CLASS_NAME = "[&>*]:h-11 [&>*]:min-w-11";
+// Slides' widget draws its Share at 32px, so a widget's Share group shrinks
+// from the app's h-9 to match. The joined control sizes its children.
+const WIDGET_SHARE_GROUP_CLASS_NAME = "[&>*]:h-8";
 
 /**
  * How far the toolbar folds its controls at `width`, when `reserved` of it
  * holds the padding, the sidebar trigger and the breadcrumb at their
  * narrowest.
  */
-export function toolbarFoldLevel(
-  width: number,
-  reserved: number,
-  rooms: readonly number[] = TOOLBAR_FOLD_ROOMS,
-) {
+export function toolbarFoldLevel(width: number, reserved: number) {
   const room = width - reserved;
-  return rooms.filter((step) => room < step).length;
+  return TOOLBAR_FOLD_ROOMS.filter((step) => room < step).length;
 }
 
 // A widget's scoped session cannot list ancestors or peers, so its
@@ -1022,6 +1007,7 @@ export function DocumentToolbar({
   onRestoreEditorSelection,
   onSuggestingChange,
   editorEscapeTargetRef,
+  onImport,
 }: DocumentToolbarProps) {
   const sidebarTrigger = useSidebarTrigger();
   const t = useT();
@@ -1034,24 +1020,23 @@ export function DocumentToolbar({
   const toolbarBreadcrumbItems = inWidget
     ? widgetBreadcrumbItems(documentBreadcrumbItems, documentId)
     : documentBreadcrumbItems;
-  const reservedWidth = inWidget
-    ? 0
-    : TOOLBAR_PADDING +
-      (sidebarTrigger ? TOOLBAR_SIDEBAR_TRIGGER_WIDTH + TOOLBAR_GAP : 0) +
-      (compact ? 0 : breadcrumbMinWidth(toolbarBreadcrumbItems) + TOOLBAR_GAP);
-  const foldRooms = inWidget ? WIDGET_TOOLBAR_FOLD_ROOMS : TOOLBAR_FOLD_ROOMS;
+  const reservedWidth =
+    TOOLBAR_PADDING +
+    (sidebarTrigger ? TOOLBAR_SIDEBAR_TRIGGER_WIDTH + TOOLBAR_GAP : 0) +
+    (compact ? 0 : breadcrumbMinWidth(toolbarBreadcrumbItems) + TOOLBAR_GAP);
   const foldLevel = useElementWidthValue(
     toolbarRef,
-    (width) => toolbarFoldLevel(width, reservedWidth, foldRooms),
+    (width) => toolbarFoldLevel(width, reservedWidth),
     0,
     true,
     reservedWidth,
   );
+  // A widget has no page-actions menu to fold into: its session cannot run
+  // what the menu holds, so Share and Open stay in the bar.
   const suggestingInMenu = !inWidget && foldLevel >= 2;
   const presenceHidden = inWidget || foldLevel >= 3;
   const commentsInMenu = !inWidget && foldLevel >= 4;
   const shareInMenu = !inWidget && foldLevel >= 5;
-  const openInMenu = inWidget && foldLevel >= 1;
   // A widget shares only through a write grant, and not a document its
   // viewer cannot edit; the app shares everything it does not hold read-only.
   const shareAvailable = canShare && (inWidget ? writeWidget : !readOnly);
@@ -1625,13 +1610,12 @@ export function DocumentToolbar({
       {/* As the toolbar narrows, the Edited label goes first, then the Share
           and Suggesting labels, then controls fold by `toolbarFoldLevel`;
           the breadcrumb folds its ancestors before the page title drops below
-          a readable width. A widget's bar folds only its Open link, and keeps
-          the title and Share. */}
+          a readable width. */}
       <div
         ref={toolbarRef}
         className={cn(
           "relative z-10 flex h-12 shrink-0 items-center bg-background @container/toolbar",
-          inWidget || shareInMenu ? "gap-1 px-2" : "gap-3 px-4",
+          shareInMenu ? "gap-1 px-2" : "gap-3 px-4",
         )}
         data-editor-selection-continuation=""
       >
@@ -1642,7 +1626,6 @@ export function DocumentToolbar({
             currentDocumentId={documentId}
             ariaLabel={t("editor.toolbar.pageBreadcrumb")}
             untitledLabel={t("sidebar.untitled")}
-            fillCurrent={inWidget}
             onOpen={(id, filesDatabaseId) => {
               if (onOpenBreadcrumbItem) {
                 onOpenBreadcrumbItem(id, filesDatabaseId);
@@ -1907,17 +1890,14 @@ export function DocumentToolbar({
             </Tooltip>
           ) : null}
 
-          {inWidget && !openInMenu ? (
+          {inWidget ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <a
                   href={pageUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={cn(
-                    "flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    WIDGET_TOUCH_TARGET_CLASS_NAME,
-                  )}
+                  className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={openInAgentNativeLabel}
                   onClick={handleOpenInAgentNative}
                 >
@@ -1959,15 +1939,16 @@ export function DocumentToolbar({
               onRestoreEditorSelection?.();
             }}
           >
-            {inWidget && !openInMenu ? null : (
+            {/* The page actions need the app's own session, which a widget
+                does not have, so a widget draws no trigger. */}
+            {inWidget ? null : (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
                     <button
                       ref={pageActionsRef}
                       className={cn(
-                        "flex items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
-                        inWidget ? WIDGET_TOUCH_TARGET_CLASS_NAME : "h-9 w-9",
+                        "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
                         utilityPanel === "info" && "bg-accent text-foreground",
                         // Folded, the menu holds Comments and Stop suggesting,
                         // so it shows their state.
@@ -2014,7 +1995,7 @@ export function DocumentToolbar({
               data-database-preview-portal={compact ? "" : undefined}
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              {!inWidget && !readOnly && (canSuggest || suggesting) ? (
+              {!readOnly && (canSuggest || suggesting) ? (
                 <>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -2047,70 +2028,64 @@ export function DocumentToolbar({
                   <DropdownMenuSeparator />
                 </>
               ) : null}
-              {inWidget ? null : (
-                <>
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
-                      <IconArrowBackUp className="me-2 h-4 w-4" />
-                      {t("editor.toolbar.undo")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
-                      <IconArrowForwardUp className="me-2 h-4 w-4" />
-                      {t("editor.toolbar.redo")}
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
-                    {!readOnly && onToggleFavorite ? (
-                      <DropdownMenuItem
-                        onSelect={() => onToggleFavorite(!isFavorite)}
-                      >
-                        <IconPin
-                          className="me-2 h-4 w-4"
-                          strokeWidth={isFavorite ? 2.2 : 1.7}
-                        />
-                        {isFavorite
-                          ? t("editor.toolbar.unpin")
-                          : t("editor.toolbar.pin")}
-                      </DropdownMenuItem>
-                    ) : null}
-                    {showCommentsControl && commentsInMenu ? (
-                      <DropdownMenuItem
-                        onSelect={toggleCommentsHistory}
-                        className={cn(
-                          commentsHistoryOpen &&
-                            "bg-accent text-accent-foreground",
-                        )}
-                      >
-                        <IconMessageCircle className="me-2 h-4 w-4" />
-                        {t("comments.title")}
-                      </DropdownMenuItem>
-                    ) : null}
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        const nextPanel =
-                          utilityPanel === "info" ? null : "info";
-                        if (nextPanel === "info") {
-                          trackEvent("document_utility_panel_opened", {
-                            app_name: "content",
-                            template_name: "content",
-                            panel: "info",
-                          });
-                        }
-                        onUtilityPanelChange(nextPanel);
-                      }}
-                      className={cn(
-                        utilityPanel === "info" &&
-                          "bg-accent text-accent-foreground",
-                      )}
-                    >
-                      <IconInfoCircle className="me-2 h-4 w-4" />
-                      {t("editor.toolbar.info")}
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                </>
-              )}
+              <DropdownMenuGroup>
+                <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
+                  <IconArrowBackUp className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.undo")}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
+                  <IconArrowForwardUp className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.redo")}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                {!readOnly && onToggleFavorite ? (
+                  <DropdownMenuItem
+                    onSelect={() => onToggleFavorite(!isFavorite)}
+                  >
+                    <IconPin
+                      className="me-2 h-4 w-4"
+                      strokeWidth={isFavorite ? 2.2 : 1.7}
+                    />
+                    {isFavorite
+                      ? t("editor.toolbar.unpin")
+                      : t("editor.toolbar.pin")}
+                  </DropdownMenuItem>
+                ) : null}
+                {showCommentsControl && commentsInMenu ? (
+                  <DropdownMenuItem
+                    onSelect={toggleCommentsHistory}
+                    className={cn(
+                      commentsHistoryOpen && "bg-accent text-accent-foreground",
+                    )}
+                  >
+                    <IconMessageCircle className="me-2 h-4 w-4" />
+                    {t("comments.title")}
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem
+                  onSelect={() => {
+                    const nextPanel = utilityPanel === "info" ? null : "info";
+                    if (nextPanel === "info") {
+                      trackEvent("document_utility_panel_opened", {
+                        app_name: "content",
+                        template_name: "content",
+                        panel: "info",
+                      });
+                    }
+                    onUtilityPanelChange(nextPanel);
+                  }}
+                  className={cn(
+                    utilityPanel === "info" &&
+                      "bg-accent text-accent-foreground",
+                  )}
+                >
+                  <IconInfoCircle className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.info")}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
               {shareInMenu ? (
                 <>
                   <DropdownMenuGroup>
@@ -2141,7 +2116,7 @@ export function DocumentToolbar({
                   <DropdownMenuSeparator />
                 </>
               ) : null}
-              {!inWidget && isLocalFileDocument ? (
+              {isLocalFileDocument ? (
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
                     {t("editor.toolbar.localFile")}
@@ -2172,7 +2147,7 @@ export function DocumentToolbar({
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
               ) : null}
-              {!inWidget && !isLocalFileDocument ? (
+              {!isLocalFileDocument ? (
                 <>
                   <DropdownMenuGroup>
                     <DropdownMenuItem
@@ -2233,24 +2208,17 @@ export function DocumentToolbar({
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
                   )}
+                  {onImport ? (
+                    <DropdownMenuItem onSelect={onImport}>
+                      <IconFileImport className="me-2 h-4 w-4" />
+                      {t("contentImport.menuItem")}
+                    </DropdownMenuItem>
+                  ) : null}
                 </>
               ) : null}
-              {inWidget ? null : <DropdownMenuSeparator />}
+              <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                {inWidget ? (
-                  <DropdownMenuItem asChild>
-                    <a
-                      href={pageUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={handleOpenInAgentNative}
-                    >
-                      <IconExternalLink className="me-2 h-4 w-4" />
-                      {openInAgentNativeLabel}
-                    </a>
-                  </DropdownMenuItem>
-                ) : null}
-                {!inWidget && canEdit && !isLocalFileDocument ? (
+                {canEdit && !isLocalFileDocument ? (
                   <Popover open={open} onOpenChange={setOpen}>
                     <PopoverTrigger asChild>
                       <button
@@ -2602,7 +2570,7 @@ export function DocumentToolbar({
                   </Popover>
                 ) : null}
               </DropdownMenuGroup>
-              {!inWidget && canDelete && onDelete ? (
+              {canDelete && onDelete ? (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

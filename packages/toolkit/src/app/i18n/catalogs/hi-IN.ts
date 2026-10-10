@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "कतार में",
   "agent.completed": "काम पूरा किया",
   "agent.failed": "ध्यान देने की ज़रूरत है",
+  "agent.failureReason.failed": "पूरा नहीं हो सका",
+  "agent.failureReason.setup": "पहले सेटअप ज़रूरी है",
+  "agent.failureReason.auth": "पहुँच अस्वीकार की गई",
+  "agent.failureReason.timeout": "बहुत देर लगी",
+  "agent.failureReason.budget": "समय समाप्त हो गया",
+  "agent.failureReason.response": "कोई उपयोगी परिणाम नहीं",
   "agent.closed": "बंद किया",
   "approval.alwaysAllow": "हमेशा अनुमति दें",
   "approval.alwaysAllowHint": "इस सटीक कमांड को स्वीकृत करें और हमेशा अनुमति दें",
@@ -1139,9 +1145,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "कॉपी नहीं हो सका",
   "recovery.continueUnavailable":
     "यह रन अब जारी नहीं रखा जा सकता। आगे बढ़ने के लिए एक संदेश भेजें।",
+  "errorMessages.invalidAttachmentNamed":
+    "मॉडल प्रदाता ने {{name}} को अस्वीकार कर दिया क्योंकि इसका फ़ॉर्मैट या आकार समर्थित नहीं है। छवियों को छोटे PNG, JPEG, GIF या WebP के रूप में निर्यात करें। दस्तावेज़ों के लिए समर्थित फ़ॉर्मैट इस्तेमाल करें या संबंधित पाठ चिपकाकर फिर कोशिश करें।",
+  "recovery.retryWithoutAttachment": "अटैचमेंट के बिना फिर से कोशिश करें",
   "recovery.retryAttachmentUnavailable":
     "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
-  "recovery.retryWithoutAttachment": "अटैचमेंट के बिना फिर से प्रयास करें",
   "recovery.deferredSubmissionFailed":
     "यह संदेश भेजा नहीं जा सका। अपना कनेक्शन या चैट सेटअप जाँचें, फिर दोबारा कोशिश करें।",
   "recovery.credentialRejected":

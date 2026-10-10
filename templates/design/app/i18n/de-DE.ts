@@ -68,6 +68,10 @@ export default {
       "{from} bis {to} · getrennte Kohorten je App{partial}",
     sessionCount: "{count} Sitzungen",
     otherPaths: "Andere Pfade",
+    otherBranchesShown: "{shown} von {total} Zweigen angezeigt",
+    otherBranchDetailsUnavailable:
+      "Branchendetails sind in diesem Journey-Baum nicht verfügbar",
+    otherBranchSourceKey: "Quellschlüssel des Schritts: {key}",
     htmlLanguage: "de-DE",
   },
   composer: { menu: { integrations: "Integrationen" } },

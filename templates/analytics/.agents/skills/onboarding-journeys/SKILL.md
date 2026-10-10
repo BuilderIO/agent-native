@@ -29,6 +29,15 @@ The pipeline runs without a UI. Codex does all four steps from the terminal:
 
 ## The tree
 
+`estimate-onboarding-journey-cost` dry-runs the same access-scoped BigQuery
+event-page SQL as `get-onboarding-journey`. Pass matching dates, app,
+email filter, follow-up mode, and event row budget. It returns estimated bytes
+per possible page, their sum in `possiblePagesEstimatedBytes`, the unchanged
+per-query cap, and `within_cap` or `over_cap`. Page two is estimated when the
+row budget permits it; production reads it only when page one fills. The sum
+is a possible-pages estimate, not executed or billed bytes. Data-dependent
+follow-up queries are excluded. An unavailable estimate fails explicitly.
+
 `get-onboarding-journey` returns `JourneyTree`; `format: "summary"` returns the
 same event-derived journey and follow-up counts as an indented `outline` with no
 examples. Summaries skip replay reads, so `coverage.sessionsWithReplay` is
@@ -40,7 +49,7 @@ To include the bounded cross-session estimate from the repository root, run:
 
 ```ts
 type JourneyExample = { sessionId: string; recordingId: string | null; ts: string; offsetMs: number | null; viewport: { width: number; height: number } | null; viewportReason?: string; replayUrl?: string };
-type JourneyNode = { key: string; label: string; parentKey: string | null; depth: number; kind: "step" | "other"; n: number; pctOfRoot: number; pctOfParent: number; dropoffN: number; dropoffPct: number; deeperN: number; examples: JourneyExample[] };
+type JourneyNode = { key: string; keyTruncated?: boolean; label: string; labelTruncated?: boolean; parentKey: string | null; depth: number; kind: "step" | "other"; n: number; pctOfRoot: number; pctOfParent: number; dropoffN: number; dropoffPct: number; deeperN: number; examples: JourneyExample[]; otherBranchCount?: number; otherBranchSummariesPartial?: true; otherBranches?: { path: string[]; pathTruncated?: boolean; key: string; keyTruncated?: boolean; sourceStepKey?: string; sourceStepKeyTruncated?: boolean; n: number; pctOfParent: number }[] };
 type JourneyFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_query_too_large" | "followup_aggregate_truncated" | "followup_aggregate_invalid" | "followup_aggregate_cost_limited" | "followup_aggregate_query_timeout" | "followup_aggregate_query_failed" | "terminal_cohort_mismatch"; observationCutoff: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; rightCensoredAtWindowEnd: true; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { rows: number | null; queries: number; truncated: boolean; status?: "incomplete"; backendStatus?: number | null; backendReason?: string | null; backendOperation?: "submit" | "poll" | "job" | null }; cohortSessions: number | null }; laterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null }; noLaterRecordedActivityWithinWindow: { total: number | null; byTerminalStepKey: Record<string, number> | null } };
 type JourneyPersonFollowupCounts = { canonicalPeople: number; laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number; laterActivityInBothSelectedAndOutside: number; laterActivityObservedAnywhere: number; noActivityObservedWithinHorizon: number; rightCensoredHorizon: number; fullyObservedCanonicalPeople: number; noActivityObservedWithinHorizonPctOfFullyObservedCanonicalPeople: number | null; identityUnavailableSessions: number; identityUnavailableSessionEvidence: { laterActivityInSelectedSession: number; laterActivityOutsideSelectedSessionOrApp: number } };
 type JourneyPersonFollowup = { status: "complete" | "incomplete"; incompleteReason?: "journey_event_read_truncated" | "journey_event_read_invalid" | "journey_event_read_may_have_shifted" | "terminal_cohort_too_large" | "terminal_cohort_invalid" | "person_followup_aggregate_truncated" | "person_followup_query_cost_limited" | "person_followup_query_timeout" | "person_followup_query_failed" | "person_followup_aggregate_invalid" | "person_followup_terminal_cohort_mismatch"; horizonDays: 30; horizonMs: number; observationWatermark: string; observationFollowupDurationMs: { min: number; max: number; mean: number } | null; coverage: { journeyEventRead: { rows: number; pages: number; truncated: boolean; paginationConsistency: "stable" | "may_have_shifted" }; followupAggregateRead: { status: "complete" | "truncated" | "incomplete" | "not_run"; rows: number | null; queries: number; truncated: boolean; backendStatus?: number | null; backendReason?: string | null; backendOperation?: "submit" | "poll" | "job" | null }; terminalSessions: number | null; sessionsWithoutSelectedStep: number | null; identityJoin: { status: "complete" | "partial" | "unavailable" | "not_applicable" | "unknown"; terminalSessions: number | null; sessionsWithCanonicalIdentity: number | null; sessionsWithoutCanonicalIdentity: number | null; uniqueCanonicalPeople: number | null; coveragePct: number | null } }; total: JourneyPersonFollowupCounts | null; byTerminalStepKey: Record<string, JourneyPersonFollowupCounts> | null };
@@ -52,6 +61,22 @@ with screenshots from a separate observed session, add those reference nodes
 only to the Design input, set `referenceOnly: true`, and omit the cohort metric
 fields. This annotation is for visual references and is not emitted by
 `get-onboarding-journey`.
+
+An `other` node keeps its aggregate metrics and includes up to 20 original
+root-to-branch label paths, source keys to distinguish identical paths, each
+branch's session count, and its percentage of the direct parent. The
+percentages are not recalculated against the journey root. Across one tree,
+branch summaries are limited to 200 entries and 64 KiB of serialized detail.
+`otherBranchCount` records the full number of merged branches, and
+`otherBranchSummariesPartial: true` marks when those bounds omit any details.
+These summaries have no screenshots or example sessions. To fit Design's
+bounded input, labels/path segments longer than 300 characters and keys longer
+than 2,048 characters end with a stable hash suffix and set the matching
+`labelTruncated`, `pathTruncated`, `keyTruncated`, or
+`sourceStepKeyTruncated` flag. `key` remains the full path identity when it fits;
+`sourceStepKey` carries the final raw step key used to distinguish identical
+display paths. Counts stay within the 200,000-event read cap; aggregate counts
+and direct-parent percentages are not recalculated or reduced for display.
 
 Saved outputs require source-confirmed completion events. Clips uses
 `recording_ready`; `recording_started`, transcript-only `recording_completed`,

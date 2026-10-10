@@ -9,12 +9,15 @@ import {
 } from "@agent-native/toolkit/agentkit";
 import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
+import { useNavigate } from "react-router";
 
+import { formsAskThreadPath } from "@/lib/chat-route";
 import { scheduleFormsRoutePrewarm } from "@/lib/route-prewarm";
 import { TAB_ID } from "@/lib/tab-id";
 
-export function AskPage() {
+export function AskPage({ threadId = null }: { threadId?: string | null }) {
   const t = useT();
+  const navigate = useNavigate();
 
   useEffect(() => {
     function handleChatRunning(event: Event) {
@@ -59,6 +62,11 @@ export function AskPage() {
       surfaceClassName="forms-ask-chat-panel bg-background shadow-none"
       defaultMode="chat"
       storageKey="forms"
+      threadUrlSync={{
+        routeThreadId: threadId,
+        getPath: formsAskThreadPath,
+        navigate,
+      }}
       browserTabId={TAB_ID}
       showHeader={false}
       showTabBar={false}

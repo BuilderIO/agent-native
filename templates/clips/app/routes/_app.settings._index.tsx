@@ -47,11 +47,22 @@ export default function SettingsIndexRoute() {
             description: t("settings.labMeetingsDescription"),
           };
         }
-        return {
-          ...lab,
-          displayName: t("settings.labWisprFlow"),
-          description: t("settings.labWisprFlowDescription"),
-        };
+        if (lab.key === "clips.lookback-context") {
+          return {
+            ...lab,
+            displayName: t("settings.labLookbackContext"),
+            description: t("settings.labLookbackContextDescription"),
+          };
+        }
+        if (lab.key === "clips.wisprflow") {
+          return {
+            ...lab,
+            displayName: t("settings.labWisprFlow"),
+            description: t("settings.labWisprFlowDescription"),
+          };
+        }
+        // Unknown labs keep their registry copy instead of inheriting another lab's text.
+        return lab;
       }),
     [t],
   );

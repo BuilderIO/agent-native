@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "排隊中",
   "agent.completed": "已完成",
   "agent.failed": "需要注意",
+  "agent.failureReason.failed": "未能完成",
+  "agent.failureReason.setup": "需要先完成設定",
+  "agent.failureReason.auth": "存取遭拒",
+  "agent.failureReason.timeout": "回應逾時",
+  "agent.failureReason.budget": "已超出時限",
+  "agent.failureReason.response": "沒有可用的結果",
   "agent.closed": "已關閉",
   "approval.alwaysAllow": "一律允許",
   "approval.alwaysAllowHint": "核准並一律允許這個完全相同的命令",
@@ -1086,9 +1092,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyDebug": "複製偵錯資訊",
   "recovery.copyFailed": "複製失敗",
   "recovery.continueUnavailable": "此執行已無法繼續。傳送訊息以繼續。",
+  "errorMessages.invalidAttachmentNamed":
+    "模型供應商拒絕了 {{name}}，因為其格式或大小不受支援。圖片請匯出為較小的 PNG、JPEG、GIF 或 WebP；文件請使用支援的格式，或貼上相關文字後重試。",
+  "recovery.retryWithoutAttachment": "不附帶附件重試",
   "recovery.retryAttachmentUnavailable":
     "此要求包含無法重試的檔案。請在訊息輸入框中重新附加檔案，然後再試一次。",
-  "recovery.retryWithoutAttachment": "不含附件重試",
   "recovery.deferredSubmissionFailed":
     "無法傳送這則訊息。請檢查連線或聊天設定，然後再試一次。",
   "recovery.credentialRejected":

@@ -10,7 +10,7 @@ description: "공개 경로를 에이전트(robots.txt, llms.txt, 마크다운 �
 문서 사이트는 참조 구현입니다. 오늘 배송됩니다:
 
 - 검색을 허용하지만 기본적으로 학습을 허용하지 않는 크롤러 정책이 있는 `/robots.txt`.
-- 소스 파일이 노출될 때 절대 표준 URL 및 `lastmod`가 포함된 `/sitemap.xml`.
+- 로캘마다 하나의 `/sitemap-<locale>.xml`을 가리키는 사이트맵 인덱스인 `/sitemap.xml`. 소스 파일이 노출될 때 절대 표준 URL 및 `lastmod`가 포함됩니다.
 - 상담원 친화적인 콘텐츠 검색을 위한 `/llms.txt` 및 `/llms-full.txt`.
 - `/docs/getting-started.md`와 같은 Markdown 미러.
 - 프로덕션 빌드 후 공개 문서 페이지에 대한 `Accept: text/markdown` 응답.
@@ -187,6 +187,8 @@ const files = buildAgentWebStaticFiles({
 ```
 
 Vite 앱은 프로덕션 빌드 중에 `@agent-native/core/vite`의 `createAgentWebVitePlugin`를 사용하여 해당 파일을 `public`, `dist`, `dist/client`, `dist/server/public` 또는 `build/client`에 쓸 수 있습니다.
+
+큰 사이트맵을 나누려면 `buildAgentWebStaticFiles` 또는 `createAgentWebVitePlugin`에 `sitemapGroup`을 전달하세요. 각 페이지를 로캘 같은 그룹 키에 매핑하면 `sitemap.xml`은 그룹마다 하나의 `sitemap-<group>.xml`을 가리키는 사이트맵 인덱스가 됩니다.
 
 ## 사이트 감사 {#audit}
 

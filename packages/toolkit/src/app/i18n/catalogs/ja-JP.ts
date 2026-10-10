@@ -39,6 +39,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "待機中",
   "agent.completed": "完了しました",
   "agent.failed": "対応が必要です",
+  "agent.failureReason.failed": "完了できませんでした",
+  "agent.failureReason.setup": "先に設定が必要です",
+  "agent.failureReason.auth": "アクセスが拒否されました",
+  "agent.failureReason.timeout": "応答がタイムアウトしました",
+  "agent.failureReason.budget": "時間切れになりました",
+  "agent.failureReason.response": "使える結果がありません",
   "agent.closed": "終了しました",
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
@@ -1173,9 +1179,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "コピーに失敗しました",
   "recovery.continueUnavailable":
     "この実行はもう続行できません。続けるにはメッセージを送信してください。",
+  "errorMessages.invalidAttachmentNamed":
+    "モデルプロバイダーは、形式またはサイズがサポートされていないため、{{name}} を拒否しました。画像はより小さい PNG、JPEG、GIF、または WebP として書き出してください。文書は対応形式を使うか、関連するテキストを貼り付けて再試行してください。",
+  "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.retryAttachmentUnavailable":
     "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",
-  "recovery.retryWithoutAttachment": "添付ファイルなしで再試行",
   "recovery.deferredSubmissionFailed":
     "このメッセージを送信できませんでした。接続またはチャットの設定を確認して、もう一度お試しください。",
   "recovery.credentialRejected":

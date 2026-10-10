@@ -67,6 +67,10 @@ export default {
       "{from} から {to} · アプリごとの別コホート{partial}",
     sessionCount: "{count} セッション",
     otherPaths: "その他の経路",
+    otherBranchesShown: "{total} 件中 {shown} 件の分岐を表示",
+    otherBranchDetailsUnavailable:
+      "このジャーニーツリーには分岐の詳細がありません",
+    otherBranchSourceKey: "元のステップキー: {key}",
     htmlLanguage: "ja-JP",
   },
   composer: { menu: { integrations: "連携" } },

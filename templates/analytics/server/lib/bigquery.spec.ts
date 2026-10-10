@@ -23,6 +23,7 @@ vi.mock("./gcloud", async (importOriginal) => ({
 
 const {
   BigQueryBackendError,
+  BigQueryDryRunPreparationError,
   BigQueryMaximumBytesBilledError,
   BigQueryQueryTimeoutError,
   dryRunQuery,
@@ -912,6 +913,62 @@ describe("runQuery cancellation", () => {
     const result = await dryRunQuerySchema("SELECT 1");
 
     expect(result).toEqual({ error: null });
+  });
+
+  it("optionally classifies credential lookup failures as dry-run preparation errors", async () => {
+    const privateDetail = new Error("private credential resolution detail");
+    resolveCredential.mockRejectedValueOnce(privateDetail);
+
+    await expect(dryRunQuerySchema("SELECT 1")).rejects.toBe(privateDetail);
+
+    resolveCredential.mockRejectedValueOnce(
+      new Error("private credential detail"),
+    );
+    const fetchMock = vi.fn<typeof globalThis.fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      dryRunQuerySchema("SELECT 1", { wrapPreparationErrors: true }),
+    ).rejects.toBeInstanceOf(BigQueryDryRunPreparationError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("classifies token setup failures before starting the dry-run request", async () => {
+    const privateDetail = new Error("private token setup detail");
+    getAccessToken.mockRejectedValueOnce(privateDetail);
+    const fetchMock = vi.fn<typeof globalThis.fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+
+    let failure: unknown;
+    try {
+      await dryRunQuerySchema("SELECT 1", { wrapPreparationErrors: true });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(BigQueryDryRunPreparationError);
+    expect((failure as Error).message).not.toContain(privateDetail.message);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards abort signals to token setup without wrapping aborts", async () => {
+    const controller = new AbortController();
+    const abortError = new Error("aborted");
+    abortError.name = "AbortError";
+    let receivedSignal: AbortSignal | undefined;
+    getAccessToken.mockImplementationOnce(async (signal?: AbortSignal) => {
+      receivedSignal = signal;
+      throw abortError;
+    });
+
+    await expect(
+      dryRunQuerySchema("SELECT 1", {
+        signal: controller.signal,
+        wrapPreparationErrors: true,
+      }),
+    ).rejects.toBe(abortError);
+
+    expect(receivedSignal).toBe(controller.signal);
   });
 
   it("flags a timed-out dry run as timed out rather than as invalid SQL", async () => {

@@ -38,6 +38,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "في قائمة الانتظار",
   "agent.completed": "أنهى العمل",
   "agent.failed": "يحتاج إلى الانتباه",
+  "agent.failureReason.failed": "تعذّر الإكمال",
+  "agent.failureReason.setup": "يحتاج إلى إعداد أولًا",
+  "agent.failureReason.auth": "تم رفض الوصول",
+  "agent.failureReason.timeout": "استغرق وقتًا طويلًا",
+  "agent.failureReason.budget": "انتهى الوقت",
+  "agent.failureReason.response": "لا توجد نتيجة صالحة",
   "agent.closed": "أغلق",
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",
@@ -1164,9 +1170,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "فشل النسخ",
   "recovery.continueUnavailable":
     "لم يعد بالإمكان متابعة هذا التشغيل. أرسل رسالة للمتابعة.",
+  "errorMessages.invalidAttachmentNamed":
+    "رفض موفّر النموذج {{name}} لأن تنسيقه أو حجمه غير مدعوم. صدّر الصور بحجم أصغر بصيغة PNG أو JPEG أو GIF أو WebP. للمستندات، استخدم تنسيقًا مدعومًا أو الصق النص ذي الصلة ثم أعد المحاولة.",
+  "recovery.retryWithoutAttachment": "إعادة المحاولة بدون مرفق",
   "recovery.retryAttachmentUnavailable":
     "تضمّن هذا الطلب ملفًا لا يمكن إعادة المحاولة به. أرفقه مجددًا في مربع الرسالة، ثم حاول مرة أخرى.",
-  "recovery.retryWithoutAttachment": "إعادة المحاولة بدون المرفق",
   "recovery.deferredSubmissionFailed":
     "تعذّر إرسال هذه الرسالة. تحقّق من اتصالك أو إعدادات الدردشة، ثم أعد المحاولة.",
   "recovery.credentialRejected":

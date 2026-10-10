@@ -20,13 +20,19 @@ import {
 import {
   readSourceIndex,
   sourceIndexDictionaryEntries,
+  type SourceIndexRead,
 } from "../server/lib/source-index-store.js";
 
 const KEY_PREFIX = "data-dict-";
+const hasOverlayValue = (value: unknown) =>
+  value !== null &&
+  value !== undefined &&
+  (typeof value !== "string" || value.trim().length > 0) &&
+  (!Array.isArray(value) || value.length > 0);
 
 export default defineAction({
   description:
-    "List or browse entries in the data dictionary — the internal catalog of metrics, tables, columns, and business definitions. A focused search also checks the organization's generated source index, whose entries are unapproved metadata suggestions. For an ordinary metric lookup, use find-data instead because it searches definitions and existing dashboard/chart SQL together in one bounded call. Use this action when the user specifically asks to browse dictionary definitions or filter them by department.",
+    "Browse or search saved dictionary entries and, when configured, unapproved suggestions from the organization's generated source index. Each call returns one page of up to 200 entries and a nextPage cursor when more remain. For an ordinary metric lookup, use find-data because it searches definitions and existing dashboard/chart SQL together in one bounded call.",
   schema: z.object({
     search: z
       .string()
@@ -57,6 +63,7 @@ export default defineAction({
 
     const entries: Record<string, unknown>[] = [];
     const seen = new Set<string>();
+    let sourceIndexStatus: SourceIndexRead["status"] = "not-configured";
 
     const collect = (raw: unknown) => {
       const e = raw as Record<string, unknown> | null;
@@ -70,49 +77,40 @@ export default defineAction({
     if (orgId) {
       const orgEntries = await listOrgSettings(orgId, KEY_PREFIX);
       for (const value of Object.values(orgEntries)) collect(value);
-    }
-
-    if (q && orgId) {
       const sourceIndex = await readSourceIndex(orgId);
-      if (sourceIndex.status === "unavailable") {
-        fail(
-          "The organization's source index is unreadable. Re-import a valid source index before searching it.",
-          {
-            errorCode: "source_index_unavailable",
-            statusCode: 500,
-          },
-        );
-      }
-      if (sourceIndex.status === "invalid") {
-        fail(
-          "The organization's source index is invalid. Re-import a valid source index before searching it.",
-          {
-            errorCode: "source_index_invalid",
-            statusCode: 500,
-          },
-        );
-      }
+      sourceIndexStatus = sourceIndex.status;
       if (sourceIndex.status === "available") {
-        const allIndexedMatches = sourceIndexDictionaryEntries(
-          sourceIndex.bundle,
-        )
-          .map((entry) => ({
-            entry,
-            score: matchSearchFields(q, [
-              { value: entry.metric, weight: 28 },
-              { value: entry.commonQuestions, weight: 16 },
-              { value: entry.definition, weight: 12 },
-              { value: entry.table, weight: 8 },
-              { value: entry.columnsUsed, weight: 6 },
-              { value: entry.source, weight: 5 },
-              { value: entry.dependencies, weight: 4 },
-              { value: entry.knownGotchas, weight: 2 },
-            ]).score,
-          }))
-          .filter(({ score }) => score > 0)
-          .sort((a, b) => b.score - a.score);
-        for (const { entry } of allIndexedMatches) {
-          collect(entry);
+        for (const entry of sourceIndexDictionaryEntries(sourceIndex.bundle)) {
+          const existingIndex = entries.findIndex(
+            (existing) => existing.id === entry.id,
+          );
+          if (existingIndex < 0) {
+            collect(entry);
+            continue;
+          }
+          const overlay = Object.fromEntries(
+            Object.entries(entries[existingIndex]).filter(([, value]) =>
+              hasOverlayValue(value),
+            ),
+          );
+          entries[existingIndex] = {
+            ...entry,
+            ...overlay,
+            status: entry.status,
+            sourceIndex: true,
+            ...(typeof entry.sourcePath === "string"
+              ? { sourcePath: entry.sourcePath }
+              : {}),
+            ...(typeof entry.sourceRevision === "string"
+              ? { sourceRevision: entry.sourceRevision }
+              : {}),
+            ...(typeof entry.sourceIndexGeneratedAt === "string"
+              ? { sourceIndexGeneratedAt: entry.sourceIndexGeneratedAt }
+              : {}),
+            ...(typeof entry.sourceIndexSources === "string"
+              ? { sourceIndexSources: entry.sourceIndexSources }
+              : {}),
+          };
         }
       }
     }
@@ -143,6 +141,7 @@ export default defineAction({
               { value: e.columnsUsed, weight: 6 },
               { value: e.queryTemplate, weight: 5 },
               { value: e.source, weight: 5 },
+              { value: e.dependencies, weight: 4 },
               { value: e.action, weight: 5 },
               { value: e.knownGotchas, weight: 2 },
             ])
@@ -197,6 +196,6 @@ export default defineAction({
       offset: decodeSearchCursor(cursorSearch, args.nextPage),
     });
 
-    return page;
+    return { ...page, sourceIndexStatus };
   },
 });

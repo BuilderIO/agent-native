@@ -163,6 +163,7 @@ const CHECK_NAMES = [
   "pre_auth_session_replay_e2e",
   "slides_chat_e2e",
   "slides_authoring_e2e",
+  "slides_oracle",
   "changeset",
 ] as const;
 
@@ -341,6 +342,24 @@ export function scriptTestsForPaths(
     }
   }
   return [...tests].sort();
+}
+
+// The paths that can change which tests Vitest collects and how it modes them.
+// The oracle ratchet reads those modes, so only these paths run its full pass.
+export function isSlidesOraclePath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (normalized.startsWith("templates/slides/oracle/")) return true;
+  if (
+    normalized === "templates/slides/vitest.config.ts" ||
+    normalized === "templates/slides/package.json" ||
+    normalized === "packages/core/src/vitest-config.ts"
+  ) {
+    return true;
+  }
+  return (
+    normalized.startsWith("templates/slides/") &&
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized)
+  );
 }
 
 export function isWorkspacePath(path: string): boolean {
@@ -664,6 +683,7 @@ function buildChecks(
     changedPaths.some(isDesignDndRuntimePath) ||
     coreChanged ||
     toolkitChanged ||
+    agentkitChanged ||
     hasPath(changedPaths, "packages/creative-context/");
   const preAuthSessionReplayE2eChanged = changedPaths.some((path) =>
     PRE_AUTH_SESSION_REPLAY_E2E_FILES.has(path),
@@ -718,6 +738,7 @@ function buildChecks(
     pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
     slides_authoring_e2e: slidesE2eChanged,
+    slides_oracle: changedPaths.some(isSlidesOraclePath),
     changeset: changedPaths.some(isChangesetPath),
   };
 }
