@@ -369,7 +369,52 @@ function addDeclarator(
     out.set(id.value, alias);
     return;
   }
+  if (alias !== undefined && id.type === "ObjectPattern") {
+    if (kind !== "const") {
+      throw new Error(
+        `a destructured Vitest function binds with ${kind}; destructure it with const so the citation scan can follow it`,
+      );
+    }
+    bindDestructured(id, alias, out);
+    return;
+  }
   addPlainNames(id, out);
+}
+
+/**
+ * Binds the names an object pattern takes from a Vitest function. Each key is
+ * that function's member, so `const { only } = it` binds `only` to `it.only`. A
+ * rest element or a nested pattern is not followed, so it fails the scan.
+ */
+function bindDestructured(
+  pattern: AstNode,
+  from: VitestName,
+  out: Bindings,
+): void {
+  for (const property of (pattern.properties ?? []) as AstNode[]) {
+    const member =
+      property.type === "AssignmentPatternProperty" ||
+      property.type === "KeyValuePatternProperty"
+        ? staticKey(property.key as AstNode)
+        : undefined;
+    const local =
+      property.type === "AssignmentPatternProperty"
+        ? (property.key as AstNode)
+        : (property.value as AstNode | undefined);
+    if (
+      member === undefined ||
+      local?.type !== "Identifier" ||
+      typeof local.value !== "string"
+    ) {
+      throw new Error(
+        "a Vitest function is destructured into a pattern the citation scan cannot follow; bind each name separately",
+      );
+    }
+    out.set(local.value, {
+      name: from.name,
+      modifiers: [...from.modifiers, member],
+    });
+  }
 }
 
 /**
@@ -488,13 +533,12 @@ function collectExpression(
   if (node.type !== "CallExpression") return;
   const declaration = declarationOf(node, context);
   if (declaration === undefined) return;
-  // A table-driven declaration registers one test per case. A table that is not
-  // a non-empty array literal cannot be shown to register any, so it is not
-  // evidence that a row is covered.
+  // A table-driven declaration registers one test per case. A table whose cases
+  // cannot be shown to be there is not evidence that a row is covered.
   const callee = unchained(node.callee);
   if (
     declaration.modifiers.some((m) => TABLE_FORMS.has(m)) &&
-    !tableHasCases(callee)
+    tableCases(callee) !== "some"
   ) {
     return;
   }
@@ -548,35 +592,60 @@ function collectCallback(
   }
 }
 
+// How many cases a table-driven declaration registers. "unknown" is a table the
+// scan cannot count, which a citation cannot rest on and a focus must still count.
+type TableCases = "none" | "some" | "unknown";
+
 /**
- * True when a table-driven declaration's table can register a case: a non-empty
- * array literal, read through `as const`, or a tagged template with at least
- * one substitution. The table is the argument of the callee call for
- * it.each([...])("title", fn), and the template for it.each`...`("title", fn).
+ * The cases a table registers. The table is the argument of the call that makes
+ * the declaration, `it.each(table)`, or the template of a tagged `it.each`...``.
+ * A tagged template registers one case per row of its header's width, so it
+ * needs at least that many substitutions for one row.
  */
-function tableHasCases(callee: AstNode): boolean {
-  if (callee.type === "TaggedTemplateExpression") {
-    const template = callee.template as AstNode;
-    return (
-      Array.isArray(template.expressions) && template.expressions.length > 0
-    );
+function tableCases(value: unknown): TableCases {
+  const node = unchained(value);
+  if (node.type === "TaggedTemplateExpression") {
+    return templateCases(node.template as AstNode);
   }
-  // A direct call such as it.each("title", fn) has no table to read cases from.
-  if (callee.type !== "CallExpression") return false;
-  let table = argumentsOf(callee)[0]?.expression as AstNode | undefined;
-  // `as const` and similar wrappers do not change the cases in the table.
-  while (table !== undefined && VALUE_WRAPPERS.has(String(table.type))) {
-    table = table.expression as AstNode | undefined;
+  if (node.type !== "CallExpression") return "unknown";
+  const table = unwrapValue(argumentsOf(node)[0]?.expression);
+  if (table?.type !== "ArrayExpression" || !Array.isArray(table.elements)) {
+    return "unknown";
   }
-  // A spread may expand to no cases at all, so only plain entries are counted.
-  return (
-    table?.type === "ArrayExpression" &&
-    Array.isArray(table.elements) &&
-    table.elements.length > 0 &&
-    table.elements.every(
-      (element) => element !== null && !(element as AstNode).spread,
-    )
-  );
+  return arrayCases(table.elements as Array<AstNode | null>);
+}
+
+/** The cases of an array literal. A spread of an empty literal adds none. */
+function arrayCases(elements: Array<AstNode | null>): TableCases {
+  let count = 0;
+  for (const element of elements) {
+    if (element === null) return "unknown";
+    if (element.spread) {
+      const inner = unwrapValue(element.expression);
+      if (
+        inner?.type === "ArrayExpression" &&
+        Array.isArray(inner.elements) &&
+        inner.elements.length === 0
+      ) {
+        continue;
+      }
+      return "unknown";
+    }
+    count += 1;
+  }
+  return count === 0 ? "none" : "some";
+}
+
+/** The cases of a tagged template: one per full row of its header's columns. */
+function templateCases(template: AstNode): TableCases {
+  const quasis = template.quasis as AstNode[] | undefined;
+  const header = quasis?.[0]?.cooked;
+  if (typeof header !== "string") return "unknown";
+  const columns = header.split("|").length;
+  const substitutions = Array.isArray(template.expressions)
+    ? template.expressions.length
+    : 0;
+  return substitutions >= columns ? "some" : "none";
 }
 
 /**
@@ -601,13 +670,14 @@ function containsFocus(value: unknown, context: Context): boolean {
   }
   if (node.type === "CallExpression") {
     const declaration = declarationOf(node, context);
-    // A focus over an empty table registers nothing, so it focuses nothing. The
-    // table is the argument of this call, or of the table call it is made on.
-    const emptyTable =
+    // A focus over a table with no cases registers nothing, so it focuses nothing.
+    // The table is the argument of this call, or of the table call it is made on.
+    // A table that cannot be counted still focuses, since it may register cases.
+    const noCases =
       declaration !== undefined &&
       declaration.modifiers.some((m) => TABLE_FORMS.has(m)) &&
-      (hasEmptyTableArg(node) || hasEmptyTableArg(node.callee));
-    if (declaration?.modifiers.includes("only") && !emptyTable) return true;
+      (tableCases(node) === "none" || tableCases(node.callee) === "none");
+    if (declaration?.modifiers.includes("only") && !noCases) return true;
     // A handler runs after Vitest has decided the file's focus, so a focus inside
     // one changes nothing. The title, table and condition are evaluated while the
     // file is collected, so they are read.
@@ -675,10 +745,17 @@ function optionModes(node: AstNode): string[] {
     const options = unwrapValue(argument.expression);
     if (options?.type !== "ObjectExpression") continue;
     for (const property of (options.properties ?? []) as AstNode[]) {
+      // `{ only }` is shorthand for `{ only: only }`, whose value the scan cannot
+      // read, so it counts as set.
+      if (property.type === "Identifier") {
+        if (OPTION_MODES.has(property.value as string)) {
+          modes.push(property.value as string);
+        }
+        continue;
+      }
       if (property.type !== "KeyValueProperty") continue;
-      const key = property.key as AstNode;
-      const name = key.value;
-      if (typeof name !== "string" || !OPTION_MODES.has(name)) continue;
+      const name = staticKey(property.key as AstNode);
+      if (name === undefined || !OPTION_MODES.has(name)) continue;
       const value = unwrapValue(property.value);
       if (value?.type === "BooleanLiteral" && value.value === false) continue;
       modes.push(name);
@@ -688,18 +765,31 @@ function optionModes(node: AstNode): string[] {
 }
 
 /**
- * Whether a call's first argument is an empty array literal, the table of a
- * table-driven declaration. Vitest registers no test from an empty table.
+ * The static name of a key: `only`, "only", ["only"] or [`only`]. A key the scan
+ * cannot name is undefined, so it is never read as a mode or a member.
  */
-function hasEmptyTableArg(value: unknown): boolean {
-  const call = unchained(value);
-  if (call.type !== "CallExpression") return false;
-  const table = unwrapValue(argumentsOf(call)[0]?.expression);
-  return (
-    table?.type === "ArrayExpression" &&
-    Array.isArray(table.elements) &&
-    table.elements.length === 0
-  );
+function staticKey(key: AstNode | undefined): string | undefined {
+  if (key === undefined) return undefined;
+  if (
+    (key.type === "Identifier" || key.type === "StringLiteral") &&
+    typeof key.value === "string"
+  ) {
+    return key.value;
+  }
+  if (key.type !== "Computed") return undefined;
+  const inner = unwrapValue(key.expression);
+  if (inner?.type === "StringLiteral" && typeof inner.value === "string") {
+    return inner.value;
+  }
+  if (
+    inner?.type === "TemplateLiteral" &&
+    Array.isArray(inner.expressions) &&
+    inner.expressions.length === 0
+  ) {
+    const quasi = (inner.quasis as AstNode[])[0];
+    return typeof quasi?.cooked === "string" ? quasi.cooked : undefined;
+  }
+  return undefined;
 }
 
 /** A function literal passed as a test's handler, which runs after collection. */
@@ -871,22 +961,5 @@ function memberChain(node: unknown): string[] | undefined {
  * the member, so the wrapper is what marks it.
  */
 function memberName(member: AstNode): string | undefined {
-  const property = member.property as AstNode | undefined;
-  if (property?.type === "Computed") {
-    const key = unwrapValue(property.expression);
-    if (key?.type === "StringLiteral" && typeof key.value === "string") {
-      return key.value;
-    }
-    // A template with no substitutions is a static name, as in it[`only`].
-    if (key?.type === "TemplateLiteral" && Array.isArray(key.expressions)) {
-      const quasi = (key.quasis as AstNode[])[0];
-      return key.expressions.length === 0 && typeof quasi?.cooked === "string"
-        ? quasi.cooked
-        : undefined;
-    }
-    return undefined;
-  }
-  return property?.type === "Identifier" && typeof property.value === "string"
-    ? property.value
-    : undefined;
+  return staticKey(member.property as AstNode | undefined);
 }

@@ -724,6 +724,70 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual(["9.42"]);
   });
 
+  it("reads a shorthand option as a mode the scan cannot resolve, so it counts", () => {
+    const source = [
+      `const only = true;`,
+      `it("moves (oracle 9.43)", { only }, () => {});`,
+      `it("snaps (oracle 9.44)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.43"]);
+  });
+
+  it("skips a test whose shorthand option is skip", () => {
+    const source = [
+      `const skip = true;`,
+      `it("moves (oracle 9.45)", { skip }, () => {});`,
+      `it("snaps (oracle 9.46)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.46"]);
+  });
+
+  it("reads a computed option key as the mode it names", () => {
+    const source = [
+      `it("moves (oracle 9.47)", { ["skip"]: true }, () => {});`,
+      `it("snaps (oracle 9.48)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.48"]);
+  });
+
+  it("follows a destructured vitest function, so its focus counts", () => {
+    const source = [
+      `const { only } = it;`,
+      `only("moves (oracle 9.49)", () => {});`,
+      `it("snaps (oracle 9.50)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.49"]);
+  });
+
+  it("refuses a rest pattern over a vitest function, which the scan cannot follow", () => {
+    const source = `const { ...rest } = it;`;
+    expect(() => titleCitations(source, "a.test.ts")).toThrow(/cannot follow/);
+  });
+
+  it("does not count a tagged table with fewer substitutions than its header columns", () => {
+    const source = [
+      'it.each`a | b\n${1}`("moves (oracle 9.51)", () => {});',
+      `it("snaps (oracle 9.52)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.52"]);
+  });
+
+  it("does not focus over a tagged table with fewer substitutions than its header columns", () => {
+    const source = [
+      'it.only.each`a | b\n${1}`("moves (oracle 9.53)", () => {});',
+      `it("snaps (oracle 9.54)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.54"]);
+  });
+
+  it("does not focus over a table spread from an empty array", () => {
+    const source = [
+      `it.only.each([...[]])("moves %s (oracle 9.55)", () => {});`,
+      `it("snaps (oracle 9.56)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.56"]);
+  });
+
   it("counts ordinary tests when a focus sits inside a hook, which runs at test time", () => {
     const source = [
       `beforeEach(() => { it.only("never runs", () => {}); });`,
