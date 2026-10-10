@@ -1001,6 +1001,7 @@ type ChatHeaderTypeMatch<A, B> = [A] extends [B]
     ? true
     : false
   : false;
+// eslint-disable-next-line no-unused-vars -- Enforced by the toolkit package typecheck.
 type ChatHeaderCallbackStatusIsBoolean = ChatHeaderTypeCheck<
   ChatHeaderTypeMatch<
     Parameters<
@@ -1009,6 +1010,7 @@ type ChatHeaderCallbackStatusIsBoolean = ChatHeaderTypeCheck<
     boolean
   >
 >;
+// eslint-disable-next-line no-unused-vars -- Enforced by the toolkit package typecheck.
 type LegacyChatHeaderStatusRemainsOptional = ChatHeaderTypeCheck<
   {} extends Pick<MultiTabAssistantChatHeaderProps, "activeTabIsPersisted">
     ? true
