@@ -132,9 +132,10 @@ export async function enableFeatureFlag(
 
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
 const DESIGN_SCREEN_IFRAME_SELECTOR = `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id]`;
-const E2E_BASE_URL = process.env.E2E_BASE_URL;
+const E2E_BASE_URL =
+  process.env.E2E_BASE_URL ??
+  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
 const E2E_BASE_PATH = (() => {
-  if (!E2E_BASE_URL) return "";
   try {
     return new URL(E2E_BASE_URL).pathname.replace(/\/$/, "");
   } catch {
@@ -144,14 +145,11 @@ const E2E_BASE_PATH = (() => {
 
 export function appPath(path: string): string {
   const route = new URL(path, "http://agent-native.local");
-  if (E2E_BASE_URL && E2E_BASE_PATH) {
-    const url = new URL(E2E_BASE_URL);
-    url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
-    url.search = route.search;
-    url.hash = route.hash;
-    return url.toString();
-  }
-  return `${route.pathname}${route.search}${route.hash}`;
+  const url = new URL(E2E_BASE_URL);
+  url.pathname = `${E2E_BASE_PATH}${route.pathname}`;
+  url.search = route.search;
+  url.hash = route.hash;
+  return url.toString();
 }
 
 function activeScreenTargetFromUrl(page: Page): string | undefined {

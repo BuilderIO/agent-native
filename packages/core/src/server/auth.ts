@@ -4147,6 +4147,13 @@ function createAuthGuardFn(
       return;
     }
     if (
+      p === "/_agent-native/dev/db-migrate" &&
+      resolveDeployEnvironment() !== "production" &&
+      isLoopbackRequest(event)
+    ) {
+      return;
+    }
+    if (
       p === "/_agent-native/ping" ||
       p === "/_agent-native/health" ||
       // The credential self-check is read by an unauthenticated monitor. Without

@@ -17,7 +17,6 @@ import {
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
 import { isLegacyChunkRecoveryRequest } from "../../../core/src/shared/route-chunk-recovery-bootstrap.js";
-import { wrapDocumentResponse } from "../../lib/analytics";
 import {
   applyCommunityAppSsrCacheHeaders,
   applyDocsSsrCacheKeyHeaders,
@@ -71,7 +70,7 @@ export default async function docsPageHandler(event: H3Event) {
     throw createError({ statusCode: 404, statusMessage: "Markdown not found" });
   }
 
-  const response = wrapDocumentResponse(await ssrHandler(event));
+  const response = await ssrHandler(event);
   if (
     acceptsMarkdown(getRequestHeader(event, "accept")) &&
     response.status === 404

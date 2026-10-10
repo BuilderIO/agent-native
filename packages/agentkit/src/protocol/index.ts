@@ -99,23 +99,90 @@ export interface FilePart {
    * The inline bytes were dropped before the part was stored and no durable
    * copy exists, so history still names the file without carrying its body.
    */
-  omitted?: "inline-bytes";
+  omitted?: "inline-bytes" | "unsafe-url";
 }
 
 export function isInlineDataUrl(value: unknown): value is string {
   return typeof value === "string" && /^\s*data:/i.test(value);
 }
 
+function isInlineFileBody(value: string): boolean {
+  const normalized = value.trim();
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  if (/^\s*data:/i.test(normalized)) return true;
+  if (normalized.length < 24 || normalized.length % 4 === 1) return false;
+  return /^[A-Za-z0-9+/_-]+={0,2}$/.test(normalized);
+}
+
+export function isPersistableAttachmentUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !value.trim()) return false;
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" &&
+    Boolean(url.hostname) &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}
+
+/**
+ * SQL may retain provider-issued HTTP references. Consumers that fetch them
+ * must still enforce their own origin policy.
+ */
+export function isPersistableAttachmentReferenceUrl(
+  value: unknown,
+): value is string {
+  if (typeof value !== "string" || !value.trim() || value.length > 8192) {
+    return false;
+  }
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    ["http:", "https:"].includes(url.protocol) &&
+    Boolean(url.hostname) &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}
+
 /** The storable form of a file part: a durable reference, never inline bytes. */
 export function persistableFilePart(part: FilePart): FilePart {
-  if (!isInlineDataUrl(part.url)) return part;
+  const url = isPersistableAttachmentReferenceUrl(part.url)
+    ? part.url
+    : undefined;
+  const inlineFileId =
+    typeof part.fileId === "string" && isInlineFileBody(part.fileId);
+  const fileId =
+    typeof part.fileId === "string" && part.fileId.trim() && !inlineFileId
+      ? part.fileId
+      : undefined;
   return {
     type: "file",
     name: part.name,
     ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-    ...(part.fileId
-      ? { fileId: part.fileId }
-      : { omitted: "inline-bytes" as const }),
+    ...(url ? { url } : {}),
+    ...(fileId ? { fileId } : {}),
+    ...(!url && !fileId && part.omitted
+      ? { omitted: part.omitted }
+      : !url && !fileId && (part.url || inlineFileId)
+        ? {
+            omitted:
+              isInlineDataUrl(part.url) || inlineFileId
+                ? ("inline-bytes" as const)
+                : ("unsafe-url" as const),
+          }
+        : {}),
   };
 }
 
