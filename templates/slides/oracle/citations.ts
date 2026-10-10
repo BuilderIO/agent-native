@@ -32,7 +32,6 @@ type AstNode = Record<string, unknown>;
 type Registration = {
   base: string;
   title: string | undefined;
-  hasOnly: boolean;
   skipped: boolean;
   focused: boolean;
 };
@@ -57,8 +56,10 @@ export function titleCitations(source: string, fileName: string): string[] {
     { skipped: false, focused: false },
     registrations,
   );
-  // Vitest runs only the focused tests of a file that has a focused one.
-  const fileFocused = registrations.some((r) => r.hasOnly);
+  // Vitest runs only the focused tests of a file that has a focused one. A
+  // focused declaration in unreachable code still changes the file's run, so
+  // the whole file counts as focused and only reachable focused tests cite.
+  const fileFocused = containsFocus(ast.body);
   const ids: string[] = [];
   for (const registration of registrations) {
     const runs =
@@ -113,18 +114,16 @@ function collectExpression(
   out.push({
     base: declaration.base,
     title: titleText(firstArgument(node)),
-    hasOnly,
     skipped,
     focused,
   });
-  // A suite's callback runs its own statements, and only they are read.
+  // Only a suite's callback registers tests. A test body does not, so a test
+  // declared inside another test is never run and is not read.
+  if (declaration.base !== "describe") return;
   for (const argument of argumentsOf(node)) {
     collectCallback(
       argument.expression as AstNode | undefined,
-      {
-        skipped,
-        focused,
-      },
+      { skipped, focused },
       out,
     );
   }
@@ -162,11 +161,27 @@ function tableHasCases(callee: AstNode): boolean {
   while (table !== undefined && TABLE_WRAPPERS.has(String(table.type))) {
     table = table.expression as AstNode | undefined;
   }
+  // A spread may expand to no cases at all, so only plain entries are counted.
   return (
     table?.type === "ArrayExpression" &&
     Array.isArray(table.elements) &&
-    table.elements.length > 0
+    table.elements.length > 0 &&
+    table.elements.every(
+      (element) => element !== null && !(element as AstNode).spread,
+    )
   );
+}
+
+/** Whether any focused declaration appears anywhere in the file, reachable or not. */
+function containsFocus(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsFocus);
+  if (typeof value !== "object" || value === null) return false;
+  const node = value as AstNode;
+  if (node.type === "CallExpression") {
+    const declaration = testDeclaration(node.callee);
+    if (declaration?.modifiers.includes("only")) return true;
+  }
+  return Object.values(node).some(containsFocus);
 }
 
 function argumentsOf(call: AstNode): AstNode[] {

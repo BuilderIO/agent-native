@@ -247,4 +247,32 @@ describe("titleCitations counts only test titles", () => {
       ),
     ).toEqual(["1.9"]);
   });
+
+  it("ignores a table whose spread may expand to no cases", () => {
+    expect(
+      titleCitations(
+        `it.each([...[]])("moves %s (oracle 1.1)", () => {});`,
+        "a.test.ts",
+      ),
+    ).toEqual([]);
+  });
+
+  it("ignores a test nested inside another test, which Vitest does not register", () => {
+    const source = [
+      `it("outer", () => {`,
+      `  it("moves (oracle 1.2)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("ignores ordinary tests when a focused test is declared anywhere, even unreachably", () => {
+    const source = [
+      `if (false) {`,
+      `  it.only("never runs (oracle 1.3)", () => {});`,
+      `}`,
+      `it("snaps (oracle 1.4)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
 });
