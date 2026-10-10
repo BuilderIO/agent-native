@@ -183,6 +183,12 @@ const navigationAbortErrors = ["NS_BINDING_ABORTED", "net::ERR_ABORTED"];
 // Browser-session requests abort after at least ten seconds; leave timer slack.
 const reloadNavigationAbortMaxRequestAgeMs = 9_000;
 
+const browserSessionRegistrationRequestRule: SaveReloadRequestAbortRule = {
+  path: "/_agent-native/browser-sessions",
+  method: "POST",
+  errorTexts: ["Load request cancelled", "cancelled", ...navigationAbortErrors],
+};
+
 const browserSessionClaimRequestRule: SaveReloadRequestAbortRule = {
   path: /^\/_agent-native\/browser-sessions\/[^/]+\/requests\/claim$/,
   method: "POST",
@@ -198,15 +204,7 @@ const saveReloadRequestAbortRules: readonly SaveReloadRequestAbortRule[] = [
     path: "/_agent-native/actions/get-deck-access-status",
     errorTexts: navigationAbortErrors,
   },
-  {
-    path: "/_agent-native/browser-sessions",
-    method: "POST",
-    errorTexts: [
-      "Load request cancelled",
-      "cancelled",
-      ...navigationAbortErrors,
-    ],
-  },
+  browserSessionRegistrationRequestRule,
   browserSessionClaimRequestRule,
 ];
 
@@ -288,19 +286,24 @@ export function isExpectedWatchedRequestCorsError(
   );
 }
 
-export function isExpectedSaveReloadBrowserSessionPollConsoleError(
+export function isExpectedSaveReloadBrowserSessionConsoleError(
   message: string,
   activePhase: string,
   candidates: WatchedRequestNavigationCandidate[],
 ) {
-  return (
+  const rules =
     message ===
-      "[Agent-Native browser session] poll failed: TypeError: Load failed" &&
+    "[Agent-Native browser session] poll failed: TypeError: Load failed"
+      ? [browserSessionClaimRequestRule]
+      : message ===
+          "[Agent-Native browser session] heartbeat failed: TypeError: Load failed"
+        ? [browserSessionRegistrationRequestRule]
+        : null;
+  return (
     activePhase === "save/reload" &&
+    rules !== null &&
     candidates.some((candidate) =>
-      isExpectedWatchedRequestNavigationAbort(candidate, [
-        browserSessionClaimRequestRule,
-      ]),
+      isExpectedWatchedRequestNavigationAbort(candidate, rules),
     )
   );
 }
@@ -964,6 +967,7 @@ export async function runAuthoringFuzz(
   >();
   const watchedRequests = new Map(options.initialPendingWatchedRequests);
   const reloadNavigationRequests = new Map<any, number>();
+  let reloadNavigationStartedAt: number | null = null;
   const pendingSaveConflicts: Promise<void>[] = [];
   const conflictResponsePaths: string[] = [];
   const patchDeckActionPath = "/_agent-native/actions/patch-deck";
@@ -1000,7 +1004,7 @@ export async function runAuthoringFuzz(
       requestWasPendingAtNavigation: true,
     }));
     if (
-      isExpectedSaveReloadBrowserSessionPollConsoleError(
+      isExpectedSaveReloadBrowserSessionConsoleError(
         message.text(),
         activePhase,
         reloadNavigationCandidates,
@@ -1074,6 +1078,16 @@ export async function runAuthoringFuzz(
       isBrowserSessionPath(requestUrl.pathname)
     ) {
       watchedRequests.set(request, startedAt);
+    }
+    if (
+      activePhase === "save/reload" &&
+      reloadNavigationStartedAt !== null &&
+      startedAt >= reloadNavigationStartedAt &&
+      startedAt - reloadNavigationStartedAt <
+        reloadNavigationAbortMaxRequestAgeMs &&
+      isBrowserSessionPath(requestUrl.pathname)
+    ) {
+      reloadNavigationRequests.set(request, startedAt);
     }
     if (!traceEnabled) return;
     pendingRequests.set(request, {
@@ -4799,6 +4813,7 @@ export async function runAuthoringFuzz(
 
     activePhase = "save/reload";
     const persistence = await options.finishAndReload(() => {
+      reloadNavigationStartedAt = Date.now();
       for (const [request, startedAt] of watchedRequests.entries()) {
         reloadNavigationRequests.set(request, startedAt);
         if (traceEnabled) {
