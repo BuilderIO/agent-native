@@ -190,6 +190,9 @@ function addPatternNames(pattern: unknown, out: Set<string>): void {
     addPatternNames(node.argument, out);
   } else if (node.type === "ArrayPattern" && Array.isArray(node.elements)) {
     for (const element of node.elements) addPatternNames(element, out);
+  } else if (node.type === "AssignmentPatternProperty") {
+    // A shorthand { it } or defaulted { it = 1 } binds its key.
+    addPatternNames(node.key, out);
   } else if (node.type === "ObjectPattern" && Array.isArray(node.properties)) {
     for (const property of node.properties as AstNode[]) {
       if (property.type === "KeyValuePatternProperty") {
@@ -469,14 +472,16 @@ function resolveFunction(
   imports: ImportContext,
 ): { name: string; modifiers: string[] } | undefined {
   const [head, ...rest] = chain;
+  // A name the file declares itself shadows an import of the same name in the
+  // scope that declares it. Reading that as a Vitest call would be a false
+  // registration, so any such name counts as no Vitest function at all.
+  if (imports.shadowed.has(head)) return undefined;
   if (imports.namespaces.has(head)) {
     const [member, ...modifiers] = rest;
     return member === undefined ? undefined : { name: member, modifiers };
   }
   const imported = imports.functions.get(head);
   if (imported !== undefined) return { name: imported, modifiers: rest };
-  // The name is Vitest's global only when nothing in this file shadows it.
-  if (imports.shadowed.has(head)) return undefined;
   return { name: head, modifiers: rest };
 }
 

@@ -453,4 +453,24 @@ describe("titleCitations counts only test titles", () => {
     ].join("\n");
     expect(titleCitations(source, "a.test.ts")).toEqual(["6.4"]);
   });
+
+  it("ignores a test through a shorthand destructured name that shadows the global", () => {
+    const source = [
+      `const ctx = { it: (name: string, fn: () => void) => fn };`,
+      `const { it } = ctx;`,
+      `it("moves (oracle 7.1)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("ignores a call through a nested binding that shadows an imported vitest function", () => {
+    const source = [
+      `import { it } from "vitest";`,
+      `describe("group", () => {`,
+      `  const it = (name: string) => name;`,
+      `  it("moves (oracle 7.2)");`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
 });
