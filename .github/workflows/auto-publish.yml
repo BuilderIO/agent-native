@@ -236,7 +236,7 @@ jobs:
 
       # Node 24 ships with npm 11.6+, which is required for Trusted Publishing
       # OIDC. Node 22's npm cannot complete the nightly publish handshake.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: pnpm
@@ -332,7 +332,7 @@ jobs:
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       # Node 24 ships with npm 11.6+, required for Trusted Publishing OIDC.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: pnpm
@@ -415,7 +415,7 @@ jobs:
       # (`npm install -g npm@latest`) is broken on the current runner image
       # (actions/runner-images#13883), so we just use a Node version that
       # already has the right npm baked in.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: "pnpm"
