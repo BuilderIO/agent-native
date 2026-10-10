@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { titleCitations } from "./citations";
-import { loadOracleRows } from "./load";
+import { measuredInventory } from "./inventory";
+import { loadOracleRows, readOracleFile } from "./load";
 
 const SLIDES_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const BASELINE_PATH = fileURLToPath(
@@ -25,6 +26,9 @@ const EXCLUDED_DIRS = new Set([
 
 const BaselineSchema = z.strictObject({
   schemaVersion: z.literal(1),
+  // The measured file's inventory, so removing or relabeling a row is a diff.
+  measuredIds: z.array(z.string()),
+  unmeasuredIds: z.array(z.string()),
   uncitedMeasured: z.array(z.string()),
   unknownNegativeInput: z.array(z.string()),
 });
@@ -73,7 +77,7 @@ function driftMessage(
     `interaction-oracle.baseline.json ${field} is out of date.`,
     `  added (computed now, missing from the baseline): ${JSON.stringify(added)}`,
     `  removed (in the baseline, no longer computed): ${JSON.stringify(removed)}`,
-    `  To update: cite each added row from a test title or check label ("oracle <id>"),`,
+    `  To update: cite each added row from a test title ("oracle <id>"),`,
     `  or replace ${field} in interaction-oracle.baseline.json with exactly: ${JSON.stringify(computedIds)}`,
   ].join("\n");
 }
@@ -94,6 +98,21 @@ describe("interaction oracle traceability", () => {
       .filter((row) => row.claim === "negative" && row.inputPath === "unknown")
       .map((row) => row.id),
   );
+
+  it("keeps the measured inventory equal to the baseline", () => {
+    const inventory = measuredInventory(
+      readOracleFile("interaction-oracle.json").rows,
+    );
+    const baseline = readBaseline();
+    expect(
+      inventory.measuredIds,
+      "measured rows were added or removed; update measuredIds in interaction-oracle.baseline.json",
+    ).toEqual(baseline.measuredIds);
+    expect(
+      inventory.unmeasuredIds,
+      "a measured row changed to gap, or back; update unmeasuredIds in interaction-oracle.baseline.json",
+    ).toEqual(baseline.unmeasuredIds);
+  });
 
   it("cites only rows that exist in the oracle", () => {
     const dangling = [...cited.keys()].filter((id) => !rowIds.has(id));

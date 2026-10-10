@@ -413,4 +413,14 @@ describe("titleCitations counts only test titles", () => {
     ].join("\n");
     expect(titleCitations(source, "a.test.ts")).toEqual(["3.5"]);
   });
+
+  it("keeps reading after a return inside a class method", () => {
+    const source = [
+      `describe("group", () => {`,
+      `  class Helper { value() { return 1; } }`,
+      `  it("moves (oracle 4.1)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["4.1"]);
+  });
 });

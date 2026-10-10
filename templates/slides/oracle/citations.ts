@@ -43,11 +43,17 @@ const LOOPS = new Set([
   "DoWhileStatement",
   "SwitchStatement",
 ]);
-// A return inside a nested function leaves that function, not the scope.
+// A return inside a nested function or method leaves that function, not the scope.
 const FUNCTION_NODES = new Set([
   "ArrowFunctionExpression",
   "FunctionExpression",
   "FunctionDeclaration",
+  "ClassMethod",
+  "PrivateMethod",
+  "ObjectMethod",
+  "Constructor",
+  "GetterProperty",
+  "SetterProperty",
 ]);
 
 type AstNode = Record<string, unknown>;
