@@ -39,7 +39,7 @@ export const JOURNEY_FILENAME_PREFIX = "journey-";
 export const REPLAY_SCREENSHOT_ROUTE = "/api/design-board-replay-screenshots/";
 export const JOURNEY_STAGED_REPLAY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 
-export const MAX_JOURNEY_NODES = 1000;
+export const MAX_JOURNEY_NODES = 2000;
 export const MAX_JOURNEY_FRAMES = 900;
 export const MAX_EXAMPLES_PER_NODE = 6;
 const MAX_RECORDING_GAP_MS = 30 * 24 * 60 * 60 * 1_000;

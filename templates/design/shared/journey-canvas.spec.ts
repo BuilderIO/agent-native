@@ -239,12 +239,12 @@ function problems(raw: unknown): string[] {
 }
 
 describe("create-journey-canvas input", () => {
-  it("plans up to 1,000 journey nodes and rejects larger trees", () => {
-    const root = node("root", null, 1000);
+  it("plans up to 2,000 journey nodes and rejects larger trees", () => {
+    const root = node("root", null, 1000, { examples: [] });
     const nodes = [
       root,
-      ...Array.from({ length: 999 }, (_, index) =>
-        node(`root > branch-${index}`, "root", 1),
+      ...Array.from({ length: 1999 }, (_, index) =>
+        node(`root > branch-${index}`, "root", 1, { examples: [] }),
       ),
     ];
     const raw = rawInput({
@@ -253,12 +253,12 @@ describe("create-journey-canvas input", () => {
       tree: { ...rawInput().tree, nodes },
     });
 
-    expect(planJourneyCanvas(parse(raw), "design-1").nodeCount).toBe(1000);
+    expect(planJourneyCanvas(parse(raw), "design-1").nodeCount).toBe(2000);
     const oversized = createJourneyCanvasInputSchema.safeParse({
       ...raw,
       tree: {
         ...raw.tree,
-        nodes: [...nodes, node("root > overflow", "root", 1)],
+        nodes: [...nodes, node("root > overflow", "root", 1, { examples: [] })],
       },
     });
     expect(oversized.success).toBe(false);
