@@ -1466,8 +1466,10 @@ function semanticModelEntries(
     );
     const primaryEntityKey =
       safeIdentifier(primary?.expr ?? primary?.name ?? "") ?? undefined;
+    const primaryEntityName =
+      safeIdentifier(primary?.name ?? "") ?? primaryEntityKey;
     const primaryEntity =
-      safeIdentifier(item.values.primary_entity ?? "") ?? primaryEntityKey;
+      safeIdentifier(item.values.primary_entity ?? "") ?? primaryEntityName;
     const timeDimension =
       safeIdentifier(item.nested["defaults.agg_time_dimension"] ?? "") ??
       (item.children.get("dimensions") ?? [])

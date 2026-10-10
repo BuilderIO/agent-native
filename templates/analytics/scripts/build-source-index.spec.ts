@@ -147,6 +147,46 @@ describe("compileSourceIndex", () => {
     );
   });
 
+  it("uses the primary entity name when primary_entity is omitted", async () => {
+    const root = await temporaryDirectory();
+    const dbtRoot = path.join(root, "dbt");
+    await mkdir(path.join(dbtRoot, "models"), { recursive: true });
+    await writeFile(
+      path.join(dbtRoot, "models", "semantic.yml"),
+      [
+        "version: 2",
+        "semantic_models:",
+        "  - name: workspaces",
+        "    model: ref('dim_workspaces')",
+        "    entities:",
+        "      - name: workspace",
+        "        type: primary",
+        "        expr: workspace_id",
+      ].join("\n"),
+    );
+    await writeFile(
+      path.join(dbtRoot, "models", "dim_workspaces.sql"),
+      "select 1 as workspace_id",
+    );
+
+    const bundle = await compileSourceIndex({
+      dbtRoots: [dbtRoot],
+      generatedAt: "2026-10-09T12:00:00.000Z",
+    });
+    const semanticModel = bundle.entries.find(
+      (entry) => entry.entryType === "semantic_model",
+    );
+
+    expect(semanticModel).toMatchObject({
+      primaryEntity: "workspace",
+      grain: "Primary entity: workspace_id",
+    });
+    expect(semanticModel?.definition).toContain("Primary entity: workspace");
+    expect(semanticModel?.definition).toContain(
+      "Primary entity expression: workspace_id",
+    );
+  });
+
   it("indexes a top-level primary entity without inferring row grain from it", async () => {
     const root = await temporaryDirectory();
     const dbtRoot = path.join(root, "dbt");
