@@ -16,11 +16,8 @@ import {
 } from "../shared/api.js";
 import {
   builderExecutionPayloadReference,
-  builderSourceSnapshotReference,
-  BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
   cleanupBuilderPrivatePayload,
   deleteBuilderPrivatePayload,
-  putBuilderPrivatePayload,
   readBuilderExecutionPayload,
   storeBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
@@ -36,14 +33,7 @@ import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
-  BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY,
-  BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY,
-  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
-  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
-  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
-  BUILDER_CMS_WRITE_VERSION_KEY,
   builderCmsQualifiedId,
-  normalizeBuilderCmsApiEntry,
 } from "./_builder-cms-source-adapter.js";
 import type {
   BuilderCmsExecutionPayload,
@@ -222,28 +212,6 @@ function successfulStoredWriteResult(
       ? response.body
       : null,
     error: typeof response.error === "string" ? response.error : undefined,
-    committed: response.committed === true ? true : undefined,
-    content: recordValue(response.content) ?? undefined,
-    editableContent: recordValue(response.editableContent) ?? undefined,
-    autosaveIds: Array.isArray(response.autosaveIds)
-      ? response.autosaveIds.filter(
-          (id): id is string => typeof id === "string",
-        )
-      : undefined,
-    writeSnapshot:
-      response.writeSnapshot === null
-        ? null
-        : (recordValue(response.writeSnapshot) ?? undefined),
-    superseded:
-      typeof response.superseded === "boolean"
-        ? response.superseded
-        : undefined,
-    readback:
-      response.readback === "matched" ||
-      response.readback === "changed" ||
-      response.readback === "unavailable"
-        ? response.readback
-        : undefined,
   };
 }
 
@@ -316,13 +284,6 @@ function executionResponsePayload(args: {
       entryId: args.writeResult.entryId,
       body: args.writeResult.responseBody,
       error: args.writeResult.error,
-      committed: args.writeResult.committed,
-      content: args.writeResult.content,
-      editableContent: args.writeResult.editableContent,
-      autosaveIds: args.writeResult.autosaveIds,
-      writeSnapshot: args.writeResult.writeSnapshot,
-      superseded: args.writeResult.superseded,
-      readback: args.writeResult.readback,
     },
   };
 }
@@ -343,22 +304,6 @@ function createDraftIntent(request: BuilderCmsExecutionPayload["request"]) {
     ),
   );
   return { marker, exactTitle, intendedFields };
-}
-
-function guardedWriteNeedsReconciliation(args: {
-  plan: BuilderCmsExecutionPlan;
-  writeResult: BuilderCmsWriteResult;
-}) {
-  const guarded = Object.prototype.hasOwnProperty.call(
-    args.plan.payload.request.body,
-    "__write",
-  );
-  return (
-    guarded &&
-    (args.writeResult.writeSnapshot === null ||
-      args.writeResult.writeSnapshot === undefined ||
-      args.writeResult.superseded === true)
-  );
 }
 
 function recoveredWriteResult(
@@ -444,16 +389,11 @@ function parseSourceValues(
   }
 }
 
-export async function builderCmsReconciledSourceValuesJson(args: {
+export function builderCmsReconciledSourceValuesJson(args: {
   existingSourceValuesJson: string | null | undefined;
   snapshotSourceValues: Record<string, DocumentPropertyValue> | undefined;
-  ownerEmail: string;
-  sourceId: string;
-  sourceRowId: string;
-  sourceModel: string;
   changeSet: ContentDatabaseSourceChangeSet;
   plan: BuilderCmsExecutionPlan;
-  writeResult?: BuilderCmsWriteResult;
 }) {
   const next = {
     ...(args.snapshotSourceValues ?? {}),
@@ -497,49 +437,6 @@ export async function builderCmsReconciledSourceValuesJson(args: {
         ).id as string;
       }
     }
-  }
-  const snapshot = recordValue(args.writeResult?.writeSnapshot);
-  if (
-    snapshot &&
-    typeof snapshot.version === "string" &&
-    snapshot.version.trim() &&
-    args.writeResult?.content &&
-    args.writeResult.editableContent &&
-    typeof snapshot.hasPendingAutosave === "boolean"
-  ) {
-    next[BUILDER_CMS_WRITE_VERSION_KEY] = snapshot.version.trim();
-    next[BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY] = await putBuilderPrivatePayload({
-      label: "Builder acknowledged write snapshot",
-      ownerEmail: args.ownerEmail,
-      binding: {
-        ownerEmail: args.ownerEmail,
-        sourceId: args.sourceId,
-        sourceRowId: args.sourceRowId,
-        sourceTable: args.sourceModel,
-        writeVersion: snapshot.version.trim(),
-      },
-      payload: {
-        canonical: args.writeResult.content,
-        editable: args.writeResult.editableContent,
-      },
-    });
-    delete next[BUILDER_CMS_WRITE_CANONICAL_JSON_KEY];
-    delete next[BUILDER_CMS_WRITE_EDITABLE_JSON_KEY];
-    next[BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY] =
-      typeof snapshot.autosaveId === "string" ? snapshot.autosaveId : null;
-    next[BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY] =
-      typeof snapshot.autosaveCreatedDate === "number"
-        ? snapshot.autosaveCreatedDate
-        : null;
-    next[BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY] =
-      snapshot.hasPendingAutosave;
-  }
-  const acknowledgedEditable = normalizeBuilderCmsApiEntry(
-    args.writeResult?.editableContent,
-    args.sourceModel,
-  );
-  if (acknowledgedEditable) {
-    Object.assign(next, acknowledgedEditable.sourceValues);
   }
   return JSON.stringify(next);
 }
@@ -609,6 +506,14 @@ function livePreflightBlockMessage(args: {
 }) {
   if (!args.liveState.exists) {
     return "Builder entry no longer exists; refresh the source.";
+  }
+  // Two missing timestamps compare equal, so an absent value must block
+  // rather than read as "unchanged".
+  if (!args.baselineLastUpdated?.trim()) {
+    return "This change has no reviewed Builder update time; refresh and re-review.";
+  }
+  if (toEpochMs(args.liveState.lastUpdated) === null) {
+    return "Builder did not report when this entry last changed; refresh and re-review.";
   }
   if (
     liveTimestampsDiffer({
@@ -694,171 +599,85 @@ async function reconcileBuilderCmsWrite(args: {
   }
 
   const db = getDb();
-  let previousSnapshotReference: string | null = null;
-  let nextSnapshotReference: string | null = null;
-  let attemptedSourceValuesJson: string | null = null;
-  let committedSnapshotReference = false;
-  try {
-    await db.transaction(async (tx) => {
-      if (args.changeSet.databaseItemId) {
-        await lockDatabaseMemberships(tx, [args.changeSet.databaseItemId]);
-      }
-      const existingRow =
-        args.changeSet.documentId || args.changeSet.databaseItemId
-          ? await tx
-              .select()
-              .from(schema.contentDatabaseSourceRows)
-              .where(
-                and(
-                  eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
-                  args.changeSet.documentId
-                    ? eq(
-                        schema.contentDatabaseSourceRows.documentId,
-                        args.changeSet.documentId,
-                      )
-                    : eq(
-                        schema.contentDatabaseSourceRows.databaseItemId,
-                        args.changeSet.databaseItemId as string,
-                      ),
-                ),
-              )
-              .limit(1)
-          : [];
+  await db.transaction(async (tx) => {
+    if (args.changeSet.databaseItemId) {
+      await lockDatabaseMemberships(tx, [args.changeSet.databaseItemId]);
+    }
+    const existingRow =
+      args.changeSet.documentId || args.changeSet.databaseItemId
+        ? await tx
+            .select()
+            .from(schema.contentDatabaseSourceRows)
+            .where(
+              and(
+                eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+                args.changeSet.documentId
+                  ? eq(
+                      schema.contentDatabaseSourceRows.documentId,
+                      args.changeSet.documentId,
+                    )
+                  : eq(
+                      schema.contentDatabaseSourceRows.databaseItemId,
+                      args.changeSet.databaseItemId as string,
+                    ),
+              ),
+            )
+            .limit(1)
+        : [];
 
-      const [row] = existingRow;
-      previousSnapshotReference = row
-        ? builderSourceSnapshotReference(row.sourceValuesJson)
-        : null;
-      const snapshotRow = sourceRowForChangeSet(args.source, args.changeSet);
-      const sourceValuesJson = await builderCmsReconciledSourceValuesJson({
-        existingSourceValuesJson: row?.sourceValuesJson,
-        snapshotSourceValues: snapshotRow?.sourceValues,
+    const [row] = existingRow;
+    const snapshotRow = sourceRowForChangeSet(args.source, args.changeSet);
+    const sourceValuesJson = builderCmsReconciledSourceValuesJson({
+      existingSourceValuesJson: row?.sourceValuesJson,
+      snapshotSourceValues: snapshotRow?.sourceValues,
+      changeSet: args.changeSet,
+      plan: args.plan,
+    });
+    const patchWithValues = {
+      ...patch,
+      sourceValuesJson,
+    };
+    if (row) {
+      await tx
+        .update(schema.contentDatabaseSourceRows)
+        .set(patchWithValues)
+        .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+    } else if (args.changeSet.documentId && args.changeSet.databaseItemId) {
+      await tx.insert(schema.contentDatabaseSourceRows).values({
+        id: crypto.randomUUID(),
         ownerEmail: args.database.ownerEmail,
         sourceId: args.source.id,
-        sourceRowId: patch.sourceRowId,
-        sourceModel: args.source.sourceTable,
-        changeSet: args.changeSet,
-        plan: args.plan,
-        writeResult: args.writeResult,
+        databaseItemId: args.changeSet.databaseItemId,
+        documentId: args.changeSet.documentId,
+        createdAt: args.now,
+        ...patchWithValues,
       });
-      attemptedSourceValuesJson = sourceValuesJson;
-      const patchWithValues = {
-        ...patch,
-        sourceValuesJson,
-      };
-      nextSnapshotReference = builderSourceSnapshotReference(sourceValuesJson);
-      if (row) {
-        const result = await tx
-          .update(schema.contentDatabaseSourceRows)
-          .set(patchWithValues)
-          .where(
-            and(
-              eq(schema.contentDatabaseSourceRows.id, row.id),
-              eq(
-                schema.contentDatabaseSourceRows.sourceValuesJson,
-                row.sourceValuesJson,
-              ),
-            ),
-          );
-        if (builderExecutionAffectedRows(result) === 0) {
-          fail(
-            "Builder write succeeded, but the local source snapshot changed during reconciliation.",
-            { errorCode: "builder_reconciliation_conflict", statusCode: 409 },
-          );
-        }
-      } else if (args.changeSet.documentId && args.changeSet.databaseItemId) {
-        await tx.insert(schema.contentDatabaseSourceRows).values({
-          id: crypto.randomUUID(),
-          ownerEmail: args.database.ownerEmail,
-          sourceId: args.source.id,
-          databaseItemId: args.changeSet.databaseItemId,
-          documentId: args.changeSet.documentId,
-          createdAt: args.now,
-          ...patchWithValues,
-        });
-      } else {
-        fail("Builder write succeeded, but the local source row was missing.", {
-          errorCode: "builder_reconciliation_conflict",
-          statusCode: 409,
-        });
-      }
-      committedSnapshotReference = true;
-
-      await tx
-        .update(schema.contentDatabaseSourceFields)
-        .set({
-          freshness: "fresh",
-          lastSyncedAt: args.now,
-          updatedAt: args.now,
-        })
-        .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
-      await tx
-        .update(schema.contentDatabaseSources)
-        .set({
-          syncState: "idle",
-          freshness: "fresh",
-          lastRefreshedAt: args.now,
-          lastSourceUpdatedAt: patch.lastSourceUpdatedAt,
-          lastError: null,
-          updatedAt: args.now,
-        })
-        .where(eq(schema.contentDatabaseSources.id, args.source.id));
-    });
-  } catch (error) {
-    let currentSourceValuesJson: string | null | undefined;
-    try {
-      const [current] = await db
-        .select({
-          sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-        })
-        .from(schema.contentDatabaseSourceRows)
-        .where(
-          and(
-            eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
-            args.changeSet.documentId
-              ? eq(
-                  schema.contentDatabaseSourceRows.documentId,
-                  args.changeSet.documentId,
-                )
-              : eq(
-                  schema.contentDatabaseSourceRows.databaseItemId,
-                  args.changeSet.databaseItemId as string,
-                ),
-          ),
-        )
-        .limit(1);
-      currentSourceValuesJson = current?.sourceValuesJson;
-    } catch {
-      // Inconclusive readback retains both refs.
-    }
-    if (
-      attemptedSourceValuesJson !== null &&
-      currentSourceValuesJson === attemptedSourceValuesJson
-    ) {
-      committedSnapshotReference = true;
     } else {
-      if (
-        currentSourceValuesJson !== undefined &&
-        nextSnapshotReference &&
-        nextSnapshotReference !== previousSnapshotReference
-      ) {
-        await deleteBuilderPrivatePayload(nextSnapshotReference).catch(
-          () => undefined,
-        );
-      }
-      throw error;
+      throw new Error(
+        "Builder write succeeded, but the local source row was missing.",
+      );
     }
-  }
-  if (
-    committedSnapshotReference &&
-    previousSnapshotReference &&
-    previousSnapshotReference !== nextSnapshotReference
-  ) {
-    await cleanupBuilderPrivatePayload(
-      previousSnapshotReference,
-      "superseded acknowledged source snapshot",
-    );
-  }
+
+    await tx
+      .update(schema.contentDatabaseSourceFields)
+      .set({
+        freshness: "fresh",
+        lastSyncedAt: args.now,
+        updatedAt: args.now,
+      })
+      .where(eq(schema.contentDatabaseSourceFields.sourceId, args.source.id));
+    await tx
+      .update(schema.contentDatabaseSources)
+      .set({
+        syncState: "idle",
+        freshness: "fresh",
+        lastRefreshedAt: args.now,
+        lastSourceUpdatedAt: patch.lastSourceUpdatedAt,
+        lastError: null,
+        updatedAt: args.now,
+      })
+      .where(eq(schema.contentDatabaseSources.id, args.source.id));
+  });
 }
 
 export function realExecutionDeps(
@@ -1648,24 +1467,6 @@ export async function executeBuilderSourceExecutionWithDeps(
         payload: validatedPayload,
         writeResult: storedWriteResult,
       });
-      if (
-        guardedWriteNeedsReconciliation({
-          plan,
-          writeResult: storedWriteResult,
-        })
-      ) {
-        const lastError =
-          "Builder committed the write, but no current guarded base was acknowledged. Refresh and reconcile before another write.";
-        await deps.markExecutionFailed({
-          executionId: execution.id,
-          state: "reconciliation_required",
-          summary: `Builder ${plan.pushMode} execution requires reconciliation.`,
-          payload: payloadWithResponse,
-          lastError,
-          now: deps.now(),
-        });
-        throw builderExecutionConflict(lastError);
-      }
       const reconciledAt = deps.now();
       try {
         await deps.reconcileWrite({
@@ -1706,65 +1507,20 @@ export async function executeBuilderSourceExecutionWithDeps(
       return result;
     }
 
-    if (requiresLivePreflight(plan.payload.effect)) {
-      const entryId = plan.payload.target.entryId;
-      if (!entryId) {
-        const message = "Builder entry no longer exists; refresh the source.";
-        await deps.updateExecutionState({
-          executionId: execution.id,
-          state: "blocked",
-          summary: `${plan.summary} Execution blocked before write.`,
-          payload: validatedPayload,
-          lastError: message,
-          now,
-        });
-        throw new Error(message);
-      }
-
-      const liveState = await deps.readLiveEntry({
-        model: plan.payload.target.model,
-        entryId,
-        expectedSourceSpace: source.metadata.builderSpacePublicKey,
-        expectedSourceConnectionId: source.metadata.connectionId,
-      });
-      const targetRow = sourceRowForChangeSet(source, changeSet);
-      console.info("builder_source_live_preflight", {
+    const preflightEntryId = requiresLivePreflight(plan.payload.effect)
+      ? plan.payload.target.entryId
+      : null;
+    if (requiresLivePreflight(plan.payload.effect) && !preflightEntryId) {
+      const message = "Builder entry no longer exists; refresh the source.";
+      await deps.updateExecutionState({
         executionId: execution.id,
-        changeSetId: changeSet.id,
-        targetEntryId: entryId,
-        baselineLastUpdated: targetRow?.lastSourceUpdatedAt ?? null,
-        liveLastUpdated: liveState.lastUpdated,
-        baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
-        liveBlocksHash: liveState.blocksHash,
-        livePublished: liveState.published,
+        state: "blocked",
+        summary: `${plan.summary} Execution blocked before write.`,
+        payload: validatedPayload,
+        lastError: message,
+        now,
       });
-      const message = livePreflightBlockMessage({
-        liveState,
-        baselineLastUpdated: targetRow?.lastSourceUpdatedAt ?? null,
-        baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
-        effect: plan.payload.effect,
-      });
-      if (message) {
-        await deps.updateExecutionState({
-          executionId: execution.id,
-          state: "blocked",
-          summary: `${plan.summary} Execution blocked before write.`,
-          payload: {
-            ...validatedPayload,
-            livePreflight: {
-              checkedAt: now,
-              exists: liveState.exists,
-              published: liveState.published,
-              lastUpdated: liveState.lastUpdated,
-              blocksHash: liveState.blocksHash,
-              id: liveState.id,
-            },
-          },
-          lastError: message,
-          now,
-        });
-        throw new Error(message);
-      }
+      throw new Error(message);
     }
 
     const attemptToken = crypto.randomUUID();
@@ -1785,6 +1541,87 @@ export async function executeBuilderSourceExecutionWithDeps(
     if (!claimed) {
       throw builderExecutionConflict("Builder execution is already running.");
     }
+    // Nothing has reached Builder until executeWrite returns a result, so any
+    // stop before then hands the gate back instead of stranding a claim that
+    // cancel and review must treat as an attempted write.
+    const releaseClaim = (args: {
+      state: BuilderSourceExecutionRecord["state"];
+      summary: string;
+      payload: unknown;
+      lastError: string;
+    }) =>
+      deps.releaseExecutionClaim({
+        executionId: execution.id,
+        attemptToken,
+        restore: { state: args.state, attemptToken: execution.attemptToken },
+        summary: args.summary,
+        payload: args.payload,
+        lastError: args.lastError,
+        now: deps.now(),
+      });
+
+    if (preflightEntryId) {
+      // This check runs after the claim so it sits as close to the write as
+      // possible. A Builder save that lands after this read and before the
+      // write below is still overwritten: the check narrows that race but
+      // cannot close it without a conditional write on Builder's side.
+      let liveState: BuilderCmsEntryLiveState;
+      try {
+        liveState = await deps.readLiveEntry({
+          model: plan.payload.target.model,
+          entryId: preflightEntryId,
+          expectedSourceSpace: source.metadata.builderSpacePublicKey,
+          expectedSourceConnectionId: source.metadata.connectionId,
+        });
+      } catch (error) {
+        await releaseClaim({
+          state: execution.state,
+          summary: `${plan.summary} Execution stopped before write.`,
+          payload: validatedPayload,
+          lastError: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+      const baselineLastUpdated = plan.payload.target.reviewedLastUpdated;
+      console.info("builder_source_live_preflight", {
+        executionId: execution.id,
+        changeSetId: changeSet.id,
+        targetEntryId: preflightEntryId,
+        baselineLastUpdated,
+        liveLastUpdated: liveState.lastUpdated,
+        baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
+        liveBlocksHash: liveState.blocksHash,
+        livePublished: liveState.published,
+      });
+      const message = livePreflightBlockMessage({
+        liveState,
+        baselineLastUpdated,
+        baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
+        effect: plan.payload.effect,
+      });
+      if (message) {
+        await releaseClaim({
+          state: "blocked",
+          summary: `${plan.summary} Execution blocked before write.`,
+          payload: {
+            ...validatedPayload,
+            livePreflight: {
+              checkedAt: now,
+              exists: liveState.exists,
+              published: liveState.published,
+              lastUpdated: liveState.lastUpdated,
+              blocksHash: liveState.blocksHash,
+              id: liveState.id,
+            },
+          },
+          lastError: message,
+        });
+        fail(message, {
+          errorCode: "builder_entry_changed_since_review",
+          statusCode: 409,
+        });
+      }
+    }
     timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
 
     let writeResult: BuilderCmsWriteResult;
@@ -1798,20 +1635,12 @@ export async function executeBuilderSourceExecutionWithDeps(
         }),
       );
     } catch (error) {
-      // executeWrite reports every post-dispatch outcome as a result, so a
-      // throw means nothing reached Builder. Keeping the claim would strand
-      // the gate as an attempted write that cancel and review must preserve.
-      await deps.releaseExecutionClaim({
-        executionId: execution.id,
-        attemptToken,
-        restore: {
-          state: execution.state,
-          attemptToken: execution.attemptToken,
-        },
+      // executeWrite reports every post-dispatch outcome as a result.
+      await releaseClaim({
+        state: execution.state,
         summary: `${plan.summary} Execution stopped before write.`,
         payload: validatedPayload,
         lastError: error instanceof Error ? error.message : String(error),
-        now: deps.now(),
       });
       throw error;
     }
@@ -1867,21 +1696,6 @@ export async function executeBuilderSourceExecutionWithDeps(
         lastError: null,
         now: deps.now(),
       });
-    }
-
-    if (guardedWriteNeedsReconciliation({ plan, writeResult })) {
-      const lastError =
-        "Builder committed the write, but no current guarded base was acknowledged. Refresh and reconcile before another write.";
-      await deps.markExecutionFailed({
-        executionId: execution.id,
-        state: "reconciliation_required",
-        summary: `Builder ${plan.pushMode} execution requires reconciliation.`,
-        payload: payloadWithResponse,
-        lastError,
-        now: deps.now(),
-        attemptToken,
-      });
-      throw builderExecutionConflict(lastError);
     }
 
     const succeededAt = deps.now();

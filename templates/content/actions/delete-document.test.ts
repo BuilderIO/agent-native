@@ -80,8 +80,6 @@ const { schema } = vi.hoisted(() => ({
     },
     contentDatabaseSourceRows: {
       sourceId: "contentDatabaseSourceRows.sourceId",
-      ownerEmail: "contentDatabaseSourceRows.ownerEmail",
-      sourceValuesJson: "contentDatabaseSourceRows.sourceValuesJson",
     },
     contentDatabaseSourceFields: {
       sourceId: "contentDatabaseSourceFields.sourceId",
@@ -237,31 +235,22 @@ describe("deleteDocumentRecursive", () => {
     selectRows.contentDatabaseSources = [
       { id: sourceId, databaseId: "database-1" },
     ];
-    selectRows.contentDatabaseSourceRows = [
-      {
-        sourceId,
-        ownerEmail,
-        sourceValuesJson: JSON.stringify({
-          "__builder.write.snapshotBlob": reference("snapshot"),
-        }),
-      },
-      {
-        sourceId,
-        ownerEmail,
-        sourceValuesJson: JSON.stringify({
-          "__builder.write.snapshotBlob": reference(
-            "foreign",
-            "different-source",
-          ),
-        }),
-      },
-    ];
     selectRows.contentDatabaseSourceExecutions = [
       {
         sourceId,
         ownerEmail,
         payloadJson: JSON.stringify({
           "__builder.execution.privatePayload": reference("execution"),
+        }),
+      },
+      {
+        sourceId,
+        ownerEmail,
+        payloadJson: JSON.stringify({
+          "__builder.execution.privatePayload": reference(
+            "foreign",
+            "different-source",
+          ),
         }),
       },
     ];
@@ -272,7 +261,7 @@ describe("deleteDocumentRecursive", () => {
     await deleteDocumentRecursive(db, "database-doc", "owner-a@example.com");
     expect(
       deletePrivateBlob.mock.calls.map(([handle]) => handle.id).sort(),
-    ).toEqual(["execution", "snapshot"]);
+    ).toEqual(["execution"]);
   });
 
   it("retains deleted-row blob references when commit acknowledgement is uncertain", async () => {

@@ -11,8 +11,6 @@ import {
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-export const BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY =
-  "__builder.write.snapshotBlob";
 export const BUILDER_EXECUTION_PAYLOAD_BLOB_KEY =
   "__builder.execution.privatePayload";
 
@@ -244,21 +242,6 @@ export function builderExecutionPayloadReference(
       ? (reference as string)
       : null;
     // coercion-ok: malformed compact SQL cannot authorize execution-blob deletion.
-  } catch {
-    return null;
-  }
-}
-
-export function builderSourceSnapshotReference(
-  sourceValuesJson: string,
-): string | null {
-  try {
-    const values = JSON.parse(sourceValuesJson) as Record<string, unknown>;
-    const reference = values?.[BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY];
-    return isBuilderPrivatePayloadReference(reference)
-      ? (reference as string)
-      : null;
-    // coercion-ok: malformed compact SQL cannot authorize snapshot-blob deletion.
   } catch {
     return null;
   }

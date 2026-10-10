@@ -10,7 +10,6 @@ import type {
 } from "../shared/api.js";
 import {
   builderExecutionPayloadReference,
-  builderSourceSnapshotReference,
   cleanupBuilderPrivatePayload,
   isBuilderPrivatePayloadBoundToSource,
 } from "./_builder-cms-blob-custody.js";
@@ -68,26 +67,9 @@ async function deleteSourceRecords(databaseId: string, sourceId: string) {
     await tx
       .delete(schema.contentDatabaseSourceChangeSets)
       .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, sourceId));
-    const deletedRows = await tx
+    await tx
       .delete(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId))
-      .returning({
-        ownerEmail: schema.contentDatabaseSourceRows.ownerEmail,
-        sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-      });
-    for (const row of deletedRows) {
-      const reference = builderSourceSnapshotReference(row.sourceValuesJson);
-      if (
-        reference &&
-        isBuilderPrivatePayloadBoundToSource(
-          reference,
-          row.ownerEmail,
-          sourceId,
-        )
-      ) {
-        deletedBlobReferences.add(reference);
-      }
-    }
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
     await tx
       .delete(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.sourceId, sourceId));

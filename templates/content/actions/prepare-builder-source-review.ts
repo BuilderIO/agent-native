@@ -1,4 +1,3 @@
-import { ActionContractError } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -10,7 +9,6 @@ import type {
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
   ContentDatabaseSourceExecution,
-  ContentDatabaseSourceFieldChange,
   ContentDatabaseSourcePushMode,
   ContentDatabaseSourceReviewPayload,
   ContentDatabaseSourceRiskLevel,
@@ -25,7 +23,6 @@ import {
   readBuilderExecutionPayload,
   storeBuilderExecutionPayload,
 } from "./_builder-cms-blob-custody.js";
-import { BUILDER_CMS_WRITE_CANONICAL_JSON_KEY } from "./_builder-cms-source-adapter.js";
 import {
   buildBuilderCmsExecutionPlan,
   resolveBuilderCmsWriteEffect,
@@ -162,152 +159,6 @@ function dryRunStatus(execution: ContentDatabaseSourceExecution | null) {
     : null;
 }
 
-const BUILDER_REVIEW_ABSENT_VALUE = "(absent)";
-
-function reviewRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function stableReviewJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => stableReviewJson(item)).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableReviewJson(record[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "undefined";
-}
-
-function builderReviewValue(
-  value: unknown,
-  present: boolean,
-): ContentDatabaseSourceFieldChange["currentValue"] {
-  if (!present || value === undefined) return BUILDER_REVIEW_ABSENT_VALUE;
-  if (typeof value === "number" || typeof value === "boolean") {
-    return value as ContentDatabaseSourceFieldChange["currentValue"];
-  }
-  return stableReviewJson(value);
-}
-
-function builderReviewJsonPointer(path: string[], key: string) {
-  return [...path, key]
-    .map((part) => part.replace(/~/g, "~0").replace(/\//g, "~1"))
-    .map((part) => `/${part}`)
-    .join("");
-}
-
-export function builderPublishPayloadReviewChanges(args: {
-  canonical: Record<string, unknown>;
-  publishedBody: Record<string, unknown>;
-}): ContentDatabaseSourceFieldChange[] {
-  const publishedBody = Object.fromEntries(
-    Object.entries(args.publishedBody).filter(([key]) => key !== "__write"),
-  );
-  const changes: ContentDatabaseSourceFieldChange[] = [];
-  const visit = (
-    current: unknown,
-    proposed: unknown,
-    path: string[],
-    currentPresent: boolean,
-    proposedPresent: boolean,
-  ) => {
-    if (
-      currentPresent &&
-      proposedPresent &&
-      stableReviewJson(current) === stableReviewJson(proposed)
-    ) {
-      return;
-    }
-    const currentRecord = reviewRecord(current);
-    const proposedRecord = reviewRecord(proposed);
-    const keys = new Set([
-      ...Object.keys(currentRecord ?? {}),
-      ...Object.keys(proposedRecord ?? {}),
-    ]);
-    if (
-      currentPresent &&
-      proposedPresent &&
-      currentRecord &&
-      proposedRecord &&
-      keys.size > 0
-    ) {
-      for (const key of [...keys].sort()) {
-        visit(
-          currentRecord?.[key],
-          proposedRecord?.[key],
-          [...path, key],
-          currentRecord
-            ? Object.prototype.hasOwnProperty.call(currentRecord, key)
-            : false,
-          proposedRecord
-            ? Object.prototype.hasOwnProperty.call(proposedRecord, key)
-            : false,
-        );
-      }
-      return;
-    }
-    const pointer = builderReviewJsonPointer(
-      path.slice(0, -1),
-      path[path.length - 1]!,
-    );
-    changes.push({
-      propertyId: null,
-      propertyName: `Builder publish payload ${pointer}`,
-      localFieldKey: `__builder.publish${pointer}`,
-      sourceFieldKey: pointer,
-      currentValue: builderReviewValue(current, currentPresent),
-      proposedValue: builderReviewValue(proposed, proposedPresent),
-    });
-  };
-  visit(args.canonical, publishedBody, [], true, true);
-  return changes;
-}
-
-export function builderPublicationReviewChanges(args: {
-  row: ContentDatabaseSource["rows"][number] | null;
-  execution: ContentDatabaseSourceExecution | null;
-}) {
-  if (args.execution?.payload.effect !== "publish") return [];
-  const request = reviewRecord(args.execution.payload.request);
-  const publishedBody = reviewRecord(request?.body);
-  const writeGuard = reviewRecord(publishedBody?.__write);
-  const isGuardedPublish =
-    typeof writeGuard?.version === "string" && writeGuard.version.length > 0;
-  const canonicalJson =
-    args.row?.sourceValues?.[BUILDER_CMS_WRITE_CANONICAL_JSON_KEY];
-  if (!publishedBody) return [];
-  const reviewBaseUnavailable = () => {
-    throw new ActionContractError(
-      "Builder publish review requires the guarded canonical source payload.",
-      {
-        errorCode: "BUILDER_PUBLISH_REVIEW_BASE_UNAVAILABLE",
-        statusCode: 409,
-      },
-    );
-  };
-  if (typeof canonicalJson !== "string") {
-    if (isGuardedPublish) reviewBaseUnavailable();
-    return [];
-  }
-  try {
-    const canonical = reviewRecord(JSON.parse(canonicalJson) as unknown);
-    if (!canonical) {
-      if (isGuardedPublish) reviewBaseUnavailable();
-      return [];
-    }
-    return builderPublishPayloadReviewChanges({ canonical, publishedBody });
-  } catch {
-    if (isGuardedPublish) reviewBaseUnavailable();
-    return [];
-  }
-}
-
 export function buildBuilderSourceReviewPayload(args: {
   source: ContentDatabaseSource;
   changeSets: ContentDatabaseSourceChangeSet[];
@@ -355,10 +206,7 @@ export function buildBuilderSourceReviewPayload(args: {
           : row?.sourceDisplayKey || "Untitled",
       targetEntryId:
         effect === "create_draft" ? null : (row?.sourceRowId ?? null),
-      fieldChanges: [
-        ...changeSet.fieldChanges,
-        ...builderPublicationReviewChanges({ row, execution: latestExecution }),
-      ],
+      fieldChanges: changeSet.fieldChanges,
       bodyChange: changeSet.bodyChange,
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,

@@ -16,11 +16,6 @@ import {
   BUILDER_CMS_BODY_LAST_UPDATED_KEY,
   BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
-  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
-  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
-  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
-  BUILDER_CMS_WRITE_SNAPSHOT_ERROR_KEY,
-  BUILDER_CMS_WRITE_VERSION_KEY,
 } from "./_builder-cms-source-adapter";
 import { buildBuilderCmsExecutionPlan } from "./_builder-cms-write-adapter";
 
@@ -36,7 +31,6 @@ const builderReadMock = vi.hoisted(() => ({
   modelFieldsErrorFor: null as string | null,
   singleEntryCalls: [] as Array<{ model: string; entryId: string }>,
   singleEntryErrorFor: null as string | null,
-  writeSnapshotErrorFor: null as string | null,
   beforeSingleEntryRead: null as
     | ((args: { model: string; entryId: string }) => Promise<void> | void)
     | null,
@@ -183,23 +177,6 @@ vi.mock("./_builder-cms-read-client.js", async () => {
             },
           },
         };
-      },
-    ),
-    readBuilderCmsWriteSnapshot: vi.fn(
-      async (
-        args: Parameters<typeof actual.readBuilderCmsWriteSnapshot>[0],
-      ) => {
-        if (builderReadMock.writeSnapshotErrorFor === args.model) {
-          const { fail } = await import("@agent-native/core/action");
-          fail(
-            "Builder write snapshot capability is unavailable for this entry.",
-            {
-              errorCode: "builder_write_snapshot_unavailable",
-              statusCode: 424,
-            },
-          );
-        }
-        return actual.readBuilderCmsWriteSnapshot(args);
       },
     ),
     readBuilderCmsContentEntryResult: vi.fn(
@@ -755,7 +732,6 @@ beforeAll(async () => {
 afterEach(() => {
   builderReadMock.modelFieldsErrorFor = null;
   builderReadMock.singleEntryErrorFor = null;
-  builderReadMock.writeSnapshotErrorFor = null;
   builderReadMock.beforeSingleEntryRead = null;
 });
 
@@ -3072,30 +3048,8 @@ it("keeps a materialized required Builder reference dispatchable after full refr
       "__agent_native_builder_reference_id:data.author"
     ],
   ).toBe("author-apoorva");
-  const guardedEntry = JSON.stringify({
-    id: entryId,
-    ownerId: "builder-space",
-    modelId: "builder-model",
-    data: { title: "Required reference refresh" },
-  });
   const plan = buildBuilderCmsExecutionPlan({
-    source: {
-      ...snapshot!,
-      rows: snapshot!.rows.map((row) =>
-        row.sourceRowId === entryId
-          ? {
-              ...row,
-              sourceValues: {
-                ...row.sourceValues,
-                [BUILDER_CMS_WRITE_VERSION_KEY]: "opaque-version-refresh",
-                [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: guardedEntry,
-                [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: guardedEntry,
-                [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]: false,
-              },
-            }
-          : row,
-      ),
-    },
+    source: snapshot!,
     changeSet: {
       id: "change-required-reference-refresh",
       databaseItemId: itemId,
@@ -3798,150 +3752,6 @@ it("hydrates a queued full Builder body when the current body has multiline empt
   expect(after.content).toBe(fullBody);
   expect(after.status).toBe("hydrated");
   expect(after.queued).toBeNull();
-});
-
-it("hydrates a bound Builder body when its write snapshot capture fails", async () => {
-  builderReadMock.mode = "full";
-  builderReadMock.calls = [];
-  builderReadMock.singleEntryCalls = [];
-  builderReadMock.writeSnapshotErrorFor = "collection-snapshot-unavailable";
-  const db = getDb();
-  const now = new Date().toISOString();
-  const databaseId = "db_snapshot_unavailable";
-  const databaseDocId = "doc_db_snapshot_unavailable";
-  const documentId = "doc_snapshot_unavailable";
-  const itemId = "item_snapshot_unavailable";
-  const sourceId = "src_snapshot_unavailable";
-  const sourceRowId = "entry_snapshot_unavailable";
-  const fullBody = "This body hydrates even without a guarded write snapshot.";
-
-  await db.insert(schema.documents).values([
-    {
-      id: databaseDocId,
-      ownerEmail: OWNER,
-      title: "DB snapshot unavailable",
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: documentId,
-      ownerEmail: OWNER,
-      parentId: databaseDocId,
-      title: "Snapshot unavailable",
-      content: "",
-      createdAt: now,
-      updatedAt: now,
-    },
-  ]);
-  await db.insert(schema.contentDatabases).values({
-    id: databaseId,
-    ownerEmail: OWNER,
-    documentId: databaseDocId,
-    title: "DB snapshot unavailable",
-    createdAt: now,
-    updatedAt: now,
-  });
-  await db.insert(schema.contentDatabaseItems).values({
-    id: itemId,
-    ownerEmail: OWNER,
-    databaseId,
-    documentId,
-    position: 0,
-    bodyHydrationStatus: "pending",
-    bodyHydrationError: null,
-    createdAt: now,
-    updatedAt: now,
-  });
-  await db.insert(schema.contentDatabaseSources).values({
-    id: sourceId,
-    ownerEmail: OWNER,
-    databaseId,
-    sourceType: "builder-cms",
-    sourceName: "collection-snapshot-unavailable",
-    sourceTable: "collection-snapshot-unavailable",
-    metadataJson: JSON.stringify({
-      builderSpacePublicKey: "selected-space-key",
-      connectionId: "builder-oauth-connection-1",
-    }),
-    createdAt: now,
-    updatedAt: now,
-  });
-  await db.insert(schema.contentDatabaseSourceRows).values({
-    id: "row_snapshot_unavailable",
-    ownerEmail: OWNER,
-    sourceId,
-    databaseItemId: itemId,
-    documentId,
-    sourceRowId,
-    sourceQualifiedId: `builder-cms://collection-snapshot-unavailable/${sourceRowId}`,
-    sourceDisplayKey: "Snapshot unavailable",
-    sourceValuesJson: JSON.stringify({
-      "data.title": "Snapshot unavailable",
-      lastUpdated: "2026-01-01T00:00:00.000Z",
-      [BUILDER_CMS_WRITE_VERSION_KEY]: "stale-write-version",
-      [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: JSON.stringify({
-        id: sourceRowId,
-        data: { title: "Stale canonical" },
-      }),
-    }),
-    provenance: "Builder CMS read adapter",
-    createdAt: now,
-    updatedAt: now,
-  });
-  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
-    id: "queue_snapshot_unavailable",
-    ownerEmail: OWNER,
-    sourceId,
-    databaseItemId: itemId,
-    documentId,
-    sourceRowId,
-    sourceTable: "collection-snapshot-unavailable",
-    sourceEntryJson: JSON.stringify({
-      id: sourceRowId,
-      model: "collection-snapshot-unavailable",
-      title: "Snapshot unavailable",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      sourceValues: {
-        "data.title": "Snapshot unavailable",
-        lastUpdated: "2026-01-01T00:00:00.000Z",
-        [BUILDER_CMS_BODY_CONTENT_KEY]: fullBody,
-      },
-    }),
-    priority: 10,
-    attempts: 0,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  await hydrateQueuedBodies({ sourceId, documentId, limit: 1 });
-
-  const [after] = await db
-    .select({
-      content: schema.documents.content,
-      status: schema.contentDatabaseItems.bodyHydrationStatus,
-      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-    })
-    .from(schema.documents)
-    .innerJoin(
-      schema.contentDatabaseItems,
-      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
-    )
-    .innerJoin(
-      schema.contentDatabaseSourceRows,
-      eq(
-        schema.contentDatabaseSourceRows.databaseItemId,
-        schema.contentDatabaseItems.id,
-      ),
-    )
-    .where(eq(schema.documents.id, documentId));
-  expect(after.content).toBe(fullBody);
-  expect(after.status).toBe("hydrated");
-  const sourceValues = JSON.parse(after.sourceValuesJson);
-  expect(sourceValues).not.toHaveProperty(BUILDER_CMS_WRITE_VERSION_KEY);
-  expect(sourceValues).not.toHaveProperty(BUILDER_CMS_WRITE_CANONICAL_JSON_KEY);
-  expect(sourceValues[BUILDER_CMS_WRITE_SNAPSHOT_ERROR_KEY]).toBe(
-    "Builder write snapshot capability is unavailable for this entry.",
-  );
 });
 
 it("fetches a live Builder body when an opened row only has stored body metadata", async () => {

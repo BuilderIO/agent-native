@@ -13,7 +13,6 @@ import { chunks } from "./_batch-utils.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
 import {
   builderExecutionPayloadReference,
-  builderSourceSnapshotReference,
   cleanupBuilderPrivatePayload,
   isBuilderPrivatePayloadBoundToSource,
 } from "./_builder-cms-blob-custody.js";
@@ -917,27 +916,9 @@ async function deleteCollectedDocuments(
       .where(
         inArray(schema.contentDatabaseSourceChangeSets.sourceId, sourceIdBatch),
       );
-    const deletedRows = await db
+    await db
       .delete(schema.contentDatabaseSourceRows)
-      .where(inArray(schema.contentDatabaseSourceRows.sourceId, sourceIdBatch))
-      .returning({
-        ownerEmail: schema.contentDatabaseSourceRows.ownerEmail,
-        sourceId: schema.contentDatabaseSourceRows.sourceId,
-        sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-      });
-    for (const row of deletedRows) {
-      const reference = builderSourceSnapshotReference(row.sourceValuesJson);
-      if (
-        reference &&
-        isBuilderPrivatePayloadBoundToSource(
-          reference,
-          row.ownerEmail,
-          row.sourceId,
-        )
-      ) {
-        deletedBlobReferences.add(reference);
-      }
-    }
+      .where(inArray(schema.contentDatabaseSourceRows.sourceId, sourceIdBatch));
     await db
       .delete(schema.contentDatabaseSourceFields)
       .where(

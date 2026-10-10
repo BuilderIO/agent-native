@@ -8,14 +8,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
 import {
-  BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
-  putBuilderPrivatePayload,
-} from "./_builder-cms-blob-custody";
-import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
-  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
-  BUILDER_CMS_WRITE_VERSION_KEY,
 } from "./_builder-cms-source-adapter";
 import {
   registerMemoryPrivateBlobProvider,
@@ -121,36 +115,6 @@ async function asOwner<T>(fn: () => Promise<T>): Promise<T> {
   return runWithRequestContext({ userEmail: OWNER }, fn);
 }
 
-async function builderWriteSnapshotValues(args: {
-  sourceId: string;
-  sourceRowId: string;
-  sourceTable: string;
-}) {
-  const writeVersion = "opaque-version-1";
-  const entry = {
-    id: args.sourceRowId,
-    ownerId: "builder-space",
-    modelId: "builder-model",
-    data: { title: "Old title" },
-  };
-  return {
-    [BUILDER_CMS_WRITE_VERSION_KEY]: writeVersion,
-    [BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY]: await putBuilderPrivatePayload({
-      label: "Builder write snapshot",
-      ownerEmail: OWNER,
-      binding: {
-        ownerEmail: OWNER,
-        sourceId: args.sourceId,
-        sourceRowId: args.sourceRowId,
-        sourceTable: args.sourceTable,
-        writeVersion,
-      },
-      payload: { canonical: entry, editable: entry },
-    }),
-    [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]: false,
-  };
-}
-
 function capabilities(liveWritesEnabled: boolean) {
   return JSON.stringify({
     canRefresh: true,
@@ -173,7 +137,7 @@ async function seedBuilderSource(args: {
   changeSetState?: "pending_push" | "approved";
   metadata?: Record<string, unknown>;
   unmatched?: boolean;
-  writeSnapshot?: boolean;
+  lastSourceUpdatedAt?: string;
   bodyChange?: Record<string, unknown>;
 }) {
   const db = getDb();
@@ -237,31 +201,22 @@ async function seedBuilderSource(args: {
     createdAt: now,
     updatedAt: now,
   });
-  const sourceRowId = args.unmatched
-    ? `builder-${rowDocumentId}`
-    : `entry_${suffix}`;
   await db.insert(schema.contentDatabaseSourceRows).values({
     id: `row_${suffix}`,
     ownerEmail: OWNER,
     sourceId,
     databaseItemId: itemId,
     documentId: rowDocumentId,
-    sourceRowId,
+    sourceRowId: args.unmatched
+      ? `builder-${rowDocumentId}`
+      : `entry_${suffix}`,
     sourceQualifiedId: args.unmatched
       ? `builder-cms://${args.sourceTable}/builder-${rowDocumentId}`
       : `builder://${args.sourceTable}/entry_${suffix}`,
     sourceDisplayKey: "Old title",
     provenance: args.unmatched ? "Builder CMS fixture adapter" : "source",
-    sourceValuesJson: JSON.stringify({
-      "data.title": "Old title",
-      ...(args.writeSnapshot
-        ? await builderWriteSnapshotValues({
-            sourceId,
-            sourceRowId,
-            sourceTable: args.sourceTable,
-          })
-        : {}),
-    }),
+    sourceValuesJson: JSON.stringify({ "data.title": "Old title" }),
+    lastSourceUpdatedAt: args.lastSourceUpdatedAt ?? null,
     createdAt: now,
     updatedAt: now,
   });
@@ -803,7 +758,7 @@ describe("Builder source review execution gates", () => {
     };
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
-      writeSnapshot: true,
+      lastSourceUpdatedAt: "2026-06-29T14:00:00.000Z",
       bodyChange,
     });
     heavySnapshotReads.review = 0;
@@ -853,6 +808,10 @@ describe("Builder source review execution gates", () => {
     );
     expect(executionPayload.request.body.data.blocks).toEqual(
       JSON.parse(bodyChange.proposedBlocksJson),
+    );
+    expect(executionPayload.request.body.__write).toBeUndefined();
+    expect(executionPayload.target.reviewedLastUpdated).toBe(
+      "2026-06-29T14:00:00.000Z",
     );
     expect(executionPayload.dryRun.status).toBe("validated");
   });
@@ -939,7 +898,7 @@ describe("Builder source review execution gates", () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
       changeSetState: "approved",
-      writeSnapshot: true,
+      lastSourceUpdatedAt: "2026-06-29T14:00:00.000Z",
       metadata: {
         writeMode: "publish_updates",
         pushMode: "publish",

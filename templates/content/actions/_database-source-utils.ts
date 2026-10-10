@@ -69,26 +69,18 @@ import {
 } from "./_local-folder-source.js";
 export { bulkChunkSizeForColumnCount } from "./_batch-utils.js";
 import {
-  builderSourceSnapshotReference,
   builderExecutionPayloadReference,
-  builderPrivatePayloadUnavailable,
   isBuilderPrivatePayloadBoundToSource,
-  BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
   cleanupBuilderPrivatePayload,
-  deleteBuilderPrivatePayload,
-  putBuilderPrivatePayload,
   readBuilderExecutionPayload,
-  readBuilderPrivatePayload,
 } from "./_builder-cms-blob-custody.js";
 import {
   BuilderCmsContentEntryReadError,
   readBuilderCmsContentEntryResult,
   readBuilderCmsContentEntries,
   readBuilderCmsModelFields,
-  readBuilderCmsWriteSnapshot,
   type BuilderCmsReadProgress,
   type BuilderCmsReadState,
-  type BuilderCmsWriteSnapshotReadResult,
 } from "./_builder-cms-read-client.js";
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
@@ -97,13 +89,6 @@ import {
   BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
   BUILDER_CMS_BODY_READABLE_MAP_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
-  BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY,
-  BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY,
-  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
-  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
-  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
-  BUILDER_CMS_WRITE_SNAPSHOT_ERROR_KEY,
-  BUILDER_CMS_WRITE_VERSION_KEY,
   BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
   buildBuilderCmsFixtureEntry,
   builderCmsQualifiedId,
@@ -641,65 +626,11 @@ export function serializeSourceRowRecord(
   };
 }
 
-async function hydrateBuilderWriteSnapshotRow(
-  row: ContentDatabaseSourceRecordRowDb,
-  sourceTable: string,
-): Promise<ContentDatabaseSourceRecordRowDb> {
-  const values =
-    parseObject<Record<string, DocumentPropertyValue>>(row.sourceValuesJson) ??
-    {};
-  const reference = values[BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY];
-  if (reference === undefined) return row;
-  const writeVersion = values[BUILDER_CMS_WRITE_VERSION_KEY];
-  if (typeof writeVersion !== "string" || !writeVersion.trim()) {
-    builderPrivatePayloadUnavailable(
-      "Builder write snapshot private blob has no bound version.",
-    );
-  }
-  const payload = await readBuilderPrivatePayload<{
-    canonical: Record<string, unknown>;
-    editable: Record<string, unknown>;
-  }>({
-    reference,
-    label: "Builder write snapshot",
-    binding: {
-      ownerEmail: row.ownerEmail,
-      sourceId: row.sourceId,
-      sourceRowId: row.sourceRowId,
-      sourceTable,
-      writeVersion: writeVersion.trim(),
-    },
-  });
-  if (
-    !payload?.canonical ||
-    typeof payload.canonical !== "object" ||
-    Array.isArray(payload.canonical) ||
-    !payload.editable ||
-    typeof payload.editable !== "object" ||
-    Array.isArray(payload.editable)
-  ) {
-    builderPrivatePayloadUnavailable(
-      "Builder write snapshot private blob payload is malformed.",
-    );
-  }
-  return {
-    ...row,
-    sourceValuesJson: JSON.stringify({
-      ...values,
-      [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: JSON.stringify(payload.canonical),
-      [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: JSON.stringify(payload.editable),
-    }),
-  };
-}
-
 const HEAVY_BUILDER_BODY_SOURCE_VALUE_KEYS = new Set([
   BUILDER_CMS_BODY_CONTENT_KEY,
   BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
   BUILDER_CMS_BODY_READABLE_MAP_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
-  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
-  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
-  BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
 ]);
 
 const SOURCE_VALUES_JSON_COLUMN =
@@ -1094,44 +1025,6 @@ function builderBodyHydrationFailureEvidence(error: unknown) {
     retryable: false,
     message: error instanceof Error ? error.message : String(error),
   };
-}
-
-// Capture failures that only disable guarded writes. Binding and credential
-// failures still fail the job: the body read would reach the wrong space too.
-const OPTIONAL_BUILDER_WRITE_SNAPSHOT_ERROR_CODES = new Set([
-  "builder_write_snapshot_unavailable",
-  "builder_upstream_failed",
-  "builder_response_invalid",
-  "BUILDER_PRIVATE_PAYLOAD_UNAVAILABLE",
-]);
-
-function optionalBuilderWriteSnapshotFailure(error: unknown): string {
-  if (
-    isActionContractError(error) &&
-    OPTIONAL_BUILDER_WRITE_SNAPSHOT_ERROR_CODES.has(error.errorCode)
-  ) {
-    return error.message;
-  }
-  throw error;
-}
-
-const BUILDER_WRITE_SNAPSHOT_SOURCE_VALUE_KEYS = [
-  BUILDER_CMS_WRITE_VERSION_KEY,
-  BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
-  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
-  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
-  BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY,
-  BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY,
-  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
-  BUILDER_CMS_WRITE_SNAPSHOT_ERROR_KEY,
-];
-
-function withoutBuilderWriteSnapshotValues(
-  values: Record<string, DocumentPropertyValue>,
-) {
-  const next = { ...values };
-  for (const key of BUILDER_WRITE_SNAPSHOT_SOURCE_VALUE_KEYS) delete next[key];
-  return next;
 }
 
 function idChunkSize() {
@@ -2103,7 +1996,7 @@ async function processBuilderBodyHydrationJob(
     entry.sourceValues,
     BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   );
-  let bodyEntry =
+  const bodyEntry =
     preloaded?.bodyEntry?.id === entry.id
       ? {
           ...preloaded.bodyEntry,
@@ -2114,6 +2007,9 @@ async function processBuilderBodyHydrationJob(
         }
       : entry;
   let activeSourceEntryJson = row.sourceEntryJson;
+  let entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
+    await withBuilderBodySourceValues(bodyEntry),
+  );
   const sourceRow =
     preloaded?.sourceRow != null
       ? (preloaded.sourceRow ?? undefined)
@@ -2135,37 +2031,6 @@ async function processBuilderBodyHydrationJob(
     parseObject<Record<string, DocumentPropertyValue>>(
       sourceRow?.sourceValuesJson ?? "{}",
     ) ?? {};
-  const capturesWriteSnapshot = Boolean(
-    sourceRow &&
-    preloaded?.expectedSourceSpace &&
-    preloaded.expectedSourceConnectionId,
-  );
-  let writeSnapshot: BuilderCmsWriteSnapshotReadResult | null = null;
-  let writeSnapshotError: string | null = null;
-  if (sourceRow && capturesWriteSnapshot) {
-    try {
-      writeSnapshot = await readBuilderCmsWriteSnapshot({
-        model: row.sourceTable,
-        entryId: sourceRow.sourceRowId,
-        expectedSourceSpace: preloaded?.expectedSourceSpace,
-        expectedSourceConnectionId: preloaded?.expectedSourceConnectionId,
-      });
-    } catch (error) {
-      writeSnapshotError = optionalBuilderWriteSnapshotFailure(error);
-    }
-    if (writeSnapshot) {
-      bodyEntry = {
-        ...writeSnapshot.editableEntry,
-        sourceValues: {
-          ...bodyEntry.sourceValues,
-          ...writeSnapshot.editableEntry.sourceValues,
-        },
-      };
-    }
-  }
-  let entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
-    await withBuilderBodySourceValues(bodyEntry),
-  );
   const rebuiltBlocksHash = stringSourceValue(
     entryWithBody.sourceValues,
     BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
@@ -2510,38 +2375,7 @@ async function processBuilderBodyHydrationJob(
       nextContent,
     });
   let wroteBody = false;
-  if (sourceRow && capturesWriteSnapshot) {
-    // The snapshot is stored only after every early return above, so an
-    // abandoned job never strands a private blob nothing references.
-    nextValues = withoutBuilderWriteSnapshotValues(nextValues);
-    if (writeSnapshot) {
-      try {
-        nextValues = (
-          await withBuilderWriteSnapshotSourceValues({
-            entry: { ...entryWithBody, sourceValues: nextValues },
-            snapshot: writeSnapshot,
-            ownerEmail: sourceRow.ownerEmail,
-            sourceId: row.sourceId,
-            sourceRowId: sourceRow.sourceRowId,
-            sourceTable: row.sourceTable,
-          })
-        ).sourceValues;
-      } catch (error) {
-        writeSnapshotError = optionalBuilderWriteSnapshotFailure(error);
-      }
-    }
-    if (writeSnapshotError) {
-      nextValues[BUILDER_CMS_WRITE_SNAPSHOT_ERROR_KEY] = writeSnapshotError;
-    }
-  }
-  const previousSnapshotReference = sourceRow
-    ? builderSourceSnapshotReference(sourceRow.sourceValuesJson)
-    : null;
-  const nextSourceValuesJson = JSON.stringify(nextValues);
-  const nextSnapshotReference =
-    builderSourceSnapshotReference(nextSourceValuesJson);
-  let committedSnapshotReference = false;
-  const hydrationTransaction = db.transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     const queueRowCas = builderBodyHydrationQueueOwnershipFilter(
       row,
       activeSourceEntryJson,
@@ -2629,7 +2463,7 @@ async function processBuilderBodyHydrationJob(
     const [updatedSourceRow] = await tx
       .update(schema.contentDatabaseSourceRows)
       .set({
-        sourceValuesJson: nextSourceValuesJson,
+        sourceValuesJson: JSON.stringify(nextValues),
         lastSyncedAt: now,
         lastSourceUpdatedAt: entryWithBody.updatedAt ?? now,
         updatedAt: now,
@@ -2660,7 +2494,6 @@ async function processBuilderBodyHydrationJob(
       }
       return;
     }
-    committedSnapshotReference = true;
     const [deleted] = await tx
       .delete(schema.contentDatabaseBodyHydrationQueue)
       .where(queueRowCas)
@@ -2698,36 +2531,6 @@ async function processBuilderBodyHydrationJob(
       })
       .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
   });
-  await hydrationTransaction.catch(async (error: unknown) => {
-    if (
-      nextSnapshotReference &&
-      nextSnapshotReference !== previousSnapshotReference
-    ) {
-      await cleanupBuilderPrivatePayload(
-        nextSnapshotReference,
-        "uncommitted source snapshot",
-      );
-    }
-    throw error;
-  });
-  if (
-    !committedSnapshotReference &&
-    nextSnapshotReference &&
-    nextSnapshotReference !== previousSnapshotReference
-  ) {
-    await deleteBuilderPrivatePayload(nextSnapshotReference).catch(
-      () => undefined,
-    );
-  } else if (
-    committedSnapshotReference &&
-    previousSnapshotReference &&
-    previousSnapshotReference !== nextSnapshotReference
-  ) {
-    await cleanupBuilderPrivatePayload(
-      previousSnapshotReference,
-      "superseded source snapshot",
-    );
-  }
   // Keep persisted and in-memory Yjs state intact. The SQL content + updatedAt
   // written above are authoritative; an open full-page editor reconciles that
   // snapshot into its Y.Doc. Deleting collab state here can race a connected
@@ -3360,14 +3163,7 @@ export async function processBuilderBodyHydrationQueue(args: {
     }
   }
   const preparedPristineHydrations: PreparedPristineBuilderBodyHydration[] = [];
-  if (
-    !args.documentId &&
-    bulkPreloadBodies &&
-    !(
-      hydrationSourceMetadata.builderSpacePublicKey &&
-      hydrationSourceMetadata.connectionId
-    )
-  ) {
+  if (!args.documentId && bulkPreloadBodies) {
     await processWithConcurrency(
       claimedJobs,
       BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
@@ -3539,49 +3335,6 @@ export async function withBuilderBodySourceValues(
       [BUILDER_CMS_BODY_LAST_UPDATED_KEY]:
         stringSourceValue(entry.sourceValues, "lastUpdated") ?? entry.updatedAt,
       [BUILDER_CMS_BODY_SIDECARS_KEY]: snapshot.sidecarsJson,
-    },
-  };
-}
-
-export async function withBuilderWriteSnapshotSourceValues(args: {
-  entry: BuilderCmsSourceEntry;
-  snapshot: Awaited<ReturnType<typeof readBuilderCmsWriteSnapshot>>;
-  ownerEmail?: string;
-  sourceId: string;
-  sourceRowId: string;
-  sourceTable: string;
-}): Promise<BuilderCmsSourceEntry> {
-  const version = args.snapshot.writeSnapshot.version;
-  const reference = await putBuilderPrivatePayload({
-    label: "Builder write snapshot",
-    ownerEmail: args.ownerEmail,
-    binding: {
-      ownerEmail: args.ownerEmail ?? "",
-      sourceId: args.sourceId,
-      sourceRowId: args.sourceRowId,
-      sourceTable: args.sourceTable,
-      writeVersion: version,
-    },
-    payload: {
-      canonical: args.snapshot.writeSnapshot.content,
-      editable: args.snapshot.writeSnapshot.editableContent,
-    },
-  });
-  const sourceValues = { ...args.entry.sourceValues };
-  delete sourceValues[BUILDER_CMS_WRITE_CANONICAL_JSON_KEY];
-  delete sourceValues[BUILDER_CMS_WRITE_EDITABLE_JSON_KEY];
-  return {
-    ...args.entry,
-    sourceValues: {
-      ...sourceValues,
-      [BUILDER_CMS_WRITE_VERSION_KEY]: version,
-      [BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY]: reference,
-      [BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY]:
-        args.snapshot.writeSnapshot.autosaveId,
-      [BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY]:
-        args.snapshot.writeSnapshot.autosaveCreatedDate,
-      [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]:
-        args.snapshot.writeSnapshot.hasPendingAutosave,
     },
   };
 }
@@ -4888,15 +4641,7 @@ async function loadSourceSnapshot(
     includeHeavyBuilderBodyValues: options.includeHeavyBuilderBodyValues,
     documentIds: options.documentIds,
   });
-  const hydratedRowRows =
-    isBuilderSource && options.includeHeavyBuilderBodyValues
-      ? await Promise.all(
-          rowRows.map((row) =>
-            hydrateBuilderWriteSnapshotRow(row, source.sourceTable),
-          ),
-        )
-      : rowRows;
-  const rows = hydratedRowRows.map((row) =>
+  const rows = rowRows.map((row) =>
     serializeSourceRowRecord(row, {
       includeHeavyBuilderBodyValues: options.includeHeavyBuilderBodyValues,
     }),
@@ -6074,20 +5819,6 @@ export async function replaceMockSourceRows(args: {
 }) {
   const db = getDb();
   const rows = mockSourceRowsForSeed(args);
-  const retainedReferences = new Set(
-    rows.flatMap((row) => {
-      const reference = builderSourceSnapshotReference(row.sourceValuesJson);
-      return reference &&
-        isBuilderPrivatePayloadBoundToSource(
-          reference,
-          args.ownerEmail,
-          args.sourceId,
-        )
-        ? [reference]
-        : [];
-    }),
-  );
-  let deletedReferences: string[] = [];
   await db.transaction(async (tx) => {
     const scope = args.documentIds?.length
       ? and(
@@ -6108,34 +5839,9 @@ export async function replaceMockSourceRows(args: {
       ...oldRows.map((row) => row.databaseItemId).filter(Boolean),
       ...rows.map((row) => row.databaseItemId),
     ]);
-    const deletedRows = await tx
-      .delete(schema.contentDatabaseSourceRows)
-      .where(scope)
-      .returning({
-        ownerEmail: schema.contentDatabaseSourceRows.ownerEmail,
-        sourceId: schema.contentDatabaseSourceRows.sourceId,
-        sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-      });
-    deletedReferences = deletedRows
-      .map((row) => builderSourceSnapshotReference(row.sourceValuesJson))
-      .filter(
-        (reference): reference is string =>
-          !!reference &&
-          !retainedReferences.has(reference) &&
-          isBuilderPrivatePayloadBoundToSource(
-            reference,
-            args.ownerEmail,
-            args.sourceId,
-          ),
-      );
+    await tx.delete(schema.contentDatabaseSourceRows).where(scope);
     await insertMockSourceRows(tx, rows, args.now);
   });
-  for (const reference of new Set(deletedReferences)) {
-    await cleanupBuilderPrivatePayload(
-      reference,
-      "deleted replaced source snapshot",
-    );
-  }
 }
 
 export function sourceValuesForSeededSourceRow(args: {
@@ -6226,18 +5932,6 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
     existingEpoch !== null &&
     incomingEpoch === existingEpoch;
   const next = { ...args.incoming };
-  for (const key of [
-    BUILDER_CMS_WRITE_VERSION_KEY,
-    BUILDER_CMS_WRITE_SNAPSHOT_BLOB_KEY,
-    BUILDER_CMS_WRITE_AUTOSAVE_ID_KEY,
-    BUILDER_CMS_WRITE_AUTOSAVE_CREATED_DATE_KEY,
-    BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
-    BUILDER_CMS_WRITE_SNAPSHOT_ERROR_KEY,
-  ]) {
-    if (next[key] === undefined && existing[key] !== undefined) {
-      next[key] = existing[key];
-    }
-  }
   const preserveExistingBody =
     !incomingContent?.trim() &&
     !!existingContent?.trim() &&
@@ -7505,7 +7199,6 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
           .from(schema.contentDatabaseSourceRows)
           .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
       ).filter((row) => !activeSourceRowIds.has(row.sourceRowId));
-      const deletedReferences: string[] = [];
       await db.transaction(async (tx) => {
         await lockDatabaseMemberships(
           tx,
@@ -7515,38 +7208,11 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
           staleRows.map((row) => row.id),
           idChunkSize(),
         )) {
-          const deletedRows = await tx
+          await tx
             .delete(schema.contentDatabaseSourceRows)
-            .where(inArray(schema.contentDatabaseSourceRows.id, idChunk))
-            .returning({
-              ownerEmail: schema.contentDatabaseSourceRows.ownerEmail,
-              sourceId: schema.contentDatabaseSourceRows.sourceId,
-              sourceValuesJson:
-                schema.contentDatabaseSourceRows.sourceValuesJson,
-            });
-          for (const row of deletedRows) {
-            const reference = builderSourceSnapshotReference(
-              row.sourceValuesJson,
-            );
-            if (
-              reference &&
-              isBuilderPrivatePayloadBoundToSource(
-                reference,
-                row.ownerEmail,
-                row.sourceId,
-              )
-            ) {
-              deletedReferences.push(reference);
-            }
-          }
+            .where(inArray(schema.contentDatabaseSourceRows.id, idChunk));
         }
       });
-      for (const reference of new Set(deletedReferences)) {
-        await cleanupBuilderPrivatePayload(
-          reference,
-          "deleted stale source snapshot",
-        );
-      }
     }
 
     await updateBuilderCmsSourceReadMetadata({
@@ -7890,28 +7556,9 @@ export async function storeSecondarySourceRows(args: {
   now: string;
 }) {
   const db = getDb();
-  const deletedRows = await db
+  await db
     .delete(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId))
-    .returning({
-      ownerEmail: schema.contentDatabaseSourceRows.ownerEmail,
-      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-    });
-  // A primary Builder source moved into source details still holds its
-  // private write snapshots on the rows replaced here.
-  for (const row of deletedRows) {
-    const reference = builderSourceSnapshotReference(row.sourceValuesJson);
-    if (
-      reference &&
-      isBuilderPrivatePayloadBoundToSource(
-        reference,
-        row.ownerEmail,
-        args.sourceId,
-      )
-    ) {
-      await cleanupBuilderPrivatePayload(reference, "replaced source row");
-    }
-  }
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
   if (args.entries.length === 0) return;
   await db.insert(schema.contentDatabaseSourceRows).values(
     args.entries.map((entry, index) => ({

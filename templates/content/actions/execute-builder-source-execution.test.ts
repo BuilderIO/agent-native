@@ -7,13 +7,7 @@ import {
   type ContentDatabaseSourceChangeSet,
 } from "../shared/api";
 import type { BuilderCmsEntryLiveState } from "./_builder-cms-read-client";
-import {
-  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
-  BUILDER_CMS_WRITE_CANONICAL_JSON_KEY,
-  BUILDER_CMS_WRITE_EDITABLE_JSON_KEY,
-  BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY,
-  BUILDER_CMS_WRITE_VERSION_KEY,
-} from "./_builder-cms-source-adapter";
+import { BUILDER_CMS_BODY_BLOCKS_HASH_KEY } from "./_builder-cms-source-adapter";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
@@ -109,26 +103,6 @@ function row(
     freshness: "fresh",
     lastSyncedAt: "2026-06-08T00:00:00.000Z",
     lastSourceUpdatedAt: String(BUILDER_LAST_UPDATED_MS),
-    sourceValues: {
-      [BUILDER_CMS_WRITE_VERSION_KEY]: "write-version-1",
-      [BUILDER_CMS_WRITE_CANONICAL_JSON_KEY]: JSON.stringify({
-        id: sourceRowId,
-        ownerId: "selected-space-key",
-        modelId: "model-uuid",
-        model: sourceTable,
-        data: { title: "Old title", canonicalOnly: "keep-canonical" },
-        published: "published",
-      }),
-      [BUILDER_CMS_WRITE_EDITABLE_JSON_KEY]: JSON.stringify({
-        id: sourceRowId,
-        ownerId: "selected-space-key",
-        modelId: "model-uuid",
-        model: sourceTable,
-        data: { title: "Old title", pendingOnly: "keep-pending" },
-        published: "published",
-      }),
-      [BUILDER_CMS_WRITE_HAS_PENDING_AUTOSAVE_KEY]: false,
-    },
     ...overrides,
   };
 }
@@ -276,40 +250,6 @@ function depsFor(args: {
             status: 200,
             entryId: "builder-entry-1",
             responseBody: { id: "builder-entry-1" },
-            committed: true,
-            content: {
-              id: "builder-entry-1",
-              ownerId: "selected-space-key",
-              modelId: "model-uuid",
-              data: { title: "New title" },
-            },
-            editableContent: {
-              id: "builder-entry-1",
-              ownerId: "selected-space-key",
-              modelId: "model-uuid",
-              data: { title: "New title", pendingOnly: "keep-pending" },
-            },
-            autosaveIds: [],
-            writeSnapshot: {
-              version: "write-version-2",
-              content: {
-                id: "builder-entry-1",
-                ownerId: "selected-space-key",
-                modelId: "model-uuid",
-                data: { title: "New title" },
-              },
-              editableContent: {
-                id: "builder-entry-1",
-                ownerId: "selected-space-key",
-                modelId: "model-uuid",
-                data: { title: "New title", pendingOnly: "keep-pending" },
-              },
-              autosaveId: null,
-              autosaveCreatedDate: null,
-              hasPendingAutosave: false,
-            },
-            superseded: false,
-            readback: "matched",
           },
     ),
     readLiveEntry: vi.fn(async () =>
@@ -342,90 +282,6 @@ function depsFor(args: {
 }
 
 describe("execute Builder source execution", () => {
-  it("keeps a malformed guarded 200 in reconciliation-required state without replay", async () => {
-    const approvedChangeSet = changeSet();
-    const builderSource = source({ changeSets: [approvedChangeSet] });
-    const execution = executionFor({
-      source: builderSource,
-      changeSet: approvedChangeSet,
-    });
-    const deps = depsFor({
-      source: builderSource,
-      execution,
-      writeResult: {
-        ok: false,
-        status: 200,
-        responseBody: null,
-        ambiguity: "provider",
-        error:
-          "Builder guarded write returned a malformed response after dispatch; remote outcome is unknown.",
-      },
-    });
-
-    await expect(
-      executeBuilderSourceExecutionWithDeps(
-        {
-          databaseId: "database-1",
-          changeSetId: approvedChangeSet.id,
-          pushModeConfirmation: "autosave",
-        },
-        deps,
-      ),
-    ).rejects.toMatchObject({ statusCode: 409 });
-    expect(deps.markExecutionFailed).toHaveBeenCalledWith(
-      expect.objectContaining({ state: "reconciliation_required" }),
-    );
-    expect(deps.markExecutionSucceeded).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { readback: "unavailable" as const, superseded: false },
-    { readback: "changed" as const, superseded: true },
-  ])(
-    "retains local work when a known commit has $readback readback",
-    async ({ readback, superseded }) => {
-      const approvedChangeSet = changeSet();
-      const builderSource = source({ changeSets: [approvedChangeSet] });
-      const execution = executionFor({
-        source: builderSource,
-        changeSet: approvedChangeSet,
-      });
-      const deps = depsFor({
-        source: builderSource,
-        execution,
-        writeResult: {
-          ok: true,
-          status: 200,
-          entryId: "builder-entry-1",
-          responseBody: {},
-          committed: true,
-          content: { id: "builder-entry-1" },
-          editableContent: { id: "builder-entry-1" },
-          autosaveIds: [],
-          writeSnapshot: null,
-          superseded,
-          readback,
-        },
-      });
-
-      await expect(
-        executeBuilderSourceExecutionWithDeps(
-          {
-            databaseId: "database-1",
-            changeSetId: approvedChangeSet.id,
-            pushModeConfirmation: "autosave",
-          },
-          deps,
-        ),
-      ).rejects.toMatchObject({ statusCode: 409 });
-      expect(deps.reconcileWrite).not.toHaveBeenCalled();
-      expect(deps.markExecutionSucceeded).not.toHaveBeenCalled();
-      expect(deps.markExecutionFailed).toHaveBeenCalledWith(
-        expect.objectContaining({ state: "reconciliation_required" }),
-      );
-    },
-  );
-
   it("transitions write-disabled plans without calling Builder", async () => {
     const approvedChangeSet = changeSet();
     const builderSource = source({
@@ -671,7 +527,7 @@ describe("execute Builder source execution", () => {
     expect(reconcileCallOrder).toBeLessThan(successCallOrder);
   });
 
-  it("preflights update-in-place writes when string baseline matches numeric live timestamp", async () => {
+  it("preflights update-in-place writes between the claim and the write when string baseline matches numeric live timestamp", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
     const builderSource = source({ changeSets: [approvedChangeSet] });
     const execution = executionFor({
@@ -699,13 +555,16 @@ describe("execute Builder source execution", () => {
     });
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
     const readCallOrder = vi.mocked(deps.readLiveEntry).mock
-      .invocationCallOrder[0];
+      .invocationCallOrder[0]!;
     const claimCallOrder = vi.mocked(deps.claimExecution).mock
-      .invocationCallOrder[0];
-    expect(readCallOrder).toBeLessThan(claimCallOrder);
+      .invocationCallOrder[0]!;
+    const writeCallOrder = vi.mocked(deps.executeWrite).mock
+      .invocationCallOrder[0]!;
+    expect(claimCallOrder).toBeLessThan(readCallOrder);
+    expect(readCallOrder).toBeLessThan(writeCallOrder);
   });
 
-  it("blocks stale live entries before claiming or writing", async () => {
+  it("blocks stale live entries before writing and hands the claim back as blocked", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
     const builderSource = source({
       rows: [
@@ -744,19 +603,20 @@ describe("execute Builder source execution", () => {
       "Builder entry changed since this diff was approved; refresh and re-review.",
     );
 
-    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+    expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
       expect.objectContaining({
         executionId: execution.id,
-        state: "blocked",
+        attemptToken: vi.mocked(deps.claimExecution).mock.calls[0]?.[0]
+          .attemptToken,
+        restore: { state: "blocked", attemptToken: undefined },
         lastError:
           "Builder entry changed since this diff was approved; refresh and re-review.",
       }),
     );
-    expect(deps.claimExecution).not.toHaveBeenCalled();
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
-  it("blocks missing live entries before claiming or writing", async () => {
+  it("blocks missing live entries before writing and hands the claim back as blocked", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
     const builderSource = source({ changeSets: [approvedChangeSet] });
     const execution = executionFor({
@@ -786,14 +646,121 @@ describe("execute Builder source execution", () => {
       ),
     ).rejects.toThrow("Builder entry no longer exists; refresh the source.");
 
-    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+    expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
       expect.objectContaining({
         executionId: execution.id,
-        state: "blocked",
+        restore: { state: "blocked", attemptToken: undefined },
         lastError: "Builder entry no longer exists; refresh the source.",
       }),
     );
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("blocks a write when Builder reports no lastUpdated for the live entry", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: {
+        exists: true,
+        published: "draft",
+        lastUpdated: null,
+        blocksHash: null,
+        id: "builder-entry-1",
+      },
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message:
+        "Builder did not report when this entry last changed; refresh and re-review.",
+    });
+    expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        restore: { state: "blocked", attemptToken: undefined },
+      }),
+    );
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("compares the live entry with the lastUpdated recorded at review, not a later refresh", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const reviewedSource = source({
+      rows: [
+        row({ lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS) }),
+      ],
+      changeSets: [approvedChangeSet],
+    });
+    const execution = executionFor({
+      source: reviewedSource,
+      changeSet: approvedChangeSet,
+    });
+    // A refresh after review saw the newer Builder save and moved the row's
+    // baseline to match the live entry.
+    const refreshedSource = source({ changeSets: [approvedChangeSet] });
+    const deps = depsFor({ source: refreshedSource, execution });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+      ),
+    ).rejects.toThrow(
+      "Builder entry changed since this change was reviewed. Refresh and review it again.",
+    );
+    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+      expect.objectContaining({ state: "blocked" }),
+    );
     expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("hands the claim back unchanged when the live read fails", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({ source: builderSource, execution });
+    vi.mocked(deps.readLiveEntry).mockRejectedValueOnce(
+      new Error("Builder CMS live entry read failed with HTTP 503."),
+    );
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+        },
+        deps,
+      ),
+    ).rejects.toThrow("Builder CMS live entry read failed with HTTP 503.");
+    expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        restore: { state: execution.state, attemptToken: undefined },
+        lastError: "Builder CMS live entry read failed with HTTP 503.",
+      }),
+    );
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
@@ -923,7 +890,11 @@ describe("execute Builder source execution", () => {
       "Builder publication state could not be verified; refresh and re-review.",
     );
 
-    expect(deps.claimExecution).not.toHaveBeenCalled();
+    expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        restore: { state: "blocked", attemptToken: undefined },
+      }),
+    );
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
@@ -1051,9 +1022,9 @@ describe("execute Builder source execution", () => {
     );
 
     expect(deps.executeWrite).not.toHaveBeenCalled();
-    expect(deps.updateExecutionState).toHaveBeenCalledWith(
+    expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
       expect.objectContaining({
-        state: "blocked",
+        restore: { state: "blocked", attemptToken: undefined },
         lastError:
           "Builder body changed since this diff was approved; refresh and re-review.",
       }),
@@ -1337,40 +1308,6 @@ describe("execute Builder source execution", () => {
           status: 200,
           entryId: "builder-entry-1",
           body: { id: "builder-entry-1" },
-          committed: true,
-          content: {
-            id: "builder-entry-1",
-            ownerId: "selected-space-key",
-            modelId: "model-uuid",
-            data: { title: "New title" },
-          },
-          editableContent: {
-            id: "builder-entry-1",
-            ownerId: "selected-space-key",
-            modelId: "model-uuid",
-            data: { title: "New title", pendingOnly: "keep-pending" },
-          },
-          autosaveIds: [],
-          writeSnapshot: {
-            version: "write-version-2",
-            content: {
-              id: "builder-entry-1",
-              ownerId: "selected-space-key",
-              modelId: "model-uuid",
-              data: { title: "New title" },
-            },
-            editableContent: {
-              id: "builder-entry-1",
-              ownerId: "selected-space-key",
-              modelId: "model-uuid",
-              data: { title: "New title", pendingOnly: "keep-pending" },
-            },
-            autosaveId: null,
-            autosaveCreatedDate: null,
-            hasPendingAutosave: false,
-          },
-          superseded: false,
-          readback: "matched",
         },
       }),
     });
@@ -1531,7 +1468,7 @@ describe("execute Builder source execution", () => {
     });
   });
 
-  it("reconciles Builder-native field values without copying body blocks into SQL", async () => {
+  it("reconciles Builder-native field values without copying body blocks into SQL", () => {
     const draftCreate = {
       ...changeSet({ pushMode: "draft" }),
       fieldChanges: [
@@ -1575,13 +1512,9 @@ describe("execute Builder source execution", () => {
     } as Parameters<typeof builderCmsReconciledSourceValuesJson>[0]["plan"];
 
     const values = JSON.parse(
-      await builderCmsReconciledSourceValuesJson({
+      builderCmsReconciledSourceValuesJson({
         existingSourceValuesJson: null,
         snapshotSourceValues: undefined,
-        ownerEmail: "owner@example.com",
-        sourceId: "source-1",
-        sourceRowId: "entry-1",
-        sourceModel: BUILDER_CMS_SAFE_WRITE_MODEL,
         changeSet: draftCreate,
         plan,
       }),
@@ -1594,51 +1527,6 @@ describe("execute Builder source execution", () => {
       [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
     });
     expect(values).not.toHaveProperty("data.blocks");
-  });
-
-  it("uses Builder's acknowledged editable values as the mapped reconciliation baseline", async () => {
-    const draftCreate = {
-      ...changeSet({ pushMode: "draft" }),
-      fieldChanges: [
-        {
-          propertyId: "title",
-          propertyName: "Title",
-          localFieldKey: "title",
-          sourceFieldKey: "data.title",
-          currentValue: "Old",
-          proposedValue: "Local proposal",
-        },
-      ],
-    } as ContentDatabaseSourceChangeSet;
-    const values = JSON.parse(
-      await builderCmsReconciledSourceValuesJson({
-        existingSourceValuesJson: null,
-        snapshotSourceValues: undefined,
-        ownerEmail: "owner@example.com",
-        sourceId: "source-1",
-        sourceRowId: "entry-1",
-        sourceModel: BUILDER_CMS_SAFE_WRITE_MODEL,
-        changeSet: draftCreate,
-        plan: {
-          payload: { request: { body: { data: { title: "Local proposal" } } } },
-        } as Parameters<typeof builderCmsReconciledSourceValuesJson>[0]["plan"],
-        writeResult: {
-          ok: true,
-          status: 200,
-          responseBody: null,
-          editableContent: {
-            id: "entry-1",
-            data: { title: "Builder normalized", count: 2 },
-            updatedDate: "2026-09-14T00:00:00.000Z",
-          },
-        },
-      }),
-    );
-
-    expect(values).toMatchObject({
-      "data.title": "Builder normalized",
-      "data.count": 2,
-    });
   });
 
   it("stores Builder's authoritative updated timestamp after a successful write", () => {
