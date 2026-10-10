@@ -159,12 +159,13 @@ export function assertCredentialStoreReadable(result: {
 }
 
 /**
- * Deployment-level credential fallback for single-tenant/local operation.
- * Multi-tenant call sites must gate this explicitly before calling.
+ * Read deployment-owned configuration. LLM provider keys have an app-wide
+ * fallback policy; user and workspace credentials must use scoped resolvers.
  */
 export function readDeployCredentialEnv(key: string): string | undefined {
   if (
-    HOSTED_MODEL_PROVIDER_ENV_KEYS.has(key) &&
+    (DEPLOY_LLM_PROVIDER_ENV_KEYS.has(key) ||
+      BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) &&
     !canUseDeployCredentialFallbackForRequest(key)
   ) {
     return undefined;
@@ -172,13 +173,10 @@ export function readDeployCredentialEnv(key: string): string | undefined {
   return process.env[key] || undefined;
 }
 
-const HOSTED_MODEL_PROVIDER_ENV_KEYS = new Set([
+const DEPLOY_LLM_PROVIDER_ENV_KEYS = new Set([
   "ANTHROPIC_API_KEY",
-  "BUILDER_GATEWAY_SPACE_ID",
-  "BUILDER_GATEWAY_TOKEN",
   "COHERE_API_KEY",
   "GEMINI_API_KEY",
-  "GOOGLE_APPLICATION_CREDENTIALS",
   "GOOGLE_GENERATIVE_AI_API_KEY",
   "GROQ_API_KEY",
   "JEV_API_KEY",
@@ -237,12 +235,13 @@ export function canUseDeployCredentialFallbackForRequest(
   // If the dedicated test credential is rejected, using the site's shared key
   // would make a green retry both misleading and billable to real traffic.
   if (getRequestContext()?.isSyntheticTraffic === true) return false;
-  if (key && HOSTED_MODEL_PROVIDER_ENV_KEYS.has(key)) {
+  if (key && BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) {
+    return isTrustedSelfHostedRuntime();
+  }
+  if (key && DEPLOY_LLM_PROVIDER_ENV_KEYS.has(key)) {
+    // Setting an LLM provider key opts a self-hosted app into app-wide
+    // inference. Hosted workspace deployments keep using scoped keys.
     const hostedWorkspace = isHostedWorkspaceRuntime();
-    if (BUILDER_CREDITS_DEPLOY_ENV_KEYS.has(key)) return !hostedWorkspace;
-    // LLM provider keys belong to the app's inference service. Self-hosted
-    // apps and local PGlite development may share them when no scoped key is
-    // available; hosted workspace deployments with a shared database cannot.
     return !hostedWorkspace || isLocalDatabase();
   }
   const email = getRequestUserEmail();

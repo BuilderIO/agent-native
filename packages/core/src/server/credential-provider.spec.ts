@@ -907,6 +907,22 @@ describe("resolveBuilderCredential", () => {
     );
   });
 
+  it("does not treat Google service-account credentials as LLM keys", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/service-account.json";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(
+      canUseDeployCredentialFallbackForRequest(
+        "GOOGLE_APPLICATION_CREDENTIALS",
+      ),
+    ).toBe(false);
+    expect(await resolveSecret("GOOGLE_APPLICATION_CREDENTIALS")).toBeNull();
+  });
+
   it("blocks deploy-level LLM keys for hosted workspace background requests", async () => {
     process.env.NODE_ENV = "production";
     process.env.AGENT_NATIVE_WORKSPACE = "1";
@@ -2242,6 +2258,21 @@ describe("Builder gateway credential lane", () => {
     expect(
       canUseDeployCredentialFallbackForRequest("BUILDER_PRIVATE_KEY"),
     ).toBe(false);
+  });
+
+  it("keeps Builder credits deployment keys off production shared databases", () => {
+    hostedVisitor();
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    expect(
+      canUseDeployCredentialFallbackForRequest("BUILDER_GATEWAY_TOKEN"),
+    ).toBe(false);
+    expect(
+      canUseDeployCredentialFallbackForRequest("BUILDER_GATEWAY_SPACE_ID"),
+    ).toBe(false);
+    expect(readDeployCredentialEnv("BUILDER_GATEWAY_TOKEN")).toBeUndefined();
+    expect(readDeployCredentialEnv("BUILDER_GATEWAY_SPACE_ID")).toBeUndefined();
   });
 
   it("does not resolve the deploy pair for a hosted user without a connection", async () => {

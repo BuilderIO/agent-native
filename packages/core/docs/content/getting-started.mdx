@@ -79,6 +79,13 @@ in the deployment environment to share it as the app's fallback. Scoped user or
 organization keys take precedence. Hosted-workspace deployments backed by a
 shared database do not share deployment provider keys across apps or tenants.
 
+The runtime allows deployment-key fallback when the database is local PGlite or
+the app is outside a Hosted workspace runtime. In those cases, any signed-in
+user without a scoped key can use the deployment provider account across all
+organizations in the app, and usage is billed to that account. Configure it
+only when app-wide access and billing are intended; use scoped keys when tenants
+need separate credentials or billing.
+
 With PostgreSQL, users can also save a key through **Custom keys**. Choose
 Personal scope to keep it to your account; admins can choose Organization scope
 to share it with the workspace. The app stores saved keys in its encrypted

@@ -62,6 +62,8 @@ ANTHROPIC_API_KEY=replace-with-your-key
 
 本地服务器会将此密钥用作共享备用密钥，因此本地应用的用户无需在界面中添加密钥。自托管生产应用可以在部署环境中设置此密钥，并将其作为应用的共享备用密钥。已保存的用户或组织密钥优先使用。Hosted workspace 不会在应用或租户之间共享部署提供商密钥。
 
+当数据库是本地 PGlite，或应用运行在 Hosted workspace runtime 之外时，运行时允许将部署密钥用作备用密钥。在这些情况下，没有专属范围密钥的所有已登录用户都可以在应用的各个组织中使用部署提供商账户，费用计入该账户。仅当你希望在整个应用中共享访问权限和费用时才配置此密钥；如果各租户需要独立凭据或费用，请使用范围密钥。
+
 使用 PostgreSQL 时，用户也可以通过 **Custom keys** 保存密钥。选择个人范围可将密钥限于自己的账户；管理员可以选择组织范围，与工作区共享。应用会将保存的密钥保存在加密的数据库凭据存储中。
 
 如需使用 Builder 托管的提供商，请在 composer 中选择 **Use Builder.io**。有关支持的提供商密钥及其适用范围，请参阅[环境变量](/docs/environment-variables#optional-ai-search-and-email-fallbacks)。

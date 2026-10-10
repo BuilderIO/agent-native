@@ -62,6 +62,8 @@ ANTHROPIC_API_KEY=replace-with-your-key
 
 O servidor local usa essa chave como fallback compartilhado, então quem usa o app local não precisa adicionar uma chave na interface. Um app de produção auto-hospedado pode definir a chave no ambiente de implantação para compartilhá-la como fallback do app. Chaves salvas de usuário ou organização têm prioridade. Apps Hosted workspace não compartilham chaves de provedor da implantação entre apps ou locatários.
 
+O runtime permite a chave de implantação como fallback quando o banco de dados é o PGlite local ou quando o app é executado fora de um runtime do Hosted workspace. Nesses casos, qualquer usuário autenticado sem uma chave com escopo pode usar a conta do provedor da implantação em todas as organizações do app, e o consumo é cobrado nessa conta. Configure-a apenas se quiser compartilhar acesso e cobrança em todo o app; use chaves com escopo quando cada tenant precisar de credenciais ou cobrança separadas.
+
 Com PostgreSQL, os usuários também podem salvar uma chave em **Custom keys**. Escolha o escopo pessoal para limitar a chave à sua conta; administradores podem escolher o escopo da organização para compartilhá-la no workspace. O app armazena as chaves salvas no repositório criptografado de credenciais conectado ao banco de dados.
 
 Para usar o provedor gerenciado da Builder, selecione **Use Builder.io** no composer. Consulte [Variáveis de ambiente](/docs/environment-variables#optional-ai-search-and-email-fallbacks) para ver as chaves compatíveis e seu escopo.
