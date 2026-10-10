@@ -7,6 +7,7 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
       ownerEmail: "recordings.ownerEmail",
       chaptersJson: "recordings.chaptersJson",
       editsJson: "recordings.editsJson",
+      trashedAt: "recordings.trashedAt",
     },
     recordingTranscripts: { recordingId: "recordingTranscripts.recordingId" },
     recordingComments: {
@@ -21,6 +22,7 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
   const stored = {
     chaptersJson: "[]",
     editsJson: "{}",
+    preRollTrashed: false,
     // Racing saves, one landing just before each guarded update in turn.
     changedBeforeWrite: [] as { chaptersJson?: string; editsJson?: string }[],
   };
@@ -30,16 +32,19 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
     id,
     visibility: "private",
     durationMs: 60_000,
+    trashedAt: id === "pre_1" && stored.preRollTrashed ? "earlier" : null,
     chaptersJson: stored.chaptersJson,
     editsJson: stored.editsJson,
   });
   const matches = (where: any) =>
-    (where.and ?? [where]).every((c: { column: string; value: unknown }) =>
-      c.column === "recordings.chaptersJson"
-        ? c.value === stored.chaptersJson
-        : c.column === "recordings.editsJson"
-          ? c.value === stored.editsJson
-          : true,
+    (where.and ?? [where]).every((c: any) =>
+      c.isNull === "recordings.trashedAt"
+        ? !stored.preRollTrashed
+        : c.column === "recordings.chaptersJson"
+          ? c.value === stored.chaptersJson
+          : c.column === "recordings.editsJson"
+            ? c.value === stored.editsJson
+            : true,
     );
   const update = (table: unknown) => ({
     set: (patch: Record<string, unknown>) => {
@@ -49,6 +54,10 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
           if (!matches(where)) return [];
           stored.chaptersJson = patch.chaptersJson as string;
           stored.editsJson = patch.editsJson as string;
+        }
+        if (table === schema.recordings && "trashedAt" in patch) {
+          if (!matches(where)) return [];
+          stored.preRollTrashed = true;
         }
         written.push({ table, patch });
         return [{ id: "rec_1" }];
@@ -84,8 +93,18 @@ const { mockDb, schema, stored, written } = vi.hoisted(() => {
       }),
     }),
     update,
-    transaction: async (run: (tx: unknown) => Promise<unknown>) =>
-      run({ update }),
+    // Rolls back this transaction's writes on a throw, as Postgres does.
+    // Its recording update missed by then, so only the claim is undone.
+    transaction: async (run: (tx: unknown) => Promise<unknown>) => {
+      const before = { trashed: stored.preRollTrashed, written: [...written] };
+      try {
+        return await run({ update });
+      } catch (err) {
+        stored.preRollTrashed = before.trashed;
+        written.splice(0, written.length, ...before.written);
+        throw err;
+      }
+    },
   };
   return { mockDb, schema, stored, written };
 });
@@ -107,11 +126,13 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: (column: string, value: unknown) => ({ column, value }),
   and: (...conditions: unknown[]) => ({ and: conditions.filter(Boolean) }),
+  isNull: (column: string) => ({ isNull: column }),
   sql: () => ({ sql: true }),
 }));
 vi.mock("../server/db/index.js", () => ({ getDb: () => mockDb, schema }));
+const mockDispatch = vi.hoisted(() => vi.fn());
 vi.mock("../server/lib/post-finalize-dispatch.js", () => ({
-  dispatchPostFinalizeJob: vi.fn(),
+  dispatchPostFinalizeJob: mockDispatch,
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => "owner@example.com",
@@ -141,6 +162,8 @@ const demo = { startMs: 48_000, title: "Demo" };
 beforeEach(() => {
   stored.chaptersJson = JSON.stringify([intro]);
   stored.editsJson = "{}";
+  stored.preRollTrashed = false;
+  mockDispatch.mockReset();
   stored.changedBeforeWrite = [];
   written.length = 0;
 });
@@ -166,6 +189,7 @@ describe("apply-rewind-extension", () => {
     expect(
       written.filter((w) => w.table === schema.recordingComments),
     ).toHaveLength(1);
+    expect(written.filter((w) => "trashedAt" in w.patch)).toHaveLength(1);
   });
 
   it("shifts cuts saved after it read", async () => {
@@ -192,6 +216,60 @@ describe("apply-rewind-extension", () => {
     expect(written).toEqual([]);
     expect(JSON.parse(stored.chaptersJson)).toEqual([
       { startMs: 3, title: "Edit 3" },
+    ]);
+  });
+
+  it("doesn't shift again when the same Rewind is applied twice", async () => {
+    await action.run(args);
+    const once = { chapters: stored.chaptersJson, edits: stored.editsJson };
+    written.length = 0;
+    await expect(action.run(args)).resolves.toMatchObject({
+      request: { status: "applied" },
+    });
+    expect(stored.chaptersJson).toBe(once.chapters);
+    expect(stored.editsJson).toBe(once.edits);
+    expect(written).toEqual([]);
+  });
+
+  it("doesn't shift again when another apply of the same Rewind commits after this one read", async () => {
+    const transaction = mockDb.transaction;
+    mockDb.transaction = (run) => {
+      stored.preRollTrashed = true;
+      stored.chaptersJson = JSON.stringify([{ ...intro, startMs: 30_000 }]);
+      stored.editsJson = JSON.stringify({ rewindOriginalStartMs: 30_000 });
+      return transaction(run);
+    };
+    try {
+      await expect(action.run(args)).resolves.toMatchObject({
+        request: { status: "applied" },
+      });
+    } finally {
+      mockDb.transaction = transaction;
+    }
+    expect(written).toEqual([]);
+    expect(JSON.parse(stored.chaptersJson)).toEqual([
+      { ...intro, startMs: 30_000 },
+    ]);
+  });
+
+  it("refuses, writing nothing, when the pre-roll was deleted before any apply", async () => {
+    stored.preRollTrashed = true;
+    await expect(action.run(args)).rejects.toMatchObject({
+      errorCode: "rewind_preroll_unavailable",
+    });
+    expect(written).toEqual([]);
+    expect(JSON.parse(stored.chaptersJson)).toEqual([intro]);
+  });
+
+  it("asks for the thumbnail again when a retry finds the shift already made", async () => {
+    mockDispatch.mockRejectedValueOnce(new Error("queue down"));
+    await expect(action.run(args)).rejects.toThrow("queue down");
+    await expect(action.run(args)).resolves.toMatchObject({
+      request: { status: "applied" },
+    });
+    expect(mockDispatch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(stored.chaptersJson)).toEqual([
+      { ...intro, startMs: 30_000 },
     ]);
   });
 });

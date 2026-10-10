@@ -9,6 +9,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid, stringifySpaceIds } from "../server/lib/recordings.js";
 import { encryptSharePassword } from "../server/lib/share-password.js";
+import { EXPECTED_CHAPTERS_REQUIRED } from "../shared/stored-chapters.js";
 import {
   ChapterSchema,
   StoredChapterSchema,
@@ -67,7 +68,7 @@ export default defineAction({
       if (args.expectedChapters === undefined) {
         fail(
           "chaptersJson needs expectedChapters, the chapters this edit started from, so it can't replace chapters changed elsewhere.",
-          { errorCode: "expected_chapters_required", statusCode: 400 },
+          { errorCode: EXPECTED_CHAPTERS_REQUIRED, statusCode: 400 },
         );
       }
       await saveChapters({

@@ -14,6 +14,7 @@ import {
   CHAPTERS_BUSY,
   CHAPTERS_CHANGED,
   CHAPTERS_UNREADABLE,
+  EXPECTED_CHAPTERS_REQUIRED,
   parseStoredChapters,
   readStoredChapters,
   sameChapters,
@@ -65,10 +66,9 @@ export function parseList<T>(
 }
 
 /**
- * Writes a recording's chapters. With an expected list, version or cuts, the
- * write only lands over the stored values it was checked against, so it
- * never replaces chapters changed elsewhere; a refusal carries the current
- * chapters and cuts.
+ * Writes a recording's chapters, only over the stored list it was checked
+ * against (and the cuts, when given), so it never replaces chapters changed
+ * elsewhere; a refusal carries the current chapters and cuts.
  */
 export async function saveChapters(options: {
   recordingId: string;
@@ -76,11 +76,19 @@ export async function saveChapters(options: {
   expectedChapters: readonly StoredChapter[] | null;
   expectedVersion: string | null;
   expectedCuts: readonly CutRange[] | null;
+  /** Replace stored chapters that can't be read, rather than refuse. */
+  discardUnreadable?: boolean;
 }): Promise<{ id: string; chapters: StoredChapter[] }> {
   const { recordingId, expectedVersion } = options;
-  await assertAccess("recording", recordingId, "editor");
   const expected = options.expectedChapters;
   const expectedCuts = options.expectedCuts;
+  await assertAccess("recording", recordingId, "editor");
+  if (expected === null && expectedVersion === null) {
+    fail(
+      "Pass expectedChapters (the chapters this edit started from) or expectedVersion, so the save can't replace chapters changed elsewhere.",
+      { errorCode: EXPECTED_CHAPTERS_REQUIRED, statusCode: 400 },
+    );
+  }
   const db = getDb();
 
   const chapters = options.chapters
@@ -111,8 +119,6 @@ export async function saveChapters(options: {
   // The current list and cuts go back with a refusal, so the editor can
   // check against them without reloading the page's data. A stored list
   // that already holds what was asked for is no conflict.
-  const guardChapters = expected !== null || expectedVersion !== null;
-  const guarded = guardChapters || expectedCuts !== null;
   const refuse = (row: { chaptersJson: string; editsJson: string }) =>
     fail(
       "The chapters or cuts changed since this edit started. Read them again before saving.",
@@ -132,25 +138,24 @@ export async function saveChapters(options: {
   // again, so an unrelated edit (a thumbnail, say) doesn't refuse the save.
   let row: { chaptersJson: string; editsJson: string } = existing;
   for (let attempt = 1; ; attempt++) {
-    if (guarded) {
-      const { chapters: stored, unreadable } = readStoredChapters(
-        row.chaptersJson,
+    const { chapters: stored, unreadable } = readStoredChapters(
+      row.chaptersJson,
+    );
+    if (unreadable && !options.discardUnreadable) {
+      fail(
+        "The stored chapters include entries that can't be read, and this save would delete them. Nothing was saved. If the user asked to replace them, call again with discardUnreadable.",
+        { errorCode: CHAPTERS_UNREADABLE, statusCode: 409 },
       );
-      if (unreadable) {
-        fail(
-          "The stored chapters include entries that can't be read, and this save would delete them. Nothing was saved.",
-          { errorCode: CHAPTERS_UNREADABLE, statusCode: 409 },
-        );
-      }
-      if (sameChapters(stored, chapters)) return done();
-      if (
-        (expected && !sameChapters(stored, expected)) ||
-        (expectedVersion !== null &&
-          chaptersVersionOf(row.chaptersJson) !== expectedVersion) ||
-        (expectedCuts && !sameCuts(cutRanges(row.editsJson), expectedCuts))
-      ) {
-        refuse(row);
-      }
+    }
+    // The unreadable entries still have to go, even when the rest match.
+    if (!unreadable && sameChapters(stored, chapters)) return done();
+    if (
+      (expected && !sameChapters(stored, expected)) ||
+      (expectedVersion !== null &&
+        chaptersVersionOf(row.chaptersJson) !== expectedVersion) ||
+      (expectedCuts && !sameCuts(cutRanges(row.editsJson), expectedCuts))
+    ) {
+      refuse(row);
     }
     if (attempt > MAX_ATTEMPTS) {
       fail("The recording kept changing during the save. Try again.", {
@@ -167,11 +172,9 @@ export async function saveChapters(options: {
       .where(
         and(
           eq(schema.recordings.id, recordingId),
-          // Only what the caller guarded: an unguarded field changing
-          // (the editor's autosaved trims, say) mustn't miss the update.
-          guardChapters
-            ? eq(schema.recordings.chaptersJson, row.chaptersJson)
-            : undefined,
+          eq(schema.recordings.chaptersJson, row.chaptersJson),
+          // Cuts only when the caller guarded them: otherwise the editor's
+          // autosaved trims would make the update miss.
           expectedCuts
             ? eq(schema.recordings.editsJson, row.editsJson)
             : undefined,

@@ -11,7 +11,7 @@ import {
 
 export default defineAction({
   description:
-    "Overwrite the chapters on a recording. Chapters are {startMs,title} entries that appear as markers on the timeline and in the player.",
+    "Overwrite the chapters on a recording. Chapters are {startMs,title} entries that appear as markers on the timeline and in the player. Pass the chapters the edit started from as expectedChapters (get-recording-player-data returns them) or expectedVersion; a save over chapters changed meanwhile is refused.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
     chapters: z
@@ -23,20 +23,27 @@ export default defineAction({
       .union([z.string(), z.array(StoredChapterSchema)])
       .optional()
       .describe(
-        "Optional. The chapters this edit started from; if the stored chapters differ, nothing is written and the call fails with errorCode chapters_changed.",
+        "The chapters this edit started from (this or expectedVersion is required); if the stored chapters differ, nothing is written and the call fails with errorCode chapters_changed.",
       ),
     expectedVersion: z
       .string()
       .min(1)
       .optional()
       .describe(
-        "Optional. The chapters' version token this edit started from (regenerate-chapters gives one); if the stored chapters' version differs, nothing is written and the call fails with errorCode chapters_changed.",
+        "The chapters' version token this edit started from (regenerate-chapters gives one); if the stored chapters' version differs, nothing is written and the call fails with errorCode chapters_changed.",
       ),
     expectedCuts: z
       .union([z.string(), z.array(CutRangeSchema)])
       .optional()
       .describe(
         "Optional. The cut ranges ({startMs,endMs}, original-media ms) the chapter times were mapped through; if the recording's cuts differ, nothing is written and the call fails with errorCode chapters_changed.",
+      ),
+    discardUnreadable: z
+      .union([z.boolean(), z.enum(["true", "false"])])
+      .transform((value) => value === true || value === "true")
+      .optional()
+      .describe(
+        "Only after a chapters_unreadable refusal, and only when the user asked to replace the chapters: drops the stored entries that can't be read. The expected chapters are still checked.",
       ),
   }),
   run: async (args) => {
@@ -58,6 +65,7 @@ export default defineAction({
               "invalid_chapters",
             ),
       expectedVersion: args.expectedVersion ?? null,
+      discardUnreadable: args.discardUnreadable ?? false,
       expectedCuts:
         args.expectedCuts === undefined
           ? null

@@ -147,9 +147,42 @@ describe("set-chapters", () => {
       action.run({
         recordingId: "rec_1",
         chapters: [intro, { startMs: 30_000, title: "  " }],
+        expectedChapters: [],
       } as any),
     ).rejects.toMatchObject({ errorCode: "invalid_chapters" });
     expect(written).toHaveLength(0);
+  });
+
+  it("replaces unreadable entries only when asked to, still checking the list", async () => {
+    stored.chaptersJson = JSON.stringify([intro, { startMs: "soon" }]);
+    await expect(
+      action.run({
+        recordingId: "rec_1",
+        chapters: [demo],
+        expectedChapters: [demo],
+        discardUnreadable: true,
+      } as any),
+    ).rejects.toMatchObject({ errorCode: "chapters_changed" });
+    await action.run(
+      action.schema.parse({
+        recordingId: "rec_1",
+        chapters: [demo],
+        expectedChapters: [intro],
+        discardUnreadable: "true",
+      }) as any,
+    );
+    expect(written).toHaveLength(1);
+  });
+
+  it("drops unreadable entries when asked to, even if the rest is unchanged", async () => {
+    stored.chaptersJson = JSON.stringify([intro, { startMs: "soon" }]);
+    await action.run({
+      recordingId: "rec_1",
+      chapters: [intro],
+      expectedChapters: [intro],
+      discardUnreadable: true,
+    } as any);
+    expect(written).toHaveLength(1);
   });
 
   it("refuses a guarded save that would delete stored entries it can't read", async () => {
@@ -193,12 +226,34 @@ describe("set-chapters", () => {
     ).toThrow();
   });
 
-  it("still overwrites when no expected chapters are given", async () => {
+  it.each([
+    ["no expected chapters", {}],
+    ["only expected cuts", { expectedCuts: [] }],
+  ])("refuses a save with %s, and writes nothing", async (_, extra) => {
     stored.chaptersJson = JSON.stringify([intro, demo]);
-    await action.run({ recordingId: "rec_1", chapters: [demo] } as any);
+    await expect(
+      action.run({ recordingId: "rec_1", chapters: [demo], ...extra } as any),
+    ).rejects.toMatchObject({ errorCode: "expected_chapters_required" });
+    expect(written).toEqual([]);
+  });
+
+  it("checks the stored chapters in the update even when only the version is given", async () => {
+    await action.run({
+      recordingId: "rec_1",
+      chapters: [demo],
+      expectedVersion: chaptersVersionOf(JSON.stringify([intro])),
+    } as any);
     expect(written).toEqual([
       expect.objectContaining({
-        condition: { and: [{ column: "recordings.id", value: "rec_1" }] },
+        condition: {
+          and: [
+            { column: "recordings.id", value: "rec_1" },
+            {
+              column: "recordings.chaptersJson",
+              value: JSON.stringify([intro]),
+            },
+          ],
+        },
       }),
     ]);
   });
@@ -405,7 +460,11 @@ describe("set-chapters expected cuts", () => {
       }),
     }));
     await expect(
-      action.run({ recordingId: "rec_1", chapters: [demo] } as any),
+      action.run({
+        recordingId: "rec_1",
+        chapters: [demo],
+        expectedChapters: [],
+      } as any),
     ).rejects.toMatchObject({ errorCode: "recording_not_found" });
     expect(written).toHaveLength(0);
   });
