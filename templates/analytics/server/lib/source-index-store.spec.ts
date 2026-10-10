@@ -62,4 +62,42 @@ describe("sourceIndexDictionaryEntries", () => {
       "semanticScope",
     );
   });
+
+  it("defaults index entries to active and preserves deprecated status", () => {
+    const bundle = parseSourceIndexBundle({
+      schemaVersion: 1,
+      generatedAt: "2026-10-09T12:00:00.000Z",
+      sources: [{ id: "dbt", revision: "abcdef123456" }],
+      entries: [
+        {
+          id: "model-active",
+          metric: "model:active",
+          definition: "Active model.",
+          source: "dbt",
+        },
+        {
+          id: "model-deprecated",
+          metric: "model:deprecated",
+          definition: "Deprecated model.",
+          source: "dbt",
+          status: "deprecated",
+        },
+      ],
+    });
+
+    expect(
+      sourceIndexDictionaryEntries(bundle).map((entry) => ({
+        id: entry.id,
+        status: entry.status,
+        approved: entry.approved,
+      })),
+    ).toEqual([
+      { id: "index-model-active", status: "active", approved: false },
+      {
+        id: "index-model-deprecated",
+        status: "deprecated",
+        approved: false,
+      },
+    ]);
+  });
 });

@@ -566,6 +566,7 @@ export default {
     approved: "aprobado",
     suggestion: "sugerencia",
     unreviewed: "sin revisar",
+    deprecated: "obsoleto",
     ai: "AI",
     source: "fuente",
     deleteTitle: '¿Eliminar "{{metric}}"?',
@@ -618,6 +619,8 @@ export default {
       "No se pudo leer el índice guardado; vuelve a importar un archivo válido.",
     indexReadFailed:
       "No se pudo comprobar el índice guardado. Inténtalo de nuevo.",
+    generatedEntriesMayBeMissing:
+      "Puede que falten entradas de fuentes generadas; las entradas guardadas siguen disponibles.",
     indexReady: "{{count}} definiciones de fuentes generadas el {{date}}.",
     indexStale:
       "La instantánea tiene {{days}} días. Actualízala para comprobar si hay revisiones más recientes.",

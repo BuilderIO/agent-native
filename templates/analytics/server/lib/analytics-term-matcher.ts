@@ -170,6 +170,20 @@ const PRODUCT_TERMS = new Set([
   "tab",
   "widget",
 ]);
+const GENERIC_NAME_TERMS = new Set([
+  "count",
+  "data",
+  "dimension",
+  "distribution",
+  "fact",
+  "measure",
+  "metric",
+  "model",
+  "product",
+  "report",
+  "table",
+  "view",
+]);
 const MAX_SCORED_FIELD_CHARS = 4_000;
 
 function stem(token: string): string {
@@ -209,6 +223,22 @@ export function searchTerms(search: string): string[] {
   const meaningful = meaningfulTerms(search);
   if (meaningful.length) return meaningful;
   return Array.from(new Set(tokenize(search)));
+}
+
+export function unrelatedNameTerms(search: string, name: string): string[] {
+  const relatedTerms = new Set(searchTerms(search));
+  for (const term of searchTerms(search)) {
+    for (const synonym of SYNONYM_EXPANSIONS[term] ?? []) {
+      relatedTerms.add(stem(synonym));
+    }
+  }
+  return searchTerms(name).filter(
+    (term) =>
+      !relatedTerms.has(term) &&
+      !LOW_INFORMATION_TERMS.has(term) &&
+      !PRODUCT_TERMS.has(term) &&
+      !GENERIC_NAME_TERMS.has(term),
+  );
 }
 
 export function relevanceTerms(search: string): string[] {
@@ -290,11 +320,18 @@ export function semanticScopeCompatibility(
 export function matchSearchFields(
   search: string,
   weightedFields: Array<{ value: unknown; weight: number }>,
-): { score: number; matchedTerms: string[] } {
+): {
+  score: number;
+  matchedTerms: string[];
+  exactMatchedTerms: string[];
+} {
   const terms = searchTerms(search);
-  if (!terms.length) return { score: 0, matchedTerms: [] };
+  if (!terms.length) {
+    return { score: 0, matchedTerms: [], exactMatchedTerms: [] };
+  }
   const normalizedSearch = search.toLowerCase().trim();
   const matched = new Set<string>();
+  const exactMatched = new Set<string>();
   let score = 0;
   for (const field of weightedFields) {
     const raw =
@@ -310,6 +347,7 @@ export function matchSearchFields(
     for (const term of terms) {
       if (!tokens.has(term)) continue;
       matched.add(term);
+      exactMatched.add(term);
       score += field.weight * (LOW_INFORMATION_TERMS.has(term) ? 0.3 : 1);
     }
     for (const term of terms) {
@@ -322,7 +360,11 @@ export function matchSearchFields(
   }
   const coverageWeight = Math.min(terms.length, 3) / 3;
   score += 40 * (matched.size / terms.length) * coverageWeight;
-  return { score: Math.round(score), matchedTerms: [...matched] };
+  return {
+    score: Math.round(score),
+    matchedTerms: [...matched],
+    exactMatchedTerms: [...exactMatched],
+  };
 }
 
 function cursorQueryHash(search: string): string {
