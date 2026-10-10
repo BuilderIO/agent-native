@@ -211,6 +211,7 @@
       "catalogItems": ["app-chat"],
       "entrypoints": [
         "./app/chat",
+        "./app/chat/agent-sidebar-events",
         "./app/chat/agentkit-chat",
         "./app/chat/chat",
         "./app/chat/chat-first",
@@ -1286,12 +1287,14 @@
         "@agent-native/core/client/analytics",
         "@agent-native/core/client/hooks",
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/mcp-connect-identity",
         "@agent-native/core/client/sharing/useAccessRequestReview",
         "@agent-native/core/client/sharing/useShareButtonController",
         "@agent-native/core/client/sharing/useShareDialogController",
         "@agent-native/core/client/sign-in-return",
         "@agent-native/core/client/use-action",
-        "@agent-native/core/client/use-avatar"
+        "@agent-native/core/client/use-avatar",
+        "@agent-native/core/shared/mcp-connect-content"
       ]
     },
     {

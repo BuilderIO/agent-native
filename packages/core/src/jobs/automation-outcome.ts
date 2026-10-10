@@ -127,6 +127,7 @@ export function isTransientAutomationFailureCode(
 }
 
 export interface AutomationFailure {
+  deliveryNote?: string;
   /** Typed code persisted as `lastErrorCode` and the run's `error_code`. */
   code: string;
   /** The real cause, never a generic status sentence. */
@@ -168,6 +169,11 @@ export function classifyAutomationFailure(error: unknown): AutomationFailure {
   return {
     code,
     message,
+    ...(error instanceof Error &&
+    "deliveryNote" in error &&
+    typeof error.deliveryNote === "string"
+      ? { deliveryNote: error.deliveryNote }
+      : {}),
     precondition:
       isAutomationPreconditionCode(code) || isCredentialPreconditionCode(code),
   };
@@ -224,30 +230,40 @@ export function isPausedByFramework(
   return !meta.enabled && Boolean(meta.pausedReason);
 }
 
-function truncate(value: string): string {
-  return value.length > MAX_RECORDED_ERROR_CHARS
-    ? `${value.slice(0, MAX_RECORDED_ERROR_CHARS - 1)}…`
-    : value;
+function truncate(value: string, limit = MAX_RECORDED_ERROR_CHARS): string {
+  return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 }
 
 export function pausedMessage(
   code: string,
   count: number,
   message: string,
+  deliveryNote?: string,
 ): string {
   const next = isTransientAutomationFailureCode(code)
     ? "It retries on its own and resumes once this clears."
     : "Fix the cause, then enable the automation again.";
-  return truncate(
-    `Paused after ${count} consecutive ${code} failures: ${message} ${next}`,
-  );
+  const detail = `Paused after ${count} consecutive ${code} failures: ${message} ${next}`;
+  return deliveryNote
+    ? withDeliveryNote(detail, deliveryNote)
+    : truncate(detail);
 }
 
 /** The cause first, then the delivery note owners already know. */
-export function withDeliveryNote(message: string): string {
-  return truncate(
-    `${message.trim().replace(/\.$/, "")}. No delivery was confirmed.`,
+export function withDeliveryNote(
+  message: string,
+  deliveryNote = "No delivery was confirmed.",
+): string {
+  const note = truncate(deliveryNote, 300);
+  const detail = message.trim();
+  const cause = truncate(
+    (detail.endsWith(note) && note
+      ? detail.slice(0, -note.length).trim()
+      : detail
+    ).replace(/\.$/, ""),
+    MAX_RECORDED_ERROR_CHARS - note.length - 2,
   );
+  return `${cause}. ${note}`;
 }
 
 /**
@@ -270,7 +286,10 @@ export function applyAutomationFailure(
   now: Date,
   options: { countTowardPause?: boolean; eventId?: string } = {},
 ): FailureTransition {
-  const recordedMessage = withDeliveryNote(failure.message);
+  const recordedMessage = withDeliveryNote(
+    failure.message,
+    failure.deliveryNote,
+  );
   const retryOfCountedEvent =
     options.eventId !== undefined && options.eventId === meta.lastFailedEventId;
   if (options.countTowardPause === false || retryOfCountedEvent) {
@@ -299,7 +318,12 @@ export function applyAutomationFailure(
     patch: {
       lastStatus: pause ? "paused" : "error",
       lastError: pause
-        ? pausedMessage(failure.code, count, failure.message)
+        ? pausedMessage(
+            failure.code,
+            count,
+            failure.message,
+            failure.deliveryNote,
+          )
         : recordedMessage,
       lastErrorCode: failure.code,
       consecutiveFailures: count,

@@ -42,6 +42,14 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 }));
 
 vi.mock("../resources/store.js", () => ({
+  ensureTable: vi.fn(async () => {}),
+  SHARED_OWNER: "__shared__",
+  resourcePutIfCurrentInTransaction: async (input: unknown) => {
+    const resource = await resourcePutIfCurrentMock(input);
+    return resource ? { resource, notify: vi.fn() } : null;
+  },
+  organizationResourceOwner: (orgId: string) =>
+    `__organization__:${encodeURIComponent(orgId)}`,
   organizationIdFromResourceOwner: (owner: string) =>
     owner.startsWith("__organization__:")
       ? owner.slice("__organization__:".length)
@@ -142,7 +150,7 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    getDbExec: getDbExecMock,
+    getDbExec: () => actual.getScopedDbExec() ?? getDbExecMock(),
   };
 });
 
@@ -166,7 +174,12 @@ describe("processRecurringJobs", () => {
     process.env = { ...originalEnv };
     vi.clearAllMocks();
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
-    getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
+    getDbExecMock.mockReturnValue({
+      execute: dbExecuteMock,
+      transaction: async (
+        fn: (tx: { execute: typeof dbExecuteMock }) => Promise<unknown>,
+      ) => fn({ execute: dbExecuteMock }),
+    });
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-1",
@@ -1584,19 +1597,25 @@ createdBy: alice+jobs@agent-native.test
 Post the digest.`,
       },
     ]);
-    resourceGetByPathMock.mockResolvedValue({
-      id: "resource-edited",
-      owner: "alice+jobs@agent-native.test",
-      path: "jobs/channel-digest.md",
-      content: `---
+    resourceGetByPathMock.mockImplementation(async () => {
+      const running = parseJobResource(resourcePutMock.mock.calls[0]![2]).meta;
+      return {
+        id: "resource-edited",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/channel-digest.md",
+        content: `---
 schedule: "0 21 * * *"
 timezone: Asia/Tokyo
 nextRun: "1970-01-01T00:00:00.000Z"
 enabled: true
 createdBy: alice+jobs@agent-native.test
+lastRun: ${running.lastRun}
+lastHistoryId: ${running.lastHistoryId}
+lastStatus: running
 ---
 
 Post the revised digest.`,
+      };
     });
 
     await processRecurringJobs({

@@ -109,6 +109,8 @@ export const mcpSettingsMessages: McpSettingsMessages = {
   mcpStaticTokenDescription:
     "Abre la página completa de conexión para crear un token para clientes que no pueden completar OAuth.",
   mcpOpenConnectPage: "Abrir página completa de conexión",
+  mcpIdentityError: "No se pudieron cargar los datos de conexión de esta app.",
+  mcpRetry: "Reintentar",
   mcpConnect: mcpConnectMessages,
 };
 

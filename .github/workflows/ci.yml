@@ -295,6 +295,16 @@ jobs:
           )
           exit "$status"
 
+      - name: Run isolated Design HTML integrity performance checks
+        if: >-
+          matrix.lane == 'lane-1' &&
+          (needs.change-scope.outputs.full == 'true' ||
+           contains(needs.change-scope.outputs.test_workspace_filters, '{templates/design}'))
+        working-directory: templates/design
+        env:
+          VITEST_CONCURRENCY: "1"
+        run: pnpm run test:perf
+
   test-targeted:
     name: Fast tests targeted ${{ matrix.lane }}
     needs: change-scope
@@ -411,12 +421,22 @@ jobs:
           )
           exit "$status"
 
+      - name: Run isolated Design HTML integrity performance checks
+        if: >-
+          matrix.lane == 'lane-1' &&
+          (needs.change-scope.outputs.full == 'true' ||
+           contains(needs.change-scope.outputs.test_workspace_filters, '{templates/design}'))
+        working-directory: templates/design
+        env:
+          VITEST_CONCURRENCY: "1"
+        run: pnpm run test:perf
+
   design-canvas-interaction-acceptance:
     name: Design canvas interaction acceptance (${{ matrix.shard }})
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.shard == 'ai-sidebar-loopback' && 20 || 9 }}
+    timeout-minutes: ${{ matrix.shard == 'music-app-workflow' && 25 || matrix.shard == 'ai-sidebar-loopback' && 20 || 9 }}
     strategy:
       fail-fast: false
       matrix:
@@ -442,6 +462,7 @@ jobs:
             screen-history-2,
             screen-history-3,
             ai-sidebar-loopback,
+            music-app-workflow,
           ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -501,8 +522,46 @@ jobs:
           E2E_AI_SIDEBAR_LOOPBACK: "1"
         run: pnpm exec playwright test e2e/ai-sidebar-reporter-path.spec.ts --workers=1 --retries=0
 
+      - name: Run long music-app workflow regression
+        if: ${{ matrix.shard == 'music-app-workflow' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/interaction-responsive-music-app.spec.ts') }}
+        working-directory: templates/design
+        timeout-minutes: 23
+        env:
+          E2E_RUN_ID: design-music-app-${{ github.run_id }}-${{ github.run_attempt }}
+          DESIGN_CANVAS_E2E_SPECS: ${{ needs.change-scope.outputs.design_canvas_e2e_specs }}
+        run: |
+          set -euo pipefail
+          music_app_spec='e2e/interaction-responsive-music-app.spec.ts'
+          changed_specs_file="$RUNNER_TEMP/design-canvas-e2e-specs.nul"
+          node --experimental-strip-types ../../scripts/design-e2e-spec-selection.ts > "$changed_specs_file"
+          mapfile -d '' -t existing_changed_specs < "$changed_specs_file"
+          if [[ ! -f "$music_app_spec" ]]; then
+            echo "::error::The selected music-app workflow spec is missing."
+            exit 2
+          fi
+          if ((${#existing_changed_specs[@]} == 0)); then
+            echo "::error::The music-app workflow regression was selected but no runnable changed spec resolved."
+            exit 2
+          fi
+          if ! printf '%s\n' "${existing_changed_specs[@]}" | grep -Fqx "$music_app_spec"; then
+            echo "::error::The music-app workflow regression was selected but is absent from the runnable changed specs."
+            exit 2
+          fi
+          pnpm exec playwright test "$music_app_spec" \
+            --grep 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$' \
+            --workers=1 --retries=0 --trace on
+
+      - name: Upload music-app workflow diagnostics
+        if: ${{ failure() && matrix.shard == 'music-app-workflow' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: design-music-app-${{ github.run_id }}-${{ github.run_attempt }}
+          path: templates/design/test-results/design-music-app-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Run focused Design regression cases
-        if: ${{ !startsWith(matrix.shard, 'screen-history-') && matrix.shard != 'ai-sidebar-loopback' }}
+        if: ${{ !startsWith(matrix.shard, 'screen-history-') && matrix.shard != 'ai-sidebar-loopback' && matrix.shard != 'music-app-workflow' }}
         working-directory: templates/design
         timeout-minutes: 4
         env:
@@ -618,7 +677,7 @@ jobs:
           fi
           changed_shard="${{ matrix.shard }}"
           changed_shard="${changed_shard#changed-}"
-          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48"
+          pnpm exec playwright test "${existing_changed_specs[@]}" --workers=1 --fully-parallel --shard="${changed_shard}/48" --grep-invert 'create a responsive music-app (desktop shell under a Screen root|tablet Screen from the desktop shell)$'
 
   pre-auth-session-replay-smoke:
     name: Pre-auth session replay smoke
@@ -1100,7 +1159,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -1163,12 +1222,16 @@ jobs:
 
       - name: Run deterministic authoring smoke in WebKit
         working-directory: templates/slides
+        env:
+          SLIDES_AUTHORING_FUZZ_TRACE: "1"
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
           --seed 16 --steps 80 --browser webkit
 
       - name: Run deterministic authoring smoke in Firefox
         working-directory: templates/slides
+        env:
+          SLIDES_AUTHORING_FUZZ_TRACE: "1"
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
           --seed 16 --steps 80 --browser firefox

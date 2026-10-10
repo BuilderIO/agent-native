@@ -442,7 +442,10 @@ const messages = {
     automationSourceSentryHint: "أخطاء غير محلولة.",
     automationSlackChannel: "معرّف قناة Slack",
     automationSlackChannelDescription:
-      "القناة التي تستطلعها هذه المهمة. تبدأ بـ C.",
+      "قناة Slack التي تقرؤها هذه المهمة أو تنشر فيها تقارير مجمّعة. تبدأ بـ C.",
+    automationFindingsSlackChannel: "قناة تقارير Slack",
+    automationFindingsSlackChannelDescription:
+      "تُجمع النتائج المؤهلة من GitHub وSentry في رسالة واحدة بهذه القناة.",
     automationRepository: "مستودع GitHub",
     automationRepositoryDescription: "owner/repo الذي تستطلعه هذه المهمة.",
     automationSentryOrg: "منظمة Sentry",

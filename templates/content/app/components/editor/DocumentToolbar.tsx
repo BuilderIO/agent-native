@@ -104,6 +104,11 @@ const ShareButton = lazy(() =>
     default: m.ShareButton,
   })),
 );
+const McpInstallActions = lazy(() =>
+  import("@agent-native/toolkit/app/sharing").then((m) => ({
+    default: m.McpInstallActions,
+  })),
+);
 
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
 import {
@@ -134,6 +139,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -1323,6 +1329,23 @@ export function DocumentToolbar({
     [agentPrompt, documentId],
   );
 
+  const mcpSettingsRoute = buildSettingsRoute("mcp");
+
+  const handleOpenMcpSettings = useCallback(() => {
+    void navigate(mcpSettingsRoute);
+  }, [mcpSettingsRoute, navigate]);
+
+  const handleMcpInstall = useCallback(
+    (client: string) => {
+      trackEvent("mcp_install_link_opened", {
+        resource_type: "document",
+        resource_id: documentId,
+        client,
+      });
+    },
+    [documentId],
+  );
+
   const handleRevealLocalPath = useCallback(async () => {
     try {
       const result = await revealLinkedLocalSourceFile(source);
@@ -1716,6 +1739,27 @@ export function DocumentToolbar({
                           <p className="text-xs text-muted-foreground">
                             {t("editor.toolbar.agentCopyAccessNote")}
                           </p>
+                          <Suspense
+                            fallback={
+                              <div className="space-y-1 border-t border-border pt-3">
+                                <div className="text-xs font-medium text-muted-foreground">
+                                  {t("editor.toolbar.connectContent")}
+                                </div>
+                                <Skeleton className="h-28 w-full" />
+                              </div>
+                            }
+                          >
+                            <McpInstallActions
+                              className="border-t border-border pt-3"
+                              heading={t("editor.toolbar.connectContent")}
+                              otherClients={{
+                                label: t("editor.toolbar.otherAgents"),
+                                href: appPath(mcpSettingsRoute),
+                                onNavigate: handleOpenMcpSettings,
+                              }}
+                              onInstall={handleMcpInstall}
+                            />
+                          </Suspense>
                         </div>
                       )
                     }

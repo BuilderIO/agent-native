@@ -1310,15 +1310,46 @@ function sanitizeVerificationErrorRedirect(
   location: string,
   requestUrl: string,
 ): string {
+  const basePath = getAppBasePath();
+  const config = getAppConfig();
+  const homePath = resolveAppHomePath(config.app, config.workspace);
+  const request = new URL(requestUrl);
+  let callback: URL;
   try {
-    const parsed = new URL(location, requestUrl);
-    parsed.searchParams.set("error", "verification_link_invalid");
-    return /^[a-z][a-z\d+.-]*:/i.test(location)
-      ? parsed.toString()
-      : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    callback = new URL(location, request);
   } catch {
-    return location;
+    return `${basePath}${SIGN_IN_ENTRY_PATH}?error=verification_link_invalid`;
   }
+  callback.searchParams.delete("error");
+  callback.searchParams.delete("verified");
+  const sameOrigin = callback.origin === request.origin;
+  const journey = signInJourney({
+    at: sameOrigin
+      ? `${callback.pathname}${callback.search}${callback.hash}`
+      : "",
+    continuation: sameOrigin
+      ? callback.searchParams.get(SIGN_IN_CONTINUATION_PARAM)
+      : null,
+    legacyReturn: sameOrigin
+      ? callback.searchParams.get(SIGN_IN_LEGACY_RETURN_PARAM)
+      : null,
+    basePath,
+    homePath,
+  });
+  const resume = new URL(journey.resumeHref, request);
+  resume.searchParams.delete("error");
+  resume.searchParams.delete("verified");
+  const signInHref =
+    journey.signInHref ??
+    signInJourney({
+      at: `${resume.pathname}${resume.search}${resume.hash}`,
+      basePath,
+      homePath,
+    }).signInHref ??
+    `${basePath}${SIGN_IN_ENTRY_PATH}`;
+  const recovery = new URL(signInHref, request);
+  recovery.searchParams.set("error", "verification_link_invalid");
+  return `${recovery.pathname}${recovery.search}`;
 }
 
 function appendVerifiedParamToLocation(location: string): string {
@@ -3979,7 +4010,9 @@ function createAuthGuardFn(
     // `device/poll` (exchange an approved code for the token) — both must be
     // reachable without a browser session because the CLI has none. They are
     // protected by short-TTL, single-use, crypto-random codes + a creation
-    // rate-limit, not cookies.
+    // rate-limit, not cookies. `identity` is public too: it returns only the
+    // server name and MCP URL a client config stores, and the CLI reads it
+    // before any sign-in.
     //
     // The standard remote-MCP OAuth endpoints also bypass here: metadata and
     // dynamic client registration are public by design; `/oauth/token` is
@@ -3995,12 +4028,14 @@ function createAuthGuardFn(
       p === "/_agent-native/mcp/connect" ||
       p === "/_agent-native/mcp/connect/device/start" ||
       p === "/_agent-native/mcp/connect/device/poll" ||
+      p === "/_agent-native/mcp/connect/identity" ||
       p === "/_agent-native/mcp/oauth/authorize" ||
       p === "/_agent-native/mcp/oauth/token" ||
       p === "/_agent-native/mcp/oauth/register" ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect` ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start` ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/poll` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect/identity` ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/authorize` ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/token` ||
       p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/register`

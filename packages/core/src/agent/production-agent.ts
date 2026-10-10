@@ -1794,6 +1794,7 @@ export interface ProductionAgentOptions {
     message: string;
     displayMessage?: string;
     attachments: AgentChatAttachment[];
+    structuredHistory?: AgentChatStructuredMessage[];
     references: AgentChatReference[];
     threadId?: string;
     requestContext: string;
@@ -2284,7 +2285,13 @@ function sanitizeDurableAttachment(
       attachmentCollection,
       key,
     );
-    if (next !== OMIT_DURABLE_DISPATCH_VALUE) sanitized[key] = next;
+    if (next !== OMIT_DURABLE_DISPATCH_VALUE)
+      Object.defineProperty(sanitized, key, {
+        value: next,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
   }
   return sanitized;
 }
@@ -7328,6 +7335,8 @@ export async function runAgentLoop(opts: {
           requestedActionStop = null;
         }
       };
+      const wireToolInput = JSON.stringify(toolCall.input ?? {});
+      const journalToolInput = JSON.parse(wireToolInput);
       let toolDoneEmitted = false;
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
@@ -7338,7 +7347,6 @@ export async function runAgentLoop(opts: {
       };
       const toolInputNormalized =
         placeholderNormalization.changed || jsonStringCoercion.changed;
-      const wireToolInput = JSON.stringify(toolCall.input ?? {});
       const normalizedToolInput = normalizeToolCallInputForHistory(
         toolCall.input,
         toolCall.name,
@@ -7461,13 +7469,13 @@ export async function runAgentLoop(opts: {
           type: "tool_start",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, string>,
+          input: journalToolInput as Record<string, string>,
         });
         emitToolDone({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
+          input: journalToolInput as Record<string, unknown>,
           result,
           isError: true,
           completedSideEffect: false,
@@ -7499,13 +7507,13 @@ export async function runAgentLoop(opts: {
           type: "tool_start",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, string>,
+          input: journalToolInput as Record<string, string>,
         });
         emitToolDone({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
+          input: journalToolInput as Record<string, unknown>,
           result,
           isError: true,
           completedSideEffect: false,
@@ -7601,12 +7609,12 @@ export async function runAgentLoop(opts: {
             type: "tool_start",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, string>,
+            input: journalToolInput as Record<string, string>,
           });
           send({
             type: "approval_required",
             tool: toolCall.name,
-            input: toolCall.input as Record<string, string>,
+            input: journalToolInput as Record<string, string>,
             approvalKey,
             ...(actionEntry.allowPersistentApproval === false
               ? { allowPersistentApproval: false }
@@ -7643,7 +7651,7 @@ export async function runAgentLoop(opts: {
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, unknown>,
+            input: journalToolInput as Record<string, unknown>,
             result,
             completedSideEffect: false,
           });
@@ -7700,13 +7708,13 @@ export async function runAgentLoop(opts: {
             type: "tool_start",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, string>,
+            input: journalToolInput as Record<string, string>,
           });
           emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, unknown>,
+            input: journalToolInput as Record<string, unknown>,
             result,
             completedSideEffect: true,
             replayed: true,
@@ -7777,13 +7785,13 @@ export async function runAgentLoop(opts: {
               type: "tool_start",
               id: toolCall.id,
               tool: toolCall.name,
-              input: toolCall.input as Record<string, string>,
+              input: journalToolInput as Record<string, string>,
             });
             emitToolDone({
               type: "tool_done",
               id: toolCall.id,
               tool: toolCall.name,
-              input: toolCall.input as Record<string, unknown>,
+              input: journalToolInput as Record<string, unknown>,
               result,
               completedSideEffect: true,
               replayed: true,
@@ -7813,13 +7821,13 @@ export async function runAgentLoop(opts: {
             type: "tool_start",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, string>,
+            input: journalToolInput as Record<string, string>,
           });
           emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, unknown>,
+            input: journalToolInput as Record<string, unknown>,
             result,
             isError: true,
           });
@@ -7856,7 +7864,7 @@ export async function runAgentLoop(opts: {
         type: "tool_start",
         id: toolCall.id,
         tool: toolCall.name,
-        input: toolCall.input as Record<string, string>,
+        input: journalToolInput as Record<string, string>,
       });
 
       try {
@@ -7875,7 +7883,7 @@ export async function runAgentLoop(opts: {
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, unknown>,
+            input: journalToolInput as Record<string, unknown>,
             result,
             isError: true,
             completedSideEffect: false,
@@ -7909,7 +7917,7 @@ export async function runAgentLoop(opts: {
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, unknown>,
+            input: journalToolInput as Record<string, unknown>,
             result,
             isError: true,
             completedSideEffect: false,
@@ -7963,7 +7971,7 @@ export async function runAgentLoop(opts: {
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, unknown>,
+            input: journalToolInput as Record<string, unknown>,
             result,
             completedSideEffect: false,
           });
@@ -7989,7 +7997,7 @@ export async function runAgentLoop(opts: {
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, unknown>,
+            input: journalToolInput as Record<string, unknown>,
             result,
             isError: true,
             completedSideEffect: false,
@@ -8467,7 +8475,7 @@ export async function runAgentLoop(opts: {
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
+          input: journalToolInput as Record<string, unknown>,
           result,
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
@@ -8514,7 +8522,7 @@ export async function runAgentLoop(opts: {
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, unknown>,
+            input: journalToolInput as Record<string, unknown>,
             result,
             isError: true,
             completedSideEffect: false,
@@ -10907,6 +10915,9 @@ export function createProductionAgentHandler(
       message: requestMessage,
       displayMessage: requestDisplayMessage,
       attachments: requestAttachments,
+      ...(requestStructuredHistory
+        ? { structuredHistory: requestStructuredHistory }
+        : {}),
       references: requestReferences,
       threadId,
       requestContext,

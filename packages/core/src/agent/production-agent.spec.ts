@@ -35,6 +35,7 @@ import {
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
+import * as appRoles from "../org/app-roles.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
@@ -129,6 +130,11 @@ import {
   type ProductionAgentOptions,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
+import * as runStore from "./run-store.js";
+import {
+  classifyToolCallJournal,
+  findCompletedJournalEntry,
+} from "./tool-call-journal.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
 
@@ -343,6 +349,7 @@ function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
 async function runToolCallSequence(
   calls: Array<{ name: string; input: Record<string, unknown> }>,
   actions: Record<string, ActionEntry>,
+  options?: { threadId: string; turnId: string },
 ) {
   let nextCall = 0;
   const events: AgentChatEvent[] = [];
@@ -397,6 +404,7 @@ async function runToolCallSequence(
     actions,
     send: (event) => events.push(event),
     signal: new AbortController().signal,
+    ...options,
   });
 
   return events;
@@ -875,6 +883,45 @@ describe("resolveSkillReferenceContent", () => {
 });
 
 describe("serializeDurableDispatchPayload", () => {
+  it.each([false, true])(
+    "preserves own JSON keys in saved request context with attachments=%s",
+    (withAttachment) => {
+      const body = JSON.parse(
+        '{"message":"finish the original ticket","__proto__":{"request":"original"},"metadata":{"__proto__":{"saved":"original"},"visible":"keep"},"structuredHistory":[{"metadata":{"__proto__":{"turn":"original"}}}]}',
+      );
+      const expected = JSON.parse(JSON.stringify(body));
+      if (withAttachment) {
+        const metadata = JSON.parse(
+          '{"__proto__":{"saved":"original attachment"},"visible":"keep"}',
+        );
+        body.attachments = [
+          {
+            type: "image",
+            url: "https://files.example.test/reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+            metadata,
+          },
+        ];
+        expected.attachments = [
+          { type: "image", url: body.attachments[0].url, metadata },
+        ];
+      }
+      const payload = serializeDurableDispatchPayload(body);
+      const saved = JSON.parse(payload);
+      expect(saved).toEqual(expected);
+      expect(Object.hasOwn(saved, "__proto__")).toBe(true);
+      expect(Object.hasOwn(saved.metadata, "__proto__")).toBe(true);
+      expect(
+        Object.hasOwn(saved.structuredHistory[0].metadata, "__proto__"),
+      ).toBe(true);
+      if (withAttachment)
+        expect(Object.hasOwn(saved.attachments[0].metadata, "__proto__")).toBe(
+          true,
+        );
+      expect(payload).not.toContain("INLINE_IMAGE_BYTES");
+    },
+  );
+
   it("keeps the resized vision URL and original reference when stripping inline pixels", () => {
     const payload = serializeDurableDispatchPayload({
       attachments: [
@@ -6061,6 +6108,61 @@ describe("filterActionsByAllowedNames", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("reuses the original invocation receipt after an action mutates its arguments", async () => {
+    const original = {
+      destination: "fixture@example.test",
+      metadata: { title: "original" },
+    };
+    const result = JSON.stringify({
+      id: "fixture-ticket",
+      title: "Previous step did NOT execute",
+    });
+    const sendReport = vi.fn(async (input: Record<string, unknown>) => {
+      input.receiptId = "fixture-receipt";
+      (input.metadata as Record<string, unknown>).title = "action mutation";
+      return result;
+    });
+    const actions = {
+      "send-report": { ...actionEntry({ readOnly: false }), run: sendReport },
+    };
+    const events = await runToolCallSequence(
+      [{ name: "send-report", input: structuredClone(original) }],
+      actions,
+    );
+    const persisted = JSON.parse(JSON.stringify(events)) as AgentChatEvent[];
+    for (const event of persisted.filter(
+      (event) => event.type === "tool_start" || event.type === "tool_done",
+    ))
+      expect(event.input).toEqual(original);
+    expect(
+      findCompletedJournalEntry(
+        classifyToolCallJournal(persisted),
+        "send-report",
+        original,
+      )?.result,
+    ).toBe(result);
+    const read = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue(persisted);
+    try {
+      const resumed = await runToolCallSequence(
+        [{ name: "send-report", input: structuredClone(original) }],
+        actions,
+        { threadId: "fixture-thread", turnId: "fixture-turn" },
+      );
+      expect(sendReport).toHaveBeenCalledTimes(1);
+      expect(resumed).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "send-report",
+          replayed: true,
+        }),
+      );
+    } finally {
+      read.mockRestore();
+    }
+  });
+
   it("passes trusted automation context through to the selected action", async () => {
     const run = vi.fn(async () => "updated");
     let streamCalls = 0;
@@ -12678,6 +12780,113 @@ describe("runAgentLoop", () => {
       events.filter((event) => event.type === "tool_done" && event.isError),
     ).toHaveLength(0);
   });
+
+  it.each(["timeout", "abort"] as const)(
+    "does not invoke a write after %s during authorization",
+    async (interruption) => {
+      let releaseAuthorization!: (value: null) => void;
+      let markAuthorizationStarted!: () => void;
+      const authorizationStarted = new Promise<void>((resolve) => {
+        markAuthorizationStarted = resolve;
+      });
+      const authorization = vi
+        .spyOn(appRoles, "resolveAppAuthorizationContext")
+        .mockImplementation(() => {
+          markAuthorizationStarted();
+          return new Promise((resolve) => {
+            releaseAuthorization = resolve;
+          });
+        });
+      const timeout = new AbortController();
+      const timeoutFactory = vi
+        .spyOn(AbortSignal, "timeout")
+        .mockReturnValue(timeout.signal);
+      const controller = new AbortController();
+      const writeAction = vi.fn(async () => "sent");
+      const events: AgentChatEvent[] = [];
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          if (++streamCalls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call",
+                  id: "delayed-auth",
+                  name: "save-data",
+                  input: {},
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const loop = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "save" }] }],
+        actions: {
+          "save-data": {
+            ...actionEntry({ readOnly: false }),
+            run: writeAction,
+          },
+        },
+        send: (event) => events.push(event),
+        signal: controller.signal,
+        ownerEmail: "ada@example.com",
+        orgId: "test-org",
+        appId: "test-app",
+      });
+      try {
+        await authorizationStarted;
+        (interruption === "timeout" ? timeout : controller).abort();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const completedBeforeAuthorization = events.some(
+          (event) => event.type === "tool_done",
+        );
+        releaseAuthorization(null);
+        await loop;
+        await Promise.resolve();
+        expect(writeAction).not.toHaveBeenCalled();
+        expect(completedBeforeAuthorization).toBe(true);
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "tool_done",
+            tool: "save-data",
+            isError: true,
+            completedSideEffect: false,
+            result: expect.stringContaining(
+              interruption === "timeout"
+                ? "before the action started"
+                : "Interrupted before this tool returned a result.",
+            ),
+          }),
+        );
+      } finally {
+        releaseAuthorization?.(null);
+        await loop;
+        authorization.mockRestore();
+        timeoutFactory.mockRestore();
+      }
+    },
+  );
 
   it("does not repeat a write tool after it times out in the current run", async () => {
     const writeAction = vi.fn(() => new Promise(() => {}));

@@ -432,7 +432,7 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    getDbExec: getDbExecMock,
+    getDbExec: () => actual.getScopedDbExec() ?? getDbExecMock(),
     isProductionServerlessFunctionRuntime: isProductionServerlessRuntimeMock,
   };
 });
@@ -1120,7 +1120,12 @@ Respond to the fanout event.`,
     resourceFingerprintAllOwnersMock.mockResolvedValue("fingerprint-unchanged");
     scanFingerprintMock.mockResolvedValue("fingerprint-unchanged");
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
-    getDbExecMock.mockReturnValue({ execute: dbExecuteMock });
+    getDbExecMock.mockReturnValue({
+      execute: dbExecuteMock,
+      transaction: async (
+        fn: (tx: { execute: typeof dbExecuteMock }) => Promise<unknown>,
+      ) => fn({ execute: dbExecuteMock }),
+    });
     resourceListAllOwnersMock.mockResolvedValue([
       {
         id: "resource-1",
@@ -1217,6 +1222,229 @@ Respond to the event.`,
       ).toBe(status);
     });
   }
+
+  it.each([
+    ["event", ""],
+    ["webhook", ""],
+    ["event", "*/2 * * * *"],
+    ["webhook", "*/2 * * * *"],
+  ])(
+    "keeps a live %s firing with schedule %s separate from an earlier manual success",
+    async (source, schedule) => {
+      const { parseJobResource } = await import("../jobs/frontmatter.js");
+      const history = await import("../jobs/run-history.js");
+      const health = await import("../jobs/scheduler-health.js");
+      const reaper = await import("../jobs/stale-reaper.js");
+      const runner = await import("../jobs/background-automation-runner.js");
+      const uploads = await import("../file-upload/actions/upload-image.js");
+      const { processRecurringJobs } = await import("../jobs/scheduler.js");
+      const stored = {
+        ...conditionResource("manual-then-event", "manual.then.event"),
+        content: buildTriggerContent(
+          {
+            schedule,
+            enabled: true,
+            triggerType: source === "webhook" ? "webhook" : "event",
+            event: "manual.then.event",
+            mode: "agentic",
+            lastRun: new Date(Date.now() - 60_000).toISOString(),
+            lastStatus: "success",
+            lastHistoryId: "finished-manual-history",
+            lastRunManual: true,
+            lastRunAdvanceSchedule: false,
+          },
+          "Handle the event.",
+        ),
+      };
+      resourceListAllOwnersMock.mockImplementation(async () => [{ ...stored }]);
+      resourceGetByPathMock.mockImplementation(async () => ({ ...stored }));
+      resourcePutIfCurrentMock.mockImplementation(
+        async (input: { content: string }) => {
+          stored.content = input.content;
+          return { ...stored };
+        },
+      );
+      const oldHistory = vi
+        .spyOn(history, "getAutomationRun")
+        .mockResolvedValue({
+          id: "finished-manual-history",
+          owner: stored.owner,
+          appId: null,
+          path: stored.path,
+          status: "success",
+          runId: "manual-worker",
+          threadId: "manual-thread",
+          finishedAt: Date.now() - 60_000,
+        } as any);
+      let releaseWorker!: () => void;
+      const worker = new Promise<void>((resolve) => {
+        releaseWorker = resolve;
+      });
+      const runSpy = vi
+        .spyOn(runner, "runBackgroundAutomation")
+        .mockImplementation(async () => {
+          await worker;
+          return { responseText: "Handled", runId: "event-worker" };
+        });
+      const spies = [
+        oldHistory,
+        runSpy,
+        vi.spyOn(history, "listAutomationRuns").mockImplementation(async () => [
+          {
+            id: "current-trigger-history",
+            owner: stored.owner,
+            appId: null,
+            path: stored.path,
+            status: "success",
+            runId: "event-worker",
+            threadId: "event-thread",
+            startedAt: Date.parse(
+              parseJobResource(stored.content).meta.lastRun!,
+            ),
+            finishedAt: Date.now(),
+          } as any,
+        ]),
+        vi
+          .spyOn(health, "acquireAutomationSchedulerLease")
+          .mockResolvedValue("test-lease"),
+        vi
+          .spyOn(health, "renewAutomationSchedulerLease")
+          .mockResolvedValue(true),
+        vi.spyOn(health, "releaseAutomationSchedulerLease").mockResolvedValue(),
+        vi.spyOn(health, "recordAutomationSchedulerHealth").mockResolvedValue(),
+        vi
+          .spyOn(reaper, "reapStaleWork")
+          .mockResolvedValue({ automationRuns: 0, a2aTasks: 0 }),
+        vi.spyOn(uploads, "runUploadReceiptCleanupOnce").mockResolvedValue({
+          scanned: 0,
+          deleted: 0,
+          released: 0,
+          failed: 0,
+          skipped: true,
+        }),
+      ];
+      let webhook: Promise<unknown> | undefined;
+      try {
+        const deps = {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+        };
+        isProductionServerlessRuntimeMock.mockReturnValueOnce(true);
+        await initTriggerDispatcher(deps);
+        if (source === "webhook") {
+          webhook = dispatchAutomationWebhookTask({
+            kind: "automation-webhook",
+            automationId: stored.id,
+            owner: stored.owner,
+            path: stored.path,
+            eventId: "current-event",
+            payload: {},
+          });
+        } else {
+          const handler = subscribeAllMock.mock.calls.at(-1)?.[0];
+          await handler(
+            "manual.then.event",
+            {},
+            {
+              owner: stored.owner,
+              eventId: "current-event",
+              emittedAt: new Date().toISOString(),
+            },
+          );
+        }
+        await vi.waitFor(() => expect(runSpy).toHaveBeenCalledOnce());
+        await processRecurringJobs(deps);
+
+        expect(parseJobResource(stored.content).meta.lastStatus).toBe(
+          "running",
+        );
+        expect(oldHistory).not.toHaveBeenCalled();
+        expect(history.listAutomationRuns).not.toHaveBeenCalled();
+        const running = parseJobResource(stored.content).meta;
+        expect(running.lastHistoryId).toBeUndefined();
+        expect(running.lastRunManual).toBeUndefined();
+        expect(running.lastRunAdvanceSchedule).toBeUndefined();
+        expect(
+          runSpy.mock.calls[0]?.[0].automation.meta.lastHistoryId,
+        ).toBeUndefined();
+      } finally {
+        releaseWorker();
+        await webhook;
+        if (source === "event") await waitForEvent("current-event");
+        spies.forEach((spy) => spy.mockRestore());
+      }
+    },
+  );
+  it.each(["event", "webhook"])(
+    "preserves a stale scheduled firing before %s dispatch",
+    async (source) => {
+      const { parseJobResource } = await import("../jobs/frontmatter.js");
+      const stored = {
+        ...conditionResource(
+          "scheduled-before-trigger",
+          "scheduled.before.trigger",
+        ),
+        content: buildTriggerContent(
+          {
+            schedule: "*/2 * * * *",
+            enabled: true,
+            triggerType: source === "event" ? "event" : "webhook",
+            event: "scheduled.before.trigger",
+            mode: "agentic",
+            lastStatus: "running",
+            lastRun: new Date(Date.now() - 11 * 60_000).toISOString(),
+            lastHistoryId: "unfinished-scheduled-history",
+          },
+          "Handle the trigger.",
+        ),
+      };
+      resourceListAllOwnersMock.mockResolvedValue([stored]);
+      resourceGetByPathMock.mockResolvedValue(stored);
+      isProductionServerlessRuntimeMock.mockReturnValue(true);
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      if (source === "webhook") {
+        expect(
+          await dispatchAutomationWebhookTask({
+            kind: "automation-webhook",
+            automationId: stored.id,
+            owner: stored.owner,
+            path: stored.path,
+            eventId: "deferred-trigger",
+            payload: {},
+          }),
+        ).toBe("retry");
+      } else {
+        const handler = subscribeAllMock.mock.calls.at(-1)?.[0];
+        await handler(
+          "scheduled.before.trigger",
+          {},
+          {
+            owner: stored.owner,
+            eventId: "deferred-trigger",
+            emittedAt: new Date().toISOString(),
+          },
+        );
+        const sweep = registerRecurringSweepHandlerMock.mock.calls.find(
+          ([id]) => id === "automation-trigger-queue",
+        )?.[1];
+        await sweep({ deadlineAt: Date.now() + 120_000 });
+        expect(
+          triggerQueueMocks.rows.find(
+            (row) => row.eventId === "deferred-trigger",
+          )?.status,
+        ).toBe("pending");
+      }
+      expect(startRunMock).not.toHaveBeenCalled();
+      expect(resourcePutIfCurrentMock).not.toHaveBeenCalled();
+      expect(parseJobResource(stored.content).meta).toMatchObject({
+        lastStatus: "running",
+        lastHistoryId: "unfinished-scheduled-history",
+      });
+    },
+  );
 
   it("records a resolved skip and reason without clearing the existing failure streak", async () => {
     isProductionServerlessRuntimeMock.mockReturnValue(true);

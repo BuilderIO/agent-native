@@ -26,6 +26,7 @@ export interface SignupE2ERollup {
   findingCount: number;
   visibleFindingCount: number;
   omittedFindingCount: number;
+  unclassifiedWorkflowFailure: boolean;
   findings: SignupE2EFinding[];
   slackText: string;
   reportMarkdown: string;
@@ -97,6 +98,10 @@ export function buildSignupE2ERollup(input: {
   collectionErrors?: string[];
 }): SignupE2ERollup {
   const findings = parseSignupE2EFindings(input.jobs);
+  const unclassifiedWorkflowFailure =
+    (input.workflowResult === "failure" ||
+      input.workflowResult === "cancelled") &&
+    input.jobs.length === 0;
   const details = findings.map(
     (finding) =>
       `• ${slackText(finding.title)} — signature \`signup-e2e-${finding.signature}\` — ${slackText(finding.summary)} (${slackLink(finding.jobUrl, finding.jobName)})`,
@@ -127,7 +132,7 @@ export function buildSignupE2ERollup(input: {
     `# Signup E2E report (${findings.length} findings)`,
     "",
     `Workflow result: ${input.workflowResult}`,
-    `Failed jobs: ${failedJobCount}`,
+    `Failed job records: ${failedJobCount}`,
     `Apps: ${input.apps}`,
     `Environments: ${input.environments}`,
     "",
@@ -136,6 +141,14 @@ export function buildSignupE2ERollup(input: {
           "## Collection errors",
           "",
           ...collectionErrors.map((error) => `- ${error}`),
+          "",
+        ]
+      : []),
+    ...(unclassifiedWorkflowFailure
+      ? [
+          "## Unclassified workflow failure",
+          "",
+          "The workflow failed, but GitHub returned no failed-job records. No test-specific failures could be confirmed.",
           "",
         ]
       : []),
@@ -148,11 +161,23 @@ export function buildSignupE2ERollup(input: {
           `- Job: ${finding.jobName} (${finding.jobUrl})`,
           "",
         ])
-      : ["No test-level finding details were collected.", ""]),
+      : [
+          unclassifiedWorkflowFailure
+            ? "No test-specific findings were confirmed from the available job details."
+            : "No test-level finding details were collected.",
+          "",
+        ]),
   ].join("\n");
   const lines = [
     `Signup E2E ${slackText(input.workflowResult)} for ${slackText(input.apps)} on ${slackText(input.environments)}.`,
-    `Failure summary: ${failedJobCount} failed job${failedJobCount === 1 ? "" : "s"}; ${findings.length} finding${findings.length === 1 ? "" : "s"} total; showing ${visible.length}; ${omittedFindingCount} omitted from this Slack message.`,
+    unclassifiedWorkflowFailure
+      ? "Failure summary: no failed-job records were returned; 0 test-specific findings confirmed."
+      : `Failure summary: ${failedJobCount} failed job record${failedJobCount === 1 ? "" : "s"}; ${findings.length} finding${findings.length === 1 ? "" : "s"} total; showing ${visible.length}; ${omittedFindingCount} omitted from this Slack message.`,
+    ...(unclassifiedWorkflowFailure
+      ? [
+          "Workflow failure is unclassified; no test-specific failure can be confirmed from the available evidence.",
+        ]
+      : []),
     ...(collectionErrors.length
       ? [
           `Collection warnings: ${collectionErrors.length} total; showing ${visibleCollectionErrors.length}; ${omittedCollectionErrorCount} omitted from this Slack message.`,
@@ -167,7 +192,11 @@ export function buildSignupE2ERollup(input: {
     "",
     ...(findings.length > 0
       ? visible
-      : ["No test-level failure detail was returned; see the job logs."]),
+      : [
+          unclassifiedWorkflowFailure
+            ? "No test-specific findings were confirmed."
+            : "No test-level failure detail was returned; see the job logs.",
+        ]),
     ...(omittedFindingCount > 0
       ? [
           "",
@@ -190,6 +219,7 @@ export function buildSignupE2ERollup(input: {
     findingCount: findings.length,
     visibleFindingCount: visible.length,
     omittedFindingCount,
+    unclassifiedWorkflowFailure,
     findings,
     slackText: lines.join("\n"),
     reportMarkdown,
@@ -357,6 +387,7 @@ function main(): void {
         findingCount: rollup.findingCount,
         visibleFindingCount: rollup.visibleFindingCount,
         omittedFindingCount: rollup.omittedFindingCount,
+        unclassifiedWorkflowFailure: rollup.unclassifiedWorkflowFailure,
         findings: rollup.findings,
       },
       null,

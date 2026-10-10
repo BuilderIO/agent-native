@@ -811,6 +811,47 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("snapshots tool arguments before queued persistence and retries", async () => {
+    const input = { destination: "original" };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let toolAttempts = 0;
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, _seq, data) => {
+      const event = JSON.parse(data);
+      if (event.type === "text") await gate;
+      if (event.type === "tool_start" && toolAttempts++ === 0)
+        throw new Error("fixture write interrupted");
+    });
+    const run = startRun(
+      "run-input-snapshot",
+      "thread-input-snapshot",
+      async (send) => {
+        send({ type: "text", text: "working" });
+        send({ type: "tool_start", tool: "send-report", input });
+        input.destination = "mutated after execution started";
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await vi.waitFor(() => {
+      expect(input.destination).toBe("mutated after execution started");
+    });
+    release();
+    await run.finalized;
+    const starts = vi
+      .mocked(insertRunEvent)
+      .mock.calls.filter(
+        ([, , data]) => JSON.parse(data).type === "tool_start",
+      );
+    expect(starts).toHaveLength(2);
+    for (const [, , data, options] of starts) {
+      expect(JSON.parse(data).input).toEqual({ destination: "original" });
+      expect(options).toEqual({ toolInputSource: "execution" });
+    }
+  });
+
   it("persists terminal error events before marking errored runs complete", async () => {
     let releaseTerminalEvent!: () => void;
     const terminalEventPersisted = new Promise<void>((resolve) => {

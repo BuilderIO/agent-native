@@ -137,6 +137,7 @@ export default defineAction({
         }
         const metadata = mergeTriageMetadata(existing?.metadataJson ?? "{}", {
           kind: "sentry_issue",
+          sentryOrgSlug,
           sentryIssueId: issue.id,
           shortId: issue.shortId,
           culprit: issue.culprit,

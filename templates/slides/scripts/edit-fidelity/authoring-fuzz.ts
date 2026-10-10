@@ -245,6 +245,24 @@ type WatchedRequestNavigationCandidate = {
   requestWasPendingAtNavigation?: boolean;
 };
 
+function isExpectedWatchedRequestNavigationAbort(
+  candidate: WatchedRequestNavigationCandidate,
+  rules: readonly SaveReloadRequestAbortRule[],
+) {
+  return (
+    candidate.requestWasPendingAtNavigation === true &&
+    candidate.ageMs >= 0 &&
+    candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
+    rules.some((rule) => {
+      const matchesPath =
+        typeof rule.path === "string"
+          ? rule.path === candidate.pathname
+          : rule.path.test(candidate.pathname);
+      return matchesPath && (!rule.method || rule.method === candidate.method);
+    })
+  );
+}
+
 export function isExpectedWatchedRequestCorsError(
   message: string,
   activePhase: string,
@@ -266,18 +284,24 @@ export function isExpectedWatchedRequestCorsError(
   return candidates.some(
     (candidate) =>
       candidate.url === match[1] &&
-      candidate.requestWasPendingAtNavigation === true &&
-      candidate.ageMs >= 0 &&
-      candidate.ageMs < reloadNavigationAbortMaxRequestAgeMs &&
-      rules.some((rule) => {
-        const matchesPath =
-          typeof rule.path === "string"
-            ? rule.path === candidate.pathname
-            : rule.path.test(candidate.pathname);
-        return (
-          matchesPath && (!rule.method || rule.method === candidate.method)
-        );
-      }),
+      isExpectedWatchedRequestNavigationAbort(candidate, rules),
+  );
+}
+
+export function isExpectedSaveReloadBrowserSessionPollConsoleError(
+  message: string,
+  activePhase: string,
+  candidates: WatchedRequestNavigationCandidate[],
+) {
+  return (
+    message ===
+      "[Agent-Native browser session] poll failed: TypeError: Load failed" &&
+    activePhase === "save/reload" &&
+    candidates.some((candidate) =>
+      isExpectedWatchedRequestNavigationAbort(candidate, [
+        browserSessionClaimRequestRule,
+      ]),
+    )
   );
 }
 
@@ -959,32 +983,46 @@ export async function runAuthoringFuzz(
     if (message.type() !== "error") return;
     if (traceEnabled) {
       console.log(
-        `[edit-fidelity] console error phase=${activePhase}: ${message.text()}`,
+        `[edit-fidelity] console error phase=${activePhase} location=${JSON.stringify(message.location())}: ${message.text()}`,
       );
     }
     if (isConflictResourceConsoleError(message.text())) {
       conflictResourceErrors += 1;
       return;
     }
+    const reloadNavigationCandidates = [
+      ...reloadNavigationRequests.entries(),
+    ].map(([request, startedAt]) => ({
+      url: request.url(),
+      pathname: new URL(request.url()).pathname,
+      method: request.method(),
+      ageMs: Date.now() - startedAt,
+      requestWasPendingAtNavigation: true,
+    }));
     if (
+      isExpectedSaveReloadBrowserSessionPollConsoleError(
+        message.text(),
+        activePhase,
+        reloadNavigationCandidates,
+      ) ||
       isExpectedWatchedRequestCorsError(
         message.text(),
         activePhase,
-        [...reloadNavigationRequests.entries()].map(([request, startedAt]) => ({
-          url: request.url(),
-          pathname: new URL(request.url()).pathname,
-          method: request.method(),
-          ageMs: Date.now() - startedAt,
-          requestWasPendingAtNavigation: true,
-        })),
+        reloadNavigationCandidates,
       )
     ) {
       return;
     }
     pageErrors.push(message.text());
   };
-  const onPageError = (error: Error) =>
+  const onPageError = (error: Error) => {
+    if (traceEnabled) {
+      console.log(
+        `[edit-fidelity] page error phase=${activePhase}: ${error.stack ?? error.message}`,
+      );
+    }
     pageErrors.push(error.stack ?? error.message);
+  };
   const onRequestFailed = (request: any) => {
     const requestStartedAt = watchedRequests.get(request);
     const requestPendingAtReloadNavigation =
@@ -996,7 +1034,7 @@ export async function runAuthoringFuzz(
     const errorText = request.failure()?.errorText ?? "unknown";
     if (traceEnabled) {
       console.log(
-        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText})`,
+        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} pendingAtReload=${requestPendingAtReloadNavigation}`,
       );
     }
     if (
@@ -4763,6 +4801,11 @@ export async function runAuthoringFuzz(
     const persistence = await options.finishAndReload(() => {
       for (const [request, startedAt] of watchedRequests.entries()) {
         reloadNavigationRequests.set(request, startedAt);
+        if (traceEnabled) {
+          console.log(
+            `[edit-fidelity] reload pending ${request.method()} ${new URL(request.url()).pathname} ageMs=${Date.now() - startedAt}`,
+          );
+        }
       }
     });
     assertAuthoringPersistence(persistence);
