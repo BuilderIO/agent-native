@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
@@ -32,6 +32,7 @@ import {
   AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
+  runActionWithExecutionOutcome,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
@@ -189,6 +190,7 @@ import {
   AGENT_CHAT_BROWSER_SESSION_ID_FIELD,
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
+  AGENT_CHAT_RECOVERY_OF_RUN_FIELD,
   backgroundRuntimeDiagnosticDetail,
   dispatchPathTargetsNetlifyBackgroundFunction,
   isAgentChatDurableBackgroundEnabled,
@@ -359,10 +361,7 @@ import {
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
-import {
-  buildResumeJournalNote,
-  findCompletedJournalEntry,
-} from "./tool-call-journal.js";
+import { findCompletedJournalEntry } from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
@@ -381,6 +380,7 @@ import {
   TOOL_SEARCH_ACTION_NAME,
   withLoadedToolNames,
 } from "./tool-search.js";
+import { buildTurnResumeContext } from "./turn-resume-context.js";
 import {
   normalizeAgentActionScope,
   type AgentActionScope,
@@ -1776,6 +1776,7 @@ export interface ProductionAgentOptions {
     message: string;
     displayMessage?: string;
     attachments: AgentChatAttachment[];
+    structuredHistory?: AgentChatStructuredMessage[];
     references: AgentChatReference[];
     threadId?: string;
     requestContext: string;
@@ -2862,16 +2863,24 @@ export function appendRequestAttachmentContextToResumedHistory(
 
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!;
-    if (message.role !== "user") continue;
+    if (
+      message.role !== "user" ||
+      message.content.some((part) => part.type === "tool-result")
+    )
+      continue;
     const missingContent = attachmentContent.filter(
       (candidate) =>
         !message.content.some((existing) =>
           existing.type === "image" && candidate.type === "image"
             ? existing.data === candidate.data &&
               existing.mediaType === candidate.mediaType
-            : existing.type === "text" && candidate.type === "text"
-              ? existing.text === candidate.text
-              : false,
+            : existing.type === "file" && candidate.type === "file"
+              ? existing.data === candidate.data &&
+                existing.mediaType === candidate.mediaType &&
+                existing.filename === candidate.filename
+              : existing.type === "text" && candidate.type === "text"
+                ? existing.text.includes(candidate.text.trim())
+                : false,
         ),
     );
     message.content.push(...missingContent);
@@ -3885,7 +3894,7 @@ function seedReadOnlyToolResultsFromHistory(
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
       if (!call.readOnly) {
-        if (part.isError !== true) cache.clear();
+        if (part.isError !== true || part.outcome === "unknown") cache.clear();
         continue;
       }
       if (!call.dedupe) continue;
@@ -3957,7 +3966,7 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
       if (!call.readOnly) {
-        if (part.isError !== true) {
+        if (part.isError !== true || part.outcome === "unknown") {
           repeats.clear();
           reusableReadKeys.clear();
         }
@@ -3990,7 +3999,7 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
 }
 
 function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
-  if (part.isError) return false;
+  if (part.isError || part.outcome === "unknown") return false;
   const lower = part.content.trim().toLowerCase();
   if (!lower) return false;
   if (
@@ -4146,6 +4155,7 @@ function seedWriteToolInterruptionsFromHistory(
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
       if (
+        part.outcome === "unknown" ||
         isInterruptedToolResult(part.content) ||
         (part.isError === true &&
           typeof part.content === "string" &&
@@ -5447,6 +5457,9 @@ export async function runAgentLoop(opts: {
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
+  beforeWrite?: () => Promise<void>;
+  unknownWriteToolNames?: Set<string>;
+  internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
   onUsage?: (usage: AgentLoopUsage) => void;
   onOutcome?: (outcome: AgentLoopOutcome) => void;
@@ -5515,6 +5528,9 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+  // Delegation context can prepend the synthetic continuation instruction.
+  const internalContinuationTurn =
+    opts.internalContinuation === true || isInternalContinuationTurn(messages);
   const followUpRunId = opts.followUpSuggestions ? opts.runId : undefined;
   if (opts.followUpSuggestions && !followUpRunId) {
     throw new Error("Follow-up suggestions require the canonical run id.");
@@ -5774,7 +5790,7 @@ export async function runAgentLoop(opts: {
     );
   });
   const reuseJournaledSkillPages =
-    isInternalContinuationTurn(messages) && hasLoadedSkillPage;
+    internalContinuationTurn && hasLoadedSkillPage;
   const threadSkillSlugs = opts.loadedSkillSlugs ?? [];
   if (reuseJournaledSkillPages || threadSkillSlugs.length > 0) {
     const skillUserEmail = opts.ownerEmail ?? getRequestUserEmail();
@@ -5816,7 +5832,7 @@ export async function runAgentLoop(opts: {
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
   const unreadableJournalStop: TerminalActionStop | null =
-    journalRead.status === "unreadable" && isInternalContinuationTurn(messages)
+    journalRead.status === "unreadable" && internalContinuationTurn
       ? {
           message:
             "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
@@ -5838,6 +5854,7 @@ export async function runAgentLoop(opts: {
     messages,
     actions,
   );
+  const unknownWriteToolNames = opts.unknownWriteToolNames ?? new Set<string>();
   const {
     sameArguments: repeatedToolErrors,
     sameTool: repeatedToolErrorsAnyArgs,
@@ -6919,9 +6936,17 @@ export async function runAgentLoop(opts: {
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
       const journalToolInput = JSON.parse(wireToolInput);
       let toolDoneEmitted = false;
+      let actionInvoked = false;
+      let actionRefused = false;
+      const actionExecutionOutcome = { refused: false };
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ) => {
+        if (event.outcomeUnknown) {
+          unknownWriteToolNames.add(toolCall.name);
+          readOnlyToolResultCache.clear();
+          duplicateReadOnlyToolCalls.clear();
+        }
         if (event.id) settleRepeatedToolCall(event.id);
         send(event);
         toolDoneEmitted = true;
@@ -7324,8 +7349,18 @@ export async function runAgentLoop(opts: {
 
       if (!actionIsReadOnly) {
         const writeCacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
-        const priorInterruptions =
-          writeToolInterruptions.get(writeCacheKey) ?? 0;
+        // An unknown write cannot become fresh work merely by rewording its
+        // arguments, or by eliding its tool pair from the replayed history.
+        const unknownJournalCalls = internalContinuationTurn
+          ? (toolCallJournal?.interrupted.filter(
+              (entry) => entry.tool === toolCall.name,
+            ).length ?? 0)
+          : 0;
+        const priorInterruptions = Math.max(
+          writeToolInterruptions.get(writeCacheKey) ?? 0,
+          unknownJournalCalls,
+          unknownWriteToolNames.has(toolCall.name) ? 1 : 0,
+        );
 
         if (priorInterruptions > 0) {
           const ledgerResult = opts.threadId
@@ -7621,7 +7656,6 @@ export async function runAgentLoop(opts: {
           const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
           // Only the invoked wording marks a write as possibly run (see
           // isToolCallTimeoutResult); a timeout before invocation must not use it.
-          let actionInvoked = false;
           const timeoutMessage = () =>
             actionInvoked
               ? `Tool call timed out after ${toolTimeoutMs / 1000} seconds`
@@ -7638,6 +7672,7 @@ export async function runAgentLoop(opts: {
               actionUserEmail ?? undefined,
               actionOrgId,
             );
+            if (!actionIsReadOnly) await opts.beforeWrite?.();
             if (timeoutSignal.aborted) {
               throw new Error(timeoutMessage());
             }
@@ -7679,9 +7714,11 @@ export async function runAgentLoop(opts: {
               ...(opts.turnId ? { turnId: opts.turnId } : {}),
             };
             actionInvoked = true;
-            return actionEntry.run(
+            return runActionWithExecutionOutcome(
+              actionEntry.run,
               toolCall.input as Record<string, string>,
               actionContext,
+              actionExecutionOutcome,
             );
           };
           const actionPromise = Promise.resolve(
@@ -7923,6 +7960,7 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
+          actionRefused = actionExecutionOutcome.refused;
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
             : undefined;
@@ -7979,18 +8017,6 @@ export async function runAgentLoop(opts: {
             result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message, err)}`;
           }
           isError = true;
-        }
-        if (
-          !actionIsReadOnly &&
-          isError &&
-          typeof result === "string" &&
-          isToolCallTimeoutResult(result)
-        ) {
-          const key = toolCallCacheKey(toolCall.name, toolCall.input);
-          writeToolInterruptions.set(
-            key,
-            (writeToolInterruptions.get(key) ?? 0) + 1,
-          );
         }
         if (isError) {
           receipt = undefined;
@@ -8061,7 +8087,9 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(isError
-            ? { completedSideEffect: false }
+            ? actionInvoked && !actionIsReadOnly && !actionRefused
+              ? { outcomeUnknown: true as const }
+              : { completedSideEffect: false }
             : receipt
               ? { completedSideEffect: receipt.changed }
               : !actionIsReadOnly
@@ -8106,7 +8134,9 @@ export async function runAgentLoop(opts: {
             input: journalToolInput as Record<string, unknown>,
             result,
             isError: true,
-            completedSideEffect: false,
+            ...(actionInvoked && !actionIsReadOnly && !actionRefused
+              ? { outcomeUnknown: true as const }
+              : { completedSideEffect: false }),
           });
           recordToolResult(result, true);
         }
@@ -10165,6 +10195,9 @@ export function createProductionAgentHandler(
     const isBackgroundWorker = backgroundRunMarker !== null;
     if (!isBackgroundWorker) {
       delete body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
+      delete (body as unknown as Record<string, unknown>)[
+        AGENT_CHAT_RECOVERY_OF_RUN_FIELD
+      ];
       delete body.__resolvedActionSurface;
     }
     let requestedActionScope: AgentActionScope | undefined;
@@ -10495,6 +10528,9 @@ export function createProductionAgentHandler(
       message: requestMessage,
       displayMessage: requestDisplayMessage,
       attachments: requestAttachments,
+      ...(requestStructuredHistory
+        ? { structuredHistory: requestStructuredHistory }
+        : {}),
       references: requestReferences,
       threadId,
       requestContext,
@@ -11564,6 +11600,10 @@ export function createProductionAgentHandler(
     });
     const isChainedBackgroundContinuation =
       isBackgroundWorker && backgroundContinuationCount > 0;
+    const isReaperSuccessor =
+      isBackgroundWorker &&
+      typeof mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD] === "string" &&
+      Boolean(mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD]);
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
     const effectiveTurnId =
@@ -11744,14 +11784,22 @@ export function createProductionAgentHandler(
     // A server successor and a continuation, automatic or chosen, resume the
     // same turn the same way: the thread's tool calls and results, plus the turn's
     // journal of finished steps, so nothing already done is sent again.
-    if ((isChainedBackgroundContinuation || continueOf) && effectiveThreadId) {
+    if (
+      (isChainedBackgroundContinuation || isReaperSuccessor || continueOf) &&
+      effectiveThreadId
+    ) {
       try {
         const { getThread } = await import("../chat-threads/store.js");
         const { latestPromptTurnId, resumeThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
-        const threadData = (await getThread(effectiveThreadId))?.threadData;
+        const threadData =
+          isReaperSuccessor && !continueOf
+            ? undefined
+            : (await getThread(effectiveThreadId))?.threadData;
         const { messages: resumed, foundTurnPrompt } =
-          resumeThreadHistoryForRequest(threadData);
+          isReaperSuccessor && !continueOf
+            ? { messages: [...messages], foundTurnPrompt: true }
+            : resumeThreadHistoryForRequest(threadData);
         // A continuation always follows a stopped run, so a thread without
         // that turn's prompt means its history was lost, not that there was
         // none. A successor stays best-effort and resumes from what is there.
@@ -11779,18 +11827,19 @@ export function createProductionAgentHandler(
             backgroundRunMarker?.continuationReason,
           )
             ? backgroundRunMarker.continuationReason
-            : "run_timeout";
+            : isReaperSuccessor
+              ? "network_interrupted"
+              : "run_timeout";
           const journalRead = await loadPriorTurnToolCallJournal(
             effectiveThreadId,
             effectiveTurnId,
           );
-          if (continueOf && journalRead.status === "unreadable") {
+          if (
+            (continueOf || isReaperSuccessor) &&
+            journalRead.status === "unreadable"
+          ) {
             throw new Error(journalRead.error);
           }
-          const journalNote =
-            journalRead.status === "read" && journalRead.toolCallJournal
-              ? buildResumeJournalNote(journalRead.toolCallJournal)
-              : null;
           appendRequestAttachmentContextToResumedHistory(
             resumed,
             requestAttachments,
@@ -11801,31 +11850,43 @@ export function createProductionAgentHandler(
               ),
             },
           );
-          appendAgentLoopContinuation(resumed, continuationReason, {
+          const context = buildTurnResumeContext({
+            messages: resumed,
+            journal:
+              journalRead.status === "read"
+                ? journalRead.toolCallJournal
+                : null,
+            ...(isReaperSuccessor && journalRead.status === "read"
+              ? { events: journalRead.events }
+              : {}),
+          });
+          appendAgentLoopContinuation(context.messages, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),
-            ...(journalNote ? { journalNote } : {}),
+            ...(context.journalNote
+              ? { journalNote: context.journalNote }
+              : {}),
           });
           messages.length = 0;
-          messages.push(...resumed);
+          messages.push(...context.messages);
         }
       } catch (error) {
-        if (continueOf) {
+        if (continueOf || isReaperSuccessor) {
           // The browser's history lacks the stopped run's tool results, so
           // continuing from it could repeat a step that already finished.
           console.warn(
             `[agent-chat] auto-continue history unreadable for thread ${effectiveThreadId}:`,
             error,
           );
+          const code = isReaperSuccessor
+            ? "recovery_history_unreadable"
+            : "auto_continue_history_unreadable";
           if (await updateRunStatusIfRunning(runId, "errored")) {
-            await setRunTerminalReason(
-              runId,
-              "auto_continue_history_unreadable",
-            );
+            await setRunTerminalReason(runId, code);
           }
           setResponseStatus(event, 503);
           return {
             error: "This turn's history could not be read to continue it.",
-            code: "auto_continue_history_unreadable",
+            code,
             retryable: true,
           };
         }
@@ -12327,7 +12388,7 @@ export function createProductionAgentHandler(
     const startedRun = startRun(
       runId,
       effectiveThreadId,
-      async (rawSend, signal) => {
+      async (rawSend, signal, control) => {
         const send = (event: AgentChatEvent) => {
           rawSend(event);
           updateTrackedProgressFromEvent(event);
@@ -12367,13 +12428,14 @@ export function createProductionAgentHandler(
           await options.onRunStart(send, threadId ?? runId, runId);
         }
 
+        const unknownWriteToolNames = new Set<string>();
         if (customAgentRefs.length > 0) {
           const ownerEmail = getRequestUserEmail();
           if (!ownerEmail) throw new Error("no authenticated user");
           const { findAccessibleCustomAgent } =
             await import("../resources/agents.js");
           const customResults = await Promise.allSettled(
-            customAgentRefs.map(async (ref) => {
+            customAgentRefs.map(async (ref, index) => {
               send({
                 type: "agent_call",
                 agent: ref.name,
@@ -12404,18 +12466,26 @@ export function createProductionAgentHandler(
                   systemPrompt: profilePrompt,
                   tools: requestTools,
                   availableTools: availableRequestTools,
-                  messages: [
-                    {
-                      role: "user",
-                      content: [
+                  messages: internalContinuation
+                    ? structuredClone(messages)
+                    : [
                         {
-                          type: "text",
-                          text: enrichedMessage + referencedAgentContext,
+                          role: "user",
+                          content: [
+                            {
+                              type: "text",
+                              text: enrichedMessage + referencedAgentContext,
+                            },
+                          ],
                         },
                       ],
-                    },
-                  ],
                   actions: requestActions,
+                  runId,
+                  threadId: effectiveThreadId,
+                  turnId: effectiveTurnId,
+                  beforeWrite: control.flushEvents,
+                  unknownWriteToolNames,
+                  internalContinuation,
                   send: (event) => {
                     if (event.type === "text") {
                       responseText += event.text;
@@ -12423,6 +12493,22 @@ export function createProductionAgentHandler(
                         type: "agent_call_text",
                         agent: ref.name,
                         text: event.text,
+                      });
+                    } else if (
+                      event.type === "tool_start" ||
+                      event.type === "tool_done"
+                    ) {
+                      send({
+                        ...event,
+                        id:
+                          event.id === undefined
+                            ? undefined
+                            : `custom_${createHash("sha256")
+                                .update(
+                                  JSON.stringify([runId, index, event.id]),
+                                )
+                                .digest("hex")
+                                .slice(0, 32)}`,
                       });
                     }
                   },
@@ -12435,6 +12521,7 @@ export function createProductionAgentHandler(
                     ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
                     : {}),
                 });
+                await control.flushEvents();
 
                 try {
                   const ownerEmail = options.resolveOwnerEmail
@@ -12583,6 +12670,9 @@ export function createProductionAgentHandler(
           messages,
           systemSections: contextXraySystemSections,
           actions: requestActions,
+          beforeWrite: control.flushEvents,
+          unknownWriteToolNames,
+          internalContinuation,
           send,
           signal,
           onUsage: (usage: AgentLoopUsage) => {

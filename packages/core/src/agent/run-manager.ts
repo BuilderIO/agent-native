@@ -329,6 +329,7 @@ export interface RunChunkControl {
   readonly chunkSignal: AbortSignal;
   chunkBoundaryReason(): string | null;
   beginChunk(): AbortSignal;
+  flushEvents(): Promise<void>;
 }
 
 export interface ResolveRunSoftTimeoutOptions {
@@ -732,6 +733,7 @@ export function startRun(
     });
   }
   const runControl: RunChunkControl = {
+    flushEvents: () => persistenceChain,
     get turnSignal() {
       return abort.signal;
     },
@@ -1371,15 +1373,19 @@ export function startRun(
     });
   };
 
-  const persistRunEvent = (
+  const persistRunEvent = async (
     runEvent: RunEvent,
     eventData: string,
   ): Promise<void> => {
+    if (runEvent.event.type === "tool_start") await insertRunPromise;
     const write = () =>
       runEvent.event.type === "tool_start" ||
       runEvent.event.type === "tool_done"
         ? insertRunEvent(runId, runEvent.seq, eventData, {
             toolInputSource: "execution",
+            ...(runEvent.event.type === "tool_start"
+              ? { requireInserted: true }
+              : {}),
           })
         : insertRunEvent(runId, runEvent.seq, eventData);
     return options?.persistEvent

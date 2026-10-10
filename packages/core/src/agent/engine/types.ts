@@ -86,6 +86,7 @@ export interface EngineToolResultPart {
   toolInput: string;
   content: string;
   isError?: boolean;
+  outcome?: "unknown";
   images?: EngineToolResultImagePart[];
 }
 

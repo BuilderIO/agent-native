@@ -21,6 +21,7 @@ import {
   isBrowserSessionPath,
   isCaretScrollOnlyChange,
   isExpectedBrowserSessionPollNavigationConsoleError,
+  isExpectedSaveReloadBrowserSessionPollConsoleError,
   isExpectedSaveReloadWatchedRequestAbort,
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
@@ -1346,6 +1347,71 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
   ).toBe(false);
 });
 
+it("ignores a poll warning only for a recent claim canceled by save/reload navigation", () => {
+  const candidate = {
+    url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+    pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+    method: "POST",
+    ageMs: 8_999,
+    requestWasPendingAtNavigation: true,
+  };
+  const warning =
+    "[Agent-Native browser session] poll failed: TypeError: Load failed";
+
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      candidate,
+    ]),
+  ).toBe(true);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(
+      warning,
+      "cleanup/navigation",
+      [candidate],
+    ),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "step 79", [
+      candidate,
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      { ...candidate, requestWasPendingAtNavigation: false },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      { ...candidate, ageMs: 9_000 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      { ...candidate, ageMs: -1 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      { ...candidate, method: "GET" },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(warning, "save/reload", [
+      {
+        ...candidate,
+        pathname: "/_agent-native/browser-sessions/session-id/requests/other",
+      },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedSaveReloadBrowserSessionPollConsoleError(
+      "another poll error",
+      "save/reload",
+      [candidate],
+    ),
+  ).toBe(false);
+});
+
 it("recognizes Firefox poll errors only for a canceled browser-session claim navigation", () => {
   const candidate = {
     url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
@@ -1362,6 +1428,14 @@ it("recognizes Firefox poll errors only for a canceled browser-session claim nav
     ]),
   ).toBe(true);
   expect(
+    isExpectedCleanupBrowserSessionPollConsoleError(warning, [candidate]),
+  ).toBe(true);
+  expect(
+    isExpectedBrowserSessionPollNavigationConsoleError(warning, "step 72", [
+      candidate,
+    ]),
+  ).toBe(false);
+  expect(
     isExpectedBrowserSessionPollNavigationConsoleError(warning, "save/reload", [
       { ...candidate, requestWasPendingAtNavigation: false },
     ]),
@@ -1369,11 +1443,6 @@ it("recognizes Firefox poll errors only for a canceled browser-session claim nav
   expect(
     isExpectedBrowserSessionPollNavigationConsoleError(warning, "save/reload", [
       { ...candidate, ageMs: 9_000 },
-    ]),
-  ).toBe(false);
-  expect(
-    isExpectedBrowserSessionPollNavigationConsoleError(warning, "step 72", [
-      candidate,
     ]),
   ).toBe(false);
   expect(

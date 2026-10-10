@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -8,7 +8,6 @@ import {
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
-import { resolveFactoryRepository } from "../server/lib/factory-repository-scope.js";
 import {
   DEFAULT_FACTORY_ID,
   factoryStillPresent,
@@ -17,28 +16,19 @@ import {
   readTriageConfigRow,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
-import {
-  gitHubRepositoriesEqual,
-  parseGitHubRepositoryRef,
-} from "../server/lib/github-repository.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import {
-  githubIssueReaction,
-  parseOptionalReaction,
-} from "../server/lib/source-reaction.js";
+import { parseOptionalReaction } from "../server/lib/source-reaction.js";
 import {
   recordFactoryAudit,
   recordFactoryAuditIfChanged,
 } from "../server/triage/audit.js";
-import { createGitHubClient } from "../server/triage/github-client.js";
 import { stableId } from "../server/triage/ids.js";
 import {
   metadataBoolean,
-  metadataString,
   parseTriageMetadata,
   serializeTriageMetadata,
 } from "../server/triage/metadata.js";
@@ -109,28 +99,15 @@ export function isStartedTriageRunStatus(status: string): boolean {
   return startedTriageRunStatuses.has(status);
 }
 
-export function dispatchRepositoryForItem(
-  item: {
-    source: string;
-    repository?: string | null;
-    externalId?: string | null;
-  },
-  authorizedRepository: string,
-): string {
-  if (item.source !== "github_issue") return authorizedRepository;
-  if (item.repository) return item.repository;
-  if (item.externalId?.includes("#")) {
-    return item.externalId.slice(0, item.externalId.lastIndexOf("#"));
+export function assertSlackDispatchSource(
+  source: string,
+): asserts source is "slack" {
+  if (source !== "slack") {
+    fail(
+      "Eligible GitHub issue and Sentry findings must use report-factory-findings so they are grouped in #qa-agent-native.",
+      { errorCode: "finding_report_required", statusCode: 400 },
+    );
   }
-  return authorizedRepository;
-}
-
-export function dispatchRepositoryConflictReason(
-  repositoryRef: string,
-  authorizedRepository: string,
-): string | null {
-  if (gitHubRepositoriesEqual(repositoryRef, authorizedRepository)) return null;
-  return `Factory item belongs to ${repositoryRef}, but this factory is configured for ${authorizedRepository}.`;
 }
 
 export function slackClearBugReactionRequirement(input: {
@@ -229,52 +206,6 @@ export function replyTextForItem(
     .join("\n");
 }
 
-export const GITHUB_BOT_REQUEST =
-  "@builderio-bot please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the linked evidence, and fix the owning boundary. Please send a PR when ready.";
-
-export function parseFactoryGitHubIssueNumber(input: {
-  externalId: string | null;
-  sourceUrl: string | null;
-}): number {
-  const fromExternal = /#(\d+)$/.exec(input.externalId?.trim() ?? "");
-  if (fromExternal) return Number(fromExternal[1]);
-  const fromUrl = /\/issues\/(\d+)(?:[/?#]|$)/.exec(input.sourceUrl ?? "");
-  if (fromUrl) return Number(fromUrl[1]);
-  throw new Error("GitHub issue item is missing an issue number.");
-}
-
-export function githubBotDispatchText(input: {
-  itemId: string;
-  sourceUrl: string | null;
-  reason: string;
-  clearErrorReport?: string;
-  relatedItems?: RelatedFeedbackItem[];
-}): string {
-  return [
-    GITHUB_BOT_REQUEST,
-    `Factory item: ${input.itemId}`,
-    input.sourceUrl ? `Source: ${input.sourceUrl}` : "",
-    input.reason ? `Why this is a clear bug: ${input.reason}` : "",
-    input.clearErrorReport ? `Error report:\n${input.clearErrorReport}` : "",
-    relatedFeedbackSummary(input.relatedItems ?? []),
-    "Include the Factory item id and source link in the pull request description.",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function relatedFeedbackSummary(relatedItems: RelatedFeedbackItem[]): string {
-  if (relatedItems.length === 0) return "";
-  return [
-    "Related feedback in the same issue cluster:",
-    ...relatedItems.map(
-      (related) =>
-        `- ${related.title} (${related.id})${related.sourceUrl ? `: ${related.sourceUrl}` : ""}`,
-    ),
-    "Read and address every related report in one change.",
-  ].join("\n");
-}
-
 async function writeMetadata(
   itemId: string,
   orgId: string,
@@ -349,7 +280,7 @@ export async function recordAutomaticBuilderDecision(input: {
 
 export default defineAction({
   description:
-    "Tag Builder for a Factory item, or record a skip when clearBug is false, risk is not low, confidence is not high, or alreadyClaimed is true. Slack items stay in-thread: this action pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Slack clear bugs require reaction eyes; skips omit reaction. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors tag @builderio-bot on a GitHub issue in the factory repository.",
+    "Dispatch Slack feedback in its source thread, or record a skip for any Factory item. This action does not write to GitHub issues. Eligible GitHub issue and Sentry findings must be grouped with report-factory-findings; eligible Slack feedback stays in-thread. Slack clear bugs require reaction eyes; skips omit reaction.",
   schema: z.object({
     itemId: z.string().min(1),
     alreadyClaimed: z
@@ -502,6 +433,8 @@ export default defineAction({
     });
     const blocked =
       alreadyClaimed || guardResults.some((guard) => !guard.passed);
+    const isSlack = item.source === "slack";
+    if (!blocked) assertSlackDispatchSource(item.source);
     await db
       .update(triageItems)
       .set({ risk, confidence, updatedAt: new Date().toISOString() })
@@ -595,7 +528,6 @@ export default defineAction({
     const dedupeKey = stableId("automatic-builder", orgId, itemId);
     const runId = stableId("run", dedupeKey);
     const now = new Date().toISOString();
-    const isSlack = item.source === "slack";
     const existing = (
       await db
         .select()
@@ -862,135 +794,8 @@ export default defineAction({
         };
       }
 
-      if (item.source !== "github_issue" && item.source !== "sentry") {
-        throw new Error(
-          `Factory can only tag Builder from Slack, a GitHub issue, or Sentry. Received ${item.source}.`,
-        );
-      }
-      const authorizedRepository = await resolveFactoryRepository(
-        db,
-        context,
-        { userEmail, orgId },
-        factoryId,
-      );
-      if (!authorizedRepository) {
-        throw new Error(
-          "Configure a Factory GitHub repository before tagging @builderio-bot.",
-        );
-      }
-      const repositoryRef = dispatchRepositoryForItem(
-        item,
-        authorizedRepository,
-      );
-      const repositoryConflict = dispatchRepositoryConflictReason(
-        repositoryRef,
-        authorizedRepository,
-      );
-      if (repositoryConflict) throw new Error(repositoryConflict);
-      const repository = parseGitHubRepositoryRef(repositoryRef);
-      const github = createGitHubClient({ ownerEmail: userEmail, orgId });
-      const dispatchBody = githubBotDispatchText({
-        itemId,
-        sourceUrl: item.sourceUrl,
-        reason,
-        clearErrorReport,
-        relatedItems,
-      });
-      const storedIssueNumber = Number(
-        metadataString(metadata, "githubDispatchIssueNumber"),
-      );
-      let issueNumber =
-        Number.isInteger(storedIssueNumber) && storedIssueNumber > 0
-          ? storedIssueNumber
-          : item.source === "github_issue"
-            ? parseFactoryGitHubIssueNumber({
-                externalId: item.externalId,
-                sourceUrl: item.sourceUrl,
-              })
-            : null;
-      let issueUrl = metadataString(metadata, "githubDispatchIssueUrl") ?? null;
-      if (issueNumber == null) {
-        const created = await github.createIssue(repository, {
-          title: item.title,
-          body: dispatchBody,
-        });
-        issueNumber = created.number;
-        issueUrl = created.htmlUrl;
-        await writeMetadata(itemId, orgId, {
-          githubDispatchIssueNumber: String(created.number),
-          githubDispatchIssueUrl: created.htmlUrl,
-        });
-      } else {
-        const comment = await github.createIssueComment(
-          repository,
-          issueNumber,
-          dispatchBody,
-        );
-        issueUrl = comment.htmlUrl;
-        await writeMetadata(itemId, orgId, {
-          githubDispatchIssueNumber: String(issueNumber),
-          githubDispatchIssueUrl: issueUrl,
-        });
-      }
-      const githubReaction = githubIssueReaction(reactionName);
-      if (githubReaction) {
-        await github.addIssueReaction(repository, issueNumber, githubReaction);
-      }
-      await db
-        .update(triageRuns)
-        .set({
-          status: "acknowledged",
-          providerTaskId: String(issueNumber),
-          progressLogJson: JSON.stringify([
-            { at: now, state: "submitted", reason },
-            {
-              at: new Date().toISOString(),
-              state: "acknowledged",
-              reason:
-                "Tagged @builderio-bot on the GitHub issue; waiting for a pull request.",
-            },
-          ]),
-          heartbeatAt: new Date().toISOString(),
-        })
-        .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)));
-      await db
-        .update(triageItems)
-        .set({
-          status: "automation_started",
-          updatedAt: new Date().toISOString(),
-        })
-        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
-      await recordFactoryAudit(
-        context,
-        { userEmail, orgId },
-        {
-          action: "dispatch-factory-item",
-          kind: "external_action",
-          factoryId,
-          itemId,
-          source: item.source,
-          sourceUrl: issueUrl ?? item.sourceUrl,
-          summary:
-            "Tagged @builderio-bot on a GitHub issue and requested a PR.",
-          details: {
-            provider: "bot-tag",
-            runId,
-            factoryRunId: runId,
-            githubIssueNumber: issueNumber,
-            githubIssueUrl: issueUrl,
-            ...(reactionName ? { slackReactionName: reactionName } : {}),
-          },
-        },
-      );
-      return {
-        ok: true,
-        started: true,
-        deduplicated: false,
-        runId,
-        provider: "bot-tag",
-        githubIssueNumber: issueNumber,
-        githubIssueUrl: issueUrl,
-      };
+      // guard:allow-bare-error — invariant: assertSlackDispatchSource rejects non-Slack items before this dispatch branch.
+      throw new Error(`Unexpected Factory feedback source: ${item.source}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await db

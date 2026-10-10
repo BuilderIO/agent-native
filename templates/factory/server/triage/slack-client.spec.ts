@@ -8,6 +8,7 @@ import {
   hasReaction,
   getTeamInfo,
   getThread,
+  postChannelMessage,
   postThreadReply,
 } from "../connectors/slack.js";
 import { createSlackReader, isAgentNativeSlackUserName } from "./slack-client";
@@ -19,6 +20,7 @@ vi.mock("../connectors/slack.js", () => ({
   hasReaction: vi.fn(),
   getTeamInfo: vi.fn(),
   getThread: vi.fn(),
+  postChannelMessage: vi.fn(),
   postThreadReply: vi.fn(),
 }));
 
@@ -32,6 +34,7 @@ const mockedHasReaction = vi.mocked(hasReaction);
 const mockedGetTeamInfo = vi.mocked(getTeamInfo);
 const mockedGetThread = vi.mocked(getThread);
 const mockedAddReaction = vi.mocked(addReaction);
+const mockedPostChannelMessage = vi.mocked(postChannelMessage);
 const mockedPostThreadReply = vi.mocked(postThreadReply);
 const mockedResolveConnectorSecret = vi.mocked(resolveConnectorSecret);
 
@@ -63,6 +66,10 @@ beforeEach(() => {
   mockedPostThreadReply.mockReset().mockResolvedValue({
     channel: "C123",
     ts: "1.2",
+  });
+  mockedPostChannelMessage.mockReset().mockResolvedValue({
+    channel: "C456",
+    ts: "1.3",
   });
   mockedResolveConnectorSecret.mockReset().mockResolvedValue("xoxb-test");
 });
@@ -160,20 +167,23 @@ describe("createSlackReader", () => {
     expect(isAgentNativeSlackUserName("other-bot")).toBe(false);
   });
 
-  it("exposes bounded thread reads and the two typed write methods", async () => {
+  it("exposes scoped thread and channel Slack writes", async () => {
     const reader = createSlackReader({ ownerEmail: "owner@example.com" });
 
     await reader.getThread("primary", "C123", "10.1", 50, "cursor-1");
     await reader.addReaction("primary", "C123", "10.1", "robot_face");
     await reader.postThreadReply("primary", "C123", "10.1", "Acknowledged");
+    await reader.postChannelMessage("secondary", "C456", "Rollup");
     await reader.hasReaction("primary", "C123", "10.1", "robot_face");
 
     const threadResolver = mockedGetThread.mock.calls[0]?.[5];
     const reactionResolver = mockedAddReaction.mock.calls[0]?.[4];
     const replyResolver = mockedPostThreadReply.mock.calls[0]?.[4];
+    const channelResolver = mockedPostChannelMessage.mock.calls[0]?.[3];
     expect(threadResolver).toEqual(expect.any(Function));
     expect(reactionResolver).toEqual(expect.any(Function));
     expect(replyResolver).toEqual(expect.any(Function));
+    expect(channelResolver).toEqual(expect.any(Function));
     expect(mockedGetThread).toHaveBeenCalledWith(
       "primary",
       "C123",
@@ -195,6 +205,12 @@ describe("createSlackReader", () => {
       "10.1",
       "Acknowledged",
       replyResolver,
+    );
+    expect(mockedPostChannelMessage).toHaveBeenCalledWith(
+      "secondary",
+      "C456",
+      "Rollup",
+      channelResolver,
     );
     const hasResolver = mockedHasReaction.mock.calls[0]?.[4];
     expect(hasResolver).toEqual(expect.any(Function));

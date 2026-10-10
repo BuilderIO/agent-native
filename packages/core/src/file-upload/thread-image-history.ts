@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { AgentChatAttachment } from "../agent/types.js";
 import {
   createOwnedAttachmentHydrationBudget,
@@ -28,6 +30,193 @@ export class PriorThreadImageHistoryReadError extends Error {
 export interface PriorThreadImageHistory {
   attachments: AgentChatAttachment[];
   contextNote?: string;
+}
+
+export interface PriorThreadImageHistoryCacheScope {
+  ownerEmail: string;
+  orgId?: string | null;
+  threadId: string;
+}
+
+export const PRIOR_THREAD_IMAGE_CACHE_TTL_MS = 5 * 60 * 1000;
+export const MAX_PRIOR_THREAD_IMAGE_CACHE_ENTRIES = 16;
+export const MAX_PRIOR_THREAD_IMAGE_CACHE_ENCODED_BYTES = 32 * 1024 * 1024;
+
+interface CachedPriorThreadImages {
+  expiresAt: number;
+  encodedBytes: number;
+  byCandidate: Map<string, AgentChatAttachment>;
+  expirationTimer: ReturnType<typeof setTimeout>;
+}
+
+const priorThreadImageCache = new Map<string, CachedPriorThreadImages>();
+let priorThreadImageCacheEncodedBytes = 0;
+
+function removeCachedPriorThreadImages(key: string): void {
+  const entry = priorThreadImageCache.get(key);
+  if (!entry) return;
+  priorThreadImageCache.delete(key);
+  priorThreadImageCacheEncodedBytes -= entry.encodedBytes;
+  clearTimeout(entry.expirationTimer);
+}
+
+function expirePriorThreadImageCache(now: number): void {
+  for (const [key, entry] of priorThreadImageCache) {
+    if (entry.expiresAt <= now) removeCachedPriorThreadImages(key);
+  }
+}
+
+function getCachedPriorThreadImages(
+  key: string,
+  now: number,
+): CachedPriorThreadImages | undefined {
+  expirePriorThreadImageCache(now);
+  const entry = priorThreadImageCache.get(key);
+  if (!entry) return undefined;
+  priorThreadImageCache.delete(key);
+  priorThreadImageCache.set(key, entry);
+  return entry;
+}
+
+function encodedAttachmentBytes(attachment: AgentChatAttachment): number {
+  return typeof attachment.data === "string"
+    ? Buffer.byteLength(attachment.data, "utf8")
+    : 0;
+}
+
+function cachePriorThreadImages(
+  key: string,
+  previous: CachedPriorThreadImages | undefined,
+  successful: ReadonlyMap<string, AgentChatAttachment>,
+  now: number,
+): void {
+  if (successful.size === 0) return;
+
+  const byCandidate = new Map(previous?.byCandidate);
+  for (const [identity, attachment] of successful) {
+    byCandidate.set(identity, attachment);
+  }
+  const encodedBytes = [...byCandidate.values()].reduce(
+    (total, attachment) => total + encodedAttachmentBytes(attachment),
+    0,
+  );
+  if (encodedBytes > MAX_PRIOR_THREAD_IMAGE_CACHE_ENCODED_BYTES) return;
+
+  removeCachedPriorThreadImages(key);
+  while (
+    priorThreadImageCache.size > 0 &&
+    (priorThreadImageCache.size >= MAX_PRIOR_THREAD_IMAGE_CACHE_ENTRIES ||
+      priorThreadImageCacheEncodedBytes + encodedBytes >
+        MAX_PRIOR_THREAD_IMAGE_CACHE_ENCODED_BYTES)
+  ) {
+    const leastRecentlyUsed = priorThreadImageCache.keys().next().value;
+    if (typeof leastRecentlyUsed !== "string") break;
+    removeCachedPriorThreadImages(leastRecentlyUsed);
+  }
+
+  const entry: CachedPriorThreadImages = {
+    expiresAt: now + PRIOR_THREAD_IMAGE_CACHE_TTL_MS,
+    encodedBytes,
+    byCandidate,
+    expirationTimer: setTimeout(
+      () => removeCachedPriorThreadImages(key),
+      PRIOR_THREAD_IMAGE_CACHE_TTL_MS,
+    ),
+  };
+  entry.expirationTimer.unref?.();
+  priorThreadImageCache.set(key, entry);
+  priorThreadImageCacheEncodedBytes += encodedBytes;
+}
+
+function candidateIdentity(candidate: PriorImageCandidate): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        candidate.name,
+        candidate.contentType ?? null,
+        candidate.url,
+      ]),
+    )
+    .digest("hex");
+}
+
+function durableHistoryImageUrl(value: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    if (error instanceof TypeError) return undefined;
+    throw error;
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    return undefined;
+  }
+  const durableUrl = url.toString();
+  return durableUrl.length <= 2_048 ? durableUrl : undefined;
+}
+
+export function retainedStructuredHistoryImageUrls(
+  history: unknown,
+): ReadonlySet<string> {
+  const urls = new Set<string>();
+  if (!Array.isArray(history)) return urls;
+
+  for (const message of history) {
+    if (
+      !message ||
+      typeof message !== "object" ||
+      (message as { role?: unknown }).role !== "user" ||
+      !Array.isArray((message as { content?: unknown }).content)
+    ) {
+      continue;
+    }
+    for (const part of (message as { content: unknown[] }).content) {
+      if (!part || typeof part !== "object") continue;
+      const reference = part as Record<string, unknown>;
+      if (
+        reference.type !== "image-reference" ||
+        typeof reference.url !== "string" ||
+        reference.url.length > 2_048 ||
+        (reference.name !== undefined &&
+          (typeof reference.name !== "string" ||
+            reference.name.length > 200)) ||
+        (reference.mediaType !== undefined &&
+          (typeof reference.mediaType !== "string" ||
+            reference.mediaType.length > 100))
+      ) {
+        continue;
+      }
+      const url = durableHistoryImageUrl(reference.url);
+      if (url) urls.add(url);
+    }
+  }
+
+  return urls;
+}
+
+function priorThreadImageCacheKey(
+  scope: PriorThreadImageHistoryCacheScope | undefined,
+  candidates: readonly PriorImageCandidate[],
+): string | undefined {
+  if (!scope?.ownerEmail || !scope.threadId || candidates.length === 0) {
+    return undefined;
+  }
+  const identities = candidates.map(candidateIdentity);
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify(identities))
+    .digest("hex");
+  return JSON.stringify([
+    scope.ownerEmail,
+    scope.orgId ?? null,
+    scope.threadId,
+    fingerprint,
+  ]);
 }
 
 function candidatesFromThreadData(threadData: string): PriorImageCandidates {
@@ -130,16 +319,38 @@ function candidatesFromThreadData(threadData: string): PriorImageCandidates {
  */
 export async function hydratePriorThreadImages(
   threadData: string,
+  options: {
+    cacheScope?: PriorThreadImageHistoryCacheScope;
+    excludeUrls?: ReadonlySet<string>;
+  } = {},
 ): Promise<PriorThreadImageHistory> {
   const { retained: candidates, neverRetainedCount } =
     candidatesFromThreadData(threadData);
-  const selected = candidates.slice(-MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES);
-  const omittedCount = candidates.length - selected.length;
+  const remainingCandidates = candidates.filter((candidate) => {
+    const url = durableHistoryImageUrl(candidate.url);
+    return !url || !options.excludeUrls?.has(url);
+  });
+  const selected = remainingCandidates.slice(
+    -MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+  );
+  const omittedCount = remainingCandidates.length - selected.length;
+  const now = Date.now();
+  const cacheKey = priorThreadImageCacheKey(options.cacheScope, selected);
+  const cached = cacheKey
+    ? getCachedPriorThreadImages(cacheKey, now)
+    : undefined;
   const budget = createOwnedAttachmentHydrationBudget();
   const attachments: AgentChatAttachment[] = [];
+  const newlyHydrated = new Map<string, AgentChatAttachment>();
   let unreadableCount = 0;
 
   for (const candidate of selected) {
+    const identity = candidateIdentity(candidate);
+    const cachedAttachment = cached?.byCandidate.get(identity);
+    if (cachedAttachment) {
+      attachments.push({ ...cachedAttachment });
+      continue;
+    }
     const result = await hydrateOwnedImageUrl(
       candidate.url,
       candidate.contentType,
@@ -149,12 +360,18 @@ export async function hydratePriorThreadImages(
       unreadableCount++;
       continue;
     }
-    attachments.push({
+    const attachment: AgentChatAttachment = {
       type: "image",
       name: candidate.name,
       contentType: result.mediaType,
       data: result.dataUrl,
-    });
+    };
+    attachments.push(attachment);
+    newlyHydrated.set(identity, attachment);
+  }
+
+  if (cacheKey) {
+    cachePriorThreadImages(cacheKey, cached, newlyHydrated, now);
   }
 
   const notes: string[] = [];

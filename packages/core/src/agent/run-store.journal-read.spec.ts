@@ -264,7 +264,6 @@ describe.each([
       { type: 1 },
       { type: "unknown_event" },
       { type: "tool_start", tool: "send-message" },
-      { type: "tool_start", tool: "send-message", input: [] },
       { type: "tool_done", result: "sent", completedSideEffect: true },
       { type: "tool_done", tool: "send-message" },
       { type: "tool_done", tool: " ", result: "sent" },
@@ -297,6 +296,20 @@ describe.each([
       reason: "invalid_event",
     });
   });
+
+  it.each([[], "{truncated", 1, null])(
+    "retains recorded tool inputs without deciding action validity: %j",
+    async (input) => {
+      const event = { type: "tool_start", tool: "send-message", input };
+      mocks.events = [{ ...start, event_data: JSON.stringify(event) }];
+      const events = await read("thread", "turn");
+      expect(events).toEqual(
+        _name === "run events"
+          ? [{ runId: "run-first", seq: 0, event }]
+          : [event],
+      );
+    },
+  );
 
   it("returns an empty journal only when no rows exist", async () => {
     await expect(read("thread", "turn")).resolves.toEqual([]);

@@ -178,6 +178,7 @@ import { isTransientDatabaseError } from "../db/client.js";
 import {
   hydratePriorThreadImages,
   PriorThreadImageHistoryReadError,
+  retainedStructuredHistoryImageUrls,
 } from "../file-upload/thread-image-history.js";
 import {
   filterFrameworkToolGroups,
@@ -4053,23 +4054,20 @@ export function createAgentChatPlugin(
         }
       };
 
-      const priorThreadImageContext = async (details: {
+      const resolveAccessibleRequestThread = async (details: {
         event: any;
         ownerEmail: string | null;
         threadId?: string;
       }) => {
-        if (!details.threadId || !details.ownerEmail) return undefined;
-
-        let existingThread: ChatThread | null;
-        try {
-          existingThread = await getThread(details.threadId);
-        } catch {
+        if (!details.threadId) return undefined;
+        if (!details.ownerEmail?.trim()) {
           throw createError({
-            statusCode: 503,
-            statusMessage: "Prior chat attachment history could not be read.",
-            data: { code: "prior_attachment_history_unreadable" },
+            statusCode: 404,
+            statusMessage: "Thread not found",
           });
         }
+
+        const existingThread = await getThread(details.threadId);
         if (!existingThread) return undefined;
         if (
           threadScopeMismatch(
@@ -4083,21 +4081,13 @@ export function createAgentChatPlugin(
           });
         }
 
-        let thread: ChatThread | null;
-        try {
-          thread = await resolveThreadAccess(
-            details.ownerEmail,
-            details.threadId,
-            "editor",
-            { orgId: await getOrgIdFromEvent(details.event) },
-          );
-        } catch {
-          throw createError({
-            statusCode: 503,
-            statusMessage: "Prior chat attachment history could not be read.",
-            data: { code: "prior_attachment_history_unreadable" },
-          });
-        }
+        const orgId = await getOrgIdFromEvent(details.event);
+        const thread = await resolveThreadAccess(
+          details.ownerEmail,
+          details.threadId,
+          "editor",
+          { orgId },
+        );
         if (!thread)
           throw createError({
             statusCode: 404,
@@ -4112,8 +4102,31 @@ export function createAgentChatPlugin(
           });
         }
 
+        return {
+          thread,
+          cacheScope: {
+            ownerEmail: details.ownerEmail,
+            orgId,
+            threadId: thread.id,
+          },
+        };
+      };
+
+      const priorThreadImageContext = async (
+        accessibleThread: Awaited<
+          ReturnType<typeof resolveAccessibleRequestThread>
+        >,
+        excludeUrls: ReadonlySet<string>,
+      ) => {
+        if (!accessibleThread) return undefined;
         try {
-          return await hydratePriorThreadImages(thread.threadData);
+          return await hydratePriorThreadImages(
+            accessibleThread.thread.threadData,
+            {
+              cacheScope: accessibleThread.cacheScope,
+              excludeUrls,
+            },
+          );
         } catch (error) {
           if (!(error instanceof PriorThreadImageHistoryReadError)) throw error;
           throw createError({
@@ -4145,18 +4158,27 @@ export function createAgentChatPlugin(
         };
       };
 
-      const deferPriorThreadImageContext = (
+      const deferPriorThreadImageContext = async (
         prepared: void | PreparedAgentRequest,
-        details: Parameters<typeof priorThreadImageContext>[0],
-      ): void | PreparedAgentRequest => {
-        if (!details.threadId || !details.ownerEmail) return prepared;
+        details: Parameters<typeof resolveAccessibleRequestThread>[0] & {
+          structuredHistory?: unknown;
+        },
+      ): Promise<void | PreparedAgentRequest> => {
+        if (!details.threadId) return prepared;
+        const thread = await resolveAccessibleRequestThread(details);
+        const structuredHistoryImageUrls = retainedStructuredHistoryImageUrls(
+          details.structuredHistory,
+        );
         return {
           ...(prepared ?? {}),
           prepareAfterModel: async (modelDetails) => {
             const preparedContext =
               await prepared?.prepareAfterModel?.(modelDetails);
             if (!modelDetails.vision) return preparedContext;
-            const prior = await priorThreadImageContext(details);
+            const prior = await priorThreadImageContext(
+              thread,
+              structuredHistoryImageUrls,
+            );
             return addPriorThreadImageContext(preparedContext, prior);
           },
         };
@@ -4777,7 +4799,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
           // Also run the template-provided prepareRequest (if any).
           const templateResult = await options?.prepareRequest?.(details);
-          const prepared = deferPriorThreadImageContext(
+          const prepared = await deferPriorThreadImageContext(
             templateResult,
             details,
           );
