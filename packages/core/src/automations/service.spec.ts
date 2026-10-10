@@ -5,6 +5,7 @@ const resourceDeleteMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const getUserSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
@@ -32,8 +33,11 @@ vi.mock("../resources/store.js", () => ({
   resourceGetByPath: resourceGetByPathMock,
   resourceList: resourceListMock,
   resourcePut: resourcePutMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
 }));
 
+import { nextOccurrence } from "../jobs/cron.js";
+import { parseJobResource } from "../jobs/frontmatter.js";
 import {
   automationMatchesEventOwner,
   canQueueAutomationRunNow,
@@ -107,6 +111,14 @@ describe("automation domain service", () => {
     resourceGetByPathMock.mockResolvedValue(null);
     resourceListMock.mockResolvedValue([]);
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => ({
+        id: "automation-1",
+        owner: input.owner,
+        path: input.path,
+        content: input.content,
+      }),
+    );
     getUserSettingMock.mockResolvedValue(null);
   });
 
@@ -381,13 +393,16 @@ Send the digest.`);
       reasoningEffort: "high",
       mcpTools: ["mcp__mail__read", "mcp__mail__send"],
     });
-    expect(resourcePutMock).toHaveBeenCalledWith(
-      orgOwner,
-      "jobs/notify.md",
-      expect.stringContaining("createdBy: alice@example.com"),
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: orgOwner,
+        path: "jobs/notify.md",
+        content: expect.stringContaining("createdBy: alice@example.com"),
+      }),
     );
 
-    const updatedContent = resourcePutMock.mock.calls[0][2] as string;
+    const updatedContent = resourcePutIfCurrentMock.mock.calls[0][0]
+      .content as string;
     expect(updatedContent).toContain('deliveryPlatform: "slack"');
     expect(updatedContent).toContain('deliveryDestination: "channel-1"');
     expect(updatedContent).toContain("mcp__mail__send");
@@ -426,7 +441,7 @@ Send the digest.`);
       { name: "notify", scope: "organization", enabled: true },
     );
 
-    const content = resourcePutMock.mock.calls[0][2] as string;
+    const content = resourcePutIfCurrentMock.mock.calls[0][0].content as string;
     expect(content).toContain("enabled: true");
     for (const field of [
       "lastStatus",
@@ -458,7 +473,320 @@ Send the digest.`);
       { name: "notify", scope: "organization", enabled: true },
     );
 
-    expect(resourcePutMock.mock.calls[0][2]).toContain("lastStatus: success");
+    expect(resourcePutIfCurrentMock.mock.calls[0][0].content).toContain(
+      "lastStatus: success",
+    );
+  });
+
+  it("re-applies an update over run state written while it was read", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const withRun = (status: string, runAt: string) =>
+      resource(
+        eventAutomation.replace(
+          "runAs: creator",
+          `runAs: creator\nlastStatus: ${status}\nlastRun: "${runAt}"`,
+        ),
+      );
+    const before = withRun("success", "2026-10-01T00:00:00.000Z");
+    const concurrentRun = {
+      ...withRun("running", "2026-10-07T09:00:00.000Z"),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(before)
+      .mockResolvedValueOnce(concurrentRun);
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          ...concurrentRun,
+          content: input.content,
+        }),
+      );
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", enabled: false },
+    );
+
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(2);
+    const written = resourcePutIfCurrentMock.mock.calls[1][0].content as string;
+    expect(written).toContain("enabled: false");
+    expect(written).toContain("lastStatus: running");
+    expect(written).toContain("2026-10-07T09:00:00.000Z");
+    // The caller reports what landed, not the pre-conflict snapshot.
+    expect(updated.meta.enabled).toBe(false);
+    expect(updated.meta.lastStatus).toBe("running");
+    expect(updated.resource.content).toBe(written);
+  });
+
+  it("re-derives nextRun over a schedule another writer changed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-10T12:00:00.000Z"));
+    try {
+      executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+      const scheduled = (schedule: string) =>
+        resource(`---
+schedule: "${schedule}"
+timezone: UTC
+enabled: true
+triggerType: schedule
+mode: agentic
+createdBy: alice@example.com
+orgId: "org-1"
+appId: mail
+runAs: creator
+---
+
+Send the digest.`);
+      const before = scheduled("0 9 * * *");
+      const concurrentSchedule = { ...scheduled("0 21 * * *"), updatedAt: 2 };
+      resourceGetByPathMock
+        .mockResolvedValueOnce(before)
+        .mockResolvedValueOnce(concurrentSchedule);
+      resourcePutIfCurrentMock
+        .mockResolvedValueOnce(null)
+        .mockImplementationOnce(
+          async (input: { owner: string; path: string; content: string }) => ({
+            ...concurrentSchedule,
+            content: input.content,
+          }),
+        );
+
+      await updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        { name: "notify", scope: "organization", timezone: "Asia/Tokyo" },
+      );
+
+      const written = resourcePutIfCurrentMock.mock.calls[1][0]
+        .content as string;
+      const { meta } = parseJobResource(written);
+      expect(meta.schedule).toBe("0 21 * * *");
+      expect(meta.timezone).toBe("Asia/Tokyo");
+      expect(meta.nextRun).toBe(
+        nextOccurrence("0 21 * * *", undefined, "Asia/Tokyo").toISOString(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves a failure recorded after the update was read alone", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const scheduled = (failure: string) =>
+      resource(`---
+schedule: "0 9 * * *"
+timezone: UTC
+enabled: false
+triggerType: schedule
+mode: agentic
+createdBy: alice@example.com
+orgId: "org-1"
+appId: mail
+runAs: creator
+${failure}
+---
+
+Send the digest.`);
+    const before = scheduled(
+      [
+        "lastStatus: paused",
+        'lastErrorCode: "missing_credentials"',
+        "consecutiveFailures: 3",
+        'pausedReason: "missing_credentials"',
+        'pausedAt: "2026-10-01T00:00:00.000Z"',
+      ].join("\n"),
+    );
+    const concurrentFailure = {
+      ...scheduled(
+        [
+          "lastStatus: error",
+          'lastErrorCode: "http_502"',
+          "consecutiveFailures: 1",
+          'pausedReason: "http_502"',
+          'pausedAt: "2026-10-10T00:00:00.000Z"',
+        ].join("\n"),
+      ),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(before)
+      .mockResolvedValueOnce(concurrentFailure);
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          ...concurrentFailure,
+          content: input.content,
+        }),
+      );
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", enabled: true },
+    );
+
+    expect(updated.meta.enabled).toBe(true);
+    const written = resourcePutIfCurrentMock.mock.calls[1][0].content as string;
+    expect(written).toContain('lastErrorCode: "http_502"');
+    expect(written).toContain("consecutiveFailures: 1");
+    expect(written).not.toContain("missing_credentials");
+  });
+
+  it("does not report a change another writer already applied", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const requestedBody = "Updated digest.";
+    const concurrent = {
+      ...resource(
+        eventAutomation.replace("Send the notification.", requestedBody),
+      ),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(resource(eventAutomation))
+      .mockResolvedValueOnce(concurrent);
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          ...concurrent,
+          content: input.content,
+        }),
+      );
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", body: requestedBody },
+    );
+
+    expect(updated.changed).toBe(false);
+    expect(updated.body).toBe(requestedBody);
+  });
+
+  it("reports a change when the edit restores a value another writer changed", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const requestedBody = "Send the notification.";
+    const concurrent = {
+      ...resource(
+        eventAutomation.replace(requestedBody, "Changed by another writer."),
+      ),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(resource(eventAutomation))
+      .mockResolvedValueOnce(concurrent);
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          ...concurrent,
+          content: input.content,
+        }),
+      );
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      { name: "notify", scope: "organization", body: requestedBody },
+    );
+
+    expect(updated.changed).toBe(true);
+    expect(updated.body).toBe(requestedBody);
+  });
+
+  it("does not attribute a concurrent pause to a no-op update", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const concurrentPaused = {
+      ...resource(
+        eventAutomation.replace(
+          "enabled: true",
+          'enabled: false\nlastStatus: paused\npausedReason: "http_502"',
+        ),
+      ),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(resource(eventAutomation))
+      .mockResolvedValueOnce(concurrentPaused);
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          ...concurrentPaused,
+          content: input.content,
+        }),
+      );
+
+    const updated = await updateAutomation(
+      { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+      {
+        name: "notify",
+        scope: "organization",
+        body: "Send the notification.",
+      },
+    );
+
+    expect(updated.changed).toBe(false);
+    expect(updated.meta.enabled).toBe(false);
+  });
+
+  it("rejects the retry when the automation is no longer an automation", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const legacyJob = `---
+schedule: "0 9 * * *"
+enabled: true
+createdBy: alice@example.com
+orgId: "org-1"
+appId: mail
+---
+
+Run this as a recurring job.`;
+    resourceGetByPathMock
+      .mockResolvedValueOnce(resource(eventAutomation))
+      .mockResolvedValueOnce({ ...resource(legacyJob), updatedAt: 2 });
+    resourcePutIfCurrentMock.mockResolvedValueOnce(null);
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        { name: "notify", scope: "organization", enabled: false },
+      ),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("denies the retry when the automation no longer belongs to the app", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    const concurrentOtherApp = {
+      ...resource(eventAutomation.replace("appId: mail", "appId: calendar")),
+      updatedAt: 2,
+    };
+    resourceGetByPathMock
+      .mockResolvedValueOnce(resource(eventAutomation))
+      .mockResolvedValueOnce(concurrentOtherApp);
+    resourcePutIfCurrentMock.mockResolvedValueOnce(null);
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        { name: "notify", scope: "organization", enabled: false },
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects with a conflict when the automation keeps changing", async () => {
+    executeMock.mockResolvedValue({ rows: [{ role: "admin" }] });
+    resourceGetByPathMock.mockResolvedValue(resource(eventAutomation));
+    resourcePutIfCurrentMock.mockResolvedValue(null);
+
+    await expect(
+      updateAutomation(
+        { userEmail: "admin@example.com", orgId: "org-1", appId: "mail" },
+        { name: "notify", scope: "organization", enabled: false },
+      ),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(resourcePutMock).not.toHaveBeenCalled();
   });
 
   it("rejects an unrecognized reasoningEffort value", async () => {
@@ -504,7 +832,8 @@ Observe Slack.`),
       },
     );
 
-    const updatedContent = resourcePutMock.mock.calls[0][2] as string;
+    const updatedContent = resourcePutIfCurrentMock.mock.calls[0][0]
+      .content as string;
     expect(updatedContent).toContain("enabled: false");
     expect(updatedContent).toContain("slackChannelId: C0BUK2293SA");
     expect(updatedContent).toContain("displayName: Slack feedback");

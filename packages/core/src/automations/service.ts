@@ -8,12 +8,11 @@ import {
   jobBelongsToApp,
   normalizeJobMcpTools,
   parseJobResource,
-  patchJobFrontmatterFields,
-  replaceJobResourceBody,
   type JobFrontmatter,
   type JobFrontmatterPatch,
 } from "../jobs/frontmatter.js";
 import { deleteAutomationRuns } from "../jobs/run-history.js";
+import { applyJobResourceEdit } from "../jobs/update-job-resource.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   organizationIdFromResourceOwner,
@@ -60,6 +59,16 @@ export interface AutomationDefinition {
   body: string;
   canUpdate: boolean;
   webhookPath?: string;
+}
+
+/** The updated definition plus what the write changed, for change cards. */
+export interface AutomationUpdateResult extends AutomationDefinition {
+  /** Whether the persisted automation differs from the pre-update file. */
+  changed: boolean;
+  /** The enabled value the file had before the update. */
+  previouslyEnabled: boolean;
+  /** The enabled value the caller asked for, when it asked for one. */
+  requestedEnabled?: boolean;
 }
 
 export interface AutomationDelivery {
@@ -517,7 +526,7 @@ export async function defineAutomation(
 export async function updateAutomation(
   actorInput: AutomationActor,
   input: UpdateAutomationInput,
-): Promise<AutomationDefinition> {
+): Promise<AutomationUpdateResult> {
   const definition = await readDefinition(actorInput, input.scope, input.name);
   if (!definition.canUpdate) {
     throw httpError(
@@ -555,16 +564,36 @@ export async function updateAutomation(
     ).toISOString();
     fields.nextRun = meta.nextRun;
   }
+  const failureStateOf = (job: JobFrontmatter) =>
+    [
+      job.lastStatus ?? "",
+      job.pausedReason ?? "",
+      job.pausedAt ?? "",
+      job.lastError ?? "",
+      job.lastErrorCode ?? "",
+      job.lastFailedEventId ?? "",
+      job.consecutiveFailures ?? 0,
+    ].join("\u0000");
+  const failureStateBeforeEdit = failureStateOf(meta);
+  let liftsFailureState = false;
+  let liftsPauseOnly = false;
   if (input.enabled !== undefined) {
     meta.enabled = input.enabled;
     fields.enabled = input.enabled;
-    if (
-      input.enabled &&
-      (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
-    ) {
+    const failureFieldsPresent = Boolean(
+      meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures,
+    );
+    liftsFailureState = Boolean(
+      input.enabled && failureFieldsPresent && meta.lastStatus !== "running",
+    );
+    liftsPauseOnly = Boolean(
+      input.enabled && failureFieldsPresent && meta.lastStatus === "running",
+    );
+    if (liftsFailureState) {
       // Enabling is how an owner lifts a framework pause: start from a clean
-      // failure streak instead of pausing again on the first failure.
-      Object.assign(fields, RESUME_AUTOMATION_PATCH);
+      // failure streak instead of pausing again on the first failure. The reset
+      // itself is applied per attempt, only while the file still carries the
+      // failure the editor saw.
       meta.lastStatus = undefined;
       meta.lastError = undefined;
       meta.lastErrorCode = undefined;
@@ -661,16 +690,121 @@ export async function updateAutomation(
   }
   const body = input.body === undefined ? definition.body : input.body.trim();
   if (!body) throw httpError("Automation body is required.", 400);
-  let content = patchJobFrontmatterFields(definition.resource.content, fields);
-  if (input.body !== undefined) {
-    content = replaceJobResourceBody(content, body);
+  // Re-derive nextRun, and the pause reset an "enable" lifts, on each attempt
+  // so they follow the file the edit lands on, not the first snapshot's.
+  const deriveFields = (baseContent: string): JobFrontmatterPatch => {
+    const latest = parseJobResource(baseContent).meta;
+    const derived: JobFrontmatterPatch = { ...fields };
+    if (fields.nextRun !== undefined) {
+      const schedule =
+        typeof fields.schedule === "string" ? fields.schedule : latest.schedule;
+      const timezone =
+        typeof fields.timezone === "string" ? fields.timezone : latest.timezone;
+      derived.nextRun = nextOccurrence(
+        schedule,
+        undefined,
+        timezone,
+      ).toISOString();
+    }
+    if (liftsPauseOnly) {
+      // A run is active: lift the pause without touching the run marker or its
+      // failure detail; the run's own outcome settles the rest.
+      derived.pausedReason = undefined;
+      derived.pausedAt = undefined;
+    }
+    if (
+      liftsFailureState &&
+      failureStateOf(latest) === failureStateBeforeEdit
+    ) {
+      // Enabling lifts the failure the editor saw and starts a clean streak; a
+      // failure recorded after that read is left alone.
+      Object.assign(derived, RESUME_AUTOMATION_PATCH);
+    }
+    return derived;
+  };
+  const actor = normalizeActor(actorInput);
+  const result = await applyJobResourceEdit({
+    resource: definition.resource,
+    fields: deriveFields,
+    revalidate: async (base) => {
+      // A base that no longer parses as an explicit automation cannot be
+      // updated; let that error surface instead of folding it into "denied".
+      const latest = assertExplicitAutomation(base);
+      if (!jobBelongsToApp(latest.meta, actor.appId)) return false;
+      const access = await mutationAccess(actor, base, latest.meta);
+      return access.canUpdate;
+    },
+    ...(input.body !== undefined ? { body } : {}),
+  });
+  if (!result.ok) {
+    if (result.reason === "missing") {
+      throw httpError(
+        `Automation "${automationName(definition.resource.path)}" not found.`,
+        404,
+      );
+    }
+    if (result.reason === "unauthorized") {
+      throw httpError(
+        "Only the automation's creator or an organization admin can update it.",
+        403,
+      );
+    }
+    throw httpError(
+      result.reason === "replaced"
+        ? "The automation was replaced while it was being updated. Try again."
+        : "The automation changed while it was being updated. Try again.",
+      409,
+    );
   }
-  await resourcePut(
-    definition.resource.owner,
-    definition.resource.path,
-    content,
-  );
-  return { ...definition, meta, body };
+  // Report what actually landed, including fields a concurrent writer kept.
+  const landed = assertExplicitAutomation(result.resource);
+  const previous = parseJobResource(definition.resource.content);
+  const replaced = parseJobResource(result.replacedContent);
+  // Attribute the card to what this request asked to change, not to a
+  // concurrent writer's edit that landed in the same file. A request that
+  // restores a value another writer changed still counts.
+  const changedField = (before: unknown, after: unknown) => before !== after;
+  const requestedDiff = (base: { body: string; meta: JobFrontmatter }) =>
+    (input.body !== undefined && changedField(base.body, body)) ||
+    (input.enabled !== undefined &&
+      changedField(base.meta.enabled, meta.enabled)) ||
+    (input.schedule !== undefined &&
+      changedField(base.meta.schedule, meta.schedule)) ||
+    (input.timezone !== undefined &&
+      changedField(base.meta.timezone, meta.timezone)) ||
+    (input.condition !== undefined &&
+      changedField(base.meta.condition, meta.condition)) ||
+    (input.delegatedPolicyId !== undefined &&
+      changedField(base.meta.delegatedPolicyId, meta.delegatedPolicyId)) ||
+    (input.model !== undefined && changedField(base.meta.model, meta.model)) ||
+    (input.reasoningEffort !== undefined &&
+      changedField(base.meta.reasoningEffort, meta.reasoningEffort)) ||
+    (input.executionHostId !== undefined &&
+      changedField(base.meta.executionHostId, meta.executionHostId)) ||
+    (input.executionEngine !== undefined &&
+      changedField(base.meta.executionEngine, meta.executionEngine)) ||
+    (input.executionCwd !== undefined &&
+      changedField(base.meta.executionCwd, meta.executionCwd)) ||
+    (input.mcpTools !== undefined &&
+      changedField(
+        JSON.stringify(base.meta.mcpTools ?? []),
+        JSON.stringify(meta.mcpTools ?? []),
+      )) ||
+    (input.scope === "organization" &&
+      (changedField(base.meta.orgId, meta.orgId) ||
+        changedField(base.meta.runAs, meta.runAs)));
+  // Compare against the file the retry actually replaced: a concurrent writer
+  // that already applied the requested value is not this request's change.
+  const changed = requestedDiff(replaced);
+  return {
+    ...definition,
+    resource: result.resource,
+    meta: landed.meta,
+    body: landed.body,
+    changed,
+    previouslyEnabled: previous.meta.enabled,
+    requestedEnabled: input.enabled,
+  };
 }
 
 export async function deleteAutomation(

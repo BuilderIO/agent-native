@@ -3,7 +3,6 @@ import { DEFAULT_AUTOMATION_SCHEDULE } from "../automations/service.js";
 import { getDbExec } from "../db/client.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
-  resourcePut,
   resourcePutIfAbsent,
   resourceGetByPath,
   resourceList,
@@ -33,8 +32,6 @@ import {
   assertJobExecutionTargetFields,
   classifyJobResource,
   jobBelongsToApp,
-  patchJobFrontmatterFields,
-  replaceJobResourceBody,
   type JobFrontmatterPatch,
 } from "./frontmatter.js";
 import {
@@ -43,6 +40,7 @@ import {
   normalizeJobMcpTools,
   type JobFrontmatter,
 } from "./scheduler.js";
+import { applyJobResourceEdit } from "./update-job-resource.js";
 
 export { jobBelongsToApp } from "./frontmatter.js";
 
@@ -82,7 +80,7 @@ async function isCurrentUserOrgAdmin(
 /**
  * Authorise a mutation (update / delete) against a job resource. When the
  * job is in the SHARED scope the caller must either be the original
- * `createdBy` user or an org owner/admin — otherwise any user could rewrite
+ * `createdBy` user or an org owner/admin; otherwise any user could rewrite
  * another user's shared job and have it run as that user on the next cron
  * tick (the privilege-escalation chain documented in audit
  * `/tmp/security-audit/12-mcp-a2a-agent.md`, finding #3).
@@ -100,7 +98,7 @@ export async function authorizeJobMutation(
   }
   const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
   if (resourceOwner !== SHARED_OWNER && !resourceOrgId) {
-    // Personal-scope job — owner is the request's user. resourceGetByPath is
+    // Personal-scope job: owner is the request's user. resourceGetByPath is
     // already scoped to the caller, so we know meta.createdBy must match.
     return null;
   }
@@ -380,16 +378,20 @@ async function runUpdate(
     fields.nextRun = meta.nextRun;
   }
 
+  let liftsFailureState = false;
+  let liftsPauseOnly = false;
   if (enabled !== undefined) {
     meta.enabled = enabled === true || enabled === "true";
     fields.enabled = meta.enabled;
-    if (
-      meta.enabled &&
-      (meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures)
-    ) {
-      // Enabling lifts a framework pause and starts a clean failure streak.
-      Object.assign(fields, RESUME_AUTOMATION_PATCH);
-    }
+    const failureFieldsPresent = Boolean(
+      meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures,
+    );
+    liftsFailureState = Boolean(
+      meta.enabled && failureFieldsPresent && meta.lastStatus !== "running",
+    );
+    liftsPauseOnly = Boolean(
+      meta.enabled && failureFieldsPresent && meta.lastStatus === "running",
+    );
   }
 
   if (runAs === "creator" || runAs === "shared") {
@@ -454,28 +456,92 @@ async function runUpdate(
     }
   }
 
-  let content = patchJobFrontmatterFields(resource.content, fields);
-  if (instructions) {
-    content = replaceJobResourceBody(content, instructions);
+  // Re-derive nextRun, and the pause reset an "enable" lifts, on each attempt
+  // so they follow the file the edit lands on, not the first snapshot's.
+  const failureStateOf = (job: JobFrontmatter) =>
+    [
+      job.lastStatus ?? "",
+      job.pausedReason ?? "",
+      job.pausedAt ?? "",
+      job.lastError ?? "",
+      job.lastErrorCode ?? "",
+      job.lastFailedEventId ?? "",
+      job.consecutiveFailures ?? 0,
+    ].join("\u0000");
+  const failureStateBeforeEdit = failureStateOf(meta);
+  const deriveFields = (baseContent: string): JobFrontmatterPatch => {
+    const latest = parseJobFrontmatter(baseContent).meta;
+    const derived: JobFrontmatterPatch = { ...fields };
+    if (fields.nextRun !== undefined) {
+      const schedule =
+        typeof fields.schedule === "string" ? fields.schedule : latest.schedule;
+      const timezone =
+        typeof fields.timezone === "string" ? fields.timezone : latest.timezone;
+      derived.nextRun = nextOccurrence(
+        schedule,
+        undefined,
+        timezone,
+      ).toISOString();
+    }
+    if (liftsPauseOnly) {
+      // A run is active: lift the pause without touching the run marker or its
+      // failure detail; the run's own outcome settles the rest.
+      derived.pausedReason = undefined;
+      derived.pausedAt = undefined;
+    }
+    if (
+      liftsFailureState &&
+      failureStateOf(latest) === failureStateBeforeEdit
+    ) {
+      // Enabling lifts the failure the editor saw and starts a clean streak; a
+      // failure recorded after that read is left alone.
+      Object.assign(derived, RESUME_AUTOMATION_PATCH);
+    }
+    return derived;
+  };
+  const result = await applyJobResourceEdit({
+    resource,
+    fields: deriveFields,
+    revalidate: async (base) => {
+      // The retry's file must still be a job this editor may change; a same-ID
+      // path that became an automation cannot be updated through manage-jobs.
+      if (classifyJobResource(base.content).kind !== "job") return false;
+      const latest = parseJobFrontmatter(base.content).meta;
+      return !(await authorizeJobMutation(base.owner, latest, appId));
+    },
+    ...(instructions ? { body: instructions } : {}),
+  });
+  if (!result.ok) {
+    return JSON.stringify({
+      error:
+        result.reason === "missing"
+          ? `Job "${name}" no longer exists.`
+          : result.reason === "unauthorized"
+            ? `Only the job's creator (or an org admin) can update it.`
+            : result.reason === "replaced"
+              ? `Job "${name}" was replaced while it was updated. Try again.`
+              : `Job "${name}" changed while it was updated. Try again.`,
+    });
   }
-  await resourcePut(resource.owner, resource.path, content);
 
+  // Report what actually landed, including fields a concurrent writer kept.
+  const landed = parseJobFrontmatter(result.resource.content).meta;
   return JSON.stringify({
     updated: true,
     name,
-    schedule: meta.schedule,
-    timezone: effectiveTimezone(meta.timezone),
+    schedule: landed.schedule,
+    timezone: effectiveTimezone(landed.timezone),
     scheduleDescription: describeCron(
-      meta.schedule,
-      effectiveTimezone(meta.timezone),
+      landed.schedule,
+      effectiveTimezone(landed.timezone),
     ),
-    enabled: meta.enabled,
-    nextRun: meta.nextRun,
-    mcpTools: meta.mcpTools || [],
-    reasoningEffort: meta.reasoningEffort || null,
-    executionHostId: meta.executionHostId || null,
-    executionEngine: meta.executionEngine || null,
-    executionCwd: meta.executionCwd || null,
+    enabled: landed.enabled,
+    nextRun: landed.nextRun,
+    mcpTools: landed.mcpTools || [],
+    reasoningEffort: landed.reasoningEffort || null,
+    executionHostId: landed.executionHostId || null,
+    executionEngine: landed.executionEngine || null,
+    executionCwd: landed.executionCwd || null,
   });
 }
 
@@ -553,7 +619,7 @@ To run code-agent work on a paired always-on computer, pass executionHostId (fro
             instructions: {
               type: "string",
               description:
-                "What the agent should do when this job runs. Be specific — include which actions to call and what to do with the results. Required for create, optional for update.",
+                "What the agent should do when this job runs. Be specific: include which actions to call and what to do with the results. Required for create, optional for update.",
             },
             enabled: {
               type: "string",
