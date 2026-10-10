@@ -3040,7 +3040,7 @@ const AgentKitAssistantChatBody = forwardRef<
       if (!item) return;
       if (item.composerOnly) {
         // Publishing would make composer-only context reachable from every open composer.
-        // Stamp the staging time so the expiry check always has an age to compare against.
+        // Stamp the staging time so cleanup can tell this item from a later replacement with the same key.
         const staged =
           item.stagedAt === undefined
             ? { ...item, stagedAt: Date.now() }

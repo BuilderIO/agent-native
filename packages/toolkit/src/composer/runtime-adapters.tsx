@@ -86,7 +86,7 @@ export interface AgentChatContextItem {
   hidden?: boolean;
   /** Stays with the composer that staged it; never published to the shared store. */
   composerOnly?: boolean;
-  /** When a composer-only item was staged; stale ones expire. */
+  /** When the composer-only item was staged. Lets cleanup tell it from a replacement with the same key. */
   stagedAt?: number;
 }
 
