@@ -10,11 +10,9 @@ const suggestionSchema = z.object({
 });
 
 const SUGGESTIONS_PER_HOME_LOAD = 3;
-const MAX_HOME_SUGGESTIONS = 20;
 const suggestionsSchema = z
   .array(suggestionSchema)
-  .min(SUGGESTIONS_PER_HOME_LOAD)
-  .max(MAX_HOME_SUGGESTIONS);
+  .min(SUGGESTIONS_PER_HOME_LOAD);
 const HOME_SUGGESTIONS_TIMEOUT_MS = 10_000;
 
 type HomeSuggestionsUnavailableReason =

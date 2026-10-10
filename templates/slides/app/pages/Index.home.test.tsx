@@ -1741,6 +1741,28 @@ describe("Slides prompt-led home", () => {
     ).toBeNull();
   });
 
+  it("replaces display-only fallback suggestions after readiness recovers", async () => {
+    agentEngine.state = "unavailable";
+    agentEngine.missing = false;
+    const { rerenderHome } = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    expect(
+      screen.getByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeTruthy();
+    expect(suggestionQuery.enabled).toBe(false);
+
+    agentEngine.state = "configured";
+    rerenderHome();
+
+    expect(await screen.findByRole("button", { name: "Build a pitch" })).toBe(
+      screen.getByRole("button", { name: "Build a pitch" }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Create a product pitch deck" }),
+    ).toBeNull();
+  });
+
   it("keeps the home suggestion sample when the retained route becomes inactive", async () => {
     renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });

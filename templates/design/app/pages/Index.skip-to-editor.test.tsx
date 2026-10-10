@@ -754,6 +754,25 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Another dashboard");
   });
 
+  it("replaces display-only fallback suggestions after readiness recovers", async () => {
+    await act(async () => root.render(null));
+    mocks.agentEngine = {
+      state: "unavailable",
+      missing: false,
+      canChat: false,
+    };
+    await act(async () => root.render(<Index />));
+
+    expect(container.textContent).toContain("chat.suggestionLandingPage");
+    expect(mocks.suggestionPending).toBe(false);
+
+    mocks.agentEngine = { state: "configured", missing: false, canChat: true };
+    await act(async () => root.render(<Index />));
+
+    expect(container.textContent).toContain("Generated dashboard");
+    expect(container.textContent).not.toContain("chat.suggestionLandingPage");
+  });
+
   it.each([
     { state: "missing", missing: true, ready: false },
     { state: "unknown", missing: false, ready: false },

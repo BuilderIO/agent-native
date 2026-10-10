@@ -157,6 +157,7 @@ export function AgentSuggestionBar({
     <section
       aria-label={ariaLabel}
       aria-busy={loading || undefined}
+      aria-live="polite"
       data-agent-suggestion-bar="true"
       className={cn("w-full min-w-0 overflow-hidden px-3 py-2", className)}
     >

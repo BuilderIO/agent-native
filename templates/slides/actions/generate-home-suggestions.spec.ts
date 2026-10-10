@@ -70,7 +70,7 @@ describe("generate-home-suggestions", () => {
     );
   });
 
-  it.each([9, 11])(
+  it.each([9, 11, 21])(
     "samples three suggestions when the returned bank contains %i items",
     async (bankSize) => {
       vi.spyOn(Math, "random").mockReturnValue(0.999);

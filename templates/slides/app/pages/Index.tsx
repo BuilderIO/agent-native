@@ -688,10 +688,10 @@ export default function Index({ active = true }: { active?: boolean }) {
         quickActionsEnabled &&
         homeSuggestionsSnapshot === null,
       retry: false,
-      staleTime: Infinity,
+      staleTime: 0,
       refetchOnMount: false,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
     },
   );
   useEffect(() => {
@@ -699,21 +699,14 @@ export default function Index({ active = true }: { active?: boolean }) {
     const result = homeSuggestionsQuery.data;
     if (result?.status === "ready" && result.suggestions.length === 3) {
       setHomeSuggestionsSnapshot(result.suggestions);
-    } else if (
-      result ||
-      homeSuggestionsQuery.isError ||
-      agentEngine.state === "unavailable"
-    ) {
-      setHomeSuggestionsSnapshot(fallbackHomeSuggestions);
     }
-  }, [
-    fallbackHomeSuggestions,
-    homeSuggestionsQuery.data,
-    homeSuggestionsQuery.isError,
-    homeSuggestionsSnapshot,
-    agentEngine.state,
-  ]);
-  const homeSuggestionsUnavailable = agentEngine.state === "unavailable";
+  }, [homeSuggestionsQuery.data, homeSuggestionsSnapshot]);
+  const homeSuggestionsUnavailable =
+    agentEngine.state === "unavailable" ||
+    homeSuggestionsQuery.isError ||
+    homeSuggestionsQuery.data?.status === "unavailable" ||
+    (homeSuggestionsQuery.data?.status === "ready" &&
+      homeSuggestionsQuery.data.suggestions.length !== 3);
   const homeSuggestions =
     homeSuggestionsSnapshot ??
     (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);

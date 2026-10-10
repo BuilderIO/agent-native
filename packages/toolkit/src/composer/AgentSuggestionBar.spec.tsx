@@ -105,6 +105,7 @@ describe("AgentSuggestionBar", () => {
       '[data-agent-suggestion-track="true"]',
     );
     expect(bar?.getAttribute("aria-busy")).toBe("true");
+    expect(bar?.getAttribute("aria-live")).toBe("polite");
     expect(
       container.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
     ).toHaveLength(3);
