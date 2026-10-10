@@ -17,6 +17,9 @@ export interface RecordingContextItem {
   endedAt: string;
   status: ScreenHistoryStatus;
   mediaRecordingId: string | null;
+  // The footage the current 'processing' claim reserved. Only a ready write
+  // naming this id can link it, so a worker reconciling its own write checks it.
+  pendingMediaRecordingId: string | null;
   durationMs: number | null;
   width: number | null;
   height: number | null;
@@ -70,6 +73,17 @@ export async function listRecordingContext(
     { method: "GET" },
   );
   return result.items;
+}
+
+// Null only when the server reports the item absent or removed. A failed read
+// throws, so an unreadable item is never mistaken for an absent one.
+export async function getRecordingContextItem(
+  target: ClipsActionTarget,
+  recordingId: string,
+  id: string,
+): Promise<RecordingContextItem | null> {
+  const items = await listRecordingContext(target, recordingId);
+  return items.find((item) => item.id === id) ?? null;
 }
 
 export async function listPendingRecordingContext(

@@ -1,5 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -33,6 +33,41 @@ export async function trashRecordingContextFootage(
         ),
       );
     if (media) await trashRecording.run({ id: media.id });
+  }
+}
+
+// Trashes footage that a transition released from a reservation. Call it only
+// after that transition's conditional update has succeeded, so a rejected
+// transition trashes nothing. Footage a live item still names, as its media or
+// its reservation, is kept. A failure is logged, not thrown: the release has
+// already happened, and a retry could not undo it.
+export async function trashReleasedFootage(
+  mediaRecordingId: string,
+): Promise<void> {
+  try {
+    const [inUse] = await getDb()
+      .select({ id: schema.recordingContextItems.id })
+      .from(schema.recordingContextItems)
+      .where(
+        and(
+          ne(schema.recordingContextItems.status, "removed"),
+          or(
+            eq(schema.recordingContextItems.mediaRecordingId, mediaRecordingId),
+            eq(
+              schema.recordingContextItems.pendingMediaRecordingId,
+              mediaRecordingId,
+            ),
+          ),
+        ),
+      )
+      .limit(1);
+    if (inUse) return;
+    await trashRecordingContextFootage([mediaRecordingId]);
+  } catch (err) {
+    console.warn(
+      `[recording-context] could not trash released footage ${mediaRecordingId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }
 

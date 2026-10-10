@@ -11,6 +11,7 @@ import {
   SCREEN_HISTORY_FOOTAGE_SOURCE_APP_NAME,
   staleProcessingCutoff,
 } from "../server/lib/recording-context.js";
+import { trashReleasedFootage } from "./remove-recording-context.js";
 
 // 'ready' and 'failed' are reachable only from 'processing'. 'processing' is
 // reachable from 'pending', or from a 'processing' claim stale enough that its
@@ -156,18 +157,45 @@ export default defineAction({
           )
         : undefined;
 
-    const [updated] = await getDb()
-      .update(schema.recordingContextItems)
-      .set(fields)
-      .where(
-        and(
-          eq(schema.recordingContextItems.id, item.id),
-          fromState,
-          reservedFootage,
-        ),
-      )
-      .returning();
-    if (updated) return updated;
+    // The row is locked while its reservation is read, so the reservation this
+    // update releases is the one it read. A plain read could be stale by the
+    // time the update lands, and the footage a concurrent claim reserved would
+    // be left with nothing pointing at it.
+    const { locked, updated } = await getDb().transaction(async (tx) => {
+      const [locked] = await tx
+        .select({
+          pendingMediaRecordingId:
+            schema.recordingContextItems.pendingMediaRecordingId,
+        })
+        .from(schema.recordingContextItems)
+        .where(eq(schema.recordingContextItems.id, item.id))
+        .for("update");
+      const [updated] = await tx
+        .update(schema.recordingContextItems)
+        .set(fields)
+        .where(
+          and(
+            eq(schema.recordingContextItems.id, item.id),
+            fromState,
+            reservedFootage,
+          ),
+        )
+        .returning();
+      return { locked, updated };
+    });
+    if (updated) {
+      // A ready update releases its reservation by making that footage the
+      // item's media, so only a claim or a failure trashes what it released.
+      const released = locked?.pendingMediaRecordingId ?? null;
+      if (
+        status !== "ready" &&
+        released !== null &&
+        released !== updated.pendingMediaRecordingId
+      ) {
+        await trashReleasedFootage(released);
+      }
+      return updated;
+    }
 
     const current = await findRecordingContextItem(item.id);
     if (status === "ready" && current?.status === "processing") {

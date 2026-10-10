@@ -8,6 +8,7 @@ import {
   isWindowWithin,
   type ScreenHistoryWindow,
 } from "../shared/screen-history-context.js";
+import { trashReleasedFootage } from "./remove-recording-context.js";
 
 const REMOVED = {
   errorCode: "recording_context_removed",
@@ -48,28 +49,45 @@ export default defineAction({
     const requestedSeconds = Math.round(
       (Date.parse(next.endedAt) - Date.parse(next.startedAt)) / 1000,
     );
-    const [updated] = await getDb()
-      .update(schema.recordingContextItems)
-      .set({
-        startedAt: next.startedAt,
-        endedAt: next.endedAt,
-        requestedSeconds,
-        status: "pending",
-        error: null,
-        // A reservation names the window it was claimed for. A new window
-        // releases it, so the export that held it cannot land.
-        pendingMediaRecordingId: null,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(
-        and(
-          eq(schema.recordingContextItems.id, id),
-          ne(schema.recordingContextItems.status, "removed"),
-        ),
-      )
-      .returning();
+    // The row is locked while its reservation is read, so the reservation this
+    // trim clears is the one it read. Without the lock, a claim that landed
+    // between the read and the update would have its footage orphaned.
+    const { locked, updated } = await getDb().transaction(async (tx) => {
+      const [locked] = await tx
+        .select({
+          pendingMediaRecordingId:
+            schema.recordingContextItems.pendingMediaRecordingId,
+        })
+        .from(schema.recordingContextItems)
+        .where(eq(schema.recordingContextItems.id, id))
+        .for("update");
+      const [updated] = await tx
+        .update(schema.recordingContextItems)
+        .set({
+          startedAt: next.startedAt,
+          endedAt: next.endedAt,
+          requestedSeconds,
+          status: "pending",
+          error: null,
+          // A reservation names the window it was claimed for. A new window
+          // releases it, so the export that held it cannot land.
+          pendingMediaRecordingId: null,
+          updatedAt: new Date().toISOString(),
+        })
+        .where(
+          and(
+            eq(schema.recordingContextItems.id, id),
+            ne(schema.recordingContextItems.status, "removed"),
+          ),
+        )
+        .returning();
+      return { locked, updated };
+    });
     // The only way a loaded, non-removed item fails this match is a concurrent remove.
     if (!updated) fail("This screen history was removed.", REMOVED);
+    if (locked?.pendingMediaRecordingId) {
+      await trashReleasedFootage(locked.pendingMediaRecordingId);
+    }
     return updated;
   },
 });

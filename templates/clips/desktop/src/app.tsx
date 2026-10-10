@@ -256,6 +256,7 @@ import {
 } from "./lib/voice-dictation";
 import { whisperModelOptionLabel } from "./lib/whisper-model-picker";
 import {
+  getRecordingContextItem,
   listPendingRecordingContext,
   removeRecordingContext,
   requestRecordingContext,
@@ -1972,6 +1973,8 @@ export function App({
             : null;
         },
         update: (input) => updateRecordingContext(target, input),
+        currentItem: (recordingId, itemId) =>
+          getRecordingContextItem(target, recordingId, itemId),
         createRecording: ({ hasAudio, startedAt }) =>
           createPrivateAgentRewindRecording(
             serverUrl,

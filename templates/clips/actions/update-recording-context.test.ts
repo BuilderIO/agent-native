@@ -22,6 +22,7 @@ import { SCREEN_HISTORY_FOOTAGE_SOURCE_APP_NAME } from "../server/lib/recording-
 const mocks = vi.hoisted(() => ({
   db: undefined as unknown,
   roles: {} as Record<string, "viewer" | "editor" | "owner" | undefined>,
+  trash: vi.fn(async (args: { id: string }) => ({ id: args.id })),
 }));
 
 vi.mock("@agent-native/core/action", async () => {
@@ -44,6 +45,19 @@ vi.mock("../server/db/index.js", async () => {
   const schema = await import("../server/db/schema.js");
   return { getDb: () => mocks.db, schema };
 });
+
+vi.mock("../server/lib/recordings.js", async () => {
+  const { sql } = await import("drizzle-orm");
+  return {
+    getCurrentOwnerEmail: () => "owner@example.com",
+    ownerEmailMatches: (column: unknown, email: string) =>
+      sql`lower(${column as never}) = ${email}`,
+  };
+});
+
+vi.mock("./trash-recording.js", () => ({
+  default: { run: (args: { id: string }) => mocks.trash(args) },
+}));
 
 import action from "./update-recording-context";
 
@@ -69,6 +83,7 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(NOW));
   await resetRecordingContextTestDb(client);
+  mocks.trash.mockClear();
   mocks.roles = { rec_1: "owner", media_1: "owner" };
   await seedRecording(client, { id: "rec_1" });
   await seedRecording(client, {
@@ -192,6 +207,7 @@ describe("update-recording-context", () => {
       media_recording_id: null,
       pending_media_recording_id: null,
     });
+    expect(mocks.trash.mock.calls).toEqual([[{ id: "media_1" }]]);
   });
 
   it("rejects every transition that does not start from the required state", async () => {
@@ -428,6 +444,8 @@ describe("update-recording-context", () => {
       media_recording_id: null,
       pending_media_recording_id: "media_2",
     });
+    // Only the replaced reservation was trashed; the refused ready trashed nothing.
+    expect(mocks.trash.mock.calls).toEqual([[{ id: "media_1" }]]);
 
     // The current claim's worker lands its footage.
     await expect(
@@ -546,6 +564,208 @@ describe("update-recording-context", () => {
         statusCode: 409,
       });
       expect(await statusOf("item")).toBe(status);
+    }
+  });
+
+  it("trashes the footage a stale claim displaces when it reserves other footage", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    await setUpdatedAt("item", STALE_CLAIM);
+    await seedFootage("media_2");
+
+    await action.run({
+      id: "item",
+      status: "processing",
+      mediaRecordingId: "media_2",
+    });
+
+    expect(mocks.trash.mock.calls).toEqual([[{ id: "media_1" }]]);
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "processing",
+      pending_media_recording_id: "media_2",
+    });
+  });
+
+  it("trashes the displaced footage when a stale claim names none", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    await setUpdatedAt("item", STALE_CLAIM);
+
+    await action.run({ id: "item", status: "processing" });
+
+    expect(mocks.trash.mock.calls).toEqual([[{ id: "media_1" }]]);
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      pending_media_recording_id: null,
+    });
+  });
+
+  it("keeps the footage when a stale claim reserves the same footage again", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    await setUpdatedAt("item", STALE_CLAIM);
+
+    await action.run({
+      id: "item",
+      status: "processing",
+      mediaRecordingId: "media_1",
+    });
+
+    expect(mocks.trash).not.toHaveBeenCalled();
+  });
+
+  it("trashes nothing when a transition is rejected", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    await seedFootage("media_2");
+
+    // The claim is fresh, so a second claim is turned away.
+    await expect(
+      action.run({
+        id: "item",
+        status: "processing",
+        mediaRecordingId: "media_2",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "recording_context_invalid_transition",
+      statusCode: 409,
+    });
+    // A ready for footage other than the reserved footage is refused too.
+    await expect(
+      action.run({
+        id: "item",
+        status: "ready",
+        mediaRecordingId: "media_2",
+        durationMs: 30_000,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "recording_context_footage_mismatch",
+      statusCode: 409,
+    });
+
+    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "processing",
+      pending_media_recording_id: "media_1",
+    });
+  });
+
+  it("never trashes the footage a ready update makes the item's media", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+
+    await action.run({
+      id: "item",
+      status: "ready",
+      mediaRecordingId: "media_1",
+      durationMs: 30_000,
+    });
+
+    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "ready",
+      media_recording_id: "media_1",
+    });
+  });
+
+  it("keeps footage the item still references when a failure releases the same footage", async () => {
+    // A re-export reserved the footage the item already shows as its media.
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      mediaRecordingId: "media_1",
+      pendingMediaRecordingId: "media_1",
+    });
+
+    await action.run({
+      id: "item",
+      status: "failed",
+      error: "Export timed out.",
+    });
+
+    expect(mocks.trash).not.toHaveBeenCalled();
+    expect(await readContextItemRow(client, "item")).toMatchObject({
+      status: "failed",
+      media_recording_id: "media_1",
+      pending_media_recording_id: null,
+    });
+  });
+
+  it("keeps footage that another live item references", async () => {
+    await seedContextItem(client, {
+      id: "other",
+      recordingId: "rec_2",
+      status: "ready",
+      mediaRecordingId: "media_1",
+    });
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+
+    await action.run({
+      id: "item",
+      status: "failed",
+      error: "Export timed out.",
+    });
+
+    expect(mocks.trash).not.toHaveBeenCalled();
+  });
+
+  it("releases a reservation whose footage is already gone without a trash", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_deleted",
+    });
+
+    await expect(
+      action.run({ id: "item", status: "failed", error: "Export timed out." }),
+    ).resolves.toMatchObject({
+      status: "failed",
+      pendingMediaRecordingId: null,
+    });
+    expect(mocks.trash).not.toHaveBeenCalled();
+  });
+
+  it("releases the reservation and logs when trashing its footage fails", async () => {
+    await seedContextItem(client, {
+      id: "item",
+      status: "processing",
+      pendingMediaRecordingId: "media_1",
+    });
+    mocks.trash.mockRejectedValueOnce(new Error("trash unavailable"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await expect(
+        action.run({
+          id: "item",
+          status: "failed",
+          error: "Export timed out.",
+        }),
+      ).resolves.toMatchObject({
+        status: "failed",
+        pendingMediaRecordingId: null,
+      });
+      expect(warn).toHaveBeenCalledOnce();
+    } finally {
+      warn.mockRestore();
     }
   });
 
