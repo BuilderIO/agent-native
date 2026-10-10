@@ -1679,9 +1679,11 @@ export default {
     assetsNoImageUrl: "لم تُرجع Assets عنوان URL للصورة.",
     failedToUploadFile: "فشل تحميل الملف",
     imageAttachmentUnavailable:
-      "تعذّر تجهيز هذه الصورة كمدخل مرئي. أرفق ملف PNG أو JPG أو GIF أو WebP أصغر.",
+      "تعذّر تجهيز هذه الصورة للرفع. جرّب صورة بتنسيق JPG أو PNG أو GIF أو WebP.",
+    imageAttachmentTooLarge:
+      "يمكن أن يصل حجم كل صورة إلى {{perFile}} ميغابايت، وبإجمالي {{total}} ميغابايت للصور.",
     attachmentsTooLarge:
-      "المرفقات كبيرة جدًا. الحد الأقصى للرفع هو {{max}} ميغابايت إجمالًا — أرفق ملفات أقل أو أصغر.",
+      "يتم تحسين الصور تلقائيًا. يجب ألا يتجاوز الحجم الإجمالي للصور المحسّنة والملفات الأخرى {{max}} ميغابايت.",
     failedToSubmitPrompt: "تعذر إرسال المطالبة",
     skipPrompt: "تخطي المطالبة",
     startBlankCanvas: "ابدأ بلوحة فارغة",
