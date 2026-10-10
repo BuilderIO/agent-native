@@ -527,6 +527,96 @@ Minimal client change, because the reconnect machinery already exists:
   the JSON-then-poll variant is cleaner on Netlify because the interactive
   function returns in well under 75s.
 
+## Bounded viewer authorization leases
+
+**Proposed amendment, 2026-10-10. Runtime implementation and timing approval are
+pending.** Current streams authorize at opening, without continuous viewer
+authorization. This section defines the target, not deployed behavior.
+
+The proposal uses a 10-second viewer lease and proactive renewal 5 seconds after
+each check starts. These are proposed constants, not configuration infrastructure.
+The [tenancy ADR](organization-team-tenancy.md#proposed-stream-policy-amendment-2026-10-10)
+defines linked-conversation policy.
+
+### Scope and authorization decision
+
+The lease covers every authorized viewer subscription, including non-team and
+standalone runs and supported public access. Each subscription uses its applicable
+access policy. The lease adds no owner, viewer, continuation, or public-access
+rights. A missing conversation denies a conversation-linked run. Standalone runs
+retain their applicable policy rather than requiring a fabricated conversation.
+
+Renewal evaluates the original viewer's current identity validity and complete
+current access policy. Implementation must establish the applicable session or
+credential checks, not assume the opening request remains valid. Linked runs use
+current conversation, organization, team, owner, and share rules where applicable.
+A revoked grant does not deny a viewer who retains another valid access path.
+
+Each decision uses a fresh, coherent authoritative database view. Cached
+membership, lagging replicas, and old transaction snapshots cannot grant a lease.
+Multiple policy reads must not combine facts that were never valid together. A
+decision's snapshot cannot predate its recorded check start. Authorization returns
+distinguishable approval, denial, backend failure, and timeout outcomes. Failure is
+not successful authorization.
+
+### Subscription lifecycle
+
+- **OPENING:** Record a monotonic check start before the authoritative read. Its
+  candidate deadline is check start plus the lease duration. Approval activates the
+  subscription only before that deadline. Opening timeout ends at that deadline.
+  Subscription setup and replay do not reset it.
+- **ACTIVE:** Allow only one authorization check in flight. Schedule renewal from
+  the previous check start, not its completion. If the scheduled time already
+  passed, start promptly without extending the current deadline. The existing
+  lease permits delivery while renewal is pending, but only before its deadline.
+  Accept approval only while ACTIVE and before both the existing and candidate
+  deadlines. Replace the deadline with renewal start plus the lease duration.
+  Denial or backend failure closes immediately. Renewal timeout cannot extend
+  beyond the existing deadline.
+- **CLOSED:** Expiry, denial, backend failure, or timeout makes closure terminal.
+  Discard unsent application buffers, clear timers, and unsubscribe. Cancel pending
+  checks where supported, otherwise ignore their results. Late approval cannot
+  revive the subscription. Reconnect requires fresh authorization before replay.
+  Viewer closure is neither producer completion nor producer failure. The
+  producing run continues.
+
+### Final delivery gate and bound
+
+Implementation must provide one synchronous gate at the final
+application-controlled writer. It covers live events, SQL polling, replay,
+keepalives, and queued output during buffer draining. There must be no asynchronous
+step between the gate and transport handoff. Timers trigger renewal and cleanup
+but do not establish authorization. A delayed timer or event loop cannot extend a
+deadline.
+
+The intended guarantee is no new application-controlled content writes more than
+the approved lease duration after committed access revocation. A pre-revocation
+approval cannot extend beyond its check-start deadline. A check that starts after
+commit must observe the revoked policy or fail closed. This guarantee depends on
+the authoritative decision and final gate above.
+
+Bytes already handed to the transport can arrive later and cannot be recalled.
+The bound limits time, not disclosed byte volume. It does not promise instantaneous
+cross-host revocation. Database failure closes legitimate subscriptions too,
+without cancelling their runs. Existing reconnect support does not prove client
+recovery from authorization closure. Client handling must distinguish viewer
+closure from run completion.
+
+### Approval and proof gates
+
+Policy approval must accept the duration, renewal interval, exposure window, and
+fail-closed behavior. Approval can precede implementation. V1 release requires
+independent runtime proof, not only approval or static checks.
+
+Proof includes successful renewal and open-stream denial after organization/team
+removal, team deletion, share revocation, and applicable identity revocation.
+Include retained alternative access, slow pre-commit approval, expired late
+approval, backend failure, timeout, delayed timers, and backpressure. Cover live,
+SQL-polled, replayed, and buffered writes, fresh reconnect authorization, and
+unaffected producer execution. Measure authorization cost before accepting the
+timing. At 10,000 viewers, a 5-second cadence produces roughly 2,000 checks per
+second before underlying policy queries.
+
 ## Per-model-call gateway cap
 
 Builder gateway calls now use a runtime-aware cap. Hosted foreground calls keep
@@ -600,16 +690,15 @@ Already strong; make the new claim match:
 
 ## Phased implementation plan (smallest working slice first)
 
-> Status: \*\*Slices 0–1 implemented and the Slice-3 background-aware stale window
->
-> - background→background continuation chaining are implemented\*\*, default-on
->   for deployed Netlify apps with `AGENT_CHAT_DURABLE_BACKGROUND=false` as the
->   opt-out. The host-agnostic baseline
->   (Layer 1) carries the run on any host; the Netlify `-background` emit (Layer 2)
->   is the deploy-time optimization. Slice 2's richer reconnect-first client UX and
->   the internal per-step checkpointing (Option A) remain follow-ups; Slice 4
->   (raising the per-call gateway cap) is intentionally out of scope (see
->   [Per-model-call gateway cap](#per-model-call-gateway-cap)).
+> Status: **Slices 0–1 implemented and the Slice-3 background-aware stale window
+> and background→background continuation chaining are implemented**, default-on
+> for deployed Netlify apps with `AGENT_CHAT_DURABLE_BACKGROUND=false` as the
+> opt-out. The host-agnostic baseline (Layer 1) carries the run on any host; the
+> Netlify `-background` emit (Layer 2) is the deploy-time optimization. Slice 2's
+> richer reconnect-first client UX and the internal per-step checkpointing
+> (Option A) remain follow-ups; Slice 4 (raising the per-call gateway cap) is
+> intentionally out of scope (see
+> [Per-model-call gateway cap](#per-model-call-gateway-cap)).
 
 **Slice 0 — prove async dispatch on Netlify (no chat yet).**
 Emit one extra `-background` function in the deploy build that re-exports the
@@ -644,9 +733,8 @@ resumes the live stream with no lost or duplicated events.
 **Slice 3 — robustness.**
 Background-aware stale window (cold-start tolerance), reconcile/re-fire for lost
 dispatches, and background→background `auto_continue` chaining for the rare
-
-> 13-min turn (mirror `agent-teams.ts:1886`). Internal checkpointing (Option A)
-> for monotonic progress across any continuation.
+\>13-min turn (mirror `agent-teams.ts:1886`). Internal checkpointing (Option A)
+for monotonic progress across any continuation.
 
 **Slice 4 — foreground remains capped.**
 Do not raise the hosted foreground per-call gateway cap. Any future tuning
