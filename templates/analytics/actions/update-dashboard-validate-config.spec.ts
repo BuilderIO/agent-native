@@ -255,6 +255,21 @@ describe("validateDashboardConfig multi-select options", () => {
     );
   });
 
+  it("rejects a non-string label or an unknown type, which the read path would refuse", () => {
+    const label = {
+      name: "Plans",
+      filters: [{ id: "plan", label: 1, type: "select" }],
+      panels: [],
+    };
+    expect(validateDashboardConfig(label)).toContain("label must be a string");
+    const type = {
+      name: "Plans",
+      filters: [{ id: "plan", label: "Plan", type: "dropdown" }],
+      panels: [],
+    };
+    expect(validateDashboardConfig(type)).toContain("type must be one of");
+  });
+
   it("rejects more than 100 options, which the read path would refuse", () => {
     const config = withOptions(
       Array.from({ length: 101 }, (_, i) => `option_${i}`),

@@ -10,6 +10,7 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
+  FILTER_TYPES,
   MULTI_SELECT_EMPTY,
   normalizeMultiSelectValue,
 } from "../app/pages/adhoc/sql-dashboard/filter-vars";
@@ -296,6 +297,15 @@ function collectDashboardConfigIssues(
       }
       const id = typeof f.id === "string" ? f.id.trim() : "";
       if (!id) return dashboardIssue(`config.filters[${i}].id is required`);
+      // isDashboardFilter rejects a non-string label or an unknown type, so a save that passes here would drop the whole filter set on read.
+      if (typeof f.label !== "string") {
+        return dashboardIssue(`config.filters[${i}].label must be a string`);
+      }
+      if (!(FILTER_TYPES as readonly unknown[]).includes(f.type)) {
+        return dashboardIssue(
+          `config.filters[${i}].type must be one of ${FILTER_TYPES.join(", ")}`,
+        );
+      }
       // The read path (isDashboardFilter) rejects more than 100 options, so a save that passes here would make the dashboard unreadable.
       if (Array.isArray(f.options) && f.options.length > 100) {
         return dashboardIssue(
