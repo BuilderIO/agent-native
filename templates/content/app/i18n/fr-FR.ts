@@ -1488,6 +1488,9 @@ const overrides = {
     aiUndo: "Annuler",
     aiDone: "Terminé",
     aiMoreChanges: "+{{count}} de plus",
+    suggestionReplaced: "Remplacée",
+    suggestionWithdrawn: "Retirée",
+    suggestedChange: "Modification suggérée",
     aiUndoUnavailable:
       "Le texte supprimé ne peut pas être rétabli automatiquement",
     aiUndoFailed: "Impossible d’annuler la modification",

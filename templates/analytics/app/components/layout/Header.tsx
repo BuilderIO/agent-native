@@ -16,6 +16,7 @@ const pageTitleKeys: Record<string, string> = {
   "/": "navigation.ask",
   "/ask": "navigation.ask",
   "/data-sources": "navigation.dataSources",
+  "/source-status": "navigation.sourceStatus",
   "/data-dictionary": "navigation.dataDictionary",
   "/dashboards": "navigation.dashboards",
   "/analyses": "navigation.analyses",

@@ -273,7 +273,6 @@ test.beforeEach(async ({ page }, testInfo) => {
 });
 
 test.describe("keyboard selection traversal", () => {
-  // oracle: none — verifies app selection identity persistence, not a measured Figma result.
   test("Layers-first selection persists source identity for a later move and reload", async ({
     page,
   }) => {
@@ -729,7 +728,6 @@ test.describe("groups", () => {
     }
   });
 
-  // oracle: none — verifies the app's fill undo lifecycle, not measured visual parity.
   test("Undo cancels a held Group Fill opacity scrub before undoing the committed color", async ({
     page,
   }) => {
@@ -1029,7 +1027,6 @@ test.describe("groups", () => {
     }
   });
 
-  // oracle: none — verifies app gesture state across swatch collisions, not a Figma observation.
   test("Selection Colors keeps an opacity gesture attached when it collides with another swatch", async ({
     page,
   }) => {
@@ -1250,7 +1247,6 @@ test.describe("groups", () => {
     }
   });
 
-  // oracle: none — verifies app undo behavior for the Hex field, not measured visual parity.
   test("Undo and Redo work from the Selection Colors Hex field and close the picker", async ({
     page,
   }) => {
@@ -1292,7 +1288,6 @@ test.describe("groups", () => {
     }
   });
 
-  // oracle: none — verifies the app's opacity preview gesture lifecycle, not a Figma observation.
   test("Selection Colors keeps an opacity-zero preview attached until gesture release", async ({
     page,
   }) => {
@@ -1400,7 +1395,6 @@ test.describe("groups", () => {
     }
   });
 
-  // oracle: none — verifies app undo behavior during an opacity scrub, not measured visual parity.
   test("Undo cancels a held Selection colors opacity scrub before undoing the committed color", async ({
     page,
   }) => {
@@ -2152,31 +2146,6 @@ test.describe("multi-selection", () => {
       `two boxes spanning ${Math.round(measured!.contentWidth)}px are enclosed ` +
         `by ${Math.round(measured!.chromeWidth)}px of chrome`,
     ).toBeCloseTo(measured!.contentWidth, -1);
-  });
-
-  // Aspirational: no [data-smart-selection], [data-spacing-handle] or
-  // [data-smart-handle] exists in the app yet, so this remains a planned
-  // interaction rather than a guarded behavior.
-  test.fixme("Smart selection exposes spacing handles for evenly spaced layers", async ({
-    page,
-  }) => {
-    const id = await newDesign(page);
-    await openEditor(page, id);
-    await multiSelect(page, ["Kid One", "Kid Two", "Kid Three"]);
-    const box = (await node(page, "kid-2").boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(1200);
-
-    const handles = await page.evaluate(
-      () =>
-        document.querySelectorAll(
-          "[data-smart-selection],[data-spacing-handle],[data-smart-handle]",
-        ).length,
-    );
-    expect(
-      handles,
-      `The selected layers should expose spacing handles. None appeared.`,
-    ).toBeGreaterThan(0);
   });
 });
 

@@ -1488,6 +1488,9 @@ const overrides = {
     aiUndo: "Rückgängig",
     aiDone: "Fertig",
     aiMoreChanges: "+{{count}} weitere",
+    suggestionReplaced: "Ersetzt",
+    suggestionWithdrawn: "Zurückgezogen",
+    suggestedChange: "Vorgeschlagene Änderung",
     aiUndoUnavailable:
       "Entfernter Text lässt sich nicht automatisch wiederherstellen",
     aiUndoFailed: "Änderung konnte nicht rückgängig gemacht werden",

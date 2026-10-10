@@ -69,7 +69,7 @@ async function createBlankDesign(
   dimensions = { width: SCREEN_WIDTH, height: SCREEN_HEIGHT },
 ): Promise<{ designId: string; screenId: string }> {
   const created = await action(request, "create-design", {
-    title: `Potion expected result ${Date.now()}`,
+    title: `Potion export ${Date.now()}`,
     projectType: "prototype",
   });
   const designId = created?.id ?? created?.data?.id ?? created?.design?.id;
@@ -798,7 +798,7 @@ test("Potion grouping, layer lock, and reorder use the Layers interaction path",
   }
 });
 
-test("Potion rotation follows the recorded positive-45 direction", async ({
+test("Potion rotation input of 45 writes transform: rotate(-45deg)", async ({
   page,
   request,
 }) => {
@@ -828,7 +828,7 @@ test("Potion rotation follows the recorded positive-45 direction", async ({
   }
 });
 
-test("Potion screen export preserves the expected result's 200x271 output size", async ({
+test("Potion screen export produces a PNG matching the 200x271 screen size", async ({
   page,
   request,
 }) => {

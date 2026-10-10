@@ -12,16 +12,38 @@ concurrency:
 
 jobs:
   authoring-fuzz-soak:
-    name: Slides authoring soak (${{ matrix.browser }}, batch from seed ${{ matrix.seed_start }})
+    name: Slides authoring soak (${{ matrix.browser }}, seed ${{ matrix.seed }})
     runs-on: ubuntu-latest
-    # A 500-step seed can take about 17 minutes; five seeds need headroom.
+    # Keep each seed isolated so browser timeouts and failures stay bounded.
     timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 4
       matrix:
         browser: [chromium, webkit, firefox]
-        seed_start: [1, 6, 11, 16]
+        seed:
+          [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+          ]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -43,5 +65,5 @@ jobs:
         working-directory: templates/slides
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
-          --seed ${{ matrix.seed_start }} --seeds 5 --steps 500
+          --seed ${{ matrix.seed }} --seeds 1 --steps 500
           --browser ${{ matrix.browser }}

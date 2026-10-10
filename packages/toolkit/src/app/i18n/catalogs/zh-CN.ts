@@ -79,6 +79,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContain": "回复必须包含…",
   "observability.promoteMustContainOptional": "回复中要检查的可选文本…",
   "observability.promoteMustContainLabel": "在升级后的评测回复中检查的文本",
+  "observability.promoteReviewedPromptLabel":
+    "手动审核的提示（不会从生产环境自动复制）",
   "observability.promoteNeedsContains":
     "本次运行没有成功的工具调用。请先输入回复必须包含的文本，再进行晋升。",
   "observability.viewDetails": "查看详情",

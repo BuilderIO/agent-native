@@ -1838,6 +1838,8 @@ const messages = {
     promoteMustContain: "Reply must contain…",
     promoteMustContainOptional: "Optional text to check for in the reply…",
     promoteMustContainLabel: "Text to check for in the promoted eval reply",
+    promoteReviewedPromptLabel:
+      "Manually reviewed prompt (never copied from production)",
     promoteNeedsContains:
       "This run has no successful tool call. Enter text the reply must contain before promoting.",
     input: "Input",
