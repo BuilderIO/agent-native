@@ -8,7 +8,10 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PromptComposer } from "../../composer/PromptComposer.js";
-import { AGENT_CHAT_INSERT_REFERENCE_EVENT } from "../../composer/runtime-adapters.js";
+import {
+  AGENT_CHAT_INSERT_REFERENCE_EVENT,
+  ComposerRuntimeAdaptersProvider,
+} from "../../composer/runtime-adapters.js";
 import { TiptapComposer } from "../../composer/TiptapComposer.js";
 import { TooltipProvider } from "../../ui/tooltip.js";
 
@@ -25,6 +28,7 @@ const mockPanel = vi.hoisted(() => {
   return {
     imports: 0,
     events: [] as Array<{ type: string; detail: unknown }>,
+    onEvent: undefined as ((event: Event) => void) | undefined,
     composer: undefined as React.ReactNode,
     importGate: new Promise<void>((resolve) => {
       resolveImport = resolve;
@@ -43,7 +47,7 @@ vi.mock("./AgentSidebarPanel.js", async () => {
       onReadyChange?: (ready: boolean) => void;
     }) => {
       React.useEffect(() => {
-        const record = (event: Event) =>
+        const record = (event: Event) => {
           mockPanel.events.push({
             type: event.type,
             detail:
@@ -51,6 +55,8 @@ vi.mock("./AgentSidebarPanel.js", async () => {
                 ? event.data
                 : (event as CustomEvent).detail,
           });
+          mockPanel.onEvent?.(event);
+        };
         window.addEventListener("agent-panel:set-mode", record);
         window.addEventListener("agent-panel:open-settings", record);
         window.addEventListener("agent-chat:open-thread", record);
@@ -205,6 +211,7 @@ afterEach(() => {
 
 beforeEach(() => {
   mockPanel.events = [];
+  mockPanel.onEvent = undefined;
   mockPanel.composer = undefined;
   mockTrust.frame = true;
   mockTrust.builder = false;
@@ -858,6 +865,208 @@ describe("AgentSidebar panel", () => {
     expect(
       container!.querySelector('[data-testid="chat-composer"]')!.textContent,
     ).toContain("Retained chat reference");
+  });
+
+  it.each([
+    [false, "event"],
+    [true, "event"],
+    [false, "message"],
+    [true, "message"],
+  ] as const)(
+    "limits sidebar references to the selected editor (queued=%s, type=%s)",
+    async (queued, type) => {
+      mockPanel.resolveImport();
+      let enable!: () => void;
+      function Composers() {
+        const runtime = useLocalRuntime({ async *run() {} });
+        const [disabled, setDisabled] = React.useState(queued);
+        enable = () => setDisabled(false);
+        return (
+          <AssistantRuntimeProvider runtime={runtime}>
+            <ComposerRuntimeAdaptersProvider
+              adapters={{
+                builder: {
+                  isTrustedFrameMessage: () => mockTrust.frame,
+                  isTrustedBuilderMessage: () => mockTrust.builder,
+                },
+              }}
+            >
+              <TooltipProvider>
+                <div data-testid="selected-reference-editor">
+                  <TiptapComposer
+                    isReferenceTarget
+                    disabled={disabled}
+                    includeDefaultSlashSkills={false}
+                    plusMenuMode="hidden"
+                    voiceEnabled={false}
+                  />
+                </div>
+                <div data-testid="generic-reference-editor">
+                  <PromptComposer
+                    onSubmit={() => {}}
+                    includeDefaultSlashSkills={false}
+                    plusMenuMode="hidden"
+                    voiceEnabled={false}
+                  />
+                </div>
+              </TooltipProvider>
+            </ComposerRuntimeAdaptersProvider>
+          </AssistantRuntimeProvider>
+        );
+      }
+      mockPanel.composer = <Composers />;
+      await act(async () => renderSidebar(false));
+      await act(async () =>
+        window.dispatchEvent(new CustomEvent("agent-panel:prepare")),
+      );
+      const detail = {
+        label: "Selected-only reference",
+        refType: "file",
+        refId: "/selected-only.md",
+        slotKey: "document",
+        insertMessageId: `selected-only-${queued}-${type}`,
+      };
+      await act(async () =>
+        window.dispatchEvent(
+          type === "event"
+            ? new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, { detail })
+            : new MessageEvent("message", {
+                origin: window.location.origin,
+                source: window,
+                data: {
+                  type: "agentNative.insertComposerReference",
+                  data: detail,
+                },
+              }),
+        ),
+      );
+      if (queued) {
+        expect(
+          container!.querySelector('[data-testid="selected-reference-editor"]')!
+            .textContent,
+        ).not.toContain("Selected-only reference");
+        await act(async () => enable());
+      }
+      expect(
+        container!.querySelector('[data-testid="selected-reference-editor"]')!
+          .textContent,
+      ).toContain("Selected-only reference");
+      expect(
+        container!.querySelector('[data-testid="generic-reference-editor"]')!
+          .textContent,
+      ).not.toContain("Selected-only reference");
+    },
+  );
+
+  it("does not cancel a replayed draft when its receiver unmounts the sidebar", async () => {
+    mockPanel.resolveImport();
+    const chat = await import("@agent-native/core/client/agent-chat");
+    const results: Array<{ submitMessageId: string; delivered: boolean }> = [];
+    const record = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    try {
+      await act(async () => renderSidebar(false));
+      mockPanel.onEvent = (event) => {
+        if (
+          event instanceof MessageEvent &&
+          event.data?.data?.submitMessageId === "replayed-unmount"
+        )
+          flushSync(() => root?.render(null));
+      };
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+            detail: { refType: "file", refId: "/held.md", slotKey: "document" },
+          }),
+        );
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: window.location.origin,
+            data: {
+              type: "agentNative.submitChat",
+              data: {
+                message: "Delivered at unmount",
+                submit: false,
+                submitMessageId: "replayed-unmount",
+              },
+            },
+          }),
+        );
+      });
+      const editor = container?.querySelector("textarea") as HTMLElement;
+      await act(async () =>
+        window.dispatchEvent(
+          new CustomEvent("agentNative:composer-reference-ready", {
+            detail: editor,
+          }),
+        ),
+      );
+      expect(
+        mockPanel.events.some(
+          (event) =>
+            event.type === "message" &&
+            (event.detail as any)?.data?.submitMessageId === "replayed-unmount",
+        ),
+      ).toBe(true);
+      expect(
+        results.filter(
+          (result) =>
+            result.submitMessageId === "replayed-unmount" && !result.delivered,
+        ),
+      ).toEqual([]);
+    } finally {
+      window.removeEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    }
+  });
+
+  it("rejects shell-retained drafts on permanent unmount", async () => {
+    mockPanel.resolveImport();
+    const chat = await import("@agent-native/core/client/agent-chat");
+    const results: unknown[] = [];
+    const record = (event: Event) =>
+      results.push((event as CustomEvent).detail);
+    window.addEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    try {
+      renderSidebar(false);
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+            detail: {
+              refType: "file",
+              refId: "/retained-before-unmount.md",
+              slotKey: "document",
+            },
+          }),
+        );
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: window.location.origin,
+            data: {
+              type: "agentNative.submitChat",
+              data: {
+                message: "Cannot deliver after unmount",
+                submit: false,
+                submitMessageId: "shell-unmount-pending",
+              },
+            },
+          }),
+        );
+      });
+      await act(async () => root?.render(null));
+      expect(results).toEqual([
+        {
+          submitMessageId: "shell-unmount-pending",
+          delivered: false,
+          reason: "panel-unmounted",
+        },
+      ]);
+      expect(chat.isAgentChatSubmitCancelled("shell-unmount-pending")).toBe(
+        true,
+      );
+    } finally {
+      window.removeEventListener(chat.AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+    }
   });
 
   it("revokes the old selected editor and waits for its replacement", async () => {

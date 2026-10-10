@@ -13,6 +13,7 @@ import {
   AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
   AGENT_CHAT_INSERT_REFERENCE_EVENT,
   cancelAgentChatSubmit,
+  claimAgentChatSubmit,
   claimAgentChatOpenRequest,
   parseSubmitChatMessage,
   reportAgentChatSubmitResult,
@@ -68,6 +69,7 @@ import React, {
 } from "react";
 import { flushSync } from "react-dom";
 
+import { setComposerReferenceEventTarget } from "../../composer/runtime-adapters.js";
 import { Skeleton } from "../../ui/skeleton.js";
 import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
 import type { BuilderConnectTransport } from "../settings/index.js";
@@ -691,11 +693,13 @@ export function AgentSidebar({
             queue === pendingPanelControls.current ? control : conversation;
           if (!pending) break;
           const { event } = pending;
+          const index = queue.indexOf(pending);
+          if (index >= 0) queue.splice(index, 1);
+          if (isComposerReferenceEvent(event) && composerElementRef.current)
+            setComposerReferenceEventTarget(event, composerElementRef.current);
           replayingPanelEvent.current = event;
           // Reference insertion must commit before a following submission reads its context.
           flushSync(() => window.dispatchEvent(event));
-          const index = queue.indexOf(pending);
-          if (index >= 0) queue.splice(index, 1);
         }
       } finally {
         replayingPanelEvent.current = null;
@@ -731,6 +735,15 @@ export function AgentSidebar({
       cancelled.sort((a, b) => a.order - b.order);
       const publish = () => {
         for (const pending of cancelled) {
+          const submit =
+            pending.event instanceof MessageEvent
+              ? parseSubmitChatMessage(pending.event)
+              : null;
+          if (submit) claimAgentChatSubmit(submit.submitMessageId);
+          else if (isPanelNavigationEvent(pending.event))
+            claimAgentChatOpenRequest(getAgentChatNavigationKey(pending.event));
+        }
+        for (const pending of cancelled) {
           const cancellationReason =
             typeof reason === "string" ? reason : reason(pending);
           const submit =
@@ -745,10 +758,6 @@ export function AgentSidebar({
             );
             cancelAgentChatSubmit(submit.submitMessageId);
           } else {
-            if (isPanelNavigationEvent(pending.event))
-              claimAgentChatOpenRequest(
-                getAgentChatNavigationKey(pending.event),
-              );
             console.warn("[agent-chat] cancelled retained conversation event", {
               type: pending.event.type,
               reason: cancellationReason,
@@ -765,6 +774,18 @@ export function AgentSidebar({
     (matches: (pending: PendingPanelEvent) => boolean, reason: string) =>
       preparePendingEventCancellation(matches, reason)(),
     [preparePendingEventCancellation],
+  );
+  const disposePendingEventsRef = useRef(cancelPendingEvents);
+  disposePendingEventsRef.current = cancelPendingEvents;
+  useEffect(
+    () => () => {
+      panelReadyRef.current = false;
+      composerReadyRef.current = false;
+      composerElementRef.current = null;
+      activeNavigations.current.clear();
+      disposePendingEventsRef.current(() => true, "panel-unmounted");
+    },
+    [],
   );
   const onNavigationChange = useCallback<
     NonNullable<MultiTabAssistantChatProps["onNavigationChange"]>
@@ -1076,8 +1097,11 @@ export function AgentSidebar({
             isReferenceTargetReady(getReferenceTargetId()),
           pendingPanelEvents.current,
         )
-      )
+      ) {
+        if (event !== replayingPanelEvent.current && composerElementRef.current)
+          setComposerReferenceEventTarget(event, composerElementRef.current);
         return;
+      }
       retainEvent(event, pendingPanelEvents.current);
     };
     const handleComposerReady = (event: Event) => {
@@ -1111,8 +1135,15 @@ export function AgentSidebar({
             : panelReadyRef.current && activeNavigations.current.size === 0,
           pendingPanelEvents.current,
         )
-      )
+      ) {
+        if (
+          isComposerReferenceEvent(event) &&
+          event !== replayingPanelEvent.current &&
+          composerElementRef.current
+        )
+          setComposerReferenceEventTarget(event, composerElementRef.current);
         return;
+      }
       if (
         ![
           "agentNative.submitChat",

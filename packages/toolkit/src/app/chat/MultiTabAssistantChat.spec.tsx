@@ -1450,7 +1450,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     },
   );
 
-  it("cancels in-flight opens before awaiting the close-all replacement", async () => {
+  it("cancels in-flight opens once the close-all replacement is available", async () => {
     let finishLookup!: (result: "opened") => void;
     let finishReplacement!: (id: string) => void;
     threadMocks.openThread.mockImplementationOnce(
@@ -1497,7 +1497,6 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       closing = header.closeAllTabs();
     });
     expect(outcomes).toEqual(["started"]);
-    await act(async () => finishLookup("opened"));
     expect(threadMocks.activeThreadId).toBe("thread-1");
     expect(header.tabs.some((tab) => tab.id === "thread-2")).toBe(false);
     await act(async () => {
@@ -1506,9 +1505,53 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
     expect(threadMocks.activeThreadId).toBe("thread-3");
     expect(outcomes).toEqual(["started", "closed"]);
+    await act(async () => finishLookup("opened"));
+    expect(threadMocks.activeThreadId).toBe("thread-3");
     expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalledWith(
       "Cancelled navigation prefill",
     );
+  });
+
+  it("keeps the newer close-all replacement when creation resolves out of order", async () => {
+    const replacements: Array<(id: string) => void> = [];
+    threadMocks.createThread.mockImplementation(
+      () => new Promise((resolve) => replacements.push(resolve)),
+    );
+    let header!: MultiTabAssistantChatHeaderProps;
+    const closedTabs: string[][] = [];
+    const chat = () => (
+      <MultiTabAssistantChat
+        storageKey="close-navigation"
+        renderHeader={(props) => {
+          header = props;
+          return null;
+        }}
+        onTabsClosed={(ids) => closedTabs.push(ids)}
+      />
+    );
+    threadMocks.switchThread.mockImplementation((id: string) => {
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+    });
+    await act(async () => root.render(chat()));
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    await act(async () => {
+      first = header.closeAllTabs();
+      second = header.closeAllTabs();
+    });
+    await act(async () => {
+      replacements[1]("thread-3");
+      await second;
+    });
+    expect(threadMocks.activeThreadId).toBe("thread-3");
+    await act(async () => {
+      replacements[0]("thread-2");
+      await first;
+    });
+    expect(threadMocks.activeThreadId).toBe("thread-3");
+    expect(header.tabs.map((tab) => tab.id)).toEqual(["thread-3"]);
+    expect(closedTabs).toEqual([["thread-1"]]);
   });
 
   it("reports tabs opened during delayed close-all replacement cleanup", async () => {
@@ -1909,58 +1952,114 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     },
   );
 
-  it("reports cancelled opens and retains the editor when close-all replacement fails", async () => {
-    let finishLookup!: (result: "opened") => void;
-    threadMocks.openThread.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finishLookup = resolve;
-        }),
-    );
-    const failure = new Error("Replacement unavailable");
-    threadMocks.createThread.mockRejectedValueOnce(failure);
-    let header!: MultiTabAssistantChatHeaderProps;
-    const outcomes: string[] = [];
-    const chat = () => (
-      <MultiTabAssistantChat
-        storageKey="close-navigation"
-        renderHeader={(props) => {
-          header = props;
-          return null;
-        }}
-        onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
-      />
-    );
-    threadMocks.switchThread.mockImplementation((id: string) => {
-      threadMocks.activeThreadId = id;
-      root.render(chat());
-    });
-    await act(async () => root.render(chat()));
-    await act(async () =>
-      window.dispatchEvent(
-        new CustomEvent("agent-chat:open-thread", {
-          detail: { threadId: "thread-2" },
-        }),
-      ),
-    );
-    await act(async () => {
-      await expect(header.closeAllTabs()).rejects.toBe(failure);
-    });
-    expect(outcomes).toEqual(["started", "closed"]);
-    await act(async () => finishLookup("opened"));
-    expect(threadMocks.activeThreadId).toBe("thread-1");
-    expect(header.tabs.some((tab) => tab.id === "thread-2")).toBe(false);
-    await act(async () =>
-      dispatchSubmitChat({
-        message: "Still usable",
-        submit: false,
-        targetTabId: "thread-1",
-      }),
-    );
-    expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith("Still usable");
-  });
+  it.each(["throw", "reject", "empty", "null"])(
+    "keeps queued work when close-all replacement fails (%s)",
+    async (result) => {
+      assistantChatMockState.deferredHandleThread = "thread-1";
+      let finishLookup!: (result: "opened") => void;
+      threadMocks.openThread.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishLookup = resolve;
+          }),
+      );
+      const failure = new Error("Replacement unavailable");
+      if (result === "throw")
+        threadMocks.createThread.mockImplementationOnce(() => {
+          throw failure;
+        });
+      else if (result === "reject")
+        threadMocks.createThread.mockRejectedValueOnce(failure);
+      else if (result === "null")
+        threadMocks.createThread.mockResolvedValueOnce(null);
+      else threadMocks.createThread.mockResolvedValueOnce("");
+      let header!: MultiTabAssistantChatHeaderProps;
+      const outcomes: string[] = [];
+      const closing = vi.fn();
+      const results: Array<{ submitMessageId: string; delivered: boolean }> =
+        [];
+      const record = (event: Event) =>
+        results.push((event as CustomEvent).detail);
+      window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      try {
+        const pendingId = `failed-close-${result}`;
+        const chat = () => (
+          <MultiTabAssistantChat
+            storageKey="close-navigation"
+            renderHeader={(props) => {
+              header = props;
+              return null;
+            }}
+            onNavigationChange={(_event, outcome) => outcomes.push(outcome)}
+            onTabsClosing={closing}
+          />
+        );
+        threadMocks.switchThread.mockImplementation((id: string) => {
+          threadMocks.activeThreadId = id;
+          root.render(chat());
+        });
+        await act(async () => root.render(chat()));
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Kept draft",
+            submit: false,
+            targetTabId: "thread-1",
+            submitMessageId: pendingId,
+          }),
+        );
+        await act(async () =>
+          window.dispatchEvent(
+            new CustomEvent("agent-chat:open-thread", {
+              detail: { threadId: "thread-2" },
+            }),
+          ),
+        );
+        await act(async () => {
+          if (result === "reject" || result === "throw")
+            await expect(header.closeAllTabs()).rejects.toBe(failure);
+          else await header.closeAllTabs();
+        });
+        expect(outcomes).toEqual(["started"]);
+        expect(closing).not.toHaveBeenCalled();
+        expect(
+          results.filter((result) => result.submitMessageId === pendingId),
+        ).toEqual([]);
+        expect(header.tabs.some((tab) => tab.id === "thread-1")).toBe(true);
+        expect(threadMocks.activeThreadId).toBe("thread-1");
+        await act(async () => finishLookup("opened"));
+        expect(threadMocks.activeThreadId).toBe("thread-2");
+        expect(outcomes).toEqual(["started", "selected"]);
+        assistantChatMockState.deferredHandleThread = null;
+        await act(async () => root.render(chat()));
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 75));
+        });
+        expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+          "Kept draft",
+        );
+        expect(
+          results.filter(
+            (result) =>
+              result.submitMessageId === pendingId && !result.delivered,
+          ),
+        ).toEqual([]);
+        await act(async () =>
+          dispatchSubmitChat({
+            message: "Still usable",
+            submit: false,
+            targetTabId: "thread-1",
+          }),
+        );
+        expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
+          "Still usable",
+        );
+      } finally {
+        window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
+      }
+    },
+  );
 
-  it("settles cancelled opens on unmount during replacement creation exactly once", async () => {
+  it("settles unavailable opens on unmount during replacement creation exactly once", async () => {
     let finishLookup!: (result: "opened") => void;
     let finishReplacement!: (id: string) => void;
     threadMocks.openThread.mockImplementationOnce(
@@ -2004,15 +2103,15 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
     expect(outcomes).toEqual(["started"]);
     await act(async () => root.render(<div />));
-    expect(outcomes).toEqual(["started", "closed"]);
-    expect(publish).toHaveBeenCalledTimes(1);
+    expect(outcomes).toEqual(["started", "unavailable"]);
+    expect(publish).not.toHaveBeenCalled();
     await act(async () => {
       finishLookup("opened");
       finishReplacement("thread-3");
       await closing;
     });
-    expect(outcomes).toEqual(["started", "closed"]);
-    expect(publish).toHaveBeenCalledTimes(1);
+    expect(outcomes).toEqual(["started", "unavailable"]);
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it("publishes final-tab closure after replacement so callback recovery survives", async () => {
@@ -2837,7 +2936,8 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       assistantChatMockState.deferredHandleThread = "thread-2";
       const chat = () => <MultiTabAssistantChat storageKey="bridge-test" />;
       const pendingId = `unmount-pending-${scheduled}`;
-      const results: unknown[] = [];
+      const results: Array<{ submitMessageId: string; delivered: boolean }> =
+        [];
       const record = (event: Event) =>
         results.push((event as CustomEvent).detail);
       window.addEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);
@@ -2865,7 +2965,9 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
           }),
         );
         await act(async () => root.render(null));
-        expect(results).toEqual([
+        expect(
+          results.filter((result) => result.submitMessageId === pendingId),
+        ).toEqual([
           {
             submitMessageId: pendingId,
             delivered: false,
@@ -2876,7 +2978,16 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         expect(chatHandleMocks.prefillMessage).toHaveBeenCalledExactlyOnceWith(
           "Already handed off",
         );
-        expect(results).toHaveLength(1);
+        expect(
+          results.filter((result) => result.submitMessageId === pendingId),
+        ).toHaveLength(1);
+        expect(
+          results.filter(
+            (result) =>
+              result.submitMessageId === `unmount-delivered-${scheduled}` &&
+              !result.delivered,
+          ),
+        ).toEqual([]);
       } finally {
         vi.useRealTimers();
         window.removeEventListener(AGENT_CHAT_SUBMIT_RESULT_EVENT, record);

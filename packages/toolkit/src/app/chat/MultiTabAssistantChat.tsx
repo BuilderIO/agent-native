@@ -2791,31 +2791,32 @@ export function MultiTabAssistantChat({
     [switchThread, cleanupClosedTabs, getClosingTabIds],
   );
 
+  const closeAllAttemptRef = useRef(0);
   const closeAllTabs = useCallback(async () => {
-    const closed = cancelTabNavigations(getClosingTabIds());
+    const attempt = ++closeAllAttemptRef.current;
+    // The local creator advances selection synchronously; retain the old recipients.
+    const closingIds = getClosingTabIds();
+    const id = await createThread();
+    if (!id || !mountedRef.current || attempt !== closeAllAttemptRef.current)
+      return;
+    const closed = cancelTabNavigations(
+      [...new Set([...closingIds, ...getClosingTabIds(id)])].filter(
+        (target) => target !== id,
+      ),
+    );
     try {
-      const id = await createThread();
-      if (!mountedRef.current) return;
-      if (id) {
-        const additional = cancelTabNavigations(getClosingTabIds(id));
-        closed.tabIds = [...new Set([...closed.tabIds, ...additional.tabIds])];
-        closed.cancelled.push(...additional.cancelled);
-        closed.deliveries.push(...additional.deliveries);
-        closed.publications.push(...additional.publications);
-        pendingTabClosures.current.delete(additional);
-        newThreadIds.current.add(id);
-        setOpenTabIds([id]);
-        switchThreadState(id);
-        writeThreadUrl(null);
-        dismissedSubAgentTabsRef.current.clear();
-        // Clean up all old refs
-        chatRefs.current.clear();
-        pendingContextItems.current.clear();
-        threadModelRef.current.clear();
-        setParentMap({});
-        setSubAgentNames({});
-        setSubAgentStatuses({});
-      }
+      newThreadIds.current.add(id);
+      setOpenTabIds([id]);
+      switchThreadState(id);
+      writeThreadUrl(null);
+      dismissedSubAgentTabsRef.current.clear();
+      // Clean up all old refs
+      chatRefs.current.clear();
+      pendingContextItems.current.clear();
+      threadModelRef.current.clear();
+      setParentMap({});
+      setSubAgentNames({});
+      setSubAgentStatuses({});
     } finally {
       notifyTabsClosed(closed);
     }
