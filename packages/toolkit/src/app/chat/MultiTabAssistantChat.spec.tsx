@@ -1665,11 +1665,9 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
-  it("keeps the newer close-all replacement when creation resolves out of order", async () => {
-    const replacements: Array<(id: string) => void> = [];
-    threadMocks.createThread.mockImplementation(
-      () => new Promise((resolve) => replacements.push(resolve)),
-    );
+  it("shares one optimistic replacement for overlapping close-all calls", async () => {
+    let finishReplacement!: (id: string) => void;
+    const drafts: string[] = [];
     let header!: MultiTabAssistantChatHeaderProps;
     const closedTabs: string[][] = [];
     const chat = () => (
@@ -1686,6 +1684,15 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       threadMocks.activeThreadId = id;
       root.render(chat());
     });
+    threadMocks.createThread.mockImplementation(() => {
+      const id = `replacement-${drafts.length + 1}`;
+      drafts.push(id);
+      threadMocks.activeThreadId = id;
+      root.render(chat());
+      return new Promise((resolve) => {
+        finishReplacement = resolve;
+      });
+    });
     await act(async () => root.render(chat()));
     let first!: Promise<void>;
     let second!: Promise<void>;
@@ -1693,19 +1700,121 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       first = header.closeAllTabs();
       second = header.closeAllTabs();
     });
+    expect(threadMocks.createThread).toHaveBeenCalledTimes(1);
+    expect(drafts).toEqual(["replacement-1"]);
     await act(async () => {
-      replacements[1]("thread-3");
-      await second;
+      finishReplacement("replacement-1");
+      await Promise.all([first, second]);
     });
-    expect(threadMocks.activeThreadId).toBe("thread-3");
-    await act(async () => {
-      replacements[0]("thread-2");
-      await first;
-    });
-    expect(threadMocks.activeThreadId).toBe("thread-3");
-    expect(header.tabs.map((tab) => tab.id)).toEqual(["thread-3"]);
+    expect(threadMocks.activeThreadId).toBe("replacement-1");
+    expect(header.tabs.map((tab) => tab.id)).toEqual(["replacement-1"]);
     expect(closedTabs).toEqual([["thread-1"]]);
+    let next!: Promise<void>;
+    await act(async () => {
+      next = header.closeAllTabs();
+    });
+    expect(drafts).toEqual(["replacement-1", "replacement-2"]);
+    await act(async () => {
+      finishReplacement("replacement-2");
+      await next;
+    });
+    expect(header.tabs.map((tab) => tab.id)).toEqual(["replacement-2"]);
+    expect(closedTabs).toEqual([["thread-1"], ["replacement-1"]]);
   });
+
+  it.each(["creator", "closing callback"])(
+    "shares the close-all operation with a reentrant %s",
+    async (source) => {
+      let header!: MultiTabAssistantChatHeaderProps;
+      let nested!: Promise<void>;
+      const chat = () => (
+        <MultiTabAssistantChat
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+          onTabsClosing={() => {
+            if (source === "closing callback") nested = header.closeAllTabs();
+          }}
+        />
+      );
+      threadMocks.createThread.mockImplementationOnce(() => {
+        if (source === "creator") nested = header.closeAllTabs();
+        threadMocks.activeThreadId = "thread-2";
+        root.render(chat());
+        return Promise.resolve("thread-2");
+      });
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      let closing!: Promise<void>;
+      await act(async () => {
+        closing = header.closeAllTabs();
+        await closing;
+      });
+      expect(nested).toBe(closing);
+      expect(threadMocks.createThread).toHaveBeenCalledTimes(1);
+      expect(header.tabs.map((tab) => tab.id)).toEqual(["thread-2"]);
+    },
+  );
+
+  it.each(["throw", "reject", "null"])(
+    "releases the shared close-all operation after creation fails (%s)",
+    async (result) => {
+      const failure = new Error("Replacement unavailable");
+      if (result === "throw")
+        threadMocks.createThread.mockImplementationOnce(() => {
+          throw failure;
+        });
+      else if (result === "reject")
+        threadMocks.createThread.mockRejectedValueOnce(failure);
+      else threadMocks.createThread.mockResolvedValueOnce(null);
+      let header!: MultiTabAssistantChatHeaderProps;
+      const closed = vi.fn();
+      const chat = () => (
+        <MultiTabAssistantChat
+          renderHeader={(props) => {
+            header = props;
+            return null;
+          }}
+          onTabsClosed={closed}
+        />
+      );
+      threadMocks.switchThread.mockImplementation((id: string) => {
+        threadMocks.activeThreadId = id;
+        root.render(chat());
+      });
+      await act(async () => root.render(chat()));
+      await act(async () => {
+        const first = header.closeAllTabs();
+        const second = header.closeAllTabs();
+        expect(second).toBe(first);
+        const outcomes = await Promise.allSettled([first, second]);
+        expect(outcomes).toEqual(
+          result === "null"
+            ? [
+                { status: "fulfilled", value: undefined },
+                { status: "fulfilled", value: undefined },
+              ]
+            : [
+                { status: "rejected", reason: failure },
+                { status: "rejected", reason: failure },
+              ],
+        );
+      });
+      expect(threadMocks.createThread).toHaveBeenCalledTimes(1);
+      expect(closed).not.toHaveBeenCalled();
+      expect(header.tabs.map((tab) => tab.id)).toEqual(["thread-1"]);
+      await act(async () => {
+        await header.closeAllTabs();
+      });
+      expect(threadMocks.createThread).toHaveBeenCalledTimes(2);
+      expect(header.tabs.map((tab) => tab.id)).toEqual(["thread-2"]);
+      expect(closed).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("reports tabs opened during delayed close-all replacement cleanup", async () => {
     let finishReplacement!: (id: string) => void;

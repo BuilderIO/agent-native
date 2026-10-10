@@ -2794,35 +2794,44 @@ export function MultiTabAssistantChat({
     [switchThread, cleanupClosedTabs, getClosingTabIds],
   );
 
-  const closeAllAttemptRef = useRef(0);
-  const closeAllTabs = useCallback(async () => {
-    const attempt = ++closeAllAttemptRef.current;
+  const closeAllInFlightRef = useRef<Promise<void> | null>(null);
+  const closeAllTabs = useCallback(() => {
+    if (closeAllInFlightRef.current) return closeAllInFlightRef.current;
     // The local creator advances selection synchronously; retain the old recipients.
     const closingIds = getClosingTabIds();
-    const id = await createThread();
-    if (!id || !mountedRef.current || attempt !== closeAllAttemptRef.current)
-      return;
-    const closed = cancelTabNavigations(
-      [...new Set([...closingIds, ...getClosingTabIds(id)])].filter(
-        (target) => target !== id,
-      ),
-    );
-    try {
-      newThreadIds.current.add(id);
-      setOpenTabIds([id]);
-      switchThreadState(id);
-      writeThreadUrl(null);
-      dismissedSubAgentTabsRef.current.clear();
-      // Clean up all old refs
-      chatRefs.current.clear();
-      pendingContextItems.current.clear();
-      threadModelRef.current.clear();
-      setParentMap({});
-      setSubAgentNames({});
-      setSubAgentStatuses({});
-    } finally {
-      notifyTabsClosed(closed);
-    }
+    // Reserve the operation before the creator or host callbacks can reenter it.
+    const closing = Promise.resolve()
+      .then(async () => {
+        if (!mountedRef.current) return;
+        const id = await createThread();
+        if (!id || !mountedRef.current) return;
+        const closed = cancelTabNavigations(
+          [...new Set([...closingIds, ...getClosingTabIds(id)])].filter(
+            (target) => target !== id,
+          ),
+        );
+        try {
+          newThreadIds.current.add(id);
+          setOpenTabIds([id]);
+          switchThreadState(id);
+          writeThreadUrl(null);
+          dismissedSubAgentTabsRef.current.clear();
+          // Clean up all old refs
+          chatRefs.current.clear();
+          pendingContextItems.current.clear();
+          threadModelRef.current.clear();
+          setParentMap({});
+          setSubAgentNames({});
+          setSubAgentStatuses({});
+        } finally {
+          notifyTabsClosed(closed);
+        }
+      })
+      .finally(() => {
+        closeAllInFlightRef.current = null;
+      });
+    closeAllInFlightRef.current = closing;
+    return closing;
   }, [
     createThread,
     switchThreadState,

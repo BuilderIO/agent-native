@@ -244,6 +244,29 @@ beforeEach(() => {
 });
 
 describe("AgentSidebar panel", () => {
+  it("passes unsupported trusted messages through without importing the closed panel", async () => {
+    renderSidebar(false);
+    const received: MessageEvent[] = [];
+    const record = (event: MessageEvent) => received.push(event);
+    window.addEventListener("message", record);
+    try {
+      const events = [
+        new MessageEvent("message", { data: { type: "host.resize" } }),
+        new MessageEvent("message", { data: null }),
+      ];
+      await act(async () => {
+        for (const event of events) window.dispatchEvent(event);
+      });
+      expect(received).toEqual(events);
+      expect(mockPanel.imports).toBe(0);
+      expect(
+        container?.querySelector("[data-agent-sidebar-panel-loaded]"),
+      ).toBeNull();
+    } finally {
+      window.removeEventListener("message", record);
+    }
+  });
+
   it("defers the body import while closed and replays commands after a delayed mount", async () => {
     renderSidebar(false);
     await act(async () => {});
