@@ -751,6 +751,62 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
+  it("counts a repeated history image once so an older distinct image still fits", async () => {
+    const olderUrl = "https://files.example.test/older.png";
+    const repeatedUrl = "https://files.example.test/repeated.png";
+    const imagePart = (url: string, alt: string) => ({
+      type: "image" as const,
+      alt,
+      mediaType: "image/png",
+      data: `data:image/png;base64,${alt}`,
+      url,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done", reason: "complete" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      threadId: "thread-repeated-history-images",
+    });
+    const turn = await session.startTurn({
+      prompt: "Compare the references",
+      attachments: [],
+      messages: [
+        {
+          id: "older-image",
+          role: "user",
+          content: [imagePart(olderUrl, "older.png")],
+        },
+        ...Array.from({ length: 7 }, (_, index) => ({
+          id: `repeated-image-${index}`,
+          role: "user",
+          content: [imagePart(repeatedUrl, `repeated-${index}.png`)],
+        })),
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const references = (
+      (body.structuredHistory ?? []) as Array<{
+        content: Array<{ type: string; url?: string; name?: string }>;
+      }>
+    )
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "image-reference");
+
+    expect(references).toHaveLength(2);
+    expect(references).toContainEqual(
+      expect.objectContaining({ url: olderUrl, name: "older.png" }),
+    );
+    expect(references).toContainEqual(
+      expect.objectContaining({ url: repeatedUrl, name: "repeated-6.png" }),
+    );
+  });
+
   it("does not replay a current image in approval continuation history", async () => {
     const imageUrl = "https://files.example.test/reference.png";
     const currentImage = {

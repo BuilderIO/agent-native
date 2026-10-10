@@ -2731,6 +2731,7 @@ function boundedStructuredHistorySources(
   let selectedTextPartCount = 0;
   let selectedRegularTextPartCount = 0;
   let selectedImagePartCount = 0;
+  const selectedImageUrls = new Set<string>();
   let scannedPartCount = 0;
   let visitedMessageCount = 0;
   let toolBoundary: StructuredHistorySourceBoundary | undefined;
@@ -2770,11 +2771,14 @@ function boundedStructuredHistorySources(
       currentAttachmentUrls,
     );
     if (!reference || selectedImageParts.has(part)) return;
+    // History is walked newest-first, so the first reference to a URL keeps the newest metadata.
+    if (selectedImageUrls.has(reference.url)) return;
     if (selectedImagePartCount >= MAX_STRUCTURED_HISTORY_IMAGE_REFERENCES) {
       omitted = true;
       return;
     }
     selectedImageParts.add(part);
+    selectedImageUrls.add(reference.url);
     selectedImagePartCount++;
     parts.push(reference);
   };

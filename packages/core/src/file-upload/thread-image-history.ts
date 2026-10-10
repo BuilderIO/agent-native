@@ -373,7 +373,9 @@ export async function hydratePriorThreadImages(
   let unreadableCount = 0;
   let budgetOmittedCount = 0;
 
-  for (const candidate of [...selected].reverse()) {
+  const hydrationOrder = [...selected].reverse();
+  for (let index = 0; index < hydrationOrder.length; index++) {
+    const candidate = hydrationOrder[index]!;
     if (!claimOwnedAttachmentHydrationCandidate(budget)) break;
     const identity = candidateIdentity(candidate);
     const cachedAttachment = cached?.byCandidate.get(identity);
@@ -399,6 +401,11 @@ export async function hydratePriorThreadImages(
       budget,
     );
     if (result.kind !== "hydrated") {
+      if (result.code === "request-time-limit") {
+        // The deadline is shared, so every later candidate would fail the same way.
+        budgetOmittedCount += hydrationOrder.length - index;
+        break;
+      }
       if (result.code === "request-byte-limit") {
         budgetOmittedCount++;
         continue;

@@ -265,6 +265,35 @@ describe("hydratePriorThreadImages", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("reports an expired request deadline as a budget omission, not unreadable storage", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const fetchMock = vi.fn(
+      async () => new Response(Buffer.from(JPEG_BASE64, "base64")),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const budget = createOwnedAttachmentHydrationBudget();
+    budget.deadlineAt = Date.now() - 1;
+
+    const result = await hydratePriorThreadImages(
+      JSON.stringify({
+        messages: [
+          storedImage("first.jpg", "https://storage.example/first.jpg"),
+          storedImage("second.jpg", "https://storage.example/second.jpg"),
+        ],
+      }),
+      { budget },
+    );
+
+    expect(result.attachments).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.contextNote).toContain(
+      "2 retained image attachments were omitted to stay within the request-wide image hydration budget.",
+    );
+    expect(result.contextNote).not.toContain(
+      "not readable from configured upload storage",
+    );
+  });
+
   it("names the request-wide budget when no candidate budget is left", async () => {
     findProviderMock.mockResolvedValue({ id: "owned-storage" });
     const budget = createOwnedAttachmentHydrationBudget();
