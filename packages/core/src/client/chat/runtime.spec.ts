@@ -2278,7 +2278,7 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
-  it("keeps the first ask over later text in the byte cap and never replays reasoning", async () => {
+  it("keeps the initial ask over later text and excludes assistant reasoning", async () => {
     const firstAsk = "a".repeat(100 * 1024);
     const largeUserText = "u".repeat(160 * 1024);
     const largeAssistantReasoning = "r".repeat(140 * 1024);
@@ -2376,6 +2376,447 @@ describe("createAgentNativeChatRuntime", () => {
       expect.objectContaining({ text: largeUserText }),
     );
     expect(JSON.stringify(body)).not.toContain("rrrr");
+  });
+
+  it("resends attachments when the user explicitly continues a stopped run", async () => {
+    const requestAttachment = {
+      type: "image/png",
+      name: "reference.png",
+      mediaType: "image/png",
+      data: "data:image/png;base64,RESIZED_IMAGE_BYTES",
+      url: "https://files.example.test/reference-resized.png",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse(
+          [
+            {
+              type: "tool_start",
+              id: "call-continue-image",
+              tool: "inspect-image",
+              input: {},
+            },
+            {
+              type: "approval_required",
+              id: "call-continue-image",
+              tool: "inspect-image",
+              input: {},
+              approvalKey: "inspect-image:{}",
+              toolCallId: "call-continue-image",
+            },
+            {
+              type: "tool_done",
+              id: "call-continue-image",
+              tool: "inspect-image",
+              result: "Awaiting approval.",
+            },
+            { type: "done" },
+          ],
+          "run-continue-attachment",
+        ),
+      )
+      .mockResolvedValueOnce(
+        sseResponse(
+          [
+            { type: "text", text: "I finished reviewing the image." },
+            { type: "done" },
+          ],
+          "run-continue-attachment-next",
+        ),
+      );
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-continue-attachment",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-continue-attachment",
+      threadId: "thread-continue-attachment",
+    });
+    const first = await session.startTurn({
+      prompt: "Review this image",
+      attachments: [requestAttachment],
+    });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      prompt: "Continue reviewing the same image",
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    const firstBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const continuationBody = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(firstBody.attachments).toEqual([requestAttachment]);
+    expect(continuationBody.attachments).toEqual([requestAttachment]);
+    expect(continuationBody.message).toBe("Continue reviewing the same image");
+  });
+
+  it("pins initial and attachment-bearing prompts as bounded history stubs", async () => {
+    const initialPrompt = "Build the launch page from this brief.";
+    const attachmentPrompt = "Use these references and keep the layout calm.";
+    const privateImageBytes = "PRIVATE_HISTORY_IMAGE_BYTES";
+    const laterText = "Later note. ".repeat(6_000);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-pinned-attachment-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue",
+      messages: [
+        {
+          id: "user-initial",
+          role: "user",
+          content: [{ type: "text", text: initialPrompt }],
+        },
+        {
+          id: "user-with-attachments",
+          role: "user",
+          content: [
+            { type: "text", text: attachmentPrompt },
+            {
+              type: "image",
+              alt: "reference.png",
+              mediaType: "image/png",
+              data: `data:image/png;base64,${privateImageBytes}`,
+              url: `data:image/png;base64,${privateImageBytes}`,
+            },
+            {
+              type: "file",
+              filename: "requirements.pdf",
+              mediaType: "application/pdf",
+              url: "https://files.example.test/requirements.pdf?token=private#download",
+            },
+          ],
+        },
+        {
+          id: "assistant-tool-call",
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: "call-history-stub",
+              toolName: "read_brief",
+              input: {},
+            },
+          ],
+        },
+        {
+          id: "user-tool-result",
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-history-stub",
+              toolName: "read_brief",
+              result: "Brief read.",
+            },
+          ],
+        },
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `user-later-${index}`,
+          role: "user" as const,
+          content: [{ type: "text" as const, text: `${index}: ${laterText}` }],
+        })),
+        {
+          id: "user-current",
+          role: "user",
+          content: [{ type: "text", text: "Continue" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const parts = structuredHistory.flatMap((message) => message.content);
+    const serializedHistory = JSON.stringify(body.structuredHistory);
+    const plainHistoryText = (body.history as Array<{ content: string }>)
+      .map((message) => message.content)
+      .join("\n");
+
+    expect(serializedHistory).toContain(initialPrompt);
+    expect(serializedHistory).toContain(attachmentPrompt);
+    expect(serializedHistory).toContain(
+      "[attached: reference.png image/png no durable URL available]",
+    );
+    expect(serializedHistory).toContain(
+      "[attached: requirements.pdf application/pdf https://files.example.test/requirements.pdf]",
+    );
+    expect(serializedHistory).not.toContain("data:image/");
+    expect(serializedHistory).not.toContain(privateImageBytes);
+    expect(serializedHistory).not.toContain("private");
+    expect(serializedHistory).toContain(
+      "Some history was omitted to keep structured history within 256 KiB and 64 tool entries.",
+    );
+    expect(
+      parts.some((part) => part.type === "text" && part.text === "Continue"),
+    ).toBe(false);
+    expect(plainHistoryText).toContain(
+      "[attached: reference.png image/png no durable URL available]",
+    );
+    expect(plainHistoryText).not.toContain(privateImageBytes);
+  });
+
+  it("pins every attachment-bearing prompt across 45 prior user turns", async () => {
+    const initialAsk =
+      "Create a LinkedIn ad at exactly 1200x627 and keep one fixed canvas.";
+    const privateImageBytes = "PRIVATE_45_TURN_IMAGE_BYTES";
+    const messages = Array.from({ length: 45 }, (_, index) => ({
+      id: `user-turn-${index}`,
+      role: "user" as const,
+      content: [
+        {
+          type: "text" as const,
+          text:
+            index === 0 ? initialAsk : `Update ${index} using this reference.`,
+        },
+        {
+          type: "image" as const,
+          alt: `reference-${index}.png`,
+          mediaType: "image/png",
+          data: `data:image/png;base64,${privateImageBytes}-${index}`,
+          url:
+            index === 17
+              ? `data:image/png;base64,${privateImageBytes}-17`
+              : index === 18
+                ? "not-a-valid-url"
+                : `https://files.example.test/reference-${index}.png?token=secret-${index}`,
+        },
+        ...(index % 5 === 0
+          ? [
+              {
+                type: "file" as const,
+                filename: `brief-${index}.pdf`,
+                mediaType: "application/pdf",
+                url: `https://files.example.test/brief-${index}.pdf?token=secret-${index}`,
+              },
+            ]
+          : []),
+      ],
+    }));
+    messages.push(
+      {
+        id: "assistant-history-tool-call",
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool-call" as const,
+            toolCallId: "call-45-turn-history",
+            toolName: "read_brief",
+            input: {},
+          },
+        ],
+      },
+      {
+        id: "user-history-tool-result",
+        role: "user" as const,
+        content: [
+          {
+            type: "tool-result" as const,
+            toolCallId: "call-45-turn-history",
+            toolName: "read_brief",
+            result: "Brief read.",
+          },
+        ],
+      },
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-45-turn-attachments",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue from the original format brief.",
+      messages,
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const serializedHistory = JSON.stringify(structuredHistory);
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).toContain(initialAsk);
+    for (let index = 0; index < 45; index++) {
+      const imageUrl =
+        index === 17 || index === 18
+          ? "no durable URL available"
+          : `https://files.example.test/reference-${index}.png`;
+      expect(historyText).toContain(
+        `[attached: reference-${index}.png image/png ${imageUrl}]`,
+      );
+      if (index % 5 === 0) {
+        expect(historyText).toContain(
+          `[attached: brief-${index}.pdf application/pdf https://files.example.test/brief-${index}.pdf]`,
+        );
+      }
+    }
+    expect(serializedHistory).not.toContain("data:image/");
+    expect(serializedHistory).not.toContain(privateImageBytes);
+    expect(serializedHistory).not.toContain("token=secret-");
+  });
+
+  it("reserves the original and latest asks before a long attachment history", async () => {
+    const initialAsk =
+      "Create a LinkedIn ad at exactly 1200x627 and keep one fixed canvas.";
+    const latestAsk = "Keep the fixed canvas and change the headline.";
+    const imageBytes = "PRIVATE_LONG_HISTORY_IMAGE_BYTES";
+    const messages = [
+      {
+        id: "original-brief",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: initialAsk }],
+      },
+      ...Array.from({ length: 130 }, (_, index) => ({
+        id: `attachment-turn-${index}`,
+        role: "user" as const,
+        content: [
+          {
+            type: "text" as const,
+            text: `Update ${index} using this reference.`,
+          },
+          {
+            type: "image" as const,
+            alt: `reference-${index}.png`,
+            mediaType: "image/png",
+            data: `data:image/png;base64,${imageBytes}-${index}`,
+            url: `https://files.example.test/reference-${index}.png`,
+          },
+        ],
+      })),
+      ...Array.from({ length: 12 }, (_, index) => ({
+        id: `recent-note-${index}`,
+        role: "assistant" as const,
+        content: [
+          { type: "text" as const, text: `Recent working note ${index}` },
+        ],
+      })),
+      {
+        id: "latest-brief",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: latestAsk }],
+      },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-long-attachment-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Continue from those instructions.",
+      messages,
+    });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).toContain(initialAsk);
+    expect(historyText).toContain(latestAsk);
+    expect(historyText).toContain("Recent working note 4");
+    expect(historyText).toContain("Recent working note 11");
+    expect(historyText).toContain(
+      "[attached: reference-129.png image/png https://files.example.test/reference-129.png]",
+    );
+    expect(historyText).not.toContain("data:image/");
+    expect(historyText).not.toContain(imageBytes);
+  });
+
+  it("pins the first and latest prior asks across a long assistant tail", async () => {
+    const originalAsk =
+      "Create a LinkedIn ad at exactly 1200x627 with a fixed canvas.";
+    const latestPriorAsk = "Keep the format and make the headline more direct.";
+    const currentPrompt = "Use the shorter headline option.";
+    const assistantTail = Array.from({ length: 140 }, (_, index) => ({
+      id: `assistant-tail-${index}`,
+      role: "assistant" as const,
+      content: [
+        { type: "reasoning" as const, text: `Private scratch ${index}.` },
+        { type: "text" as const, text: `Working note ${index}.` },
+      ],
+    }));
+    const messages = [
+      {
+        id: "original-size-format-ask",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: originalAsk }],
+      },
+      {
+        id: "latest-prior-ask",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: latestPriorAsk }],
+      },
+      ...assistantTail,
+      {
+        id: "current-prompt",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: currentPrompt }],
+      },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-pin-latest-prior-ask",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({ prompt: currentPrompt, messages });
+    await drain(turn.events);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const structuredHistory = body.structuredHistory as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    const historyText = structuredHistory
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n");
+
+    expect(historyText).toContain(originalAsk);
+    expect(historyText).toContain(latestPriorAsk);
+    expect(historyText).toContain("Working note 139.");
+    expect(historyText).not.toContain(currentPrompt);
+    expect(JSON.stringify(body)).not.toContain("Private scratch");
   });
 
   it("omits oversized tool-call and result identifiers and names", async () => {
@@ -3574,7 +4015,7 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
-  it("preserves the original user brief through the bounded text history window", async () => {
+  it("preserves the original brief in bounded history without assistant reasoning", async () => {
     const originalBrief =
       "Create a LinkedIn ad at exactly 1200x627. Keep it on one static canvas.";
     const laterContext = Array.from({ length: 140 }, (_, index) => ({
@@ -3631,6 +4072,9 @@ describe("createAgentNativeChatRuntime", () => {
     const historyBytes = new TextEncoder().encode(
       JSON.stringify(body.structuredHistory),
     ).byteLength;
+    const plainHistoryText = (body.history as Array<{ content: string }>)
+      .map((message) => message.content)
+      .join("\n");
 
     expect(visibleText).toEqual([
       originalBrief,
@@ -3639,6 +4083,9 @@ describe("createAgentNativeChatRuntime", () => {
     expect(visibleText).toHaveLength(128);
     expect(visibleText).not.toContain(currentFollowUp);
     expect(JSON.stringify(body)).not.toContain("Private scratch");
+    expect(plainHistoryText).toContain(originalBrief);
+    expect(plainHistoryText).not.toContain(currentFollowUp);
+    expect(plainHistoryText).not.toContain("Private scratch");
     expect(historyBytes).toBeLessThanOrEqual(256 * 1024);
     expect(parts).toContainEqual({
       type: "text",
@@ -3742,7 +4189,7 @@ describe("createAgentNativeChatRuntime", () => {
     const serialized = JSON.stringify(body);
 
     expect(texts).toContain(
-      `${firstAsk}\n[attached: brand.png image/png https://files.example.test/brand.png]\n[attached: inline.png image/png]`,
+      `${firstAsk}\n[attached: brand.png image/png https://files.example.test/brand.png]\n[attached: inline.png image/png no durable URL available]`,
     );
     expect(texts).toContain(
       "Follow-up 20\n[attached: logo.svg image/svg+xml https://files.example.test/logo.svg]",

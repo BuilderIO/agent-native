@@ -469,6 +469,10 @@ function pgliteClientKey(dataDir: string): string {
   return dataDir === "memory://" ? dataDir : path.resolve(dataDir);
 }
 
+export function pgliteProcessLockPath(dataDir: string): string {
+  return `${pgliteClientKey(dataDir)}.agent-native-pglite.lock`;
+}
+
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -478,7 +482,7 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-function readPgliteProcessLockOwner(
+export function readPgliteProcessLockOwner(
   fs: typeof import("fs"),
   lockPath: string,
   dataDir: string,
@@ -571,7 +575,7 @@ async function acquirePgliteProcessLock(
   const existing = _pgliteProcessLocks.get(clientKey);
   if (existing) return existing;
 
-  const lockPath = `${clientKey}.agent-native-pglite.lock`;
+  const lockPath = pgliteProcessLockPath(dataDir);
   const contents = JSON.stringify({
     pid: process.pid,
     token: `${process.pid}:${Date.now()}:${Math.random()}`,

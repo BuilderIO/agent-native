@@ -218,7 +218,7 @@ test("does not flag normal controller send API calls", () => {
   );
 });
 
-test("gates new sends and queue appends while constraining Continue to an admitted run", () => {
+test("gates sends and queued writes while allowing optimistic queue display", () => {
   const file = "packages/agentkit/src/client/client.ts";
   const gated = `class AgentKitClient {
   async assertAiSetupReady() {
@@ -232,9 +232,9 @@ test("gates new sends and queue appends while constraining Continue to an admitt
     this.transport.startRun();
   }
   async queueMessage() {
-    await this.assertAiSetupReady();
     this.setThread();
-    this.transport.queueMessage();
+    await this.assertAiSetupReady();
+    await this.invokeRequest(() => this.transport.queueMessage());
   }
   async continueRun(threadId: string, runId: string) {
     await this.assertAiSetupReady({ threadId });
@@ -258,7 +258,7 @@ test("gates new sends and queue appends while constraining Continue to an admitt
   );
   assert.deepEqual(violations(file, ungated), [
     "AgentKitClient.sendMessage must await assertAiSetupReady before setThread",
-    "AgentKitClient.queueMessage must await assertAiSetupReady before setThread",
+    "AgentKitClient.queueMessage must await assertAiSetupReady before invokeRequest",
   ]);
 
   const ungatedContinue = gated.replace(

@@ -825,9 +825,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.copyFailed": "Échec de la copie",
   "recovery.continueUnavailable":
     "Cette exécution ne peut plus être poursuivie. Envoyez un message pour continuer.",
+  "errorMessages.invalidAttachmentNamed":
+    "Le fournisseur du modèle a refusé {{name}} car son format ou sa taille n'est pas pris en charge. Pour les images, exportez un fichier PNG, JPEG, GIF ou WebP plus petit ; pour les documents, utilisez un format pris en charge ou collez le texte pertinent, puis réessayez.",
+  "recovery.retryWithoutAttachment": "Réessayer sans pièce jointe",
   "recovery.retryAttachmentUnavailable":
     "Cette demande incluait un fichier qui ne peut pas être réessayé. Joignez-le de nouveau dans le champ de message, puis réessayez.",
-  "recovery.retryWithoutAttachment": "Réessayer sans la pièce jointe",
   "recovery.deferredSubmissionFailed":
     "Impossible d’envoyer ce message. Vérifiez votre connexion ou la configuration du chat, puis réessayez.",
   "recovery.credentialRejected":
