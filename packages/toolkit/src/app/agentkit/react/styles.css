@@ -1978,7 +1978,7 @@ button.agentkit-object {
 .agentkit-host-suggestions-slot
   .agentkit-host-suggestions[data-agent-suggestion-bar="true"] {
   block-size: 100%;
-  padding: 0;
+  padding-block: 0;
 }
 
 .agentkit-host-suggestions-slot [data-agent-suggestion-scroller="true"] {
