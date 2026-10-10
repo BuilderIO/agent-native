@@ -3562,6 +3562,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return root && !isDocumentRootElement(root) ? root : null;
     }
     function isGeneratedGroupWrapper(group) {
+      if (typeof group.getAttribute !== "function") return false;
       var generatedGroupMarker = group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
       var legacyNodeId = group.getAttribute("data-agent-native-node-id");
       var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(layerNameForElement(group).trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
@@ -3683,7 +3684,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!selectedEl || !document.documentElement.contains(selectedEl)) {
         return null;
       }
-      if (!canOpenSelectionContainer(selectedEl)) return null;
+      if (!hasSelectableLayerChildren(selectedEl)) return null;
       if (collectMoveGroupMembers(selectedEl).length > 1) return null;
       if (!hit || isDocumentRootElement(hit)) return null;
       var svgRoot = outermostSvgAncestor(hit);

@@ -3723,6 +3723,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function isGeneratedGroupWrapper(group: Element): boolean {
+    if (typeof group.getAttribute !== "function") return false;
     var generatedGroupMarker =
       group.getAttribute("data-agent-native-group-wrapper") === "true" &&
       group.getAttribute("data-agent-native-clone-root") !== "true";
@@ -3932,7 +3933,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!selectedEl || !document.documentElement.contains(selectedEl)) {
       return null;
     }
-    if (!canOpenSelectionContainer(selectedEl)) return null;
+    if (!hasSelectableLayerChildren(selectedEl)) return null;
     if (collectMoveGroupMembers(selectedEl).length > 1) return null;
     if (!hit || isDocumentRootElement(hit)) return null;
     var svgRoot = outermostSvgAncestor(hit);
@@ -27497,9 +27498,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function onKeyDown(ev) {
       if (ev.isComposing || ev.keyCode === 229) return;
       var metaOrCtrl = isPlatformPrimaryChord(ev);
+      var hasTextCommitModifier = ev.metaKey || ev.ctrlKey;
       if (
         ev.key === "Escape" ||
-        (ev.key === "Enter" && metaOrCtrl && !ev.altKey && !ev.shiftKey)
+        (ev.key === "Enter" &&
+          hasTextCommitModifier &&
+          !ev.altKey &&
+          !ev.shiftKey)
       ) {
         ev.preventDefault();
         ev.stopPropagation();
