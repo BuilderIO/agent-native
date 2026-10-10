@@ -14,6 +14,7 @@ vi.mock("./run-store.js", () => ({
   markRunAborted: vi.fn(),
   reapIfStale: vi.fn(async () => false),
   bumpRunProgress: vi.fn(),
+  getCurrentTurnEventsForThread: vi.fn(async () => []),
   ensureTerminalRunEvent: vi.fn(),
   setRunError: vi.fn(),
   setRunTerminalReason: vi.fn(),
@@ -59,8 +60,12 @@ import type {
   EngineEvent,
   EngineMessage,
 } from "./engine/types.js";
+import type { AgentChatStructuredMessage } from "./types.js";
 
-function recordingEngine(captured: EngineMessage[][]): AgentEngine {
+function recordingEngine(
+  captured: EngineMessage[][],
+  vision = false,
+): AgentEngine {
   return {
     name: "test",
     label: "Test",
@@ -69,7 +74,7 @@ function recordingEngine(captured: EngineMessage[][]): AgentEngine {
     capabilities: {
       thinking: false,
       promptCaching: false,
-      vision: false,
+      vision,
       computerUse: false,
       parallelToolCalls: false,
     },
@@ -109,6 +114,66 @@ beforeEach(() => {
 });
 
 describe("observational memory wiring", () => {
+  it("preserves structured history images removed by the recent-message window", async () => {
+    const url = "https://storage.example.test/earlier.png";
+    const image = {
+      type: "image" as const,
+      data: "cG5n",
+      mediaType: "image/png",
+    };
+    const history: AgentChatStructuredMessage[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image-reference",
+            url,
+            name: "earlier.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+    ];
+    const structuredMessages: EngineMessage[] = [
+      { role: "user", content: [image] },
+      { role: "user", content: [{ type: "text", text: "What is shown?" }] },
+    ];
+    buildObservationalContextMock.mockResolvedValue({
+      threadId: "thread-om-images",
+      reflections: [{ text: "Earlier images were shared." }],
+      observations: [],
+      recentMessages: [structuredMessages[1]],
+      tokens: { reflections: 1, observations: 0, recentMessages: 1, total: 2 },
+    });
+    const captured: EngineMessage[][] = [];
+
+    await runAgentLoop({
+      engine: recordingEngine(captured, true),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: structuredMessages,
+      structuredHistoryImages: {
+        history,
+        resolutions: new Map([
+          [JSON.stringify([url, "earlier.png", "image/png"]), image],
+        ]),
+      },
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+      threadId: "thread-om-images",
+      ownerEmail: "alice@example.com",
+    });
+
+    expect(captured[0]?.flatMap((message) => message.content)).toContainEqual(
+      image,
+    );
+    expect(
+      captured[0]?.filter((message) => message.role === "user"),
+    ).toHaveLength(2);
+  });
+
   it("invokes the post-turn compaction hook for a thread", async () => {
     const captured: EngineMessage[][] = [];
     await runAgentLoop({

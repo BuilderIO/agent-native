@@ -3009,6 +3009,123 @@ function unavailableHistoryImageText(
   return `[Earlier uploaded image "${name}" is unavailable for visual analysis because ${reason}. Its image contents were not sent; do not infer them. Ask the user to upload the image again if visual analysis is needed.]`;
 }
 
+interface StructuredHistoryResolutionIdentities {
+  imagesByMediaType: Map<string, Set<string>>;
+  texts: Set<string>;
+}
+
+function structuredHistoryResolutionIdentities(
+  messages: EngineMessage[],
+): StructuredHistoryResolutionIdentities {
+  const identities: StructuredHistoryResolutionIdentities = {
+    imagesByMediaType: new Map(),
+    texts: new Set(),
+  };
+  for (const message of messages) {
+    for (const part of message.content) {
+      addStructuredHistoryResolutionIdentity(identities, part);
+    }
+  }
+  return identities;
+}
+
+function addStructuredHistoryResolutionIdentity(
+  identities: StructuredHistoryResolutionIdentities,
+  part: EngineContentPart,
+): void {
+  if (part.type === "image") {
+    let data = identities.imagesByMediaType.get(part.mediaType);
+    if (!data) {
+      data = new Set();
+      identities.imagesByMediaType.set(part.mediaType, data);
+    }
+    data.add(part.data);
+  } else if (part.type === "text") {
+    identities.texts.add(part.text);
+  }
+}
+
+function hasStructuredHistoryResolutionIdentity(
+  identities: StructuredHistoryResolutionIdentities,
+  part: EngineContentPart,
+): boolean {
+  if (part.type === "image") {
+    return (
+      identities.imagesByMediaType.get(part.mediaType)?.has(part.data) === true
+    );
+  }
+  return part.type === "text" && identities.texts.has(part.text);
+}
+
+function structuredHistoryResolutionPartsMissingFromWindow(
+  beforeMemoryWindow: EngineMessage[],
+  afterMemoryWindow: EngineMessage[],
+  history: AgentChatStructuredMessage[] | undefined,
+  resolutions: ReadonlyMap<string, StructuredHistoryImageResolution>,
+): EngineContentPart[] {
+  const identitiesInWindow =
+    structuredHistoryResolutionIdentities(afterMemoryWindow);
+  const identitiesBeforeWindow =
+    structuredHistoryResolutionIdentities(beforeMemoryWindow);
+  const missing: EngineContentPart[] = [];
+  const missingIdentities: StructuredHistoryResolutionIdentities = {
+    imagesByMediaType: new Map(),
+    texts: new Set(),
+  };
+
+  if (!Array.isArray(history)) return missing;
+  for (const message of history) {
+    if (message?.role !== "user" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (!isStructuredHistoryImageReference(part)) continue;
+      const resolution = resolutions.get(
+        structuredHistoryImageReferenceKey(part),
+      );
+      if (!resolution) continue;
+      if (
+        !hasStructuredHistoryResolutionIdentity(
+          identitiesBeforeWindow,
+          resolution,
+        ) ||
+        hasStructuredHistoryResolutionIdentity(
+          identitiesInWindow,
+          resolution,
+        ) ||
+        hasStructuredHistoryResolutionIdentity(missingIdentities, resolution)
+      ) {
+        continue;
+      }
+      addStructuredHistoryResolutionIdentity(missingIdentities, resolution);
+      missing.push(resolution);
+    }
+  }
+  return missing;
+}
+
+function appendUniqueContentPartsToLastUserMessage(
+  messages: EngineMessage[],
+  parts: EngineContentPart[],
+): void {
+  if (parts.length === 0) return;
+  let message: EngineMessage | undefined;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    if (messages[index]?.role === "user") {
+      message = messages[index];
+      break;
+    }
+  }
+  if (!message) {
+    message = { role: "user", content: [] };
+    messages.push(message);
+  }
+  const existing = structuredHistoryResolutionIdentities([message]);
+  for (const part of parts) {
+    if (hasStructuredHistoryResolutionIdentity(existing, part)) continue;
+    addStructuredHistoryResolutionIdentity(existing, part);
+    message.content.push(part);
+  }
+}
+
 export async function hydrateStructuredHistoryImageReferences(
   history: AgentChatStructuredMessage[] | undefined,
   options: {
@@ -3017,6 +3134,11 @@ export async function hydrateStructuredHistoryImageReferences(
   },
 ): Promise<Map<string, StructuredHistoryImageResolution>> {
   const resolutions = new Map<string, StructuredHistoryImageResolution>();
+  const urlResolutions = new Map<
+    string,
+    | { kind: "image"; resolution: EngineImagePart }
+    | { kind: "failed"; code: OwnedImageReadFailureCode }
+  >();
   if (!Array.isArray(history)) return resolutions;
 
   // Spend the shared request budget on recent prior images first. Engine
@@ -3046,19 +3168,30 @@ export async function hydrateStructuredHistoryImageReferences(
         continue;
       }
 
-      if (!claimOwnedAttachmentHydrationCandidate(options.budget)) {
-        resolutions.set(key, {
-          type: "text",
-          text: unavailableHistoryImageText(
-            part,
-            describeOwnedImageReadFailure("request-candidate-limit"),
-          ),
-        });
+      const url = durableStructuredHistoryImageUrl(part.url);
+      const hydrationKey = url ?? part.url;
+      const cached = urlResolutions.get(hydrationKey);
+      if (cached) {
+        resolutions.set(
+          key,
+          cached.kind === "image"
+            ? cached.resolution
+            : {
+                type: "text",
+                text: unavailableHistoryImageText(
+                  part,
+                  describeOwnedImageReadFailure(cached.code),
+                ),
+              },
+        );
         continue;
       }
 
-      const url = durableStructuredHistoryImageUrl(part.url);
       if (!url) {
+        urlResolutions.set(hydrationKey, {
+          kind: "failed",
+          code: "invalid-url",
+        });
         resolutions.set(key, {
           type: "text",
           text: unavailableHistoryImageText(
@@ -3069,35 +3202,59 @@ export async function hydrateStructuredHistoryImageReferences(
         continue;
       }
 
-      const declaredMediaType = normalizeImageMediaType(part.mediaType);
+      if (!claimOwnedAttachmentHydrationCandidate(options.budget)) {
+        urlResolutions.set(hydrationKey, {
+          kind: "failed",
+          code: "request-candidate-limit",
+        });
+        resolutions.set(key, {
+          type: "text",
+          text: unavailableHistoryImageText(
+            part,
+            describeOwnedImageReadFailure("request-candidate-limit"),
+          ),
+        });
+        continue;
+      }
+
       const result = await hydrateOwnedImageUrl(
         url,
-        declaredMediaType ?? undefined,
+        normalizeImageMediaType(part.mediaType) ?? undefined,
         options.budget,
       );
       if (result.kind === "hydrated") {
         const parsed = parseBase64DataUrl(result.dataUrl);
         const mediaType = normalizeImageMediaType(result.mediaType);
         if (parsed && mediaType) {
-          resolutions.set(key, {
-            type: "image",
+          const resolution = {
+            type: "image" as const,
             data: parsed.data,
             mediaType,
-          });
-        } else {
-          resolutions.set(key, {
-            type: "text",
-            text: unavailableHistoryImageText(
-              part,
-              describeOwnedImageReadFailure("invalid-image"),
-            ),
-          });
+          };
+          urlResolutions.set(hydrationKey, { kind: "image", resolution });
+          resolutions.set(key, resolution);
+          continue;
         }
+        urlResolutions.set(hydrationKey, {
+          kind: "failed",
+          code: "invalid-image",
+        });
+        resolutions.set(key, {
+          type: "text",
+          text: unavailableHistoryImageText(
+            part,
+            describeOwnedImageReadFailure("invalid-image"),
+          ),
+        });
         continue;
       }
 
       const failureCode: OwnedImageReadFailureCode =
         result.kind === "unowned" ? "unowned-url" : result.code;
+      urlResolutions.set(hydrationKey, {
+        kind: "failed",
+        code: failureCode,
+      });
       resolutions.set(key, {
         type: "text",
         text: unavailableHistoryImageText(
@@ -5676,6 +5833,10 @@ export async function runAgentLoop(opts: {
   tools: EngineTool[];
   availableTools?: EngineTool[];
   messages: EngineMessage[];
+  structuredHistoryImages?: {
+    history: AgentChatStructuredMessage[];
+    resolutions: ReadonlyMap<string, StructuredHistoryImageResolution>;
+  };
   systemSections?: import("../shared/context-xray.js").ContextManifestSystemSection[];
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
@@ -6234,6 +6395,7 @@ export async function runAgentLoop(opts: {
       });
 
       if (opts.ownerEmail) {
+        const beforeMemoryWindow = contextMessages;
         contextMessages = await applyObservationalMemoryToContext(
           contextMessages,
           {
@@ -6242,6 +6404,20 @@ export async function runAgentLoop(opts: {
             orgId: opts.orgId ?? null,
           },
         );
+        if (opts.structuredHistoryImages) {
+          const omittedParts =
+            structuredHistoryResolutionPartsMissingFromWindow(
+              beforeMemoryWindow,
+              contextMessages,
+              opts.structuredHistoryImages.history,
+              opts.structuredHistoryImages.resolutions,
+            );
+          appendUniqueContentPartsToLastUserMessage(
+            contextMessages,
+            omittedParts,
+          );
+          appendUniqueContentPartsToLastUserMessage(messages, omittedParts);
+        }
       }
     }
     if (signal.aborted) break;
@@ -12829,6 +13005,14 @@ export function createProductionAgentHandler(
           tools: requestTools,
           availableTools: availableRequestTools,
           messages,
+          ...(Array.isArray(requestStructuredHistory)
+            ? {
+                structuredHistoryImages: {
+                  history: requestStructuredHistory,
+                  resolutions: resolvedHistoryImages,
+                },
+              }
+            : {}),
           systemSections: contextXraySystemSections,
           actions: requestActions,
           send,

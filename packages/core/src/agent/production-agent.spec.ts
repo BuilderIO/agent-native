@@ -2014,6 +2014,110 @@ describe("buildUserContentWithAttachments", () => {
     }
   });
 
+  it("hydrates repeated image URLs only once when metadata differs", async () => {
+    const url = "https://storage.example.test/uploads/repeated.png";
+    const history = [
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url,
+            name: "first-name.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url,
+            name: "second-name.png",
+            mediaType: "image/jpeg",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const bytes = Buffer.from(PNG_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(bytes, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const budget = createOwnedAttachmentHydrationBudget();
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget,
+      });
+
+      expect(resolved).toHaveLength(2);
+      expect([...resolved.values()]).toEqual([
+        { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+        { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+      ]);
+      expect(findProvider).toHaveBeenCalledOnce();
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(budget.remainingCandidates).toBe(
+        MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES - 1,
+      );
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps each image name in failure notes for repeated URLs", async () => {
+    const url = "https://outside.example.test/repeated.png";
+    const history = ["first-name.png", "second-name.png"].map((name) => ({
+      role: "user" as const,
+      content: [
+        {
+          type: "image-reference" as const,
+          url,
+          name,
+          mediaType: "image/png",
+        },
+      ],
+    }));
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const notes = [...resolved.values()].map((resolution) =>
+        resolution.type === "text" ? resolution.text : "",
+      );
+
+      expect(notes).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('image "first-name.png"'),
+          expect.stringContaining('image "second-name.png"'),
+        ]),
+      );
+      expect(findProvider).toHaveBeenCalledOnce();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("prioritizes the newest history images within the shared candidate budget", async () => {
     const urls = Array.from(
       { length: MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES + 1 },
