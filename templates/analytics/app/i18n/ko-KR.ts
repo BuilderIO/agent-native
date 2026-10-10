@@ -641,6 +641,7 @@ export default {
     opening: "열기...",
     reconnect: "다시 연결",
     connect: "연결하다",
+    manage: "관리",
     connectedAs: "{{viewer}}로 연결됨",
     githubConnected: "GitHub가 연결되었습니다",
     githubReconnectNeeded: "저장된 GitHub 토큰을 다시 연결해야 합니다.",
@@ -751,8 +752,6 @@ export default {
     neverUsed: "한번도 사용하지 않은",
     revoking: "취소 중...",
     revoke: "취소",
-    intro: "데이터 소스를 연결한 후 에이전트에게 대시보드 생성을 요청하세요.",
-    configuredCount: "{{count}} 구성됨",
     searchPlaceholder: "데이터 소스 검색...",
     noMatch: '"{{search}}"와 일치하는 데이터 소스가 없습니다.',
     customApi: {

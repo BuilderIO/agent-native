@@ -656,6 +656,7 @@ export default {
     opening: "Abertura...",
     reconnect: "Reconectar",
     connect: "Conectar",
+    manage: "Gerenciar",
     connectedAs: "Conectado como {{viewer}}",
     githubConnected: "GitHub está conectado",
     githubReconnectNeeded: "O token GitHub salvo precisa ser reconectado.",
@@ -768,8 +769,6 @@ export default {
     neverUsed: "nunca usado",
     revoking: "Revogando...",
     revoke: "Revogar",
-    intro: "Conecte suas fontes de dados e peça ao agente para criar painéis.",
-    configuredCount: "{{count}} configurado",
     searchPlaceholder: "Pesquisar fontes de dados...",
     noMatch: 'Nenhuma fonte de dados corresponde a "{{search}}"',
     customApi: {

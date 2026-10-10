@@ -666,6 +666,7 @@ export default {
     opening: "Ouverture...",
     reconnect: "Reconnecter",
     connect: "Connecter",
+    manage: "Gérer",
     connectedAs: "Connecté en tant que {{viewer}}",
     githubConnected: "Le GitHub est connecté",
     githubReconnectNeeded: "Le jeton GitHub enregistré doit être reconnecté.",
@@ -779,9 +780,6 @@ export default {
     neverUsed: "jamais utilisé",
     revoking: "Révoquer...",
     revoke: "Révoquer",
-    intro:
-      "Connectez vos sources de données, puis demandez à l'agent de créer des tableaux de bord.",
-    configuredCount: "{{count}} configuré",
     searchPlaceholder: "Rechercher des sources de données...",
     noMatch: 'Aucune source de données ne correspond à "{{search}}"',
     customApi: {

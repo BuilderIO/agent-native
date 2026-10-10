@@ -610,6 +610,7 @@ export default {
     opening: "開幕...",
     reconnect: "重新連線",
     connect: "連線",
+    manage: "管理",
     connectedAs: "連線為 {{viewer}}",
     githubConnected: "GitHub已連線",
     githubReconnectNeeded: "已儲存的GitHub權杖需要重新連線。",
@@ -716,8 +717,6 @@ export default {
     neverUsed: "從未使用過",
     revoking: "撤銷...",
     revoke: "撤銷",
-    intro: "連線您的資料來源，然後要求代理建立儀表板。",
-    configuredCount: "{{count}}已設定",
     searchPlaceholder: "搜尋資料來源...",
     noMatch: "沒有資料來源匹配“{{search}}”",
     customApi: {

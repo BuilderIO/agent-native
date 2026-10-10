@@ -613,6 +613,7 @@ export default {
     opening: "开幕...",
     reconnect: "重新连接",
     connect: "连接",
+    manage: "管理",
     connectedAs: "连接为 {{viewer}}",
     githubConnected: "GitHub已连接",
     githubReconnectNeeded: "已保存的GitHub令牌需要重新连接。",
@@ -719,8 +720,6 @@ export default {
     neverUsed: "从未使用过",
     revoking: "撤销...",
     revoke: "撤销",
-    intro: "连接您的数据源，然后要求代理创建仪表板。",
-    configuredCount: "{{count}}已配置",
     searchPlaceholder: "搜索数据源...",
     noMatch: "没有数据源匹配“{{search}}”",
     customApi: {

@@ -639,6 +639,7 @@ export default {
     opening: "افتتاح...",
     reconnect: "أعد الاتصال",
     connect: "يتصل",
+    manage: "إدارة",
     connectedAs: "متصل كـ {{viewer}}",
     githubConnected: "GitHub متصل",
     githubReconnectNeeded: "يجب إعادة توصيل الرمز المميز GitHub المحفوظ.",
@@ -749,9 +750,6 @@ export default {
     neverUsed: "لم تستخدم قط",
     revoking: "جارٍ الإلغاء...",
     revoke: "إبطال",
-    intro:
-      "قم بتوصيل مصادر البيانات الخاصة بك، ثم اطلب من الوكيل إنشاء لوحات المعلومات.",
-    configuredCount: "تكوين {{count}}",
     searchPlaceholder: "البحث في مصادر البيانات...",
     noMatch: 'لا توجد مصادر بيانات تطابق "{{search}}"',
     customApi: {

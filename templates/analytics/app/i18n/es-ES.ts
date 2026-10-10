@@ -655,6 +655,7 @@ export default {
     opening: "Apertura...",
     reconnect: "Reconectar",
     connect: "Conectar",
+    manage: "Administrar",
     connectedAs: "Conectado como {{viewer}}",
     githubConnected: "GitHub está conectado",
     githubReconnectNeeded:
@@ -769,9 +770,6 @@ export default {
     neverUsed: "nunca usado",
     revoking: "Revocando...",
     revoke: "Revocar",
-    intro:
-      "Conecte sus fuentes de datos y luego pídale al agente que cree paneles.",
-    configuredCount: "{{count}} configurado",
     searchPlaceholder: "Buscar fuentes de datos...",
     noMatch: 'Ninguna fuente de datos coincide con "{{search}}"',
     customApi: {

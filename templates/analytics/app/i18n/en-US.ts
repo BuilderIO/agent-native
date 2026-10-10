@@ -1096,6 +1096,7 @@ export default {
     opening: "Opening...",
     reconnect: "Reconnect",
     connect: "Connect",
+    manage: "Manage",
     connectedAs: "Connected as {{viewer}}",
     githubConnected: "GitHub is connected",
     githubReconnectNeeded: "Saved GitHub token needs to be reconnected.",
@@ -1206,9 +1207,6 @@ export default {
     neverUsed: "never used",
     revoking: "Revoking...",
     revoke: "Revoke",
-    intro:
-      "Connect your data sources, then ask the agent to create dashboards.",
-    configuredCount: "{{count}} configured",
     searchPlaceholder: "Search data sources...",
     noMatch: 'No data sources match "{{search}}"',
     customApi: {

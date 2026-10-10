@@ -653,6 +653,7 @@ export default {
     opening: "オープニング...",
     reconnect: "再接続",
     connect: "接続する",
+    manage: "管理",
     connectedAs: "{{viewer}}として接続",
     githubConnected: "GitHubを接続しました",
     githubReconnectNeeded:
@@ -764,9 +765,6 @@ export default {
     neverUsed: "決して使われていない",
     revoking: "取り消し中...",
     revoke: "取り消す",
-    intro:
-      "データ ソースを接続し、エージェントにダッシュボードの作成を依頼します。",
-    configuredCount: "{{count}}設定済み",
     searchPlaceholder: "データソースを検索...",
     noMatch: "「{{search}}」に一致するデータ ソースはありません",
     customApi: {

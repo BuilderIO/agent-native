@@ -633,6 +633,7 @@ export default {
     opening: "खुल रहा है...",
     reconnect: "रिकनेक्ट",
     connect: "जोड़ना",
+    manage: "प्रबंधित करें",
     connectedAs: "{{viewer}} के रूप में जुड़ा हुआ है",
     githubConnected: "GitHub जुड़ा हुआ है",
     githubReconnectNeeded: "सहेजे गए GitHub टोकन को पुनः कनेक्ट करने की आवश्यकता है।",
@@ -743,8 +744,6 @@ export default {
     neverUsed: "कभी भी इस्तेमाल नहीं किया",
     revoking: "निरस्त किया जा रहा है...",
     revoke: "रद्द करना",
-    intro: "अपने डेटा स्रोतों को कनेक्ट करें, फिर एजेंट से डैशबोर्ड बनाने के लिए कहें।",
-    configuredCount: "{{count}} कॉन्फ़िगर किया गया",
     searchPlaceholder: "डेटा स्रोत खोजें...",
     noMatch: 'कोई डेटा स्रोत "{{search}}" से मेल नहीं खाता',
     customApi: {

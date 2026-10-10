@@ -665,6 +665,7 @@ export default {
     opening: "Öffnung...",
     reconnect: "Wieder verbinden",
     connect: "Verbinden",
+    manage: "Verwalten",
     connectedAs: "Verbunden als {{viewer}}",
     githubConnected: "GitHub ist angeschlossen",
     githubReconnectNeeded:
@@ -779,9 +780,6 @@ export default {
     neverUsed: "nie benutzt",
     revoking: "Widerrufen...",
     revoke: "Widerrufen",
-    intro:
-      "Verbinden Sie Ihre Datenquellen und bitten Sie dann den Agenten, Dashboards zu erstellen.",
-    configuredCount: "{{count}} konfiguriert",
     searchPlaceholder: "Datenquellen durchsuchen...",
     noMatch: "Keine Datenquelle entspricht „{{search}}“",
     customApi: {
