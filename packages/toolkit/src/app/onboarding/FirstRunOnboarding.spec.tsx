@@ -24,13 +24,17 @@ import {
 
 const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
-function FirstRunOnboarding() {
+function FirstRunOnboarding({
+  initialFirstRun = false,
+}: {
+  initialFirstRun?: boolean;
+} = {}) {
   return (
     <AgentNativeI18nProvider
       catalog={toolkitI18nCatalog}
       persistPreference={false}
     >
-      <FirstRunOnboardingSource />
+      <FirstRunOnboardingSource initialFirstRun={initialFirstRun} />
     </AgentNativeI18nProvider>
   );
 }
@@ -256,6 +260,133 @@ describe("FirstRunOnboarding", () => {
 
     expect(document.body.querySelector("[data-onboarding-loading]")).toBeNull();
     expect(document.body.querySelector("[data-onboarding-screen]")).toBeNull();
+  });
+
+  it("shows the first-run role step while the onboarding summary is loading", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: true,
+      error: null,
+      profile: null,
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      document.body.querySelector('[data-onboarding-screen="role"]'),
+    ).not.toBeNull();
+    expect(document.body.querySelector("[data-onboarding-loading]")).toBeNull();
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_started",
+      { flow: "first_run" },
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_viewed",
+      expect.objectContaining({ flow: "first_run", step_id: "role" }),
+    );
+  });
+
+  it("does not emit a second started event when the summary resolves", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: true,
+      error: null,
+      profile: null,
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+    });
+
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([name]) => name === "onboarding_started",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("keeps the role selection visible if the onboarding summary fails", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: true,
+      error: null,
+      profile: null,
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      container
+        .querySelector('[data-testid="first-run-role-developer"] input')
+        ?.click();
+    });
+
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: new Error("summary unavailable"),
+      profile: null,
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-onboarding-screen="role"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="first-run-role-developer"] input'),
+    ).toHaveProperty("checked", true);
   });
 
   it("does not show a close button during first-run setup", async () => {
