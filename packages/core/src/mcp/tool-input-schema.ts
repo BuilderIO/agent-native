@@ -1,5 +1,8 @@
 import type { Tool } from "@modelcontextprotocol/server";
 
+import { stripUnsupportedSchemaKeywords } from "../action.js";
+import { flattenComposedRootSchema } from "../agent/engine/flatten-composed-root-schema.js";
+
 export function isObjectOnly(
   schema: unknown,
   ancestors = new Set<unknown>(),
@@ -44,25 +47,22 @@ export function mcpToolInputSchema(
       `MCP tool "${name}" must declare an object-only input schema; use an object schema or object-only composition.`,
     );
   }
-  const input = schema as Record<string, unknown>;
-  const sourceProperties = input.properties;
-  const properties =
-    sourceProperties &&
-    typeof sourceProperties === "object" &&
-    !Array.isArray(sourceProperties)
-      ? Object.fromEntries(
-          Object.entries(sourceProperties).map(([parameter, property]) => [
-            parameter,
-            property && typeof property === "object" && !Array.isArray(property)
-              ? { ...property }
-              : property,
-          ]),
-        )
-      : undefined;
-  return {
-    ...input,
-    ...(properties ? { properties } : {}),
-    ...(Array.isArray(input.required) ? { required: [...input.required] } : {}),
-    type: "object",
-  };
+  let copy: Record<string, unknown>;
+  try {
+    copy = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(
+      `MCP tool "${name}" has an input schema that is not plain JSON, so it cannot be made provider-safe.`,
+      { cause: error },
+    );
+  }
+  // Hosts forward this schema verbatim to their model provider, and one tool
+  // the provider rejects fails every request in the session. Anthropic rejects
+  // a root anyOf/oneOf/allOf; OpenAI rejects oneOf, typeless positions and
+  // propertyNames. Callers still validate against the action's own schema, so
+  // the advertised copy may be looser but must never be stricter.
+  const flattened = flattenComposedRootSchema(
+    stripUnsupportedSchemaKeywords(copy),
+  );
+  return { ...flattened, type: "object" } as Tool["inputSchema"];
 }

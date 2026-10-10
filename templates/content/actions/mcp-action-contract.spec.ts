@@ -94,7 +94,7 @@ describe("Content action-owned agent catalogs", () => {
     expect(migrateContentDatabaseRows.mcpApp?.structuredContent).toBe(true);
   });
 
-  it("keeps Content's composed MCP input schemas complete while declaring object roots", () => {
+  it("flattens Content's composed MCP input schemas into object roots every provider accepts", () => {
     const migrationParameters = migrateContentDatabaseRows.tool.parameters;
     const batchParameters = updateDatabaseItems.tool.parameters;
     const migrationInputSchema = mcpToolInputSchema(
@@ -107,51 +107,36 @@ describe("Content action-owned agent catalogs", () => {
     );
 
     expect(migrationParameters?.anyOf).toBeDefined();
-    expect(migrationInputSchema).toEqual({
-      ...migrationParameters,
-      type: "object",
-    });
-    expect(migrationInputSchema.anyOf).toBe(migrationParameters?.anyOf);
-    expect(migrationInputSchema.anyOf).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            phase: expect.objectContaining({ const: "validate" }),
-            plan: expect.anything(),
-          }),
-          required: expect.arrayContaining(["phase", "plan"]),
-        }),
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            phase: expect.objectContaining({ const: "verify" }),
-            expectedPostDigest: expect.anything(),
-          }),
-          required: expect.arrayContaining([
-            "phase",
-            "databaseId",
-            "idempotencyKey",
-            "expectedPostDigest",
+    expect(migrationInputSchema.type).toBe("object");
+    expect(migrationInputSchema).not.toHaveProperty("anyOf");
+    expect(migrationInputSchema.properties).toEqual(
+      expect.objectContaining({
+        phase: {
+          anyOf: expect.arrayContaining([
+            expect.objectContaining({ const: "validate" }),
+            expect.objectContaining({ const: "verify" }),
           ]),
-        }),
-      ]),
+        },
+        plan: expect.anything(),
+        databaseId: expect.anything(),
+        idempotencyKey: expect.anything(),
+        expectedPostDigest: expect.anything(),
+      }),
     );
+    expect(migrationInputSchema.required).toEqual(["phase"]);
 
     expect(batchParameters?.allOf).toBeDefined();
-    expect(batchInputSchema).toEqual({
-      ...batchParameters,
-      type: "object",
-    });
-    expect(batchInputSchema.allOf).toBe(batchParameters?.allOf);
-    expect(batchInputSchema.allOf).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            propertyId: expect.anything(),
-            value: expect.anything(),
-          }),
-          required: expect.arrayContaining(["propertyId", "value"]),
-        }),
-      ]),
+    expect(batchInputSchema.type).toBe("object");
+    expect(batchInputSchema).not.toHaveProperty("allOf");
+    expect(batchInputSchema.properties).toEqual(
+      expect.objectContaining({
+        databaseId: expect.anything(),
+        propertyId: expect.anything(),
+        value: expect.anything(),
+      }),
+    );
+    expect(batchInputSchema.required).toEqual(
+      expect.arrayContaining(["propertyId", "value"]),
     );
   });
 
