@@ -778,8 +778,9 @@ describe("ChatRoute AgentKit surface", () => {
         source: "workspace",
       },
     ];
+    const projectContext = "Use project defaults. ".repeat(500);
     const contextItems = [
-      { key: "project", title: "Project", context: "Use project defaults." },
+      { key: "project", title: "Project", context: projectContext },
     ];
     const uploadedAttachment = {
       type: "file",
@@ -822,7 +823,7 @@ describe("ChatRoute AgentKit surface", () => {
     };
     expect(routeState.sendMessage).toHaveBeenCalledTimes(1);
     expect(routeState.sendMessage).toHaveBeenCalledWith({
-      text: 'Call the hello action\n\n<context data-agentkit-context-encoding="entities-v1">\nUse the selected action.\n\nUse project defaults.\n</context>',
+      text: `Call the hello action\n\n<context data-agentkit-context-encoding="entities-v1">\nUse the selected action.\n\n${projectContext.trim()}\n</context>`,
       attachments: [uploadedAttachment],
       options: {
         model: "claude-example",

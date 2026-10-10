@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
-import { COMPOSER_CONTEXT_MAX_ITEMS } from "@agent-native/toolkit/composer";
+import {
+  COMPOSER_CONTEXT_MAX_BYTES,
+  COMPOSER_CONTEXT_MAX_ITEMS,
+} from "@agent-native/toolkit/composer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -33,6 +36,25 @@ describe("initial Chat composer options", () => {
         initialComposerOptions: { futureOption: "must-not-be-dropped" },
       }),
     ).toEqual({ status: "invalid" });
+  });
+
+  it("accepts a context item larger than 8 KiB within the composer byte limit", () => {
+    const context = "Use the project defaults. ".repeat(500);
+
+    expect(context.length).toBeGreaterThan(8 * 1024);
+    expect(
+      initialComposerOptionsFromState({
+        initialComposerOptions: {
+          contextItems: [{ key: "project", title: "Project", context }],
+        },
+      }),
+    ).toEqual({
+      status: "valid",
+      options: {
+        mode: "act",
+        contextItems: [{ key: "project", title: "Project", context }],
+      },
+    });
   });
 });
 
@@ -139,6 +161,38 @@ describe("failed Chat handoff storage", () => {
       }),
     ).toEqual({ status: "invalid", reason: "invalid-options" });
     expect(readFailedChatHandoff("thread-one")).toEqual({ status: "absent" });
+  });
+
+  it("round-trips large multibyte context and rejects context above the UTF-8 limit", () => {
+    const context = "界".repeat(12 * 1024);
+    const contextItems = [{ key: "project", title: "Project", context }];
+
+    expect(context.length).toBeLessThan(COMPOSER_CONTEXT_MAX_BYTES);
+    expect(new TextEncoder().encode(context).byteLength).toBeGreaterThan(
+      8 * 1024,
+    );
+    expect(
+      writeFailedChatHandoff("thread-one", "Use project context", {
+        contextItems,
+      }),
+    ).toEqual({ status: "stored" });
+    expect(readFailedChatHandoff("thread-one")).toMatchObject({
+      status: "found",
+      handoff: { options: { contextItems } },
+    });
+
+    expect(
+      initialComposerOptionsFromState({
+        initialComposerOptions: {
+          contextItems: [
+            {
+              ...contextItems[0]!,
+              context: "界".repeat(COMPOSER_CONTEXT_MAX_BYTES / 2),
+            },
+          ],
+        },
+      }),
+    ).toEqual({ status: "invalid" });
   });
 
   it("uses a tombstone when session storage refuses to remove a cleared handoff", () => {

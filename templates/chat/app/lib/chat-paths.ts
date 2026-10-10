@@ -1,5 +1,6 @@
 import type { FilePart } from "@agent-native/agentkit";
 import {
+  COMPOSER_CONTEXT_MAX_BYTES,
   COMPOSER_CONTEXT_MAX_ITEMS,
   type PromptComposerSubmitOptions,
   type Reference,
@@ -209,12 +210,7 @@ function normalizeContextItems(
     if (!isRecord(item)) return null;
     const normalized: Record<string, unknown> = {};
     for (const key of ["key", "title", "context"] as const) {
-      if (
-        typeof item[key] !== "string" ||
-        item[key].length > MAX_HANDOFF_FIELD_LENGTH
-      ) {
-        return null;
-      }
+      if (typeof item[key] !== "string") return null;
       normalized[key] = item[key];
     }
     for (const key of ["contextNamespace", "targetThreadId"]) {
@@ -225,6 +221,12 @@ function normalizeContextItems(
         ChatInitialComposerOptions["contextItems"]
       >[number],
     );
+  }
+  if (
+    new TextEncoder().encode(JSON.stringify(result)).byteLength >
+    COMPOSER_CONTEXT_MAX_BYTES
+  ) {
+    return null;
   }
   return result;
 }
