@@ -75,6 +75,7 @@ const mockOrgQueryOptions = vi.hoisted(() => ({
   values: [] as Array<{ enabled?: boolean } | undefined>,
 }));
 const mockEagerUpload = vi.hoisted(() => ({
+  useComponentUploader: false,
   implementation: async (files: File[]) =>
     files.map((file) => ({ path: `/uploads/${file.name}` })),
 }));
@@ -168,13 +169,17 @@ vi.mock("@agent-native/toolkit/composer", () => ({
 }));
 
 vi.mock("@agent-native/toolkit/composer/use-eager-file-uploads", () => ({
-  useEagerFileUploads: () => {
+  useEagerFileUploads: (
+    uploadFilesToServer: (files: File[]) => Promise<Array<{ path: string }>>,
+  ) => {
     const [uploading, setUploading] = useState(false);
     const uploadFiles = useCallback(async (files: File[]) => {
       if (files.length === 0) return [];
       setUploading(true);
       try {
-        return await mockEagerUpload.implementation(files);
+        return mockEagerUpload.useComponentUploader
+          ? await uploadFilesToServer(files)
+          : await mockEagerUpload.implementation(files);
       } finally {
         setUploading(false);
       }
@@ -243,6 +248,7 @@ beforeEach(() => {
   mockActiveOrg.current = { orgId: "org-a" };
   mockOrgPending.current = false;
   mockOrgQueryOptions.values = [];
+  mockEagerUpload.useComponentUploader = false;
   mockEagerUpload.implementation = async (files) =>
     files.map((file) => ({ path: `/uploads/${file.name}` }));
 });
@@ -254,6 +260,7 @@ afterEach(async () => {
   container = undefined;
   document.body.replaceChildren();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   toastError.mockClear();
 });
 
@@ -609,6 +616,91 @@ describe("PromptPopover inline home", () => {
       "Use this reference",
       [{ path: "/uploads/reference.png" }],
       {},
+    );
+  });
+
+  it("uploads and sends the same re-encoded image bytes when a mixed batch crosses the upload limit", async () => {
+    mockEagerUpload.useComponentUploader = true;
+    const originalCreateElement = document.createElement.bind(document);
+    const compressedBytes = new TextEncoder().encode("compressed-image-pixels");
+    const compressedDataUrl = `data:image/jpeg;base64,${btoa(String.fromCharCode(...compressedBytes))}`;
+    const uploadedImageBytes: Uint8Array[] = [];
+    vi.stubGlobal(
+      "Image",
+      class {
+        naturalWidth = 1200;
+        naturalHeight = 627;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+    vi.spyOn(document, "createElement").mockImplementation(((
+      tagName: string,
+    ) => {
+      const element = originalCreateElement(tagName);
+      if (tagName === "canvas") {
+        Object.defineProperty(element, "getContext", {
+          value: () => ({ drawImage: vi.fn() }),
+        });
+        Object.defineProperty(element, "toDataURL", {
+          value: () => compressedDataUrl,
+        });
+      }
+      return element;
+    }) as typeof document.createElement);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const files = (init?.body as FormData).getAll("files") as File[];
+        uploadedImageBytes.push(new Uint8Array(await files[0]!.arrayBuffer()));
+        return {
+          ok: true,
+          json: async () =>
+            files.map((file) => ({
+              path: `/uploads/${file.name}`,
+              filename: file.name,
+              type: file.type,
+              size: file.size,
+            })),
+        };
+      }),
+    );
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    await renderPopover({ inline: true, onSubmit });
+
+    const imageBytes = Uint8Array.from({ length: 64 }, (_, index) => index);
+    const image = new File([imageBytes], "reference.png", {
+      type: "image/png",
+    });
+    const documentFile = new File(
+      [new Uint8Array(MAX_UPLOAD_BYTES - image.size + 1)],
+      "brief.txt",
+      { type: "text/plain" },
+    );
+    await act(async () => {
+      await mockComposer.current!.onSubmit(
+        "Match this reference",
+        [image, documentFile],
+        [],
+        {},
+      );
+    });
+
+    const attachments = onSubmit.mock.calls[0]?.[1] as
+      | Array<{ dataUrl?: string }>
+      | undefined;
+    expect(attachments?.[0]?.dataUrl).toBe(compressedDataUrl);
+    const [, modelBase64] = attachments![0]!.dataUrl!.split(",", 2);
+    const modelImageBytes = Uint8Array.from(atob(modelBase64!), (character) =>
+      character.charCodeAt(0),
+    );
+    expect(uploadedImageBytes).toHaveLength(1);
+    expect(Array.from(uploadedImageBytes[0]!)).toEqual(
+      Array.from(modelImageBytes),
     );
   });
 

@@ -501,6 +501,7 @@ export default function PromptPopover({
       ) {
         throw new MissingVisualImagePayloadError();
       }
+      const finalizedVisualAttachments = [...visualAttachments];
       const uploadFiles =
         totalBytes > MAX_UPLOAD_BYTES
           ? await Promise.all(
@@ -512,6 +513,7 @@ export default function PromptPopover({
                   dataUrl =
                     (await compressImageAttachment(file, 768, 0.65)) ?? dataUrl;
                 }
+                finalizedVisualAttachments[index] = dataUrl;
                 return imageFileForUpload(file, dataUrl);
               }),
             )
@@ -542,8 +544,8 @@ export default function PromptPopover({
       return uploaded.map((uploadedFile, index) => ({
         ...uploadedFile,
         ...(files[index]?.name ? { originalName: files[index].name } : {}),
-        ...(visualAttachments[index]
-          ? { dataUrl: visualAttachments[index] }
+        ...(finalizedVisualAttachments[index]
+          ? { dataUrl: finalizedVisualAttachments[index] }
           : {}),
       }));
     },
