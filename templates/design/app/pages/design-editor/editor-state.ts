@@ -49,6 +49,8 @@ export function resolveLocalhostSourceWriteContent(args: {
 export type PersistedContentHostSyncOptions = {
   forcePreviewFullDocument: boolean;
   persist: false;
+  recordHistory?: true;
+  historyBeforeContent?: string;
   shaderWriteCompletion?: true;
   updatedAt?: string;
 };
@@ -63,12 +65,14 @@ export type PersistedContentHostSyncHandler = (
   fileId: string,
   content: string,
   updatedAt?: string,
+  beforeContent?: string,
 ) => void;
 
 export function getPersistedContentHostSyncOptions(args: {
   fileId: string;
   activeFileId: string | null | undefined;
   updatedAt?: string;
+  beforeContent?: string;
   shaderWriteCompletion?: true;
 }): PersistedContentHostSyncOptions {
   return {
@@ -77,6 +81,12 @@ export function getPersistedContentHostSyncOptions(args: {
       args.activeFileId !== undefined &&
       args.fileId === args.activeFileId,
     persist: false,
+    ...(args.shaderWriteCompletion && args.beforeContent !== undefined
+      ? {
+          recordHistory: true as const,
+          historyBeforeContent: args.beforeContent,
+        }
+      : {}),
     ...(args.shaderWriteCompletion ? { shaderWriteCompletion: true } : {}),
     updatedAt: args.updatedAt,
   };
@@ -87,7 +97,7 @@ export function createPersistedContentHostSyncHandler(args: {
   applyFileContentUpdateRef: { current: PersistedContentHostSyncWriter };
   shaderWriteCompletion?: true;
 }): PersistedContentHostSyncHandler {
-  return (fileId, content, updatedAt) => {
+  return (fileId, content, updatedAt, beforeContent) => {
     args.applyFileContentUpdateRef.current(
       fileId,
       content,
@@ -95,6 +105,7 @@ export function createPersistedContentHostSyncHandler(args: {
         fileId,
         activeFileId: args.activeFileIdRef.current,
         updatedAt,
+        beforeContent,
         shaderWriteCompletion: args.shaderWriteCompletion,
       }),
     );

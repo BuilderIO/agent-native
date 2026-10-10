@@ -217,9 +217,10 @@ export default defineAction({
   http: false,
   readOnly: true,
   run: async (_, ctx) => {
-    const [navigation, designSelection] = await Promise.all([
+    const [navigation, designSelection, shaderFocus] = await Promise.all([
       readAppStateForCurrentTab("navigation"),
       readAppStateForCurrentTab("design-selection"),
+      readAppStateForCurrentTab("design-shader-focus"),
     ]);
     const designId =
       navigation &&
@@ -238,6 +239,38 @@ export default defineAction({
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
     if (designSelection) screen.designSelection = designSelection;
+    if (
+      shaderFocus &&
+      stringProp(shaderFocus, "designId") === designId &&
+      stringProp(shaderFocus, "fileId") ===
+        stringProp(designSelection, "activeFileId") &&
+      stringProp(shaderFocus, "nodeId") ===
+        (stringProp(
+          objectProp(designSelection, "selectedElement"),
+          "runtimeSourceId",
+        ) ??
+          stringProp(
+            objectProp(designSelection, "selectedElement"),
+            "sourceId",
+          )) &&
+      stringProp(shaderFocus, "instanceId") &&
+      stringProp(shaderFocus, "definitionId")
+    ) {
+      screen.shaderFocus = {
+        designId,
+        fileId: stringProp(shaderFocus, "fileId"),
+        nodeId: stringProp(shaderFocus, "nodeId"),
+        instanceId: stringProp(shaderFocus, "instanceId"),
+        definitionId: stringProp(shaderFocus, "definitionId"),
+        definitionVersion:
+          typeof (shaderFocus as { definitionVersion?: unknown })
+            .definitionVersion === "number"
+            ? (shaderFocus as { definitionVersion: number }).definitionVersion
+            : null,
+        placement: stringProp(shaderFocus, "placement"),
+        labOpen: boolProp(shaderFocus, "labOpen") ?? false,
+      };
+    }
     const templateId = stringProp(navigation, "templateId");
     if (templateId) {
       const preset = getDesignTemplatePreset(templateId);
@@ -344,6 +377,21 @@ export default defineAction({
           activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
+        const selectedElement = objectProp(designSelection, "selectedElement");
+        const selectedNodeId =
+          stringProp(selectedElement, "runtimeSourceId") ??
+          stringProp(selectedElement, "sourceId");
+        const selectedFileId = stringProp(designSelection, "activeFileId");
+        const selectedFile = files.find((file) => file.id === selectedFileId);
+        if (selectedNodeId && selectedFile?.fileType === "html") {
+          (screen.design as Record<string, unknown>).nativeEffectInspection = {
+            action: "get-shader",
+            format: "native-v2",
+            source: { kind: "design-file", designId, fileId: selectedFile.id },
+            target: { nodeId: selectedNodeId },
+            editAction: "edit-native-shader",
+          };
+        }
         try {
           const templateSource = readDesignTemplateSource(data);
           if (templateSource) {

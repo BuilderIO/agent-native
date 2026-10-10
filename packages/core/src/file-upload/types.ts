@@ -18,6 +18,18 @@ export interface FileUploadDeleteInput {
   id?: string;
 }
 
+export interface FileUploadReadInput {
+  url: string;
+  ownerEmail: string;
+  maxBytes: number;
+  signal?: AbortSignal;
+}
+
+export interface FileUploadReadResult {
+  data: Uint8Array;
+  mimeType: string;
+}
+
 export interface ResumableUploadSession {
   sessionId: string;
   meta: Record<string, unknown>;
@@ -43,6 +55,7 @@ export interface FileUploadProvider {
   publicBaseUrlOptional?: boolean;
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
   delete?: (input: FileUploadDeleteInput) => Promise<boolean>;
+  read?: (input: FileUploadReadInput) => Promise<FileUploadReadResult>;
   resumable?: {
     startSession(
       filename: string,

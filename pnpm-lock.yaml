@@ -6045,9 +6045,6 @@ importers:
       '@noble/hashes':
         specifier: ^2.3.0
         version: 2.3.0
-      '@paper-design/shaders-react':
-        specifier: 0.0.76
-        version: 0.0.76(@types/react@19.2.17)(react@19.2.7)
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
@@ -6096,6 +6093,9 @@ importers:
       kiwi-schema:
         specifier: ^0.5.0
         version: 0.5.0
+      mediabunny:
+        specifier: 1.61.3
+        version: 1.61.3
       monaco-editor:
         specifier: ^0.55.1
         version: 0.55.1
@@ -6129,6 +6129,9 @@ importers:
       react-router:
         specifier: ^8.1.0
         version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      svg2pdf.js:
+        specifier: 2.8.1
+        version: 2.8.1(jspdf@4.2.1)
       yjs:
         specifier: 'catalog:'
         version: 13.6.33
@@ -11821,18 +11824,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@paper-design/shaders-react@0.0.76':
-    resolution: {integrity: sha512-uPJWrYRf6cJdO2H+fuXlahaqz0QjYglNAyUTaRfIInpzCa/d6guxBIK003soAZQFuQ035yg9FhtfFzKNWm+a5A==}
-    peerDependencies:
-      '@types/react': ^19.2.14
-      react: 19.2.7
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
-  '@paper-design/shaders@0.0.76':
-    resolution: {integrity: sha512-AcNDY4J66YQHUfQYFInkCP7M9VOje0od7wLpOR7LtCmc532opJy6ll+h1W9zBovz8tt9U7OADUmJ/qKEXyOX/A==}
-
   '@parcel/watcher-android-arm64@2.5.6':
     resolution: {integrity: sha512-YQxSS34tPF/6ZG7r/Ih9xy+kP/WwediEUsqmtf0cuCV5TPPKw/PQHRhueUo6JdeFJaqV3pyjm0GdYjZotbRt/A==}
     engines: {node: '>= 10.0.0'}
@@ -16206,6 +16197,12 @@ packages:
   '@types/diff-match-patch@1.0.36':
     resolution: {integrity: sha512-xFdR6tkm0MWvBfO8xXCSsinYxHcqkQUlcHeSpMC2ukzOb6lwQAfDmW+Qt0AvlGd8HpsS28qKsB+oPeJn9I39jg==}
 
+  '@types/dom-mediacapture-transform@0.1.12':
+    resolution: {integrity: sha512-d7/QsLRwF864A5mgIM/YrfiglHoYn7zgCcAoJgW404r+2DwnNr7EBbLnCWpmOMgH8y0te73L1AV6H1bmauaWFw==}
+
+  '@types/dom-webcodecs@0.1.13':
+    resolution: {integrity: sha512-O5hkiFIcjjszPIYyUSyvScyvrBoV3NOEEZx/pMlsu44TKzWNkLVBBxnxJz42in5n3QIolYOcBYFCPZZ0h8SkwQ==}
+
   '@types/draco3d@1.4.10':
     resolution: {integrity: sha512-AX22jp8Y7wwaBgAixaSvkoG4M/+PlAcm3Qs4OW8yT9DM4xUpWKeFhLueTAyZF39pviAdcDdeJoACapiAceqNcw==}
 
@@ -19248,6 +19245,9 @@ packages:
       debug:
         optional: true
 
+  font-family-papandreou@0.2.0-patch2:
+    resolution: {integrity: sha512-l/YiRdBSH/eWv6OF3sLGkwErL+n0MqCICi9mppTZBOCL5vixWGDqCYvRcuxB2h7RGCTzaTKOHT2caHvCXQPRlw==}
+
   fonteditor-core@2.6.3:
     resolution: {integrity: sha512-YUryIKjkenjZ41E7JvM3V+02Ak4mTHDDTwBWgs9KBzypzHqLZHuua1UDRevZNTKawmnq1dbBAa70Jddl2+F4FQ==}
 
@@ -20615,6 +20615,9 @@ packages:
   media-typer@1.1.0:
     resolution: {integrity: sha512-aisnrDP4GNe06UcKFnV5bfMNPBUw4jsLGaWwWfnH3v02GnBuXX2MCVn5RbrWo0j3pczUilYblq7fQ7Nw2t5XKw==}
     engines: {node: '>= 0.8'}
+
+  mediabunny@1.61.3:
+    resolution: {integrity: sha512-kUqLKVXQVwHR62GkOJxYosAmXERJbqnXBgJDTtRlxHEYviVkMg/Evhl9XN6kedqS5LP1tV4kFKyzY/V4a4ofow==}
 
   memoize-one@5.2.1:
     resolution: {integrity: sha512-zYiwtZUcYyXKo/np96AGZAckk+FWWsUdJ3cHGGmld7+AhvcWmQyGCYUh1hc4Q/pkOhb65dQR/pqCyK0cOaHz4Q==}
@@ -22709,6 +22712,10 @@ packages:
   spawndamnit@3.0.1:
     resolution: {integrity: sha512-MmnduQUuHCoFckZoWnXsTg7JaiLBJrKFj9UI2MbRPGaJeVpsLcVBu6P/IGZovziM/YBsellCmsprgNA+w0CzVg==}
 
+  specificity@0.4.1:
+    resolution: {integrity: sha512-1klA3Gi5PD1Wv9Q0wUoOQN1IWAuPu0D1U03ThXTr0cJ20+/iq2tHSDnK7Kk/0LXJ1ztUB2/1Os0wKmfyNgUQfg==}
+    hasBin: true
+
   split-on-first@1.1.0:
     resolution: {integrity: sha512-43ZssAJaMusuKWL8sKUBQXHWOpq8d6CfN/u1p4gUzfJkM05C8rxTmYrkIPTXapZpORA6LkkzcUulJ8FqA7Uudw==}
     engines: {node: '>=6'}
@@ -22920,6 +22927,14 @@ packages:
   svg-pathdata@6.0.3:
     resolution: {integrity: sha512-qsjeeq5YjBZ5eMdFuUa4ZosMLxgr5RZ+F+Y1OrDhuOCEInRMA3x74XdBtggJcj9kOeInz0WE+LgCPDkZFlBYJw==}
     engines: {node: '>=12.0.0'}
+
+  svg2pdf.js@2.8.1:
+    resolution: {integrity: sha512-AzXfPHjHnFt9dpdRPhWWBOKipnMSWQZRKiV3FTTPdY6wwRgT3labbA4s0HIQaskNhwAhrcI2u2rDhD8j8udfNQ==}
+    peerDependencies:
+      jspdf: ^4.0.0 || ^3.0.0 || ^2.0.0
+
+  svgpath@2.6.0:
+    resolution: {integrity: sha512-OIWR6bKzXvdXYyO4DK/UWa1VA1JeKq8E+0ug2DG98Y/vOmMpfZNj+TIG988HjfYSqtcy/hFOtZq/n/j5GSESNg==}
 
   symbol-tree@3.2.4:
     resolution: {integrity: sha512-9QNk5KwDF+Bvz+PyObkmSYjI5ksVUYtjW7AU22r2NKcfLJcXp96hkDWU3+XndOsUb+AQ9QhfzfCT2O+CNWT5Tw==}
@@ -28141,15 +28156,6 @@ snapshots:
   '@oxlint/binding-win32-x64-msvc@1.71.0':
     optional: true
 
-  '@paper-design/shaders-react@0.0.76(@types/react@19.2.17)(react@19.2.7)':
-    dependencies:
-      '@paper-design/shaders': 0.0.76
-      react: 19.2.7
-    optionalDependencies:
-      '@types/react': 19.2.17
-
-  '@paper-design/shaders@0.0.76': {}
-
   '@parcel/watcher-android-arm64@2.5.6':
     optional: true
 
@@ -32940,6 +32946,12 @@ snapshots:
 
   '@types/diff-match-patch@1.0.36': {}
 
+  '@types/dom-mediacapture-transform@0.1.12':
+    dependencies:
+      '@types/dom-webcodecs': 0.1.13
+
+  '@types/dom-webcodecs@0.1.13': {}
+
   '@types/draco3d@1.4.10': {}
 
   '@types/emscripten@1.41.5': {}
@@ -36562,6 +36574,8 @@ snapshots:
 
   follow-redirects@1.16.0: {}
 
+  font-family-papandreou@0.2.0-patch2: {}
+
   fonteditor-core@2.6.3:
     dependencies:
       '@xmldom/xmldom': 0.8.13
@@ -38152,6 +38166,11 @@ snapshots:
   mdurl@2.0.0: {}
 
   media-typer@1.1.0: {}
+
+  mediabunny@1.61.3:
+    dependencies:
+      '@types/dom-mediacapture-transform': 0.1.12
+      '@types/dom-webcodecs': 0.1.13
 
   memoize-one@5.2.1: {}
 
@@ -40972,6 +40991,8 @@ snapshots:
       cross-spawn: 7.0.6
       signal-exit: 4.1.0
 
+  specificity@0.4.1: {}
+
   split-on-first@1.1.0: {}
 
   split2@4.2.0:
@@ -41172,6 +41193,16 @@ snapshots:
 
   svg-pathdata@6.0.3:
     optional: true
+
+  svg2pdf.js@2.8.1(jspdf@4.2.1):
+    dependencies:
+      cssesc: 3.0.0
+      font-family-papandreou: 0.2.0-patch2
+      jspdf: 4.2.1
+      specificity: 0.4.1
+      svgpath: 2.6.0
+
+  svgpath@2.6.0: {}
 
   symbol-tree@3.2.4: {}
 

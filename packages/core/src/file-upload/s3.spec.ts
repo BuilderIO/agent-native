@@ -2,6 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveSecretMock = vi.hoisted(() => vi.fn());
 const prefetchSecretsMock = vi.hoisted(() => vi.fn());
+const safeFetchMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../extensions/url-safety.js", () => ({
+  ssrfSafeFetch: (...args: unknown[]) => safeFetchMock(...args),
+}));
 
 vi.mock("../server/credential-provider.js", () => ({
   prefetchSecrets: (...args: unknown[]) => prefetchSecretsMock(...args),
@@ -41,9 +46,11 @@ describe("s3FileUploadProvider", () => {
     resolveSecretMock.mockResolvedValue(null);
     prefetchSecretsMock.mockReset();
     prefetchSecretsMock.mockResolvedValue(undefined);
+    safeFetchMock.mockReset();
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     process.env = { ...originalEnv };
   });
 
@@ -133,6 +140,64 @@ describe("s3FileUploadProvider", () => {
         Authorization: expect.stringContaining("Credential=access-example/"),
       }),
     });
+  });
+
+  it("reads only a provider-issued key from the request-scoped bucket", async () => {
+    const secrets: Record<string, string> = {
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_BUCKET: "uploads-example",
+      S3_ACCESS_KEY_ID: "access-example",
+      S3_SECRET_ACCESS_KEY: "secret-example",
+      S3_REGION: "us-east-1",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/assets",
+    };
+    resolveSecretMock.mockImplementation(
+      async (key: string) => secrets[key] ?? null,
+    );
+    safeFetchMock.mockResolvedValue(
+      new Response(new Uint8Array([1, 2]), {
+        headers: { "content-type": "image/png" },
+      }),
+    );
+    const url =
+      "https://cdn.example.com/assets/uploads/1790000000000-abcdefgh-hero.png";
+    const result = await s3FileUploadProvider.read!({
+      url,
+      ownerEmail: "owner@example.test",
+      maxBytes: 2,
+    });
+    expect(result.data).toEqual(new Uint8Array([1, 2]));
+    expect(safeFetchMock).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({
+        method: "GET",
+        signal: expect.any(AbortSignal),
+      }),
+      {
+        httpsOnly: true,
+        followRedirects: false,
+        requireDispatcher: true,
+      },
+    );
+    await expect(
+      s3FileUploadProvider.read!({
+        url: "https://cdn.example.com/assets/other/secret.png",
+        ownerEmail: "owner@example.test",
+        maxBytes: 2,
+      }),
+    ).rejects.toMatchObject({ code: "invalid-reference" });
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
+
+    safeFetchMock.mockResolvedValueOnce(
+      new Response("private", { status: 403 }),
+    );
+    await expect(
+      s3FileUploadProvider.read!({
+        url,
+        ownerEmail: "owner@example.test",
+        maxBytes: 2,
+      }),
+    ).rejects.toMatchObject({ code: "unreadable" });
   });
 
   it("uploads through environment-backed storage when scoped secrets are absent", async () => {

@@ -1,5 +1,6 @@
 import type { CodeLayerNode } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
+import { captureNativeEffectsForClone } from "@shared/native-effect-clone";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -58,6 +59,8 @@ function planLinkedDuplicateSelection(args: {
   const selectionNodeIds: string[] = [];
   const nodeIdMap = new Map<string, string>();
   for (const snapshot of args.group) {
+    const native = captureNativeEffectsForClone(content, snapshot.html);
+    if (native.errors.length) return null;
     const projection = buildCodeLayerProjection(content, {
       source: args.source,
     });
@@ -84,6 +87,7 @@ function planLinkedDuplicateSelection(args: {
           ]
         : undefined,
       componentLinks: args.componentLinks,
+      nativeEffectSnapshots: [native.snapshot],
     });
     if (!plan) return null;
     targetNodeId ??= plan.targetNodeId;
@@ -407,6 +411,11 @@ export function runDuplicateSelection({
       };
       const insertedRootNodeIds: string[] = [];
       for (const snapshot of group) {
+        const native = captureNativeEffectsForClone(content, snapshot.html);
+        if (native.errors.length) {
+          toast.error(t("designEditor.toasts.primitiveInsertFailed"));
+          return;
+        }
         const projection = buildCodeLayerProjection(content, { source });
         const anchorNode =
           projection.nodes.find(
@@ -435,6 +444,7 @@ export function runDuplicateSelection({
             targetSource: source,
             documents: componentDocuments,
           },
+          nativeEffectSnapshots: [native.snapshot],
         });
         if (structureUnsupported) return;
         if (!result) continue;

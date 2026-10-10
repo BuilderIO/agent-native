@@ -1,5 +1,6 @@
 import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
+import type { NativeEffectCloneSnapshot } from "@shared/native-effect-clone";
 
 import type { PortableStyleSnapshot } from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
@@ -56,7 +57,13 @@ export interface PendingStructureVerificationSession {
 
 export type PostAuthDesignIntent = "save" | "share";
 
-export type ShareExportFormat = "html" | "png" | "svg" | "zip";
+export type ShareExportFormat =
+  | "html"
+  | "png"
+  | "mp4"
+  | "svg"
+  | "zip"
+  | "react";
 
 export interface CodingHandoffResult {
   clipboardText?: string;
@@ -74,6 +81,7 @@ export interface CanvasLayerClipboardEntry {
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
+  nativeEffectSnapshot?: NativeEffectCloneSnapshot;
 }
 
 export interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {

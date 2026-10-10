@@ -29,23 +29,33 @@ function editorScript(textEditing = false): string {
 
 function measuredEditorScript(): string {
   const source = editorScript();
-  const measured = source
+  const startMarker = 'if (typeof html !== "string") return;';
+  const partialMarker =
+    "publishSourceDocumentProvenance(void 0, true);\n          return;";
+  const fullMarker =
+    "morphRuntimeBody(nextDoc.body);\n      publishSourceDocumentProvenance(";
+  if (
+    source.split(startMarker).length !== 2 ||
+    source.split(partialMarker).length !== 2 ||
+    source.split(fullMarker).length !== 2
+  ) {
+    throw new Error(
+      "Could not identify all generated bridge timing anchors exactly once",
+    );
+  }
+  return source
     .replace(
-      'if (typeof html !== "string") return;',
-      'if (typeof html !== "string") return; var __morphMeasureId = window.__sourceMorphMeasureId; var __morphMeasureStart = performance.now();',
+      startMarker,
+      `${startMarker} var __morphMeasureId = window.__sourceMorphMeasureId; var __morphMeasureStart = performance.now();`,
     )
     .replace(
-      "publishSourceDocumentProvenance(void 0, true);\n          return;",
+      partialMarker,
       "publishSourceDocumentProvenance(void 0, true); window.__sourceMorphTimes.push({id: __morphMeasureId, milliseconds: performance.now() - __morphMeasureStart});\n          return;",
     )
     .replace(
-      "morphRuntimeBody(nextDoc.body);\n      publishSourceDocumentProvenance(sourceProvenance);",
-      "morphRuntimeBody(nextDoc.body); window.__sourceMorphTimes.push({id: __morphMeasureId, milliseconds: performance.now() - __morphMeasureStart});\n      publishSourceDocumentProvenance(sourceProvenance);",
+      fullMarker,
+      "morphRuntimeBody(nextDoc.body); window.__sourceMorphTimes.push({id: __morphMeasureId, milliseconds: performance.now() - __morphMeasureStart});\n      publishSourceDocumentProvenance(",
     );
-  if (measured === source || !measured.includes("__sourceMorphTimes.push")) {
-    throw new Error("Could not instrument the generated bridge morph timings");
-  }
-  return measured;
 }
 
 async function openEditorPage(
@@ -75,6 +85,7 @@ async function sendReplace(
     forceFullDocument?: boolean;
     preserveTextEditingSession?: boolean;
     sourceProvenance?: { versionHash: string; uniqueNodeIds: string[] };
+    sourceRevisionRequestId?: string;
   } = {},
 ): Promise<void> {
   await page.evaluate(
@@ -88,6 +99,7 @@ async function sendReplace(
           forceFullDocument: opts.forceFullDocument ?? false,
           preserveTextEditingSession: opts.preserveTextEditingSession ?? false,
           sourceProvenance: opts.sourceProvenance,
+          sourceRevisionRequestId: opts.sourceRevisionRequestId,
         },
         "*",
       );
@@ -300,6 +312,83 @@ describe("rendered-source provenance in the iframe bridges", () => {
           uniqueNodeId: sourceId,
         },
       });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("acknowledges only an applied source morph and invalidates unproven partial changes", async () => {
+    const { browser, page, pageErrors } = await openEditorPage(
+      sourceDocument(
+        '<div id="target" data-agent-native-node-id="target">Before</div>',
+      ),
+      false,
+      { versionHash: "", uniqueNodeIds: ["target"] },
+    );
+    try {
+      await page.evaluate(() => {
+        (window as any).__sourceRevisionEvents = [];
+        window.addEventListener("message", (event) => {
+          if (
+            event.data?.type === "agent-native:source-revision-applied" ||
+            event.data?.type === "agent-native:source-revision-invalidated"
+          ) {
+            (window as any).__sourceRevisionEvents.push(event.data);
+          }
+        });
+      });
+      await sendReplace(
+        page,
+        sourceDocument(
+          '<div id="target" data-agent-native-node-id="target">After</div>',
+        ),
+        {
+          sourceProvenance: { versionHash: "", uniqueNodeIds: ["target"] },
+          sourceRevisionRequestId: "morph-1",
+        },
+      );
+      await page.waitForFunction(
+        () => (window as any).__sourceRevisionEvents.length === 1,
+      );
+      expect(
+        await page.evaluate(() => (window as any).__sourceRevisionEvents),
+      ).toEqual([
+        { type: "agent-native:source-revision-applied", requestId: "morph-1" },
+      ]);
+      expect(
+        await page.evaluate(
+          () => (window as any).__agentNativeSourceProvenance.versionHash,
+        ),
+      ).toBeUndefined();
+
+      await sendReplace(
+        page,
+        sourceDocument(
+          '<div id="target" data-agent-native-node-id="target">Unpinned</div>',
+        ),
+        { sourceProvenance: { versionHash: "", uniqueNodeIds: ["target"] } },
+      );
+      await page.waitForFunction(
+        () => (window as any).__sourceRevisionEvents.length === 2,
+      );
+      expect(
+        await page.evaluate(() => (window as any).__sourceRevisionEvents[1]),
+      ).toEqual({ type: "agent-native:source-revision-invalidated" });
+
+      await sendReplace(
+        page,
+        sourceDocument(
+          '<div id="target" data-agent-native-node-id="target">Partial</div>',
+        ),
+        { selector: "#target" },
+      );
+      await page.waitForFunction(
+        () => (window as any).__sourceRevisionEvents.length === 3,
+      );
+      expect(
+        await page.evaluate(() => (window as any).__sourceRevisionEvents[2]),
+      ).toEqual({ type: "agent-native:source-revision-invalidated" });
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

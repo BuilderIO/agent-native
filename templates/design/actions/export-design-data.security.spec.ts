@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => {
     resolveAccess: vi.fn(),
     selectChain,
     trySaveExportFile: vi.fn().mockResolvedValue({}),
+    loadPublicExportAssets: vi.fn(),
   };
 });
 
@@ -29,6 +30,14 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
+vi.mock("../server/lib/design-export-assets.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../server/lib/design-export-assets.js")
+    >();
+  return { ...actual, loadPublicExportAssets: mocks.loadPublicExportAssets };
+});
+
 vi.mock("../server/lib/design-export.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../server/lib/design-export.js")>();
@@ -38,6 +47,7 @@ vi.mock("../server/lib/design-export.js", async (importOriginal) => {
   };
 });
 
+import { ExportAssetError } from "../server/lib/design-export-assets.js";
 import exportPdfAction from "./export-pdf.js";
 import exportZipAction from "./export-zip.js";
 
@@ -57,6 +67,7 @@ describe("viewer design-data exports", () => {
     mocks.resolveAccess.mockReset();
     mocks.selectChain.where.mockReset();
     mocks.trySaveExportFile.mockClear();
+    mocks.loadPublicExportAssets.mockReset().mockResolvedValue({});
     mocks.resolveAccess.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -95,6 +106,18 @@ describe("viewer design-data exports", () => {
     expect(metadata).toContain("bridgeUrl");
     expect(metadata).not.toContain("bridgeToken");
     expect(metadata).not.toContain("example-private-bridge-token");
+  });
+
+  it("preserves typed unreadable native texture storage failures in ZIP export", async () => {
+    mocks.loadPublicExportAssets.mockRejectedValueOnce(
+      new ExportAssetError("Provider response unreadable.", "unreadable"),
+    );
+    await expect(
+      exportZipAction.run({ id: "design_123" }),
+    ).rejects.toMatchObject({
+      errorCode: "design_export_asset_unreadable",
+      statusCode: 502,
+    });
   });
 
   it("omits malformed viewer metadata from ZIP exports", async () => {

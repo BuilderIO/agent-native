@@ -37,6 +37,7 @@ export interface StylesChangeArgs {
       runtimeApplied?: boolean;
       elementInfo?: ElementInfo;
       originalStyles?: Record<string, string>;
+      fillStyleIntent?: StyleChangeMeta["fillStyleIntent"];
     },
   ) => void;
   handleClearBreakpointOverride: (
@@ -253,5 +254,11 @@ export function runStylesChange(
     commitStylesToSelectedLayers(Object.fromEntries(entries), meta?.phase)
   )
     return;
-  commitVisualStyles(target, Object.fromEntries(entries));
+  if (meta?.fillStyleIntent) {
+    commitVisualStyles(target, Object.fromEntries(entries), {
+      fillStyleIntent: meta.fillStyleIntent,
+    });
+  } else {
+    commitVisualStyles(target, Object.fromEntries(entries));
+  }
 }

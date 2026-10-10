@@ -183,7 +183,8 @@ export function runApplyFileContentUpdate(
     publication: options.clipboardMutation,
   });
   const shouldRecordHistory =
-    options.recordHistory !== false && !options.updatedAt;
+    options.recordHistory === true ||
+    (options.recordHistory !== false && !options.updatedAt);
   if (
     !suppressContentHistoryRef.current &&
     shouldRecordHistory &&

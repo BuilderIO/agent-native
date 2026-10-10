@@ -31,6 +31,9 @@
  * the actual popover lifecycle rather than a stubbed one.
  */
 
+import { GRAIN_GRADIENT_EFFECT } from "@shared/native-effect-presets";
+import { applyNativeEffectToHtml } from "@shared/native-effects";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -38,6 +41,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({ formatNumber: String }),
+}));
+
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  setClientAppState: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/components/ui/tooltip", () => ({
@@ -165,6 +174,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -173,12 +183,292 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.unstubAllGlobals();
   document
     .querySelectorAll("[data-radix-popper-content-wrapper]")
     .forEach((node) => node.remove());
 });
 
 describe("FillProperties — existing layer fill popover", () => {
+  it("opens the native Fill library for a selected node on a one-shot extension request", async () => {
+    const queryClient = new QueryClient();
+    const onStyleChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <FillProperties
+            element={element({
+              sourceId: "selected-card",
+              computedStyles: { backgroundColor: "transparent" },
+            })}
+            onStyleChange={onStyleChange}
+            glslShaderContext={{
+              designId: "design",
+              fileId: "screen",
+              nodeId: "selected-card",
+              content:
+                '<html><body><div data-agent-native-node-id="selected-card"></div></body></html>',
+            }}
+            nativeShaderPickerRequest={1}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    expect(document.body.textContent).toContain("editPanel.shaders.fillsTitle");
+    expect(document.body.textContent).toContain(
+      "editPanel.shaders.nativeCatalog.definitions.",
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+  });
+
+  it("opens the whole-node native Fill picker from a gradient-only box without changing its CSS layers", async () => {
+    const queryClient = new QueryClient();
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <FillProperties
+            element={twoLayerElement()}
+            onStyleChange={onStyleChange}
+            onStylesChange={onStylesChange}
+            glslShaderContext={{
+              designId: "design",
+              fileId: "screen",
+              nodeId: "gradient-frame",
+              content:
+                '<html><body><div data-agent-native-node-id="gradient-frame"></div></body></html>',
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container.textContent).toContain("Linear gradient 1");
+    expect(container.textContent).toContain("Radial gradient 2");
+    const nativeFill = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="editPanel.shaders.fillsTitle"]',
+    );
+    expect(nativeFill).not.toBeNull();
+    await act(async () => nativeFill!.click());
+    expect(document.body.textContent).toContain(
+      "editPanel.shaders.nativeCatalog.definitions.",
+    );
+    expect(onStyleChange).not.toHaveBeenCalled();
+    expect(onStylesChange).not.toHaveBeenCalled();
+  });
+
+  it("offers native Fill for authored text but not SVG vector paint", async () => {
+    const queryClient = new QueryClient();
+    const context = {
+      designId: "design",
+      fileId: "screen",
+      nodeId: "selected-node",
+      content:
+        '<html><body><h2 data-agent-native-node-id="selected-node">Hello</h2></body></html>',
+    };
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <FillProperties
+            element={element({
+              tagName: "h2",
+              sourceId: "selected-node",
+              hasOwnText: true,
+              computedStyles: { color: "rgb(255, 255, 255)" },
+            })}
+            onStyleChange={vi.fn()}
+            glslShaderContext={context}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    expect(
+      container.querySelector(
+        'button[aria-label="editPanel.shaders.fillsTitle"]',
+      ),
+    ).not.toBeNull();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <FillProperties
+            element={element({
+              tagName: "svg",
+              primitiveKind: "rect",
+              sourceId: "selected-node",
+              computedStyles: { fill: "rgb(255, 255, 255)" },
+            })}
+            onStyleChange={vi.fn()}
+            glslShaderContext={context}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    expect(
+      container.querySelector(
+        'button[aria-label="editPanel.shaders.fillsTitle"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("shows a native fill on an authored box whose CSS background is suppressed", async () => {
+    const source = applyNativeEffectToHtml(
+      '<html><body><div class="sample" data-agent-native-node-id="catalog-node-1"></div></body></html>',
+      {
+        nodeId: "catalog-node-1",
+        definition: GRAIN_GRADIENT_EFFECT,
+        placement: "fill",
+      },
+    );
+    expect(source.errors).toEqual([]);
+    const queryClient = new QueryClient();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <FillProperties
+            element={element({
+              sourceId: "catalog-node-1",
+              computedStyles: {
+                backgroundColor: "transparent",
+                backgroundImage: "none",
+              },
+            })}
+            onStyleChange={vi.fn()}
+            glslShaderContext={{
+              designId: "design",
+              fileId: "screen",
+              nodeId: "catalog-node-1",
+              content: source.html,
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    const picker = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open color picker"]',
+    );
+    expect(picker).not.toBeNull();
+    act(() => picker!.click());
+    expect(document.body.textContent).toContain(
+      "editPanel.shaders.nativeCatalog.definitions.grain-gradient",
+    );
+    expect(
+      document.querySelector('[aria-label="editPanel.shaders.removeShader"]'),
+    ).not.toBeNull();
+  });
+
+  it("keeps the native shader picker reachable for mixed selected fills", () => {
+    const queryClient = new QueryClient();
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <FillProperties
+            element={element({
+              computedStyles: {
+                backgroundColor: "Mixed",
+                backgroundImage: "Mixed",
+              },
+            })}
+            onStyleChange={vi.fn()}
+            glslShaderContext={{
+              designId: "design-1",
+              fileId: "file-1",
+              nodeId: "first",
+              nodeIds: ["first", "second"],
+              nativeOnly: true,
+              content: "<html><body></body></html>",
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    expect(container.textContent).toContain("Click + to replace mixed content");
+    expect(
+      findButtonByText(container, "editPanel.shaders.fillsTitle"),
+    ).not.toBeNull();
+  });
+
+  it("shows the saved native shader fill on an authored text node without offering legacy overlays", async () => {
+    const source = applyNativeEffectToHtml(
+      '<html><body><h2 data-agent-native-node-id="gate-grain-text">Warm text</h2></body></html>',
+      {
+        nodeId: "gate-grain-text",
+        definition: GRAIN_GRADIENT_EFFECT,
+        placement: "fill",
+        clip: "text",
+      },
+    );
+    expect(source.errors).toEqual([]);
+    const queryClient = new QueryClient();
+    const onStyleChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <FillProperties
+            element={element({
+              tagName: "h2",
+              sourceId: "gate-grain-text",
+              hasOwnText: true,
+              computedStyles: {
+                color: "rgb(255, 244, 229)",
+                backgroundColor: "transparent",
+                backgroundImage: "none",
+                backgroundClip: "border-box",
+              },
+            })}
+            onStyleChange={onStyleChange}
+            glslShaderContext={{
+              designId: "design",
+              fileId: "screen",
+              nodeId: "gate-grain-text",
+              content: source.html,
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open color picker"]',
+        )!
+        .click();
+    });
+    expect(
+      document.querySelector('[aria-label="editPanel.shaders.removeShader"]'),
+    ).not.toBeNull();
+    expect(document.querySelector('[aria-label="Solid"]')).not.toBeNull();
+    expect(document.body.textContent).toContain(
+      "editPanel.shaders.nativeCatalog.definitions.grain-gradient",
+    );
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="editPanel.shaders.backToBrowser"]',
+        )!
+        .click();
+    });
+    expect(
+      document.querySelector(
+        '[aria-label="editPanel.shaders.nativeCatalog.definitions.grain-gradient"]',
+      ),
+    ).not.toBeNull();
+    expect(document.body.textContent).not.toContain(
+      "editPanel.shaders.legacyPresets",
+    );
+    expect(document.body.textContent).not.toContain(
+      "editPanel.shaders.createdByYou",
+    );
+    act(() => {
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Solid"]')!
+        .click();
+    });
+    expect(onStyleChange).toHaveBeenCalledWith("color", expect.any(String), {
+      fillStyleIntent: "replace",
+      phase: "commit",
+    });
+  });
+
   it("distinguishes zero-opacity, hidden, and removed base paints", () => {
     const onStyleChange = vi.fn();
     const renderPaint = (authored: string) =>
@@ -206,6 +496,7 @@ describe("FillProperties — existing layer fill popover", () => {
     expect(onStyleChange).toHaveBeenCalledWith(
       "backgroundColor",
       "rgba(0, 0, 0, 0.5)",
+      { fillStyleIntent: "show" },
     );
     renderPaint("transparent");
     expect(
@@ -270,7 +561,7 @@ describe("FillProperties — existing layer fill popover", () => {
         backgroundColor: "transparent",
         backgroundImage: expect.stringContaining("linear-gradient"),
       }),
-      undefined,
+      { fillStyleIntent: "replace" },
     );
   });
 
@@ -361,7 +652,7 @@ describe("FillProperties — existing layer fill popover", () => {
     expect(onStyleChange).toHaveBeenCalledWith(
       "backgroundImage",
       ["linear-gradient(#ff0000 0 0)", RADIAL_LAYER].join(", "),
-      undefined,
+      { fillStyleIntent: "replace" },
     );
     expect(findButtonByText(container, "#ff0000")).not.toBeNull();
     expect(findButtonByText(container, "Radial gradient 2")).not.toBeNull();
@@ -435,7 +726,7 @@ describe("FillProperties — existing layer fill popover", () => {
     expect(onStyleChange).toHaveBeenLastCalledWith(
       "backgroundImage",
       "linear-gradient(rgba(204, 51, 102, 0.2) 0 0)",
-      undefined,
+      { fillStyleIntent: "replace" },
     );
 
     act(() => {
@@ -448,7 +739,7 @@ describe("FillProperties — existing layer fill popover", () => {
     expect(onStyleChange).toHaveBeenLastCalledWith(
       "backgroundImage",
       originalGradient,
-      undefined,
+      { fillStyleIntent: "replace" },
     );
   });
 
@@ -731,7 +1022,7 @@ describe("FillProperties — existing layer fill popover", () => {
     expect(onStyleChange).toHaveBeenCalledWith(
       "backgroundImage",
       expect.stringContaining("radial-gradient"),
-      undefined,
+      { fillStyleIntent: "replace" },
     );
     expect(gradientStopsBar()).not.toBeNull();
   });

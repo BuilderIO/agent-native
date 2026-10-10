@@ -1,0 +1,37 @@
+import {
+  OWNED_NEXT_SIX_K_V4_DEFINITIONS,
+  OWNED_NEXT_SIX_K_V4_PRESETS,
+} from "@shared/native-effect-owned-next-six-k-v4";
+import { describe, expect, it } from "vitest";
+
+import {
+  nativeCatalogDefinitionKey,
+  nativeCatalogOptionKey,
+  nativeCatalogPresetKey,
+  nativeCatalogPropertyKey,
+} from "./native-catalog-display";
+
+describe("Design-owned K catalog labels", () => {
+  it("resolves every picker name, property, enum option, and recipe", () => {
+    for (const definition of OWNED_NEXT_SIX_K_V4_DEFINITIONS) {
+      expect(
+        nativeCatalogDefinitionKey(definition),
+        definition.id,
+      ).not.toBeNull();
+      for (const property of Object.values(definition.properties)) {
+        expect(
+          nativeCatalogPropertyKey(definition, property.label),
+          `${definition.id}: ${property.label}`,
+        ).not.toBeNull();
+        if (property.type === "enum")
+          for (const option of property.options)
+            expect(
+              nativeCatalogOptionKey(definition, option),
+              `${definition.id}: ${option}`,
+            ).not.toBeNull();
+      }
+    }
+    for (const preset of OWNED_NEXT_SIX_K_V4_PRESETS)
+      expect(nativeCatalogPresetKey(preset), preset.id).not.toBeNull();
+  });
+});

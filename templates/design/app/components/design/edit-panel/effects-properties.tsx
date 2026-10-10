@@ -696,12 +696,32 @@ export function EffectsProperties({
     reorderShadowLayers,
   );
   const screenShaders = useScreenGlslShaders(glslShaderContext ?? {});
+  const shaderNodeIds = glslShaderContext?.nodeIds?.length
+    ? glslShaderContext.nodeIds
+    : glslShaderContext?.nodeId
+      ? [glslShaderContext.nodeId]
+      : [];
   const hasShaderEffect = Boolean(
     glslShaderContext?.nodeId &&
-    screenShaders.mounts.some(
-      (mount) =>
-        mount.nodeId === glslShaderContext.nodeId && mount.mode === "effect",
-    ),
+    ((shaderNodeIds.length === 1 &&
+      screenShaders.mounts.some(
+        (mount) =>
+          mount.nodeId === glslShaderContext.nodeId && mount.mode === "effect",
+      )) ||
+      screenShaders.nativeEffects.document?.instances.some(
+        (instance) =>
+          instance.nodeId === glslShaderContext.nodeId &&
+          instance.placement !== "fill" &&
+          shaderNodeIds.every((nodeId) =>
+            screenShaders.nativeEffects.document?.instances.some(
+              (candidate) =>
+                candidate.nodeId === nodeId &&
+                candidate.placement === instance.placement &&
+                candidate.definitionId === instance.definitionId &&
+                candidate.definitionVersion === instance.definitionVersion,
+            ),
+          ),
+      )),
   );
   const hasEffectsContent =
     effectsAreMixed ||

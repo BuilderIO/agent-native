@@ -459,6 +459,123 @@ ALTER COLUMN client_revision TYPE BIGINT USING client_revision::BIGINT`,
     name: "design-live-collaboration-opt-in",
     sql: `ALTER TABLE designs ADD COLUMN IF NOT EXISTS live_collaboration_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
   },
+  {
+    version: 38,
+    name: "design-native-shader-library",
+    sql: `CREATE TABLE IF NOT EXISTS design_native_shader_library (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    category TEXT NOT NULL DEFAULT 'custom',
+    definition_id TEXT NOT NULL,
+    definition_version INTEGER NOT NULL,
+    execution_hash TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    placements TEXT NOT NULL,
+    preset_placement TEXT NOT NULL,
+    property_count INTEGER NOT NULL,
+    pass_count INTEGER NOT NULL,
+    definition_json TEXT NOT NULL,
+    preset_json TEXT NOT NULL,
+    thumbnail_handle TEXT,
+    created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    owner_email TEXT NOT NULL
+  );
+CREATE INDEX IF NOT EXISTS design_native_shader_library_owner_updated_idx ON design_native_shader_library (owner_email, updated_at, id);
+CREATE TABLE IF NOT EXISTS design_native_shader_library_activity (
+    owner_email TEXT NOT NULL,
+    item_key TEXT NOT NULL,
+    favorite BOOLEAN NOT NULL DEFAULT FALSE,
+    last_used_at TEXT,
+    updated_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+    PRIMARY KEY (owner_email, item_key)
+  );
+CREATE INDEX IF NOT EXISTS design_native_shader_library_activity_owner_recent_idx ON design_native_shader_library_activity (owner_email, last_used_at)`,
+  },
+  {
+    version: 39,
+    name: "design-native-shader-library-metadata",
+    sql: `ALTER TABLE design_native_shader_library ADD COLUMN IF NOT EXISTS kind TEXT;
+ALTER TABLE design_native_shader_library ADD COLUMN IF NOT EXISTS placements TEXT;
+ALTER TABLE design_native_shader_library ADD COLUMN IF NOT EXISTS preset_placement TEXT;
+ALTER TABLE design_native_shader_library ADD COLUMN IF NOT EXISTS property_count INTEGER;
+ALTER TABLE design_native_shader_library ADD COLUMN IF NOT EXISTS pass_count INTEGER`,
+  },
+  {
+    version: 40,
+    name: "design-native-texture-assets",
+    sql: `CREATE TABLE IF NOT EXISTS design_native_texture_assets (
+      id TEXT PRIMARY KEY,
+      design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+      file_id TEXT NOT NULL REFERENCES design_files(id) ON DELETE CASCADE,
+      idempotency_key TEXT NOT NULL,
+      uploader_email TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private',
+      provider_url TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      byte_length INTEGER NOT NULL,
+      sha256 TEXT NOT NULL,
+      created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+      UNIQUE (design_id, file_id, idempotency_key)
+    );
+    CREATE INDEX IF NOT EXISTS design_native_texture_assets_file_idx ON design_native_texture_assets (design_id, file_id)`,
+  },
+  {
+    version: 41,
+    name: "design-native-texture-shared-retention",
+    sql: `CREATE TRIGGER retain_design_native_texture_on_delete
+      BEFORE DELETE ON design_native_texture_assets FOR EACH ROW
+      EXECUTE FUNCTION retain_design_native_texture_before_delete()`,
+    run: async (exec) => {
+      await exec.execute(`CREATE TABLE IF NOT EXISTS design_native_texture_objects (
+      id TEXT PRIMARY KEY,
+      provider_url TEXT NOT NULL,
+      uploader_email TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      byte_length INTEGER NOT NULL CHECK (byte_length BETWEEN 1 AND 1000000),
+      sha256 TEXT NOT NULL,
+      created_at TEXT DEFAULT (CURRENT_TIMESTAMP)
+    )`);
+      await exec.execute(`CREATE TABLE IF NOT EXISTS design_native_texture_bindings (
+      asset_id TEXT NOT NULL REFERENCES design_native_texture_objects(id),
+      design_id TEXT NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
+      file_id TEXT NOT NULL,
+      created_at TEXT DEFAULT (CURRENT_TIMESTAMP),
+      PRIMARY KEY (asset_id, design_id, file_id)
+    )`);
+      await exec.execute(`CREATE INDEX IF NOT EXISTS design_native_texture_bindings_design_file_idx
+      ON design_native_texture_bindings (design_id, file_id)`);
+      // guard:allow-unscoped — this database trigger checks its own OLD row's parent during a migration, outside request access.
+      await exec.execute(`CREATE OR REPLACE FUNCTION retain_design_native_texture_before_delete()
+      RETURNS TRIGGER LANGUAGE plpgsql AS $$
+    BEGIN
+      INSERT INTO design_native_texture_objects
+        (id, provider_url, uploader_email, mime_type, byte_length, sha256, created_at)
+      VALUES (OLD.id, OLD.provider_url, OLD.uploader_email, OLD.mime_type,
+              OLD.byte_length, OLD.sha256, OLD.created_at)
+      ON CONFLICT (id) DO NOTHING;
+      IF NOT EXISTS (
+        SELECT 1 FROM design_native_texture_objects
+        WHERE id = OLD.id AND provider_url = OLD.provider_url
+          AND uploader_email = OLD.uploader_email AND mime_type = OLD.mime_type
+          AND byte_length = OLD.byte_length AND sha256 = OLD.sha256
+      ) THEN
+        RAISE EXCEPTION 'Native texture object identity changed before retention';
+      END IF;
+      IF EXISTS (SELECT 1 FROM designs WHERE id = OLD.design_id) THEN
+        INSERT INTO design_native_texture_bindings(asset_id, design_id, file_id)
+        VALUES (OLD.id, OLD.design_id, OLD.file_id)
+        ON CONFLICT DO NOTHING;
+      END IF;
+      RETURN OLD;
+    END $$`);
+      await exec.execute(`DROP TRIGGER IF EXISTS retain_design_native_texture_on_delete
+      ON design_native_texture_assets`);
+    },
+  },
 ];
 
 export const designVisualEditPendingBigintRevisionMigration =
@@ -466,6 +583,11 @@ export const designVisualEditPendingBigintRevisionMigration =
 export const designLiveCollaborationOptInMigration = designMigrations.find(
   (migration) => migration.version === 37,
 )!;
+export const designNativeShaderLibraryMetadataMigration = designMigrations.find(
+  (migration) => migration.version === 39,
+)!;
+export const designNativeTextureSharedRetentionMigration =
+  designMigrations.find((migration) => migration.version === 41)!;
 export const runDesignMigrations = runMigrations(designMigrations, {
   table: "design_migrations",
 });

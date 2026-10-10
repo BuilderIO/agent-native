@@ -520,9 +520,13 @@ export {
   getActiveFileUploadProvider,
   getActiveFileUploadProviderForRequest,
   uploadFile,
+  readUploadedFile,
+  FileUploadReadError,
   builderFileUploadProvider,
   type FileUploadInput,
   type FileUploadProvider,
+  type FileUploadReadInput,
+  type FileUploadReadResult,
   type FileUploadResult,
 } from "../file-upload/index.js";
 

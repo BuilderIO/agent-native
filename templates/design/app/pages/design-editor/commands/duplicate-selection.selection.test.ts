@@ -4,6 +4,11 @@ import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
 } from "@shared/code-layer";
+import { GRAIN_GRADIENT_EFFECT } from "@shared/native-effect-presets";
+import {
+  applyNativeEffectToHtml,
+  parseEffectsFromHtml,
+} from "@shared/native-effects";
 import { describe, expect, it, vi } from "vitest";
 
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
@@ -119,9 +124,17 @@ describe("runDuplicateSelection selection tracking", () => {
       fileId,
       filename: "index.html",
     };
-    const content = `<!doctype html><html><body>
+    const authored = `<!doctype html><html><body>
       <div data-agent-native-node-id="title" data-agent-native-layer-name="Project title" style="position:absolute;left:40px;top:40px">Portfolio Project</div>
     </body></html>`;
+    const applied = applyNativeEffectToHtml(authored, {
+      nodeId: "title",
+      definition: GRAIN_GRADIENT_EFFECT,
+      placement: "fill",
+      params: { scale: 2.1 },
+    });
+    expect(applied.errors).toEqual([]);
+    const content = applied.html;
     const projection = buildCodeLayerProjection(content, { source });
     const node = projection.nodes.find(
       (candidate) =>
@@ -203,5 +216,15 @@ describe("runDuplicateSelection selection tracking", () => {
     expect(setSelectedLayerIdsState).not.toHaveBeenCalledWith([
       originalNode!.id,
     ]);
+    const instances = parseEffectsFromHtml(currentContent).document?.instances;
+    expect(instances).toHaveLength(2);
+    expect(instances?.[1]).toMatchObject({
+      nodeId: copyNode?.dataAttributes["data-agent-native-node-id"],
+      definitionId: GRAIN_GRADIENT_EFFECT.id,
+      params: { scale: 2.1 },
+      seed: instances?.[0]?.seed,
+      timing: instances?.[0]?.timing,
+    });
+    expect(instances?.[1]?.id).not.toBe(instances?.[0]?.id);
   });
 });

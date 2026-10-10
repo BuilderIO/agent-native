@@ -6,6 +6,7 @@ import {
   getActiveFileUploadProviderForRequest,
   listFileUploadProviderStatusesForRequest,
   listFileUploadProviders,
+  readUploadedFile,
   registerFileUploadProvider,
   unregisterFileUploadProvider,
   uploadFile,
@@ -255,6 +256,121 @@ describe("file-upload registry", () => {
         /network blip/,
       );
       uploadSpy.mockRestore();
+    });
+  });
+
+  describe("readUploadedFile", () => {
+    it("reads only an exact provider-owned HTTPS URL with a scoped owner", async () => {
+      const read = vi.fn(async () => ({
+        data: new Uint8Array([1, 2]),
+        mimeType: "image/png",
+      }));
+      const url = "https://assets.example.test/uploads/one.png";
+      registerFileUploadProvider({
+        ...makeProvider("owned", true),
+        isOwnedUrl: (candidate) => candidate === url,
+        read,
+      });
+      await expect(
+        readUploadedFile({
+          url,
+          ownerEmail: "owner@example.test",
+          maxBytes: 2,
+        }),
+      ).resolves.toMatchObject({ mimeType: "image/png" });
+      expect(read).toHaveBeenCalledWith({
+        url,
+        ownerEmail: "owner@example.test",
+        maxBytes: 2,
+        signal: expect.any(AbortSignal),
+      });
+      await expect(
+        readUploadedFile({ url, ownerEmail: "", maxBytes: 2 }),
+      ).rejects.toMatchObject({ code: "invalid-reference" });
+      await expect(
+        readUploadedFile({
+          url: "http://127.0.0.1/a",
+          ownerEmail: "owner@example.test",
+          maxBytes: 2,
+        }),
+      ).rejects.toMatchObject({ code: "invalid-reference" });
+      await expect(
+        readUploadedFile({
+          url: "https://elsewhere.example.test/a",
+          ownerEmail: "owner@example.test",
+          maxBytes: 2,
+        }),
+      ).rejects.toMatchObject({ code: "unsupported" });
+      expect(read).toHaveBeenCalledTimes(1);
+    });
+
+    it("enforces the byte cap even when a custom provider returns too much data", async () => {
+      const url = "https://assets.example.test/uploads/large.png";
+      registerFileUploadProvider({
+        ...makeProvider("oversized", true),
+        isOwnedUrl: (candidate) => candidate === url,
+        read: async () => ({
+          data: new Uint8Array([1, 2, 3]),
+          mimeType: "image/png",
+        }),
+      });
+
+      await expect(
+        readUploadedFile({
+          url,
+          ownerEmail: "owner@example.test",
+          maxBytes: 2,
+        }),
+      ).rejects.toMatchObject({ code: "limit" });
+    });
+
+    it("times out an uncooperative provider without waiting for its read", async () => {
+      const url = "https://assets.example.test/uploads/hung.png";
+      const deadline = new AbortController();
+      const timeout = vi
+        .spyOn(AbortSignal, "timeout")
+        .mockReturnValue(deadline.signal);
+      try {
+        registerFileUploadProvider({
+          ...makeProvider("hung", true),
+          isOwnedUrl: (candidate) => candidate === url,
+          read: () => new Promise(() => {}),
+        });
+        const result = readUploadedFile({
+          url,
+          ownerEmail: "owner@example.test",
+          maxBytes: 2,
+        });
+        deadline.abort();
+        await expect(result).rejects.toMatchObject({ code: "unreadable" });
+      } finally {
+        timeout.mockRestore();
+      }
+    });
+
+    it("does not call a provider when the caller already canceled", async () => {
+      const url = "https://assets.example.test/uploads/canceled.png";
+      const read = vi.fn(async () => ({
+        data: new Uint8Array([1]),
+        mimeType: "image/png",
+      }));
+      registerFileUploadProvider({
+        ...makeProvider("canceled", true),
+        isOwnedUrl: (candidate) => candidate === url,
+        read,
+      });
+      const controller = new AbortController();
+      const reason = new Error("caller canceled");
+      controller.abort(reason);
+      await expect(
+        readUploadedFile({
+          url,
+          ownerEmail: "owner@example.test",
+          maxBytes: 2,
+          signal: controller.signal,
+        }),
+      ).rejects.toBe(reason);
+      expect(read).not.toHaveBeenCalled();
     });
   });
 });

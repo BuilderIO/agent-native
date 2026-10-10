@@ -141,6 +141,17 @@ describe("view-screen", () => {
         viewMode: "overview",
         activeFileId: "file_index",
         activeFilename: "index.html",
+        selectedElement: { sourceId: "hero" },
+      })
+      .mockResolvedValueOnce({
+        designId: "design_123",
+        fileId: "file_index",
+        nodeId: "hero",
+        instanceId: "effect_1",
+        definitionId: "grain-gradient",
+        definitionVersion: 2,
+        placement: "fill",
+        labOpen: true,
       });
     mocks.selectChain.where.mockResolvedValue([
       {
@@ -158,6 +169,27 @@ describe("view-screen", () => {
     );
     expect(result.design?.designSystemId).toBe("system-7");
     expect(result.design?.liveCollaborationEnabled).toBe(true);
+    expect(result.design?.nativeEffectInspection).toEqual({
+      action: "get-shader",
+      format: "native-v2",
+      source: {
+        kind: "design-file",
+        designId: "design_123",
+        fileId: "file_index",
+      },
+      target: { nodeId: "hero" },
+      editAction: "edit-native-shader",
+    });
+    expect(result.shaderFocus).toEqual({
+      designId: "design_123",
+      fileId: "file_index",
+      nodeId: "hero",
+      instanceId: "effect_1",
+      definitionId: "grain-gradient",
+      definitionVersion: 2,
+      placement: "fill",
+      labOpen: true,
+    });
     expect(result.design?.designSystem).toMatchObject({
       status: "available",
       scope: "summary",

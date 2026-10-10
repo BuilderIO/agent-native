@@ -1,24 +1,211 @@
 ---
 name: shader-fills
 description: >-
-  Code-backed GLSL shader fills and shader effects: authoring WGSL-free,
-  WebGL1 GLSL fragment shaders that persist as readable source in the screen
-  HTML with uniform knobs in the inspector. Use when the user asks for a
-  shader fill or shader effect, sends "Create a custom shader fill." from the
-  fill picker, wants an animated/procedural background (waves, noise, mesh
-  gradients, caustics, grain, halftone), or wants to edit an existing
-  shader's GLSL or uniforms.
+  Native v2 WGSL fills, source-processing layers, live backdrops, and legacy
+  GLSL compatibility. Use when creating or editing procedural GPU materials,
+  image/text processors, effect stacks, shader controls, or custom shader code.
 ---
 
-# Code-Backed Shader Fills & Effects
+# Native Shader Fills & Effects
 
-Shaders in Design are **code, not opaque assets**. Each shader is a GLSL
-fragment source + JSON uniforms manifest persisted directly in the screen
-HTML, rendered live by a self-contained WebGL runtime that is embedded in the
-same HTML — so shaders work in the editor, in shared links, and in exported
-standalone files. Users see and edit the GLSL in the Code panel; uniform
-knobs appear automatically in the inspector (Fill → Shader paint type, and
-Effects → Shader).
+## Preferred native v2 path
+
+Use `get-shader` with `format: "native-v2"` to discover the current
+versioned built-in definitions and named presets. For a selected Design screen, pass
+`source: {kind:"design-file",designId,fileId}` and, if known,
+`target:{nodeId}`. The response distinguishes absent manifest, present
+manifest, and missing authored target; it returns `versionHash`, instances,
+versioned definitions, and bounded `approvedDefinitionHashes`. Request
+`definitionId`, `definitionVersion`, and `includeSource:true` for exact WGSL.
+Use `format:"legacy"` only to inspect historical descriptors on older screens.
+
+When describing a built-in effect to a user, use its Shader Library display
+name. Canonical IDs and pinned source metadata are for action calls and
+provenance; do not present those internal names as product labels.
+
+Choose current built-ins from the `native-v2` response rather than from
+historical source names or copied IDs. For example, the registered fill
+`an-native-gradient-field` version 1 has a `scale` property and the named
+preset `an-preset-catalog-gradient-field-1`. After reading the target file's
+`versionHash`, apply it with `edit-native-shader` using
+`{kind:"apply",nodeId:"hero",placement:"fill",definitionId:"an-native-gradient-field",definitionVersion:1,params:{scale:1}}`,
+or use `{kind:"apply-preset",nodeId:"hero",presetId:"an-preset-catalog-gradient-field-1"}`.
+The authored node ID is illustrative; use the exact ID returned for the selected
+file. Read back the new source version and inspect the mounted preview before
+reporting a visible result.
+
+Use `validate-native-shader` for CPU schema, parameter, and pass-graph checks.
+This does **not** compile WGSL or prove GPU rendering. Apply or edit with
+`edit-native-shader` and the exact `expectedVersionHash` from the read. Its
+discriminated `operation` supports `apply`, `apply-many`, `apply-preset`,
+`set-params`, `set-params-many`, `set-instance`, `playback`, `reset-instance`,
+`duplicate`, `reorder`, `remove`, `save-preset`, `remove-preset`, and
+`revise-definition`. Inspect the action schema for fields; stale source is a
+typed conflict. Edits preserve the authored HTML source, editable text, node
+IDs, and effect definitions pinned by `(id,version)`.
+
+`apply-many` applies one definition to 2–32 distinct authored `nodeIds` in one
+source edit. Pass either one shared `sourceSizing` or `sourceSizingByNodeId`,
+never both. The per-node map must have exactly the full set of target node IDs,
+with one valid sizing value for each; missing or extra keys fail the whole edit.
+`set-params-many` edits 2–32 distinct existing `instanceIds` only when all
+refer to the same definition version. A failed target or parameter validation
+leaves the original source intact. `apply` and `apply-many` may set an optional
+`timing: {speed,paused,time}` with finite nonnegative speed and time. A named
+`apply-preset` automatically forwards the preset's saved timing, if present;
+its operation has no timing override. Use `playback` for subsequent clock
+changes.
+
+The canonical manifest is a JSON script with type
+`application/x-agent-native-effects`, `schemaVersion:2`, and separate
+`definitions`, `instances`, and optional named `presets`. The pure model lives
+in `shared/native-effects.ts`, the pass planner in `shared/effect-graph.ts`,
+and the registered built-ins in `shared/native-effect-presets.ts`. Instances bind
+to exactly one `data-agent-native-node-id` in authored HTML. An instance
+selects `placement:fill|layer|backdrop`, parameters, clipping, timing, and
+stack order. `fill` generates content behind text, `layer` processes the
+node's own image/text/group source, and `backdrop` samples live content
+behind the receiver. For image, text, and group processing, use the native
+source path rather than a GLSL overlay.
+
+Each definition has typed properties and one or more WGSL passes. A generator
+can write a color texture with no source reads; a processor reads `source`
+and writes a different resource; a multipass processor declares resources,
+reads prior outputs in an acyclic graph, and names its final `output`.
+The runtime supports bounded compute/buffer state for Particle Flow, previous-
+frame resources, two named sampled texture inputs, asset-valued texture
+parameters, and instance transforms. These are typed contracts, not blanket
+CSS or WGSL support: undeclared inputs, unsupported graph/resource modes,
+authored-node bindings, arbitrary URL protocols, and unsupported source
+composition fail with explicit diagnostics. A two-input render pass maps its
+ordered `reads` to WGSL sampled texture bindings 2 and 3; bindings 0 and 1
+remain `Globals` and sampler. For a native asset input, store a same-origin
+root-relative raster URL in the manifest, never a `data:` or `blob:` URL. For a user-selected native texture, call `upload-design-native-texture` with the selected Design and HTML file IDs, the PNG/JPEG/WebP data URL, and a stable idempotency key for retries. The action verifies editor access and provider bytes and returns a Design-scoped `/api/design-native-texture/<id>.<ext>` path. Store only that returned path in the texture property. The binary reader rechecks current Design access and byte digest; standalone export embeds the same verified bytes. The existing selected Design/file application state identifies the UI target, but the action requires both IDs explicitly. Do not reuse the QA-local uploader or paste a hosted CDN URL into a native texture property.
+Standalone export packages referenced local raster bytes in a bounded inert
+registry without changing the authored URL or definition hash. The runtime
+checks the registry digest before decode; missing, unreadable, or oversized
+inputs fail explicitly. A registered local QA upload URL is resolved only by
+its scoped export provider, not by an arbitrary network fetch. Each render
+ordinary render pass uses the fixed `Globals` uniform, sampler, and two sampled
+texture bindings (0–3), `vs`/`fs` entry points, linear RGB working color, and
+premultiplied output.
+
+A stateless source processor can opt into `statelessCompute: {abi:
+"source-buffer-v1",bufferResource,sharedBytes}`. Its graph contains exactly the
+external sampled `source`, one nonpersistent buffer with `size: "source"`,
+`sourceBytesPerPixel: 1|4|8|16`, storage/copy-destination usage, and one
+nonpersistent RGBA16F viewport output. One `cs` compute pass reads source and
+writes that buffer; the following `vs`/`fs` resolve reads both. Binding 4 is the
+same storage range, writable in compute and read-only in resolve. Dispatch uses
+`elements: "source-grid"` with a declared `[x,y,1]` workgroup of at most 256
+lanes, or `elements: "source-row-blocks"`, `[64,1,1]`, and an integer
+`blockProperty` from 1 to 16. Source dimensions and encoded render density
+determine dispatch. Dynamic storage is capped at 16 MiB; shared workgroup bytes
+at 16 KiB. Unsupported resource modes and device limits fail explicitly.
+Buffers and sampled/result textures stay accounted for until queue completion,
+including teardown. This ABI changes the exact executable hash and requires
+the same validation and approval workflow as other custom definitions.
+
+Property insertion order fixes vec4 uniform slots; a `color-array` occupies
+one count slot plus its bounded colors. `displayScale` changes inspector
+presentation only: displayed value/bounds/step are stored values multiplied
+by the positive scale, and commits divide by it.
+
+A `position` property has an explicit `basis: "source" | "viewport"` and
+accepts an anchor keyword or `{x,y}`. Each axis is a normalized number, an
+axis keyword, or `{value,unit:"uv"|"percent"|"px"}`. It occupies one vec4
+`[x,y,xUnit,yUnit]` with unit codes 0, 1, 2 for UV, CSS px, and percent.
+`nativePositionUv` resolves pixels with the effective render DPR and physical
+source or viewport dimensions. The inspector preserves the other axis when
+editing one axis; ratio/percent conversion retains the same normalized point.
+Choosing pixels reinterprets the displayed numeric value because the control
+does not have live source dimensions. `set-params` validates and persists the
+same value shape for UI and agent edits.
+
+Imported or user-authored WGSL is executable shader source. The manifest's
+`provenance` is metadata, never approval. Bundled exact v1/v2 source hashes
+run automatically; other definitions need the editor/user's explicit
+`edit-native-shader` `approve-definition` operation with exact
+`expectedExecutionHash` after CPU validation. `revoke-definition` removes an
+approved hash. Approval lives in user-scoped Design application state, not
+the authored HTML. A changed property order, pass, resource, or output changes
+the hash and needs reapproval. The runtime reports `definition-untrusted`
+and keeps last-good pixels when approval is missing. GPU compilation and
+preview are still needed for visual proof; approval and CPU validation make
+no guarantee that arbitrary WGSL terminates. Existing authored HTML may also
+contain arbitrary JavaScript, which this WGSL approval boundary does not
+sandbox.
+
+For a held composition-frame validation, use `request-native-shader-validation`
+with the exact selected source version and a case containing
+`mountedFrame: {viewport: {width,height},pixelRatio}`. These CSS dimensions
+are integers from 1 to 2048 and `pixelRatio` is finite from 1 to 2; the physical
+frame is limited to 4096 pixels per side and 4,194,304 pixels total. Its
+`timeSeconds` must align to a 60 fps frame from 0 to 2 seconds. The foreground
+editor prepares each viewport and ratio separately through
+`prepare-native-scene-export`, passing the case's `pixelRatio`; preparation
+and held rendering use that same density. Inspect the returned physical pixel
+dimensions and validation result before claiming a frame at that density.
+
+For an actual live mounted-scene performance window, call
+`request-native-shader-validation` with exactly one case using
+`mountedMeasurement:{warmupRafIntervals:120,measuredRafIntervals:840}` and
+`timeSeconds:0`, after finding the current editor tab with
+`get-native-render-contexts`. This measures the visible playing iframe's
+ordinary RAF and render loop, without a seek or pixel readback. The result
+contains 840 post-warmup RAF intervals, per-render full-window CPU/source/
+compose distributions, deadline counts, capture delta, preview quality and
+pixel ratio, texture accounting, and a separately labelled latest sparse GPU
+mount sample. Hidden, offscreen, stalled, failed, or changed source windows
+return typed failures. One request takes at most 40 seconds inside the
+validation action's 45-second running lease. A measured 120 Hz or DPR 2
+claim requires the returned effective density and host/browser refresh proof;
+requesting the window alone does not establish either condition. Stateful
+feedback cases still require a bounded held-frame validation path.
+
+The inspector can preview instance opacity and transform changes during a
+scrub without writing source; commit persists one `set-instance` edit and one
+history gesture, while cancel or target change clears the preview. Translation
+is stored in pixels, scale as factors, rotation in radians, and origin as
+normalized coordinates; the inspector presents scale/origin as percentages
+and rotation as degrees. The parent sends a bounded same-origin preview tied
+to the mounted runtime epoch, definition hash, and persisted instance
+signature. A stale reply cannot authorize a write. This live scrub path has
+focused tests but still needs a real-browser GPU checkpoint.
+
+Shader Lab drafts are ephemeral and apply only to an already mounted instance.
+An editor preview uses the exact parent/iframe window and origin, runtime
+epoch, base execution hash, and request generation. Agent-initiated preview
+uses `native-shader-draft-foreground`: its bounded WGSL/params payload is a
+user-scoped private attachment, while application state holds only an opaque
+handle and lease metadata. The editor claims that request in its own tab and
+uses the same preview bridge. Neither a draft attachment nor a successful GPU
+preview grants exact-hash execution approval or publishes source; Apply still
+requires `edit-native-shader` with the expected source version. The inspector's
+GPU pass sum is the latest sampled command encoder for the selected mount's
+active definition and instance controls, with frame index and pass count.
+That encoder includes required source and dependency passes; it is not an
+isolated shader cost, full-scene duration, or GPU percentile. Mounted
+measurement results bind the target and reject a sample begun before the
+measured window. CPU compile/render wall times remain separate, and
+pending/unavailable/error states are explicit.
+
+Same-file duplicate and cross-file inline paste preserve a native v2 stack,
+its versioned definitions, parameter overrides, timing, seed, transform,
+and stack order. The clone path remaps instance IDs, authored target IDs, and
+authored-node bindings; it validates the clipboard snapshot and source/fragment
+hashes before applying. Imported custom definition approvals do not travel
+with the clipboard. Conflicting definitions, ambiguous or missing targets,
+external authored-node bindings, changed readable source, runtime-only
+insertion, and linked-component source-only clones fail with typed errors.
+
+## Legacy GLSL compatibility
+
+Existing authored GLSL screens remain readable and editable. Their fragment
+source and JSON uniforms live in the screen HTML, with a self-contained WebGL
+runtime. Historical preset descriptors are inspection-only and cannot be
+applied as new shaders through `apply-shader` or `apply-shader-fill`. Use the
+native v2 action flow above for new fills and effects.
 
 The canonical format module is `shared/shader-fills.ts`. Always prefer its
 helpers over hand-assembling markup.
@@ -74,52 +261,14 @@ The runtime must be embedded once per document as
 `<script data-agent-native-shader-runtime data-runtime-version="1">…` —
 `ensureShaderRuntime()` / `applyShaderToHtml()` handle this.
 
-## Applying a shader (preferred path)
+## Editing an existing legacy GLSL shader
 
-Use the pure helpers + the source-edit actions. From `templates/design/`:
-
-```ts
-// script: apply-shader.ts — run with: pnpm exec tsx apply-shader.ts
-import { applyShaderToHtml, newShaderId } from "./shared/shader-fills";
-import { getGlslShaderPreset } from "./shared/shader-presets";
-
-const preset = getGlslShaderPreset("water-caustics")!;
-const result = applyShaderToHtml(currentHtml /* from read-source-file */, {
-  nodeId: "hero", // the element's data-agent-native-node-id
-  def: {
-    id: newShaderId(),
-    name: preset.label,
-    mode: preset.mode, // "fill" | "effect"
-    glsl: preset.glsl,
-    uniforms: preset.uniforms,
-  },
-  fallbackColor: "#06283d", // fills only — static no-JS fallback
-});
-if (result.errors.length) throw new Error(result.errors.join("; "));
-// result.html → write back via apply-source-edit (full-replace) with the
-// versionHash you got from read-source-file.
-```
-
-Action flow: `read-source-file` → transform → `apply-source-edit`
-(`edit: { kind: "full-replace", content }`, pass `expectedVersionHash`).
-For a small hand-edit (e.g. tweaking one uniform value in the manifest),
-`edit-design` search/replace on the exact block text is also fine.
-
-To remove: `removeShaderFromNode(html, nodeId, mode?)` — clears the
-annotation and garbage-collects unreferenced definition blocks.
-
-## Handling "Create a custom shader fill." from the picker
-
-The fill picker's **Create new (AI)** tile prefills this prompt with hidden
-context lines (`designId`, `fileId`, `target nodeId`, `mode`). Then:
-
-1. Ask what look they want only if the user gave no description at all.
-2. Write ORIGINAL GLSL for the request (do not just re-apply a preset), with
-   2–5 well-chosen uniforms exposed as knobs. Name the knobs the way the
-   user described the controls.
-3. Apply it via the helper flow above, targeting the provided nodeId.
-4. Report the shader name, its knobs, and that the GLSL is editable in the
-   Code panel.
+For an existing authored GLSL definition, use `shared/shader-fills.ts` to parse
+and validate its source and uniforms. Read the exact source version before an
+edit and persist through the source-edit action. Preserve its current shader
+identity and readable fallback; do not use a historical descriptor to create
+a new shader. A request for a new custom material uses the native v2 manifest,
+CPU validation, exact-hash approval where needed, and the editor GPU preview.
 
 ## GLSL rules (WebGL1 / GLSL ES 1.00)
 
@@ -139,14 +288,13 @@ context lines (`designId`, `fileId`, `target nodeId`, `mode`). Then:
   names, or labels — `validateShaderDef()` enforces this; run it (or
   `applyShaderToHtml`, which calls it) before writing.
 
-## Preset library
+## Historical shader descriptors
 
-`GLSL_SHADER_PRESETS` in `shared/shader-presets.ts` ships 12 curated
-presets — fills: `mesh-gradient`, `glowing-wave`, `water-caustics`,
-`fractal-noise`, `clouds`, `nebula`, `moire`, `concentric-rings`,
-`pattern-grid`; effects: `film-grain`, `halftone`, `scanlines`. Applying a
-preset stamps a fresh copy (new id) into the design; after that it is the
-user's code to edit.
+`shared/shader-presets.ts` retains eight descriptor identifiers for saved
+screens. They are compatibility data, not current choices. `get-shader` with
+`format:"legacy"` reports read-only status and inspection instructions without
+advertising the retired presets. Existing authored GLSL definitions remain
+readable; use the native catalog for new applications.
 
 ## Fills vs effects
 

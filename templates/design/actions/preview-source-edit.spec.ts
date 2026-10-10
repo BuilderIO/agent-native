@@ -75,4 +75,22 @@ describe("preview-source-edit nextVersionHash", () => {
     expect(result.editsApplied).toBe(0);
     expect(result.nextVersionHash).toBeUndefined();
   });
+
+  it("previews an explicitly targeted board file from its live content", async () => {
+    const board = { id: "board-1", filename: "__board__.html" };
+    mocks.findSourceWorkspaceFile.mockReturnValue(board);
+
+    const result = (await action.run({
+      designId: "design_1",
+      fileId: board.id,
+      edit: { kind: "exact-replace", search: "Hello", replace: "Board" },
+    })) as { okToApply: boolean; currentVersionHash: string };
+
+    expect(mocks.resolveSourceWorkspace).toHaveBeenCalledWith("design_1", {
+      includeContent: true,
+      includeBoard: true,
+    });
+    expect(result.okToApply).toBe(true);
+    expect(result.currentVersionHash).toBe(sourceContentHash(liveContent));
+  });
 });

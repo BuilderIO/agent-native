@@ -27,6 +27,10 @@ import {
   sourceContentHash,
 } from "../shared/source-workspace.js";
 import { getDb, schema } from "./db/index.js";
+import {
+  bindNativeTextureGrantsInSourceTransaction,
+  preflightNativeTextureGrants,
+} from "./lib/design-native-texture-bindings.js";
 import "./db/index.js";
 
 export interface SourceWorkspaceFile {
@@ -141,7 +145,7 @@ function drizzleSqlForDbExec(statement: Parameters<DbExec["execute"]>[0]) {
   );
 }
 
-function dbExecForDrizzleTransaction(
+export function dbExecForDrizzleTransaction(
   transaction: DesignSourceMutationTransaction,
 ): DbExec {
   return {
@@ -285,6 +289,22 @@ export async function resolveSourceWorkspace(
       : files.filter((file) => !isBoardFile(file.filename)),
     boardFileId: parseDesignDataBoardFileId(resourceData),
   };
+}
+
+export async function loadSelectedSourceWorkspaceFile(
+  file: SourceWorkspaceFile,
+): Promise<SourceWorkspaceFile | null> {
+  const [selected] = await getDb()
+    .select({ content: schema.designFiles.content })
+    .from(schema.designFiles)
+    .where(
+      and(
+        eq(schema.designFiles.id, file.id),
+        eq(schema.designFiles.designId, file.designId),
+      ),
+    )
+    .limit(1);
+  return selected ? { ...file, content: selected.content } : null;
 }
 
 export function findSourceWorkspaceFile(
@@ -473,6 +493,13 @@ export async function writeInlineSourceFile(args: {
   operationRevision?: number;
   allowUrlBackedTransition?: boolean;
 }): Promise<{ versionHash: string; changed: boolean; updatedAt: string }> {
+  const nativeTextureGrants = await preflightNativeTextureGrants({
+    designId: args.designId,
+    fileId: args.file.id,
+    fileType: args.file.fileType,
+    content: args.content,
+    allowRetainedFileBinding: true,
+  });
   return withPreparedSourceFileMutation(args.file.id, "agent", async (lease) =>
     withDesignSourceMutationTransaction(args.designId, async (tx) => {
       await assertAccess("design", args.designId, "editor");
@@ -797,6 +824,11 @@ export async function writeInlineSourceFile(args: {
         );
       }
 
+      await bindNativeTextureGrantsInSourceTransaction(
+        getDesignSourceMutationExec(tx),
+        { designId: args.designId, fileId: args.file.id },
+        nativeTextureGrants,
+      );
       try {
         await lease.persist(
           getDesignSourceMutationExec(tx),
@@ -962,6 +994,23 @@ export async function writeInlineSourceFilesBatch(args: {
       }),
     );
 
+    const nativeTextureGrantsById = new Map(
+      await Promise.all(
+        planned.map(
+          async (item) =>
+            [
+              item.fileId,
+              await preflightNativeTextureGrants({
+                designId: args.designId,
+                fileId: item.fileId,
+                fileType: item.currentFile.fileType,
+                content: item.content,
+                allowRetainedFileBinding: true,
+              }),
+            ] as const,
+        ),
+      ),
+    );
     const plannedById = new Map(planned.map((item) => [item.fileId, item]));
     const hasSqlChanges = planned.some(
       (item) => item.currentFile.content !== item.content,
@@ -1071,6 +1120,11 @@ export async function writeInlineSourceFilesBatch(args: {
             }
           }
 
+          await bindNativeTextureGrantsInSourceTransaction(
+            tx,
+            { designId: args.designId, fileId: item.fileId },
+            nativeTextureGrantsById.get(item.fileId) ?? [],
+          );
           await lease.persist(tx, item.content);
         }
 

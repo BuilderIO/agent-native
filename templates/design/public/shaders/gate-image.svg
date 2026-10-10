@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 560" role="img" aria-label="Original abstract landscape in terracotta, apricot, and ink">
+  <defs>
+    <linearGradient id="sky" x2="0" y2="1"><stop stop-color="#f9dfbb"/><stop offset="1" stop-color="#e8a982"/></linearGradient>
+    <linearGradient id="disc" x2="1" y2="1"><stop stop-color="#ff9f62"/><stop offset="1" stop-color="#dd593f"/></linearGradient>
+  </defs>
+  <rect width="800" height="560" fill="url(#sky)"/>
+  <circle cx="566" cy="214" r="138" fill="url(#disc)"/>
+  <path d="M0 325c107-77 202-102 302-46 73 41 145 51 223-25 79-77 177-42 275 34v272H0Z" fill="#bc674f"/>
+  <path d="M0 410c162-57 301 48 434-11 139-61 247-13 366 35v126H0Z" fill="#783a37"/>
+  <path d="M0 493c170-58 270 12 393-7 177-27 253-14 407 7v67H0Z" fill="#302938"/>
+  <path d="M132 113c-36 28-55 68-56 112m12-95c24 17 46 45 56 72m-56-48c-15 3-34 13-47 28" fill="none" stroke="#513439" stroke-width="8" stroke-linecap="round"/>
+  <path d="M112 249V141m0 62c25-14 40-34 46-54" fill="none" stroke="#513439" stroke-width="7" stroke-linecap="round"/>
+  <path d="M702 126c-20 19-29 41-28 65m16-52c17 11 28 23 36 44" fill="none" stroke="#734341" stroke-width="6" stroke-linecap="round"/>
+</svg>

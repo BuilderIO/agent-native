@@ -3,9 +3,14 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import {
+  dbExecForDrizzleTransaction,
   designSourceMutationLockKey,
   lockDesignFilesTable,
 } from "../source-workspace.js";
+import {
+  bindNativeTextureGrantsInSourceTransaction,
+  preflightNativeTextureGrants,
+} from "./design-native-texture-bindings.js";
 
 const DEFAULT_MAX_ATTEMPTS = 8;
 const CONFLICT_BACKOFF_MS = 8;
@@ -281,6 +286,13 @@ async function mutateDesignDataUnlocked<TTransactionResult>({
               );
             }
             if (file.content === mutation.content) continue;
+            const textureGrants = await preflightNativeTextureGrants({
+              designId,
+              fileId: file.id,
+              fileType: file.fileType,
+              content: mutation.content,
+              allowRetainedFileBinding: true,
+            });
             const fileUpdatedAt = nextUpdatedAt(file.updatedAt, currentTime);
             await tx
               .update(schema.designFiles)
@@ -316,6 +328,11 @@ async function mutateDesignDataUnlocked<TTransactionResult>({
             ) {
               throw new DesignDataMutationConflictError(designId, attempt + 1);
             }
+            await bindNativeTextureGrantsInSourceTransaction(
+              dbExecForDrizzleTransaction(tx),
+              { designId, fileId: file.id },
+              textureGrants,
+            );
             updatedFiles.push({
               id: file.id,
               content: mutation.content,

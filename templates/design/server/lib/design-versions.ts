@@ -29,9 +29,14 @@ import { getDb, schema } from "../db/index.js";
 import {
   affectedRowCount,
   designSourceMutationLockKey,
+  dbExecForDrizzleTransaction,
   lockDesignFilesTable,
   withSourceFileWriteLock,
 } from "../source-workspace.js";
+import {
+  bindNativeTextureGrantsInSourceTransaction,
+  preflightNativeTextureGrants,
+} from "./design-native-texture-bindings.js";
 import { buildDesignSnapshot } from "./design-snapshot.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
@@ -1373,6 +1378,13 @@ export async function restoreDesignVersion(args: {
               content: targetFile.content,
             };
             restoreFiles.push(restored);
+            const nativeTextureGrants = await preflightNativeTextureGrants({
+              designId: args.designId,
+              fileId: restored.id,
+              fileType: restored.fileType,
+              content: restored.content,
+              allowRetainedFileBinding: true,
+            });
 
             if (existing) {
               const updateResult = await tx
@@ -1430,6 +1442,11 @@ export async function restoreDesignVersion(args: {
                 updatedAt,
               });
             }
+            await bindNativeTextureGrantsInSourceTransaction(
+              dbExecForDrizzleTransaction(tx),
+              { designId: args.designId, fileId: restored.id },
+              nativeTextureGrants,
+            );
           }
 
           for (const currentFile of lockedFiles) {

@@ -104,6 +104,12 @@ export function designSelectionStateKeysForTab(
     : ["design-selection"];
 }
 
+export function designShaderFocusStateKeyForTab(browserTabId?: string): string {
+  return browserTabId
+    ? `design-shader-focus:${browserTabId}`
+    : "design-shader-focus";
+}
+
 export function designSelectionCleanupKeysForTab(
   browserTabId?: string,
 ): string[] {

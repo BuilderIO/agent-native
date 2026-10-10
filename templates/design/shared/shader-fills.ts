@@ -1,3 +1,4 @@
+import { nativeShaderRuntimeBridgeScript } from "../.generated/bridge/native-shader-runtime.generated";
 import { shaderRuntimeBridgeScript } from "../.generated/bridge/shader-runtime.generated";
 
 export type GlslUniformType = "float" | "vec2" | "color";
@@ -467,6 +468,32 @@ export function removeShaderFromHtml(html: string, id: string): string {
 }
 
 export const SHADER_RUNTIME_SOURCE: string = shaderRuntimeBridgeScript;
+export const NATIVE_SHADER_RUNTIME_SOURCE: string =
+  nativeShaderRuntimeBridgeScript;
+const NATIVE_RUNTIME_ATTR = "data-agent-native-native-shader-runtime";
+
+export function ensureNativeShaderRuntime(html: string): string {
+  const tag = `<script ${NATIVE_RUNTIME_ATTR} data-runtime-version="2">\n${NATIVE_SHADER_RUNTIME_SOURCE}\n</script>`;
+  const existing =
+    /<script\s+data-agent-native-native-shader-runtime[^>]*>[\s\S]*?<\/script\s*>/i.exec(
+      html,
+    );
+  if (existing) {
+    if (existing[0] === tag) return html;
+    return (
+      html.slice(0, existing.index) +
+      tag +
+      html.slice(existing.index + existing[0].length)
+    );
+  }
+  const bodyClose = html.toLowerCase().lastIndexOf("</body>");
+  if (bodyClose !== -1)
+    return html.slice(0, bodyClose) + tag + "\n" + html.slice(bodyClose);
+  const htmlClose = html.toLowerCase().lastIndexOf("</html>");
+  if (htmlClose !== -1)
+    return html.slice(0, htmlClose) + tag + "\n" + html.slice(htmlClose);
+  return html + "\n" + tag + "\n";
+}
 
 export function buildShaderRuntimeScriptTag(): string {
   return (
@@ -485,22 +512,26 @@ export function ensureShaderRuntime(html: string): string {
   const tag = buildShaderRuntimeScriptTag();
   const existing = RUNTIME_BLOCK_RE.exec(html);
   if (existing) {
-    if (existing[0] === tag) return html;
-    return (
+    if (existing[0] === tag) return ensureNativeShaderRuntime(html);
+    return ensureNativeShaderRuntime(
       html.slice(0, existing.index) +
-      tag +
-      html.slice(existing.index + existing[0].length)
+        tag +
+        html.slice(existing.index + existing[0].length),
     );
   }
   const bodyClose = html.toLowerCase().lastIndexOf("</body>");
   if (bodyClose !== -1) {
-    return html.slice(0, bodyClose) + tag + "\n" + html.slice(bodyClose);
+    return ensureNativeShaderRuntime(
+      html.slice(0, bodyClose) + tag + "\n" + html.slice(bodyClose),
+    );
   }
   const htmlClose = html.toLowerCase().lastIndexOf("</html>");
   if (htmlClose !== -1) {
-    return html.slice(0, htmlClose) + tag + "\n" + html.slice(htmlClose);
+    return ensureNativeShaderRuntime(
+      html.slice(0, htmlClose) + tag + "\n" + html.slice(htmlClose),
+    );
   }
-  return html + "\n" + tag + "\n";
+  return ensureNativeShaderRuntime(html + "\n" + tag + "\n");
 }
 
 export function htmlHasShaderReferences(html: string): boolean {

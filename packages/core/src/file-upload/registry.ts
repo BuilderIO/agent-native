@@ -1,9 +1,12 @@
 import { builderFileUploadProvider } from "./builder.js";
+import { FileUploadReadError } from "./read.js";
 import type {
   FileUploadDeleteInput,
   FileUploadInput,
   FileUploadProvider,
   FileUploadResult,
+  FileUploadReadInput,
+  FileUploadReadResult,
 } from "./types.js";
 
 interface FileUploadGlobals {
@@ -87,6 +90,93 @@ export async function deleteUploadedFile(
       : providers.get(providerId);
   if (!provider?.delete) return false;
   return provider.delete(input);
+}
+
+export async function readUploadedFile(
+  input: FileUploadReadInput,
+): Promise<FileUploadReadResult> {
+  if (
+    !input.ownerEmail.trim() ||
+    !Number.isSafeInteger(input.maxBytes) ||
+    input.maxBytes < 1 ||
+    input.maxBytes > 10_000_000
+  )
+    throw new FileUploadReadError(
+      "invalid-reference",
+      "Uploaded file read needs a scoped owner and bounded size.",
+    );
+  let url: URL;
+  try {
+    url = new URL(input.url);
+  } catch {
+    throw new FileUploadReadError(
+      "invalid-reference",
+      "Uploaded file URL is invalid.",
+    );
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.hash ||
+    input.url.length > 2048
+  )
+    throw new FileUploadReadError(
+      "invalid-reference",
+      "Uploaded file URL is not a canonical HTTPS URL.",
+    );
+  const timeout = AbortSignal.timeout(15_000);
+  const signal = AbortSignal.any([
+    input.signal ?? new AbortController().signal,
+    timeout,
+  ]);
+  const abortError = () =>
+    input.signal?.aborted
+      ? (input.signal.reason ??
+        new FileUploadReadError("unreadable", "Uploaded file read canceled."))
+      : new FileUploadReadError("unreadable", "Uploaded file read timed out.");
+  if (signal.aborted) throw abortError();
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(abortError());
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  });
+  const read = async (): Promise<FileUploadReadResult> => {
+    for (const provider of [...providers.values(), builderFileUploadProvider]) {
+      if (!provider.isOwnedUrl || !(await provider.isOwnedUrl(input.url)))
+        continue;
+      if (!provider.read)
+        throw new FileUploadReadError(
+          "unsupported",
+          "The uploaded file provider cannot read assets for export.",
+        );
+      const result = await provider.read({ ...input, signal });
+      if (!(result.data instanceof Uint8Array) || !result.mimeType.trim())
+        throw new FileUploadReadError(
+          "unreadable",
+          "Uploaded file provider returned an invalid result.",
+        );
+      if (result.data.byteLength > input.maxBytes)
+        throw new FileUploadReadError(
+          "limit",
+          "Uploaded file exceeds the read limit.",
+        );
+      return result;
+    }
+    throw new FileUploadReadError(
+      "unsupported",
+      "No configured provider owns the uploaded file URL.",
+    );
+  };
+  try {
+    return await Promise.race([read(), aborted]);
+  } catch (error) {
+    if (timeout.aborted && !input.signal?.aborted) throw abortError();
+    throw error;
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
 }
 
 export async function uploadFile(

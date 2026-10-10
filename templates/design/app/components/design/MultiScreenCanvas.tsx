@@ -585,6 +585,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   directlyHoveredScreenId,
   previewDeviceFrame = "none",
   activeTool,
+  nativeApprovalsEnabled = false,
   reviewResourceId,
   reviewPinMode = false,
   reviewCommentsHidden = false,
@@ -11345,6 +11346,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 }}
               >
                 <DesignCanvas
+                  nativeApprovalsEnabled={nativeApprovalsEnabled}
                   content={boardRenderContent}
                   authoredSourceContent={boardFileContent}
                   contentKey={boardContentKey}

@@ -1,7 +1,9 @@
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   prefetchSecrets,
   resolveSecret,
 } from "../server/credential-provider.js";
+import { FileUploadReadError, readBoundedUploadResponse } from "./read.js";
 import {
   listFileUploadProviders,
   registerFileUploadProvider,
@@ -309,6 +311,28 @@ async function deleteObject(config: S3Config, key: string): Promise<boolean> {
   );
 }
 
+async function getObject(url: string, maxBytes: number, signal?: AbortSignal) {
+  const requestSignal = AbortSignal.any([
+    signal ?? new AbortController().signal,
+    AbortSignal.timeout(15_000),
+  ]);
+  let response: Response;
+  try {
+    response = await ssrfSafeFetch(
+      url,
+      { method: "GET", signal: requestSignal },
+      { httpsOnly: true, followRedirects: false, requireDispatcher: true },
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new FileUploadReadError(
+      "unreadable",
+      "Uploaded S3 object could not be read.",
+    );
+  }
+  return readBoundedUploadResponse(response, maxBytes);
+}
+
 function safeFilename(filename: string | undefined): string {
   const basename = filename?.split(/[\\/]/).pop()?.trim() || "attachment";
   return (
@@ -338,6 +362,46 @@ export const s3FileUploadProvider: FileUploadProvider = {
       // coercion-ok: malformed URLs are an explicit not-owned result.
       return false;
     }
+  },
+  read: async (input) => {
+    const config = await readRequestConfig();
+    if (!config)
+      throw new FileUploadReadError(
+        "unavailable",
+        "S3 object storage is unavailable.",
+      );
+    const url = new URL(input.url);
+    const base = new URL(config.publicBaseUrl);
+    const prefix = `${base.pathname.replace(/\/+$/, "")}/`;
+    if (
+      url.origin !== base.origin ||
+      !url.pathname.startsWith(prefix) ||
+      url.search ||
+      url.hash
+    )
+      throw new FileUploadReadError(
+        "invalid-reference",
+        "S3 asset URL is outside the configured public base.",
+      );
+    const encodedKey = url.pathname.slice(prefix.length);
+    let key: string;
+    try {
+      key = encodedKey.split("/").map(decodeURIComponent).join("/");
+    } catch {
+      throw new FileUploadReadError(
+        "invalid-reference",
+        "S3 asset key has invalid encoding.",
+      );
+    }
+    if (
+      !/^uploads\/\d{10,15}-[a-z0-9]{8}-[a-zA-Z0-9._-]{1,160}$/.test(key) ||
+      key.includes("..")
+    )
+      throw new FileUploadReadError(
+        "invalid-reference",
+        "S3 asset key was not issued by this upload provider.",
+      );
+    return getObject(input.url, input.maxBytes, input.signal);
   },
   upload: async ({ data, filename, mimeType }) => {
     const config = await readRequestConfig();

@@ -1,8 +1,15 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createLocalFigmaQaPrivateBlobProvider,
@@ -10,11 +17,13 @@ import {
   isLocalFigmaQaUploadEnabled,
   localFigmaQaAssetMimeType,
   localFigmaQaAssetPath,
+  readLocalFigmaQaAssetForExport,
 } from "./local-figma-qa-upload.js";
 
 const roots: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true })),
   );
@@ -63,6 +72,62 @@ describe("local Figma QA upload provider", () => {
       localFigmaQaAssetPath("other@example.test", assetId, rootDir),
     ).not.toBe(filepath);
     expect(localFigmaQaAssetMimeType(assetId)).toBe("image/png");
+  });
+
+  it("reads only valid owner bytes and separates missing, escape, and unreadable storage", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS", "1");
+    const rootDir = await mkdtemp(
+      path.join(os.tmpdir(), "design-figma-qa-read-"),
+    );
+    roots.push(rootDir);
+    const owner = "qa@example.test";
+    const otherOwner = "other@example.test";
+    const provider = createLocalFigmaQaUploadProvider({
+      rootDir,
+      enabled: () => true,
+    });
+    const bytes = Uint8Array.from(
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/Xq8AAAAASUVORK5CYII=",
+        "base64",
+      ),
+    );
+    const stored = await provider.upload({
+      data: bytes,
+      mimeType: "image/png",
+      ownerEmail: owner,
+    });
+    expect(
+      await readLocalFigmaQaAssetForExport(stored.url!, owner, { rootDir }),
+    ).toEqual({ mimeType: "image/png", bytes });
+    await expect(
+      readLocalFigmaQaAssetForExport(stored.url!, otherOwner, { rootDir }),
+    ).rejects.toMatchObject({ code: "unavailable" });
+
+    const escapedId = "12345678-1234-4123-8123-123456789abc.png";
+    const escapedPath = localFigmaQaAssetPath(owner, escapedId, rootDir)!;
+    const outside = path.join(rootDir, "outside.png");
+    await writeFile(outside, bytes);
+    await symlink(outside, escapedPath);
+    await expect(
+      readLocalFigmaQaAssetForExport(
+        `/api/qa-figma-import-assets/${escapedId}`,
+        owner,
+        { rootDir },
+      ),
+    ).rejects.toMatchObject({ code: "forbidden" });
+
+    const loopId = "12345678-1234-4123-8123-123456789abd.png";
+    const loopPath = localFigmaQaAssetPath(owner, loopId, rootDir)!;
+    await symlink(loopPath, loopPath);
+    await expect(
+      readLocalFigmaQaAssetForExport(
+        `/api/qa-figma-import-assets/${loopId}`,
+        owner,
+        { rootDir },
+      ),
+    ).rejects.toMatchObject({ code: "unreadable" });
   });
 
   it("stores SVG images in the same owner-isolated QA route", async () => {
@@ -130,7 +195,13 @@ describe("local Figma QA upload provider", () => {
     const handle = await provider.put({ data, mimeType: "application/json" });
     expect((await provider.read(handle)).data).toEqual(data);
     await provider.delete(handle);
-    await expect(provider.read(handle)).rejects.toThrow();
+    await expect(provider.read(handle)).rejects.toMatchObject({
+      kind: "not_found",
+    });
+    await mkdir(path.join(rootDir, "private", handle.id));
+    await expect(provider.read(handle)).rejects.toMatchObject({
+      kind: "unavailable",
+    });
     await expect(
       provider.read({ ...handle, id: "../../etc/passwd" }),
     ).rejects.toThrow(/invalid/i);

@@ -65,6 +65,7 @@ export interface CapturedStyleTarget {
  */
 export interface StyleChangeMeta {
   phase?: "preview" | "commit" | "cancel";
+  fillStyleIntent?: "replace" | "hide" | "show";
   runtimeApplied?: boolean;
   routePath?: string;
   relativeDelta?: number;

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 560" role="img" aria-label="High-contrast abstract landscape with a white sun, cyan ridge, and ink foreground">
+  <rect width="800" height="560" fill="#101525"/>
+  <circle cx="570" cy="182" r="116" fill="#fff9e8"/>
+  <path d="M0 308 166 157 310 324 438 201 604 334 716 233 800 306v254H0Z" fill="#10d7de"/>
+  <path d="M0 411 153 352 280 440 399 355 544 459 704 347 800 408v152H0Z" fill="#ff622c"/>
+  <path d="M0 504 150 438 298 521 454 447 603 529 754 455 800 478v82H0Z" fill="#080b16"/>
+  <path d="m121 119 59-49m-37 118 82-67m510 25-72-59m52 113-81-70" stroke="#fff9e8" stroke-width="15" stroke-linecap="round"/>
+</svg>

@@ -58,9 +58,17 @@ import { runRenderPngBlob } from "./render-png-blob";
 
 describe("selected-layer PDF export from runtime snapshots", () => {
   let toBlob: ReturnType<typeof vi.spyOn>;
+  const encodedPng = Uint8Array.from(
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAKAAAABQCAYAAACeXX40AAAAp0lEQVR42u3SMQ0AAAzDsPIn3ZKYtMeGECWFR5EAA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGBANiQDAgBgQDYkAwIAYEA2JAMCAGBANiQDAgBsSAYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIBgQAwIBsSAYEAMCAbEgGBADAgGxIAYEAyIAcGAGBAMiAHBgBgQDIgBwYAYEG4M695Dqr/KzgAAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  );
 
   beforeEach(() => {
     const renderCanvas = document.createElement("canvas");
+    renderCanvas.width = 160;
+    renderCanvas.height = 80;
     const snapshotIframe = document.createElement("iframe");
     Object.defineProperties(snapshotIframe, {
       clientWidth: { configurable: true, value: 320 },
@@ -101,7 +109,7 @@ describe("selected-layer PDF export from runtime snapshots", () => {
     toBlob = vi
       .spyOn(HTMLCanvasElement.prototype, "toBlob")
       .mockImplementation((callback, type) =>
-        callback(new Blob(["png"], { type })),
+        callback(new Blob([encodedPng], { type })),
       );
   });
 

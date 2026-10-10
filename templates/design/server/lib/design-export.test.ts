@@ -1,15 +1,237 @@
+import { runInNewContext } from "node:vm";
+
 import { decodeHTML } from "entities";
 import { describe, expect, it } from "vitest";
 
 import { ensureGroupRuntime } from "../../shared/group-runtime";
+import { GRAIN_GRADIENT_EFFECT } from "../../shared/native-effect-presets";
+import { applyNativeEffectToHtml } from "../../shared/native-effects";
 import {
   buildStandaloneHtml,
   buildSvgForeignObject,
+  hasRenderableBoardArtwork,
   HIDDEN_LAYER_EXPORT_CSS,
   injectHiddenLayerExportStyle,
 } from "./design-export";
+import { processExportAssetReferences } from "./design-export-assets";
 
 describe("design export helpers", () => {
+  it("replaces authored approval claims with the trusted export allowlist", () => {
+    const hash = "a".repeat(64);
+    const html = buildStandaloneHtml({
+      title: "Trusted export",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content:
+            '<html><body><script type="application/x-agent-native-effect-approvals">{"schemaVersion":1,"hashes":["spoofed"]}</script><p>Hi</p></body></html>',
+        },
+      ],
+      approvedDefinitionHashes: [hash],
+    });
+    expect(html).not.toContain("spoofed");
+    expect(html).toContain(`"hashes":["${hash}"]`);
+    expect(
+      html.match(/application\/x-agent-native-effect-approvals/g),
+    ).toHaveLength(1);
+  });
+
+  it("relays trusted approvals to each embedded stacked screen on load", () => {
+    const hash = "b".repeat(64);
+    const html = buildStandaloneHtml({
+      title: "Stacked",
+      screenLayout: "stacked",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>A</body></html>",
+        },
+        {
+          filename: "two.html",
+          fileType: "html",
+          content: "<html><body>B</body></html>",
+        },
+      ],
+      approvedDefinitionHashes: [hash],
+    });
+    expect(
+      html.match(/data-agent-native-export-screen/g)?.length,
+    ).toBeGreaterThanOrEqual(2);
+    const relay = html.match(
+      /<script data-agent-native-export-approval-relay>([\s\S]*?)<\/script>/,
+    );
+    expect(relay).not.toBeNull();
+    expect(html).toContain("window.location.origin");
+    expect(html).toContain(hash);
+    const sent: Array<{ frame: string; message: unknown; origin: string }> = [];
+    const listeners: Record<string, () => void> = {};
+    const loaded = {
+      contentDocument: { readyState: "complete" },
+      contentWindow: {
+        postMessage: (message: unknown, origin: string) =>
+          sent.push({ frame: "loaded", message, origin }),
+      },
+      addEventListener: (_event: string, callback: () => void) => {
+        listeners.loaded = callback;
+      },
+    };
+    const loading = {
+      contentDocument: { readyState: "loading" },
+      contentWindow: {
+        postMessage: (message: unknown, origin: string) =>
+          sent.push({ frame: "loading", message, origin }),
+      },
+      addEventListener: (_event: string, callback: () => void) => {
+        listeners.loading = callback;
+      },
+    };
+    runInNewContext(relay![1], {
+      document: { querySelectorAll: () => [loaded, loading] },
+      window: { location: { origin: "http://localhost:9320" } },
+    });
+    expect(sent).toEqual([
+      {
+        frame: "loaded",
+        message: {
+          type: "native-shader-approvals",
+          status: "ready",
+          hashes: [hash],
+        },
+        origin: "http://localhost:9320",
+      },
+    ]);
+    listeners.loading();
+    listeners.loaded();
+    expect(sent.map((entry) => entry.frame)).toEqual([
+      "loaded",
+      "loading",
+      "loaded",
+    ]);
+    expect(
+      sent.every((entry) => entry.origin === "http://localhost:9320"),
+    ).toBe(true);
+  });
+
+  it("carries a bundled font's license in standalone output", () => {
+    const html = buildStandaloneHtml({
+      title: "Font export",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Text</body></html>",
+        },
+      ],
+      fontLicenses: [
+        {
+          path: "/fonts/display.woff2",
+          text: "Example font copyright and license",
+        },
+      ],
+    });
+    expect(html).toContain("data-agent-native-export-font-licenses");
+    expect(html).toContain("Example font copyright and license");
+  });
+  it("exports a native effect with its owned runtime, authored text, and inline SVG asset", () => {
+    const source =
+      '<!doctype html><html><head><style>body{margin:0}</style></head><body><div data-agent-native-node-id="hero">Editable</div><img src="/shaders/gate-image.svg" alt="Landscape"></body></html>';
+    const applied = applyNativeEffectToHtml(source, {
+      nodeId: "hero",
+      definition: GRAIN_GRADIENT_EFFECT,
+      placement: "fill",
+    });
+    expect(applied.errors).toEqual([]);
+    const files = processExportAssetReferences(
+      [{ filename: "index.html", fileType: "html", content: applied.html }],
+      {
+        "/shaders/gate-image.svg": {
+          mimeType: "image/svg+xml",
+          bytes: new TextEncoder().encode(
+            '<svg xmlns="http://www.w3.org/2000/svg"><rect width="8" height="8"/></svg>',
+          ),
+        },
+      },
+    ).files;
+    const html = buildStandaloneHtml({
+      title: "Native export",
+      files,
+    });
+    expect(html).toContain("Editable");
+    expect(html).toContain("application/x-agent-native-effects");
+    expect(html.match(/data-agent-native-native-shader-runtime/g)).toHaveLength(
+      1,
+    );
+    expect(html).toContain("data:image/svg+xml;base64,");
+    expect(html).not.toContain("/shaders/gate-image.svg");
+    expect(html).not.toContain("cdn.jsdelivr.net");
+  });
+
+  it("includes board artwork only when authored board nodes exist", () => {
+    expect(hasRenderableBoardArtwork("<html><body>\n</body></html>")).toBe(
+      false,
+    );
+    expect(
+      hasRenderableBoardArtwork(
+        '<html><body><div data-agent-native-node-id="frame-1">Board text</div></body></html>',
+      ),
+    ).toBe(true);
+    expect(hasRenderableBoardArtwork(null)).toBe(false);
+  });
+
+  it("fails explicitly when a used owned asset cannot be bundled", () => {
+    expect(() =>
+      processExportAssetReferences(
+        [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content:
+              '<!doctype html><html><body><img src="/shaders/gate-image.svg"></body></html>',
+          },
+        ],
+        {},
+      ),
+    ).toThrow("Export asset /shaders/gate-image.svg is unavailable");
+  });
+
+  it("embeds installed client libraries in synthesized and existing CDN screens", () => {
+    const runtimeLibraries = {
+      tailwindBrowser: "window.tailwindBundled = true;",
+      alpine: "window.alpineBundled = true;",
+    };
+    const synthesized = buildStandaloneHtml({
+      title: "Synthetic",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: '<div x-data="{}">Hello</div>',
+        },
+      ],
+      runtimeLibraries,
+    });
+    expect(synthesized).toContain("window.tailwindBundled = true;");
+    expect(synthesized).toContain("window.alpineBundled = true;");
+    expect(synthesized).not.toContain("cdn.jsdelivr.net");
+    const existing = buildStandaloneHtml({
+      title: "Existing",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content:
+            '<html><head><script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script></head><body>Hi</body></html>',
+        },
+      ],
+      runtimeLibraries,
+    });
+    expect(existing).toContain("window.tailwindBundled = true;");
+    expect(existing).toContain("window.alpineBundled = true;");
+    expect(existing).not.toContain("cdn.jsdelivr.net");
+  });
+
   it("escapes closing style tags when bundling CSS into standalone HTML", () => {
     const html = buildStandaloneHtml({
       title: "Export",

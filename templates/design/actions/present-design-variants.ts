@@ -14,8 +14,15 @@ import { z } from "zod";
 import "../server/db/index.js";
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import {
+  bindNativeTextureGrantsInSourceTransaction,
+  preflightNativeTextureGrants,
+} from "../server/lib/design-native-texture-bindings.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
-import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import {
+  dbExecForDrizzleTransaction,
+  withDesignSourceMutationTransaction,
+} from "../server/source-workspace.js";
 import { explicitCanvasDimensionsFromPrompt } from "../shared/canvas-dimensions.js";
 import {
   mergeCanvasFramePlacements,
@@ -954,6 +961,12 @@ export default defineAction({
               )
             : initialSize;
           const content = annotateScreenHtmlForPersist(rawContent, "html");
+          const textureGrants = await preflightNativeTextureGrants({
+            designId,
+            fileId,
+            fileType: "html",
+            content,
+          });
 
           await tx.insert(schema.designFiles).values({
             id: fileId,
@@ -964,6 +977,11 @@ export default defineAction({
             createdAt: now,
             updatedAt: now,
           });
+          await bindNativeTextureGrantsInSourceTransaction(
+            dbExecForDrizzleTransaction(tx),
+            { designId, fileId },
+            textureGrants,
+          );
           usedFilenames.add(filename);
           screenContents.set(fileId, content);
 

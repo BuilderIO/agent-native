@@ -192,6 +192,7 @@ export interface MultiScreenCanvasProps {
   directlyHoveredScreenId?: string | null;
   previewDeviceFrame?: DeviceFrameType;
   activeTool?: MultiScreenCanvasTool;
+  nativeApprovalsEnabled?: boolean;
   reviewResourceId?: string;
   reviewPinMode?: boolean;
   reviewCommentsHidden?: boolean;

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   alphaToOpacity,
   parseCssColor,
@@ -25,10 +26,9 @@ import {
   useRef,
   useState,
   type ElementType,
-  type KeyboardEvent,
-  type PointerEvent,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
 import {
@@ -52,7 +52,32 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+  ColorTrack,
+  beginEyedropperPick,
+  hasEyeDropperSupport,
+  SaturationBrightnessField,
+  endPointerGesture,
+  hsvToRgba,
+  rgbaToHsv,
+  startPointerGesture,
+  POINTER_GESTURE_IDLE,
+  type PointerGestureState,
+  type HsvaColor,
+} from "./DesignColorControls";
+export {
+  beginEyedropperPick,
+  hasEyeDropperSupport,
+  endPointerGesture,
+  hsvToRgba,
+  rgbaToHsv,
+  startPointerGesture,
+  POINTER_GESTURE_IDLE,
+  type PointerGestureState,
+} from "./DesignColorControls";
+
+import {
   GlslShaderPanel,
+  useScreenGlslShaders,
   type GlslShaderPanelContext,
 } from "./GlslShaderPanel";
 import {
@@ -185,13 +210,6 @@ export interface DesignColorPickerProps {
   disabled?: boolean;
   className?: string;
   trigger?: ReactNode;
-}
-
-interface HsvaColor {
-  h: number;
-  s: number;
-  v: number;
-  a: number;
 }
 
 const FALLBACK_COLOR: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
@@ -417,27 +435,55 @@ const BLEND_MODE_OPTIONS = [
   { value: "luminosity", label: "Luminosity" },
 ] as const;
 
-type EyeDropperCtor = new () => { open: () => Promise<{ sRGBHex: string }> };
-
-export function hasEyeDropperSupport(): boolean {
-  return typeof window !== "undefined" && "EyeDropper" in window;
-}
-
-export async function beginEyedropperPick(): Promise<string | null> {
-  const EyeDropper = (window as unknown as { EyeDropper?: EyeDropperCtor })
-    .EyeDropper;
-  if (!EyeDropper) return null;
-  try {
-    const result = await new EyeDropper().open();
-    return result.sRGBHex ?? null;
-  } catch {
-    // Browser cancels (Escape / click-away) reject the promise — treat as a
-    // no-op pick rather than an error.
-    return null;
+export function DesignColorPicker(props: DesignColorPickerProps) {
+  const context = props.glslShaderContext;
+  if (context?.nodeId) {
+    return <ShaderAwareColorPicker {...props} context={context} />;
   }
+  return <DesignColorPickerInner {...props} hasPersistedShaderFill={false} />;
 }
 
-export function DesignColorPicker({
+function ShaderAwareColorPicker({
+  context,
+  ...props
+}: DesignColorPickerProps & { context: GlslShaderPanelContext }) {
+  const shaderScreen = useScreenGlslShaders(context);
+  const selectedNodeIds = context.nodeIds?.length
+    ? context.nodeIds
+    : [context.nodeId];
+  const nativeFillInstances = selectedNodeIds.map((nodeId) =>
+    shaderScreen.nativeEffects.document?.instances.find(
+      (instance) => instance.nodeId === nodeId && instance.placement === "fill",
+    ),
+  );
+  const nativeFillTriggerOpacity = nativeFillInstances[0]
+    ? nativeFillInstances.every(
+        (instance) => instance?.opacity === nativeFillInstances[0]?.opacity,
+      )
+      ? Math.round(nativeFillInstances[0].opacity * 100)
+      : "mixed"
+    : null;
+  const hasPersistedShaderFill = Boolean(
+    (!context.nativeOnly &&
+      shaderScreen.mounts.some(
+        (mount) => mount.nodeId === context.nodeId && mount.mode === "fill",
+      )) ||
+    shaderScreen.nativeEffects.document?.instances.some(
+      (instance) =>
+        instance.nodeId === context.nodeId && instance.placement === "fill",
+    ),
+  );
+  return (
+    <DesignColorPickerInner
+      {...props}
+      glslShaderContext={context}
+      hasPersistedShaderFill={hasPersistedShaderFill}
+      nativeFillTriggerOpacity={nativeFillTriggerOpacity}
+    />
+  );
+}
+
+function DesignColorPickerInner({
   value,
   onChange,
   open: controlledOpen,
@@ -463,13 +509,19 @@ export function DesignColorPicker({
   documentColors,
   supportedPaintTypes,
   glslShaderContext,
+  hasPersistedShaderFill,
+  nativeFillTriggerOpacity,
   labels,
   allowDesignHistoryHotkeys = false,
   onDesignHistoryHotkey,
   disabled = false,
   className,
   trigger,
-}: DesignColorPickerProps) {
+}: DesignColorPickerProps & {
+  hasPersistedShaderFill: boolean;
+  nativeFillTriggerOpacity?: number | "mixed" | null;
+}) {
+  const t = useT();
   const copy = { ...DEFAULT_LABELS, ...labels };
   const color = useMemo(
     () => parseCssColorExtended(value) ?? FALLBACK_COLOR,
@@ -542,9 +594,15 @@ export function DesignColorPicker({
   const visiblePaintTypes = PAINT_TYPES.filter((entry) =>
     isPaintTypeSupported(entry.type),
   );
+  useEffect(() => {
+    setLocalPaintType(null);
+    if (open) setView(hasPersistedShaderFill ? "shader" : "picker");
+  }, [open, hasPersistedShaderFill]);
 
   const rawEffectivePaintType: DesignPaintType =
-    localPaintType ?? paintType ?? inferPaintType(value, effectiveOpacity);
+    localPaintType ??
+    (hasPersistedShaderFill ? "shader" : paintType) ??
+    inferPaintType(value, effectiveOpacity);
   const effectivePaintType: DesignPaintType = isPaintTypeSupported(
     rawEffectivePaintType,
   )
@@ -756,6 +814,8 @@ export function DesignColorPicker({
       return;
     }
 
+    setView("picker");
+
     if (onPaintTypeChange) {
       setLocalPaintType(nextType);
       if (onPaintTypeChange(nextType) !== false) return;
@@ -815,6 +875,8 @@ export function DesignColorPicker({
         }
         notifyChangeComplete();
       }
+    } catch {
+      toast.error(t("editPanel.shaders.nativeColorPickFailed"));
     } finally {
       setPicking(false);
     }
@@ -943,6 +1005,71 @@ export function DesignColorPicker({
     );
   }
 
+  const paintTypeTabs = (
+    <>
+      {visiblePaintTypes.length > 1 && (
+        <div className="border-b border-border/70 px-2 pt-2 pb-1.5">
+          {(() => {
+            const columns = Math.min(6, visiblePaintTypes.length);
+            const renderTab = ({
+              type,
+              label,
+              Icon,
+            }: (typeof visiblePaintTypes)[number]) => {
+              const isActive = effectivePaintType === type;
+              return (
+                <Tooltip key={type}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={label}
+                      aria-pressed={isActive}
+                      disabled={disabled}
+                      onClick={() => setPaintType(type)}
+                      className={cn(
+                        "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-[color,background-color,transform] duration-150",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "active:scale-95",
+                        isActive
+                          ? "bg-accent text-accent-foreground ring-1 ring-primary/60"
+                          : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                        disabled && "pointer-events-none opacity-40",
+                      )}
+                    >
+                      <Icon className="size-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="bottom"
+                    className="text-[10px]"
+                    onEscapeKeyDown={closeFromTooltipEscape}
+                  >
+                    {label}
+                  </TooltipContent>
+                </Tooltip>
+              );
+            };
+            return (
+              <div
+                className="grid gap-1"
+                style={{
+                  gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                }}
+              >
+                {visiblePaintTypes.map(renderTab)}
+              </div>
+            );
+          })()}
+          {/* Active-type label — shows which mode is selected */}
+          <p className="mt-1 text-center text-[10px] font-medium text-muted-foreground">
+            {PAINT_TYPES.find((p) => p.type === effectivePaintType)?.label ??
+              effectivePaintType}
+          </p>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className={cn("space-y-1.5", className)}>
       <Popover open={open} onOpenChange={handleOpenChange}>
@@ -1027,7 +1154,13 @@ export function DesignColorPicker({
                       {triggerLabel(effectivePaintType, color)}
                     </span>
                     <span className="tabular-nums text-muted-foreground !text-[11px]">
-                      {effectiveOpacity}%
+                      {effectivePaintType === "shader" &&
+                      nativeFillTriggerOpacity !== null &&
+                      nativeFillTriggerOpacity !== undefined
+                        ? nativeFillTriggerOpacity === "mixed"
+                          ? "—"
+                          : `${nativeFillTriggerOpacity}%`
+                        : `${effectiveOpacity}%`}
                     </span>
                   </button>
                 </PopoverTrigger>
@@ -1065,15 +1198,17 @@ export function DesignColorPicker({
         >
           <div className="rounded-md bg-popover text-popover-foreground">
             {view === "shader" && glslShaderContext ? (
-              <GlslShaderPanel
-                mode="fill"
-                context={glslShaderContext}
-                disabled={disabled}
-                onBack={() => {
-                  setView("picker");
-                  if (effectivePaintType === "shader") setPaintType("solid");
-                }}
-              />
+              <>
+                {paintTypeTabs}
+                <GlslShaderPanel
+                  mode="fill"
+                  context={glslShaderContext}
+                  disabled={disabled}
+                  onBack={() => {
+                    setView("picker");
+                  }}
+                />
+              </>
             ) : (
               <>
                 {/* ── Paint-type icon row (design-editor, full-width tabs) ─── */}
@@ -1084,66 +1219,7 @@ export function DesignColorPicker({
                     write. Each icon is a clearly-hittable 36×32px target with
                     a distinct active accent so the selected mode is
                     immediately obvious. */}
-                {visiblePaintTypes.length > 1 && (
-                  <div className="border-b border-border/70 px-2 pt-2 pb-1.5">
-                    {(() => {
-                      const columns = Math.min(6, visiblePaintTypes.length);
-                      const renderTab = ({
-                        type,
-                        label,
-                        Icon,
-                      }: (typeof visiblePaintTypes)[number]) => {
-                        const isActive = effectivePaintType === type;
-                        return (
-                          <Tooltip key={type}>
-                            <TooltipTrigger asChild>
-                              <button
-                                type="button"
-                                aria-label={label}
-                                aria-pressed={isActive}
-                                disabled={disabled}
-                                onClick={() => setPaintType(type)}
-                                className={cn(
-                                  "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-[color,background-color,transform] duration-150",
-                                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                  "active:scale-95",
-                                  isActive
-                                    ? "bg-accent text-accent-foreground ring-1 ring-primary/60"
-                                    : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                                  disabled && "pointer-events-none opacity-40",
-                                )}
-                              >
-                                <Icon className="size-4" />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent
-                              side="bottom"
-                              className="text-[10px]"
-                              onEscapeKeyDown={closeFromTooltipEscape}
-                            >
-                              {label}
-                            </TooltipContent>
-                          </Tooltip>
-                        );
-                      };
-                      return (
-                        <div
-                          className="grid gap-1"
-                          style={{
-                            gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                          }}
-                        >
-                          {visiblePaintTypes.map(renderTab)}
-                        </div>
-                      );
-                    })()}
-                    {/* Active-type label — shows which mode is selected */}
-                    <p className="mt-1 text-center text-[10px] font-medium text-muted-foreground">
-                      {PAINT_TYPES.find((p) => p.type === effectivePaintType)
-                        ?.label ?? effectivePaintType}
-                    </p>
-                  </div>
-                )}
+                {paintTypeTabs}
 
                 {/* ── Image fill controls ─────────────────────────────────── */}
                 {effectivePaintType === "image" && (
@@ -1552,257 +1628,6 @@ function ColorModelPill({
   );
 }
 
-function SaturationBrightnessField({
-  hsv,
-  label,
-  disabled,
-  onChange,
-  onCommit,
-}: {
-  hsv: HsvaColor;
-  label: string;
-  disabled: boolean;
-  onChange: (color: HsvaColor) => void;
-  onCommit?: () => void;
-}) {
-  const fieldRef = useRef<HTMLDivElement>(null);
-  const draggingRef = useRef<PointerGestureState>(POINTER_GESTURE_IDLE);
-  const hueColor = rgbaToCss(hsvToRgba({ h: hsv.h, s: 100, v: 100, a: 1 }));
-
-  const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
-    const rect = fieldRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const nextSaturation = ((event.clientX - rect.left) / rect.width) * 100;
-    const nextBrightness =
-      100 - ((event.clientY - rect.top) / rect.height) * 100;
-    onChange({
-      ...hsv,
-      s: clamp(nextSaturation, 0, 100),
-      v: clamp(nextBrightness, 0, 100),
-    });
-  };
-
-  const stepWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (disabled) return;
-    const step = event.shiftKey ? 10 : 1;
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      onChange({ ...hsv, s: clamp(hsv.s + step, 0, 100) });
-      onCommit?.();
-    }
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      onChange({ ...hsv, s: clamp(hsv.s - step, 0, 100) });
-      onCommit?.();
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      onChange({ ...hsv, v: clamp(hsv.v + step, 0, 100) });
-      onCommit?.();
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      onChange({ ...hsv, v: clamp(hsv.v - step, 0, 100) });
-      onCommit?.();
-    }
-  };
-
-  return (
-    <div
-      ref={fieldRef}
-      tabIndex={disabled ? -1 : 0}
-      aria-label={label}
-      aria-disabled={disabled}
-      onPointerDown={(event) => {
-        if (disabled) return;
-        event.preventDefault();
-        event.currentTarget.focus();
-        draggingRef.current = startPointerGesture();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        updateFromPointer(event);
-      }}
-      onPointerMove={(event) => {
-        if (!draggingRef.current || disabled) return;
-        updateFromPointer(event);
-      }}
-      onPointerUp={(event) => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-        if (ended.shouldCommit) onCommit?.();
-      }}
-      onPointerCancel={() => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (ended.shouldCommit) onCommit?.();
-      }}
-      onKeyDown={stepWithKeyboard}
-      className={cn(
-        "relative h-48 w-full touch-none cursor-crosshair overflow-hidden outline-none",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        "active:cursor-grabbing",
-        disabled && "cursor-not-allowed opacity-60",
-      )}
-      style={{
-        backgroundImage: `linear-gradient(to top, #000 0%, transparent 100%), linear-gradient(to right, #fff 0%, ${hueColor} 100%)`,
-      }}
-    >
-      {/* Handle: size-4, white ring, consistent foreground shadow */}
-      <span
-        className="pointer-events-none absolute size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_hsl(var(--foreground)/0.6)]"
-        style={{
-          left: `${hsv.s}%`,
-          top: `${100 - hsv.v}%`,
-        }}
-      />
-    </div>
-  );
-}
-
-function ColorTrack({
-  label,
-  value,
-  min,
-  max,
-  disabled,
-  backgroundImage,
-  backgroundColor,
-  backgroundSize,
-  backgroundPosition,
-  onChange,
-  onCommit,
-  onCancel,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  disabled: boolean;
-  backgroundImage: string;
-  backgroundColor?: string;
-  backgroundSize?: string;
-  backgroundPosition?: string;
-  onChange: (value: number) => void;
-  onCancel?: () => void;
-  onCommit?: () => void;
-}) {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const draggingRef = useRef<PointerGestureState>(POINTER_GESTURE_IDLE);
-  const gestureStartValueRef = useRef(value);
-  const percent = ((value - min) / (max - min)) * 100;
-
-  const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
-    const rect = trackRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const next = min + ((event.clientX - rect.left) / rect.width) * (max - min);
-    onChange(clamp(next, min, max));
-  };
-
-  const stepWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (disabled) return;
-    const step = event.shiftKey ? 10 : 1;
-    if (event.key === "ArrowRight" || event.key === "ArrowUp") {
-      event.preventDefault();
-      onChange(clamp(value + step, min, max));
-      onCommit?.();
-    }
-    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
-      event.preventDefault();
-      onChange(clamp(value - step, min, max));
-      onCommit?.();
-    }
-    if (event.key === "Home") {
-      event.preventDefault();
-      onChange(min);
-      onCommit?.();
-    }
-    if (event.key === "End") {
-      event.preventDefault();
-      onChange(max);
-      onCommit?.();
-    }
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (
-      draggingRef.current &&
-      onCancel &&
-      (event.metaKey || event.ctrlKey) &&
-      !event.altKey &&
-      !event.shiftKey &&
-      event.key.toLowerCase() === "z"
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-      draggingRef.current = POINTER_GESTURE_IDLE;
-      onChange(gestureStartValueRef.current);
-      onCancel();
-      return;
-    }
-    stepWithKeyboard(event);
-  };
-
-  return (
-    <div
-      ref={trackRef}
-      role="slider"
-      tabIndex={disabled ? -1 : 0}
-      aria-label={label}
-      aria-valuemin={min}
-      aria-valuemax={max}
-      aria-valuenow={Math.round(value)}
-      aria-disabled={disabled}
-      onKeyDown={handleKeyDown}
-      onPointerDown={(event) => {
-        if (disabled) return;
-        event.preventDefault();
-        event.currentTarget.focus();
-        gestureStartValueRef.current = value;
-        draggingRef.current = startPointerGesture();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        updateFromPointer(event);
-      }}
-      onPointerMove={(event) => {
-        if (!draggingRef.current || disabled) return;
-        updateFromPointer(event);
-      }}
-      onPointerUp={(event) => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-        if (ended.shouldCommit) onCommit?.();
-      }}
-      onPointerCancel={() => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (ended.shouldCommit) onCommit?.();
-      }}
-      className={cn(
-        "relative h-3.5 touch-none cursor-pointer rounded-full border border-border/60 outline-none",
-        "ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        "active:cursor-grabbing",
-        disabled && "cursor-not-allowed opacity-60",
-      )}
-      style={{
-        backgroundImage,
-        backgroundColor,
-        backgroundSize,
-        backgroundPosition,
-      }}
-    >
-      {/* Thumb overhangs the track slightly, matching the design editor */}
-      <span
-        className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_hsl(var(--foreground)/0.6)]"
-        style={{ left: `${clamp(percent, 0, 100)}%` }}
-      />
-    </div>
-  );
-}
-
 function ScrubbyNumberInput({
   "aria-label": ariaLabel,
   value,
@@ -1951,21 +1776,6 @@ function ScrubbyNumberInput({
       }}
     />
   );
-}
-
-export type PointerGestureState = boolean;
-
-export const POINTER_GESTURE_IDLE: PointerGestureState = false;
-
-export function startPointerGesture(): PointerGestureState {
-  return true;
-}
-
-export function endPointerGesture(state: PointerGestureState): {
-  state: PointerGestureState;
-  shouldCommit: boolean;
-} {
-  return { state: POINTER_GESTURE_IDLE, shouldCommit: state };
 }
 
 const SCRUB_DRAG_THRESHOLD_PX = 3;
@@ -2209,65 +2019,9 @@ function alphaTrackBackground(color: RgbaColor): string {
   return `linear-gradient(90deg, rgba(${color.r}, ${color.g}, ${color.b}, 0), rgba(${color.r}, ${color.g}, ${color.b}, 1)), ${CHECKERBOARD_IMAGE}`;
 }
 
-export function rgbaToHsv(color: RgbaColor): HsvaColor {
-  const r = clampFloat(color.r / 255, 0, 1);
-  const g = clampFloat(color.g / 255, 0, 1);
-  const b = clampFloat(color.b / 255, 0, 1);
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const delta = max - min;
-
-  let h = 0;
-  if (delta !== 0) {
-    if (max === r) h = ((g - b) / delta) % 6;
-    else if (max === g) h = (b - r) / delta + 2;
-    else h = (r - g) / delta + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-
-  return {
-    h: Math.round(h),
-    s: max === 0 ? 0 : Math.round((delta / max) * 100),
-    v: Math.round(max * 100),
-    a: color.a,
-  };
-}
-
-export function hsvToRgba(color: HsvaColor): RgbaColor {
-  const h = ((color.h % 360) + 360) % 360;
-  const s = clampFloat(color.s, 0, 100) / 100;
-  const v = clampFloat(color.v, 0, 100) / 100;
-  const chroma = v * s;
-  const x = chroma * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = v - chroma;
-
-  let r = 0,
-    g = 0,
-    b = 0;
-  if (h < 60) [r, g, b] = [chroma, x, 0];
-  else if (h < 120) [r, g, b] = [x, chroma, 0];
-  else if (h < 180) [r, g, b] = [0, chroma, x];
-  else if (h < 240) [r, g, b] = [0, x, chroma];
-  else if (h < 300) [r, g, b] = [x, 0, chroma];
-  else [r, g, b] = [chroma, 0, x];
-
-  return {
-    r: clamp(Math.round((r + m) * 255), 0, 255),
-    g: clamp(Math.round((g + m) * 255), 0, 255),
-    b: clamp(Math.round((b + m) * 255), 0, 255),
-    a: clampFloat(color.a, 0, 1),
-  };
-}
-
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, Math.round(value)));
-}
-
-function clampFloat(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, value));
 }
 
 export function hasHexAlpha(value: string): boolean {

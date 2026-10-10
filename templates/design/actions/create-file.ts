@@ -9,10 +9,17 @@ import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
+  bindNativeTextureGrantsInSourceTransaction,
+  preflightNativeTextureGrants,
+} from "../server/lib/design-native-texture-bindings.js";
+import {
   checkpointSkippedResultField,
   snapshotDesignBeforeAgentEdit,
 } from "../server/lib/design-versions.js";
-import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import {
+  getDesignSourceMutationExec,
+  withDesignSourceMutationTransaction,
+} from "../server/source-workspace.js";
 import {
   mergeCanvasFramePlacements,
   nextFreeCanvasRowY,
@@ -70,6 +77,12 @@ export default defineAction({
       filename,
     });
 
+    const nativeTextureGrants = await preflightNativeTextureGrants({
+      designId,
+      fileId: id,
+      fileType: fileType ?? "html",
+      content: annotatedContent,
+    });
     await withDesignSourceMutationTransaction(designId, async (tx) => {
       const [existing] = await tx
         .select({ id: schema.designFiles.id })
@@ -96,6 +109,12 @@ export default defineAction({
         createdAt: now,
         updatedAt: now,
       });
+
+      await bindNativeTextureGrantsInSourceTransaction(
+        getDesignSourceMutationExec(tx),
+        { designId, fileId: id },
+        nativeTextureGrants,
+      );
 
       await tx
         .update(schema.designs)

@@ -2,6 +2,8 @@ export type {
   FileUploadDeleteInput,
   FileUploadInput,
   FileUploadProvider,
+  FileUploadReadInput,
+  FileUploadReadResult,
   FileUploadResult,
   ResumableUploadSession,
   ResumableChunkResult,
@@ -13,8 +15,10 @@ export {
   getActiveFileUploadProvider,
   getActiveFileUploadProviderForRequest,
   deleteUploadedFile,
+  readUploadedFile,
   uploadFile,
 } from "./registry.js";
+export { FileUploadReadError, type FileUploadReadFailure } from "./read.js";
 export { builderFileUploadProvider } from "./builder.js";
 export { ensureS3FileUploadProvider, s3FileUploadProvider } from "./s3.js";
 export {

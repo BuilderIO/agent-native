@@ -185,7 +185,8 @@ export function runApplyLocalContentUpdate(
         : null,
   });
   const shouldRecordHistory =
-    options.recordHistory !== false && !options.updatedAt;
+    options.recordHistory === true ||
+    (options.recordHistory !== false && !options.updatedAt);
 
   acknowledgeAuthoritativeClipboardMutation({
     fileId: activeFile.id,
@@ -197,6 +198,7 @@ export function runApplyLocalContentUpdate(
     canWriteCollabText(ydoc, isSynced, previousContent);
   const yjsHistoryAvailable = Boolean(
     shouldRecordHistory &&
+    !options.shaderWriteCompletion &&
     viewModeRef.current !== "overview" &&
     writeLiveDoc &&
     undoManagerRef.current,

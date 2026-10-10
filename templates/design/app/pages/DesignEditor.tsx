@@ -116,6 +116,7 @@ import {
   type CodeLayerSource,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
+import { parseCssColor } from "@shared/color-utils";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import {
   componentNodeIdMatches,
@@ -192,6 +193,7 @@ import {
   IconCode,
   IconArchive,
   IconPhoto,
+  IconMovie,
   IconChevronDown,
   IconCheck,
   IconDownload,
@@ -324,6 +326,7 @@ import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import { GenerationStatusCard } from "@/components/design/GenerationStatusCard";
 import {
   beginEyedropperPick,
+  DesignColorPicker,
   hasEyeDropperSupport,
   type ExportSettingsValue,
 } from "@/components/design/inspector";
@@ -759,6 +762,7 @@ import {
 } from "./design-editor/commands/linked-component-mutation";
 import { resolveLinkedComponentSelection } from "./design-editor/commands/linked-component-structure";
 import { runModeChange } from "./design-editor/commands/mode-change";
+import { resolveNativeHybridTarget } from "./design-editor/commands/native-hybrid-target";
 import { runNudgeSelection } from "./design-editor/commands/nudge-selection";
 import {
   beginOptimisticBreakpointSetPatch,
@@ -803,7 +807,9 @@ import {
 import { runRecordPendingLiveTextEdit } from "./design-editor/commands/record-pending-live-text-edit";
 import { runRecordPendingVisualStyleEdit } from "./design-editor/commands/record-pending-visual-style-edit";
 import { runRedo } from "./design-editor/commands/redo";
+import { runRenderNativeMp4Blob } from "./design-editor/commands/render-native-mp4-blob";
 import {
+  resolvePngSourceFileId,
   resolveSelectedScreensExportBounds,
   runRenderPngBlob,
 } from "./design-editor/commands/render-png-blob";
@@ -1055,6 +1061,17 @@ import {
   motionTimelineFingerprint,
 } from "./design-editor/motion-state";
 import { NativeExportRenderError } from "./design-editor/native-export-render";
+import { runNativeLocalExportDownload } from "./design-editor/native-local-export-download";
+import {
+  DEFAULT_NATIVE_VIDEO_SETTINGS,
+  NativeSceneExportError,
+  nativeVideoFrameCount,
+  renderSelectedNativeCodePackage,
+  renderSelectedNativeHybridPdf,
+  renderSelectedNativeHybridSvg,
+  renderSelectedNativeStandaloneHtml,
+  type NativeVideoSettings,
+} from "./design-editor/native-scene-export-client";
 import {
   clampOverviewDisplayZoom,
   clampZoom,
@@ -1147,6 +1164,7 @@ import {
   findInteractDevicePreset,
   INTERACT_CUSTOM_DEVICE_NAME,
 } from "./design-editor/responsive-interact";
+import { RetainedNativeExportLink } from "./design-editor/RetainedNativeExportLink";
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
@@ -1212,6 +1230,15 @@ import {
   SHOW_DESIGN_CODE_LEFT_PANEL,
   SHOW_DESIGN_SECONDARY_LEFT_PANELS,
 } from "./design-editor/types";
+import {
+  NativeLocalExportClientError,
+  useNativeLocalExportRequests,
+  type NativeLocalExportHandler,
+} from "./design-editor/use-native-local-export-requests";
+import { useNativeSceneExportAbort } from "./design-editor/use-native-scene-export-abort";
+import { useNativeShaderDraftForeground } from "./design-editor/use-native-shader-draft-foreground";
+import { useNativeShaderValidationRequests } from "./design-editor/use-native-shader-validation-requests";
+import { useRetainedNativeExport } from "./design-editor/use-retained-native-export";
 import { useViewerPresence } from "./design-editor/use-viewer-presence";
 import {
   VisualEditWebMcp,
@@ -2702,6 +2729,7 @@ function DesignEditor() {
     nodeId?: string;
     css: string;
   } | null>(null);
+  const [nativeShaderPickerRequest, setNativeShaderPickerRequest] = useState(0);
   const shaderFillPreviewActiveRef = useRef(false);
   shaderFillPreviewActiveRef.current = shaderFillPreview !== null;
   const clearShaderFillPreview = useCallback(() => {
@@ -3590,6 +3618,24 @@ function DesignEditor() {
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
   const [pngExporting, setPngExporting] = useState(false);
+  const [mp4Exporting, setMp4Exporting] = useState(false);
+  const [mp4Progress, setMp4Progress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
+  const mp4ExportingRef = useRef(false);
+  const mp4AbortRef = useNativeSceneExportAbort(id);
+  const rasterAbortRef = useNativeSceneExportAbort(id);
+  const {
+    result: retainedNativeExport,
+    download: triggerRetainedNativeDownload,
+  } = useRetainedNativeExport(id, (error) => {
+    console.error("Local native export evidence handoff failed:", error);
+    toast.error(t("designEditor.toasts.localNativeEvidenceFailed"));
+  });
+  const nativeLocalExportFormatRef = useRef<
+    Parameters<typeof triggerRetainedNativeDownload>[2] | null
+  >(null);
   const [exportPreviewScreenId, setExportPreviewScreenId] = useState<
     string | null
   >(null);
@@ -4474,6 +4520,18 @@ function DesignEditor() {
 
   const [shareExportFormat, setShareExportFormat] =
     useState<ShareExportFormat>("html");
+  const [nativeVideoSettings, setNativeVideoSettings] =
+    useState<NativeVideoSettings>(DEFAULT_NATIVE_VIDEO_SETTINGS);
+  const nativeVideoPreview = useMemo(() => {
+    try {
+      return {
+        valid: true as const,
+        frameCount: nativeVideoFrameCount(nativeVideoSettings),
+      };
+    } catch (error) {
+      return { valid: false as const, error };
+    }
+  }, [nativeVideoSettings]);
   const [codingHandoffResult, setCodingHandoffResult] =
     useState<CodingHandoffResult | null>(null);
   const [codingHandoffError, setCodingHandoffError] = useState<string | null>(
@@ -11856,6 +11914,10 @@ function DesignEditor() {
           }),
         );
       },
+      onOpenNativeShaderFill: () => {
+        setActiveInspectorTab("design");
+        setNativeShaderPickerRequest((current) => current + 1);
+      },
       onAssetInserted: handleAssetInserted,
     }),
     [
@@ -12416,6 +12478,7 @@ function DesignEditor() {
         runtimeApplied?: boolean;
         elementInfo?: ElementInfo;
         originalStyles?: Record<string, string>;
+        fillStyleIntent?: StyleChangeMeta["fillStyleIntent"];
         preserveSelection?: boolean;
         routePath?: string;
         pendingUndoGestureId?: string;
@@ -13101,6 +13164,7 @@ function DesignEditor() {
         preserveSelection?: boolean;
         routePath?: string;
         runtimeApplied?: boolean;
+        fillStyleIntent?: StyleChangeMeta["fillStyleIntent"];
       },
     ) => {
       if (!activeFile?.id) return;
@@ -13128,6 +13192,7 @@ function DesignEditor() {
       const affectsEveryRow = gestureTarget !== selector;
       commitVisualStyles(gestureTarget, styles, {
         runtimeApplied: metadata?.runtimeApplied ?? !affectsEveryRow,
+        fillStyleIntent: metadata?.fillStyleIntent,
         elementInfo,
         originalStyles: metadata?.originalStyles,
         preserveSelection: metadata?.preserveSelection,
@@ -13501,6 +13566,7 @@ function DesignEditor() {
         preserveSelection?: boolean;
         routePath?: string;
         runtimeApplied?: boolean;
+        fillStyleIntent?: StyleChangeMeta["fillStyleIntent"];
         relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       },
     ) =>
@@ -13658,6 +13724,7 @@ function DesignEditor() {
       handleScreenVisualStyleChange(screenId, selector, styles, elementInfo, {
         phase: metadata?.phase === "commit" ? "commit" : undefined,
         runtimeApplied: true,
+        fillStyleIntent: metadata?.fillStyleIntent,
         ...(relativeOperations ? { relativeOperations } : {}),
         routePath:
           metadata?.routePath ?? liveRoutePathsByScreenIdRef.current[screenId],
@@ -19695,12 +19762,16 @@ function DesignEditor() {
     [design?.title],
   );
 
-  const handleDownloadHtml = useCallback(() => {
+  const handleDownloadLegacyHtml = useCallback(() => {
     if (!id) return;
     exportHtmlMutation.mutate({ id } as any, {
       onSuccess: (result: any) => {
         if (typeof result?.html !== "string") {
           toast.error(t("designEditor.toasts.htmlCreateError"));
+          return;
+        }
+        if (result.nativeStaticFallback === "not-captured") {
+          toast.error(t("designEditor.toasts.htmlExportError"));
           return;
         }
         triggerBlobDownload(
@@ -19869,6 +19940,12 @@ function DesignEditor() {
       }
 
       if (!iframe) throw new PngCaptureError("no-preview");
+      const sourceFileId = resolvePngSourceFileId({
+        requestedScreenId,
+        iframe,
+        boardFileId,
+        activeFileId: activeFile?.id,
+      });
 
       let doc: Document | null = null;
       try {
@@ -19899,6 +19976,7 @@ function DesignEditor() {
               cropSelection,
               doc: null,
               iframe,
+              sourceFileId,
               snapshotSource,
               snapshotWidth: screen?.width ?? iframe.clientWidth,
               snapshotHeight: screen?.height ?? iframe.clientHeight,
@@ -19912,7 +19990,7 @@ function DesignEditor() {
         throw new PngCaptureError("no-preview");
       }
 
-      return { cropSelection, doc, iframe };
+      return { cropSelection, doc, iframe, sourceFileId };
     },
     [
       activeCanvasSourceType,
@@ -19963,13 +20041,16 @@ function DesignEditor() {
     async (arg0: {
       scope: PngCaptureScope;
       settings?: Partial<ExportSettingsValue>;
-      format?: "png" | "jpg" | "webp";
+      format?: "png" | "jpg" | "webp" | "avif";
+      signal?: AbortSignal;
     }): Promise<Blob> =>
       runRenderPngBlob(
         {
           activeCanvasSourceType,
+          boardFileId,
           canEditDesign,
           canvasFrameGeometryById: exportCanvasFrameGeometryById,
+          designId: id,
           overviewScreens,
           releaseScreenFromExport,
           resolvePngCaptureTarget,
@@ -19980,7 +20061,9 @@ function DesignEditor() {
       ),
     [
       activeCanvasSourceType,
+      boardFileId,
       canEditDesign,
+      id,
       exportCanvasFrameGeometryById,
       overviewScreens,
       prepareSelectedScreenForExport,
@@ -20021,6 +20104,13 @@ function DesignEditor() {
         return;
       }
       console.error(`${format.toUpperCase()} capture failed:`, error);
+      if (
+        error instanceof NativeSceneExportError &&
+        error.code === "format-unavailable"
+      ) {
+        toast.error(t("designEditor.toasts.formatCapabilityUnavailable"));
+        return;
+      }
       const exportErrorToastKeys = {
         export_too_large: "designEditor.toasts.exportTooLarge",
         export_resources_unavailable:
@@ -20031,7 +20121,15 @@ function DesignEditor() {
           "designEditor.toasts.exportChromiumUnavailable",
       } as const;
       const errorCode =
-        error instanceof NativeExportRenderError ? error.code : undefined;
+        error instanceof NativeExportRenderError
+          ? error.code
+          : error instanceof NativeSceneExportError
+            ? error.code === "frame-too-large"
+              ? "export_too_large"
+              : error.code === "export-timeout"
+                ? "export_render_timeout"
+                : "export_resources_unavailable"
+            : undefined;
       const errorKey =
         errorCode && errorCode in exportErrorToastKeys
           ? exportErrorToastKeys[errorCode as keyof typeof exportErrorToastKeys]
@@ -20046,23 +20144,42 @@ function DesignEditor() {
   const handleDownloadPng = useCallback(
     async (
       settings?: Partial<ExportSettingsValue>,
-      format: "png" | "jpg" | "webp" = "png",
+      format: "png" | "jpg" | "webp" | "avif" = "png",
       scope: PngCaptureScope = "document",
     ) => {
-      if (pngExportingRef.current) return;
+      if (pngExportingRef.current || mp4ExportingRef.current) {
+        toast.error(t("designEditor.toasts.exportBusy"));
+        return;
+      }
       pngExportingRef.current = true;
       setPngExporting(true);
+      const controller = new AbortController();
+      rasterAbortRef.current = controller;
       try {
         const blob = await renderPngBlob({
           scope,
           settings,
           format,
+          signal: controller.signal,
         });
-        triggerBlobDownload(blob, fallbackExportName(format, settings?.suffix));
-        toast.success(t("designEditor.toasts.pngDownloaded"));
+        if (controller.signal.aborted)
+          throw new NativeSceneExportError(
+            "export-canceled",
+            "Image export was canceled before download.",
+          );
+        const filename = fallbackExportName(format, settings?.suffix);
+        triggerRetainedNativeDownload(blob, filename, format);
+        toast.success(t("designEditor.toasts.imageDownloaded"));
       } catch (error) {
-        showRasterCaptureError(error);
+        if (
+          controller.signal.aborted &&
+          controller.signal.reason?.code !== "export-timeout"
+        )
+          toast.info(t("designEditor.toasts.localExportCanceled"));
+        else showRasterCaptureError(error);
       } finally {
+        if (rasterAbortRef.current === controller)
+          rasterAbortRef.current = null;
         pngExportingRef.current = false;
         setPngExporting(false);
       }
@@ -20070,18 +20187,338 @@ function DesignEditor() {
     [
       fallbackExportName,
       renderPngBlob,
+      rasterAbortRef,
       showRasterCaptureError,
       t,
-      triggerBlobDownload,
+      triggerRetainedNativeDownload,
     ],
   );
+
+  const cancelRasterExport = useCallback(() => {
+    rasterAbortRef.current?.abort(
+      new NativeSceneExportError("export-canceled", "Image export canceled."),
+    );
+  }, [rasterAbortRef]);
+
+  const cancelMp4Export = useCallback(() => {
+    mp4AbortRef.current?.abort();
+  }, []);
+
+  const handleDownloadMp4 = useCallback(
+    async (
+      settingsOverride?: Partial<NativeVideoSettings>,
+      scope: PngCaptureScope = "document",
+    ) => {
+      if (mp4ExportingRef.current || pngExportingRef.current) {
+        toast.error(t("designEditor.toasts.exportBusy"));
+        return;
+      }
+      const settings = { ...nativeVideoSettings, ...settingsOverride };
+      const controller = new AbortController();
+      mp4AbortRef.current = controller;
+      mp4ExportingRef.current = true;
+      pngExportingRef.current = true;
+      setMp4Exporting(true);
+      try {
+        const total = nativeVideoFrameCount(settings);
+        setMp4Progress({ completed: 0, total });
+        const blob = await runRenderNativeMp4Blob({
+          designId: id,
+          boardFileId,
+          canvasFrameGeometryById: exportCanvasFrameGeometryById,
+          overviewScreens,
+          selectedScreenIds:
+            viewMode === "overview" ? overviewSelectedScreenIds : [],
+          viewMode,
+          scope,
+          resolvePngCaptureTarget,
+          settings,
+          signal: controller.signal,
+          onProgress: (completed, frameCount) => {
+            if (completed % 6 === 0 || completed === frameCount)
+              setMp4Progress({ completed, total: frameCount });
+          },
+        });
+        if (controller.signal.aborted)
+          throw new NativeSceneExportError(
+            "video-unavailable",
+            "Native video export was canceled before download.",
+          );
+        triggerRetainedNativeDownload(blob, fallbackExportName("mp4"), "mp4");
+        toast.success(t("designEditor.toasts.mp4Downloaded"));
+      } catch (error) {
+        if (controller.signal.aborted) {
+          toast.info(t("designEditor.toasts.mp4Canceled"));
+        } else {
+          console.error("MP4 export failed:", error);
+          toast.error(t("designEditor.toasts.mp4ExportError"));
+        }
+      } finally {
+        if (mp4AbortRef.current === controller) mp4AbortRef.current = null;
+        mp4ExportingRef.current = false;
+        pngExportingRef.current = false;
+        setMp4Exporting(false);
+      }
+    },
+    [
+      boardFileId,
+      exportCanvasFrameGeometryById,
+      fallbackExportName,
+      id,
+      nativeVideoSettings,
+      overviewScreens,
+      overviewSelectedScreenIds,
+      resolvePngCaptureTarget,
+      t,
+      triggerRetainedNativeDownload,
+      viewMode,
+    ],
+  );
+
+  const handleNativeLocalExport = useCallback<NativeLocalExportHandler>(
+    async (request, leaseSignal) => {
+      if (pngExportingRef.current || mp4ExportingRef.current)
+        throw new NativeLocalExportClientError(
+          "client-unavailable",
+          "Another export is already rendering in this editor.",
+        );
+      const settings =
+        request.export.format === "mp4" ? request.export.settings : null;
+      const isMp4 = settings !== null;
+      const total = settings ? nativeVideoFrameCount(settings) : 0;
+      const controller = new AbortController();
+      const abort = () => controller.abort(leaseSignal.reason);
+      leaseSignal.addEventListener("abort", abort, { once: true });
+      if (leaseSignal.aborted) abort();
+      nativeLocalExportFormatRef.current = request.export.format;
+      pngExportingRef.current = true;
+      if (isMp4) {
+        mp4ExportingRef.current = true;
+        mp4AbortRef.current = controller;
+        setMp4Exporting(true);
+        setMp4Progress({ completed: 0, total });
+      } else {
+        rasterAbortRef.current = controller;
+        setPngExporting(true);
+      }
+      let downloadTriggered = false;
+      try {
+        await runNativeLocalExportDownload({
+          request,
+          signal: controller.signal,
+          download: (blob, extension) => {
+            const filename = fallbackExportName(extension);
+            triggerRetainedNativeDownload(blob, filename, extension);
+          },
+          onProgress: (completed, frameCount) => {
+            if (completed % 6 === 0 || completed === frameCount)
+              setMp4Progress({ completed, total: frameCount });
+          },
+        });
+        downloadTriggered = true;
+      } finally {
+        leaseSignal.removeEventListener("abort", abort);
+        if (mp4AbortRef.current === controller) mp4AbortRef.current = null;
+        if (rasterAbortRef.current === controller)
+          rasterAbortRef.current = null;
+        mp4ExportingRef.current = false;
+        pngExportingRef.current = false;
+        setMp4Exporting(false);
+        setPngExporting(false);
+        if (downloadTriggered) nativeLocalExportFormatRef.current = null;
+      }
+    },
+    [fallbackExportName, rasterAbortRef, triggerRetainedNativeDownload],
+  );
+
+  const handleNativeLocalExportError = useCallback(
+    (error: unknown) => {
+      const format = nativeLocalExportFormatRef.current;
+      nativeLocalExportFormatRef.current = null;
+      console.error("Local native export failed:", error);
+      if (
+        error instanceof NativeLocalExportClientError &&
+        error.code === "canceled"
+      ) {
+        toast.info(
+          t(
+            format === "mp4"
+              ? "designEditor.toasts.mp4Canceled"
+              : "designEditor.toasts.localExportCanceled",
+          ),
+        );
+        return;
+      }
+      toast.error(
+        t(
+          format === "mp4"
+            ? "designEditor.toasts.mp4ExportError"
+            : format === "png"
+              ? "designEditor.toasts.pngExportError"
+              : "designEditor.toasts.localExportError",
+        ),
+      );
+    },
+    [t],
+  );
+
+  useNativeLocalExportRequests({
+    designId: id,
+    enabled: Boolean(id),
+    onExport: handleNativeLocalExport,
+    onError: handleNativeLocalExportError,
+  });
+
+  useNativeShaderValidationRequests({
+    designId: id,
+    enabled: Boolean(id),
+    onError: (error) => {
+      console.error("Foreground native GPU validation request failed:", error);
+      toast.error(t("designEditor.toasts.nativeValidationRequestFailed"));
+    },
+  });
+
+  useNativeShaderDraftForeground({
+    designId: id,
+    enabled: Boolean(id),
+    onError: (error) => {
+      console.error("Foreground native draft preview failed:", error);
+      toast.error(t("designEditor.toasts.nativeDraftRequestFailed"));
+    },
+  });
+
+  const resolveNativeVectorTarget = useCallback(
+    (scope: PngCaptureScope, settings?: Partial<ExportSettingsValue>) => {
+      if (activeCanvasSourceType !== "inline") return Promise.resolve(null);
+      return resolveNativeHybridTarget({
+        boardFileId,
+        canvasFrameGeometryById: exportCanvasFrameGeometryById,
+        designId: id,
+        overviewScreens,
+        resolvePngCaptureTarget,
+        selectedScreenIds:
+          viewMode === "overview" ? overviewSelectedScreenIds : [],
+        viewMode,
+        scope,
+        settings,
+      });
+    },
+    [
+      activeCanvasSourceType,
+      boardFileId,
+      exportCanvasFrameGeometryById,
+      id,
+      overviewScreens,
+      overviewSelectedScreenIds,
+      resolvePngCaptureTarget,
+      viewMode,
+    ],
+  );
+
+  const handleDownloadHtml = useCallback(async () => {
+    let nativeTarget: Awaited<ReturnType<typeof resolveNativeVectorTarget>>;
+    try {
+      nativeTarget = await resolveNativeVectorTarget("document", { scale: 1 });
+    } catch (error) {
+      console.error("Native HTML source selection failed:", error);
+      toast.error(t("designEditor.toasts.htmlExportError"));
+      return;
+    }
+    if (!nativeTarget) {
+      handleDownloadLegacyHtml();
+      return;
+    }
+    if (pngExportingRef.current || mp4ExportingRef.current) {
+      toast.error(t("designEditor.toasts.exportBusy"));
+      return;
+    }
+    const controller = new AbortController();
+    rasterAbortRef.current = controller;
+    pngExportingRef.current = true;
+    setPngExporting(true);
+    try {
+      const blob = await renderSelectedNativeStandaloneHtml({
+        ...nativeTarget,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) throw controller.signal.reason;
+      triggerRetainedNativeDownload(blob, fallbackExportName("html"), "html");
+      toast.success(t("designEditor.toasts.htmlDownloadStarted"));
+    } catch (error) {
+      if (controller.signal.aborted)
+        toast.info(t("designEditor.toasts.localExportCanceled"));
+      else {
+        console.error("Native standalone HTML export failed:", error);
+        toast.error(t("designEditor.toasts.htmlExportError"));
+      }
+    } finally {
+      if (rasterAbortRef.current === controller) rasterAbortRef.current = null;
+      pngExportingRef.current = false;
+      setPngExporting(false);
+      releaseScreenFromExport?.();
+    }
+  }, [
+    fallbackExportName,
+    handleDownloadLegacyHtml,
+    rasterAbortRef,
+    releaseScreenFromExport,
+    resolveNativeVectorTarget,
+    t,
+    triggerRetainedNativeDownload,
+  ]);
 
   const handleDownloadPdf = useCallback(
     async (
       settings?: Partial<ExportSettingsValue>,
       scope: PngCaptureScope = "document",
-    ) =>
-      runDownloadPdf(
+    ) => {
+      let nativeTarget: Awaited<ReturnType<typeof resolveNativeVectorTarget>>;
+      try {
+        nativeTarget = await resolveNativeVectorTarget(scope, settings);
+      } catch (error) {
+        console.error("Native PDF source selection failed:", error);
+        releaseScreenFromExport?.();
+        toast.error(t("designEditor.toasts.pdfExportError"));
+        return;
+      }
+      if (nativeTarget) {
+        if (pngExportingRef.current || mp4ExportingRef.current) {
+          toast.error(t("designEditor.toasts.exportBusy"));
+          return;
+        }
+        const controller = new AbortController();
+        rasterAbortRef.current = controller;
+        pngExportingRef.current = true;
+        setPngExporting(true);
+        try {
+          const blob = await renderSelectedNativeHybridPdf({
+            ...nativeTarget,
+            signal: controller.signal,
+          });
+          if (controller.signal.aborted) throw controller.signal.reason;
+          triggerRetainedNativeDownload(
+            blob,
+            fallbackExportName("pdf", settings?.suffix),
+            "pdf",
+          );
+          toast.success(t("designEditor.toasts.pdfDownloaded"));
+        } catch (error) {
+          if (controller.signal.aborted)
+            toast.info(t("designEditor.toasts.localExportCanceled"));
+          else {
+            console.error("Native PDF export failed:", error);
+            toast.error(t("designEditor.toasts.pdfExportError"));
+          }
+        } finally {
+          if (rasterAbortRef.current === controller)
+            rasterAbortRef.current = null;
+          pngExportingRef.current = false;
+          setPngExporting(false);
+          releaseScreenFromExport?.();
+        }
+        return;
+      }
+      return runDownloadPdf(
         {
           fallbackExportName,
           pngExportingRef,
@@ -20096,15 +20533,19 @@ function DesignEditor() {
         },
         settings,
         scope,
-      ),
+      );
+    },
     [
       fallbackExportName,
+      rasterAbortRef,
       renderPngBlob,
+      releaseScreenFromExport,
+      resolveNativeVectorTarget,
       resolveSelectedScreensBounds,
       resolvePngCaptureTarget,
-      releaseScreenFromExport,
       t,
       triggerBlobDownload,
+      triggerRetainedNativeDownload,
     ],
   );
 
@@ -20141,7 +20582,10 @@ function DesignEditor() {
   );
 
   const handleCopyAsPng = useCallback(async () => {
-    if (pngExportingRef.current) return;
+    if (pngExportingRef.current || mp4ExportingRef.current) {
+      toast.error(t("designEditor.toasts.exportBusy"));
+      return;
+    }
     if (!canCopyPngToClipboard()) {
       toast.error(t("designEditor.toasts.pngClipboardUnsupported"));
       return;
@@ -20328,7 +20772,56 @@ function DesignEditor() {
   ]);
 
   const handleDownloadSvg = useCallback(
-    async (settings?: Partial<ExportSettingsValue>) => {
+    async (
+      settings?: Partial<ExportSettingsValue>,
+      scope: PngCaptureScope = "document",
+    ) => {
+      let nativeTarget: Awaited<ReturnType<typeof resolveNativeVectorTarget>>;
+      try {
+        nativeTarget = await resolveNativeVectorTarget(scope, settings);
+      } catch (error) {
+        console.error("Native SVG source selection failed:", error);
+        releaseScreenFromExport?.();
+        toast.error(t("designEditor.toasts.svgExportError"));
+        return;
+      }
+      if (nativeTarget) {
+        if (pngExportingRef.current || mp4ExportingRef.current) {
+          toast.error(t("designEditor.toasts.exportBusy"));
+          return;
+        }
+        const controller = new AbortController();
+        rasterAbortRef.current = controller;
+        pngExportingRef.current = true;
+        setSvgExporting(true);
+        try {
+          const blob = await renderSelectedNativeHybridSvg({
+            ...nativeTarget,
+            signal: controller.signal,
+          });
+          if (controller.signal.aborted) throw controller.signal.reason;
+          triggerRetainedNativeDownload(
+            blob,
+            fallbackExportName("svg", settings?.suffix),
+            "svg",
+          );
+          toast.success(t("designEditor.toasts.svgDownloaded"));
+        } catch (error) {
+          if (controller.signal.aborted)
+            toast.info(t("designEditor.toasts.localExportCanceled"));
+          else {
+            console.error("Native SVG export failed:", error);
+            toast.error(t("designEditor.toasts.svgExportError"));
+          }
+        } finally {
+          if (rasterAbortRef.current === controller)
+            rasterAbortRef.current = null;
+          pngExportingRef.current = false;
+          setSvgExporting(false);
+          releaseScreenFromExport?.();
+        }
+        return;
+      }
       const exportScreenId =
         viewMode === "overview" && overviewSelectedScreenIds.length === 1
           ? (overviewSelectedScreenIds[0] ?? activeOverviewScreenId)
@@ -20362,9 +20855,13 @@ function DesignEditor() {
       fallbackExportName,
       overviewScreens,
       overviewSelectedScreenIds,
+      rasterAbortRef,
+      releaseScreenFromExport,
+      resolveNativeVectorTarget,
       selectedElement,
       t,
       triggerBlobDownload,
+      triggerRetainedNativeDownload,
       viewMode,
     ],
   );
@@ -20376,6 +20873,55 @@ function DesignEditor() {
         ? "screens"
         : "document";
 
+  const handleDownloadNativeCode = useCallback(async () => {
+    if (pngExportingRef.current || mp4ExportingRef.current) {
+      toast.error(t("designEditor.toasts.exportBusy"));
+      return;
+    }
+    const controller = new AbortController();
+    rasterAbortRef.current = controller;
+    pngExportingRef.current = true;
+    setPngExporting(true);
+    try {
+      const target = await resolveNativeVectorTarget("document", { scale: 1 });
+      if (!target)
+        throw new NativeSceneExportError(
+          "scene-unreadable",
+          "React code export needs a selected native Design scene.",
+        );
+      const blob = await renderSelectedNativeCodePackage({
+        ...target,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) throw controller.signal.reason;
+      triggerRetainedNativeDownload(
+        blob,
+        fallbackExportName("zip", "react"),
+        "zip",
+      );
+      toast.success(t("designEditor.toasts.reactCodeDownloadStarted"));
+    } catch (error) {
+      if (controller.signal.aborted)
+        toast.info(t("designEditor.toasts.localExportCanceled"));
+      else {
+        console.error("Native React code export failed:", error);
+        toast.error(t("designEditor.toasts.reactCodeExportError"));
+      }
+    } finally {
+      if (rasterAbortRef.current === controller) rasterAbortRef.current = null;
+      pngExportingRef.current = false;
+      setPngExporting(false);
+      releaseScreenFromExport?.();
+    }
+  }, [
+    fallbackExportName,
+    rasterAbortRef,
+    releaseScreenFromExport,
+    resolveNativeVectorTarget,
+    t,
+    triggerRetainedNativeDownload,
+  ]);
+
   const handleRenderExportPreview = useCallback(
     () =>
       renderPngBlob({ scope: inspectorRasterScope, settings: { scale: 1 } }),
@@ -20386,10 +20932,19 @@ function DesignEditor() {
     async (settingsList: ExportSettingsValue[]) => {
       for (const settings of settingsList) {
         if (settings.format === "svg") {
-          await handleDownloadSvg(settings);
+          await handleDownloadSvg(settings, inspectorRasterScope);
         } else if (settings.format === "pdf") {
           await handleDownloadPdf(settings, inspectorRasterScope);
-        } else if (settings.format === "jpg" || settings.format === "webp") {
+        } else if (settings.format === "mp4") {
+          await handleDownloadMp4(
+            { pixelRatio: settings.scale },
+            inspectorRasterScope,
+          );
+        } else if (
+          settings.format === "jpg" ||
+          settings.format === "webp" ||
+          settings.format === "avif"
+        ) {
           await handleDownloadPng(
             settings,
             settings.format,
@@ -20402,6 +20957,7 @@ function DesignEditor() {
     },
     [
       handleDownloadPdf,
+      handleDownloadMp4,
       handleDownloadPng,
       handleDownloadSvg,
       inspectorRasterScope,
@@ -20412,7 +20968,7 @@ function DesignEditor() {
     value: ShareExportFormat;
     title: string;
     extension: string;
-    description: string;
+    description?: string;
     Icon: typeof IconCode;
     disabled: boolean;
     onDownload: () => void;
@@ -20425,8 +20981,10 @@ function DesignEditor() {
         // i18n-ignore share export description
         "One self-contained file that works offline.",
       Icon: IconCode,
-      disabled: !activeFile || exportHtmlMutation.isPending,
-      onDownload: handleDownloadHtml,
+      disabled: !activeFile || exportHtmlMutation.isPending || mp4Exporting,
+      onDownload: pngExporting
+        ? cancelRasterExport
+        : () => void handleDownloadHtml(),
     },
     {
       value: "png",
@@ -20436,8 +20994,23 @@ function DesignEditor() {
         // i18n-ignore share export description
         "Snapshot of the current screen.",
       Icon: IconPhoto,
-      disabled: !activeFile || pngExporting,
-      onDownload: () => void handleDownloadPng(),
+      disabled: !activeFile || mp4Exporting,
+      onDownload: pngExporting
+        ? cancelRasterExport
+        : () => void handleDownloadPng(),
+    },
+    {
+      value: "mp4",
+      title: t("designEditor.downloadMp4"),
+      extension: ".mp4",
+      Icon: IconMovie,
+      disabled:
+        !activeFile ||
+        (pngExporting && !mp4Exporting) ||
+        (!mp4Exporting && !nativeVideoPreview.valid),
+      onDownload: mp4Exporting
+        ? cancelMp4Export
+        : () => void handleDownloadMp4(),
     },
     {
       value: "svg",
@@ -20460,6 +21033,17 @@ function DesignEditor() {
       Icon: IconArchive,
       disabled: !activeFile || exportZipMutation.isPending,
       onDownload: handleDownloadZip,
+    },
+    {
+      value: "react",
+      title: t("designEditor.reactCode"),
+      extension: ".zip",
+      Icon: IconCode,
+      disabled:
+        !activeFile || activeCanvasSourceType !== "inline" || mp4Exporting,
+      onDownload: pngExporting
+        ? cancelRasterExport
+        : () => void handleDownloadNativeCode(),
     },
   ];
   const selectedShareExportOption =
@@ -20509,9 +21093,11 @@ function DesignEditor() {
                     {option.extension}
                   </span>
                 </span>
-                <span className="mt-0.5 block !text-[11px] leading-4 text-muted-foreground">
-                  {option.description}
-                </span>
+                {option.description ? (
+                  <span className="mt-0.5 block !text-[11px] leading-4 text-muted-foreground">
+                    {option.description}
+                  </span>
+                ) : null}
               </span>
               <span
                 aria-hidden
@@ -20528,14 +21114,166 @@ function DesignEditor() {
           );
         })}
       </div>
+      {shareExportFormat === "mp4" ? (
+        <div className="grid grid-cols-2 gap-2 border-t border-[var(--design-editor-panel-divider-color)] pt-3">
+          <label className="space-y-1 text-[11px] text-muted-foreground">
+            <span>{t("designEditor.mp4Duration")}</span>
+            <Input
+              type="number"
+              min={0.1}
+              max={600 / nativeVideoSettings.fps}
+              step={1 / nativeVideoSettings.fps}
+              disabled={mp4Exporting}
+              value={nativeVideoSettings.durationSeconds}
+              onChange={(event) =>
+                setNativeVideoSettings((current) => ({
+                  ...current,
+                  durationSeconds: Number(event.target.value),
+                }))
+              }
+              className="h-8"
+            />
+          </label>
+          <label className="space-y-1 text-[11px] text-muted-foreground">
+            <span>{t("designEditor.mp4StartTime")}</span>
+            <Input
+              type="number"
+              min={0}
+              max={3600 - nativeVideoSettings.durationSeconds}
+              step={0.1}
+              disabled={mp4Exporting}
+              value={nativeVideoSettings.startTimeSeconds}
+              onChange={(event) =>
+                setNativeVideoSettings((current) => ({
+                  ...current,
+                  startTimeSeconds: Number(event.target.value),
+                }))
+              }
+              className="h-8"
+            />
+          </label>
+          <label className="space-y-1 text-[11px] text-muted-foreground">
+            <span>{t("designEditor.mp4FrameRate")}</span>
+            <Select
+              disabled={mp4Exporting}
+              value={String(nativeVideoSettings.fps)}
+              onValueChange={(value) =>
+                setNativeVideoSettings((current) => {
+                  const fps = Number(value) as NativeVideoSettings["fps"];
+                  return {
+                    ...current,
+                    fps,
+                    durationSeconds: Math.min(
+                      current.durationSeconds,
+                      600 / fps,
+                    ),
+                  };
+                })
+              }
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[24, 30, 60].map((fps) => (
+                  <SelectItem key={fps} value={String(fps)}>
+                    {fps} fps
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="space-y-1 text-[11px] text-muted-foreground">
+            <span>{t("designEditor.mp4OutputScale")}</span>
+            <Select
+              disabled={mp4Exporting}
+              value={String(nativeVideoSettings.pixelRatio)}
+              onValueChange={(value) =>
+                setNativeVideoSettings((current) => ({
+                  ...current,
+                  pixelRatio: Number(value),
+                }))
+              }
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[1, 2, 4].map((scale) => (
+                  <SelectItem key={scale} value={String(scale)}>
+                    {scale}×
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="space-y-1 text-[11px] text-muted-foreground">
+            <span>{t("designEditor.mp4Quality")}</span>
+            <Select
+              disabled={mp4Exporting}
+              value={nativeVideoSettings.quality}
+              onValueChange={(value) =>
+                setNativeVideoSettings((current) => ({
+                  ...current,
+                  quality: value as NativeVideoSettings["quality"],
+                }))
+              }
+            >
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(["low", "medium", "high"] as const).map((quality) => (
+                  <SelectItem key={quality} value={quality}>
+                    {t(`designEditor.mp4QualityLevels.${quality}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <div className="space-y-1 text-[11px] text-muted-foreground">
+            <span>{t("designEditor.mp4Matte")}</span>
+            <DesignColorPicker
+              disabled={mp4Exporting}
+              value={`#${[nativeVideoSettings.matte.r, nativeVideoSettings.matte.g, nativeVideoSettings.matte.b].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`}
+              supportedPaintTypes={["solid"]}
+              labels={{ trigger: t("designEditor.mp4Matte") }}
+              onChange={(value) => {
+                const color = parseCssColor(value);
+                if (!color) return;
+                setNativeVideoSettings((current) => ({
+                  ...current,
+                  matte: {
+                    r: Math.round(color.r),
+                    g: Math.round(color.g),
+                    b: Math.round(color.b),
+                  },
+                }));
+              }}
+            />
+          </div>
+          <div
+            aria-live="polite"
+            className="col-span-2 text-[11px] tabular-nums text-muted-foreground"
+          >
+            {mp4Exporting && mp4Progress
+              ? `${t("designEditor.mp4Progress")} ${mp4Progress.completed}/${mp4Progress.total}`
+              : nativeVideoPreview.valid
+                ? `${nativeVideoPreview.frameCount} ${t("designEditor.mp4Frames")}`
+                : t("designEditor.mp4SettingsInvalid")}
+          </div>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--design-editor-panel-divider-color)] pt-3">
         <div className="min-w-0">
           <div className="text-[12px] font-medium text-foreground">
             {selectedShareExportOption.title}
           </div>
-          <div className="!text-[11px] text-muted-foreground">
-            {selectedShareExportOption.description}
-          </div>
+          {selectedShareExportOption.description ? (
+            <div className="!text-[11px] text-muted-foreground">
+              {selectedShareExportOption.description}
+            </div>
+          ) : null}
         </div>
         <Button
           type="button"
@@ -20544,9 +21282,22 @@ function DesignEditor() {
           className="h-8 gap-1.5 rounded-md bg-[var(--design-editor-accent-color)] px-3 text-[12px] text-[var(--design-editor-accent-contrast-color)] shadow-none hover:bg-[var(--design-editor-accent-hover-color)] hover:text-[var(--design-editor-accent-contrast-color)] disabled:bg-muted disabled:text-muted-foreground"
         >
           <IconDownload className="size-3.5" />
-          {"Download" /* i18n-ignore share export action */}
+          {
+            (shareExportFormat === "png" || shareExportFormat === "react") &&
+            pngExporting
+              ? t("designEditor.cancelImage")
+              : shareExportFormat === "mp4" && mp4Exporting
+                ? t("designEditor.cancelMp4")
+                : "Download" /* i18n-ignore share export action */
+          }
         </Button>
       </div>
+      {retainedNativeExport ? (
+        <RetainedNativeExportLink
+          result={retainedNativeExport}
+          label={t("designEditor.downloadAgain")}
+        />
+      ) : null}
     </div>
   );
   const shareSendToTab = (
@@ -24765,6 +25516,7 @@ function DesignEditor() {
 
       return (
         <DesignCanvas
+          nativeApprovalsEnabled={isSignedIn}
           layoutGridStep={layoutGrids[screen.id]?.size ?? 1}
           content={screenContent}
           contentKey={screenContentKey}
@@ -25891,11 +26643,30 @@ function DesignEditor() {
               {t("designEditor.downloadHtml")}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => void handleDownloadPng()}
-              disabled={!activeFile || pngExporting}
+              onClick={() =>
+                pngExporting ? cancelRasterExport() : void handleDownloadPng()
+              }
+              disabled={!activeFile || mp4Exporting}
             >
               <IconPhoto className="mr-2 h-4 w-4" />
-              {t("designEditor.downloadPng")}
+              {pngExporting
+                ? t("designEditor.cancelImage")
+                : t("designEditor.downloadPng")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                mp4Exporting ? cancelMp4Export() : void handleDownloadMp4()
+              }
+              disabled={
+                !activeFile ||
+                (pngExporting && !mp4Exporting) ||
+                (!mp4Exporting && !nativeVideoPreview.valid)
+              }
+            >
+              <IconMovie className="mr-2 h-4 w-4" />
+              {mp4Exporting
+                ? `${t("designEditor.cancelMp4")} ${mp4Progress?.completed ?? 0}/${mp4Progress?.total ?? 0}`
+                : t("designEditor.downloadMp4")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => void handleDownloadSvg()}
@@ -26727,6 +27498,7 @@ function DesignEditor() {
   const routeCodeFilename =
     activeLeftPanel === "code" ? searchParams.get("filename") : null;
   const editPanelProps = {
+    nativeShaderPickerRequest,
     selectedElement,
     textEditingState,
     selectionHidden: activeLayerHidden,
@@ -26859,7 +27631,7 @@ function DesignEditor() {
     breakpointContext,
     onExport: handleInspectorExport,
     onRenderExportPreview: handleRenderExportPreview,
-    exporting: pngExporting || svgExporting,
+    exporting: pngExporting || svgExporting || mp4Exporting,
     designId: id,
     fileId: activeFile?.id,
     boardFileId,
@@ -27915,6 +28687,7 @@ function DesignEditor() {
                         directlyHoveredScreenId={hoveredScreenRootId}
                         previewDeviceFrame={deviceFrame}
                         activeTool={activeTool}
+                        nativeApprovalsEnabled={isSignedIn}
                         reviewResourceId={id}
                         reviewPinMode={pinMode}
                         reviewCommentsHidden={commentsHidden}
@@ -28196,6 +28969,7 @@ function DesignEditor() {
                     <>
                       {/* ── Render: single-screen canvas ── */}
                       <DesignCanvas
+                        nativeApprovalsEnabled={isSignedIn}
                         screenId={activeFile.id}
                         layoutGridStep={activeScreenLayoutGridStep}
                         content={activeContent}

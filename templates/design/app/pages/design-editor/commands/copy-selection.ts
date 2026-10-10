@@ -1,4 +1,5 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
+import { captureNativeEffectsForClone } from "@shared/native-effect-clone";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
@@ -66,15 +67,31 @@ export async function runCopySelection({
   viewModeRef,
 }: CopySelectionArgs) {
   const snapshots = getSelectedLayerSnapshots();
-  const entries = snapshots.map((snapshot) => ({
-    html: preserveClipboardLayerName(snapshot.html, snapshot.node.layerName),
-    rootNodeId: snapshot.rootNodeId,
-    sourceParentNodeId: snapshot.sourceParentNodeId,
-    sourceFileId: snapshot.sourceFileId,
-    portableStyleSnapshot: snapshot.portableStyleSnapshot,
-    styleSnapshotCaptureFailed: snapshot.styleSnapshotCaptureFailed,
-    managedStyleSnapshot: snapshot.managedStyleSnapshot,
-  }));
+  const entries: CanvasLayerClipboardEntry[] = [];
+  for (const snapshot of snapshots) {
+    const html = preserveClipboardLayerName(
+      snapshot.html,
+      snapshot.node.layerName,
+    );
+    const native = captureNativeEffectsForClone(
+      getScreenContent(snapshot.sourceFileId),
+      html,
+    );
+    if (native.errors.length) {
+      toast.error(t("designEditor.toasts.primitiveInsertFailed"));
+      return false;
+    }
+    entries.push({
+      html,
+      rootNodeId: snapshot.rootNodeId,
+      sourceParentNodeId: snapshot.sourceParentNodeId,
+      sourceFileId: snapshot.sourceFileId,
+      portableStyleSnapshot: snapshot.portableStyleSnapshot,
+      styleSnapshotCaptureFailed: snapshot.styleSnapshotCaptureFailed,
+      managedStyleSnapshot: snapshot.managedStyleSnapshot,
+      ...(native.snapshot && { nativeEffectSnapshot: native.snapshot }),
+    });
+  }
   const screens: DesignClipboardPayload["screens"] =
     entries.length === 0 && viewModeRef.current === "overview"
       ? overviewSelectedScreenIds

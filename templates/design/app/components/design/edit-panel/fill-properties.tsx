@@ -15,8 +15,11 @@ import {
   IconLayoutGrid,
   IconMinus,
   IconPlus,
+  IconWaveSine,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+
+import { Popover, PopoverAnchor } from "@/components/ui/popover";
 
 import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
 import {
@@ -25,7 +28,12 @@ import {
   imageFillToBackgroundStyles,
   type DesignPaintType,
 } from "../inspector";
-import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
+import {
+  GlslShaderPanel,
+  useScreenGlslShaders,
+  type GlslShaderPanelContext,
+} from "../inspector/GlslShaderPanel";
+import { InspectorControlPopoverContent } from "../inspector/InspectorControlPopover";
 import type { ElementInfo } from "../types";
 import { selectionColorValues } from "./document-colors";
 import { isTextElement, isVectorShapeElement } from "./element-classification";
@@ -81,6 +89,7 @@ const TEXT_GRADIENT_PAINT_TYPES: DesignPaintType[] = [
 const TEXT_BASE_PAINT_TYPES: DesignPaintType[] = [
   "solid",
   ...TEXT_GRADIENT_PAINT_TYPES,
+  "shader",
 ];
 
 const EXISTING_LAYER_PAINT_TYPES: DesignPaintType[] = [
@@ -155,48 +164,92 @@ export function shouldUseTextFill(
   );
 }
 
-export function FillProperties({
-  element,
-  onStyleChange,
-  onStylesChange,
-  documentColorPalette = [],
-  glslShaderContext,
-  motionKeyframeContext,
-  breakpointOverrideContext,
-  hideAddFill = false,
-  cancelOpacityGestureOnHistoryUndo = false,
-  onAddFill,
-  capturedStyleTargets,
-}: {
+type FillPropertiesProps = {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   documentColorPalette?: string[];
   glslShaderContext?: GlslShaderPanelContext;
+  nativeShaderPickerRequest?: number;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
   hideAddFill?: boolean;
   cancelOpacityGestureOnHistoryUndo?: boolean;
   onAddFill?: () => "base" | "layer" | null;
   capturedStyleTargets?: CapturedStyleTarget[];
-}) {
+};
+
+export function FillProperties(props: FillPropertiesProps) {
+  const context = props.glslShaderContext;
+  return context?.nodeId ? (
+    <ShaderAwareFillProperties {...props} context={context} />
+  ) : (
+    <FillPropertiesInner {...props} />
+  );
+}
+
+function ShaderAwareFillProperties({
+  context,
+  ...props
+}: FillPropertiesProps & { context: GlslShaderPanelContext }) {
+  const screen = useScreenGlslShaders(context);
+  const hasPersistedNativeFill = Boolean(
+    screen.nativeEffects.document?.instances.some(
+      (instance) =>
+        instance.nodeId === context.nodeId && instance.placement === "fill",
+    ),
+  );
+  return (
+    <FillPropertiesInner
+      {...props}
+      glslShaderContext={context}
+      hasPersistedNativeFill={hasPersistedNativeFill}
+    />
+  );
+}
+
+function FillPropertiesInner({
+  element,
+  onStyleChange,
+  onStylesChange,
+  documentColorPalette = [],
+  glslShaderContext,
+  nativeShaderPickerRequest,
+  motionKeyframeContext,
+  breakpointOverrideContext,
+  hideAddFill = false,
+  cancelOpacityGestureOnHistoryUndo = false,
+  onAddFill,
+  capturedStyleTargets,
+  hasPersistedNativeFill = false,
+}: FillPropertiesProps & { hasPersistedNativeFill?: boolean }) {
   const t = useT();
+  const [requestedNativeShaderOpen, setRequestedNativeShaderOpen] =
+    useState(false);
+  useEffect(() => {
+    if (nativeShaderPickerRequest && glslShaderContext?.nodeId) {
+      setRequestedNativeShaderOpen(true);
+    }
+  }, [nativeShaderPickerRequest, glslShaderContext?.nodeId]);
   const commitImageFillPatch = (
     patch: Record<string, string>,
     meta?: Parameters<StyleChangeHandler>[2],
   ) =>
-    commitStylePatch(
-      patch,
-      onStyleChange,
-      onStylesChange,
-      capturedStyleTargets ? { ...meta, capturedStyleTargets } : meta,
-    );
+    commitStylePatch(patch, onStyleChange, onStylesChange, {
+      ...meta,
+      fillStyleIntent: "replace",
+      ...(capturedStyleTargets ? { capturedStyleTargets } : {}),
+    });
   const styles: Record<string, string> = {
     ...element.computedStyles,
     backgroundImage: authoredStyleValue(element, "backgroundImage") ?? "",
   };
   const isTextFillElement = shouldUseTextFill(element, styles);
   const isVectorFillElement = isVectorShapeElement(element);
+  const canOpenNativeFill =
+    Boolean(glslShaderContext?.nodeId) &&
+    !isVectorFillElement &&
+    element.tagName.toLowerCase() !== "img";
   const fillProperty = isTextFillElement
     ? "color"
     : isVectorFillElement
@@ -286,7 +339,10 @@ export function FillProperties({
   );
   const hasBaseFill = isOpenPenPath
     ? hasAuthoredFill
-    : isTextFillElement || colorHasVisibleAlpha(fillValue) || hasAuthoredFill;
+    : isTextFillElement ||
+      hasPersistedNativeFill ||
+      colorHasVisibleAlpha(fillValue) ||
+      hasAuthoredFill;
   const hasVisibleFill = hasBaseFill || hasBackgroundLayer;
   const pendingConversion = pendingConvertedLayerRef.current;
   if (
@@ -324,6 +380,7 @@ export function FillProperties({
       isHidden
         ? fillValue
         : gradientStopWithFillOpacity(authoredFillValue || fillValue, 0),
+      { fillStyleIntent: isHidden ? "show" : "hide" },
     );
   };
 
@@ -380,7 +437,10 @@ export function FillProperties({
     meta?: Parameters<StyleChangeHandler>[2],
   ) => {
     if (!isTextFillElement) {
-      onStyleChange("backgroundImage", backgroundImage, meta);
+      onStyleChange("backgroundImage", backgroundImage, {
+        ...meta,
+        fillStyleIntent: "replace",
+      });
       return;
     }
     const hasGradient = splitCssLayers(backgroundImage).some((layer) =>
@@ -485,6 +545,14 @@ export function FillProperties({
           >
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
+          {canOpenNativeFill ? (
+            <SectionIconButton
+              label={t("editPanel.shaders.fillsTitle")}
+              onClick={() => setRequestedNativeShaderOpen(true)}
+            >
+              <IconWaveSine className="size-3.5" />
+            </SectionIconButton>
+          ) : null}
           {!hideAddFill && (onAddFill || !isTextFillElement || fillIsMixed) ? (
             <SectionIconButton
               label={t("editPanel.labels.addFill")}
@@ -496,6 +564,30 @@ export function FillProperties({
         </>
       }
     >
+      {glslShaderContext && canOpenNativeFill && requestedNativeShaderOpen ? (
+        <Popover
+          open
+          onOpenChange={(open) => setRequestedNativeShaderOpen(open)}
+        >
+          <PopoverAnchor asChild>
+            <span className="block h-0 w-full" />
+          </PopoverAnchor>
+          <InspectorControlPopoverContent
+            title={t("editPanel.shaders.fillsTitle")}
+            icon={<IconWaveSine className="size-3.5" />}
+            onClose={() => setRequestedNativeShaderOpen(false)}
+            bodyClassName="p-0"
+          >
+            <GlslShaderPanel
+              mode="fill"
+              context={glslShaderContext}
+              initialView="browser"
+              presentation="popover"
+              onBack={() => setRequestedNativeShaderOpen(false)}
+            />
+          </InspectorControlPopoverContent>
+        </Popover>
+      ) : null}
       {element.tagName.toLowerCase() === "img" ? (
         <ImageElementFill
           element={element}
@@ -504,11 +596,13 @@ export function FillProperties({
         />
       ) : null}
       {fillIsMixed ? (
-        <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
-          {
-            "Click + to replace mixed content" /* i18n-ignore figma mixed fill hint */
-          }
-        </p>
+        <div className="grid gap-1 px-1.5 py-2">
+          <p className="!text-[11px] text-muted-foreground">
+            {
+              "Click + to replace mixed content" /* i18n-ignore figma mixed fill hint */
+            }
+          </p>
+        </div>
       ) : hasVisibleFill ? (
         <div className="space-y-2">
           {hasBaseFill ? (
@@ -521,7 +615,7 @@ export function FillProperties({
                     onStyleChange(
                       fillProperty,
                       isHidden ? gradientStopWithFillOpacity(v, 0) : v,
-                      meta,
+                      { ...meta, fillStyleIntent: "replace" },
                     )
                   }
                   onChangeCancel={
@@ -573,6 +667,7 @@ export function FillProperties({
                               patch,
                               onStyleChange,
                               onStylesChange,
+                              { fillStyleIntent: "replace" },
                             );
                           }
                   }
@@ -597,9 +692,11 @@ export function FillProperties({
                     fillProperty,
                   ].join(":")}
                   glslShaderContext={
-                    isVectorFillElement || isTextFillElement
+                    isVectorFillElement
                       ? undefined
-                      : glslShaderContext
+                      : isTextFillElement && glslShaderContext
+                        ? { ...glslShaderContext, nativeOnly: true }
+                        : glslShaderContext
                   }
                 />
               </InspectorGridCell>
@@ -628,6 +725,7 @@ export function FillProperties({
                       removeBaseFillPatch(fillProperty),
                       onStyleChange,
                       onStylesChange,
+                      { fillStyleIntent: "replace" },
                     )
                   }
                 >

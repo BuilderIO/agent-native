@@ -41,29 +41,15 @@ const CAPABILITY_ROUTES: Record<string, CapabilityRoute> = {
 
   "design.shader-fills:catalog": {
     action: "get-shader",
-    paramHint: "Call get-shader with an optional source context.",
-    readOnly: true,
-  },
-  "design.shader-fills:preview": {
-    action: "preview-shader-fill",
     paramHint:
-      "Call preview-shader-fill with { descriptor: { preset, params?, colors?, speed? }, target? }.  Returns previewCss + bridgeMessage; no writes.",
-    readOnly: true,
-  },
-  "design.shader-fills:code-snippet": {
-    action: "apply-shader",
-    paramHint:
-      "Call apply-shader with { descriptor, surface?, target?, source? }.  Returns JSX import + snippet or HTML bridge mount for manual insertion.",
+      "Call get-shader with { format: 'native-v2', source?: { designId, fileId } } to discover current exact definitions.",
     readOnly: true,
   },
   "design.shader-fills:apply": {
-    action: "apply-shader-fill",
+    action: "edit-native-shader",
     paramHint:
-      "Call apply-shader-fill with { descriptor, target?, source?, surface? }.  NOTE: currently returns gated:true — all safety conditions are unmet.  Use preview or code-snippet instead.",
+      "Call edit-native-shader with the selected Design node, exact registered definition ID and version, and a canonical apply operation.",
     readOnly: false,
-    gated: true,
-    gateReason:
-      "apply-shader-fill is GATED until runtime rendering + source-write path + CSS fallback + diff proof are all in place.  It will return { ok: false, gated: true } today.",
   },
 
   "design.token-auditor:index": {
@@ -130,7 +116,7 @@ duplicating action logic.
 
 Supported first-party extensions (extensionId):
   design.asset-library   — browse / insert / generate assets.
-  design.shader-fills    — catalog / preview / code-snippet / apply (apply is GATED).
+  design.shader-fills    — native catalog / apply.
   design.token-auditor   — index / preview-edit / apply-edit / write-source.
   design.motion-presets  — preview / apply / write-source.
 

@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ElementInfo } from "@/components/design/types";
+import { renderSelectedNativeSceneBlob } from "@/pages/design-editor/native-scene-export-client";
 
 import { runRenderPngBlob } from "./commands/render-png-blob";
 import {
@@ -11,13 +12,36 @@ import {
   resolveExportCropTarget,
 } from "./png-export-render";
 
+vi.mock(
+  "@/pages/design-editor/native-scene-export-client",
+  async (importOriginal) => ({
+    ...(await importOriginal()),
+    renderSelectedNativeSceneBlob: vi.fn(
+      async () => new Blob(["native"], { type: "image/png" }),
+    ),
+  }),
+);
+
+vi.mock("./commands/native-viewed-source-version", () => ({
+  pinNativeViewedSource: () => ({
+    expectedVersionHash: "fixture-version",
+    assertStillViewed: () => undefined,
+  }),
+}));
+
 function fakeCanvas(tag: string): HTMLCanvasElement {
+  const png = Uint8Array.from(
+    atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==",
+    ),
+    (character) => character.charCodeAt(0),
+  );
   return {
     dataset: { tag },
     width: 1440,
     height: 900,
     toBlob: (callback: (blob: Blob | null) => void, type?: string) =>
-      callback(new Blob([tag], { type: type ?? "image/png" })),
+      callback(new Blob([png], { type: type ?? "image/png" })),
   } as unknown as HTMLCanvasElement;
 }
 
@@ -73,6 +97,7 @@ afterEach(() => {
   cropCanvasToRect.mockClear();
   vi.mocked(renderExportDocumentCanvas).mockClear();
   document.body.innerHTML = "";
+  vi.mocked(renderSelectedNativeSceneBlob).mockClear();
 });
 
 describe("resolveExportCropTarget", () => {
@@ -181,14 +206,157 @@ describe("resolveExportCropTarget", () => {
 });
 
 describe("runRenderPngBlob element scope", () => {
+  it("passes a selected native frame's full mounted viewport and crop to the pixel renderer", async () => {
+    const frame = document.createElement("div");
+    frame.id = "board-frame";
+    frame.setAttribute("data-agent-native-node-id", "frame-1");
+    frame.getBoundingClientRect = () =>
+      ({ left: 144, top: 6, width: 1162, height: 887 }) as DOMRect;
+    document.body.append(frame);
+    const manifest = document.createElement("script");
+    manifest.type = "application/x-agent-native-effects";
+    document.head.append(manifest);
+    try {
+      const blob = await runRenderPngBlob(
+        {
+          ...renderArgs(elementInfo({ selector: "#board-frame" })),
+          designId: "owned-design",
+          boardFileId: "board-file",
+          resolvePngCaptureTarget: () => ({
+            ...captureTarget(elementInfo({ selector: "#board-frame" }))(),
+            sourceFileId: "board-file",
+          }),
+        },
+        { scope: "element", settings: { scale: 1 } },
+      );
+      expect(blob.type).toBe("image/png");
+      expect(renderSelectedNativeSceneBlob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          viewport: { width: 1162, height: 887 },
+          sourceViewport: { width: 1440, height: 900 },
+          crop: {
+            x: 144,
+            y: 6,
+            width: 1162,
+            height: 887,
+            nodeId: "frame-1",
+          },
+        }),
+      );
+      expect(renderExportDocumentCanvas).not.toHaveBeenCalled();
+    } finally {
+      manifest.remove();
+    }
+  });
+  it("refuses an off-viewport selected native frame before a pixel request", async () => {
+    const frame = document.createElement("div");
+    frame.id = "offscreen-frame";
+    frame.setAttribute("data-agent-native-node-id", "offscreen-1");
+    frame.getBoundingClientRect = () =>
+      ({ left: 4314, top: 2069, width: 240, height: 160 }) as DOMRect;
+    document.body.append(frame);
+    const manifest = document.createElement("script");
+    manifest.type = "application/x-agent-native-effects";
+    document.head.append(manifest);
+    try {
+      await expect(
+        runRenderPngBlob(
+          {
+            ...renderArgs(elementInfo({ selector: "#offscreen-frame" })),
+            designId: "owned-design",
+            boardFileId: "board-file",
+            resolvePngCaptureTarget: () => ({
+              ...captureTarget(elementInfo({ selector: "#offscreen-frame" }))(),
+              sourceFileId: "board-file",
+            }),
+          },
+          { scope: "element", settings: { scale: 1 } },
+        ),
+      ).rejects.toMatchObject({ code: "scene-unreadable" });
+      expect(renderSelectedNativeSceneBlob).not.toHaveBeenCalled();
+    } finally {
+      manifest.remove();
+    }
+  });
+  it("fences a mounted viewport resize after the selected source is pinned", async () => {
+    const frame = document.createElement("div");
+    frame.id = "resizing-frame";
+    frame.setAttribute("data-agent-native-node-id", "resizing-1");
+    frame.getBoundingClientRect = () =>
+      ({ left: 10, top: 20, width: 240, height: 160 }) as DOMRect;
+    document.body.append(frame);
+    const manifest = document.createElement("script");
+    manifest.type = "application/x-agent-native-effects";
+    document.head.append(manifest);
+    let width = 1440;
+    const iframe = {
+      get clientWidth() {
+        return width;
+      },
+      clientHeight: 900,
+    } as unknown as HTMLIFrameElement;
+    try {
+      await runRenderPngBlob(
+        {
+          ...renderArgs(elementInfo({ selector: "#resizing-frame" })),
+          designId: "owned-design",
+          resolvePngCaptureTarget: () => ({
+            cropSelection: elementInfo({ selector: "#resizing-frame" }),
+            doc: document,
+            iframe,
+            sourceFileId: "board-file",
+          }),
+        },
+        { scope: "element", settings: { scale: 1 } },
+      );
+      const call = vi.mocked(renderSelectedNativeSceneBlob).mock.lastCall?.[0];
+      expect(call?.sourceViewport).toEqual({ width: 1440, height: 900 });
+      expect(call?.assertStillViewed).toBeTypeOf("function");
+      expect(() => call?.assertStillViewed?.()).not.toThrow();
+      width = 1400;
+      expect(() => call?.assertStillViewed?.()).toThrow(/viewport changed/);
+    } finally {
+      manifest.remove();
+    }
+  });
   it("renders the whole screen when the screen root is selected", async () => {
     const blob = await runRenderPngBlob(
       renderArgs(elementInfo({ tagName: "BODY" })),
       { scope: "element", settings: { scale: 1 } },
     );
 
-    expect(await blob.text()).toBe("full");
+    expect(blob.type).toBe("image/png");
+    expect(renderExportDocumentCanvas).toHaveBeenCalledWith(
+      expect.objectContaining({ cropRect: null }),
+    );
     expect(cropCanvasToRect).not.toHaveBeenCalled();
+  });
+  it("keeps a native whole-screen raster on the original viewport without a crop", async () => {
+    const manifest = document.createElement("script");
+    manifest.type = "application/x-agent-native-effects";
+    document.head.append(manifest);
+    try {
+      const blob = await runRenderPngBlob(
+        {
+          ...renderArgs(elementInfo({ tagName: "BODY" })),
+          designId: "owned-design",
+          resolvePngCaptureTarget: () => ({
+            ...captureTarget(elementInfo({ tagName: "BODY" }))(),
+            sourceFileId: "board-file",
+          }),
+        },
+        { scope: "element", settings: { scale: 1 } },
+      );
+      expect(blob.type).toBe("image/png");
+      expect(renderSelectedNativeSceneBlob).toHaveBeenCalledWith(
+        expect.objectContaining({ viewport: { width: 1440, height: 900 } }),
+      );
+      const call = vi.mocked(renderSelectedNativeSceneBlob).mock.lastCall?.[0];
+      expect(call?.crop).toBeUndefined();
+      expect(call?.sourceViewport).toBeUndefined();
+    } finally {
+      manifest.remove();
+    }
   });
 
   it("renders the whole screen when a selected root contains a selected child", async () => {
@@ -204,7 +372,10 @@ describe("runRenderPngBlob element scope", () => {
       { scope: "element", settings: { scale: 1 } },
     );
 
-    expect(await blob.text()).toBe("full");
+    expect(blob.type).toBe("image/png");
+    expect(renderExportDocumentCanvas).toHaveBeenCalledWith(
+      expect.objectContaining({ cropRect: null }),
+    );
     expect(cropCanvasToRect).not.toHaveBeenCalled();
   });
 
@@ -223,7 +394,10 @@ describe("runRenderPngBlob element scope", () => {
       settings: { scale: 1 },
     });
 
-    expect(await documentBlob.text()).toBe("full");
+    expect(documentBlob.type).toBe("image/png");
+    expect(renderExportDocumentCanvas).toHaveBeenCalledWith(
+      expect.objectContaining({ cropRect: null }),
+    );
     expect(cropCanvasToRect).not.toHaveBeenCalled();
   });
 
@@ -239,7 +413,7 @@ describe("runRenderPngBlob element scope", () => {
       { scope: "element", settings: { scale: 1 } },
     );
 
-    expect(await blob.text()).toBe("cropped");
+    expect(blob.type).toBe("image/png");
     expect(renderExportDocumentCanvas).toHaveBeenCalledWith(
       expect.objectContaining({
         cropRect: { x: 10, y: 20, width: 100, height: 50 },

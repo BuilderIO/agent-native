@@ -6,6 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+const probeRasterEncoder = vi.hoisted(() => vi.fn());
+vi.mock("@/pages/design-editor/native-raster-encoding", () => ({
+  probeNativeRasterEncoder: probeRasterEncoder,
+}));
+
 import { ExportSettingsPanel } from "./ExportSettingsPanel";
 
 (
@@ -20,6 +25,7 @@ describe("ExportSettingsPanel remove-row affordance", () => {
   let root: Root;
 
   beforeEach(() => {
+    probeRasterEncoder.mockReset().mockResolvedValue(true);
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -83,5 +89,17 @@ describe("ExportSettingsPanel remove-row affordance", () => {
       container.querySelector<HTMLButtonElement>(REMOVE)!.click(),
     );
     expect(container.querySelector(REMOVE)).toBeNull();
+  });
+
+  it("shows an unreadable encoder probe distinctly from an unsupported format", async () => {
+    probeRasterEncoder.mockImplementation((format: string) =>
+      format === "avif"
+        ? Promise.reject(new Error("probe failed"))
+        : Promise.resolve(true),
+    );
+    await render();
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "Some image formats could not be checked",
+    );
   });
 });

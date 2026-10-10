@@ -1851,7 +1851,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return provenance;
     }
-    function publishSourceDocumentProvenance(sourceProvenance, partialMutation) {
+    function publishSourceDocumentProvenance(sourceProvenance, partialMutation, sourceRevisionRequestId) {
       var uniqueNodeIds = sourceProvenance ? sourceProvenance.uniqueNodeIds : partialMutation ? readSourceDocumentProvenance().uniqueNodeIds : [];
       var published = {
         uniqueNodeIds
@@ -1861,6 +1861,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       sourceDocumentProvenanceSnapshot = published;
       window.__agentNativeSourceProvenance = published;
+      if (!sourceProvenance || !sourceRevisionRequestId) {
+        window.parent.postMessage(
+          { type: "agent-native:source-revision-invalidated" },
+          "*"
+        );
+      } else {
+        window.parent.postMessage(
+          {
+            type: "agent-native:source-revision-applied",
+            requestId: sourceRevisionRequestId
+          },
+          "*"
+        );
+      }
     }
     var sourceDocumentProvenanceSnapshot = normalizeSourceDocumentProvenance(
       window.__agentNativeSourceProvenance
@@ -2388,7 +2402,26 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (el instanceof HTMLIFrameElement && !isSourceOwned(el) && el.getAttribute("aria-hidden") === "true" && el.offsetWidth === 0 && el.offsetHeight === 0) {
         return false;
       }
+      if (el.hasAttribute("data-an-native-presentation") || el.hasAttribute("data-an-native-canvas")) {
+        return false;
+      }
       return !(isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]"));
+    }
+    function stripNativePresentationFromRuntimeSnapshot(cloneBody) {
+      cloneBody.querySelectorAll("[data-an-native-presentation],[data-an-native-canvas]").forEach(function(node) {
+        node.remove();
+      });
+      [cloneBody].concat(
+        Array.prototype.slice.call(
+          cloneBody.querySelectorAll("*")
+        )
+      ).forEach(function(node) {
+        Array.prototype.slice.call(node.attributes).forEach(function(attribute) {
+          if (attribute.name.startsWith("data-an-native-")) {
+            node.removeAttribute(attribute.name);
+          }
+        });
+      });
     }
     function serializeRuntimeLayerSnapshot(excludedRoot) {
       if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
@@ -2569,6 +2602,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       cloneBody.querySelectorAll("[data-an-runtime-layer-remove]").forEach(function(node) {
         node.remove();
       });
+      stripNativePresentationFromRuntimeSnapshot(cloneBody);
       cloneBody.querySelectorAll(
         "script,template,noscript,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set,link:not([rel~='stylesheet'])"
       ).forEach(function(node) {
@@ -2608,10 +2642,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       Array.from(document.adoptedStyleSheets ?? []).forEach(function(sheet) {
         try {
-          var adoptedStyle = document.createElement("style");
-          adoptedStyle.textContent = Array.from(sheet.cssRules, function(rule) {
+          var rules = Array.from(sheet.cssRules, function(rule) {
             return rule.cssText;
-          }).join("\\n");
+          });
+          if (rules.some(function(rule) {
+            return rule.indexOf("[data-an-native-fill-suppressed]") !== -1;
+          })) {
+            return;
+          }
+          var adoptedStyle = document.createElement("style");
+          adoptedStyle.textContent = rules.join("\\n");
           cloneHead.appendChild(adoptedStyle);
         } catch {
           snapshotFailures.push("adopted-stylesheet-unavailable");
@@ -5383,6 +5423,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         inlineStyles: collectTextRangeInlineStyles(target, bookmark)
       };
     }
+    function restoreNativeAuthoredComputedStyles(el, computed) {
+      var nativeAuthoredPaint = [
+        ["data-an-native-authored-background-color", "backgroundColor"],
+        ["data-an-native-authored-background-image", "backgroundImage"],
+        ["data-an-native-authored-color", "color"],
+        ["data-an-native-authored-text-fill-color", "webkitTextFillColor"],
+        ["data-an-native-authored-opacity", "opacity"]
+      ];
+      nativeAuthoredPaint.forEach(function([attribute, property]) {
+        var authored = el.getAttribute(attribute);
+        if (authored !== null) computed[property] = authored;
+      });
+      return computed;
+    }
     function collectElementComputedStyles(el, cs, paintCs) {
       var strokeTarget = vectorStrokeTarget(el);
       var strokeCs = strokeTarget ? window.getComputedStyle(strokeTarget) : paintCs;
@@ -5422,6 +5476,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         computed.marginBottom = "auto";
       if (marginValueIsAuto(el, "left", cs.marginLeft))
         computed.marginLeft = "auto";
+      restoreNativeAuthoredComputedStyles(el, computed);
       return {
         ...computed,
         "--an-vector-stroke-position": el.getAttribute("data-an-vector-stroke-position") || "",
@@ -7107,7 +7162,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         obsolete: /* @__PURE__ */ new Set()
       });
     }
-    function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument, preserveTextEditingSession, sourceProvenanceValue) {
+    function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument, preserveTextEditingSession, sourceProvenanceValue, sourceRevisionRequestId) {
       if (typeof html !== "string") return;
       var sourceProvenance = normalizeSourceDocumentProvenance(
         sourceProvenanceValue
@@ -7126,7 +7181,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           html,
           preferredSelector,
           selectorCandidates: Array.isArray(selectorCandidates) ? selectorCandidates : [],
-          sourceProvenance
+          sourceProvenance,
+          sourceRevisionRequestId
         };
         applyLayerStateSelectors();
         refreshOverlays();
@@ -7252,7 +7308,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (node.parentNode) node.parentNode.removeChild(node);
       });
       morphRuntimeBody(nextDoc.body);
-      publishSourceDocumentProvenance(sourceProvenance);
+      publishSourceDocumentProvenance(
+        sourceProvenance,
+        false,
+        sourceRevisionRequestId
+      );
       if (suspendedTextEditRange) {
         var suspendedRangeState = suspendedTextEditRange;
         var rangeTargetAfterMorph = suspendedRangeState.target.isConnected ? suspendedRangeState.target : rangeTargetSelectorBeforeMorph ? findRuntimeTarget(rangeTargetSelectorBeforeMorph, [
@@ -7302,7 +7362,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       hideMeasurements();
       refreshOverlays();
     }
-    function replaceSourceNode(nodeId, html, sourceProvenanceValue) {
+    function replaceSourceNode(nodeId, html, sourceProvenanceValue, sourceRevisionRequestId) {
       var sourceProvenance = normalizeSourceDocumentProvenance(
         sourceProvenanceValue
       );
@@ -7322,7 +7382,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       morphElement(current, next, scopedMorphContext(current, next));
       hydrateVectorEndpointMarkers();
       applyLayerStateSelectors();
-      publishSourceDocumentProvenance(sourceProvenance);
+      publishSourceDocumentProvenance(
+        sourceProvenance,
+        false,
+        sourceRevisionRequestId
+      );
       if (selectedEl && selectedEl.isConnected) {
         positionOverlay(selectionOverlay, selectedEl);
         postElementSelect(selectedEl);
@@ -20794,7 +20858,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             pending.selectorCandidates,
             true,
             false,
-            pending.sourceProvenance
+            pending.sourceProvenance,
+            pending.sourceRevisionRequestId
           );
         }
       }
@@ -22338,12 +22403,18 @@ export const editorChromeBridgeScript: string = `"use strict";
           e.data.selectorCandidates,
           Boolean(e.data.forceFullDocument),
           Boolean(e.data.preserveTextEditingSession),
-          e.data.sourceProvenance
+          e.data.sourceProvenance,
+          e.data.sourceRevisionRequestId
         );
         return;
       }
       if (e.data.type === "replace-source-node") {
-        if (!replaceSourceNode(e.data.nodeId, e.data.html, e.data.sourceProvenance)) {
+        if (!replaceSourceNode(
+          e.data.nodeId,
+          e.data.html,
+          e.data.sourceProvenance,
+          e.data.sourceRevisionRequestId
+        )) {
           window.parent.postMessage(
             { type: "replace-source-node-rejected" },
             "*"

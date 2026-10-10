@@ -63,7 +63,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
-import { ShaderFillsPanel } from "./inspector/ShaderFillsPanel";
 import type { ElementInfo } from "./types";
 
 export const DESIGN_EDITOR_EXTENSION_SLOT_ID = "design.editor.inspector";
@@ -108,6 +107,7 @@ export interface DesignExtensionSlotContext extends Record<string, unknown> {
   tweakValues: Record<string, string | number | boolean>;
   onShaderFillPreview?: (descriptor: ShaderDescriptor, css: string) => void;
   onShaderFillPreviewClear?: () => void;
+  onOpenNativeShaderFill?: () => void;
   onShaderFillApplied?: (
     fileId: string,
     content: string,
@@ -1063,196 +1063,20 @@ interface ShaderFillsExtPanelProps {
   context: DesignExtensionSlotContext;
 }
 
-interface PreviewedShaderFill {
-  descriptor: ShaderDescriptor;
-  fileId?: string;
-  nodeId?: string;
-  selector?: string;
-}
-
 function ShaderFillsExtPanel({ context }: ShaderFillsExtPanelProps) {
-  const [showShaders, setShowShaders] = useState(false);
-  const clearPreviewRef = useRef(context.onShaderFillPreviewClear);
-  useEffect(() => {
-    clearPreviewRef.current = context.onShaderFillPreviewClear;
-  }, [context.onShaderFillPreviewClear]);
-  useEffect(
-    () => () => {
-      clearPreviewRef.current?.();
-    },
-    [],
-  );
-  const closeShaders = () => {
-    context.onShaderFillPreviewClear?.();
-    setShowShaders(false);
-  };
-  const [previewed, setPreviewed] = useState<PreviewedShaderFill | null>(null);
-  const applyShaderFill = useActionMutation("apply-shader-fill");
-
-  const targetNodeId = context.selectedElement?.sourceId ?? undefined;
-  const targetSelector = context.selectedElement?.selector ?? undefined;
-  const canPersist = Boolean(
-    context.activeFileId && (targetNodeId || targetSelector),
-  );
-  const previewMatchesTarget = Boolean(
-    previewed &&
-    previewed.fileId === context.activeFileId &&
-    previewed.nodeId === targetNodeId &&
-    previewed.selector === targetSelector,
-  );
-
-  useEffect(() => {
-    setPreviewed(null);
-  }, [context.activeFileId, targetNodeId, targetSelector]);
-
-  const persistFill = (descriptor: ShaderDescriptor) => {
-    if (!canPersist) return;
-    applyShaderFill.mutate(
-      {
-        descriptor: {
-          preset: descriptor.preset,
-          params: descriptor.params,
-          colors: descriptor.colors,
-          speed: descriptor.speed,
-          frame: descriptor.frame,
-          fit: descriptor.fit,
-          scale: descriptor.scale,
-          rotation: descriptor.rotation,
-          offsetX: descriptor.offsetX,
-          offsetY: descriptor.offsetY,
-        },
-        target: { nodeId: targetNodeId, selector: targetSelector },
-        source: {
-          kind: "design-file" as const,
-          designId: context.designId || undefined,
-          fileId: context.activeFileId || undefined,
-          revision: context.activeFileUpdatedAt || undefined,
-          currentContent: context.activeContent,
-        },
-      },
-      {
-        onSuccess: (res) => {
-          const r = res as
-            | {
-                fileId?: unknown;
-                patchedContent?: unknown;
-                persisted?: boolean;
-                conflict?: boolean;
-                error?: unknown;
-                note?: unknown;
-                updatedAt?: unknown;
-              }
-            | undefined;
-          if (r?.persisted) {
-            if (
-              typeof r.fileId === "string" &&
-              typeof r.patchedContent === "string"
-            ) {
-              context.onShaderFillApplied?.(
-                r.fileId,
-                r.patchedContent,
-                typeof r.updatedAt === "string" ? r.updatedAt : undefined,
-              );
-            }
-            toast.success("Shader fill applied to the selected element.");
-          } else if (r?.conflict) {
-            toast.error(
-              typeof r.error === "string" || typeof r.note === "string"
-                ? String(r.error ?? r.note)
-                : "This file changed since the shader fill was previewed. Refresh and try again.",
-            );
-          } else {
-            toast.message("Shader fill previewed — nothing was written.");
-          }
-        },
-        onError: () => {
-          toast.error("Failed to apply shader fill.");
-        },
-      },
-    );
-  };
-
-  if (!showShaders) {
-    return (
-      <div className="p-2.5">
-        <p className="mb-2 text-[10px] leading-snug text-muted-foreground">
-          GPU shader fill presets — MeshGradient, GrainGradient, Voronoi,
-          Metaballs, Warp, GodRays, Dithering, PaperTexture. Preview as a CSS
-          gradient, then apply it to the selected element as a CSS background.
-        </p>
-        {!canPersist && (
-          <div className="mb-2 flex items-start gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1.5">
-            <IconLock className="mt-0.5 size-3 shrink-0 text-amber-600 dark:text-amber-400" />
-            <p className="text-[10px] leading-snug text-amber-700 dark:text-amber-300">
-              Select an element on the canvas to apply a fill. Without a
-              selection you can still browse and preview presets.
-            </p>
-          </div>
-        )}
-        <div className="flex flex-wrap gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
-            onClick={() => setShowShaders(true)}
-          >
-            <IconPalette className="size-3" />
-            Browse Shaders
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
+  const t = useT();
   return (
-    <div className="flex flex-col">
-      <ShaderFillsPanel
-        onApply={(descriptor, css) => {
-          setPreviewed({
-            descriptor,
-            fileId: context.activeFileId || undefined,
-            nodeId: targetNodeId,
-            selector: targetSelector,
-          });
-          context.onShaderFillPreview?.(descriptor, css);
-        }}
-        onBack={closeShaders}
-        applyContext={{
-          designId: context.designId || undefined,
-          fileId: context.activeFileId || undefined,
-          nodeId: targetNodeId,
-          selector: targetSelector,
-        }}
-      />
-
-      {/* ── Apply bar: persists the previewed fill onto the selected element ── */}
-      <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2">
-        {canPersist ? (
-          <Button
-            type="button"
-            size="sm"
-            className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
-            disabled={!previewMatchesTarget || applyShaderFill.isPending}
-            onClick={() => {
-              if (previewMatchesTarget && previewed) {
-                persistFill(previewed.descriptor);
-              }
-            }}
-          >
-            <IconPalette className="size-3" />
-            {applyShaderFill.isPending
-              ? "Applying…"
-              : previewMatchesTarget
-                ? "Apply fill"
-                : "Pick a preset"}
-          </Button>
-        ) : (
-          <p className="flex items-start gap-1.5 text-[10px] leading-snug text-amber-700 dark:text-amber-300">
-            <IconLock className="mt-0.5 size-3 shrink-0 text-amber-600 dark:text-amber-400" />
-            Select an element on the canvas to apply this fill.
-          </p>
-        )}
-      </div>
+    <div className="p-2.5">
+      <Button
+        type="button"
+        size="sm"
+        className="h-6 cursor-pointer gap-1 px-2 !text-[11px]"
+        disabled={!context.selectedElement || !context.onOpenNativeShaderFill}
+        onClick={context.onOpenNativeShaderFill}
+      >
+        <IconPalette className="size-3" />
+        {t("editPanel.shaders.fillsTitle")}
+      </Button>
     </div>
   );
 }

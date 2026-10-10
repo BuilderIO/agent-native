@@ -9,6 +9,11 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  bindNativeTextureGrantsInSourceTransaction,
+  preflightNativeTextureGrants,
+} from "../server/lib/design-native-texture-bindings.js";
+import { dbExecForDrizzleTransaction } from "../server/source-workspace.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 export default defineAction({
@@ -39,6 +44,22 @@ export default defineAction({
 
     const idMap = new Map<string, string>(
       files.map((file) => [file.id, nanoid()]),
+    );
+    const copiedFiles = files.map((file) => ({
+      ...file,
+      copiedId: idMap.get(file.id)!,
+      copiedContent: annotateScreenHtmlForPersist(file.content, file.fileType),
+    }));
+    const grants = await Promise.all(
+      copiedFiles.map(async (file) => ({
+        fileId: file.copiedId,
+        values: await preflightNativeTextureGrants({
+          designId: newId,
+          fileId: file.copiedId,
+          fileType: file.fileType,
+          content: file.copiedContent,
+        }),
+      })),
     );
 
     let newData = source.data;
@@ -84,17 +105,23 @@ export default defineAction({
 
       if (files.length > 0) {
         await tx.insert(schema.designFiles).values(
-          files.map((file) => ({
-            id: idMap.get(file.id)!,
+          copiedFiles.map((file) => ({
+            id: file.copiedId,
             designId: newId,
             filename: file.filename,
             fileType: file.fileType,
-            content: annotateScreenHtmlForPersist(file.content, file.fileType),
+            content: file.copiedContent,
             createdAt: now,
             updatedAt: now,
           })),
         );
       }
+      for (const entry of grants)
+        await bindNativeTextureGrantsInSourceTransaction(
+          dbExecForDrizzleTransaction(tx),
+          { designId: newId, fileId: entry.fileId },
+          entry.values,
+        );
     });
 
     return {

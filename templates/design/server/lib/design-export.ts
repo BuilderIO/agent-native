@@ -1,6 +1,9 @@
 import { decodeHTML } from "entities";
+import { parse } from "parse5";
 
 import { ensureGroupRuntime } from "../../shared/group-runtime.js";
+import { parseEffectsFromHtml } from "../../shared/native-effects.js";
+import { ensureNativeShaderRuntime } from "../../shared/shader-fills.js";
 import {
   isActiveXmlAttributeValue,
   isNonStaticExportElement,
@@ -17,6 +20,117 @@ export interface DesignExportFile {
 export interface DesignExportSaveResult {
   filePath?: string;
   saveWarning?: string;
+}
+
+export interface ExportRuntimeLibraries {
+  tailwindBrowser: string;
+  alpine: string;
+}
+
+export interface ExportFontLicense {
+  path: string;
+  text: string;
+}
+
+function embedFontLicenses(
+  html: string,
+  licenses: readonly ExportFontLicense[],
+): string {
+  if (!licenses.length) return html;
+  const payload = JSON.stringify(licenses).replace(/<\/script/gi, "<\\/script");
+  const script = `<script type="text/plain" data-agent-native-export-font-licenses>${payload}</script>`;
+  const closeBody = html.lastIndexOf("</body>");
+  return closeBody === -1
+    ? `${html}\n${script}`
+    : `${html.slice(0, closeBody)}${script}\n${html.slice(closeBody)}`;
+}
+
+function stripAuthoredNativeApprovals(html: string): string {
+  type Node = {
+    tagName?: string;
+    attrs?: { name: string; value: string }[];
+    childNodes?: Node[];
+    content?: Node;
+    sourceCodeLocation?: { startOffset: number; endOffset: number };
+  };
+  const ranges: { start: number; end: number }[] = [];
+  const walk = (node: Node): void => {
+    if (
+      node.tagName === "script" &&
+      node.attrs?.some(
+        (attr) =>
+          attr.name === "type" &&
+          attr.value === "application/x-agent-native-effect-approvals",
+      ) &&
+      node.sourceCodeLocation
+    ) {
+      ranges.push({
+        start: node.sourceCodeLocation.startOffset,
+        end: node.sourceCodeLocation.endOffset,
+      });
+    }
+    for (const child of node.childNodes ?? []) walk(child);
+    if (node.content) walk(node.content);
+  };
+  walk(parse(html, { sourceCodeLocationInfo: true }) as Node);
+  for (const range of ranges.sort((a, b) => b.start - a.start)) {
+    html = html.slice(0, range.start) + html.slice(range.end);
+  }
+  return html;
+}
+
+function embedStandaloneNativeApprovals(
+  html: string,
+  hashes: readonly string[],
+): string {
+  const script = `<script type="application/x-agent-native-effect-approvals" data-agent-native-export-approvals>${JSON.stringify({ schemaVersion: 1, hashes })}</script>`;
+  const closeBody = html.lastIndexOf("</body>");
+  return closeBody === -1
+    ? `${html}\n${script}`
+    : `${html.slice(0, closeBody)}${script}\n${html.slice(closeBody)}`;
+}
+
+export function hasRenderableBoardArtwork(content: string | null): boolean {
+  return (
+    typeof content === "string" &&
+    /data-agent-native-node-id\s*=/.test(extractRenderableHtml(content))
+  );
+}
+
+function ensureNativeExportRuntime(html: string): string {
+  if (!html.includes("application/x-agent-native-effects")) return html;
+  const parsed = parseEffectsFromHtml(html);
+  if (parsed.errors.length)
+    throw new Error(
+      `Native effect manifest is unreadable: ${parsed.errors.join("; ")}`,
+    );
+  return parsed.document?.instances.length
+    ? ensureNativeShaderRuntime(html)
+    : html;
+}
+
+function embeddedLibraryTags(libraries?: ExportRuntimeLibraries): string {
+  if (!libraries)
+    return `<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>`;
+  return `<script data-agent-native-export-tailwind>${libraries.tailwindBrowser.replace(/<\/script/gi, "<\\/script")}</script>
+  <script data-agent-native-export-alpine>${libraries.alpine.replace(/<\/script/gi, "<\\/script")}</script>`;
+}
+
+function replaceKnownLibraryTags(
+  html: string,
+  libraries?: ExportRuntimeLibraries,
+): string {
+  if (!libraries) return html;
+  return html
+    .replace(
+      /<script\b[^>]*\bsrc=["']https:\/\/cdn\.jsdelivr\.net\/npm\/@tailwindcss\/browser@[^"']+["'][^>]*>\s*<\/script>/gi,
+      `<script data-agent-native-export-tailwind>${libraries.tailwindBrowser.replace(/<\/script/gi, "<\\/script")}</script>`,
+    )
+    .replace(
+      /<script\b[^>]*\bsrc=["']https:\/\/cdn\.jsdelivr\.net\/npm\/alpinejs@[^"']+\/dist\/cdn(?:\.min)?\.js["'][^>]*>\s*<\/script>/gi,
+      `<script data-agent-native-export-alpine>${libraries.alpine.replace(/<\/script/gi, "<\\/script")}</script>`,
+    );
 }
 
 function escapeHtml(str: string): string {
@@ -84,26 +198,29 @@ function standaloneScreenDocument(args: {
   title: string;
   content: string;
   combinedCss: string;
+  runtimeLibraries?: ExportRuntimeLibraries;
 }): string {
-  const { title, content, combinedCss } = args;
+  const { title, content, combinedCss, runtimeLibraries } = args;
   if (/<!doctype html|<html[\s>]/i.test(content)) {
-    return ensureGroupRuntime(
-      injectHiddenLayerExportStyle(injectExportCss(content, combinedCss)),
+    return replaceKnownLibraryTags(
+      ensureNativeExportRuntime(
+        ensureGroupRuntime(
+          injectHiddenLayerExportStyle(injectExportCss(content, combinedCss)),
+        ),
+      ),
+      runtimeLibraries,
     );
   }
   const bodyContent = extractRenderableHtml(content);
 
-  return ensureGroupRuntime(`<!DOCTYPE html>
+  return ensureNativeExportRuntime(
+    ensureGroupRuntime(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)}</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <script
-    defer
-    src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"
-  ></script>
+  ${embeddedLibraryTags(runtimeLibraries)}
   <style data-agent-native-export>
     ${combinedCss}
   </style>
@@ -112,7 +229,8 @@ function standaloneScreenDocument(args: {
 <body>
   ${bodyContent}
 </body>
-</html>`);
+</html>`),
+  );
 }
 
 function buildStackedScreenHtml(args: {
@@ -120,8 +238,19 @@ function buildStackedScreenHtml(args: {
   screens: DesignExportFile[];
   jsxFiles: DesignExportFile[];
   combinedCss: string;
+  runtimeLibraries?: ExportRuntimeLibraries;
+  approvedDefinitionHashes?: readonly string[];
+  fontLicenses?: readonly ExportFontLicense[];
 }): string {
-  const { title, screens, jsxFiles, combinedCss } = args;
+  const {
+    title,
+    screens,
+    jsxFiles,
+    combinedCss,
+    runtimeLibraries,
+    approvedDefinitionHashes = [],
+    fontLicenses = [],
+  } = args;
   const jsxBody = jsxFiles
     .map((file) => extractRenderableHtml(file.content ?? ""))
     .filter(Boolean)
@@ -135,6 +264,7 @@ function buildStackedScreenHtml(args: {
         title: screen.filename,
         content: screenContent,
         combinedCss,
+        runtimeLibraries,
       });
       return `<iframe
   data-agent-native-export-screen
@@ -144,7 +274,19 @@ function buildStackedScreenHtml(args: {
     })
     .join("\n");
 
-  return `<!DOCTYPE html>
+  const approvalScript = approvedDefinitionHashes.length
+    ? `<script data-agent-native-export-approval-relay>
+  const hashes = ${JSON.stringify(approvedDefinitionHashes)};
+  for (const frame of document.querySelectorAll('[data-agent-native-export-screen]')) {
+    const send = () => frame.contentWindow?.postMessage({ type: 'native-shader-approvals', status: 'ready', hashes }, window.location.origin);
+    frame.addEventListener('load', send);
+    if (frame.contentDocument?.readyState === 'complete') send();
+  }
+</script>`
+    : "";
+
+  return embedFontLicenses(
+    `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -166,8 +308,11 @@ function buildStackedScreenHtml(args: {
   <main data-agent-native-export-screens>
     ${screenFrames}
   </main>
+  ${approvalScript}
 </body>
-</html>`;
+</html>`,
+    fontLicenses,
+  );
 }
 
 export function safeExportBaseName(title: string | null | undefined): string {
@@ -189,8 +334,22 @@ export function buildStandaloneHtml(args: {
   title: string;
   files: DesignExportFile[];
   screenLayout?: "merged" | "stacked";
+  runtimeLibraries?: ExportRuntimeLibraries;
+  approvedDefinitionHashes?: readonly string[];
+  fontLicenses?: readonly ExportFontLicense[];
 }): string {
-  const { title, files, screenLayout = "merged" } = args;
+  const {
+    title,
+    screenLayout = "merged",
+    runtimeLibraries,
+    approvedDefinitionHashes = [],
+    fontLicenses = [],
+  } = args;
+  const files = args.files.map((file) => ({
+    ...file,
+    content:
+      file.content === null ? null : stripAuthoredNativeApprovals(file.content),
+  }));
   const cssFiles = files.filter((f) => f.fileType === "css");
   const htmlFiles = files.filter((f) => f.fileType === "html");
   const jsxFiles = files.filter((f) => f.fileType === "jsx");
@@ -210,6 +369,9 @@ export function buildStandaloneHtml(args: {
       screens,
       jsxFiles,
       combinedCss,
+      runtimeLibraries,
+      approvedDefinitionHashes,
+      fontLicenses,
     });
   }
 
@@ -233,21 +395,34 @@ export function buildStandaloneHtml(args: {
 
     html = injectExportCss(html, combinedCss);
 
-    return ensureGroupRuntime(injectHiddenLayerExportStyle(html));
+    return embedFontLicenses(
+      embedStandaloneNativeApprovals(
+        replaceKnownLibraryTags(
+          ensureNativeExportRuntime(
+            ensureGroupRuntime(injectHiddenLayerExportStyle(html)),
+          ),
+          runtimeLibraries,
+        ),
+        approvedDefinitionHashes,
+      ),
+      fontLicenses,
+    );
   }
 
   const combinedBody = [...htmlFiles, ...jsxFiles]
     .map((f) => extractRenderableHtml(f.content ?? ""))
     .join("\n\n");
 
-  return ensureGroupRuntime(`<!DOCTYPE html>
+  return embedFontLicenses(
+    embedStandaloneNativeApprovals(
+      ensureNativeExportRuntime(
+        ensureGroupRuntime(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)}</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>
+  ${embeddedLibraryTags(runtimeLibraries)}
   <style>
     ${combinedCss}
   </style>
@@ -256,7 +431,12 @@ export function buildStandaloneHtml(args: {
 <body>
   ${combinedBody}
 </body>
-</html>`);
+</html>`),
+      ),
+      approvedDefinitionHashes,
+    ),
+    fontLicenses,
+  );
 }
 
 function escapeXmlAttribute(value: string): string {

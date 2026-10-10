@@ -63,6 +63,123 @@ function compileBridgeFunction<T extends (...args: any[]) => any>(
   )(...Object.values(globals)) as T;
 }
 
+describe("native presentation paint in editor selection", () => {
+  it("reports authored fill, text, and layer values instead of presentation suppression", () => {
+    const restore = compileBridgeFunction<
+      (el: Element, styles: Record<string, string>) => Record<string, string>
+    >(
+      "restoreNativeAuthoredComputedStyles",
+      "collectElementComputedStyles",
+      {},
+    );
+    const authored = new Map([
+      ["data-an-native-authored-background-color", "rgb(255, 255, 255)"],
+      [
+        "data-an-native-authored-background-image",
+        "linear-gradient(red, blue)",
+      ],
+      ["data-an-native-authored-color", "rgb(17, 24, 39)"],
+      ["data-an-native-authored-text-fill-color", "rgb(17, 24, 39)"],
+      ["data-an-native-authored-opacity", "0.65"],
+    ]);
+    const element = {
+      getAttribute: (name: string) => authored.get(name) ?? null,
+    } as Element;
+    expect(
+      restore(element, {
+        backgroundColor: "transparent",
+        backgroundImage: "none",
+        color: "transparent",
+        webkitTextFillColor: "transparent",
+        opacity: "0",
+      }),
+    ).toEqual({
+      backgroundColor: "rgb(255, 255, 255)",
+      backgroundImage: "linear-gradient(red, blue)",
+      color: "rgb(17, 24, 39)",
+      webkitTextFillColor: "rgb(17, 24, 39)",
+      opacity: "0.65",
+    });
+  });
+
+  it("strips transient native presentation without removing authored paint or the effect manifest", () => {
+    const strip = compileBridgeFunction<(root: Element) => void>(
+      "stripNativePresentationFromRuntimeSnapshot",
+      "serializeRuntimeLayerSnapshot",
+      {},
+    );
+    interface SnapshotNode {
+      values: Record<string, string>;
+      children: SnapshotNode[];
+      readonly attributes: Array<{ name: string; value: string }>;
+      removed: boolean;
+      removeAttribute(name: string): void;
+      remove(): void;
+      querySelectorAll(selector: string): SnapshotNode[];
+    }
+    const node = (
+      attributes: Record<string, string>,
+      children: SnapshotNode[] = [],
+    ): SnapshotNode => {
+      const value: SnapshotNode = {
+        values: { ...attributes },
+        children,
+        get attributes() {
+          return Object.entries(this.values).map(([name, value]) => ({
+            name,
+            value,
+          }));
+        },
+        removeAttribute(name: string) {
+          delete this.values[name];
+        },
+        remove() {
+          this.removed = true;
+        },
+        removed: false,
+        querySelectorAll(selector: string): SnapshotNode[] {
+          const descendants = (current: SnapshotNode): SnapshotNode[] =>
+            current.children.flatMap((child) => [child, ...descendants(child)]);
+          const live: SnapshotNode[] = descendants(this).filter(
+            (child) => !child.removed,
+          );
+          if (selector === "*") return live;
+          return live.filter(
+            (child) =>
+              "data-an-native-presentation" in child.values ||
+              "data-an-native-canvas" in child.values,
+          );
+        },
+      };
+      return value;
+    };
+    const canvas = node({ "data-an-native-canvas": "effect-1" });
+    const manifest = node({
+      type: "application/x-agent-native-effects",
+      "data-effect-manifest": "saved",
+    });
+    const host = node(
+      {
+        style: "background-color: white; opacity: .65",
+        "data-an-native-fill-suppressed": "",
+        "data-an-native-authored-background-color": "white",
+        "data-agent-native-node-id": "frame-1",
+      },
+      [canvas],
+    );
+    const body = node({}, [host, manifest]);
+
+    strip(body as unknown as Element);
+
+    expect(canvas.removed).toBe(true);
+    expect(host.values).toEqual({
+      style: "background-color: white; opacity: .65",
+      "data-agent-native-node-id": "frame-1",
+    });
+    expect(manifest.values.type).toBe("application/x-agent-native-effects");
+  });
+});
+
 describe("cross-screen grid source span resolution", () => {
   it("does not fabricate a one-track span when source geometry is unavailable", () => {
     const sourceGrid = {};
@@ -584,6 +701,42 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
     "@agent-native/toolkit/canvas-interactions",
     "@jridgewell/trace-mapping",
+  ],
+  "native-shader-runtime.bridge.ts": [
+    "../../../../shared/effect-graph",
+    "../../../../shared/native-clip-geometry",
+    "../../../../shared/native-draft-preview-contract",
+    "../../../../shared/native-effect-transform",
+    "../../../../shared/native-embedded-assets",
+    "../../../../shared/native-effect-presets",
+    "../../../../shared/native-effect-trust",
+    "../../../../shared/native-effects",
+    "../../../../shared/native-feedback-plan",
+    "../../../../shared/native-input-resources",
+    "../../../../shared/native-instance-preview-contract",
+    "../../../../shared/native-optional-image",
+    "../../../../shared/native-pipeline-cache",
+    "../../../../shared/native-shader-validation",
+    "../../../../shared/native-source-composition-tree",
+    "../../../../shared/native-source-sizing",
+    "./native-color-mode",
+    "./native-composition-clock",
+    "./native-composition-session",
+    "./native-device-lifecycle",
+    "./native-effect-extent",
+    "./native-effect-output-geometry",
+    "./native-gpu-profiler",
+    "./native-intrinsic-image",
+    "./native-linear-golden",
+    "./native-pixel-readback",
+    "./native-playback-clock",
+    "./native-preview-policy",
+    "./native-runtime-epoch",
+    "./native-simulation-timeline",
+    "./native-source-affine-geometry",
+    "./native-source-provider",
+    "./native-source-coordinate-scale",
+    "./native-texture-feedback",
   ],
 };
 

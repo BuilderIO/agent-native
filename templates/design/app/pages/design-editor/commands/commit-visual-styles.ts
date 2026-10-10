@@ -68,6 +68,10 @@ import { applyInlineStylesToHtml } from "@/pages/design-editor/screen-command-ut
 import type { DesignFile } from "@/pages/design-editor/types";
 
 import { prepareCanonicalSourceContent } from "../source-publication";
+import {
+  applyFillStyleIntent,
+  type FillStyleIntent,
+} from "./native-fill-style-transition";
 
 export interface CommitVisualStylesArgs {
   activeBreakpointUpperBoundPx: number | null;
@@ -94,6 +98,7 @@ export interface CommitVisualStylesArgs {
       pendingUndoGestureId?: string;
       preserveSelection?: boolean;
       routePath?: string;
+      fillStyleIntent?: FillStyleIntent;
     },
   ) => void;
   isSynced: boolean;
@@ -228,6 +233,7 @@ export function runCommitVisualStyles(
     pendingUndoGestureId?: string;
     preserveSelection?: boolean;
     routePath?: string;
+    fillStyleIntent?: FillStyleIntent;
   } = {},
 ) {
   trace("persist", "commit-styles", {
@@ -632,8 +638,23 @@ export function runCommitVisualStyles(
             committedNodeId,
           )
         : resolvedNextContentAfterFontLink;
+    let contentAfterFillIntent = unpreparedNextContent;
+    if (options.fillStyleIntent && committedNodeId) {
+      try {
+        contentAfterFillIntent = applyFillStyleIntent(
+          unpreparedNextContent,
+          committedNodeId,
+          options.fillStyleIntent,
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t("common.genericError"),
+        );
+        return;
+      }
+    }
     const resolvedNextContent = prepareCanonicalSourceContent(
-      unpreparedNextContent,
+      contentAfterFillIntent,
       {
         fileId: activeFile.id,
         fileType: activeFile.fileType,

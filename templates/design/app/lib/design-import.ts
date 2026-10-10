@@ -1,5 +1,7 @@
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { parseFigmaFileKey } from "@shared/figma-url";
+import type { NativeEffectCloneSnapshot } from "@shared/native-effect-clone";
+import { validateEffectDocument } from "@shared/native-effects";
 
 import type { PortableStyleSnapshot } from "@/components/design/types";
 
@@ -246,6 +248,7 @@ export interface DesignClipboardLayerEntry {
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
+  nativeEffectSnapshot?: NativeEffectCloneSnapshot;
 }
 
 export interface DesignClipboardScreenEntry {
@@ -345,11 +348,30 @@ function validateDesignClipboardPayload(
       (entry.portableStyleSnapshot !== undefined &&
         !isPortableClipboardStyleSnapshot(entry.portableStyleSnapshot)) ||
       (entry.managedStyleSnapshot !== undefined &&
-        !isValidDesignClipboardManagedStyleSnapshot(entry.managedStyleSnapshot))
+        !isValidDesignClipboardManagedStyleSnapshot(
+          entry.managedStyleSnapshot,
+        )) ||
+      (entry.nativeEffectSnapshot !== undefined &&
+        (!entry.nativeEffectSnapshot ||
+          typeof entry.nativeEffectSnapshot !== "object" ||
+          !clipboardString(
+            (entry.nativeEffectSnapshot as Record<string, unknown>).sourceHash,
+            128,
+          ) ||
+          !clipboardString(
+            (entry.nativeEffectSnapshot as Record<string, unknown>)
+              .fragmentHash,
+            128,
+          ) ||
+          !validateEffectDocument(
+            (entry.nativeEffectSnapshot as Record<string, unknown>).document,
+          ).valid))
     ) {
       return null;
     }
     contentChars += entry.html.length;
+    if (entry.nativeEffectSnapshot !== undefined)
+      contentChars += JSON.stringify(entry.nativeEffectSnapshot).length;
   }
   for (const rawScreen of (screens as unknown[] | undefined) ?? []) {
     if (

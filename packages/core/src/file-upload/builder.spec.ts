@@ -5,6 +5,11 @@ import { builderFileUploadProvider } from "./builder.js";
 const resolveBuilderCredentialsDetailedMock = vi.hoisted(() => vi.fn());
 const resolveBuilderApiAuthorizationMock = vi.hoisted(() => vi.fn());
 const resolveBuilderRequestAuthorizationMock = vi.hoisted(() => vi.fn());
+const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../extensions/url-safety.js", () => ({
+  ssrfSafeFetch: ssrfSafeFetchMock,
+}));
 
 vi.mock("../server/builder-api-auth.js", () => ({
   resolveBuilderApiAuthorization: resolveBuilderApiAuthorizationMock,
@@ -73,6 +78,35 @@ describe("builderFileUploadProvider", () => {
     expect(builderFileUploadProvider.isConfigured()).toBe(false);
     process.env.BUILDER_PRIVATE_KEY = "x";
     expect(builderFileUploadProvider.isConfigured()).toBe(true);
+  });
+
+  it("reads only an original Builder upload URL with a bounded guarded request", async () => {
+    ssrfSafeFetchMock.mockResolvedValue(
+      new Response(new Uint8Array([1, 2]), {
+        headers: { "content-type": "image/png" },
+      }),
+    );
+    const url =
+      "https://cdn.builder.io/api/v1/image/assets%2Fexample%2Fimage.png";
+    const result = await builderFileUploadProvider.read!({
+      url,
+      ownerEmail: "owner@example.test",
+      maxBytes: 2,
+    });
+    expect(result.data).toEqual(new Uint8Array([1, 2]));
+    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      { httpsOnly: true, followRedirects: false, requireDispatcher: true },
+    );
+    await expect(
+      builderFileUploadProvider.read!({
+        url: "https://cdn.builder.io/api/v1/image/assets%2Fexample%2Fimage.png?width=80",
+        ownerEmail: "owner@example.test",
+        maxBytes: 2,
+      }),
+    ).rejects.toMatchObject({ code: "invalid-reference" });
+    expect(ssrfSafeFetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("deletes uploaded Builder assets by URL", async () => {

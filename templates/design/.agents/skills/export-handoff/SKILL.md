@@ -44,9 +44,54 @@ How to export designs and generate handoff documentation for developers converti
 
 ## Export Formats
 
+For a foreground local native-scene download, call
+`request-native-local-export` with the selected `designId`, `fileId`, exact
+`expectedVersionHash`, and `export` settings, then read
+`get-native-local-export` for its terminal status. An external caller first
+discovers a live editor `targetTabId` with `get-native-render-contexts`. The
+request returns metadata only; `download-initiated` means the editor triggered
+a local download, not that a file was saved. To export one authored node, pass
+`crop: {nodeId,x,y,width,height}` in canonical source CSS pixels and set the
+export viewport to that exact width and height. For cropped raster or MP4, pass `sourceViewport:
+{width,height}` for the full authored scene in CSS pixels. It must contain the
+crop and fit the physical pixel limits at the requested pixel ratio; omit it
+for whole-scene, SVG/PDF, and HTML/ZIP exports. Raster/MP4 mount this full viewport before cropping
+the captured output, preserving layer and backdrop inputs. MP4 pads only the
+output's H.264 coded dimensions to even pixels. The node ID must occur once in
+the version-pinned selected HTML; the foreground editor verifies its prepared
+geometry before capture. PNG, JPEG, WebP, AVIF, hybrid SVG/PDF, and MP4 accept
+this crop. HTML and React ZIP keep the selected authored subtree, its native
+instances, required styles, runtime, and a captured poster. They reject a
+backdrop or binding that depends on authored content outside the selection.
+
+Direct scene preparation uses `prepare-native-scene-export` with `designId`,
+`fileId`, integer `viewportWidth` and `viewportHeight` in CSS pixels, and a
+required finite `pixelRatio` greater than zero and at most 4. The physical
+frame is `ceil(viewportWidth * pixelRatio)` by
+`ceil(viewportHeight * pixelRatio)`; each side is limited to 4096 pixels and
+the frame to 8,388,608 pixels. The result includes `initialPixelRatio`, bounded
+HTML, exact source versions, and scoped executable hashes; it contains no
+captured image. The foreground reader checks the returned ratio and runtime
+bootstrap density against the requested value before mounting. A different
+viewport or ratio requires a separately prepared scene.
+
 ### HTML Export
 
-Bundles all design files into a single standalone HTML file with Tailwind CSS and Alpine.js CDN included.
+Bundles all design files into standalone HTML. Installed Tailwind and Alpine
+runtime code and bounded local public assets used by HTML/CSS are embedded;
+unavailable local assets fail explicitly. External URLs are reported in
+`unresolvedExternalAssets` and are not fetched by the export action.
+For font files with an adjacent `LICENSE*` file under `public/`, the bounded
+license text is included in the standalone artifact. Native texture inputs in
+the v2 manifest keep their canonical root-relative URLs and exact definition
+hashes. Export resolves local raster assets, including registered local QA
+upload URLs through the scoped provider, and embeds their bytes in a bounded
+inert asset registry. The runtime verifies each embedded SHA-256 before decode;
+missing, unreadable, unsupported, duplicate, or oversized inputs fail with a
+typed export/renderer error. The registry permits PNG/JPEG/WebP/AVIF raster
+bytes, at most 16 URLs, 1 MB per entry and 4 MB total. Export does not fetch
+arbitrary hosted URLs. The local QA upload resolver applies only to its
+registered task-local asset provider; it is not a general HTTP fetcher.
 
 ```bash
 pnpm action export-html --id <designId>
@@ -59,12 +104,20 @@ Returns:
 - `fileCount` — number of source files bundled
 
 The exported HTML:
-- Includes `@tailwindcss/browser@4` and `alpinejs@3.15.11` CDN links
+- Embeds installed Tailwind and Alpine runtime code for supported screens
 - With multiple HTML screens, embeds each in its own isolated viewport, stacked
   vertically
 - Includes project CSS in each screen document
 - Appends JSX files to the first screen
-- Works when double-clicked in any modern browser
+- Native v2 WGSL effects need a secure browser context such as localhost or
+  HTTPS, WebGPU support, and their exact approved source hashes. Export reads
+  the editor's scoped approvals and injects only those into the generated
+  artifact after removing authored approval claims. The standalone HTML
+  remains executable user-authored HTML/JavaScript; this is not a sandbox.
+  Server-only `export-html` does not capture a native static poster; its
+  `nativeStaticFallback: "not-captured"` result makes that explicit. The
+  foreground selected-scene export can capture a poster through its held
+  composition frame, subject to the documented source capability checks.
 
 ### ZIP Export
 

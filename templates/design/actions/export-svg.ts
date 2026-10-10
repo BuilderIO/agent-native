@@ -1,10 +1,14 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  ExportLiveSourceError,
+  loadLiveExportFiles,
+} from "../server/lib/design-export-source.js";
 import {
   buildStandaloneHtml,
   buildSvgForeignObject,
@@ -38,7 +42,8 @@ export default defineAction({
   readOnly: true,
   run: async ({ id, width, height }, ctx) => {
     const access = await resolveAccess("design", id);
-    if (!access) throw new Error(`Design not found: ${id}`);
+    if (!access)
+      fail("Design not found.", { errorCode: "not_found", statusCode: 404 });
 
     const row = access.resource;
     const db = getDb();
@@ -47,7 +52,18 @@ export default defineAction({
       .select()
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, id));
-    const exportFiles = files.filter((file) => !isBoardFile(file.filename));
+    let liveFiles: typeof files;
+    try {
+      liveFiles = await loadLiveExportFiles(files);
+    } catch (error) {
+      if (error instanceof ExportLiveSourceError)
+        fail(error.message, {
+          errorCode: error.actionErrorCode,
+          statusCode: error.statusCode,
+        });
+      throw error;
+    }
+    const exportFiles = liveFiles.filter((file) => !isBoardFile(file.filename));
 
     const html = buildStandaloneHtml({
       title: row.title,

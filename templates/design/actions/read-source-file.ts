@@ -30,28 +30,8 @@ export default defineAction({
   run: async ({ designId, path, fileId }) => {
     const workspace = await resolveSourceWorkspace(designId, {
       includeContent: true,
+      includeBoard: true,
     });
-    if (fileId && workspace.boardFileId && fileId === workspace.boardFileId) {
-      return {
-        designId,
-        path: "__board__.html",
-        displayName: "__board__.html",
-        fileId,
-        sourceType: workspace.sourceType,
-        backendKind: "virtual-inline",
-        readonly: true,
-        language: "html",
-        content: "",
-        versionHash: "",
-        updatedAt: null,
-        provenance: {
-          kind: "design-file" as const,
-          designId,
-          fileId,
-          filename: "__board__.html",
-        },
-      };
-    }
     const file = findSourceWorkspaceFile(workspace.files, { fileId, path });
     const live = await readLiveSourceFile(file);
     return {

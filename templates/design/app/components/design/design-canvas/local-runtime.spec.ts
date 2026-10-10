@@ -107,6 +107,21 @@ describe("withLocalRuntimes", () => {
     expect(withLocalRuntimes("", URLS)).toBe("");
   });
 
+  it("removes saved owned shader runtimes before the preview injects current bridges", () => {
+    const html = `<html><head><script>const sample = '<script data-agent-native-native-shader-runtime></script>';</script></head><body>
+<script data-agent-native-shader-runtime data-runtime-version="1">oldGlsl()</script>
+<script data-agent-native-native-shader-runtime data-runtime-version="2">oldNative()</script>
+<script data-user-owned>keep()</script></body></html>`;
+    const rewritten = withLocalRuntimes(html, URLS);
+    expect(rewritten).not.toContain("oldGlsl()");
+    expect(rewritten).not.toContain("oldNative()");
+    expect(rewritten).toContain("const sample = '");
+    expect(rewritten).toContain(
+      "<script data-agent-native-native-shader-runtime>",
+    );
+    expect(rewritten).toContain("<script data-user-owned>keep()</script>");
+  });
+
   it("repairs a measured Group fragment with its standalone runtime", () => {
     const rewritten = withLocalRuntimes(
       "<div data-agent-native-measured-flow-group></div>",

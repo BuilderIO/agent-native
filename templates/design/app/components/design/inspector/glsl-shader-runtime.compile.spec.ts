@@ -6,7 +6,6 @@ import {
   SHADER_RUNTIME_SOURCE,
   type GlslShaderDef,
 } from "../../../../shared/shader-fills";
-import { GLSL_SHADER_PRESETS } from "../../../../shared/shader-presets";
 
 const PAGE = `<!doctype html>
 <html>
@@ -16,9 +15,48 @@ const PAGE = `<!doctype html>
 </body>
 </html>`;
 
+const savedFill: GlslShaderDef = {
+  id: "an-shader-fill0001",
+  name: "Saved fill",
+  mode: "fill",
+  glsl: `precision highp float;
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform vec3 u_tint;
+uniform float u_gain;
+void main() {
+  vec2 uv = gl_FragCoord.xy / max(u_resolution, vec2(1.0));
+  gl_FragColor = vec4(u_tint * (0.5 + 0.5 * uv.x) * u_gain, 1.0);
+}`,
+  uniforms: {
+    u_tint: { type: "color", value: "#3366ff", label: "Tint" },
+    u_gain: {
+      type: "float",
+      value: 1,
+      min: 0,
+      max: 2,
+      step: 0.1,
+      label: "Gain",
+    },
+  },
+};
+
+const savedEffect: GlslShaderDef = {
+  id: "an-shader-fx000001",
+  name: "Saved effect",
+  mode: "effect",
+  glsl: `precision highp float;
+uniform vec2 u_resolution;
+uniform float u_time;
+void main() {
+  gl_FragColor = vec4(0.1, 0.2, 0.3, 0.35);
+}`,
+  uniforms: {},
+};
+
 describe("GLSL shader runtime — real browser", () => {
   it(
-    "every preset compiles in WebGL and the runtime mounts fills + effects",
+    "saved authored shaders compile in WebGL and the runtime mounts fills + effects",
     { timeout: 120_000 },
     async () => {
       const browser = await chromium.launch({ headless: true });
@@ -45,20 +83,13 @@ describe("GLSL shader runtime — real browser", () => {
         });
 
         const failures: string[] = [];
-        for (const preset of GLSL_SHADER_PRESETS) {
-          const def: GlslShaderDef = {
-            id: "an-shader-spec0001",
-            name: preset.label,
-            mode: preset.mode,
-            glsl: preset.glsl,
-            uniforms: preset.uniforms,
-          };
+        for (const def of [savedFill, savedEffect]) {
           const applied = applyShaderToHtml(PAGE, {
             nodeId: "host",
             def,
-            ...(preset.mode === "fill" ? { fallbackColor: "#101010" } : {}),
+            ...(def.mode === "fill" ? { fallbackColor: "#101010" } : {}),
           });
-          expect(applied.errors, `${preset.name} failed to apply`).toEqual([]);
+          expect(applied.errors, `${def.name} failed to apply`).toEqual([]);
 
           await page.setContent(applied.html, { waitUntil: "load" });
           await page.waitForTimeout(250);
@@ -83,18 +114,18 @@ describe("GLSL shader runtime — real browser", () => {
 
           expect(
             state.runtimePresent,
-            `${preset.name}: embedded runtime did not boot`,
+            `${def.name}: embedded runtime did not boot`,
           ).toBe(true);
 
           if (webglAvailable) {
             if (state.error || !state.hasCanvas) {
               failures.push(
-                `${preset.name}: ${state.error ?? "no canvas mounted"}`,
+                `${def.name}: ${state.error ?? "no canvas mounted"}`,
               );
             } else {
               expect(
                 state.canvasSized,
-                `${preset.name}: canvas has zero size`,
+                `${def.name}: canvas has zero size`,
               ).toBe(true);
             }
           } else {
@@ -105,7 +136,7 @@ describe("GLSL shader runtime — real browser", () => {
 
         expect(
           failures,
-          "presets failed to compile/mount in a real WebGL context",
+          "saved shaders failed to compile/mount in a real WebGL context",
         ).toEqual([]);
         expect(pageErrors).toEqual([]);
       } finally {
@@ -123,12 +154,8 @@ describe("GLSL shader runtime — real browser", () => {
         const page = await browser.newPage({
           viewport: { width: 500, height: 400 },
         });
-        const fillPreset = GLSL_SHADER_PRESETS.find(
-          (preset) => preset.mode === "fill",
-        )!;
-        const effectPreset = GLSL_SHADER_PRESETS.find(
-          (preset) => preset.mode === "effect",
-        )!;
+        const fillPreset = savedFill;
+        const effectPreset = savedEffect;
         const firstFloat = Object.entries(fillPreset.uniforms).find(
           ([, u]) => u.type === "float",
         );

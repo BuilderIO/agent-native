@@ -32,8 +32,66 @@ vi.mock("@tanstack/react-query", () => ({
 import {
   isShaderWriteInFlight,
   usePersistShaderEdit,
+  usePersistNativeShaderEdit,
   waitForShaderWriteToSettle,
 } from "./GlslShaderPanel";
+
+describe("usePersistNativeShaderEdit", () => {
+  it("writes a versioned native operation through the canonical action and syncs the host", async () => {
+    mockCallAction.mockReset();
+    mockCallAction.mockResolvedValue({
+      content: "<html><body></body></html>",
+      versionHash: "v1",
+      fileId: "file_1",
+    });
+    mockUseActionMutation.mockReset();
+    const mutateAsync = vi.fn().mockResolvedValue({
+      content: "<html><body>native manifest</body></html>",
+      instanceIds: ["instance_1"],
+      updatedAt: "2026-10-06T00:00:00.000Z",
+    });
+    mockUseActionMutation.mockReturnValue({ mutateAsync });
+    const onApplied = vi.fn();
+    let persistNative: ReturnType<
+      typeof usePersistNativeShaderEdit
+    >["persistNative"];
+    function HookHost() {
+      ({ persistNative } = usePersistNativeShaderEdit({
+        designId: "design_1",
+        fileId: "file_1",
+        onApplied,
+      }));
+      return null;
+    }
+    renderToStaticMarkup(createElement(HookHost));
+    const operation = {
+      kind: "apply" as const,
+      nodeId: "target",
+      placement: "fill" as const,
+      definitionId: "an-native-grain-gradient",
+      definitionVersion: 2,
+    };
+    const result = await persistNative!(operation);
+    expect(mockCallAction).toHaveBeenCalledWith(
+      "read-source-file",
+      { designId: "design_1", fileId: "file_1" },
+      { method: "GET" },
+    );
+    expect(mutateAsync).toHaveBeenCalledWith({
+      designId: "design_1",
+      fileId: "file_1",
+      expectedVersionHash: "v1",
+      operation,
+    });
+    expect(result?.instanceIds).toEqual(["instance_1"]);
+    expect(onApplied).toHaveBeenCalledWith(
+      "file_1",
+      "<html><body>native manifest</body></html>",
+      "2026-10-06T00:00:00.000Z",
+      "<html><body></body></html>",
+    );
+  });
+});
 
 describe("usePersistShaderEdit (shader preset apply regression)", () => {
   let capturedPersist:
@@ -134,6 +192,7 @@ describe("usePersistShaderEdit (shader preset apply regression)", () => {
       "file_1",
       "<html><body><canvas></canvas></body></html>",
       "2026-07-06T00:00:00.000Z",
+      "<html><body></body></html>",
     );
   });
 

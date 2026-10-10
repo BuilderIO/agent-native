@@ -58,6 +58,45 @@ describe("read-source-file", () => {
     });
   });
 
+  it("reads real board artwork with a version hash when its file id is explicit", async () => {
+    const board = {
+      id: "board-1",
+      filename: "__board__.html",
+      updatedAt: "2026-10-06T00:00:00.000Z",
+    };
+    mocks.resolveSourceWorkspace.mockResolvedValue({
+      designId: "design-1",
+      sourceType: "inline",
+      canEdit: true,
+      files: [board],
+      boardFileId: board.id,
+    });
+    mocks.findSourceWorkspaceFile.mockReturnValue(board);
+    mocks.readLiveSourceFile.mockResolvedValue({
+      content: '<div data-agent-native-node-id="frame-1"></div>',
+      versionHash: "board-hash-1",
+      language: "html",
+      source: "stored",
+    });
+
+    const result = await action.run({ designId: "design-1", fileId: board.id });
+
+    expect(mocks.resolveSourceWorkspace).toHaveBeenCalledWith("design-1", {
+      includeContent: true,
+      includeBoard: true,
+    });
+    expect(mocks.findSourceWorkspaceFile).toHaveBeenCalledWith([board], {
+      fileId: board.id,
+      path: undefined,
+    });
+    expect(result).toMatchObject({
+      fileId: board.id,
+      readonly: false,
+      content: '<div data-agent-native-node-id="frame-1"></div>',
+      versionHash: "board-hash-1",
+    });
+  });
+
   it("fails loudly (404) for a private design instead of the run() ever reading a file", async () => {
     const notFound = Object.assign(new Error("Design not found"), {
       statusCode: 404,

@@ -2,7 +2,7 @@ import tailwindRuntimeUrl from "@tailwindcss/browser?url";
 import alpineRuntimeUrl from "alpinejs/dist/cdn.min.js?url";
 
 import { ensureGroupRuntime } from "../../../../shared/group-runtime";
-import { runtimeSrcSpans } from "./runtime-src-spans";
+import { previewRuntimeSpans } from "./runtime-src-spans";
 
 function absolute(url: string): string {
   if (/^[a-z]+:\/\//i.test(url)) return url;
@@ -23,13 +23,19 @@ export function withLocalRuntimes(
 ): string {
   html = ensureGroupRuntime(html);
   if (!html || !/<script/i.test(html)) return html;
-  const spans = runtimeSrcSpans(html);
+  const { srcSpans, ownedShaderSpans } = previewRuntimeSpans(html);
+  const spans = [
+    ...srcSpans.map((span) => ({ ...span, kind: "src" as const })),
+    ...ownedShaderSpans.map((span) => ({ ...span, kind: "owned" as const })),
+  ].sort((left, right) => left.start - right.start);
   if (spans.length === 0) return html;
 
   let out = "";
   let cursor = 0;
   for (const span of spans) {
-    out += `${html.slice(cursor, span.start)}src="${urls[span.runtime]}"`;
+    if (span.start < cursor) continue;
+    out += html.slice(cursor, span.start);
+    if (span.kind === "src") out += `src="${urls[span.runtime]}"`;
     cursor = span.end;
   }
   return out + html.slice(cursor);

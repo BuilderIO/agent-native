@@ -458,7 +458,7 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(shouldUseTextFill(el, el.computedStyles)).toBe(true);
   });
 
-  it("offers gradient layers but not image paints for a text fill selection", () => {
+  it("offers gradients and native shader but not image paints for a text fill selection", () => {
     const el = element({
       tagName: "span",
       computedStyles: {
@@ -487,7 +487,7 @@ describe("FillProperties base row — image layer prop wiring", () => {
     expect(markup).toContain('data-background-position="center"');
     expect(markup).toContain('data-supports-layered-fills="true"');
     expect(markup).toContain(
-      'data-supported-paint-types="solid,linear,radial,angular,diamond"',
+      'data-supported-paint-types="solid,linear,radial,angular,diamond,shader"',
     );
     expect(markup).not.toContain('aria-label="editPanel.labels.addFill"');
   });

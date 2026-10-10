@@ -53,6 +53,7 @@ export default defineAction({
   ) => {
     const workspace = await resolveSourceWorkspace(designId, {
       includeContent: true,
+      includeBoard: true,
     });
     if (workspace.sourceType !== "inline") {
       throw new Error("Only inline Design files are editable in this MVP.");

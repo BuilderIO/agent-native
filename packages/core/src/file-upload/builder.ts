@@ -1,3 +1,5 @@
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { FileUploadReadError, readBoundedUploadResponse } from "./read.js";
 import type {
   FileUploadProvider,
   FileUploadInput,
@@ -327,6 +329,37 @@ export const builderFileUploadProvider: FileUploadProvider = {
       // coercion-ok: malformed URLs are an explicit not-owned result.
       return false;
     }
+  },
+  read: async (input) => {
+    const url = new URL(input.url);
+    if (
+      url.origin !== "https://cdn.builder.io" ||
+      url.search ||
+      !/^\/api\/v1\/(?:image|file)\/assets%2f[a-z\d%/_.-]+$/i.test(url.pathname)
+    )
+      throw new FileUploadReadError(
+        "invalid-reference",
+        "Builder asset URL must identify an original uploaded file.",
+      );
+    const signal = AbortSignal.any([
+      input.signal ?? new AbortController().signal,
+      AbortSignal.timeout(15_000),
+    ]);
+    let response: Response;
+    try {
+      response = await ssrfSafeFetch(
+        url.toString(),
+        { signal },
+        { httpsOnly: true, followRedirects: false, requireDispatcher: true },
+      );
+    } catch (error) {
+      if (input.signal?.aborted) throw error;
+      throw new FileUploadReadError(
+        "unreadable",
+        "Builder uploaded asset could not be read.",
+      );
+    }
+    return readBoundedUploadResponse(response, input.maxBytes);
   },
   upload: async (input: FileUploadInput) => {
     const { data, filename, mimeType } = input;

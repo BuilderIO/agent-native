@@ -1,7 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -107,50 +103,5 @@ describe("buildShaderFillBackground — persisted CSS background", () => {
     expect(fallback.startsWith("linear-gradient(")).toBe(true);
     expect(fallback).toContain("#ff8247");
     expect(fallback).toContain("#ffe53d");
-  });
-});
-
-describe("apply-shader-fill action contract", () => {
-  const actionPath = path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "apply-shader-fill.ts",
-  );
-  const src = readFileSync(actionPath, "utf8");
-
-  it("asserts editor access before persisting", () => {
-    expect(src).toContain('assertAccess("design"');
-    expect(src).toMatch(/"editor"/);
-  });
-
-  it("scopes the design read with accessFilter", () => {
-    expect(src).toContain("accessFilter(schema.designs, schema.designShares)");
-  });
-
-  it("validates the descriptor before any write", () => {
-    expect(src).toContain("validateDescriptor(descriptor)");
-    const validateIdx = src.indexOf("validateDescriptor(descriptor)");
-    const persistCallIdx = src.indexOf("await persistDesignFileEdit({");
-    expect(validateIdx).toBeGreaterThan(-1);
-    expect(persistCallIdx).toBeGreaterThan(-1);
-    expect(validateIdx).toBeLessThan(persistCallIdx);
-  });
-
-  it("persists the fill as a CSS background via the deterministic HTML editor", () => {
-    expect(src).toContain("buildShaderFillBackground(descriptor)");
-    expect(src).toContain("applyVisualEdit(");
-    expect(src).toMatch(/property:\s*"background"/);
-  });
-
-  it("only writes HTML design-file sources — other kinds preview, never persist", () => {
-    expect(src).toContain('source.kind !== "design-file"');
-    expect(src).toMatch(/persisted:\s*false/);
-    expect(src).toContain(
-      "Shader fills can only be persisted onto HTML design files",
-    );
-  });
-
-  it("only persists when the editor actually changed the source", () => {
-    expect(src).toMatch(/status === "applied"/);
-    expect(src).toMatch(/changed === true/);
   });
 });

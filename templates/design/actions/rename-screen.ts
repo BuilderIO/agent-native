@@ -11,6 +11,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
+  bindNativeTextureGrantsInSourceTransaction,
+  preflightNativeTextureGrants,
+} from "../server/lib/design-native-texture-bindings.js";
+import {
+  dbExecForDrizzleTransaction,
   designSourceMutationLockKey,
   lockDesignFilesTable,
 } from "../server/source-workspace.js";
@@ -290,6 +295,15 @@ export default defineAction({
               const filenameChanged =
                 file.id === id && nextFilename !== file.filename;
               if (!contentChanged && !filenameChanged) continue;
+              const textureGrants = contentChanged
+                ? await preflightNativeTextureGrants({
+                    designId: scopedFile.designId,
+                    fileId: file.id,
+                    fileType: file.fileType,
+                    content: nextContent,
+                    allowRetainedFileBinding: true,
+                  })
+                : [];
 
               const updatedAt = nextUpdatedAt(file.updatedAt, now);
               const updates: Record<string, unknown> = { updatedAt };
@@ -334,6 +348,11 @@ export default defineAction({
               ) {
                 throw new ScreenRenameConflictError();
               }
+              await bindNativeTextureGrantsInSourceTransaction(
+                dbExecForDrizzleTransaction(tx),
+                { designId: scopedFile.designId, fileId: file.id },
+                textureGrants,
+              );
 
               updatedFiles.push({
                 id: file.id,

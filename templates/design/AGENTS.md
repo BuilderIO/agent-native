@@ -20,7 +20,7 @@ Read the relevant skill before deeper work in that area.
   verified close.
 - `export-handoff` — HTML/PNG/SVG/ZIP/code and coding handoffs.
 - `full-app-build` — source modes and flag-gated fusion-backed app building.
-- `shader-fills` — code-backed GLSL shader fills/effects.
+- `shader-fills` — native v2 effects and legacy GLSL.
 - `capture-learnings` — record a user preference or correction so it outlives
   the thread.
 
@@ -43,6 +43,7 @@ Read the relevant skill before deeper work in that area.
 | `generate-design` | Generate a fresh screen — never for a copied template screen |
 | `present-design-variants` | Generate 2-5 variants for the user to pick and refine |
 | `view-screen` | Re-read the current design or selected file when context is stale |
+| `get-shader` / `validate-native-shader` / `edit-native-shader` | Read, CPU-validate, approve, and edit native v2 effects |
 | `navigate` | Move the UI to a design, file, or panel |
 | `export-png` | Export screen as PNG |
 | `export-html` / `export-zip` / `export-coding-handoff` / `export-design-as-figma-svg` | Export a finished design |
@@ -82,6 +83,7 @@ Read the relevant skill before deeper work in that area.
   client consumes it.
 - `design-selection` — active screen, selected element, overview mode,
   inspector tab, zoom, screen list, and `layoutGrid`.
+- `design-shader-focus[:browserTabId]` — selected native shader instance.
 - `design-generation-session:<designId>`, `show-questions`, `guided-questions` —
   generation planning, pre-generation questions, and the variant chat choice;
   see `design-generation`.

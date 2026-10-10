@@ -34,6 +34,8 @@ const mocks = vi.hoisted(() => {
     getRequestUserEmail: vi.fn(() => "user@example.com"),
     getRequestOrgId: vi.fn(() => null),
     eq: vi.fn((left, right) => ({ left, right })),
+    preflight: vi.fn().mockResolvedValue([]),
+    bind: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -49,6 +51,11 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: mocks.eq,
   sql: vi.fn((strings, ...values) => ({ strings, values })),
+}));
+
+vi.mock("../server/lib/design-native-texture-bindings.js", () => ({
+  preflightNativeTextureGrants: mocks.preflight,
+  bindNativeTextureGrantsInSourceTransaction: mocks.bind,
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -95,6 +102,7 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.resolveAccess.mockReset();
+    mocks.preflight.mockResolvedValue([]);
     mocks.getRequestUserEmail.mockReturnValue("user@example.com");
     mocks.getRequestOrgId.mockReturnValue(null);
   });
@@ -148,6 +156,37 @@ describe("duplicate-design: fresh ids + node-id annotation", () => {
     expect(fileInsert.content).toContain('data-agent-native-node-id="an-kept"');
     expect(fileInsert.content).toMatch(
       /<button data-agent-native-node-id="[^"]+">Buy<\/button>/,
+    );
+  });
+
+  it("binds an authorized copied texture to the new file inside the copy transaction", async () => {
+    const path =
+      "/api/design-native-texture/12345678-1234-4123-8123-123456789abc.png";
+    setSource({ id: "design-src", title: "Original" }, [
+      {
+        id: "file-src-1",
+        filename: "index.html",
+        fileType: "html",
+        content: `<img src="${path}">`,
+      },
+    ]);
+    const grant = { id: "12345678-1234-4123-8123-123456789abc", path };
+    mocks.preflight.mockResolvedValueOnce([grant]);
+    const result = await action.run({ id: "design-src" });
+    const fileInsert = (
+      mocks.insertValues.mock.calls[1]![0] as Array<{ id: string }>
+    )[0]!;
+    expect(mocks.preflight).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: result.id,
+        fileId: fileInsert.id,
+        content: expect.stringContaining(path),
+      }),
+    );
+    expect(mocks.bind).toHaveBeenCalledWith(
+      expect.objectContaining({ execute: expect.any(Function) }),
+      { designId: result.id, fileId: fileInsert.id },
+      [grant],
     );
   });
 

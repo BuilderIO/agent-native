@@ -103,6 +103,10 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "access-request rows scoped through the design access action",
   "design:design_template_files": "child rows scoped through design templates",
   "design:design_versions": "version rows scoped through designs",
+  "design:design_native_texture_objects":
+    "internal blob metadata read only through a live authorized Design file binding",
+  "design:design_native_texture_bindings":
+    "internal asset-to-file grants checked through Design access and canonical source references",
   "design:design_visual_edit_snapshot_blob_cleanup":
     "private snapshot blob cleanup outbox processed by Design actions",
   "forms:responses": "public submissions scoped through forms",

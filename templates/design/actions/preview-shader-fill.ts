@@ -2,11 +2,6 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
-  generateShaderFillPreviewCss,
-  generateShaderFillFallbackCss,
-  buildShaderFillFallbackBlock,
-} from "../shared/shader-fill.js";
-import {
   SHADER_PRESET_MAP,
   type ShaderDescriptor,
   type ShaderPresetName,
@@ -56,27 +51,14 @@ const targetSchema = z
   );
 
 export default defineAction({
-  description: `
-Preview a CSS mesh-gradient shader fill on the selected design node without persisting anything.
-
-Returns:
-- previewCss   — a CSS \`background\` value for the live preview (inject via the shader-fill-preview bridge message).
-- fallbackCss  — a simpler static CSS \`background\` for export / PDF / SSR contexts.
-- fallbackBlock — a complete CSS rule block (selector + fallback background) ready to embed.
-- descriptor   — the resolved and validated ShaderDescriptor.
-- bridgeMessage — a ready-to-use JSON bridge payload for the iframe shader-fill-preview message.
-
-Call this before apply-shader-fill.  The preview is purely CSS — no WebGL, no canvas, no writes.
-
-Motion note: the \`speed\` field is accepted and stored on the descriptor for future motion-keyframe
-support; it has no effect on the static CSS preview output today.
-  `.trim(),
+  description:
+    "Read a historical shader-fill descriptor. The retired CSS approximation is not a native shader preview. For new work, choose a registered native definition with get-shader and apply it with edit-native-shader.",
   schema: z.object({
     descriptor: descriptorSchema,
     target: targetSchema,
   }),
   readOnly: true,
-  run: async ({ descriptor: rawDescriptor, target }) => {
+  run: async ({ descriptor: rawDescriptor }) => {
     const descriptor: ShaderDescriptor = {
       preset: rawDescriptor.preset as ShaderPresetName,
       params: rawDescriptor.params ?? {},
@@ -96,62 +78,15 @@ support; it has no effect on the static CSS preview output today.
         ok: false,
         errors: validation.errors,
         descriptor,
-        hint: "Fix the descriptor errors and retry.  Call get-shader to see the full preset catalog.",
+        hint: "Read this historical descriptor only. Call get-shader with format=native-v2 for current definitions.",
       };
     }
 
-    const previewCss = generateShaderFillPreviewCss(descriptor);
-    const fallbackCss = generateShaderFillFallbackCss(descriptor);
-
-    const selector = target?.selector
-      ? target.selector
-      : target?.nodeId
-        ? `[data-agent-native-node-id="${target.nodeId}"]`
-        : ":root";
-
-    const fallbackBlock = buildShaderFillFallbackBlock(selector, descriptor);
-
-    const bridgeMessage = {
-      type: "shader-fill-preview",
-      selector: target?.selector ?? null,
-      nodeId: target?.nodeId ?? null,
-      css: previewCss,
-      _preview: true,
-      _source: "shader-fill",
-      _preset: descriptor.preset,
-    };
-
-    const instructions = [
-      `== Preview CSS (set as \`background\` on the target element) ==`,
-      previewCss,
-      ``,
-      `== Static Fallback CSS (for export/SSR — set as \`background\`) ==`,
-      fallbackCss,
-      ``,
-      `== Fallback block (embed in a <style> tag) ==`,
-      fallbackBlock,
-      ``,
-      `== Bridge message (post to the iframe) ==`,
-      JSON.stringify(bridgeMessage, null, 2),
-      ``,
-      `Apply steps:`,
-      `1. Inject the previewCss via a bridge "shader-fill-preview" message (no write, no persist).`,
-      `2. If the user approves, call apply-shader-fill — but note that action is currently GATED`,
-      `   and will return a clear not-yet-available result until runtime rendering +`,
-      `   source-write + diff proof are all in place.`,
-      `3. For inline/Alpine artboards, apply-shader (the existing planning action) returns`,
-      `   a <canvas data-shader=...> element that the design runtime mounts as WebGL.`,
-    ].join("\n");
-
     return {
-      ok: true,
+      ok: false,
+      code: "legacy-shader-retired" as const,
       descriptor,
-      previewCss,
-      fallbackCss,
-      fallbackBlock,
-      bridgeMessage,
-      instructions,
-      note: "This is a preview-only result.  Nothing was written to the database or source.",
+      nativeAction: "edit-native-shader" as const,
     };
   },
 });

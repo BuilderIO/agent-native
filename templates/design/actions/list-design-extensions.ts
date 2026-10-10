@@ -5,7 +5,7 @@
  * availability status.  The four built-in extensions are:
  *
  *   1. Asset Library     — selection-aware asset insertion (ships now).
- *   2. Shader Fills      — GPU shader fill previews (preview-only now; apply gated).
+ *   2. Shader Fills      — native shader catalog on the selected Design node.
  *   3. Token Auditor     — reads token usage across the design and flags clashes.
  *   4. Motion Presets    — one-click motion preset application.
  *
@@ -108,53 +108,27 @@ const FIRST_PARTY_EXTENSIONS: FirstPartyDesignExtension[] = [
     id: "design.shader-fills",
     name: "Shader Fills",
     description:
-      "GPU-accelerated shader fill presets (MeshGradient, GrainGradient, Voronoi, " +
-      "Metaballs, Warp, GodRays, Dithering, PaperTexture).  Preview as CSS gradient " +
-      "without writing anything; full apply is gated until runtime rendering + " +
-      "source-write + fallback + diff proof are all in place.",
-    icon: "Sparkles",
-    availability: "preview-only",
+      "Open the selected node's native shader Fill picker. Historical shader descriptors remain readable without executing retired code.",
+    icon: "Palette",
+    availability: "available",
     availabilityNote:
-      "Preview-only.  Call preview-shader-fill for a live CSS preview or " +
-      "apply-shader for a manual-edit code snippet.  apply-shader-fill is " +
-      "gated and will return NOT_YET_AVAILABLE until safety conditions are met.",
+      "Use get-shader with format=native-v2 to discover current definitions, then edit-native-shader to apply one exact version.",
     capabilities: [
       {
         id: "catalog",
-        label: "Browse shader preset catalog",
+        label: "Browse native shader definitions",
         status: "available",
-        reason: "Call get-shader to see all 8 presets.",
-      },
-      {
-        id: "preview",
-        label: "Preview shader fill as CSS gradient",
-        status: "available",
-        reason:
-          "Call preview-shader-fill — returns previewCss + bridgeMessage; no writes.",
-      },
-      {
-        id: "code-snippet",
-        label: "Generate code snippet for manual edit",
-        status: "available",
-        reason:
-          "Call apply-shader — returns JSX import + snippet or HTML bridge mount.",
+        reason: "Call get-shader with format=native-v2.",
       },
       {
         id: "apply",
-        label: "Apply shader fill (persist to design)",
-        status: "preview-only",
+        label: "Apply a native shader fill",
+        status: "available",
         reason:
-          "apply-shader-fill is GATED until: (1) runtime WebGL rendering verified via " +
-          "captureSnapshot, (2) source-write bridge available, (3) CSS fallback embedded " +
-          "alongside canvas, (4) before/after diff produced.  Today it returns gated:true.",
+          "Call edit-native-shader with the selected node and exact definition version.",
       },
     ],
-    actions: [
-      "get-shader",
-      "preview-shader-fill",
-      "apply-shader",
-      "apply-shader-fill",
-    ],
+    actions: ["get-shader", "edit-native-shader"],
     slotId: "design.editor.inspector",
   },
 

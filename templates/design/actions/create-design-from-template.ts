@@ -12,12 +12,19 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  bindNativeTextureGrantsInSourceTransaction,
+  preflightNativeTextureGrants,
+} from "../server/lib/design-native-texture-bindings.js";
+import {
   extractTemplateFonts,
   redactTemplateDesignData,
   remapTemplateFileIds,
   templateFileDimensions,
 } from "../server/lib/design-template-data.js";
-import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
+import {
+  dbExecForDrizzleTransaction,
+  withDesignSourceMutationTransaction,
+} from "../server/source-workspace.js";
 import { BOARD_FILENAME } from "../shared/board-file.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designTemplateRetryKey } from "../shared/design-template-retry.js";
@@ -353,6 +360,17 @@ export default defineAction({
       content: annotateScreenHtmlForPersist(file.content, file.fileType),
     }));
 
+    const nativeTextureGrants = await Promise.all(
+      persistedFiles.map(async (file) => ({
+        fileId: file.id,
+        values: await preflightNativeTextureGrants({
+          designId,
+          fileId: file.id,
+          fileType: file.fileType,
+          content: file.content,
+        }),
+      })),
+    );
     const persist = async (tx: DesignTransaction) => {
       if (targetDesignId) {
         const [existingDesign] = await tx
@@ -426,6 +444,12 @@ export default defineAction({
           updatedAt: now,
         })),
       );
+      for (const entry of nativeTextureGrants)
+        await bindNativeTextureGrantsInSourceTransaction(
+          dbExecForDrizzleTransaction(tx),
+          { designId, fileId: entry.fileId },
+          entry.values,
+        );
     };
 
     if (targetDesignId) {

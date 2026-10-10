@@ -13,7 +13,10 @@ import { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getPersistedContentHostSyncOptions } from "../editor-state";
+import {
+  createPersistedContentHostSyncHandler,
+  getPersistedContentHostSyncOptions,
+} from "../editor-state";
 import type { ApplyFileContentUpdateArgs } from "./apply-file-content-update";
 import { runApplyFileContentUpdate } from "./apply-file-content-update";
 import type { ApplyLocalContentUpdateArgs } from "./apply-local-content-update";
@@ -189,25 +192,64 @@ describe("shader-locked source publication", () => {
         runApplyLocalContentUpdate(localWriterArgs, content, options),
     });
 
-    const result = runApplyFileContentUpdate(
-      args,
-      "active",
-      PERSISTED_SHADER_SOURCE,
-      getPersistedContentHostSyncOptions({
-        fileId: "active",
-        activeFileId: "active",
-        shaderWriteCompletion: true,
-        updatedAt: "T2",
-      }),
-    );
+    const results: ReturnType<typeof runApplyFileContentUpdate>[] = [];
+    const hostSync = createPersistedContentHostSyncHandler({
+      activeFileIdRef: { current: "active" },
+      applyFileContentUpdateRef: {
+        current: (fileId, content, options) => {
+          results.push(
+            runApplyFileContentUpdate(args, fileId, content, options),
+          );
+        },
+      },
+      shaderWriteCompletion: true,
+    });
+    hostSync("active", PERSISTED_SHADER_SOURCE, "T2", PERSISTED_BASE);
 
-    expect(result.status).toBe("accepted");
+    expect(results).toMatchObject([{ status: "accepted" }]);
     expect(localWriterArgs.collabContentRef.current).toBe(
       PERSISTED_SHADER_SOURCE,
     );
+    expect(localWriterArgs.recordLocalContentHistoryEntry).toHaveBeenCalledWith(
+      {
+        fileId: "active",
+        before: PERSISTED_BASE,
+        after: PERSISTED_SHADER_SOURCE,
+        selectionBefore: undefined,
+      },
+    );
+    expect(localWriterArgs.recordContentHistoryEntry).not.toHaveBeenCalled();
     expect(localWriterArgs.queueFileContentSave).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
     queryClient.clear();
+  });
+
+  it("records a persisted shader edit in a non-active source as one file history entry", () => {
+    shaderState.inFlight = true;
+    const args = fileArgs({
+      activeFileId: "other",
+      getScreenContent: () => PERSISTED_BASE,
+    });
+    const hostSync = createPersistedContentHostSyncHandler({
+      activeFileIdRef: { current: "other" },
+      applyFileContentUpdateRef: {
+        current: (fileId, content, options) => {
+          runApplyFileContentUpdate(args, fileId, content, options);
+        },
+      },
+      shaderWriteCompletion: true,
+    });
+
+    hostSync("screen", PERSISTED_SHADER_SOURCE, "T2", PERSISTED_BASE);
+
+    expect(args.recordContentHistoryEntry).toHaveBeenCalledOnce();
+    expect(args.recordContentHistoryEntry).toHaveBeenCalledWith({
+      fileId: "screen",
+      before: PERSISTED_BASE,
+      after: PERSISTED_SHADER_SOURCE,
+    });
+    expect(args.queueFileContentSave).not.toHaveBeenCalled();
+    args.queryClient.clear();
   });
 
   it("refuses generic persisted host sync while a shader write owns the file", () => {

@@ -30,8 +30,13 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import {
+  bindNativeTextureGrantsInSourceTransaction,
+  preflightNativeTextureGrants,
+} from "../server/lib/design-native-texture-bindings.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
+  getDesignSourceMutationExec,
   readLiveSourceFile,
   SourceWorkspaceEditConflictError,
   withDesignSourceMutationTransaction,
@@ -879,8 +884,14 @@ const generateDesignAction = defineAction({
         });
       } else {
         const fileId = nanoid();
-        await withDesignSourceMutationTransaction(designId, (tx) =>
-          tx.insert(schema.designFiles).values({
+        const nativeTextureGrants = await preflightNativeTextureGrants({
+          designId,
+          fileId,
+          fileType: file.fileType ?? "html",
+          content: file.content,
+        });
+        await withDesignSourceMutationTransaction(designId, async (tx) => {
+          await tx.insert(schema.designFiles).values({
             id: fileId,
             designId,
             filename: file.filename,
@@ -891,8 +902,13 @@ const generateDesignAction = defineAction({
             contentOperationResultHash: null,
             createdAt: now,
             updatedAt: now,
-          }),
-        );
+          });
+          await bindNativeTextureGrantsInSourceTransaction(
+            getDesignSourceMutationExec(tx),
+            { designId, fileId },
+            nativeTextureGrants,
+          );
+        });
 
         agentEnterDocument(fileId);
         agentUpdateSelection(fileId, {

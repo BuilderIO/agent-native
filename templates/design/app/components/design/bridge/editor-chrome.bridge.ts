@@ -1411,6 +1411,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   function publishSourceDocumentProvenance(
     sourceProvenance?: { versionHash?: string; uniqueNodeIds: string[] },
     partialMutation?: boolean,
+    sourceRevisionRequestId?: string,
   ): void {
     var uniqueNodeIds = sourceProvenance
       ? sourceProvenance.uniqueNodeIds
@@ -1425,6 +1426,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     sourceDocumentProvenanceSnapshot = published;
     (window as any).__agentNativeSourceProvenance = published;
+    if (!sourceProvenance || !sourceRevisionRequestId) {
+      (window.parent as Window).postMessage(
+        { type: "agent-native:source-revision-invalidated" },
+        "*",
+      );
+    } else {
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:source-revision-applied",
+          requestId: sourceRevisionRequestId,
+        },
+        "*",
+      );
+    }
   }
 
   var sourceDocumentProvenanceSnapshot = normalizeSourceDocumentProvenance(
@@ -2192,9 +2207,40 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       return false;
     }
+    if (
+      el.hasAttribute("data-an-native-presentation") ||
+      el.hasAttribute("data-an-native-canvas")
+    ) {
+      return false;
+    }
     return !(
       isOverlayElement(el) || el.closest("[data-agent-native-edit-overlay]")
     );
+  }
+
+  function stripNativePresentationFromRuntimeSnapshot(
+    cloneBody: Element,
+  ): void {
+    cloneBody
+      .querySelectorAll("[data-an-native-presentation],[data-an-native-canvas]")
+      .forEach(function (node) {
+        node.remove();
+      });
+    [cloneBody]
+      .concat(
+        Array.prototype.slice.call(
+          cloneBody.querySelectorAll("*"),
+        ) as Element[],
+      )
+      .forEach(function (node) {
+        Array.prototype.slice.call(node.attributes).forEach(function (
+          attribute: Attr,
+        ) {
+          if (attribute.name.startsWith("data-an-native-")) {
+            node.removeAttribute(attribute.name);
+          }
+        });
+      });
   }
 
   function serializeRuntimeLayerSnapshot(
@@ -2420,6 +2466,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       .forEach(function (node) {
         node.remove();
       });
+    stripNativePresentationFromRuntimeSnapshot(cloneBody);
     cloneBody
       .querySelectorAll(
         "script,template,noscript,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set,link:not([rel~='stylesheet'])",
@@ -2483,10 +2530,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     });
     Array.from(document.adoptedStyleSheets ?? []).forEach(function (sheet) {
       try {
-        var adoptedStyle = document.createElement("style");
-        adoptedStyle.textContent = Array.from(sheet.cssRules, function (rule) {
+        var rules = Array.from(sheet.cssRules, function (rule) {
           return rule.cssText;
-        }).join("\n");
+        });
+        if (
+          rules.some(function (rule) {
+            return rule.indexOf("[data-an-native-fill-suppressed]") !== -1;
+          })
+        ) {
+          return;
+        }
+        var adoptedStyle = document.createElement("style");
+        adoptedStyle.textContent = rules.join("\n");
         cloneHead.appendChild(adoptedStyle);
       } catch {
         snapshotFailures.push("adopted-stylesheet-unavailable");
@@ -6130,6 +6185,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  function restoreNativeAuthoredComputedStyles(
+    el: Element,
+    computed: Record<string, string>,
+  ): Record<string, string> {
+    var nativeAuthoredPaint = [
+      ["data-an-native-authored-background-color", "backgroundColor"],
+      ["data-an-native-authored-background-image", "backgroundImage"],
+      ["data-an-native-authored-color", "color"],
+      ["data-an-native-authored-text-fill-color", "webkitTextFillColor"],
+      ["data-an-native-authored-opacity", "opacity"],
+    ] as const;
+    nativeAuthoredPaint.forEach(function ([attribute, property]) {
+      var authored = el.getAttribute(attribute);
+      if (authored !== null) computed[property] = authored;
+    });
+    return computed;
+  }
+
   function collectElementComputedStyles(
     el: Element,
     cs: CSSStyleDeclaration,
@@ -6198,6 +6271,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       computed.marginBottom = "auto";
     if (marginValueIsAuto(el, "left", cs.marginLeft))
       computed.marginLeft = "auto";
+    restoreNativeAuthoredComputedStyles(el, computed);
     return {
       ...computed,
       "--an-vector-stroke-position":
@@ -7174,6 +7248,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     preferredSelector: string;
     selectorCandidates: string[];
     sourceProvenance?: { versionHash?: string; uniqueNodeIds: string[] };
+    sourceRevisionRequestId?: string;
   } | null = null;
   var textEditPointerState: {
     selection: string;
@@ -8673,6 +8748,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     forceFullDocument?: boolean,
     preserveTextEditingSession?: boolean,
     sourceProvenanceValue?: unknown,
+    sourceRevisionRequestId?: string,
   ): void {
     if (typeof html !== "string") return;
     var sourceProvenance = normalizeSourceDocumentProvenance(
@@ -8704,6 +8780,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           ? selectorCandidates
           : [],
         sourceProvenance: sourceProvenance,
+        sourceRevisionRequestId: sourceRevisionRequestId,
       };
       applyLayerStateSelectors();
       refreshOverlays();
@@ -8871,7 +8948,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (node.parentNode) node.parentNode.removeChild(node);
     });
     morphRuntimeBody(nextDoc.body);
-    publishSourceDocumentProvenance(sourceProvenance);
+    publishSourceDocumentProvenance(
+      sourceProvenance,
+      false,
+      sourceRevisionRequestId,
+    );
     if (suspendedTextEditRange) {
       var suspendedRangeState = suspendedTextEditRange;
       var rangeTargetAfterMorph = suspendedRangeState.target.isConnected
@@ -8941,6 +9022,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     nodeId: unknown,
     html: unknown,
     sourceProvenanceValue: unknown,
+    sourceRevisionRequestId?: string,
   ): boolean {
     var sourceProvenance = normalizeSourceDocumentProvenance(
       sourceProvenanceValue,
@@ -8979,7 +9061,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     morphElement(current, next, scopedMorphContext(current, next));
     hydrateVectorEndpointMarkers();
     applyLayerStateSelectors();
-    publishSourceDocumentProvenance(sourceProvenance);
+    publishSourceDocumentProvenance(
+      sourceProvenance,
+      false,
+      sourceRevisionRequestId,
+    );
     if (selectedEl && selectedEl.isConnected) {
       positionOverlay(selectionOverlay, selectedEl);
       postElementSelect(selectedEl);
@@ -26618,6 +26704,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           true,
           false,
           pending.sourceProvenance,
+          pending.sourceRevisionRequestId,
         );
       }
     }
@@ -28567,12 +28654,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         Boolean(e.data.forceFullDocument),
         Boolean(e.data.preserveTextEditingSession),
         e.data.sourceProvenance,
+        e.data.sourceRevisionRequestId,
       );
       return;
     }
     if (e.data.type === "replace-source-node") {
       if (
-        !replaceSourceNode(e.data.nodeId, e.data.html, e.data.sourceProvenance)
+        !replaceSourceNode(
+          e.data.nodeId,
+          e.data.html,
+          e.data.sourceProvenance,
+          e.data.sourceRevisionRequestId,
+        )
       ) {
         (window.parent as Window).postMessage(
           { type: "replace-source-node-rejected" },

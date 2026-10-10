@@ -1,4 +1,5 @@
 import { buildCodeLayerProjection } from "@shared/code-layer";
+import { sourceContentHash } from "@shared/source-workspace";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -320,6 +321,23 @@ export async function runPasteSelection(
     return;
   }
   const layerHtmls = entries.map((entry) => entry.html);
+  const nativeEffectSnapshots = entries.map(
+    (entry) => entry.nativeEffectSnapshot,
+  );
+  if (
+    entries.some((entry) => {
+      const snapshot = entry.nativeEffectSnapshot;
+      return (
+        snapshot &&
+        files.some((file) => file.id === entry.sourceFileId) &&
+        sourceContentHash(getScreenContent(entry.sourceFileId)) !==
+          snapshot.sourceHash
+      );
+    })
+  ) {
+    toast.error(t("designEditor.toasts.saveConflict"));
+    return;
+  }
   const styleSnapshots = entries.map((entry) =>
     portableStyleSnapshotForPasteTarget(entry, targetFileId),
   );
@@ -339,6 +357,10 @@ export async function runPasteSelection(
   );
   const targetStoredContent = targetFile?.content ?? baseContent;
   if (isStandaloneHttpUrl(targetStoredContent)) {
+    if (nativeEffectSnapshots.some(Boolean)) {
+      toast.error(t("designEditor.toasts.primitiveInsertFailed"));
+      return;
+    }
     const selectedAnchor =
       !position &&
       targetFileId === activeFile?.id &&
@@ -623,6 +645,7 @@ export async function runPasteSelection(
       positions: selectedSourcePositions,
       styleSnapshots,
       managedStyleSnapshots,
+      nativeEffectSnapshots,
       componentLinks,
     };
     if (dispatchLinkedClone(cloneOptions)) {
@@ -762,6 +785,7 @@ export async function runPasteSelection(
     positions,
     styleSnapshots,
     managedStyleSnapshots,
+    nativeEffectSnapshots,
     componentLinks,
     ...(pasteAfterOriginalSelectors?.length
       ? {

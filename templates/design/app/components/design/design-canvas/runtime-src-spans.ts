@@ -24,8 +24,16 @@ export interface SrcSpan {
   runtime: "tailwind" | "alpine";
 }
 
-export function runtimeSrcSpansFromTree(root: unknown): SrcSpan[] {
-  const spans: SrcSpan[] = [];
+export interface PreviewRuntimeSpans {
+  srcSpans: SrcSpan[];
+  ownedShaderSpans: Array<{ start: number; end: number }>;
+}
+
+export function previewRuntimeSpansFromTree(
+  root: unknown,
+): PreviewRuntimeSpans {
+  const srcSpans: SrcSpan[] = [];
+  const ownedShaderSpans: PreviewRuntimeSpans["ownedShaderSpans"] = [];
 
   const visit = (node: unknown) => {
     const element = node as {
@@ -34,10 +42,25 @@ export function runtimeSrcSpansFromTree(root: unknown): SrcSpan[] {
       childNodes?: unknown[];
       content?: { childNodes?: unknown[] };
       sourceCodeLocation?: {
+        startOffset: number;
+        endOffset: number;
         attrs?: Record<string, { startOffset: number; endOffset: number }>;
       } | null;
     };
     if (element.tagName === "script") {
+      if (
+        element.attrs?.some(
+          (attr) =>
+            attr.name === "data-agent-native-shader-runtime" ||
+            attr.name === "data-agent-native-native-shader-runtime",
+        ) &&
+        element.sourceCodeLocation
+      ) {
+        ownedShaderSpans.push({
+          start: element.sourceCodeLocation.startOffset,
+          end: element.sourceCodeLocation.endOffset,
+        });
+      }
       const src = element.attrs?.find((attr) => attr.name === "src")?.value;
       const at = element.sourceCodeLocation?.attrs?.src;
       if (src && at) {
@@ -47,7 +70,7 @@ export function runtimeSrcSpansFromTree(root: unknown): SrcSpan[] {
             ? "alpine"
             : null;
         if (runtime) {
-          spans.push({ start: at.startOffset, end: at.endOffset, runtime });
+          srcSpans.push({ start: at.startOffset, end: at.endOffset, runtime });
         }
       }
     }
@@ -60,8 +83,21 @@ export function runtimeSrcSpansFromTree(root: unknown): SrcSpan[] {
   };
   visit(root);
 
-  return spans.sort((left, right) => left.start - right.start);
+  return {
+    srcSpans: srcSpans.sort((left, right) => left.start - right.start),
+    ownedShaderSpans: ownedShaderSpans.sort(
+      (left, right) => left.start - right.start,
+    ),
+  };
 }
+
+export function runtimeSrcSpansFromTree(root: unknown): SrcSpan[] {
+  return previewRuntimeSpansFromTree(root).srcSpans;
+}
+
+export const previewRuntimeSpans = memoizeByContent(256, (html: string) =>
+  previewRuntimeSpansFromTree(parse(html, { sourceCodeLocationInfo: true })),
+);
 
 export const runtimeSrcSpans = memoizeByContent(256, (html: string) =>
   runtimeSrcSpansFromTree(parse(html, { sourceCodeLocationInfo: true })),

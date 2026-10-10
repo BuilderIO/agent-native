@@ -1,8 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 
 import {
+  PrivateBlobError,
   registerPrivateBlobProvider,
   type PrivateBlobProvider,
 } from "@agent-native/core/private-blob";
@@ -25,6 +33,188 @@ const MIME_EXTENSIONS = new Map([
   ["image/avif", "avif"],
   ["image/svg+xml", "svg"],
 ]);
+const QA_ASSET_ROUTE = "/api/qa-figma-import-assets/";
+const QA_ASSET_ID =
+  /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.(?:png|jpg|webp|gif|avif|svg)$/;
+
+export class LocalFigmaQaExportAssetError extends Error {
+  constructor(
+    readonly code:
+      | "invalid-reference"
+      | "forbidden"
+      | "unavailable"
+      | "unreadable"
+      | "limit"
+      | "mismatch"
+      | "unsupported",
+    message: string,
+  ) {
+    super(message);
+    this.name = "LocalFigmaQaExportAssetError";
+  }
+}
+
+export function isLocalFigmaQaAssetUrl(url: string): boolean {
+  return url.startsWith(QA_ASSET_ROUTE);
+}
+
+function hasExpectedImageSignature(
+  mimeType: string,
+  bytes: Uint8Array,
+): boolean {
+  if (mimeType === "image/png")
+    return (
+      bytes.length >= 24 &&
+      [137, 80, 78, 71, 13, 10, 26, 10].every(
+        (byte, index) => bytes[index] === byte,
+      ) &&
+      String.fromCharCode(...bytes.subarray(12, 16)) === "IHDR"
+    );
+  if (mimeType === "image/jpeg")
+    return (
+      bytes.length >= 3 &&
+      bytes[0] === 255 &&
+      bytes[1] === 216 &&
+      bytes[2] === 255
+    );
+  if (mimeType === "image/webp")
+    return (
+      bytes.length >= 16 &&
+      String.fromCharCode(...bytes.subarray(0, 4)) === "RIFF" &&
+      String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP"
+    );
+  if (mimeType === "image/gif")
+    return (
+      bytes.length >= 6 &&
+      ["GIF87a", "GIF89a"].includes(
+        String.fromCharCode(...bytes.subarray(0, 6)),
+      )
+    );
+  if (mimeType === "image/avif")
+    return (
+      bytes.length >= 16 &&
+      String.fromCharCode(...bytes.subarray(4, 8)) === "ftyp" &&
+      ["avif", "avis"].includes(String.fromCharCode(...bytes.subarray(8, 12)))
+    );
+  return false;
+}
+
+function localQaReadFailure(
+  error: unknown,
+  message: string,
+): LocalFigmaQaExportAssetError {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? error.code
+      : undefined;
+  return new LocalFigmaQaExportAssetError(
+    code === "ENOENT" || code === "ENOTDIR" ? "unavailable" : "unreadable",
+    message,
+  );
+}
+
+export async function readLocalFigmaQaAssetForExport(
+  url: string,
+  ownerEmail: string | null | undefined,
+  options: { rootDir?: string; maxBytes?: number } = {},
+): Promise<{ mimeType: string; bytes: Uint8Array }> {
+  if (!isLocalFigmaQaAssetUrl(url))
+    throw new LocalFigmaQaExportAssetError(
+      "invalid-reference",
+      "Not a local QA asset URL.",
+    );
+  if (!isLocalFigmaQaUploadEnabled())
+    throw new LocalFigmaQaExportAssetError(
+      "unavailable",
+      "Local QA asset storage is disabled.",
+    );
+  if (!ownerEmail?.trim())
+    throw new LocalFigmaQaExportAssetError(
+      "forbidden",
+      "Local QA asset export requires an authenticated owner.",
+    );
+  const assetId = url.slice(QA_ASSET_ROUTE.length);
+  if (!QA_ASSET_ID.test(assetId))
+    throw new LocalFigmaQaExportAssetError(
+      "invalid-reference",
+      "Local QA asset URL is malformed.",
+    );
+  const mimeType = localFigmaQaAssetMimeType(assetId);
+  if (!mimeType)
+    throw new LocalFigmaQaExportAssetError(
+      "invalid-reference",
+      "Local QA asset type is unknown.",
+    );
+  if (mimeType === "image/svg+xml")
+    throw new LocalFigmaQaExportAssetError(
+      "unsupported",
+      "Local QA SVG cannot be embedded without its route isolation.",
+    );
+  const rootDir = options.rootDir ?? QA_UPLOAD_ROOT;
+  const filepath = localFigmaQaAssetPath(ownerEmail, assetId, rootDir);
+  if (!filepath)
+    throw new LocalFigmaQaExportAssetError(
+      "invalid-reference",
+      "Local QA asset path is unsafe.",
+    );
+  let real: string;
+  try {
+    real = await realpath(filepath);
+  } catch (error) {
+    throw localQaReadFailure(
+      error,
+      "Local QA asset is unavailable for this owner.",
+    );
+  }
+  let realRoot: string;
+  let ownerRoot: string;
+  try {
+    realRoot = await realpath(rootDir);
+    ownerRoot = await realpath(ownerDirectory(ownerEmail, rootDir));
+  } catch (error) {
+    throw localQaReadFailure(
+      error,
+      "Local QA asset owner storage is unreadable.",
+    );
+  }
+  if (ownerRoot !== ownerDirectory(ownerEmail, realRoot))
+    throw new LocalFigmaQaExportAssetError(
+      "forbidden",
+      "Local QA asset owner directory is not isolated.",
+    );
+  if (real !== path.join(ownerRoot, assetId))
+    throw new LocalFigmaQaExportAssetError(
+      "forbidden",
+      "Local QA asset leaves its owner directory.",
+    );
+  let details;
+  try {
+    details = await stat(real);
+  } catch (error) {
+    throw localQaReadFailure(error, "Local QA asset changed before export.");
+  }
+  const maxBytes = options.maxBytes ?? 1_000_000;
+  if (!details.isFile() || details.size < 1 || details.size > maxBytes)
+    throw new LocalFigmaQaExportAssetError(
+      "limit",
+      "Local QA asset exceeds export size limits.",
+    );
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await readFile(real));
+  } catch (error) {
+    throw localQaReadFailure(error, "Local QA asset changed during export.");
+  }
+  if (
+    bytes.byteLength !== details.size ||
+    !hasExpectedImageSignature(mimeType, bytes)
+  )
+    throw new LocalFigmaQaExportAssetError(
+      "mismatch",
+      "Local QA asset bytes do not match its image type.",
+    );
+  return { mimeType, bytes };
+}
 
 export function isLocalFigmaQaUploadEnabled(
   env: NodeJS.ProcessEnv = process.env,
@@ -145,12 +335,35 @@ export function createLocalFigmaQaPrivateBlobProvider(options?: {
         metadata,
       };
     },
-    read: async (handle) => ({
-      data: new Uint8Array(await readFile(blobPath(handle.id))),
-      mimeType: handle.mimeType,
-      metadata: handle.metadata,
-      handle,
-    }),
+    read: async (handle) => {
+      const filepath = blobPath(handle.id);
+      let data: Uint8Array;
+      try {
+        data = new Uint8Array(await readFile(filepath));
+      } catch (error) {
+        if (
+          error &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "ENOENT"
+        )
+          throw new PrivateBlobError(
+            "Local QA private blob was not found.",
+            "not_found",
+          );
+        throw new PrivateBlobError(
+          "Local QA private blob could not be read.",
+          "unavailable",
+          { cause: error },
+        );
+      }
+      return {
+        data,
+        mimeType: handle.mimeType,
+        metadata: handle.metadata,
+        handle,
+      };
+    },
     delete: async (handle) => {
       await rm(blobPath(handle.id), { force: true });
       return { deleted: true, provider: handle.provider };

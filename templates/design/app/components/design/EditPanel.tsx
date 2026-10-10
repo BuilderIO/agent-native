@@ -308,6 +308,7 @@ const EMPTY_SCREEN_SIZE_CONSTRAINTS: ScreenSizeConstraints = {
 };
 
 interface EditPanelProps {
+  nativeShaderPickerRequest?: number;
   selectedElement: ElementInfo | null;
   textEditingState?: TextEditingState;
   selectionHidden?: boolean;
@@ -409,6 +410,7 @@ interface EditPanelProps {
     fileId: string,
     content: string,
     updatedAt?: string,
+    beforeContent?: string,
   ) => void;
   onTokensApplied?: (resolvedCssVars: Record<string, string>) => void;
   statesPanelProps?: Omit<StatesPanelProps, "designId">;
@@ -2196,6 +2198,7 @@ function useDocumentColorPalette(files?: DocumentColorSourceFile[]) {
 }
 
 export const EditPanel = memo(function EditPanel({
+  nativeShaderPickerRequest,
   selectedElement,
   textEditingState,
   selectionHidden = false,
@@ -2381,15 +2384,37 @@ export const EditPanel = memo(function EditPanel({
     effectiveSelectedElements.map(elementStableKey),
   );
   const glslShaderContext: GlslShaderPanelContext | undefined = useMemo(() => {
-    if (!designId || !fileId || selectedCount > 1) return undefined;
-    const nodeId = inspectorElement?.sourceId;
-    if (!nodeId) return undefined;
+    if (!designId || selectedCount > 32 || selectedCount === 0)
+      return undefined;
+    const sourceFileId =
+      effectiveSelectedElements[0]?.sourceLayerIdentity?.screenId?.trim() ||
+      fileId;
+    const nodeIds = effectiveSelectedElements.map(
+      (element) => element.sourceId,
+    );
+    if (
+      !sourceFileId ||
+      nodeIds.some((nodeId) => !nodeId) ||
+      new Set(nodeIds).size !== selectedCount ||
+      effectiveSelectedElements.some(
+        (element) =>
+          (element.sourceLayerIdentity?.screenId?.trim() || fileId) !==
+          sourceFileId,
+      )
+    )
+      return undefined;
     return {
       designId,
-      fileId,
-      content: fileId === boardFileId ? undefined : activeContent,
-      nodeId,
-      selector: inspectorElement?.selector,
+      fileId: sourceFileId,
+      content:
+        sourceFileId === fileId && sourceFileId !== boardFileId
+          ? activeContent
+          : undefined,
+      nodeId: nodeIds[0],
+      nodeIds: nodeIds as string[],
+      selector: selectedCount === 1 ? inspectorElement?.selector : undefined,
+      nativeOnly: selectedCount > 1,
+      boardFile: sourceFileId === boardFileId,
       onApplied: onShaderSourceApplied,
       onEditCode,
     };
@@ -2399,6 +2424,9 @@ export const EditPanel = memo(function EditPanel({
     designId,
     fileId,
     selectedCount,
+    selectedElementsKey,
+    effectiveSelectedElements,
+    inspectorElement?.sourceLayerIdentity?.screenId,
     inspectorElement?.sourceId,
     inspectorElement?.selector,
     onShaderSourceApplied,
@@ -2949,6 +2977,7 @@ export const EditPanel = memo(function EditPanel({
                       />
                       <FillProperties
                         key={`fill:${selectedScreenElementSectionKey}`}
+                        nativeShaderPickerRequest={nativeShaderPickerRequest}
                         element={selectedScreenElement}
                         onStyleChange={onSelectedScreenStyleChange}
                         onStylesChange={onSelectedScreenStylesChange}
@@ -3108,6 +3137,7 @@ export const EditPanel = memo(function EditPanel({
                   ) : (
                     <FillProperties
                       key={`fill:${inspectorElementSectionKey}`}
+                      nativeShaderPickerRequest={nativeShaderPickerRequest}
                       element={
                         stateResolvedInspectorElement ?? inspectorElement
                       }
@@ -3167,7 +3197,20 @@ export const EditPanel = memo(function EditPanel({
                   <ExportSettingsPanel
                     key={selectedElementKey}
                     value={exportSettings}
-                    formats={["png", "svg", "pdf"]}
+                    labels={{
+                      formatCapabilityUnavailable: t(
+                        "designEditor.toasts.formatCapabilityUnavailable",
+                      ),
+                    }}
+                    formats={[
+                      "png",
+                      "jpg",
+                      "webp",
+                      "avif",
+                      "svg",
+                      "pdf",
+                      "mp4",
+                    ]}
                     exporting={exporting}
                     onChange={(patch) =>
                       setExportSettings((current) => ({ ...current, ...patch }))

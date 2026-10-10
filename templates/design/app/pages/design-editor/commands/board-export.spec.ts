@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
   outputCanvasSizes: [] as Array<{ width: number; height: number }>,
   renderNativeExportPng: vi.fn(),
 }));
+const signedPng = new Uint8Array([
+  137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0,
+  0, 0, 1,
+]);
 
 vi.mock("../native-export-render", () => ({
   renderNativeExportPng: mocks.renderNativeExportPng,
@@ -138,7 +142,7 @@ describe("board document exports", () => {
           width: this.width,
           height: this.height,
         });
-        callback(new Blob(["image"], { type }));
+        callback(new Blob([signedPng], { type }));
       },
     );
     mocks.createSinglePageRasterPdf.mockReset();
@@ -222,7 +226,7 @@ describe("board document exports", () => {
     const toBlob = vi
       .spyOn(HTMLCanvasElement.prototype, "toBlob")
       .mockImplementation((callback, type) =>
-        callback(new Blob(["image"], { type })),
+        callback(new Blob([signedPng], { type })),
       );
 
     try {
@@ -327,7 +331,7 @@ describe("board document exports", () => {
     const toBlob = vi
       .spyOn(HTMLCanvasElement.prototype, "toBlob")
       .mockImplementation((callback, type) =>
-        callback(new Blob(["image"], { type })),
+        callback(new Blob([signedPng], { type })),
       );
     const iframeById = new Map(
       iframes.map((iframe, index) => [selectedScreenIds[index]!, iframe]),

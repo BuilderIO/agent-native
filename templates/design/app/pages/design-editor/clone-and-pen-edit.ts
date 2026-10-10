@@ -19,6 +19,10 @@ import {
 } from "@shared/component-model";
 import { resolveLayerNameAttribute } from "@shared/layer-name";
 import {
+  mergeNativeEffectsForClone,
+  type NativeEffectCloneSnapshot,
+} from "@shared/native-effect-clone";
+import {
   createCornerNode,
   createSmoothNode,
   getPenPathGeometry,
@@ -1315,6 +1319,7 @@ export function insertClonedHtmlLayers(
     additionalReservedNodeIds?: Iterable<string>;
     componentLinks?: ComponentCloneBatchContext;
     allowMainComponentStructure?: boolean;
+    nativeEffectSnapshots?: Array<NativeEffectCloneSnapshot | null | undefined>;
   } = {},
 ): {
   content: string;
@@ -1335,6 +1340,7 @@ export function insertClonedHtmlLayers(
     const fragment = doc.createDocumentFragment();
     const rootNodeIds: string[] = [];
     const nodeIdMap = new Map<string, string>();
+    const cloneNodeMaps: Map<string, string>[] = [];
     const reservedNodeIds = options.preserveIncomingNodeIds
       ? new Set([
           ...Array.from(doc.querySelectorAll("[data-agent-native-node-id]"))
@@ -1360,6 +1366,7 @@ export function insertClonedHtmlLayers(
       }
       rootNodeIds.push(prepared.rootNodeId);
       prepared.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
+      cloneNodeMaps.push(prepared.nodeIdMap);
       fragment.appendChild(prepared.element);
     });
     if (rootNodeIds.length !== layerHtmls.length) return null;
@@ -1414,12 +1421,23 @@ export function insertClonedHtmlLayers(
       }
     }
     const contentWithClones = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    let clonedContent = applyDesignClipboardManagedStyles(
+      contentWithClones,
+      options.managedStyleSnapshots ?? [],
+      nodeIdMap,
+    );
+    for (let index = 0; index < layerHtmls.length; index += 1) {
+      const merged = mergeNativeEffectsForClone(
+        clonedContent,
+        layerHtmls[index]!,
+        options.nativeEffectSnapshots?.[index],
+        cloneNodeMaps[index]!,
+      );
+      if (merged.errors.length) return null;
+      clonedContent = merged.html;
+    }
     return {
-      content: applyDesignClipboardManagedStyles(
-        contentWithClones,
-        options.managedStyleSnapshots ?? [],
-        nodeIdMap,
-      ),
+      content: clonedContent,
       rootNodeIds,
       nodeIdMap,
     };
@@ -1488,6 +1506,7 @@ export function planLinkedComponentStructureClone(
   layerHtmls: string[],
   options: Parameters<typeof insertClonedHtmlLayers>[2] = {},
 ): LinkedComponentStructureClonePlan | null {
+  if (options.nativeEffectSnapshots?.some(Boolean)) return null;
   if (layerHtmls.length === 0) return null;
   const target = linkedMainInsertionTarget(content, options);
   if (!target) return null;

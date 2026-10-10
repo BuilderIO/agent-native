@@ -26,6 +26,9 @@ import {
 } from "@shared/canvas-math";
 import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
+import { NATIVE_EFFECT_DEFINITION_CATALOG } from "@shared/native-effect-presets";
+import { hashEffectDefinition } from "@shared/native-effect-trust";
+import { parseEffectsFromHtml } from "@shared/native-effects";
 import {
   appendPenNode,
   clonePenPath,
@@ -90,6 +93,7 @@ import {
 import { editorChromeBridgeScript } from "../../../.generated/bridge/editor-chrome.generated";
 import { embeddedWheelBridgeScript } from "../../../.generated/bridge/embedded-wheel.generated";
 import { motionPreviewBridgeScript } from "../../../.generated/bridge/motion-preview.generated";
+import { nativeShaderRuntimeBridgeScript } from "../../../.generated/bridge/native-shader-runtime.generated";
 import { navBridgeScript } from "../../../.generated/bridge/nav.generated";
 import { shaderFillPreviewBridgeScript } from "../../../.generated/bridge/shader-fill-preview.generated";
 import { shaderRuntimeBridgeScript } from "../../../.generated/bridge/shader-runtime.generated";
@@ -158,6 +162,18 @@ import {
 import { withLocalRuntimes } from "./design-canvas/local-runtime";
 import { LocalNetworkAccessPrompt } from "./design-canvas/LocalNetworkAccessPrompt";
 import type { MotionTrackWire } from "./design-canvas/motion-types";
+import {
+  postNativeApprovalState,
+  readNativeApprovalHashes,
+  type NativeApprovalRead,
+} from "./design-canvas/native-approval-bridge";
+import { readNativeShaderRuntimeStatus } from "./design-canvas/native-status-bridge";
+import {
+  acceptNativeViewedSourceReplacement,
+  beginNativeViewedSourceReplacement,
+  invalidateNativeViewedSource,
+  registerNativeViewedSource,
+} from "./design-canvas/native-viewed-source-lease";
 import {
   acknowledgePendingTextInsert,
   beginPendingTextDelivery,
@@ -376,6 +392,9 @@ ${motionPreviewBridgeScript}
 const SHADER_FILL_PREVIEW_BRIDGE_SCRIPT = `
 <script data-agent-native-shader-runtime data-runtime-version="1">
 ${shaderRuntimeBridgeScript}
+</script>
+<script data-agent-native-native-shader-runtime data-runtime-version="2">
+${nativeShaderRuntimeBridgeScript}
 </script>
 <script data-agent-native-shader-fill-preview-bridge>
 ${shaderFillPreviewBridgeScript}
@@ -716,6 +735,7 @@ interface DesignCanvasProps {
   interactMode: boolean;
   centerInteractPreview?: boolean;
   readOnly?: boolean;
+  nativeApprovalsEnabled?: boolean;
   layoutGridStep?: number;
   scaleMode?: boolean;
   onElementSelect: (info: ElementInfo, intent?: ElementSelectionIntent) => void;
@@ -1350,6 +1370,7 @@ export function DesignCanvas({
   centerInteractPreview = false,
   layoutGridStep,
   readOnly = false,
+  nativeApprovalsEnabled = false,
   scaleMode = false,
   clearSelectionRequest,
   onElementSelect,
@@ -2259,6 +2280,108 @@ export function DesignCanvas({
   const iframeSourceContent = useCurrentIframeContent
     ? (authoredSourceContent ?? content)
     : renderedDocument.sourceContent;
+  const nativeApprovalSourceContent = authoredSourceContent ?? content;
+  const nativeStatusTransportEnabled =
+    Boolean(nativeApprovalsEnabled && designId && screenId) &&
+    nativePreviewActive &&
+    !snapshotOnly &&
+    !previewFrameId &&
+    sourceType !== "localhost" &&
+    sourceType !== "fusion";
+  const nativeApprovalSource =
+    nativeStatusTransportEnabled &&
+    nativeApprovalSourceContent.includes("application/x-agent-native-effects");
+  const nativeApprovalSourceHash = useMemo(
+    () =>
+      nativeApprovalSource
+        ? sourceContentHash(nativeApprovalSourceContent)
+        : null,
+    [nativeApprovalSourceContent, nativeApprovalSource],
+  );
+  const nativeApprovalKey = nativeApprovalSourceHash
+    ? JSON.stringify([designId, screenId, nativeApprovalSourceHash])
+    : null;
+  const [customViewerEffect, setCustomViewerEffect] = useState(false);
+  useEffect(() => {
+    if (!nativeApprovalSource || !readOnly) {
+      setCustomViewerEffect(false);
+      return;
+    }
+    let current = true;
+    const parsed = parseEffectsFromHtml(nativeApprovalSourceContent);
+    if (parsed.errors.length || !parsed.document) {
+      setCustomViewerEffect(true);
+      return;
+    }
+    void Promise.all(
+      parsed.document.definitions.map(async (definition) => {
+        const bundled = NATIVE_EFFECT_DEFINITION_CATALOG.find(
+          (candidate) =>
+            candidate.id === definition.id &&
+            candidate.version === definition.version,
+        );
+        return (
+          !bundled ||
+          (await hashEffectDefinition(bundled)) !==
+            (await hashEffectDefinition(definition))
+        );
+      }),
+    )
+      .then((custom) => {
+        if (current) setCustomViewerEffect(custom.some(Boolean));
+      })
+      .catch(() => {
+        if (current) setCustomViewerEffect(true);
+      });
+    return () => {
+      current = false;
+    };
+  }, [nativeApprovalSourceContent, nativeApprovalSource, readOnly]);
+  const [nativeApprovalResult, setNativeApprovalResult] = useState<{
+    key: string;
+    read: NativeApprovalRead;
+  } | null>(null);
+  useEffect(() => {
+    if (!nativeApprovalKey || !designId || !screenId) return;
+    let request: AbortController | null = null;
+    const refresh = () => {
+      request?.abort();
+      request = new AbortController();
+      const signal = request.signal;
+      setNativeApprovalResult({
+        key: nativeApprovalKey,
+        read: { status: "pending" },
+      });
+      void callAction(
+        "get-shader",
+        {
+          format: "native-v2",
+          source: { kind: "design-file", designId, fileId: screenId },
+        },
+        { method: "GET", signal },
+      )
+        .then((result) => {
+          if (signal.aborted) return;
+          setNativeApprovalResult({
+            key: nativeApprovalKey,
+            read: readNativeApprovalHashes(result, designId, screenId),
+          });
+        })
+        .catch(() => {
+          if (signal.aborted) return;
+          setNativeApprovalResult({
+            key: nativeApprovalKey,
+            read: { status: "unreadable" },
+          });
+        });
+    };
+    refresh();
+    window.addEventListener("design-native-approvals-changed", refresh);
+    return () => {
+      request?.abort();
+      window.removeEventListener("design-native-approvals-changed", refresh);
+    };
+  }, [designId, nativeApprovalKey, screenId]);
   const iframeSourceProvenance = useMemo(
     () => createSourceDocumentProvenance(iframeSourceContent),
     [iframeSourceContent],
@@ -3388,11 +3511,16 @@ export function DesignCanvas({
     transparentBackground,
   ]);
 
-  const srcdocVersionRef = useRef({ srcdoc, version: 0 });
+  const srcdocVersionRef = useRef({
+    srcdoc,
+    version: 0,
+    sourceVersionHash: sourceContentHash(iframeSourceContent),
+  });
   if (srcdocVersionRef.current.srcdoc !== srcdoc) {
     srcdocVersionRef.current = {
       srcdoc,
       version: srcdocVersionRef.current.version + 1,
+      sourceVersionHash: sourceContentHash(iframeSourceContent),
     };
   }
   const srcdocHash = srcdocVersionRef.current.version;
@@ -3421,6 +3549,155 @@ export function DesignCanvas({
         usesLiveEditInjectedBridge ? liveEditBridgeKey : ""
       }`
     : iframeDocumentIdentity;
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    if (!nativeApprovalSource || !nativeApprovalKey) {
+      delete iframe.dataset.nativeShaderApprovals;
+      return;
+    }
+    if (readOnly) {
+      iframe.dataset.nativeShaderApprovals = "unavailable";
+      return;
+    }
+    const approval =
+      nativeApprovalResult?.key === nativeApprovalKey
+        ? nativeApprovalResult.read
+        : ({ status: "pending" } as const);
+    iframe.dataset.nativeShaderApprovals = approval.status;
+    const send = () => {
+      const target = iframe.contentWindow;
+      if (target) {
+        postNativeApprovalState(target, window.location.origin, approval);
+      }
+    };
+    send();
+    iframe.addEventListener("load", send);
+    return () => iframe.removeEventListener("load", send);
+  }, [
+    iframeElementIdentity,
+    nativeApprovalKey,
+    nativeApprovalResult,
+    nativeApprovalSource,
+    readOnly,
+  ]);
+  useEffect(() => {
+    if (!nativeStatusTransportEnabled || readOnly || !designId || !screenId)
+      return;
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    let epoch = 0;
+    let pendingRequest: {
+      instanceId: string;
+      nodeId: string;
+      baseRequestId: string;
+    } | null = null;
+    let activeRequestId: string | null = null;
+    let acceptedRequestId: string | null = null;
+    let acceptedRuntimeEpoch: string | null = null;
+    const sendRequest = () => {
+      if (!pendingRequest) return;
+      activeRequestId = `${pendingRequest.baseRequestId}_${epoch}`;
+      acceptedRequestId = null;
+      acceptedRuntimeEpoch = null;
+      iframe.contentWindow?.postMessage(
+        {
+          type: "native-shader-status-request",
+          requestId: activeRequestId,
+          instanceId: pendingRequest.instanceId,
+          nodeId: pendingRequest.nodeId,
+        },
+        window.location.origin,
+      );
+    };
+    const onRequest = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (!detail || typeof detail !== "object") return;
+      const request = detail as Record<string, unknown>;
+      if (
+        request.designId !== designId ||
+        request.fileId !== screenId ||
+        typeof request.instanceId !== "string" ||
+        request.instanceId.length < 1 ||
+        request.instanceId.length > 128 ||
+        typeof request.nodeId !== "string" ||
+        request.nodeId.length < 1 ||
+        request.nodeId.length > 128 ||
+        typeof request.requestId !== "string" ||
+        !/^[a-zA-Z0-9_-]{1,65}$/.test(request.requestId)
+      )
+        return;
+      pendingRequest = {
+        instanceId: request.instanceId,
+        nodeId: request.nodeId,
+        baseRequestId: request.requestId,
+      };
+      sendRequest();
+    };
+    const onLoad = () => {
+      epoch += 1;
+      acceptedRequestId = null;
+      acceptedRuntimeEpoch = null;
+      window.dispatchEvent(
+        new CustomEvent("design-native-shader-frame-load", {
+          detail: { designId, fileId: screenId },
+        }),
+      );
+      sendRequest();
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (
+        event.source !== iframe.contentWindow ||
+        event.origin !== window.location.origin
+      )
+        return;
+      const status = readNativeShaderRuntimeStatus(event.data);
+      if (!status || !pendingRequest) return;
+      if (
+        status.instanceId !== pendingRequest.instanceId ||
+        status.nodeId !== pendingRequest.nodeId
+      )
+        return;
+      if (status.requestId) {
+        if (status.requestId !== activeRequestId) return;
+        acceptedRequestId = status.requestId;
+        acceptedRuntimeEpoch = status.runtimeEpoch;
+      } else if (
+        !acceptedRequestId ||
+        status.runtimeEpoch !== acceptedRuntimeEpoch
+      ) {
+        return;
+      }
+      window.dispatchEvent(
+        new CustomEvent("design-native-shader-status", {
+          detail: { designId, fileId: screenId, ...status },
+        }),
+      );
+    };
+    window.addEventListener("design-native-shader-status-request", onRequest);
+    window.addEventListener("message", onMessage);
+    iframe.addEventListener("load", onLoad);
+    window.dispatchEvent(
+      new CustomEvent("design-native-shader-frame-load", {
+        detail: { designId, fileId: screenId },
+      }),
+    );
+    return () => {
+      window.removeEventListener(
+        "design-native-shader-status-request",
+        onRequest,
+      );
+      window.removeEventListener("message", onMessage);
+      iframe.removeEventListener("load", onLoad);
+    };
+  }, [
+    designId,
+    iframeElementIdentity,
+    iframeReloadSequence,
+    nativeStatusTransportEnabled,
+    readOnly,
+    screenId,
+  ]);
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     runtimeReloadingFromDocumentIdRef.current = undefined;
@@ -3724,6 +4001,31 @@ export function DesignCanvas({
         markPreviewFrameReady();
       }
       if (!e.data || !e.data.type) return;
+      if (
+        trustedCurrentFrame &&
+        !externalPreviewUrl &&
+        e.data.type === "agent-native:source-revision-applied"
+      ) {
+        const iframe = iframeRef.current;
+        const doc = iframe?.contentDocument;
+        if (iframe && doc && typeof e.data.requestId === "string") {
+          acceptNativeViewedSourceReplacement(iframe, doc, e.data.requestId);
+        }
+        return;
+      }
+      if (
+        trustedCurrentFrame &&
+        !externalPreviewUrl &&
+        e.data.type === "agent-native:source-revision-invalidated"
+      ) {
+        const iframe = iframeRef.current;
+        if (iframe)
+          invalidateNativeViewedSource(
+            iframe,
+            iframe.contentDocument ?? undefined,
+          );
+        return;
+      }
       const tabFocusedFrame = iframeRef.current;
       if (
         trustedCurrentFrame &&
@@ -6462,14 +6764,26 @@ export function DesignCanvas({
         forceFullDocument?: boolean;
         preserveTextEditingSession?: boolean;
         sourceProvenance?: SourceDocumentProvenance;
+        sourceVersionHash?: string;
       },
     ) => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return false;
+      const doc = iframe.contentDocument;
+      const sourceRevisionRequestId =
+        doc && options?.sourceVersionHash
+          ? beginNativeViewedSourceReplacement(
+              iframe,
+              doc,
+              options.sourceVersionHash,
+            )
+          : undefined;
+      if (!sourceRevisionRequestId) invalidateNativeViewedSource(iframe);
       return postOneShotBridgeMessage({
         type: "replace-document-content",
         content: nextContent,
         sourceProvenance: options?.sourceProvenance,
+        sourceRevisionRequestId,
         selectedSelector: selector ?? "",
         selectorCandidates: candidates ?? [],
         forceFullDocument: options?.forceFullDocument === true,
@@ -6507,6 +6821,7 @@ export function DesignCanvas({
         {
           ...options,
           sourceProvenance: createSourceDocumentProvenance(rawNextContent),
+          sourceVersionHash: sourceContentHash(rawNextContent),
         },
       );
       if (replaced) {
@@ -6574,6 +6889,7 @@ export function DesignCanvas({
         {
           forceFullDocument: true,
           sourceProvenance: createSourceDocumentProvenance(rawSourceContent),
+          sourceVersionHash: sourceContentHash(rawSourceContent),
           preserveTextEditingSession: true,
         },
       );
@@ -6606,11 +6922,20 @@ export function DesignCanvas({
       }
       const node = editedStableSourceElement(previousContent, nextContent);
       if (!node) return false;
+      const iframe = iframeRef.current;
+      const doc = iframe?.contentDocument;
+      if (!iframe || !doc) return false;
+      const sourceRevisionRequestId = beginNativeViewedSourceReplacement(
+        iframe,
+        doc,
+        sourceContentHash(sourceContent),
+      );
       return postOneShotBridgeMessage({
         type: "replace-source-node",
         nodeId: node.nodeId,
         html: node.html,
         sourceProvenance: createSourceDocumentProvenance(sourceContent),
+        sourceRevisionRequestId,
       });
     },
     [boardSurface, externalPreviewUrl, postOneShotBridgeMessage],
@@ -7385,6 +7710,21 @@ export function DesignCanvas({
           }}
           onLoad={(event) => {
             tabFocusedLiveFrames.delete(event.currentTarget);
+            if (
+              !externalPreviewUrl &&
+              event.currentTarget.isConnected &&
+              event.currentTarget === iframeRef.current &&
+              iframeDocumentIdentityRef.current === iframeDocumentIdentity
+            ) {
+              const doc = event.currentTarget.contentDocument;
+              if (doc) {
+                registerNativeViewedSource(
+                  event.currentTarget,
+                  doc,
+                  srcdocVersionRef.current.sourceVersionHash,
+                );
+              }
+            }
             markExternalPreviewDocumentLoaded();
             if (!liveEditFrameRequiresBridge) markPreviewFrameReady();
             sendBridgeToContainer();
@@ -7850,6 +8190,11 @@ export function DesignCanvas({
       className="relative flex-1 h-full overflow-auto"
       style={{ cursor: panCursor || undefined }}
     >
+      {customViewerEffect && readOnly && (
+        <p className="sticky top-2 z-50 mx-auto w-fit rounded-md bg-background/95 px-3 py-1 text-xs text-muted-foreground shadow-sm">
+          {t("editPanel.shaders.nativeViewerCustomUnavailable")}
+        </p>
+      )}
       {/* Canvas area. "none" mode fills the canvas (responsive preview);
           framed modes are centered inside the canvas with zoom applied. */}
       {centerInteractPreview ? (

@@ -24,11 +24,18 @@ import {
 } from "../../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../../shared/screen-annotation.js";
 import { getDb, schema } from "../db/index.js";
-import { designSourceMutationLockKey } from "../source-workspace.js";
+import {
+  dbExecForDrizzleTransaction,
+  designSourceMutationLockKey,
+} from "../source-workspace.js";
 import {
   InvalidDesignDataError,
   mutateDesignData,
 } from "./design-data-mutation.js";
+import {
+  bindNativeTextureGrantsInSourceTransaction,
+  preflightNativeTextureGrants,
+} from "./design-native-texture-bindings.js";
 
 const DEFAULT_FRAME_WIDTH = 1440;
 const DEFAULT_FRAME_HEIGHT = 900;
@@ -484,6 +491,12 @@ export async function saveImportedDesignFiles(
           ? file.content
           : annotateScreenHtmlForPersist(file.content, file.fileType);
         if (!existing) {
+          const textureGrants = await preflightNativeTextureGrants({
+            designId,
+            fileId,
+            fileType: file.fileType,
+            content: annotatedContent,
+          });
           await tx.insert(schema.designFiles).values({
             id: fileId,
             designId,
@@ -494,6 +507,11 @@ export async function saveImportedDesignFiles(
             createdAt: now,
             updatedAt: now,
           });
+          await bindNativeTextureGrantsInSourceTransaction(
+            dbExecForDrizzleTransaction(tx),
+            { designId, fileId },
+            textureGrants,
+          );
           seedRecords.push({ id: fileId, content: annotatedContent });
         } else {
           seedRecords.push({ id: fileId, content: existing.content });

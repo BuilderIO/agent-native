@@ -14,6 +14,7 @@ import {
 import { getDb, schema } from "../db/index.js";
 import { withDesignSourceMutationTransaction } from "../source-workspace.js";
 import { mutateDesignData } from "./design-data-mutation.js";
+import { collectNativeTextureSourceReferences } from "./native-texture-source-references.js";
 
 const PATH_BASE_PLACEHOLDER = "http://fusion-screen-base.invalid";
 
@@ -122,6 +123,7 @@ export async function upsertFusionScreens(args: {
     const url = originRelativeBase
       ? `${screenUrl.pathname}${screenUrl.search}`
       : screenUrl.toString();
+    collectNativeTextureSourceReferences("html", url);
     const preferredFilename = `fusion-${slugForPath(path)}.html`;
     let existing = existingByFilename.get(preferredFilename);
     const filename = existing?.filename ?? uniqueFilename(path, usedFilenames);

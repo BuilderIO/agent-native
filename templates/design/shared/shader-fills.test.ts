@@ -6,6 +6,7 @@ import {
   clearNodeShader,
   defaultUniformValues,
   ensureShaderRuntime,
+  ensureNativeShaderRuntime,
   escapeShaderScriptBreakout,
   getShaderFromHtml,
   htmlHasShaderReferences,
@@ -25,6 +26,7 @@ import {
   SHADER_FILL_ATTR,
   SHADER_RUNTIME_ATTR,
   SHADER_RUNTIME_SOURCE,
+  NATIVE_SHADER_RUNTIME_SOURCE,
   SHADER_SCRIPT_TYPE,
   unescapeShaderScriptBreakout,
   upsertShaderInHtml,
@@ -33,12 +35,6 @@ import {
   validateUniformManifest,
   type GlslShaderDef,
 } from "./shader-fills";
-import {
-  GLSL_SHADER_PRESET_CATEGORY_LABELS,
-  GLSL_SHADER_PRESETS,
-  getGlslShaderPreset,
-} from "./shader-presets";
-
 const SIMPLE_GLSL = `precision highp float;
 uniform vec2 u_resolution;
 uniform float u_time;
@@ -395,6 +391,18 @@ describe("shader runtime embedding", () => {
     expect(once.indexOf("</body>")).toBeGreaterThan(
       once.indexOf(SHADER_RUNTIME_ATTR),
     );
+    expect(once).toContain("data-agent-native-native-shader-runtime");
+  });
+
+  it("embeds a single native runtime in saved HTML without the GLSL runtime", () => {
+    expect(NATIVE_SHADER_RUNTIME_SOURCE.length).toBeGreaterThan(1000);
+    expect(/<\/script/i.test(NATIVE_SHADER_RUNTIME_SOURCE)).toBe(false);
+    const once = ensureNativeShaderRuntime(DOC);
+    expect(ensureNativeShaderRuntime(once)).toBe(once);
+    expect(once.match(/data-agent-native-native-shader-runtime/g)).toHaveLength(
+      1,
+    );
+    expect(once).not.toContain(`<script ${SHADER_RUNTIME_ATTR}`);
   });
 
   it("upgrades a stale embedded runtime in place", () => {
@@ -624,104 +632,5 @@ describe("misc helpers", () => {
       u_tint: "#3366ff",
       u_center: [0.5, 0.5],
     });
-  });
-});
-
-describe("GLSL shader preset library", () => {
-  it("ships 12 presets: 9 fills + 3 effects", () => {
-    expect(GLSL_SHADER_PRESETS.length).toBe(12);
-    expect(
-      GLSL_SHADER_PRESETS.filter((preset) => preset.mode === "fill").length,
-    ).toBe(9);
-    expect(
-      GLSL_SHADER_PRESETS.filter((preset) => preset.mode === "effect").length,
-    ).toBe(3);
-  });
-
-  it("has unique kebab-case names and unique labels", () => {
-    const names = GLSL_SHADER_PRESETS.map((preset) => preset.name);
-    const labels = GLSL_SHADER_PRESETS.map((preset) => preset.label);
-    expect(new Set(names).size).toBe(names.length);
-    expect(new Set(labels).size).toBe(labels.length);
-    for (const name of names) {
-      expect(name).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
-    }
-  });
-
-  it("every preset is a fully valid shader definition", () => {
-    for (const preset of GLSL_SHADER_PRESETS) {
-      const def: GlslShaderDef = {
-        id: "an-shader-preset01",
-        name: preset.label,
-        mode: preset.mode,
-        glsl: preset.glsl,
-        uniforms: preset.uniforms,
-      };
-      const result = validateShaderDef(def);
-      expect(
-        result.errors,
-        `preset "${preset.name}" failed validation`,
-      ).toEqual([]);
-    }
-  });
-
-  it("every preset round-trips through the persisted format", () => {
-    for (const preset of GLSL_SHADER_PRESETS) {
-      const def: GlslShaderDef = {
-        id: "an-shader-rt000001",
-        name: preset.label,
-        mode: preset.mode,
-        glsl: preset.glsl,
-        uniforms: preset.uniforms,
-      };
-      const applied = applyShaderToHtml(DOC, {
-        nodeId: "hero",
-        def,
-        fallbackColor: "#101010",
-      });
-      expect(applied.errors, `preset "${preset.name}" failed to apply`).toEqual(
-        [],
-      );
-      expect(listShadersInHtml(applied.html)).toEqual([def]);
-    }
-  });
-
-  it("declares the built-in uniforms it relies on", () => {
-    for (const preset of GLSL_SHADER_PRESETS) {
-      expect(preset.glsl).toContain("uniform vec2 u_resolution;");
-      expect(preset.glsl).toContain("uniform float u_time;");
-      expect(preset.glsl).toContain("precision highp float;");
-    }
-  });
-
-  it("has a valid category and safe preview CSS for each preset", () => {
-    for (const preset of GLSL_SHADER_PRESETS) {
-      expect(
-        GLSL_SHADER_PRESET_CATEGORY_LABELS[preset.category],
-        `preset "${preset.name}" has unknown category "${preset.category}"`,
-      ).toBeTruthy();
-      expect(preset.previewCss.length).toBeGreaterThan(0);
-      expect(preset.previewCss).not.toMatch(/[;{}<>]|url\s*\(/i);
-      expect(preset.description.length).toBeGreaterThan(10);
-    }
-  });
-
-  it("keeps float knob metadata coherent (min < max, value in range)", () => {
-    for (const preset of GLSL_SHADER_PRESETS) {
-      for (const [name, u] of Object.entries(preset.uniforms)) {
-        if (u.type !== "float") continue;
-        expect(u.min, `${preset.name}.${name} min`).toBeDefined();
-        expect(u.max, `${preset.name}.${name} max`).toBeDefined();
-        expect(u.step, `${preset.name}.${name} step`).toBeDefined();
-        expect(u.min as number).toBeLessThan(u.max as number);
-        expect(u.value as number).toBeGreaterThanOrEqual(u.min as number);
-        expect(u.value as number).toBeLessThanOrEqual(u.max as number);
-      }
-    }
-  });
-
-  it("getGlslShaderPreset resolves by name", () => {
-    expect(getGlslShaderPreset("water-caustics")?.label).toBe("Water Caustics");
-    expect(getGlslShaderPreset("missing")).toBeUndefined();
   });
 });

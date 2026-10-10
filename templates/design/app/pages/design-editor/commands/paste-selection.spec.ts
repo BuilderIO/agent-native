@@ -16,6 +16,12 @@ vi.mock("sonner", () => ({
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { analyzeComponentLinks } from "@shared/component-links";
 import { COMPONENT_REF_ATTR } from "@shared/component-model";
+import { captureNativeEffectsForClone } from "@shared/native-effect-clone";
+import { GRAIN_GRADIENT_EFFECT } from "@shared/native-effect-presets";
+import {
+  applyNativeEffectToHtml,
+  parseEffectsFromHtml,
+} from "@shared/native-effects";
 import { sourceContentHash } from "@shared/source-workspace";
 
 import type {
@@ -214,6 +220,82 @@ function pixels(value: string) {
 describe("pasting copied layers with no explicit drop point", () => {
   beforeEach(() => {
     toastError.mockClear();
+  });
+
+  it("pastes a native fill across files with its definition and a remapped instance", async () => {
+    const source = applyNativeEffectToHtml(HOME_HTML, {
+      nodeId: "rect-1",
+      definition: GRAIN_GRADIENT_EFFECT,
+      placement: "fill",
+      params: { scale: 1.7 },
+    });
+    expect(source.errors).toEqual([]);
+    const snapshot = captureNativeEffectsForClone(source.html, RECT_HTML);
+    expect(snapshot.errors).toEqual([]);
+    const target = designFile(
+      "target",
+      "target.html",
+      '<!doctype html><html><head></head><body><div data-agent-native-node-id="target-root"></div></body></html>',
+    );
+    const { args, writes } = harness({
+      files: [designFile("home", "index.html", source.html), target],
+      activeFileId: "target",
+      entries: [
+        {
+          html: RECT_HTML,
+          sourceFileId: "home",
+          rootNodeId: "rect-1",
+          nativeEffectSnapshot: snapshot.snapshot!,
+        },
+      ],
+    });
+    await runPasteSelection(args);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.fileId).toBe("target");
+    const pasted = parseEffectsFromHtml(writes[0]!.content).document;
+    expect(pasted?.definitions).toEqual([GRAIN_GRADIENT_EFFECT]);
+    expect(pasted?.instances).toEqual([
+      expect.objectContaining({
+        nodeId: expect.stringMatching(/^copy-/),
+        definitionId: GRAIN_GRADIENT_EFFECT.id,
+        params: { scale: 1.7 },
+      }),
+    ]);
+    expect(writes[0]!.content).not.toMatch(
+      /<script[^>]+application\/x-agent-native-effect-approvals/,
+    );
+  });
+
+  it("refuses a native clipboard snapshot after its readable source revision changes", async () => {
+    const source = applyNativeEffectToHtml(HOME_HTML, {
+      nodeId: "rect-1",
+      definition: GRAIN_GRADIENT_EFFECT,
+      placement: "fill",
+    });
+    const snapshot = captureNativeEffectsForClone(source.html, RECT_HTML);
+    expect(snapshot.errors).toEqual([]);
+    const { args, writes } = harness({
+      files: [
+        designFile(
+          "home",
+          "index.html",
+          source.html.replace("Rectangle", "Renamed"),
+        ),
+        designFile("target", "target.html", HOME_HTML),
+      ],
+      activeFileId: "target",
+      entries: [
+        {
+          html: RECT_HTML,
+          sourceFileId: "home",
+          rootNodeId: "rect-1",
+          nativeEffectSnapshot: snapshot.snapshot!,
+        },
+      ],
+    });
+    await runPasteSelection(args);
+    expect(writes).toEqual([]);
+    expect(toastError).toHaveBeenCalledWith("designEditor.toasts.saveConflict");
   });
 
   it("keeps the copy inside the frame it came from when the board is the active surface", async () => {

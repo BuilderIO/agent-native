@@ -50,6 +50,7 @@ export default defineAction({
   run: async ({ designId, path, fileId, edit, expectedVersionHash }) => {
     const workspace = await resolveSourceWorkspace(designId, {
       includeContent: true,
+      includeBoard: true,
     });
     const file = findSourceWorkspaceFile(workspace.files, { fileId, path });
     const live = await readLiveSourceFile(file);

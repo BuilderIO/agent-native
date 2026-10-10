@@ -78,6 +78,39 @@ export const designTemplateFiles = table("design_template_files", {
   updatedAt: text("updated_at").default(now()),
 });
 
+export const nativeShaderLibrary = table("design_native_shader_library", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category").notNull().default("custom"),
+  definitionId: text("definition_id").notNull(),
+  definitionVersion: integer("definition_version").notNull(),
+  executionHash: text("execution_hash").notNull(),
+  kind: text("kind"),
+  placements: text("placements"),
+  presetPlacement: text("preset_placement"),
+  propertyCount: integer("property_count"),
+  passCount: integer("pass_count"),
+  definitionJson: text("definition_json").notNull(),
+  presetJson: text("preset_json").notNull(),
+  thumbnailHandle: text("thumbnail_handle"),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+  ownerEmail: text("owner_email").notNull(),
+});
+
+export const nativeShaderLibraryActivity = table(
+  "design_native_shader_library_activity",
+  {
+    ownerEmail: text("owner_email").notNull(),
+    itemKey: text("item_key").notNull(),
+    favorite: boolean("favorite").notNull().default(false),
+    lastUsedAt: text("last_used_at"),
+    updatedAt: text("updated_at").default(now()),
+  },
+  (t) => [primaryKey({ columns: [t.ownerEmail, t.itemKey] })],
+);
+
 export const designSystems = table("design_systems", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
@@ -301,3 +334,49 @@ export const designVisualEditSnapshotBlobCleanup = table(
     createdAt: text("created_at").notNull().default(now()),
   },
 );
+
+export const designNativeTextureObjects = table(
+  "design_native_texture_objects",
+  {
+    id: text("id").primaryKey(),
+    providerUrl: text("provider_url").notNull(),
+    uploaderEmail: text("uploader_email").notNull(),
+    mimeType: text("mime_type").notNull(),
+    byteLength: integer("byte_length").notNull(),
+    sha256: text("sha256").notNull(),
+    createdAt: text("created_at").default(now()),
+  },
+);
+
+export const designNativeTextureBindings = table(
+  "design_native_texture_bindings",
+  {
+    assetId: text("asset_id")
+      .notNull()
+      .references(() => designNativeTextureObjects.id),
+    designId: text("design_id")
+      .notNull()
+      .references(() => designs.id, { onDelete: "cascade" }),
+    fileId: text("file_id").notNull(),
+    createdAt: text("created_at").default(now()),
+  },
+  (t) => [primaryKey({ columns: [t.assetId, t.designId, t.fileId] })],
+);
+
+export const designNativeTextureAssets = table("design_native_texture_assets", {
+  id: text("id").primaryKey(),
+  designId: text("design_id")
+    .notNull()
+    .references(() => designs.id, { onDelete: "cascade" }),
+  fileId: text("file_id")
+    .notNull()
+    .references(() => designFiles.id, { onDelete: "cascade" }),
+  idempotencyKey: text("idempotency_key").notNull(),
+  uploaderEmail: text("uploader_email").notNull(),
+  ...ownableColumns(),
+  providerUrl: text("provider_url").notNull(),
+  mimeType: text("mime_type").notNull(),
+  byteLength: integer("byte_length").notNull(),
+  sha256: text("sha256").notNull(),
+  createdAt: text("created_at").default(now()),
+});

@@ -17,8 +17,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { probeNativeRasterEncoder } from "@/pages/design-editor/native-raster-encoding";
 
-export type ExportFormat = "png" | "jpg" | "svg" | "pdf" | "webp";
+export type ExportFormat =
+  | "png"
+  | "jpg"
+  | "svg"
+  | "pdf"
+  | "webp"
+  | "avif"
+  | "mp4";
 
 export type ExportScale = "0.5" | "1" | "2" | "3" | "4" | "custom";
 
@@ -32,6 +40,7 @@ export interface ExportSettingsPanelLabels {
   title: string;
   scale: string;
   format: string;
+  formatCapabilityUnavailable: string;
   suffix: string;
   export: string;
   addExport: string;
@@ -53,13 +62,22 @@ const DEFAULT_LABELS: ExportSettingsPanelLabels = {
   title: "Export", // i18n-ignore fallback component label
   scale: "Scale", // i18n-ignore fallback component label
   format: "Format", // i18n-ignore fallback component label
+  formatCapabilityUnavailable:
+    "Some image formats could not be checked in this browser.", // i18n-ignore fallback component label
   suffix: "Suffix", // i18n-ignore fallback component label
   export: "Export", // i18n-ignore fallback component label
   addExport: "Add export", // i18n-ignore fallback component label
   removeExport: "Remove export", // i18n-ignore fallback component label
 };
 
-const DEFAULT_FORMATS: ExportFormat[] = ["png", "jpg", "svg", "pdf", "webp"];
+const DEFAULT_FORMATS: ExportFormat[] = [
+  "png",
+  "jpg",
+  "svg",
+  "pdf",
+  "webp",
+  "avif",
+];
 
 const controlChromeClass =
   "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-foreground shadow-none hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus:ring-1 focus:ring-[var(--design-editor-accent-color)] focus:ring-offset-0 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0";
@@ -165,6 +183,43 @@ export function ExportSettingsPanel({
 }: ExportSettingsPanelProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
   const isDisabled = disabled || exporting;
+  const [supportedRasterFormats, setSupportedRasterFormats] = useState<
+    ReadonlySet<ExportFormat>
+  >(() => new Set(["png"]));
+  const [formatProbeUnreadable, setFormatProbeUnreadable] = useState(false);
+
+  useEffect(() => {
+    let canceled = false;
+    void Promise.allSettled(
+      (["jpg", "webp", "avif"] as const).map(async (format) => ({
+        format,
+        supported: await probeNativeRasterEncoder(format),
+      })),
+    ).then((results) => {
+      if (canceled) return;
+      setFormatProbeUnreadable(
+        results.some((result) => result.status === "rejected"),
+      );
+      setSupportedRasterFormats(
+        new Set<ExportFormat>([
+          "png",
+          ...results.flatMap((result) =>
+            result.status === "fulfilled" && result.value.supported
+              ? [result.value.format]
+              : [],
+          ),
+        ]),
+      );
+    });
+    return () => {
+      canceled = true;
+    };
+  }, []);
+  const availableFormats = formats.filter(
+    (format) =>
+      !["jpg", "webp", "avif"].includes(format) ||
+      supportedRasterFormats.has(format),
+  );
 
   const [rows, setRows] = useState<ExportRow[]>(() => [rowFromValue(value)]);
 
@@ -250,7 +305,7 @@ export function ExportSettingsPanel({
         <ExportRow
           key={row.id}
           row={row}
-          formats={formats}
+          formats={availableFormats}
           labels={copy}
           isDisabled={isDisabled}
           canRemove={rows.length > 1}
@@ -258,6 +313,12 @@ export function ExportSettingsPanel({
           onRemoveRow={removeRow}
         />
       ))}
+
+      {formatProbeUnreadable ? (
+        <p role="status" className="text-[11px] text-destructive">
+          {copy.formatCapabilityUnavailable}
+        </p>
+      ) : null}
 
       {/* Export button — full width at bottom, design-editor style */}
       <Button

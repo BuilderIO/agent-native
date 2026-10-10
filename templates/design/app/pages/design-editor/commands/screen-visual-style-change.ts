@@ -1,6 +1,7 @@
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
 import type { RefObject } from "react";
+import { toast } from "sonner";
 
 import type { ElementInfo } from "@/components/design/types";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
@@ -17,6 +18,9 @@ import {
   type PendingRelativeStyleOperation,
 } from "@/pages/design-editor/pending-edits";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import type { FillStyleIntent } from "./native-fill-style-transition";
+import { applyFillStyleIntent } from "./native-fill-style-transition";
 
 export interface ScreenVisualStyleChangeArgs {
   activeBreakpointUpperBoundPx: number | null;
@@ -49,6 +53,7 @@ export interface ScreenVisualStyleChangeArgs {
       routePath?: string;
       relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       runtimeApplied?: boolean;
+      fillStyleIntent?: FillStyleIntent;
     },
   ) => void;
   overviewScreens: OverviewScreen[];
@@ -96,6 +101,7 @@ export function runScreenVisualStyleChange(
     routePath?: string;
     runtimeApplied?: boolean;
     relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+    fillStyleIntent?: FillStyleIntent;
   },
 ) {
   const overviewScreen = overviewScreens.find(
@@ -168,8 +174,27 @@ export function runScreenVisualStyleChange(
     },
     { content: baseContent, failed: null },
   );
-  if (stylePatch.failed || stylePatch.content === baseContent) return;
-  applyFileContentUpdate(screenId, stylePatch.content, {
+  if (stylePatch.failed) return;
+  let nextContent = stylePatch.content;
+  if (metadata?.fillStyleIntent && targetNode) {
+    const nodeId = targetNode.dataAttributes["data-agent-native-node-id"];
+    if (nodeId) {
+      try {
+        nextContent = applyFillStyleIntent(
+          nextContent,
+          nodeId,
+          metadata.fillStyleIntent,
+        );
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t("common.genericError"),
+        );
+        return;
+      }
+    }
+  }
+  if (nextContent === baseContent) return;
+  applyFileContentUpdate(screenId, nextContent, {
     skipPreview: true,
   });
 }

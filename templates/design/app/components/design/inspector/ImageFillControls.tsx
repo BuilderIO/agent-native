@@ -255,6 +255,10 @@ export interface ImageFillControlsProps {
   onChange: (value: ImageFillValue) => void;
   disabled?: boolean;
   className?: string;
+  sourceOnly?: boolean;
+  uploadImage?: (data: string, filename: string) => Promise<UploadImageResult>;
+  maxUploadBytes?: number;
+  uploadLimitMessage?: string;
 }
 
 export function ImageFillControls({
@@ -262,6 +266,10 @@ export function ImageFillControls({
   onChange,
   disabled = false,
   className,
+  sourceOnly = false,
+  uploadImage,
+  maxUploadBytes,
+  uploadLimitMessage,
 }: ImageFillControlsProps) {
   const t = useT();
   const fileUploadStatus = useFileUploadStatus();
@@ -280,6 +288,24 @@ export function ImageFillControls({
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
+  const sourceRevision = useRef(0);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      sourceRevision.current += 1;
+    };
+  }, []);
+
+  const setSourceDraft = (url: string) => {
+    sourceRevision.current += 1;
+    urlDraftRef.current = url;
+    setUrlDraft(url);
+  };
 
   useEffect(() => {
     if (focused) return;
@@ -301,19 +327,34 @@ export function ImageFillControls({
 
   const handleFilePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !canUploadImages) return;
+    if (!file || !canUploadImages || disabled || uploadingImage) return;
+    if (maxUploadBytes !== undefined && file.size > maxUploadBytes) {
+      setUploadError(uploadLimitMessage ?? t("common.genericError"));
+      event.target.value = "";
+      return;
+    }
+    const revision = ++sourceRevision.current;
+    const selectedUrl = value.url;
+    const isCurrent = () =>
+      mounted.current &&
+      sourceRevision.current === revision &&
+      valueRef.current.url === selectedUrl;
     setUploadingImage(true);
     setUploadError(null);
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      const result = (await callAction("upload-image", {
-        data: dataUrl,
-        filename: file.name,
-      })) as UploadImageResult;
+      if (!isCurrent()) return;
+      const result = uploadImage
+        ? await uploadImage(dataUrl, file.name)
+        : ((await callAction("upload-image", {
+            data: dataUrl,
+            filename: file.name,
+          })) as UploadImageResult);
+      if (!isCurrent()) return;
       if (result.url) {
         urlDraftRef.current = result.url;
         setUrlDraft(result.url);
-        onChange({ ...value, url: result.url });
+        onChange({ ...valueRef.current, url: result.url });
       } else {
         setUploadError(
           result.error ||
@@ -321,11 +362,12 @@ export function ImageFillControls({
         );
       }
     } catch (error) {
-      setUploadError(
-        error instanceof Error ? error.message : t("common.genericError"),
-      );
+      if (isCurrent())
+        setUploadError(
+          error instanceof Error ? error.message : t("common.genericError"),
+        );
     } finally {
-      setUploadingImage(false);
+      if (mounted.current) setUploadingImage(false);
       event.target.value = "";
     }
   };
@@ -367,7 +409,7 @@ export function ImageFillControls({
                 aria-label={"Remove image" /* i18n-ignore */}
                 disabled={disabled}
                 onClick={() => {
-                  setUrlDraft("");
+                  setSourceDraft("");
                   onChange({ ...value, url: "" });
                 }}
                 className="absolute right-1 top-1 flex size-5 items-center justify-center rounded bg-black/50 text-white hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -390,8 +432,7 @@ export function ImageFillControls({
           spellCheck={false}
           className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
           onChange={(event) => {
-            urlDraftRef.current = event.target.value;
-            setUrlDraft(event.target.value);
+            setSourceDraft(event.target.value);
           }}
           onFocus={() => setFocused(true)}
           onBlur={() => {
@@ -401,7 +442,6 @@ export function ImageFillControls({
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
-              commitUrl();
               event.currentTarget.blur();
             }
           }}
@@ -430,7 +470,7 @@ export function ImageFillControls({
           type="file"
           accept="image/*"
           className="hidden"
-          disabled={!canUploadImages}
+          disabled={disabled || uploadingImage || !canUploadImages}
           onChange={handleFilePick}
         />
       </div>
@@ -456,29 +496,31 @@ export function ImageFillControls({
       />
 
       {/* ── Fit mode dropdown ─────────────────────────────────────────────── */}
-      <Select
-        value={value.fit}
-        onValueChange={(v) =>
-          onChange(
-            mergeImageFitDraft(value, urlDraftRef.current, v as ImageFitMode),
-          )
-        }
-        disabled={disabled}
-      >
-        <SelectTrigger
-          aria-label={"Fill" /* i18n-ignore image fit selector */}
-          className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
+      {!sourceOnly && (
+        <Select
+          value={value.fit}
+          onValueChange={(v) =>
+            onChange(
+              mergeImageFitDraft(value, urlDraftRef.current, v as ImageFitMode),
+            )
+          }
+          disabled={disabled}
         >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent className="!text-[11px]">
-          {FIT_MODES.map(({ mode, label }) => (
-            <SelectItem key={mode} value={mode} className="!text-[11px]">
-              {label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+          <SelectTrigger
+            aria-label={"Fill" /* i18n-ignore image fit selector */}
+            className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="!text-[11px]">
+            {FIT_MODES.map(({ mode, label }) => (
+              <SelectItem key={mode} value={mode} className="!text-[11px]">
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
     </div>
   );
 }

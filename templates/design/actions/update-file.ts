@@ -12,6 +12,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
+  bindNativeTextureGrantsInSourceTransaction,
+  preflightNativeTextureGrants,
+} from "../server/lib/design-native-texture-bindings.js";
+import {
   checkpointSkippedResultField,
   snapshotDesignBeforeAgentEdit,
 } from "../server/lib/design-versions.js";
@@ -212,6 +216,16 @@ export default defineAction({
     }
 
     await assertAccess("design", file.designId, "editor");
+    const nativeTextureGrants =
+      content === undefined
+        ? []
+        : await preflightNativeTextureGrants({
+            designId: file.designId,
+            fileId: id,
+            fileType: fileType ?? file.fileType,
+            content,
+            allowRetainedFileBinding: true,
+          });
     const checkpoint = await snapshotDesignBeforeAgentEdit(
       file.designId,
       context,
@@ -590,6 +604,12 @@ export default defineAction({
             }
           }
 
+          if (content !== undefined && !skipContentWrite)
+            await bindNativeTextureGrantsInSourceTransaction(
+              getDesignSourceMutationExec(tx),
+              { designId: file.designId, fileId: id },
+              nativeTextureGrants,
+            );
           const shouldConvergePersistedRetry =
             exactOperationAlreadyPersisted && syncCollab;
           if (
