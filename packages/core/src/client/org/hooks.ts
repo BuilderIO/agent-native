@@ -18,6 +18,10 @@ import type {
   OrgRole,
 } from "../../org/types.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  agentNativeApiDisabledReason,
+  assertAgentNativeApiEnabled,
+} from "../api-surface.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 
 const ORG_BASE = "/_agent-native/org";
@@ -27,6 +31,8 @@ function orgBasePath(): string {
 }
 
 async function apiFetch(path: string, init?: RequestInit) {
+  const method = (init?.method ?? "GET").toUpperCase();
+  assertAgentNativeApiEnabled(`${method} organization API`);
   const headers = new Headers({ "Content-Type": "application/json" });
   new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
   const res = await fetch(path, {
@@ -59,13 +65,14 @@ export function useOrg(options: { enabled?: boolean } = {}) {
   const query = useQuery<OrgInfo>({
     queryKey: ["org-me"],
     queryFn: () => apiFetch(`${orgBasePath()}/me`),
-    enabled,
+    enabled: () => enabled && !agentNativeApiDisabledReason(),
     staleTime: 30_000,
   });
   // A query held for the action-cache restore is not fetching, so TanStack
-  // reports isLoading false with no data. That is an unread org, not a null one.
+  // reports isLoading and isInitialLoading false with no data. That is an
+  // unread org, not a null one. Both aliases must agree or consumers diverge.
   if (!enabled || !isRestoring || !query.isPending) return query;
-  return { ...query, isLoading: true };
+  return { ...query, isLoading: true, isInitialLoading: true };
 }
 
 export interface UseOrgRoleResult {
@@ -115,7 +122,7 @@ export function useOrgMembers(offset = 0, query = "") {
     queryKey: ["org-members", org?.orgId ?? null, offset, search],
     queryFn: ({ signal }) =>
       apiFetch(`${orgBasePath()}/members?${params}`, { signal }),
-    enabled: Boolean(org?.orgId),
+    enabled: () => Boolean(org?.orgId) && !agentNativeApiDisabledReason(),
     staleTime: 30_000,
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[1] === org?.orgId &&
@@ -130,6 +137,7 @@ export function useOrgInvitations() {
   return useQuery<{ invitations: OrgPendingInvitation[] }>({
     queryKey: ["org-invitations", org?.orgId ?? null],
     queryFn: () => apiFetch(`${orgBasePath()}/invitations`),
+    enabled: () => !agentNativeApiDisabledReason(),
     staleTime: 30_000,
   });
 }
