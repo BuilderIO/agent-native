@@ -901,6 +901,20 @@ describe("ChatRoute AgentKit surface", () => {
         contextItems,
       },
     });
+    expect(
+      container.querySelector('[data-recovery-source="reference"]')
+        ?.textContent,
+    ).toContain("hello.ts");
+    expect(
+      container.querySelector("[data-testid='remove-recovery-reference-0']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-recovery-source="attachment"]')
+        ?.textContent,
+    ).toContain("notes.txt");
+    expect(
+      container.querySelector("[data-testid='remove-recovery-attachment-0']"),
+    ).not.toBeNull();
     const retry = (
       routeState.chatProps?.composerProps as {
         onSubmit: PromptComposerProps["onSubmit"];

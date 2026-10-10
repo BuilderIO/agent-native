@@ -12,6 +12,7 @@
     "app/components/layout/Sidebar.tsx",
     "app/i18n",
     "app/i18n-data.ts",
+    "app/lib/chat-paths.spec.ts",
     "app/lib/chat-paths.ts",
     "app/lib/sidebar-thread-state.spec.ts",
     "app/lib/sidebar-thread-state.ts",
