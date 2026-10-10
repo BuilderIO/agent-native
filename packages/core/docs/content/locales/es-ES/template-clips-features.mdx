@@ -164,7 +164,17 @@ Límites: el tiempo de pantalla anterior dura cinco minutos como máximo. El his
 
 Instala la extensión de Clips para Chrome para obtener una grabación además de los registros del navegador y la actividad de red de la pestaña que estás depurando, útil para reportar errores del producto y reproducir problemas exclusivos del navegador.
 
-Solo observa la pestaña que estás grabando activamente, y solo mientras la grabación está en curso. Guarda los mensajes de la consola y datos básicos por solicitud (método, una URL redactada, estado, duración y si la solicitud falló), nunca los cuerpos de las solicitudes o respuestas, ni encabezados ni cookies. Usa la aplicación de escritorio para la grabación diaria, y recurre a la extensión de Chrome específicamente cuando necesites adjuntar esos registros del navegador.
+| Tema              | Comportamiento                                                                                                                                                                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pestañas          | Hasta cinco: la pestaña desde la que iniciaste la grabación, y luego las pestañas que usaste en los últimos 10 minutos, de la más reciente a la más antigua.                                                                                                        |
+| Cambio de pestaña | También se captura una pestaña a la que cambies durante la grabación. Si hay más de cinco pestañas vinculadas, se desvincula la pestaña menos usada recientemente que no sea la que está en primer plano, y sus registros hasta ese momento siguen en la grabación. |
+| Retrospectiva     | Hasta 30 segundos antes de que empezara la grabación, en la medida en que la página todavía conserve su historial de consola y su lista de tiempos de recursos. Estas entradas tienen desplazamientos de tiempo negativos.                                          |
+| Guardado          | Mensajes de la consola e información básica de las solicitudes fetch/XHR: método, una URL redactada, estado, duración y si la solicitud falló. Cada entrada indica la pestaña de la que procede.                                                                    |
+| Nunca se guarda   | Cuerpos de solicitudes o respuestas, encabezados ni cookies.                                                                                                                                                                                                        |
+
+Las entradas de red de la retrospectiva no tienen método HTTP, así que su método se registra como `UNKNOWN`. Las solicitudes hechas durante la grabación incluyen el método. Se hace seguimiento de las pestañas mientras la extensión está en ejecución, así que durante los primeros 10 minutos tras iniciarse puede que menos de cinco pestañas cumplan los requisitos.
+
+Usa la aplicación de escritorio para la grabación diaria, y recurre a la extensión de Chrome específicamente cuando necesites adjuntar esos registros del navegador.
 
 ## Transcripción y metadatos de IA {#transcription-and-ai-metadata}
 

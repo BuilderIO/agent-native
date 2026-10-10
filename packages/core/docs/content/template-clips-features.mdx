@@ -164,7 +164,17 @@ Limits: earlier screen time is five minutes at most. The history is only what Re
 
 Install the Clips Chrome extension for a recording plus the browser logs and network activity from the tab you're debugging, useful for reporting product bugs and browser-only repros.
 
-It only watches the tab you're actively recording, and only while the recording is running. It saves console messages and basic per-request info (method, a redacted URL, status, duration, and whether a request failed), never request or response bodies, headers, or cookies. Use the desktop app for everyday recording, and reach for the Chrome extension specifically when you need those browser logs attached.
+| Topic       | Behavior                                                                                                                                                                                                       |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabs        | Up to five: the tab you started the recording from, then tabs you used in the last 10 minutes, most recent first.                                                                                              |
+| Switching   | A tab you switch to during the recording is captured too. If more than five tabs are attached, the least recently used tab other than the one in focus is detached, and its logs so far stay in the recording. |
+| Lookback    | Up to 30 seconds before the recording started, as far as the page still keeps its console history and resource timing. These entries have negative time offsets.                                               |
+| Saved       | Console messages, and fetch/XHR request info: method, a redacted URL, status, duration, and whether it failed. Each entry records the tab it came from.                                                        |
+| Never saved | Request or response bodies, headers, or cookies.                                                                                                                                                               |
+
+Lookback network entries have no HTTP method, so their method is recorded as `UNKNOWN`. Requests made during the recording include the method. Tabs are tracked while the extension is running, so for the first 10 minutes after it starts, fewer than five tabs may qualify.
+
+Use the desktop app for everyday recording, and reach for the Chrome extension specifically when you need those browser logs attached.
 
 ## Transcription and AI metadata
 

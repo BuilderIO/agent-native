@@ -134,6 +134,19 @@ Jeder Vorgang ist eine TypeScript-Datei in `templates/clips/actions/`, automatis
 | `create-recording-intake-link`, `create-intake-recording`, `create-intake-agent-link` | Der anonyme Einbettungsablauf für Dritte. Siehe [Clips einbetten](/docs/template-clips-embed) |
 | `save-bug-report-context`, `save-browser-diagnostics`, `save-browser-transcript`      | Der eingebettete Fehlerbericht-Starter und die Diagnosedaten der Chrome-Erweiterung           |
 
+## Browser-Diagnosedaten
+
+Die Chrome-Erweiterung hängt Konsolen- und Netzwerkdiagnosen an eine Aufnahme an, und `save-browser-diagnostics` speichert sie. Jeder Konsolen- und Netzwerkeintrag trägt eine `tabId`.
+
+| Thema         | Verhalten                                                                                                                                                                                           |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tabs          | Bis zu fünf pro Aufnahme: der Starttab, dann Tabs, die in den letzten 10 Minuten aktiv waren, neueste zuerst. Ein Tab, zu dem der Benutzer während der Aufnahme wechselt, wird ebenfalls angehängt. |
+| Mehr als fünf | Der am wenigsten kürzlich aktive Tab außer dem fokussierten wird getrennt. Seine bisherigen Einträge bleiben in der Aufnahme.                                                                       |
+| Rückblick     | Bis zu 30 Sekunden vor Beginn der Aufnahme, begrenzt durch den eigenen Konsolenverlauf der Seite und die Resource-Timing-Liste. Diese Einträge haben ein negatives `elapsedMs`.                     |
+| `tabId`       | Auf jedem Konsolen- und Netzwerkeintrag gesetzt.                                                                                                                                                    |
+| `method`      | `"UNKNOWN"` bei Netzwerkeinträgen aus dem Rückblick, die aus Resource Timing stammen und keine HTTP-Methode haben. Live-Anfragen melden die Methode.                                                |
+| Nicht erfasst | Anfrage- und Antwortkörper sowie Header. Konsolen- und Netzwerkeinträge werden vor dem Hochladen geschwärzt.                                                                                        |
+
 ## Datenmodell
 
 Definiert in `templates/clips/server/db/schema.ts`.
