@@ -51,6 +51,7 @@ import {
   getOverviewScreenFileIds,
   isOverviewScreenFile,
 } from "../shared/design-files.js";
+import { DESIGN_GENERATION_ATTEMPT_QUERY_PARAM } from "../shared/generation-provenance.js";
 import {
   designGenerationSessionKey,
   type DesignGenerationSession,
@@ -77,11 +78,19 @@ import {
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
 
-function designDeepLink(designId: string, screenId?: string): string {
+function designDeepLink(
+  designId: string,
+  screenId?: string,
+  generationAttemptId?: string,
+): string {
   return buildDeepLink({
     app: "design",
     view: "editor",
-    params: { designId, screen: screenId },
+    params: {
+      designId,
+      screen: screenId,
+      [DESIGN_GENERATION_ATTEMPT_QUERY_PARAM]: generationAttemptId,
+    },
   });
 }
 
@@ -420,7 +429,10 @@ const generateDesignAgentParameters = {
     },
     prompt: {
       type: "string",
-      description: "The user's generation prompt.",
+      description:
+        "The user's request for this screen, keeping its output type and exact pixel size. " +
+        "To resize or reformat an existing fixed canvas, name the output and target size, " +
+        'e.g. "Instagram story, 1080x1920 canvas"; a bare "make it taller" reads as a responsive app.',
     },
     files: {
       type: "string",
@@ -481,12 +493,13 @@ const generateDesignAgentParameters = {
       items: { type: "string", enum: ["mobile", "tablet", "desktop"] },
       description:
         "Device set for responsive frames. Honor the devices the prompt " +
-        'explicitly names; omit to default to ["desktop","mobile"]. Use [] ' +
-        "for an exact-size static screen when no device variants are requested. " +
+        'explicitly names; omit to default to ["desktop","mobile"]. Pass [] ' +
+        "for static artwork and for follow-ups on an existing fixed canvas. " +
+        "Exact pixel dimensions or a platform preset in `prompt` make one fixed " +
+        "canvas and this field is ignored (the result lists `ignoredDevices`); " +
+        "give each other size or version its own call. " +
         "One exact canvas size per call; prompts with multiple distinct exact sizes are rejected. " +
-        "Exact pixel dimensions set the canvas size. Preserve exactly the " +
-        "explicitly requested device frames when the prompt also requests " +
-        "device variants; otherwise suppress default device frames. The widest " +
+        "The widest " +
         "device becomes the primary/base frame and the narrower devices become " +
         "breakpoint frames — never a duplicate of the base width and never an " +
         "auto-added tablet. A single device yields one frame with no breakpoints. " +
@@ -518,12 +531,10 @@ const generateDesignAction = defineAction({
     "alone as enough design-system context. " +
     "Every app or website UI must be responsive unless the user requests a " +
     "fixed canvas. Static artwork such as ads, banners, social posts, flyers, " +
-    "and posters has no mobile breakpoint unless the user explicitly asks for " +
-    "separate versions. " +
-    "For exact pixel dimensions, use those values for the screen's canvas frame. " +
-    "Do not add mobile or tablet frames unless the prompt explicitly requests " +
-    "those device variants. Use one exact canvas size per call; " +
-    "make separate calls for screens with different exact sizes. This action adds responsive editor " +
+    "and posters is one fixed canvas with no mobile or tablet frames. Exact " +
+    "pixel dimensions or a platform preset in `prompt` always set the screen's " +
+    "size with no breakpoints, whatever `devices` says. Use one exact canvas size per call; " +
+    "make separate calls for screens or versions with different exact sizes. This action adds responsive editor " +
     "breakpoints by default: a Desktop 1440x900 base frame plus a Mobile " +
     "breakpoint (no auto tablet, no duplicate desktop). Pass `devices` to honor " +
     "the form factors the prompt explicitly names — the widest becomes the base " +
@@ -538,7 +549,8 @@ const generateDesignAction = defineAction({
     prompt: z
       .string()
       .describe(
-        "Original user request for this screen. Preserve requested output type and exact pixel dimensions; do not replace it with a short chat caption.",
+        "Original user request for this screen. Preserve requested output type and exact pixel dimensions; do not replace it with a short chat caption. " +
+          'To resize or reformat an existing fixed canvas, name the output and target size, e.g. "Instagram story, 1080x1920 canvas".',
       ),
     files: z
       .preprocess(
@@ -674,9 +686,9 @@ const generateDesignAction = defineAction({
       .describe(
         "Explicit device set for responsive frames. Honor device variants the " +
           'prompt requests; omit to default to ["desktop","mobile"]. Pass [] for ' +
-          "a static canvas or non-app asset when no device variants are requested. " +
-          "If the prompt names exact pixel dimensions, use them for the canvas; " +
-          "when it also explicitly requests device variants, preserve those variants. " +
+          "static artwork and for follow-ups on an existing fixed canvas. " +
+          "Ignored when the prompt names exact pixel dimensions or a platform preset; " +
+          "give each other size its own call. " +
           "Widest " +
           "device = primary/base frame; narrower devices = breakpoint frames " +
           "(never the base width, never an auto tablet). One device = a single " +
@@ -721,12 +733,14 @@ const generateDesignAction = defineAction({
     const promptCanvasDimensions =
       canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
     await assertAccess("design", designId, "editor");
+    const generationAttemptId = nanoid();
     track(
       "generation_started",
       {
         app_name: "design",
         template_name: "design",
         output_id: designId,
+        generation_attempt_id: generationAttemptId,
         output_type: "design",
         prompt_type: "ui",
         has_reference_design_system: Boolean(designSystemId),
@@ -962,13 +976,18 @@ const generateDesignAction = defineAction({
       ...tweak,
       type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
     }));
-    const fixedCanvasOutput = canvasIntent.kind === "fixed";
-    const resolvedDevices =
-      devices ??
-      (fixedCanvasOutput ? [] : devicesForPrimaryViewport(primaryViewport));
-    const explicitDeviceSelection = devices !== undefined && devices.length > 0;
+    // Exact pixels and platform presets are the canvas; only a noun-only
+    // fixed-output guess yields to devices the model passes explicitly.
+    const requestedDevices = promptCanvasDimensions ? [] : devices;
+    const explicitDeviceSelection =
+      requestedDevices !== undefined && requestedDevices.length > 0;
     const explicitlyEmptyDeviceSelection =
-      devices !== undefined && devices.length === 0;
+      requestedDevices !== undefined && requestedDevices.length === 0;
+    const fixedCanvasOutput =
+      canvasIntent.kind === "fixed" && !explicitDeviceSelection;
+    const resolvedDevices =
+      requestedDevices ??
+      (fixedCanvasOutput ? [] : devicesForPrimaryViewport(primaryViewport));
     const resolvedPrimaryViewport = widestGenerationDevice(resolvedDevices);
     const generatedBreakpointSet = breakpointSetForDevices(resolvedDevices);
     await mutateDesignData({
@@ -1041,7 +1060,7 @@ const generateDesignAction = defineAction({
             ? Object.keys(prevData.canvasFrames as Record<string, unknown>)
             : [],
         );
-        if (explicitDeviceSelection && !promptCanvasDimensions) {
+        if (explicitDeviceSelection) {
           for (const file of savedFiles) {
             const source = files.find(
               (candidate) => candidate.filename === file.filename,
@@ -1105,9 +1124,18 @@ const generateDesignAction = defineAction({
                 : typeof frame?.height === "number" && frame.height > 0
                   ? frame.height
                   : viewport.height);
+          // A copy edit of a screen that is already fixed at this size keeps
+          // any breakpoints the user added; creating, converting, or resizing
+          // to a fixed canvas starts it with none.
+          const keepsFixedCanvas =
+            metadata.heightMode === "fixed" &&
+            (!promptCanvasDimensions ||
+              (metadata.width === promptCanvasDimensions.width &&
+                metadata.height === promptCanvasDimensions.height));
           const breakpointWidths = explicitDeviceSelection
             ? undefined
-            : fixedCanvasOutput || explicitlyEmptyDeviceSelection
+            : (fixedCanvasOutput || explicitlyEmptyDeviceSelection) &&
+                !keepsFixedCanvas
               ? []
               : Array.isArray(metadata.breakpointWidths) &&
                   metadata.breakpointWidths.every(
@@ -1543,6 +1571,7 @@ const generateDesignAction = defineAction({
         app_name: "design",
         template_name: "design",
         output_id: designId,
+        generation_attempt_id: generationAttemptId,
         output_type: "design",
         edit_type: "generation",
         file_count: savedFiles.length,
@@ -1563,6 +1592,7 @@ const generateDesignAction = defineAction({
           app_name: "design",
           template_name: "design",
           output_id: designId,
+          generation_attempt_id: generationAttemptId,
           output_type: "design",
           file_count: savedFiles.length,
           outcome: fileErrors.length > 0 ? "partial" : "completed",
@@ -1575,12 +1605,15 @@ const generateDesignAction = defineAction({
     return {
       designId,
       urlPath: firstRenderableSavedFile
-        ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}`
-        : `/design/${encodeURIComponent(designId)}`,
+        ? `/design/${encodeURIComponent(designId)}?editorView=overview&screen=${encodeURIComponent(firstRenderableSavedFile.id)}&${DESIGN_GENERATION_ATTEMPT_QUERY_PARAM}=${encodeURIComponent(generationAttemptId)}`
+        : `/design/${encodeURIComponent(designId)}?${DESIGN_GENERATION_ATTEMPT_QUERY_PARAM}=${encodeURIComponent(generationAttemptId)}`,
       renderable: true,
       savedFiles,
       placedFrames,
       fileCount: savedFiles.length,
+      ...(promptCanvasDimensions && devices?.length
+        ? { ignoredDevices: devices }
+        : {}),
       ...(integrityWarnings.length > 0 ? { warnings: integrityWarnings } : {}),
       ...(fileErrors.length > 0 ? { fileErrors } : {}),
       ...creativeContextProvenance,
@@ -1594,8 +1627,17 @@ const generateDesignAction = defineAction({
     const screenId = urlPath
       ? new URL(urlPath, "http://an.invalid").searchParams.get("screen")
       : null;
+    const generationAttemptId = urlPath
+      ? new URL(urlPath, "http://an.invalid").searchParams.get(
+          DESIGN_GENERATION_ATTEMPT_QUERY_PARAM,
+        )
+      : null;
     return {
-      url: designDeepLink(designId, screenId ?? undefined),
+      url: designDeepLink(
+        designId,
+        screenId ?? undefined,
+        generationAttemptId ?? undefined,
+      ),
       label: "Open design",
       view: "editor",
     };

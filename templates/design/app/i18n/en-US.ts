@@ -704,12 +704,15 @@ export default {
     },
     leftRail: {
       file: "File",
-      agent: "Agent",
+      agent: "Agents",
       assets: "Assets",
       import: "Import",
       tools: "Tools",
       tokens: "Tokens",
       label: "Design workspace",
+      account: "Account",
+      collapse: "Collapse sidebar",
+      expand: "Expand sidebar",
     },
     breakpointBar: {
       base: "Base",
@@ -800,12 +803,10 @@ export default {
       "{{path}} changed on disk since it was opened. Reload the screen and try again.",
     applyToSourceError: "Couldn't save to source: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Import tokens",
       importTitle: "Import tokens",
       importHint:
@@ -817,6 +818,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Import pasted tokens",
       importedCount: "Imported {{count}} tokens",
+      count: "{{count}} tokens",
+      search: "Search tokens",
+      noMatches: "No matching tokens",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1534,6 +1538,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Click the site controls icon to the left of the address bar, open Site settings, then set Local network to Allow.",
       permissionPromptRetry: "Retry connection",
+      previewCredentialsUnavailableTitle:
+        "Local preview credentials are unavailable",
+      previewCredentialsUnavailableDescription:
+        "Reconnect this Screen's localhost connection in the inspector, then retry.",
+      publicPreviewUnavailableDescription:
+        "Localhost previews are not shared with public viewers. Open this Design as a collaborator to view this Screen.",
+      previewCredentialsRetry: "Retry credentials",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",
       connectionNotConfirmed:
@@ -1548,6 +1559,7 @@ export default {
     fork: "Fork",
     fullView: "Full view",
     preview: "Preview",
+    focusScreen: "Focus screen",
     openAndDuplicate: "Select {{display}}. Use Interact for focused scrolling.",
     openAndPreview: "Select {{display}}. Use Interact for focused scrolling.",
     doubleClickToEdit: "Use Interact for focused scrolling",

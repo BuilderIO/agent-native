@@ -151,7 +151,7 @@
   --design-row-height: 32px;
   --design-section-height: 40px;
   --design-action-slot-width: calc(var(--design-baseline-unit) * 4);
-  --design-chrome-rail-width: calc(var(--design-baseline-unit) * 8);
+  --design-chrome-rail-width: calc(var(--design-baseline-unit) * 7);
   --design-grid-columns: 28;
   --design-inspector-grid-columns: var(--design-grid-columns);
   --design-inspector-grid-unit: var(--design-baseline-unit);

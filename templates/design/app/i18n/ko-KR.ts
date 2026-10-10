@@ -22,6 +22,8 @@ export default {
       "{label}, 원본 예시 {source}, 갤러리 위치 {current}/{total}, 캡처일 {date}",
     screenshotMissing: "스크린샷이 캡처되지 않음",
     recordingUnavailable: "사용할 수 없음",
+    recordingGap: "기록 공백",
+    recordingGapDuration: "기록 공백 · {duration}",
     eventTime: "이벤트 시간(UTC)",
     generationCompletedEvent: "generation_completed 이벤트(UTC)",
     replayObservation: "리플레이 관찰",
@@ -768,6 +770,9 @@ export default {
       tools: "도구",
       tokens: "토큰",
       label: "디자인 작업공간",
+      account: "계정",
+      collapse: "사이드바 접기",
+      expand: "사이드바 펼치기",
     },
     breakpointBar: {
       base: "기본",
@@ -859,12 +864,10 @@ export default {
       "{{path}}이(가) 열린 이후 디스크에서 변경되었습니다. 화면을 새로고침한 후 다시 시도하세요.",
     applyToSourceError: "소스에 저장하지 못했습니다: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "토큰 가져오기",
       importTitle: "토큰 가져오기",
       importHint:
@@ -876,6 +879,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "붙여넣은 토큰 가져오기",
       importedCount: "{{count}}개 토큰을 가져왔습니다",
+      count: "토큰 {{count}}개",
+      search: "토큰 검색",
+      noMatches: "일치하는 토큰이 없습니다",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1597,6 +1603,13 @@ export default {
       permissionPromptSettingsInstructions:
         "주소 표시줄 왼쪽의 사이트 제어 아이콘을 클릭하고 사이트 설정을 연 다음 로컬 네트워크를 허용으로 설정하세요.",
       permissionPromptRetry: "연결 재시도",
+      previewCredentialsUnavailableTitle:
+        "로컬 미리보기 자격 증명을 사용할 수 없습니다",
+      previewCredentialsUnavailableDescription:
+        "검사기에서 이 화면의 localhost 연결을 다시 연결한 후 다시 시도하세요.",
+      publicPreviewUnavailableDescription:
+        "로컬호스트 미리보기는 공개 사용자와 공유되지 않습니다. 이 화면을 보려면 공동작업자로 이 디자인을 여세요.",
+      previewCredentialsRetry: "자격 증명 다시 시도",
     },
   },
   multiScreenCanvas: {
@@ -1606,6 +1619,7 @@ export default {
     fork: "분기",
     fullView: "전체 보기",
     preview: "미리보기",
+    focusScreen: "화면에 포커스",
     openAndDuplicate:
       "{{display}} 선택. 집중 스크롤에는 상호작용 모드를 사용하세요.",
     openAndPreview:

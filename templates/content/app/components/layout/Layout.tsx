@@ -397,7 +397,8 @@ export function Layout({ children }: LayoutProps) {
       </Sheet>
     );
   // The MCP App host (ChatGPT, Codex, Claude) owns navigation and chat, so the
-  // widget gets no app chrome for any route.
+  // widget gets no sidebar, header, or agent panel for any route. A document
+  // brings its own top bar.
   if (mcpAppWidgetEmbed) {
     return (
       <HeaderActionsProvider>

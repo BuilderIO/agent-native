@@ -350,14 +350,17 @@ export default defineAppConfig({
 
 호스트가 `@agent-native/core/server`의 `registerObservabilityProvider()`로 미터 프로바이더를 등록하면 Core는 메트릭도 기록합니다. 메트릭은 샘플링 없이 모든 요청과 실행에 대해 기록됩니다.
 
-| 계측기                                  | 속성                                                                                         |
-| --------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
-| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
-| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
-| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
-| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                                             |
-| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                                |
+| 계측기                                      | 속성                                                                                         |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `http.server.request.duration`              | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `agent_native.http.server.handoff.duration` | `http.request.method`, `http.response.status_code`, `http.route`, `error.type`               |
+| `gen_ai.client.operation.duration`          | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `error.type`        |
+| `gen_ai.client.token.usage`                 | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.token.type` |
+| `agent_native.agent.runs`                   | `status`, `terminal_reason`, `gen_ai.provider.name`, `gen_ai.request.model`                  |
+| `agent_native.tool.calls`                   | `gen_ai.tool.name`, `error.type`                                                             |
+| `agent_native.telemetry.flush_failures`     | `error.type`, `agent_native.telemetry.signal`                                                |
+
+`agent_native.http.server.handoff.duration`은 `http.server.request.duration`과 같은 속성과 버킷을 갖지만, 응답 훅이 시작될 때가 아니라 훅이 응답을 런타임에 돌려줄 때 끝납니다. 이 지표의 백분위수가 `http.server.request.duration`의 백분위수에서 벌어지면, 인라인 텔레메트리 플러시 등으로 완성된 응답이 붙잡혀 있다는 뜻입니다. 두 백분위수는 서로 다른 요청에서 나올 수 있으므로, 이 차이는 신호일 뿐 특정 요청의 대기 시간이 아닙니다. `waitUntil`이 없으면 core는 해당 플러시 이후에 샘플을 기록하므로, 샘플은 다음 플러시와 함께 백엔드에 도착합니다.
 
 메트릭에서 `gen_ai.tool.name`은 프레임워크 액션 이름 또는 `other`이며, `gen_ai.request.model`은 엔진이 지원 모델로 등록한 경우에만 모델 ID이고 그렇지 않으면 `_OTHER`입니다. 따라서 앱에서 정의한 도구나 호출자가 지정한 모델 ID가 시리즈를 무한정 늘릴 수 없으며, 스팬에는 정확한 값이 남습니다.
 
@@ -401,9 +404,11 @@ interface ObservabilityMeterProvider {
 
 ### 서버리스에서의 플러시 {#otel-flush}
 
-서버리스 함수는 호출 사이에 동결되므로 SDK의 내보내기 타이머가 끝내 실행되지 않을 수 있습니다. 등록된 프로바이더가 `forceFlush()`를 구현하면 Core는 모든 요청 후 응답 훅에서 이를 호출하고 완료를 기다립니다. 각 플러시는 공유된 2초 타임아웃 하나와 경쟁하므로, 텔레메트리가 응답을 그보다 오래 붙잡지 않습니다.
+서버리스 함수는 호출 사이에 동결되므로 SDK의 내보내기 타이머가 끝내 실행되지 않을 수 있습니다. 등록된 프로바이더가 `forceFlush()`를 구현하면 Core는 모든 요청 후 응답 훅에서 이를 호출하고 완료를 기다립니다. 각 플러시는 공유된 2초 타임아웃 하나와 경쟁하므로, 텔레메트리가 응답을 그보다 오래 붙잡지 않습니다. 플랫폼이 `waitUntil`을 제공하면(Cloudflare 또는 Netlify 호출 컨텍스트) Core는 플러시를 거기에 넘기고 기다리지 않고 응답을 먼저 보냅니다.
 
-플러시가 실패하거나 시간 초과되면 Core는 더 이상 기다리지 않고 `agent_native.telemetry.flush_failures`에 1을 더하며, 이 값은 다음 플러시에서 내보내집니다. 시간 초과된 내보내기는 계속 실행되므로, 런타임이 그 전에 프로세스를 동결하지 않으면 나중에 도착할 수도 있습니다. 실패의 `error.type`은 `timeout`, 런타임이 플러시 도중 프로세스를 동결한 경우 `suspended`, 그 밖에는 오류의 이름입니다.
+Core는 미터 프로바이더의 `forceFlush()`를 프로세스당 최대 10초에 한 번만 호출하고, 그 사이의 요청에서는 건너뜁니다. 메트릭 내보내기는 프로세스가 가진 모든 시리즈를 매번 다시 보내므로, 이렇게 하면 업로드 양이 요청 수에 비례해 늘지 않습니다. 건너뛴 포인트는 사라지지 않고 다음 내보내기에 포함됩니다. 단, 해당 인스턴스가 더 이상 요청을 처리하지 않으면 예외입니다. 트레이서 프로바이더는 요청마다 플러시됩니다.
+
+플러시가 실패하거나 시간 초과되면 Core는 더 이상 기다리지 않고 `agent_native.telemetry.flush_failures`에 1을 더하며, 이 값은 다음 플러시에서 내보내집니다. 시간 초과된 내보내기는 계속 실행되므로, 런타임이 그 전에 프로세스를 동결하지 않으면 나중에 도착할 수도 있습니다. 실패의 `error.type`은 `timeout`, 런타임이 플러시 도중 프로세스를 동결한 경우 `suspended`, 그 밖에는 오류의 이름입니다. 계속 시간 초과되는 수집기는 이 카운터를 받지 못하므로, Core는 프로세스마다 신호와 오류 유형별로 `agent-native.telemetry_flush_failed` 한 줄을 함수 로그에도 기록합니다.
 
 장기 실행 서버에서는 응답마다 플러시하면 요청마다 한 번씩 내보내게 됩니다. 이런 환경에서는 `forceFlush()` 없이 프로바이더를 등록하고 SDK 자체 타이머가 내보내도록 두세요. `@agent-native/core/server`의 `isServerlessRuntime()`으로 두 경우를 구분할 수 있습니다. Netlify, Vercel, AWS Lambda, Cloudflare에서는 true입니다.
 

@@ -23,6 +23,8 @@ export default {
       "{label}, exemplo de origem {source}, posição na galeria {current} de {total}, capturado em {date}",
     screenshotMissing: "Nenhuma captura de tela registrada",
     recordingUnavailable: "indisponível",
+    recordingGap: "Intervalo sem gravação",
+    recordingGapDuration: "Intervalo sem gravação · {duration}",
     eventTime: "Horário do evento (UTC)",
     generationCompletedEvent: "evento generation_completed (UTC)",
     replayObservation: "Observação da reprodução",
@@ -772,12 +774,15 @@ export default {
     },
     leftRail: {
       file: "Arquivo",
-      agent: "Agente",
+      agent: "Agentes",
       assets: "Recursos",
       import: "Importar",
       tools: "Ferramentas",
       tokens: "Tokens de design",
       label: "Área de trabalho de design",
+      account: "Conta",
+      collapse: "Recolher barra lateral",
+      expand: "Expandir barra lateral",
     },
     breakpointBar: {
       base: "Base",
@@ -869,12 +874,10 @@ export default {
       "{{path}} foi alterado no disco desde que foi aberto. Recarregue a tela e tente novamente.",
     applyToSourceError: "Não foi possível salvar na origem: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Importar tokens",
       importTitle: "Importar tokens",
       importHint:
@@ -886,6 +889,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Importar tokens colados",
       importedCount: "{{count}} tokens importados",
+      count: "{{count}} tokens",
+      search: "Pesquisar tokens",
+      noMatches: "Nenhum token correspondente",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1617,6 +1623,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Clique no ícone de controles do site à esquerda da barra de endereço, abra as configurações do site e defina Rede local como Permitir.",
       permissionPromptRetry: "Tentar conexão novamente",
+      previewCredentialsUnavailableTitle:
+        "As credenciais da pré-visualização local não estão disponíveis",
+      previewCredentialsUnavailableDescription:
+        "Reconecte a conexão localhost desta tela no inspetor e tente novamente.",
+      publicPreviewUnavailableDescription:
+        "Pré-visualizações do localhost não são compartilhadas com visitantes públicos. Abra este Design como colaborador para ver esta tela.",
+      previewCredentialsRetry: "Tentar credenciais novamente",
     },
   },
   multiScreenCanvas: {
@@ -1627,6 +1640,7 @@ export default {
     fork: "Ramificar",
     fullView: "Vista completa",
     preview: "Prévia",
+    focusScreen: "Focar tela",
     openAndDuplicate:
       "Selecione {{display}}. Use Interagir para rolagem focada.",
     openAndPreview: "Selecione {{display}}. Use Interagir para rolagem focada.",

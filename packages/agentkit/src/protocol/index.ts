@@ -95,6 +95,28 @@ export interface FilePart {
   mediaType?: string;
   url?: string;
   fileId?: string;
+  /**
+   * The inline bytes were dropped before the part was stored and no durable
+   * copy exists, so history still names the file without carrying its body.
+   */
+  omitted?: "inline-bytes";
+}
+
+export function isInlineDataUrl(value: unknown): value is string {
+  return typeof value === "string" && /^\s*data:/i.test(value);
+}
+
+/** The storable form of a file part: a durable reference, never inline bytes. */
+export function persistableFilePart(part: FilePart): FilePart {
+  if (!isInlineDataUrl(part.url)) return part;
+  return {
+    type: "file",
+    name: part.name,
+    ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+    ...(part.fileId
+      ? { fileId: part.fileId }
+      : { omitted: "inline-bytes" as const }),
+  };
 }
 
 /** Request-only image bytes paired with a durable reference when available. */
@@ -1211,6 +1233,8 @@ export interface ContinueRunInput {
   threadId: ThreadId;
   /** The stopped run to continue. */
   runId: RunId;
+  /** Durable references to the turn's attachments; never inline bytes. */
+  attachments?: FilePart[];
 }
 
 export interface StartRunResult {

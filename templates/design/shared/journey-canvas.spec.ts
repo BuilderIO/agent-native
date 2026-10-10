@@ -160,6 +160,72 @@ function appBandsInput(overrides: Partial<RawInput> = {}): RawInput {
   };
 }
 
+type RawRecordingGapInput = RawInput & {
+  observedRecordingGaps: NonNullable<RawInput["observedRecordingGaps"]>;
+};
+
+function recordingGapInput(
+  overrides: Partial<RawInput> = {},
+): RawRecordingGapInput {
+  const raw = rawInput();
+  const anonymousIdHash = "a".repeat(64);
+  const sourceKey = "clips::account-entry";
+  const targetKey = "clips::later-setup";
+  const sourceExample = {
+    ...example("synthetic-session"),
+    recordingId: "synthetic-recording-entry",
+    anonymousIdHash,
+  };
+  const targetExample = {
+    ...example("synthetic-session"),
+    recordingId: "synthetic-recording-setup",
+    anonymousIdHash,
+  };
+  const source = node(sourceKey, null, 400, {
+    pctOfRoot: 40,
+    pctOfParent: 40,
+    examples: [sourceExample],
+  });
+  const target = referenceNode(targetKey, sourceKey, 2, [targetExample]);
+  return {
+    ...raw,
+    tree: {
+      ...raw.tree,
+      app: "all",
+      rootN: 1000,
+      nodes: [source, target],
+    },
+    frames: [
+      frame(sourceKey, 0, {
+        imageUrl: undefined,
+        attachmentRef: "synthetic-private-source-frame",
+        sourceApp: "clips",
+        recordingStartedAt: "2026-10-01T12:00:00.000Z",
+        recordingEndedAt: "2026-10-01T12:00:05.000Z",
+        screenshotOffsetMs: 1_000,
+      }),
+      frame(targetKey, 0, {
+        imageUrl: undefined,
+        attachmentRef: "synthetic-private-target-frame",
+        sourceApp: "clips",
+        recordingStartedAt: "2026-10-01T12:00:08.000Z",
+        screenshotOffsetMs: 1_000,
+      }),
+    ],
+    observedRecordingGaps: [
+      {
+        type: "recording-gap",
+        fromNodeKey: sourceKey,
+        fromExampleIndex: 0,
+        toNodeKey: targetKey,
+        toExampleIndex: 0,
+        gapDurationMs: 3_000,
+      },
+    ],
+    ...overrides,
+  } as RawRecordingGapInput;
+}
+
 const parse = (raw: RawInput) => createJourneyCanvasInputSchema.parse(raw);
 const plan = (raw: RawInput = rawInput()) =>
   planJourneyCanvas(parse(raw), "design-1");
@@ -173,26 +239,52 @@ function problems(raw: unknown): string[] {
 }
 
 describe("create-journey-canvas input", () => {
-  it("plans up to 1,000 journey nodes and rejects larger trees", () => {
-    const root = node("root", null, 1000);
-    const nodes = [
-      root,
-      ...Array.from({ length: 999 }, (_, index) =>
-        node(`root > branch-${index}`, "root", 1),
+  it("plans 2,000 app-band nodes with screenshot examples and rejects larger trees", () => {
+    const nodes = Array.from({ length: 2_000 }, (_, index) =>
+      node(
+        `clips::node-${index}`,
+        index === 0 ? null : `clips::node-${index - 1}`,
+        1_000,
+        {
+          depth: index + 1,
+          pctOfRoot: 100,
+          pctOfParent: 100,
+        },
       ),
-    ];
+    );
     const raw = rawInput({
+      layoutMode: "appBands",
       includeScreenshotless: true,
-      frames: [],
-      tree: { ...rawInput().tree, nodes },
+      tree: {
+        ...rawInput().tree,
+        app: "all",
+        rootN: 1_000,
+        appRootN: { clips: 1_000 },
+        nodes,
+      },
+      frames: nodes.slice(0, 900).map((candidate) => frame(candidate.key, 0)),
     });
 
-    expect(planJourneyCanvas(parse(raw), "design-1").nodeCount).toBe(1000);
+    const result = planJourneyCanvas(parse(raw), "design-1");
+    expect(result.nodeCount).toBe(2_000);
+    expect(result.screens).toHaveLength(2_000);
+    expect(
+      result.screens.filter((screen) =>
+        screen.html.includes("https://img.example.test/"),
+      ),
+    ).toHaveLength(900);
     const oversized = createJourneyCanvasInputSchema.safeParse({
       ...raw,
       tree: {
         ...raw.tree,
-        nodes: [...nodes, node("root > overflow", "root", 1)],
+        nodes: [
+          ...nodes,
+          node("clips::overflow", "clips::node-1999", 1_000, {
+            depth: 2_001,
+            pctOfRoot: 100,
+            pctOfParent: 100,
+          }),
+        ],
       },
     });
     expect(oversized.success).toBe(false);
@@ -212,6 +304,7 @@ describe("create-journey-canvas input", () => {
     expect(input.allowEncryptedPublicUploadFallback).toBe(false);
     expect(input.layoutMode).toBe("tree");
     expect(input.observedContinuations).toEqual([]);
+    expect(input.observedRecordingGaps).toEqual([]);
     expect(input.tree.nodes[0]?.referenceOnly).toBe(false);
   });
 
@@ -582,6 +675,255 @@ describe("create-journey-canvas input", () => {
     ).toMatch(/increasing actual replay seek offsets/);
   });
 
+  it("renders a private observed recording gap as a dashed reference edge", () => {
+    const raw = recordingGapInput();
+    const parsed = parse(raw);
+    const result = planJourneyCanvas(parsed, "design-1");
+    const board = result.boardFragments({ x: 0, y: 0 }).join("\n");
+    const source = result.screens.find(
+      (screen) => screen.nodeKey === "clips::account-entry",
+    )!;
+    const target = result.screens.find(
+      (screen) => screen.nodeKey === "clips::later-setup",
+    )!;
+    const label = result
+      .boardFragments({ x: 0, y: 0 })
+      .find(
+        (fragment) =>
+          fragment.includes('aria-label="Recording gap · 3s"') &&
+          fragment.includes(
+            'data-agent-native-layer-name="Observed recording gap"',
+          ),
+      );
+    const labelPosition = label?.match(
+      /left:(-?\d+(?:\.\d+)?)px;top:(-?\d+(?:\.\d+)?)px;width:(\d+(?:\.\d+)?)px/,
+    );
+
+    expect(problems(raw)).toEqual([]);
+    expect(board).toContain('stroke-dasharray="6 6"');
+    expect(board).toContain("Recording gap · 3s");
+    expect(board).not.toContain("Same recording");
+    expect(board).not.toMatch(/100%|40%|conversion|successful signup/i);
+    expect(label).toContain('title="Recording gap · 3s"');
+    expect(labelPosition).not.toBeNull();
+    expect(Number(labelPosition![3])).toBe(152);
+    expect(source.frame.x + source.frame.width).toBeLessThan(target.frame.x);
+    expect(Number(labelPosition![1])).toBeGreaterThanOrEqual(
+      source.frame.x + source.frame.width,
+    );
+    expect(
+      Number(labelPosition![1]) + Number(labelPosition![3]),
+    ).toBeLessThanOrEqual(target.frame.x);
+    expect(parsed.tree.nodes[0]).toMatchObject({
+      key: "clips::account-entry",
+      n: 400,
+      pctOfRoot: 40,
+      pctOfParent: 40,
+    });
+    expect(parsed.tree.nodes[1]).toMatchObject({
+      key: "clips::later-setup",
+      referenceOnly: true,
+    });
+    expect("n" in parsed.tree.nodes[1]!).toBe(false);
+    expect(result.nodeCount).toBe(2);
+    expect(result.frameCount).toBe(2);
+  });
+
+  it("shows the recording-gap label without inventing an omitted duration", () => {
+    const raw = recordingGapInput();
+    raw.observedRecordingGaps = [
+      {
+        ...raw.observedRecordingGaps[0]!,
+        gapDurationMs: undefined,
+      },
+    ];
+    const board = planJourneyCanvas(parse(raw), "design-1")
+      .boardFragments({ x: 0, y: 0 })
+      .join("\n");
+
+    expect(board).toContain('aria-label="Recording gap"');
+    expect(board).not.toContain("Recording gap ·");
+    expect(board).not.toContain("sec");
+  });
+
+  it("keeps exact high-index examples selected by a recording gap", () => {
+    const raw = recordingGapInput({ maxExamplesPerNode: 1 });
+    const sourceExamples: RawJourneyNode["examples"] = Array.from(
+      { length: 6 },
+      (_, index) => example(`source-${index}`),
+    );
+    sourceExamples[5] = {
+      ...example("synthetic-session"),
+      recordingId: "synthetic-recording-entry",
+      anonymousIdHash: "a".repeat(64),
+    };
+    const targetExamples: RawJourneyNode["examples"] = Array.from(
+      { length: 8 },
+      (_, index) => example(`target-${index}`),
+    );
+    targetExamples[7] = {
+      ...example("synthetic-session"),
+      recordingId: "synthetic-recording-setup",
+      anonymousIdHash: "a".repeat(64),
+    };
+    raw.tree.nodes = raw.tree.nodes.map((candidate, index) =>
+      index === 0
+        ? { ...candidate, examples: sourceExamples }
+        : { ...candidate, examples: targetExamples },
+    );
+    raw.frames = [
+      ...raw.frames,
+      frame("clips::account-entry", 5, {
+        imageUrl: undefined,
+        attachmentRef: "synthetic-private-source-example-six",
+        sourceApp: "clips",
+        recordingStartedAt: "2026-10-01T12:00:00.000Z",
+        recordingEndedAt: "2026-10-01T12:00:05.000Z",
+        screenshotOffsetMs: 1_000,
+      }),
+      frame("clips::later-setup", 7, {
+        imageUrl: undefined,
+        attachmentRef: "synthetic-private-target-example-eight",
+        sourceApp: "clips",
+        recordingStartedAt: "2026-10-01T12:00:08.000Z",
+        screenshotOffsetMs: 1_000,
+      }),
+    ];
+    raw.observedRecordingGaps = [
+      {
+        ...raw.observedRecordingGaps[0]!,
+        fromExampleIndex: 5,
+        toExampleIndex: 7,
+      },
+    ];
+    const result = planJourneyCanvas(parse(raw), "design-1");
+
+    expect(problems(raw)).toEqual([]);
+    expect(
+      result.screens.some(
+        (screen) =>
+          screen.nodeKey === "clips::account-entry" &&
+          screen.exampleIndex === 5,
+      ),
+    ).toBe(true);
+    expect(
+      result.screens.some(
+        (screen) =>
+          screen.nodeKey === "clips::later-setup" && screen.exampleIndex === 7,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects unsupported or mismatched recording-gap provenance", () => {
+    const raw = recordingGapInput();
+    const mismatch = (change: (input: RawInput) => RawInput) =>
+      problems(change(structuredClone(raw))).join("\n");
+
+    expect(
+      mismatch((input) => ({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate, index) =>
+            index === 1
+              ? {
+                  ...candidate,
+                  examples: [
+                    { ...candidate.examples[0]!, sessionId: "other-session" },
+                  ],
+                }
+              : candidate,
+          ),
+        },
+      })),
+    ).toMatch(/same session and app/);
+    expect(
+      mismatch((input) => ({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate, index) =>
+            index === 1
+              ? {
+                  ...candidate,
+                  examples: [
+                    {
+                      ...candidate.examples[0]!,
+                      anonymousIdHash: "b".repeat(64),
+                    },
+                  ],
+                }
+              : candidate,
+          ),
+        },
+      })),
+    ).toMatch(/same session and app/);
+    expect(
+      mismatch((input) => ({
+        ...input,
+        frames: input.frames.map((candidate, index) =>
+          index === 1 ? { ...candidate, sourceApp: "design" } : candidate,
+        ),
+      })),
+    ).toMatch(/same session and app/);
+    expect(
+      mismatch((input) => ({
+        ...input,
+        frames: input.frames.map((candidate, index) =>
+          index === 0
+            ? { ...candidate, recordingEndedAt: undefined }
+            : candidate,
+        ),
+      })),
+    ).toMatch(/source recording end before the target recording start/);
+    expect(
+      mismatch((input) => ({
+        ...input,
+        observedRecordingGaps: [
+          { ...input.observedRecordingGaps![0]!, gapDurationMs: 2_999 },
+        ],
+      })),
+    ).toMatch(/gapDurationMs must exactly match/);
+    expect(
+      problems({
+        ...raw,
+        observedRecordingGaps: [
+          {
+            ...raw.observedRecordingGaps[0]!,
+            gapDurationMs: 31 * 24 * 60 * 60 * 1_000,
+          },
+        ],
+      }),
+    ).not.toEqual([]);
+    expect(
+      mismatch((input) => ({
+        ...input,
+        frames: input.frames.map((candidate, index) =>
+          index === 1
+            ? {
+                ...candidate,
+                attachmentRef: undefined,
+                imageUrl: "https://synthetic.example.test/target.png",
+              }
+            : candidate,
+        ),
+      })),
+    ).toMatch(/private screenshots/);
+    expect(
+      mismatch((input) => ({
+        ...input,
+        observedRecordingGaps: [
+          {
+            ...input.observedRecordingGaps![0]!,
+            type: "continuation",
+          } as unknown as NonNullable<
+            RawInput["observedRecordingGaps"]
+          >[number],
+        ],
+      })),
+    ).toMatch(/Invalid input/);
+  });
+
   it("anchors a reference continuation to an exact canonical example without adding a cohort edge", () => {
     const recordingStartedAt = "2026-10-01T11:59:56.000Z";
     const canonical = node("clips::choice", null, 500, {
@@ -935,6 +1277,7 @@ describe("create-journey-canvas input", () => {
       "locale",
       "maxExamplesPerNode",
       "observedContinuations",
+      "observedRecordingGaps",
       "title",
       "tree",
     ]);

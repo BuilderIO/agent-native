@@ -123,7 +123,10 @@ vi.mock("./Sidebar", () => ({
   Sidebar: () => <aside data-testid="app-sidebar" />,
 }));
 
-import { publishSlidesSelection } from "@/lib/slide-agent-context";
+import {
+  publishSlidesSelection,
+  readPublishedSlidesSelection,
+} from "@/lib/slide-agent-context";
 
 import { Layout } from "./Layout";
 
@@ -456,6 +459,49 @@ describe("Slides Layout", () => {
     expect(agentSidebarMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         scope: expect.objectContaining({ label: "Slide 5" }),
+      }),
+    );
+  });
+
+  it("keeps chat scope renders stable while the caret moves within a target", () => {
+    renderLayout("/deck/deck-1");
+
+    const selection = {
+      deckId: "deck-1",
+      slideId: "slide-1",
+      slideNumber: 1,
+      items: [{ objectId: "text-1", textPreview: "first" }],
+    };
+    act(() => publishSlidesSelection(selection));
+    const callsAfterTargetSelection = agentSidebarMock.mock.calls.length;
+
+    act(() =>
+      publishSlidesSelection({
+        ...selection,
+        items: [{ objectId: "text-1", textPreview: "second" }],
+      }),
+    );
+
+    expect(agentSidebarMock).toHaveBeenCalledTimes(callsAfterTargetSelection);
+    expect(readPublishedSlidesSelection()?.items).toEqual([
+      { objectId: "text-1", textPreview: "second" },
+    ]);
+
+    act(() =>
+      publishSlidesSelection({
+        ...selection,
+        items: [{ objectId: "text-2", textPreview: "second" }],
+      }),
+    );
+
+    expect(agentSidebarMock.mock.calls.length).toBeGreaterThan(
+      callsAfterTargetSelection,
+    );
+    expect(agentSidebarMock.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({
+        scope: expect.objectContaining({
+          context: expect.stringContaining("Selected element targets: text-2."),
+        }),
       }),
     );
   });

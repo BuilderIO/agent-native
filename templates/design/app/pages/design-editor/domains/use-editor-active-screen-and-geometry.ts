@@ -38,7 +38,14 @@ import type { KScaleStyleChangesByFrameId } from "@/components/design/multi-scre
 import type { DeviceFrameType } from "@/components/design/types";
 import { DEVICE_FRAME_VIEWPORTS } from "@/components/design/types";
 import { type DesignEditorCommand } from "@/hooks/use-navigation-state";
-import { createDesignSaveOutboxEntry } from "@/lib/design-save-outbox";
+import {
+  createDesignSaveOutboxEntry,
+  isRejectedRestoreClaimError,
+  rejectedRestoreClaimTargetFileIds,
+  reconcileRejectedRestoreClaimOutboxEntry,
+  stripRejectedRestoreClaimAssignments,
+  type DesignSaveOutboxEntry,
+} from "@/lib/design-save-outbox";
 import {
   clearPendingGeneration,
   hasPendingGenerationOutput,
@@ -65,6 +72,7 @@ import {
   pendingDesignDataOperations,
   stagePendingDesignDataOperations,
   type DesignDataOperation,
+  type PendingDesignDataOperations,
 } from "../data-operations";
 import { deriveDesignBreakpoints } from "../derive/design-breakpoints";
 import {
@@ -79,7 +87,10 @@ import {
   quantizeCanvasFrameGeometryForPersist,
   sanitizeCanvasFrameGeometryForPersist,
 } from "../geometry-persistence";
-import { type ContentHistoryChange } from "../history";
+import {
+  type ContentHistoryChange,
+  type FileDeletionRestoreClaim,
+} from "../history";
 import {
   screenRootFrameRenderingOptions,
   setScreenRootDefaultHeightMode,
@@ -112,6 +123,10 @@ import {
   INTERACT_CUSTOM_DEVICE_NAME,
 } from "../responsive-interact";
 import {
+  classifyDesignSaveFailure,
+  designSaveErrorMessage,
+} from "../save-failure";
+import {
   getOverviewScreenExportGeometryById,
   resolveAvailableActiveFileId,
 } from "../selection-state";
@@ -120,6 +135,138 @@ import type { EditorCore } from "./use-editor-core";
 import type { EditorFilesAndSaving } from "./use-editor-files-and-saving";
 import type { EditorGenerationAndAccess } from "./use-editor-generation-and-access";
 import type { EditorHistory } from "./use-editor-history";
+
+export function createFrameGeometryDataSavePayload(input: {
+  id: string;
+  dataOperations: readonly DesignDataOperation[];
+  operationSource: string;
+  operationRevision: number;
+  restoreClaims?: readonly FileDeletionRestoreClaim[];
+}): Record<string, unknown> {
+  const { id, dataOperations, operationSource, operationRevision } = input;
+  return {
+    id,
+    dataOperations,
+    operationSource,
+    operationRevision,
+    ...(input.restoreClaims?.length
+      ? {
+          restoreClaims: input.restoreClaims.map((claim) => ({ ...claim })),
+        }
+      : {}),
+  };
+}
+
+export type ReconciledFrameGeometrySaveResult =
+  | { status: "saved" }
+  | { status: "retry"; error: unknown };
+
+export async function persistReconciledFrameGeometryEntry(
+  entry: DesignSaveOutboxEntry,
+  actions: {
+    journal: (entry: DesignSaveOutboxEntry) => Promise<unknown>;
+    save: (payload: Record<string, unknown>) => Promise<unknown>;
+    acknowledge: (entry: DesignSaveOutboxEntry) => Promise<unknown>;
+    onSaved: () => void;
+    invalidate: () => void;
+  },
+): Promise<ReconciledFrameGeometrySaveResult> {
+  await actions.journal(entry);
+  try {
+    await actions.save(entry.payload);
+    await actions.acknowledge(entry);
+  } catch (error: unknown) {
+    return { status: "retry", error };
+  }
+  actions.onSaved();
+  actions.invalidate();
+  return { status: "saved" };
+}
+
+export interface PendingFrameGeometryRestoreClaim {
+  designId: string;
+  claim: FileDeletionRestoreClaim;
+  revision: number;
+}
+
+export function stageFrameGeometryRestoreClaims(
+  pending: readonly PendingFrameGeometryRestoreClaim[],
+  designId: string,
+  claims: readonly FileDeletionRestoreClaim[],
+  revision: number,
+): PendingFrameGeometryRestoreClaim[] {
+  const staged = [...pending];
+  const stagedKeys = new Set(
+    pending.map(({ designId: stagedDesignId, claim }) =>
+      JSON.stringify([stagedDesignId, claim.claimId]),
+    ),
+  );
+  for (const claim of claims) {
+    const key = JSON.stringify([designId, claim.claimId]);
+    if (stagedKeys.has(key)) continue;
+    staged.push({ designId, claim: { ...claim }, revision });
+    stagedKeys.add(key);
+  }
+  return staged;
+}
+
+export function frameGeometryRestoreClaimsThroughRevision(
+  pending: readonly PendingFrameGeometryRestoreClaim[],
+  designId: string,
+  revision: number,
+): FileDeletionRestoreClaim[] {
+  return pending
+    .filter((item) => item.designId === designId && item.revision <= revision)
+    .map(({ claim }) => claim);
+}
+
+export function frameGeometryRestoreClaimsForOperations(
+  claims: readonly FileDeletionRestoreClaim[],
+  operations: readonly DesignDataOperation[],
+): FileDeletionRestoreClaim[] {
+  return claims.filter((claim) =>
+    operations.some((operation) => {
+      if (
+        operation.op !== "set" ||
+        (operation.path[0] !== "screenMetadata" &&
+          operation.path[0] !== "localhostScreens") ||
+        operation.path[1] !== claim.targetFileId
+      ) {
+        return false;
+      }
+      if (operation.path.length === 3 && operation.path[2] === "connectionId") {
+        return (
+          typeof operation.value === "string" && operation.value.length > 0
+        );
+      }
+      if (operation.path.length !== 2) return false;
+      const metadata = operation.value;
+      return (
+        metadata !== null &&
+        typeof metadata === "object" &&
+        !Array.isArray(metadata) &&
+        typeof (metadata as { connectionId?: unknown }).connectionId ===
+          "string" &&
+        (metadata as { connectionId: string }).connectionId.length > 0
+      );
+    }),
+  );
+}
+
+export function acknowledgeFrameGeometryRestoreClaims(
+  pending: readonly PendingFrameGeometryRestoreClaim[],
+  designId: string,
+  acknowledgedClaims: readonly FileDeletionRestoreClaim[],
+): PendingFrameGeometryRestoreClaim[] {
+  const acknowledgedIds = new Set(
+    acknowledgedClaims.map((claim) => claim.claimId),
+  );
+  if (acknowledgedIds.size === 0) return [...pending];
+  return pending.filter(
+    (item) =>
+      item.designId !== designId || !acknowledgedIds.has(item.claim.claimId),
+  );
+}
 
 export function useEditorActiveScreenAndGeometry({
   editorCore,
@@ -138,6 +285,7 @@ export function useEditorActiveScreenAndGeometry({
     isSignedIn,
     queryClient,
     shellMode,
+    widgetEmbed,
     embedded,
     isLiveCanvasShareLink,
     setMode,
@@ -145,6 +293,8 @@ export function useEditorActiveScreenAndGeometry({
     viewMode,
     setViewMode,
     viewModeRef,
+    overviewInteractScreenIdRef,
+    setOverviewInteractScreenId,
     setSelectedElement,
     activeFileId,
     setActiveFileId,
@@ -229,7 +379,7 @@ export function useEditorActiveScreenAndGeometry({
     boardFileId,
     overviewScreens,
     publicVisualEditConnectionIds,
-    publicVisualEditPreviewTokenQuery,
+    localhostPreviewTokenQuery,
   } = editorFilesAndSaving;
 
   const [screenZoom, setScreenZoom] = useState(FOCUSED_SCREEN_ZOOM);
@@ -284,6 +434,12 @@ export function useEditorActiveScreenAndGeometry({
     previousGeometry: CanvasFrameGeometryById;
   } | null>(null);
   const frameGeometryOperationRevisionRef = useRef(0);
+  const pendingFrameGeometryRestoreClaimsRef = useRef<
+    PendingFrameGeometryRestoreClaim[]
+  >([]);
+  const rejectedFrameGeometryRestoreClaimsRef = useRef<
+    Array<{ designId: string; claim: FileDeletionRestoreClaim }>
+  >([]);
   const frameGeometryMutationChainRef = useRef<Promise<void>>(
     Promise.resolve(),
   );
@@ -349,54 +505,122 @@ export function useEditorActiveScreenAndGeometry({
     });
   }, [boardFileContent, boardFileId, canEditDesign, queueFileContentSave]);
 
+  const acknowledgeFrameGeometryOutboxEntry = useCallback(
+    async (entry: Parameters<typeof acknowledgeOutboxEntry>[0]) => {
+      await acknowledgeOutboxEntry(entry);
+      pendingFrameGeometryRestoreClaimsRef.current =
+        acknowledgeFrameGeometryRestoreClaims(
+          pendingFrameGeometryRestoreClaimsRef.current,
+          entry.designId,
+          Array.isArray(entry.payload.restoreClaims)
+            ? (entry.payload.restoreClaims as FileDeletionRestoreClaim[])
+            : [],
+        );
+    },
+    [acknowledgeOutboxEntry],
+  );
+
   const createFrameGeometryOutboxEntry = useCallback(
-    (dataOperations: readonly DesignDataOperation[], revision: number) => {
+    (
+      dataOperations: readonly DesignDataOperation[],
+      revision: number,
+      operationSource = designSaveOperationSourceRef.current,
+    ) => {
       if (!id || shellMode) return null;
       const compacted = compactDesignDataOperations(dataOperations);
       if (compacted.length === 0) return null;
+      const restoreClaims = frameGeometryRestoreClaimsThroughRevision(
+        pendingFrameGeometryRestoreClaimsRef.current,
+        id,
+        revision,
+      );
+      const claimsForOperations = frameGeometryRestoreClaimsForOperations(
+        restoreClaims,
+        compacted,
+      );
       return createDesignSaveOutboxEntry({
         designId: id,
         actorScope: designSaveActorScope,
         actionName: "update-design",
         resourceId: id,
-        operationSource: designSaveOperationSourceRef.current,
+        operationSource,
         operationRevision: revision,
-        payload: {
+        payload: createFrameGeometryDataSavePayload({
           id,
           dataOperations: compacted,
-          operationSource: designSaveOperationSourceRef.current,
+          operationSource,
           operationRevision: revision,
-        },
+          restoreClaims: claimsForOperations,
+        }),
       });
     },
     [designSaveActorScope, id, shellMode],
   );
 
   const enqueueFrameGeometryDataSave = useCallback(
-    (dataOperations: DesignDataOperation[]) => {
-      if (!id || !canEditDesignRef.current || dataOperations.length === 0) {
+    (
+      dataOperations: DesignDataOperation[],
+      options?: { restoreClaims?: readonly FileDeletionRestoreClaim[] },
+    ) => {
+      if (
+        !id ||
+        shellMode ||
+        !canEditDesignRef.current ||
+        dataOperations.length === 0
+      ) {
         return false;
       }
       const revision = frameGeometryOperationRevisionRef.current + 1;
       frameGeometryOperationRevisionRef.current = revision;
+      const incomingRestoreClaims = options?.restoreClaims ?? [];
+      if (incomingRestoreClaims.length > 0) {
+        const retryTargetFileIds = new Set(
+          incomingRestoreClaims.map((claim) => claim.targetFileId),
+        );
+        rejectedFrameGeometryRestoreClaimsRef.current =
+          rejectedFrameGeometryRestoreClaimsRef.current.filter(
+            (item) =>
+              item.designId !== id ||
+              !retryTargetFileIds.has(item.claim.targetFileId),
+          );
+      }
+      pendingFrameGeometryRestoreClaimsRef.current =
+        stageFrameGeometryRestoreClaims(
+          pendingFrameGeometryRestoreClaimsRef.current,
+          id,
+          incomingRestoreClaims,
+          revision,
+        );
       pendingFrameGeometryOperationsForUnloadRef.current =
         stagePendingDesignDataOperations(
           pendingFrameGeometryOperationsForUnloadRef.current,
           dataOperations,
           revision,
         );
-      const outboxEntry = createFrameGeometryOutboxEntry(
-        pendingDesignDataOperations(
-          pendingFrameGeometryOperationsForUnloadRef.current,
-        ),
-        revision,
+      const operationsForRevision = pendingDesignDataOperations(
+        pendingFrameGeometryOperationsForUnloadRef.current,
       );
-      if (!outboxEntry) return false;
+      if (operationsForRevision.length === 0) return false;
+      const operationSource = designSaveOperationSourceRef.current;
       const previous = frameGeometryMutationChainRef.current;
       const current = previous
         .catch(() => {})
         .then(async () => {
+          let outboxEntry: ReturnType<typeof createFrameGeometryOutboxEntry> =
+            null;
           try {
+            const rejectedAssignments = stripRejectedRestoreClaimAssignments(
+              operationsForRevision,
+              rejectedFrameGeometryRestoreClaimsRef.current
+                .filter((item) => item.designId === id)
+                .map((item) => item.claim),
+            );
+            outboxEntry = createFrameGeometryOutboxEntry(
+              rejectedAssignments.operations as DesignDataOperation[],
+              revision,
+              operationSource,
+            );
+            if (!outboxEntry) return;
             await journalOutboxEntry(outboxEntry);
             await saveDesignDataAsync(outboxEntry.payload as any);
             pendingFrameGeometryOperationsForUnloadRef.current =
@@ -404,12 +628,134 @@ export function useEditorActiveScreenAndGeometry({
                 pendingFrameGeometryOperationsForUnloadRef.current,
                 revision,
               );
-            await acknowledgeOutboxEntry(outboxEntry);
-          } catch {
-            void queryClient.invalidateQueries({
-              queryKey: ["action", "get-design"],
-            });
-            warnChangesWillRetry();
+            await acknowledgeFrameGeometryOutboxEntry(outboxEntry);
+          } catch (error: unknown) {
+            const restoreClaims = Array.isArray(
+              outboxEntry?.payload.restoreClaims,
+            )
+              ? (outboxEntry.payload
+                  .restoreClaims as FileDeletionRestoreClaim[])
+              : [];
+            const rejectedTargetFileIds = rejectedRestoreClaimTargetFileIds(
+              error,
+              restoreClaims,
+            );
+            const rejectedTargetFileIdSet = new Set(rejectedTargetFileIds);
+            const rejectedClaims = restoreClaims.filter((claim) =>
+              rejectedTargetFileIdSet.has(claim.targetFileId),
+            );
+            let reconciledEntryOwnsInvalidation = false;
+            let reconciledEntryWasSaved = false;
+            let reconciledEntryRetryFailure: Extract<
+              ReconciledFrameGeometrySaveResult,
+              { status: "retry" }
+            > | null = null;
+            if (
+              outboxEntry &&
+              rejectedClaims.length > 0 &&
+              isRejectedRestoreClaimError(error)
+            ) {
+              const rejectedEntry = outboxEntry;
+              const rejectedIds = new Set(
+                rejectedFrameGeometryRestoreClaimsRef.current
+                  .filter((item) => item.designId === rejectedEntry.designId)
+                  .map((item) => item.claim.claimId),
+              );
+              rejectedFrameGeometryRestoreClaimsRef.current = [
+                ...rejectedFrameGeometryRestoreClaimsRef.current,
+                ...rejectedClaims
+                  .filter((claim) => !rejectedIds.has(claim.claimId))
+                  .map((claim) => ({
+                    designId: rejectedEntry.designId,
+                    claim,
+                  })),
+              ];
+              pendingFrameGeometryRestoreClaimsRef.current =
+                acknowledgeFrameGeometryRestoreClaims(
+                  pendingFrameGeometryRestoreClaimsRef.current,
+                  rejectedEntry.designId,
+                  rejectedClaims,
+                );
+              const reconciledEntry = reconcileRejectedRestoreClaimOutboxEntry(
+                rejectedEntry,
+                rejectedTargetFileIds,
+              );
+              const reconciledOperations = reconciledEntry
+                ? (reconciledEntry.payload
+                    .dataOperations as DesignDataOperation[])
+                : [];
+              let pendingOperations: PendingDesignDataOperations =
+                clearAcknowledgedDesignDataOperationsThroughRevision(
+                  pendingFrameGeometryOperationsForUnloadRef.current,
+                  revision,
+                );
+              for (const operation of reconciledOperations) {
+                const key = JSON.stringify(operation.path);
+                if (pendingOperations[key]) continue;
+                pendingOperations = stagePendingDesignDataOperations(
+                  pendingOperations,
+                  [operation],
+                  revision,
+                );
+              }
+              pendingFrameGeometryOperationsForUnloadRef.current =
+                pendingOperations;
+              if (reconciledEntry) {
+                reconciledEntryOwnsInvalidation = true;
+                const saveResult = await persistReconciledFrameGeometryEntry(
+                  reconciledEntry,
+                  {
+                    journal: journalOutboxEntry,
+                    save: (payload) =>
+                      saveDesignDataAsync(
+                        payload as Parameters<typeof saveDesignDataAsync>[0],
+                      ),
+                    acknowledge: acknowledgeFrameGeometryOutboxEntry,
+                    onSaved: () => {
+                      pendingFrameGeometryOperationsForUnloadRef.current =
+                        clearAcknowledgedDesignDataOperationsThroughRevision(
+                          pendingFrameGeometryOperationsForUnloadRef.current,
+                          revision,
+                        );
+                    },
+                    invalidate: () => {
+                      void queryClient.invalidateQueries({
+                        queryKey: ["action", "get-design"],
+                      });
+                    },
+                  },
+                );
+                reconciledEntryWasSaved = saveResult.status === "saved";
+                if (saveResult.status === "retry") {
+                  reconciledEntryRetryFailure = saveResult;
+                }
+              } else {
+                await acknowledgeFrameGeometryOutboxEntry(outboxEntry);
+              }
+            }
+            if (!reconciledEntryOwnsInvalidation) {
+              void queryClient.invalidateQueries({
+                queryKey: ["action", "get-design"],
+              });
+            }
+            if (!reconciledEntryWasSaved) {
+              if (reconciledEntryRetryFailure) {
+                console.warn(
+                  "Reconciled frame geometry save remains queued for retry.",
+                  reconciledEntryRetryFailure.error,
+                );
+                warnChangesWillRetry();
+              } else if (
+                classifyDesignSaveFailure(error, navigator.onLine) === "offline"
+              ) {
+                warnChangesWillRetry();
+              } else {
+                toast.error(
+                  designSaveErrorMessage(error) ?? t("common.genericError"),
+                  { id: "design-geometry-save-error" },
+                );
+              }
+            }
           }
         });
       frameGeometryMutationChainRef.current = current;
@@ -421,12 +767,14 @@ export function useEditorActiveScreenAndGeometry({
       return true;
     },
     [
-      acknowledgeOutboxEntry,
+      acknowledgeFrameGeometryOutboxEntry,
       createFrameGeometryOutboxEntry,
       id,
       journalOutboxEntry,
       queryClient,
       saveDesignDataAsync,
+      t,
+      shellMode,
       warnChangesWillRetry,
     ],
   );
@@ -528,7 +876,7 @@ export function useEditorActiveScreenAndGeometry({
     ): boolean =>
       runPersistFrameGeometrySave(
         {
-          acknowledgeOutboxEntry,
+          acknowledgeOutboxEntry: acknowledgeFrameGeometryOutboxEntry,
           boardFileId,
           canEditDesignRef,
           createFrameGeometryOutboxEntry,
@@ -545,7 +893,7 @@ export function useEditorActiveScreenAndGeometry({
         keepalive,
       ),
     [
-      acknowledgeOutboxEntry,
+      acknowledgeFrameGeometryOutboxEntry,
       boardFileId,
       createFrameGeometryOutboxEntry,
       enqueueFrameGeometryDataSave,
@@ -938,7 +1286,7 @@ export function useEditorActiveScreenAndGeometry({
         );
         if (!attempt.accepted) return;
         void attempt.completion
-          .then(() => acknowledgeOutboxEntry(entry))
+          .then(() => acknowledgeFrameGeometryOutboxEntry(entry))
           .catch(warnChangesWillRetry);
         return;
       }
@@ -950,7 +1298,7 @@ export function useEditorActiveScreenAndGeometry({
       flushPendingFrameGeometrySave();
     };
   }, [
-    acknowledgeOutboxEntry,
+    acknowledgeFrameGeometryOutboxEntry,
     createFrameGeometryOutboxEntry,
     flushPendingFrameGeometrySave,
     journalOutboxEntry,
@@ -1314,35 +1662,61 @@ export function useEditorActiveScreenAndGeometry({
     resolveOverviewScreenSourceType(activeOverviewScreen, designSourceType) ===
       "localhost",
   );
+  const activeLocalhostConnection = activeOverviewScreen?.connectionId
+    ? localhostPreviewTokenQuery.data?.connections?.[
+        activeOverviewScreen.connectionId
+      ]
+    : undefined;
+  const hasActiveLocalhostConnection = Boolean(
+    activeOverviewScreen?.connectionId &&
+    resolveOverviewScreenSourceType(activeOverviewScreen, designSourceType) ===
+      "localhost",
+  );
   const activeScreenBridgeUrl = activeScreenSnapshotOnly
     ? undefined
-    : activeOverviewScreen?.bridgeUrl;
+    : resolveOverviewScreenSourceType(
+          activeOverviewScreen,
+          designSourceType,
+        ) === "localhost"
+      ? (activeLocalhostConnection?.bridgeUrl ??
+        (hasActiveLocalhostConnection
+          ? undefined
+          : activeOverviewScreen?.bridgeUrl))
+      : activeOverviewScreen?.bridgeUrl;
   const activeScreenPreviewToken = activeScreenSnapshotOnly
     ? undefined
     : ((activeOverviewScreen?.id
         ? effectivePreviewTokensByScreenId[activeOverviewScreen.id]
         : undefined) ??
-      ("previewToken" in (activeOverviewScreen ?? {}) &&
-      typeof activeOverviewScreen?.previewToken === "string"
-        ? activeOverviewScreen.previewToken
-        : (publicVisualEditPreviewTokenQuery.data?.connections?.[
-            activeOverviewScreen?.connectionId ?? ""
-          ]?.previewToken ??
-          (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
-            ? publicVisualEditPreviewTokenQuery.data?.previewToken
-            : undefined))));
+      (resolveOverviewScreenSourceType(
+        activeOverviewScreen,
+        designSourceType,
+      ) === "localhost"
+        ? activeLocalhostConnection?.previewToken
+        : undefined) ??
+      (hasActiveLocalhostConnection
+        ? undefined
+        : "previewToken" in (activeOverviewScreen ?? {}) &&
+            typeof activeOverviewScreen?.previewToken === "string"
+          ? activeOverviewScreen.previewToken
+          : (localhostPreviewTokenQuery.data?.connections?.[
+              activeOverviewScreen?.connectionId ?? ""
+            ]?.previewToken ??
+            (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
+              ? localhostPreviewTokenQuery.data?.previewToken
+              : undefined))));
   const activeScreenLiveEditCapability = activeScreenSnapshotOnly
     ? undefined
     : ((activeOverviewScreen?.id
         ? effectiveLiveEditCapabilitiesByScreenId[activeOverviewScreen.id]
         : undefined) ??
       (activeOverviewScreen?.connectionId
-        ? publicVisualEditPreviewTokenQuery.data?.connections?.[
+        ? localhostPreviewTokenQuery.data?.connections?.[
             activeOverviewScreen.connectionId
           ]?.liveEditCapability
         : undefined) ??
       (activeOverviewScreen?.connectionId === publicVisualEditConnectionId
-        ? publicVisualEditPreviewTokenQuery.data?.liveEditCapability
+        ? localhostPreviewTokenQuery.data?.liveEditCapability
         : undefined));
   const overviewScreenIdList = useMemo(
     () => overviewScreens.map((screen) => screen.id),
@@ -1462,6 +1836,8 @@ export function useEditorActiveScreenAndGeometry({
           setInteractDeviceSize,
           setMode,
           setOverviewSelectedScreenIds,
+          setOverviewInteractScreenId,
+          overviewInteractScreenIdRef,
           setPinMode,
           setScreenZoom,
           setSelectedElement,
@@ -1474,13 +1850,19 @@ export function useEditorActiveScreenAndGeometry({
           },
           overviewDataReady,
           viewModeRef,
-          requestCameraFit: (camera) => {
-            cameraCommandNonceRef.current += 1;
-            setCameraCommand({
-              ...camera,
-              nonce: cameraCommandNonceRef.current,
-            });
-          },
+          // A widget opens on the whole canvas with nothing selected, and its
+          // canvas frames the opened screen itself (MultiScreenCanvas
+          // widgetFit), so neither a selection nor a one-off camera command.
+          requestCameraFit: widgetEmbed
+            ? undefined
+            : (camera) => {
+                cameraCommandNonceRef.current += 1;
+                setCameraCommand({
+                  ...camera,
+                  nonce: cameraCommandNonceRef.current,
+                });
+              },
+          selectTargetScreen: !widgetEmbed,
         },
         command,
       ),
@@ -1492,6 +1874,7 @@ export function useEditorActiveScreenAndGeometry({
       overviewScreens,
       overviewDataReady,
       setZoomForView,
+      widgetEmbed,
     ],
   );
 

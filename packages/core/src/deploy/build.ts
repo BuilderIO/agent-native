@@ -49,6 +49,7 @@ import {
 import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
+  resolveChunkRecoveryCacheHeaders,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -63,6 +64,11 @@ import {
   toPublicFrameworkPath,
 } from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import {
+  CHUNK_RECOVERY_PATH_SUFFIX,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -1356,6 +1362,8 @@ export function generateWorkerEntry(
 ): string {
   const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
   const ssrCacheHeaders = resolveSsrCacheHeaders();
+  const chunkRecoveryCacheHeaders =
+    resolveChunkRecoveryCacheHeaders(ssrCacheHeaders);
   const ssrCacheKeyHeaders = resolveSsrCacheKeyHeaders();
   const ssrAuthRedirectCookieName = frameworkSessionHintCookieName(
     resolveAuthCookieNamespace().frameworkCookieName,
@@ -1607,6 +1615,61 @@ function stripAppBasePath(pathname) {
     return pathname.slice(basePath.length) || "/";
   }
   return pathname;
+}
+
+function splitReactRouterDataPathname(pathname) {
+  const trailingSlash = pathname.endsWith("/") ? "/" : "";
+  const pathWithoutTrailingSlash = trailingSlash
+    ? pathname.slice(0, -trailingSlash.length)
+    : pathname;
+  if (pathWithoutTrailingSlash.endsWith("/_.data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -"/_.data".length),
+      dataSuffix: "/_.data",
+      trailingSlash,
+    };
+  }
+  if (pathWithoutTrailingSlash.endsWith(".data")) {
+    return {
+      routePath: pathWithoutTrailingSlash.slice(0, -".data".length),
+      dataSuffix: ".data",
+      trailingSlash,
+    };
+  }
+  return { routePath: pathWithoutTrailingSlash, dataSuffix: "", trailingSlash };
+}
+
+function stripChunkRecoveryPathSuffix(pathname) {
+  const { routePath, dataSuffix, trailingSlash } =
+    splitReactRouterDataPathname(pathname);
+  const routeHasTrailingSlash = routePath.endsWith("/");
+  const routePathWithoutTrailingSlash = routeHasTrailingSlash
+    ? routePath.slice(0, -1)
+    : routePath;
+  if (!routePathWithoutTrailingSlash.endsWith(CHUNK_RECOVERY_PATH_SUFFIX)) {
+    return pathname;
+  }
+
+  const routePathWithoutAlias =
+    routePathWithoutTrailingSlash.slice(0, -CHUNK_RECOVERY_PATH_SUFFIX.length) ||
+    "/";
+  const separator = routePathWithoutAlias === "/" && dataSuffix.startsWith("/")
+    ? dataSuffix.slice(1)
+    : dataSuffix;
+  const suffix = separator + trailingSlash;
+  return routePathWithoutAlias === "/" && suffix === "/"
+    ? "/"
+    : routePathWithoutAlias + suffix;
+}
+
+function isChunkRecoveryPath(pathname) {
+  const { routePath } = splitReactRouterDataPathname(pathname);
+  return routePath.replace(/\\/+$/, "").endsWith(CHUNK_RECOVERY_PATH_SUFFIX);
+}
+
+function isLegacyChunkRecoveryRequest(url) {
+  const values = url.searchParams.getAll(CHUNK_RECOVERY_QUERY_PARAM);
+  return values.length === 1 && values[0] === CHUNK_RECOVERY_QUERY_VALUE;
 }
 
 function parseActionSearchParams(searchParams) {
@@ -2005,8 +2068,12 @@ function injectHeadScript(html, script) {
 
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
+const CHUNK_RECOVERY_ALIAS_CACHE_HEADERS = ${JSON.stringify(chunkRecoveryCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
 const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
+const CHUNK_RECOVERY_PATH_SUFFIX = ${JSON.stringify(CHUNK_RECOVERY_PATH_SUFFIX)};
+const CHUNK_RECOVERY_QUERY_PARAM = ${JSON.stringify(CHUNK_RECOVERY_QUERY_PARAM)};
+const CHUNK_RECOVERY_QUERY_VALUE = ${JSON.stringify(CHUNK_RECOVERY_QUERY_VALUE)};
 const SSR_AUTH_REDIRECT_COOKIE_NAME = ${JSON.stringify(ssrAuthRedirectCookieName)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
@@ -2099,7 +2166,7 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
  * Always overwrite route cache hints so generated edge workers cannot drift
  * from the canonical Nitro/Netlify handler or send normal pages to origin.
  */
-function applyDefaultSsrCacheHeader(headers, status, pathname) {
+function applyDefaultSsrCacheHeader(headers, status, pathname, isRecoveryAlias = false, isLegacyRecovery = false) {
   const varyByQuery =
     (headers.get(SSR_QUERY_CACHE_KEY_HEADER) || "").trim().toLowerCase() === "query";
   headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
@@ -2126,9 +2193,16 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
     ? SSR_CACHE_KEY_HEADERS["netlify-vary"]
       ? "query"
       : undefined
-    : SSR_CACHE_KEY_HEADERS["netlify-vary"];
+    : isLegacyRecovery && SSR_CACHE_KEY_HEADERS["netlify-vary"]
+      ? SSR_CACHE_KEY_HEADERS["netlify-vary"] + "|" + CHUNK_RECOVERY_QUERY_PARAM
+      : SSR_CACHE_KEY_HEADERS["netlify-vary"];
   if (netlifyVary) headers.set("netlify-vary", netlifyVary);
   else headers.delete("netlify-vary");
+  if (isRecoveryAlias || isLegacyRecovery) {
+    for (const [name, value] of Object.entries(CHUNK_RECOVERY_ALIAS_CACHE_HEADERS)) {
+      headers.set(name, value);
+    }
+  }
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
@@ -2165,7 +2239,7 @@ function applyImmutableAssetCacheHeaders(response, request) {
   });
 }
 
-async function rewriteMountedResponse(response, basePath, pathname, request) {
+async function rewriteMountedResponse(response, basePath, pathname, request, isRecoveryAlias = false, isLegacyRecovery = false) {
   const clientConfigScript =
     [
       getSentryClientConfigScript(),
@@ -2178,7 +2252,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
       .filter(Boolean)
       .join("") || null;
   const headers = new Headers(response.headers);
-  applyDefaultSsrCacheHeader(headers, response.status, pathname);
+  applyDefaultSsrCacheHeader(headers, response.status, pathname, isRecoveryAlias, isLegacyRecovery);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
 
   const location = headers.get("location");
@@ -2237,7 +2311,9 @@ function requestForAnonymousSsr(request) {
 
 function isStaticAppShellRequest(request) {
   if (request.method !== "GET" && request.method !== "HEAD") return false;
-  const p = stripAppBasePath(new URL(request.url).pathname);
+  const p = stripChunkRecoveryPathSuffix(
+    stripAppBasePath(new URL(request.url).pathname)
+  );
   if (
     p.startsWith("/.well-known/") ||
     isFrameworkPath(p) ||
@@ -2254,7 +2330,11 @@ function isStaticAppShellRequest(request) {
 async function fetchStaticAppShell(request, env) {
   if (!env?.ASSETS || !isStaticAppShellRequest(request)) return null;
   const basePath = getAppBasePath();
-  const p = stripAppBasePath(new URL(request.url).pathname);
+  const requestUrl = new URL(request.url);
+  const appPath = stripAppBasePath(requestUrl.pathname);
+  const isRecoveryAlias = isChunkRecoveryPath(appPath);
+  const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
+  const p = stripChunkRecoveryPathSuffix(appPath);
   const shellRequest = requestWithPathname(
     requestWithMethod(request, "GET"),
     "/index.html",
@@ -2276,9 +2356,18 @@ async function fetchStaticAppShell(request, env) {
       basePath,
       p,
       request,
+      isRecoveryAlias,
+      isLegacyRecovery,
     );
   }
-  return rewriteMountedResponse(response, basePath, p, request);
+  return rewriteMountedResponse(
+    response,
+    basePath,
+    p,
+    request,
+    isRecoveryAlias,
+    isLegacyRecovery,
+  );
 }
 
 // API route handlers
@@ -2314,7 +2403,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Test-Traffic,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Content-Save-Origin,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Test-Traffic,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -2363,7 +2452,11 @@ ${
   const rrHandler = createRequestHandler(() => serverBuild);
   app.all("/**", defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
-    const p = stripAppBasePath(new URL(event.req.url).pathname);
+    const requestUrl = new URL(event.req.url);
+    const appPath = stripAppBasePath(requestUrl.pathname);
+    const isRecoveryAlias = isChunkRecoveryPath(appPath);
+    const isLegacyRecovery = isLegacyChunkRecoveryRequest(requestUrl);
+    const p = stripChunkRecoveryPathSuffix(appPath);
     if (
       p.startsWith("/.well-known/") ||
       isFrameworkPath(p) ||
@@ -2390,14 +2483,18 @@ ${
         }),
         basePath,
         p,
-        getRequest
+        getRequest,
+        isRecoveryAlias,
+        isLegacyRecovery
       );
     }
     return rewriteMountedResponse(
       await runWithRequestContext(anonymousContext, () => rrHandler(request)),
       basePath,
       p,
-      request
+      request,
+      isRecoveryAlias,
+      isLegacyRecovery
     );
   }));`
     : ""

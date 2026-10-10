@@ -1,13 +1,10 @@
 import {
-  generateTabId,
   getBackgroundAgentSessionStatus,
-  sendToAgentChatAndConfirm,
   startBackgroundAgentSession,
-  type AgentChatMessage,
   type BackgroundAgentSessionReceipt,
   type BackgroundAgentSessionSnapshot,
+  type BackgroundAgentSessionStartOptions,
 } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   bumpChangeVersion,
   callAction,
@@ -17,7 +14,6 @@ import {
 } from "@agent-native/core/client/hooks";
 import {
   aiRequestTabId,
-  parseAiRequestTabId,
   type AutoTitleCandidate,
   type ClipsAiRequestKind,
 } from "@shared/ai-request-status";
@@ -31,7 +27,6 @@ const WORKFLOW_ACTION_RETRY_DELAY_MS = 1000;
 // `queueAiRequest` publishes `refresh-signal` after every queue, whoever the
 // writer is. Sync drops this tab's own events, so local queues bump it too.
 const AI_REQUEST_REFRESH_SOURCE = "app-state:refresh-signal";
-const AI_REQUEST_DELIVERY_TIMEOUT_MS = 10_000;
 const AI_REQUEST_RETRY_INITIAL_DELAY_MS = 1_000;
 const AI_REQUEST_RETRY_MAX_DELAY_MS = 30_000;
 const BACKGROUND_SESSION_POLL_INTERVAL_MS = 2_000;
@@ -77,10 +72,13 @@ interface ListAiRequestsResult {
   activeSessions?: ActiveAiRequestSession[];
 }
 
+type SessionRequestKind = ClipsAiRequestKind | "generate-workflow";
+
 interface ActiveAiRequestSession extends BackgroundAgentSessionReceipt {
   recordingId: string;
-  kind: "remove-filler-words";
+  kind: SessionRequestKind;
   requestedAt: string;
+  requestId?: string;
   runId?: string;
   updatedAt?: string;
 }
@@ -94,16 +92,6 @@ const DISPATCHABLE_REQUESTS = new Set([
   "remove-silences",
   "generate-workflow",
 ]);
-
-async function clearRequest(recordingId: string): Promise<void> {
-  const url = agentNativePath(
-    `/_agent-native/application-state/${encodeURIComponent(
-      `clips-ai-request-${recordingId}`,
-    )}`,
-  );
-  await fetch(url, { method: "DELETE" }).catch(() => {});
-  bumpAiRequestRefresh();
-}
 
 export function useAutoTitleBridge(): void {
   const { data, refetch } = useActionQuery<ListAiRequestsResult>(
@@ -130,51 +118,6 @@ export function useAutoTitleBridge(): void {
     return () => {
       mounted.current = false;
     };
-  }, []);
-
-  useEffect(() => {
-    const handleChatRunning = (event: Event) => {
-      const detail = (event as CustomEvent).detail;
-      if (detail?.isRunning !== false || typeof detail.tabId !== "string")
-        return;
-
-      if (detail.reason !== "stopped" && detail.reason !== "failed") return;
-
-      const aiRequest = parseAiRequestTabId(detail.tabId);
-      if (aiRequest) {
-        const status = detail.reason === "stopped" ? "cancelled" : "failed";
-        void callAction(
-          "update-ai-request-status" as any,
-          { ...aiRequest, status } as any,
-        ).catch((error) => {
-          console.error(
-            `[clips] failed to persist ${detail.reason} AI request status`,
-            { ...aiRequest, error },
-          );
-        });
-        return;
-      }
-
-      const recordingId = recordingIdFromTab(detail.tabId);
-      const requestedAt = requestedAtFromTab(detail.tabId);
-      const requestId = requestIdFromTab(detail.tabId);
-      if (!recordingId || !requestedAt) return;
-
-      void retryWorkflowAction(
-        {
-          operation: "stop",
-          recordingId,
-          requestedAt,
-          ...(requestId ? { requestId } : {}),
-          tabId: detail.tabId,
-        },
-        "reconciled",
-      );
-    };
-
-    window.addEventListener("agentNative.chatRunning", handleChatRunning);
-    return () =>
-      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
   }, []);
 
   useEffect(() => {
@@ -312,7 +255,13 @@ export function useAutoTitleBridge(): void {
                   ...workflowRequest,
                   tabId,
                 } as any,
-              )) as { tracked?: boolean };
+              )) as { tracked?: boolean; consumed?: boolean };
+              if (result.consumed === true) {
+                dispatched.current.add(dispatchKey);
+                completedWork = true;
+                bumpAiRequestRefresh();
+                continue;
+              }
               if (result.tracked !== true) {
                 retrySoon();
                 continue;
@@ -321,29 +270,21 @@ export function useAutoTitleBridge(): void {
               retrySoon();
               continue;
             }
-            const delivery = await sendToAgentChatAndConfirm({
-              ...buildAiRequestChatOptions(request),
+            const result = await dispatchWorkflowRequest(
+              request,
+              workflowRequest,
               tabId,
-              chatTarget: "local",
-            });
-            if (!delivery.delivered) {
-              await retryWorkflowAction(
-                {
-                  operation: "release",
-                  ...workflowRequest,
-                  tabId,
-                },
-                "released",
-              );
+            );
+            if (!result.handled) {
               retrySoon();
               continue;
             }
             dispatched.current.add(dispatchKey);
             completedWork = true;
-            void persistAndConsumeWorkflowRequest({
-              ...workflowRequest,
-              tabId,
-            });
+            if (result.accepted) {
+              bumpAiRequestRefresh();
+              void refetch();
+            }
             continue;
           }
           if (
@@ -357,36 +298,17 @@ export function useAutoTitleBridge(): void {
             retrySoon();
             continue;
           }
-          if (request.kind === "remove-filler-words") {
-            const result = await dispatchFillerWordsRequest(request);
-            if (!result.handled) {
-              retrySoon();
-              continue;
-            }
-            dispatched.current.add(dispatchKey);
-            completedWork = true;
-            if (result.accepted) {
-              bumpAiRequestRefresh();
-              void refetch();
-            }
-            continue;
-          }
-          const delivery = await dispatchAiRequest(
-            request,
-            aiRequestTabId(
-              request.recordingId,
-              request.kind as ClipsAiRequestKind,
-              request.requestedAt,
-            ),
-          );
-          if (!delivery.delivered) {
-            dispatched.current.delete(dispatchKey);
+          const result = await dispatchBackgroundAiRequest(request);
+          if (!result.handled) {
             retrySoon();
             continue;
           }
           dispatched.current.add(dispatchKey);
           completedWork = true;
-          void clearRequest(request.recordingId);
+          if (result.accepted) {
+            bumpAiRequestRefresh();
+            void refetch();
+          }
         }
 
         for (const candidate of snapshot.titleCandidates) {
@@ -455,7 +377,7 @@ export function useAutoTitleBridge(): void {
       const operationKey = session.operationId;
       if (monitoredSessions.current.has(operationKey)) continue;
       monitoredSessions.current.add(operationKey);
-      void monitorFillerWordsSession(session, () => !mounted.current).finally(
+      void monitorAiRequestSession(session, () => !mounted.current).finally(
         () => {
           monitoredSessions.current.delete(operationKey);
         },
@@ -520,30 +442,6 @@ function buildRequestContext(request: QueuedAiRequest) {
   };
 }
 
-export function buildAiRequestChatOptions(
-  request: QueuedAiRequest,
-): AgentChatMessage {
-  const includeFullVideo = request.includeFullVideoInAi === true;
-  const gemini = includeFullVideo ? fullVideoAiModelSelection() : null;
-  const openInChat = request.openInChat === true;
-  return {
-    message:
-      request.message ??
-      `Handle queued ${request.kind} work for recording ${request.recordingId}.`,
-    context: JSON.stringify(buildRequestContext(request)),
-    submit: true,
-    openSidebar: openInChat ? true : false,
-    newTab: true,
-    background: !openInChat,
-    ...(gemini
-      ? {
-          engine: gemini.engine,
-          model: gemini.model,
-        }
-      : {}),
-  };
-}
-
 interface WorkflowRunRequest {
   recordingId: string;
   requestedAt: string;
@@ -600,33 +498,7 @@ function workflowTabId(
   const identity = requestId
     ? `${encodeURIComponent(requestedAt)}:${encodeURIComponent(requestId)}`
     : encodeURIComponent(requestedAt);
-  return `clips-workflow:${recordingId}:${identity}:${generateTabId()}`;
-}
-
-function recordingIdFromTab(tabId: string) {
-  const match = /^clips-workflow:([^:]+):/.exec(tabId);
-  return match?.[1];
-}
-
-function requestedAtFromTab(tabId: string) {
-  const match = /^clips-workflow:[^:]+:([^:]+):/.exec(tabId);
-  return match ? decodeURIComponent(match[1]) : undefined;
-}
-
-function requestIdFromTab(tabId: string) {
-  const match = /^clips-workflow:[^:]+:[^:]+:([^:]+):[^:]+$/.exec(tabId);
-  return match ? decodeURIComponent(match[1]) : undefined;
-}
-
-function dispatchAiRequest(request: QueuedAiRequest, tabId: string) {
-  return sendToAgentChatAndConfirm(
-    {
-      ...buildAiRequestChatOptions(request),
-      chatTarget: "local",
-      tabId,
-    },
-    { timeoutMs: AI_REQUEST_DELIVERY_TIMEOUT_MS },
-  );
+  return `clips-workflow:${recordingId}:${identity}:run`;
 }
 
 type BackgroundAiRequestStatus =
@@ -653,12 +525,18 @@ export function backgroundAiRequestStatus(
   }
 }
 
-async function persistFillerWordsStatus(
-  session: Pick<
-    ActiveAiRequestSession,
-    "recordingId" | "requestedAt" | "operationId"
-  > &
-    Partial<Pick<ActiveAiRequestSession, "threadId" | "turnId">>,
+type RequestSession = Pick<
+  ActiveAiRequestSession,
+  "recordingId" | "requestedAt" | "operationId"
+> &
+  Partial<Pick<ActiveAiRequestSession, "threadId" | "turnId">> & {
+    kind: ClipsAiRequestKind;
+  };
+
+type DispatchResult = { handled: boolean; accepted: boolean };
+
+async function persistAiRequestStatus(
+  session: RequestSession,
   status: "working" | BackgroundAiRequestStatus,
   snapshot?: BackgroundAgentSessionSnapshot,
 ): Promise<boolean> {
@@ -667,7 +545,7 @@ async function persistFillerWordsStatus(
       "update-ai-request-status" as any,
       {
         recordingId: session.recordingId,
-        kind: "remove-filler-words",
+        kind: session.kind,
         requestedAt: session.requestedAt,
         operationId: session.operationId,
         ...(session.threadId ? { threadId: session.threadId } : {}),
@@ -687,8 +565,9 @@ async function persistFillerWordsStatus(
     ) {
       return true;
     }
-    console.warn("[clips] failed to persist filler-word session status", {
+    console.warn("[clips] failed to persist AI request session status", {
       recordingId: session.recordingId,
+      kind: session.kind,
       requestedAt: session.requestedAt,
       status,
       error,
@@ -697,95 +576,47 @@ async function persistFillerWordsStatus(
   }
 }
 
-async function consumeFillerWordsRequest(
-  session: Pick<ActiveAiRequestSession, "recordingId" | "requestedAt">,
+async function consumeAiRequest(
+  session: Pick<RequestSession, "recordingId" | "kind" | "requestedAt">,
 ): Promise<void> {
   try {
     await callAction(
       "consume-ai-request" as any,
       {
         recordingId: session.recordingId,
-        kind: "remove-filler-words",
+        kind: session.kind,
         requestedAt: session.requestedAt,
       } as any,
     );
   } catch (error) {
-    console.warn("[clips] failed to consume filler-word request", {
+    console.warn("[clips] failed to consume queued AI request", {
       recordingId: session.recordingId,
+      kind: session.kind,
       requestedAt: session.requestedAt,
       error,
     });
   }
 }
 
-async function dispatchFillerWordsRequest(
-  request: QueuedAiRequest,
-): Promise<{ handled: boolean; accepted: boolean }> {
-  if (typeof request.requestedAt !== "string") {
-    return { handled: false, accepted: false };
-  }
-  const stableId = aiRequestTabId(
-    request.recordingId,
-    "remove-filler-words",
-    request.requestedAt,
-  );
-  const session = {
-    recordingId: request.recordingId,
-    kind: "remove-filler-words",
-    requestedAt: request.requestedAt,
-    operationId: stableId,
-    threadId: stableId,
-  };
-  const transcript = parseFillerTranscriptSegments(request.segmentsJson);
-  if (!transcript.ok) {
-    console.warn(
-      "[clips] filler-word request has unreadable transcript segments",
-      {
-        recordingId: request.recordingId,
-        requestedAt: request.requestedAt,
-        reason: transcript.reason,
-      },
-    );
-    const saved = await persistFillerWordsStatus(session, "failed");
-    if (saved) await consumeFillerWordsRequest(session);
-    return { handled: saved, accepted: false };
-  }
+type SessionStartOutcome =
+  | { type: "accepted"; receipt: BackgroundAgentSessionReceipt }
+  | { type: "running"; snapshot: BackgroundAgentSessionSnapshot }
+  | {
+      type: "finished";
+      snapshot: BackgroundAgentSessionSnapshot;
+      status: BackgroundAiRequestStatus;
+    }
+  | { type: "rejected" }
+  | { type: "uncertain" };
 
-  try {
-    await callAction(
-      "update-ai-request-status" as any,
-      {
-        recordingId: session.recordingId,
-        kind: session.kind,
-        requestedAt: session.requestedAt,
-        operationId: session.operationId,
-        status: "working",
-      } as any,
-    );
-  } catch (error) {
-    console.warn("[clips] filler-word request could not be claimed", {
-      recordingId: request.recordingId,
-      requestedAt: request.requestedAt,
-      error,
-    });
-    return { handled: false, accepted: false };
-  }
-
+async function startRequestSession(
+  options: BackgroundAgentSessionStartOptions,
+  openInChat: boolean,
+): Promise<SessionStartOutcome> {
   let handle: ReturnType<typeof startBackgroundAgentSession> | undefined;
   let receipt: BackgroundAgentSessionReceipt;
   try {
-    handle = startBackgroundAgentSession({
-      message:
-        request.message ??
-        `Identify and trim unambiguous filler words in recording ${request.recordingId}.`,
-      operationId: session.operationId,
-      threadId: session.threadId,
-      instructions: JSON.stringify({
-        recordingId: request.recordingId,
-        transcriptSegments: transcript.segments,
-      }),
-      usageLabel: "clips:remove-filler-words",
-    });
+    handle = startBackgroundAgentSession(options);
     receipt = await handle.accepted;
   } catch (error) {
     let snapshot: BackgroundAgentSessionSnapshot | undefined;
@@ -800,44 +631,191 @@ async function dispatchFillerWordsRequest(
       ? backgroundAiRequestStatus(snapshot)
       : null;
     if (snapshot?.runId && terminalStatus) {
-      const saved = await persistFillerWordsStatus(
-        { ...session, threadId: snapshot.threadId, turnId: snapshot.turnId },
-        terminalStatus,
-        snapshot,
-      );
-      if (saved) await consumeFillerWordsRequest(session);
-      return { handled: saved, accepted: false };
+      return { type: "finished", snapshot, status: terminalStatus };
     }
     if (
       snapshot &&
       (snapshot.status === "queued" || snapshot.status === "running")
     ) {
-      const saved = await persistFillerWordsStatus(
-        { ...session, threadId: snapshot.threadId, turnId: snapshot.turnId },
-        "working",
-        snapshot,
-      );
-      if (saved) await consumeFillerWordsRequest(session);
-      return { handled: saved, accepted: saved };
+      return { type: "running", snapshot };
     }
     if (!handle || isConfirmedBackgroundSessionRejection(error)) {
-      const saved = await persistFillerWordsStatus(session, "failed");
-      if (saved) await consumeFillerWordsRequest(session);
+      return { type: "rejected" };
+    }
+    // Acceptance is unconfirmed. Callers keep the durable request queued; a
+    // retry reuses the same operation id, so it reattaches instead of starting
+    // a second run.
+    return { type: "uncertain" };
+  }
+  if (openInChat) handle.open();
+  return { type: "accepted", receipt };
+}
+
+function requestModelOptions(request: QueuedAiRequest) {
+  const selection =
+    request.includeFullVideoInAi === true ? fullVideoAiModelSelection() : null;
+  return selection ? { engine: selection.engine, model: selection.model } : {};
+}
+
+async function dispatchBackgroundAiRequest(
+  request: QueuedAiRequest,
+): Promise<DispatchResult> {
+  if (typeof request.requestedAt !== "string" || !request.kind) {
+    return { handled: false, accepted: false };
+  }
+  const kind = request.kind as ClipsAiRequestKind;
+  const stableId = aiRequestTabId(
+    request.recordingId,
+    kind,
+    request.requestedAt,
+  );
+  const session: RequestSession = {
+    recordingId: request.recordingId,
+    kind,
+    requestedAt: request.requestedAt,
+    operationId: stableId,
+    threadId: stableId,
+  };
+
+  let instructions: string;
+  if (kind === "remove-filler-words") {
+    const transcript = parseFillerTranscriptSegments(request.segmentsJson);
+    if (!transcript.ok) {
+      console.warn(
+        "[clips] filler-word request has unreadable transcript segments",
+        {
+          recordingId: request.recordingId,
+          requestedAt: request.requestedAt,
+          reason: transcript.reason,
+        },
+      );
+      const saved = await persistAiRequestStatus(session, "failed");
+      if (saved) await consumeAiRequest(session);
       return { handled: saved, accepted: false };
     }
+    instructions = JSON.stringify({
+      recordingId: request.recordingId,
+      transcriptSegments: transcript.segments,
+    });
+  } else {
+    instructions = JSON.stringify(buildRequestContext(request));
+  }
 
-    // Keep the durable request queued when acceptance cannot be confirmed.
-    // A later dispatch uses the same operation id, so it reattaches instead of
-    // creating a second edit run.
+  try {
+    await callAction(
+      "update-ai-request-status" as any,
+      {
+        recordingId: session.recordingId,
+        kind,
+        requestedAt: session.requestedAt,
+        operationId: session.operationId,
+        status: "working",
+      } as any,
+    );
+  } catch (error) {
+    console.warn("[clips] queued AI request could not be claimed", {
+      recordingId: request.recordingId,
+      kind,
+      requestedAt: request.requestedAt,
+      error,
+    });
     return { handled: false, accepted: false };
   }
 
-  const saved = await persistFillerWordsStatus(
-    { ...session, threadId: receipt.threadId, turnId: receipt.turnId },
-    "working",
+  const outcome = await startRequestSession(
+    {
+      message:
+        request.message ??
+        `Handle queued ${kind} work for recording ${request.recordingId}.`,
+      operationId: session.operationId,
+      threadId: session.threadId,
+      instructions,
+      usageLabel: `clips:${kind}`,
+      ...requestModelOptions(request),
+    },
+    request.openInChat === true,
   );
-  if (!saved) return { handled: false, accepted: false };
-  await consumeFillerWordsRequest(session);
+
+  switch (outcome.type) {
+    case "finished": {
+      const saved = await persistAiRequestStatus(
+        {
+          ...session,
+          threadId: outcome.snapshot.threadId,
+          turnId: outcome.snapshot.turnId,
+        },
+        outcome.status,
+        outcome.snapshot,
+      );
+      if (saved) await consumeAiRequest(session);
+      return { handled: saved, accepted: false };
+    }
+    case "running": {
+      const saved = await persistAiRequestStatus(
+        {
+          ...session,
+          threadId: outcome.snapshot.threadId,
+          turnId: outcome.snapshot.turnId,
+        },
+        "working",
+        outcome.snapshot,
+      );
+      if (saved) await consumeAiRequest(session);
+      return { handled: saved, accepted: saved };
+    }
+    case "rejected": {
+      const saved = await persistAiRequestStatus(session, "failed");
+      if (saved) await consumeAiRequest(session);
+      return { handled: saved, accepted: false };
+    }
+    case "uncertain":
+      return { handled: false, accepted: false };
+    case "accepted": {
+      const saved = await persistAiRequestStatus(
+        {
+          ...session,
+          threadId: outcome.receipt.threadId,
+          turnId: outcome.receipt.turnId,
+        },
+        "working",
+      );
+      if (!saved) return { handled: false, accepted: false };
+      await consumeAiRequest(session);
+      return { handled: true, accepted: true };
+    }
+  }
+}
+
+async function dispatchWorkflowRequest(
+  request: QueuedAiRequest,
+  workflowRequest: Omit<WorkflowRunRequest, "tabId">,
+  tabId: string,
+): Promise<DispatchResult> {
+  const outcome = await startRequestSession(
+    {
+      message:
+        request.message ??
+        `Generate the requested workflow for recording ${request.recordingId}.`,
+      operationId: tabId,
+      threadId: tabId,
+      instructions: JSON.stringify(buildRequestContext(request)),
+      usageLabel: "clips:generate-workflow",
+      ...requestModelOptions(request),
+    },
+    request.openInChat === true,
+  );
+
+  if (outcome.type === "rejected") {
+    await retryWorkflowAction(
+      { operation: "release", ...workflowRequest, tabId },
+      "released",
+    );
+    return { handled: false, accepted: false };
+  }
+  if (outcome.type === "uncertain") {
+    return { handled: false, accepted: false };
+  }
+  void persistAndConsumeWorkflowRequest({ ...workflowRequest, tabId });
   return { handled: true, accepted: true };
 }
 
@@ -853,7 +831,51 @@ function isConfirmedBackgroundSessionRejection(error: unknown): boolean {
   );
 }
 
-async function monitorFillerWordsSession(
+async function settleWorkflowSession(
+  session: ActiveAiRequestSession,
+): Promise<boolean> {
+  try {
+    const result = (await callAction(
+      "reconcile-workflow-generation" as any,
+      {
+        operation: "stop",
+        recordingId: session.recordingId,
+        requestedAt: session.requestedAt,
+        ...(session.requestId ? { requestId: session.requestId } : {}),
+        tabId: session.operationId,
+      } as any,
+    )) as { reconciled?: boolean; reason?: string };
+    return (
+      result.reconciled === true ||
+      (typeof result.reason === "string" && result.reason !== "stale")
+    );
+  } catch (error) {
+    console.warn("[clips] failed to reconcile finished workflow session", {
+      recordingId: session.recordingId,
+      requestedAt: session.requestedAt,
+      tabId: session.operationId,
+      error,
+    });
+    return false;
+  }
+}
+
+async function persistSessionOutcome(
+  session: ActiveAiRequestSession,
+  status: "working" | BackgroundAiRequestStatus,
+  snapshot: BackgroundAgentSessionSnapshot,
+): Promise<boolean> {
+  if (session.kind !== "generate-workflow") {
+    return persistAiRequestStatus(
+      { ...session, kind: session.kind },
+      status,
+      snapshot,
+    );
+  }
+  return status === "working" ? true : settleWorkflowSession(session);
+}
+
+async function monitorAiRequestSession(
   session: ActiveAiRequestSession,
   shouldStop: () => boolean,
 ): Promise<void> {
@@ -880,7 +902,7 @@ async function monitorFillerWordsSession(
         Date.now() - missingSince >=
         BACKGROUND_SESSION_MISSING_CONFIRMATION_MS
       ) {
-        if (await persistFillerWordsStatus(session, "failed", snapshot)) {
+        if (await persistSessionOutcome(session, "failed", snapshot)) {
           return;
         }
       }
@@ -892,7 +914,7 @@ async function monitorFillerWordsSession(
 
     const terminalStatus = backgroundAiRequestStatus(snapshot);
     if (terminalStatus) {
-      if (await persistFillerWordsStatus(session, terminalStatus, snapshot)) {
+      if (await persistSessionOutcome(session, terminalStatus, snapshot)) {
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, retryDelay));
@@ -909,7 +931,7 @@ async function monitorFillerWordsSession(
     retryDelay = BACKGROUND_SESSION_POLL_INTERVAL_MS;
     if (knownRunId !== snapshot.runId) {
       knownRunId = snapshot.runId;
-      if (!(await persistFillerWordsStatus(session, "working", snapshot))) {
+      if (!(await persistSessionOutcome(session, "working", snapshot))) {
         await new Promise((resolve) => setTimeout(resolve, retryDelay));
         retryDelay = Math.min(retryDelay * 2, 10_000);
         continue;

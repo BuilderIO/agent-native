@@ -390,7 +390,7 @@ Template roots call `configureTracking()` once at startup. Browser events sent w
 - `llm_connection_source` — `app_secrets`, `settings`, or `env`
 - `llm_connection_configured` — whether an LLM connection is available
 
-The framework also tracks `builder connect clicked` when a user selects a Use Builder.io CTA, and the server-side Builder connect routes track started/succeeded/failed lifecycle events. `configureTracking()` is called automatically by the framework; you don't need to call it in your own template code.
+The framework also tracks `builder connect clicked` when a user selects a Use Builder.io CTA, and the server-side Builder connect routes track started/succeeded/failed lifecycle events. Server-side setup changes also emit `llm_credential_changed` (`change_type`, normalized `provider`, `scope`, `credential_kind`, and optional `surface`) and `llm_default_model_changed` (`engine`, `model`, optional prior engine/model, `scope`, and `operation`). These events never include credential or endpoint values. `configureTracking()` is called automatically by the framework; you don't need to call it in your own template code.
 
 </details>
 

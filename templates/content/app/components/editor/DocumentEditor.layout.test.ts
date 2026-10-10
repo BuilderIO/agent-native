@@ -2884,7 +2884,9 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "relative z-10 flex h-12 shrink-0 items-center bg-background @container/toolbar",
     );
-    expect(source).toContain('shareInMenu ? "gap-1 px-2" : "gap-3 px-4"');
+    expect(source).toContain(
+      'inWidget || shareInMenu ? "gap-1 px-2" : "gap-3 px-4"',
+    );
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
     expect(source).toContain("formatEditedLabel");
@@ -2893,7 +2895,9 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.shareAgents");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
-    expect(source).toContain("showCommentsControl && !commentsInMenu ?");
+    expect(source).toContain(
+      "showCommentsControl && !inWidget && !commentsInMenu ?",
+    );
     expect(editorSource).toContain(
       "commentsHistoryOpen={showCommentsHistoryDrawer}",
     );
@@ -2958,7 +2962,16 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain("export function PageEditorSurface");
-    expect(source).toContain("document.canEdit === true");
+    expect(source).toContain(
+      'import { directoryWidgetEditability } from "./directory-widget-editability";',
+    );
+    expect(source).toContain(
+      "const widgetEditability = directoryWidgetEditability(document);",
+    );
+    expect(source).toContain(
+      "const canEdit = widgetEditability.canEditDocument;",
+    );
+    expect(source).toContain("<PageDraftRecovery");
     expect(source).toContain("flushAllBlockFieldSaveControllersForDocument");
     expect(source).toContain("flushDocumentPropertyWrites(documentId)");
     const navigationFlushStart = source.indexOf("const flushLatestPageEdits =");
@@ -3100,14 +3113,14 @@ describe("document editor layout", () => {
     );
 
     expect(documentEditorSource).toContain(
-      "!isLocalFileDocument ? documentId : null",
+      "collabEnabled &&\n    !creationAwaitingFirstRead &&\n    !holdCollaborationForCreationSave &&\n    !isDocumentCreationPending(queryClient, document)\n      ? documentId\n      : null",
     );
 
     expect(documentEditorSource).toContain(
       "canEdit &&\n                    !canEditWithoutCollaboration &&\n                    !collabSynced",
     );
     expect(documentEditorSource).toContain(
-      "(isLocalFileDocument || collabSynced || canEditWithoutCollaboration)",
+      "(isLocalFileDocument ||\n      mcpDirectoryWidgetReadOnly ||\n      collabSynced ||\n      canEditWithoutCollaboration)",
     );
     expect(documentEditorSource).toContain(
       "!canEdit ||\n      !hydrationContext?.sourceId",
@@ -3326,7 +3339,7 @@ describe("document editor layout", () => {
     const bounds = [
       source.indexOf("const sendKeepaliveSave"),
       source.indexOf("const onVisibilityChange"),
-      source.indexOf("return await updateDocument.mutateAsync({"),
+      source.indexOf("return await updateDocument.mutateAsync("),
       source.indexOf("editorSnapshotTitle: options.editorSnapshotTitle"),
     ];
     expect(bounds).not.toContain(-1);
@@ -3338,8 +3351,8 @@ describe("document editor layout", () => {
     expect(keepalive).toContain(
       "loadedUpdatedAtForSave(\n          pending.contentBase,\n          documentUpdatedAtRef.current,\n        )",
     );
-    expect(flush).toContain(
-      "loadedUpdatedAtForSave(\n            options.contentBase,\n            documentUpdatedAtRef.current,\n          )",
+    expect(flush).toMatch(
+      /loadedUpdatedAtForSave\(\s*options\.contentBase,\s*documentUpdatedAtRef\.current,\s*\)/,
     );
     expect(
       loadedUpdatedAtForSave(

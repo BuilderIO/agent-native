@@ -83,6 +83,8 @@ const messages: ToolkitAgentChatTranslation = {
   "observability.promoteMustContainOptional": "जवाब में जाँचने के लिए वैकल्पिक टेक्स्ट…",
   "observability.promoteMustContainLabel":
     "प्रमोट किए गए मूल्यांकन के जवाब में जाँचने वाला टेक्स्ट",
+  "observability.promoteReviewedPromptLabel":
+    "मैन्युअल रूप से समीक्षा किया गया प्रॉम्प्ट (प्रोडक्शन से कभी स्वतः कॉपी नहीं किया जाता)",
   "observability.promoteNeedsContains":
     "इस रन में कोई सफल टूल कॉल नहीं है। प्रमोट करने से पहले वह टेक्स्ट दर्ज करें जो जवाब में होना चाहिए।",
   "observability.viewDetails": "विवरण देखें",
@@ -494,10 +496,19 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "स्किल फ़ाइल अपलोड करें",
   "composer.upload": "अपलोड करें",
   "composer.uploadFailed": "चुनी गई फ़ाइल अपलोड नहीं हो सकी।",
-  "composer.fileTooLarge": "यह फ़ाइल अपलोड की अधिकतम सीमा से बड़ी है।",
+  "composer.fileTooLarge": "यह फ़ाइल {{size}} MB की अपलोड सीमा से बड़ी है।",
   "composer.sessionExpired":
-    "आपका सत्र समाप्त हो गया है। पेज रीफ़्रेश करें और फिर कोशिश करें।",
+    "आपका सत्र समाप्त हो गया है। फिर से साइन इन करें, फिर अपना संदेश भेजें।",
   "composer.unsupportedFileType": "यह फ़ाइल प्रकार समर्थित नहीं है।",
+  "composer.uploadUnavailable":
+    "फ़ाइल अपलोड अभी उपलब्ध नहीं है। कुछ देर बाद फिर कोशिश करें।",
+  "composer.uploadOffline":
+    "अपलोड सर्वर तक नहीं पहुंच सका। अपना कनेक्शन जांचें और फिर कोशिश करें।",
+  "composer.submissionNotReady":
+    "चैट अभी भेजने के लिए तैयार नहीं है। थोड़ा रुकें, फिर दोबारा भेजें।",
+  "composer.submissionScopeChanged":
+    "आपका संदेश भेजे जाने से पहले यह चैट बदल गई। इसे फिर से भेजें।",
+  "composer.attachmentNotSaved": "इस चैट के साथ सहेजा नहीं गया",
   "composer.useAttachedContext": "अटैच किए गए संदर्भ का उपयोग करें।",
   "mentions.commands": "कमांड",
   "mentions.learnMore": "और जानें",
@@ -1130,6 +1141,7 @@ const messages: ToolkitAgentChatTranslation = {
     "यह रन अब जारी नहीं रखा जा सकता। आगे बढ़ने के लिए एक संदेश भेजें।",
   "recovery.retryAttachmentUnavailable":
     "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
+  "recovery.retryWithoutAttachment": "अटैचमेंट के बिना फिर से प्रयास करें",
   "recovery.deferredSubmissionFailed":
     "यह संदेश भेजा नहीं जा सका। अपना कनेक्शन या चैट सेटअप जाँचें, फिर दोबारा कोशिश करें।",
   "recovery.credentialRejected":

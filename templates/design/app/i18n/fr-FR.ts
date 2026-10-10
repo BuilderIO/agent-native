@@ -23,6 +23,8 @@ export default {
       "{label}, exemple source {source}, position dans la galerie {current} sur {total}, capturé le {date}",
     screenshotMissing: "Aucune capture d’écran",
     recordingUnavailable: "indisponible",
+    recordingGap: "Intervalle sans enregistrement",
+    recordingGapDuration: "Intervalle sans enregistrement · {duration}",
     eventTime: "Heure de l’événement (UTC)",
     generationCompletedEvent: "événement generation_completed (UTC)",
     replayObservation: "Observation de la relecture",
@@ -780,12 +782,15 @@ export default {
     },
     leftRail: {
       file: "Fichier",
-      agent: "Agent",
+      agent: "Agents",
       assets: "Ressources",
       import: "Importer",
       tools: "Outils",
       tokens: "Jetons",
       label: "Espace de travail Design",
+      account: "Compte",
+      collapse: "Réduire la barre latérale",
+      expand: "Développer la barre latérale",
     },
     breakpointBar: {
       base: "Base",
@@ -877,12 +882,10 @@ export default {
       "{{path}} a été modifié sur le disque depuis son ouverture. Rechargez l'écran et réessayez.",
     applyToSourceError: "Impossible d'enregistrer dans la source : {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Importer des jetons",
       importTitle: "Importer des jetons",
       importHint:
@@ -894,6 +897,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Importer les jetons collés",
       importedCount: "{{count}} jetons importés",
+      count: "{{count}} jetons",
+      search: "Rechercher des jetons",
+      noMatches: "Aucun jeton correspondant",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1631,6 +1637,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Cliquez sur l’icône de commandes du site à gauche de la barre d’adresse, ouvrez les paramètres du site, puis définissez Réseau local sur Autoriser.",
       permissionPromptRetry: "Réessayer la connexion",
+      previewCredentialsUnavailableTitle:
+        "Les identifiants de l’aperçu local ne sont pas disponibles",
+      previewCredentialsUnavailableDescription:
+        "Reconnectez la connexion localhost de cet écran dans l’inspecteur, puis réessayez.",
+      publicPreviewUnavailableDescription:
+        "Les aperçus localhost ne sont pas partagés avec les visiteurs publics. Ouvrez ce design comme collaborateur pour voir cet écran.",
+      previewCredentialsRetry: "Réessayer les identifiants",
     },
   },
   multiScreenCanvas: {
@@ -1641,6 +1654,7 @@ export default {
     fork: "Créer une branche",
     fullView: "Vue complète",
     preview: "Aperçu",
+    focusScreen: "Centrer l’écran",
     openAndDuplicate:
       "Sélectionner {{display}}. Utilisez Interagir pour le défilement ciblé.",
     openAndPreview:

@@ -66,7 +66,7 @@ vi.mock("./recordings.js", () => ({
 vi.mock("./video-frame.js", () => ({
   extractJpegFrame: (...args: unknown[]) => mocks.extractJpegFrame(...args),
   VideoFrameExtractionError: class VideoFrameExtractionError extends Error {
-    code = "NO_VIDEO";
+    code = "NO_FRAME_AT_TIMESTAMP";
   },
 }));
 

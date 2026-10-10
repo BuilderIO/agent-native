@@ -23,6 +23,8 @@ export default {
       "{label}, ejemplo de origen {source}, posición en galería {current} de {total}, capturado el {date}",
     screenshotMissing: "No se capturó ninguna captura",
     recordingUnavailable: "no disponible",
+    recordingGap: "Intervalo sin grabación",
+    recordingGapDuration: "Intervalo sin grabación · {duration}",
     eventTime: "Hora del evento (UTC)",
     generationCompletedEvent: "evento generation_completed (UTC)",
     replayObservation: "Observación de reproducción",
@@ -775,12 +777,15 @@ export default {
     },
     leftRail: {
       file: "Archivo",
-      agent: "Agente",
+      agent: "Agentes",
       assets: "Recursos",
       import: "Importar",
       tools: "Herramientas",
       tokens: "Tokens de diseño",
       label: "Espacio de trabajo de diseño",
+      account: "Cuenta",
+      collapse: "Contraer barra lateral",
+      expand: "Expandir barra lateral",
     },
     breakpointBar: {
       base: "Base",
@@ -872,12 +877,10 @@ export default {
       "{{path}} cambió en el disco desde que se abrió. Recarga la pantalla e inténtalo de nuevo.",
     applyToSourceError: "No se pudo guardar en el código fuente: {{message}}",
     tokens: {
-      title: "Tokens",
       newToken: "New token",
       cssVar: "CSS variable",
       value: "Value",
       add: "Add token",
-      refresh: "Refresh tokens",
       import: "Importar tokens",
       importTitle: "Importar tokens",
       importHint:
@@ -889,6 +892,9 @@ export default {
       pastePlaceholder: "--color-accent: #2563eb;\nPrimary color: #2563eb",
       importPasted: "Importar tokens pegados",
       importedCount: "{{count}} tokens importados",
+      count: "{{count}} tokens",
+      search: "Buscar tokens",
+      noMatches: "No hay tokens coincidentes",
       empty: "No tokens yet",
       emptyHint: "Add design tokens to reuse colors, spacing, and more.",
       applying: "Applying…",
@@ -1618,6 +1624,13 @@ export default {
       permissionPromptSettingsInstructions:
         "Haz clic en el icono de controles del sitio a la izquierda de la barra de direcciones, abre Configuración del sitio y establece Red local en Permitir.",
       permissionPromptRetry: "Reintentar conexión",
+      previewCredentialsUnavailableTitle:
+        "Las credenciales de la vista previa local no están disponibles",
+      previewCredentialsUnavailableDescription:
+        "Vuelve a conectar la conexión localhost de esta pantalla en el inspector y vuelve a intentarlo.",
+      publicPreviewUnavailableDescription:
+        "Las vistas previas de localhost no se comparten con los visitantes públicos. Abre este diseño como colaborador para ver esta pantalla.",
+      previewCredentialsRetry: "Reintentar credenciales",
     },
   },
   multiScreenCanvas: {
@@ -1628,6 +1641,7 @@ export default {
     fork: "Bifurcar",
     fullView: "Vista completa",
     preview: "Vista previa",
+    focusScreen: "Enfocar pantalla",
     openAndDuplicate:
       "Selecciona {{display}}. Usa Interactuar para desplazamiento enfocado.",
     openAndPreview:

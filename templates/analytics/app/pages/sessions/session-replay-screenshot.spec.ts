@@ -782,6 +782,30 @@ describe("session replay screenshot asset checks", () => {
     embed.remove();
   });
 
+  it("finishes reconstructed document parsing before waiting for fonts", async () => {
+    const fontsDescriptor = Object.getOwnPropertyDescriptor(document, "fonts");
+    let resolveFonts: () => void = () => {};
+    const ready = new Promise<void>((resolve) => {
+      resolveFonts = resolve;
+    });
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: { ready },
+    });
+    vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
+    const close = vi.spyOn(document, "close").mockImplementation(resolveFonts);
+    try {
+      await assertReplayFontsReady(document);
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      if (fontsDescriptor) {
+        Object.defineProperty(document, "fonts", fontsDescriptor);
+      } else {
+        Reflect.deleteProperty(document, "fonts");
+      }
+    }
+  });
+
   it("bounds replay font readiness", async () => {
     vi.useFakeTimers();
     const fontsDescriptor = Object.getOwnPropertyDescriptor(document, "fonts");
@@ -792,11 +816,11 @@ describe("session replay screenshot asset checks", () => {
 
     try {
       const pending = assertReplayFontsReady(document);
-      const rejection = expect(pending).rejects.toBeInstanceOf(
-        ReplayScreenshotAssetError,
-      );
+      const rejection = pending.catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(8_000);
-      await rejection;
+      const error = await rejection;
+      expect(error).toBeInstanceOf(ReplayScreenshotAssetError);
+      expect(error).toMatchObject({ reason: "fontReadiness" });
     } finally {
       if (fontsDescriptor) {
         Object.defineProperty(document, "fonts", fontsDescriptor);
@@ -897,6 +921,23 @@ describe("session replay screenshot asset checks", () => {
     image.remove();
   });
 
+  it("can preflight replay assets without browser credentials", async () => {
+    const image = document.createElement("img");
+    image.src = "https://assets.example.test/image.png";
+    document.body.appendChild(image);
+    const probes = stubImageProbes(() => "load");
+
+    await assertRemoteImagesCapturable(document, undefined, "omit");
+
+    expect(probes).toHaveLength(1);
+    expect(probes[0]).toMatchObject({
+      credentials: "omit",
+      mode: "cors",
+      url: image.src,
+    });
+    image.remove();
+  });
+
   it("preflights inline image data and checks its dimensions", async () => {
     const image = document.createElement("img");
     image.src = await dataPng(4_000, 3_000);
@@ -972,9 +1013,11 @@ describe("session replay screenshot asset checks", () => {
     );
     const decode = vi.mocked(globalThis.createImageBitmap);
 
-    await expect(assertRemoteImagesCapturable(document)).rejects.toBeInstanceOf(
-      ReplayScreenshotAssetError,
+    const error = await assertRemoteImagesCapturable(document).catch(
+      (caught: unknown) => caught,
     );
+    expect(error).toBeInstanceOf(ReplayScreenshotAssetError);
+    expect(error).toMatchObject({ reason: "unsupportedAsset" });
     expect(decode).not.toHaveBeenCalled();
 
     image.remove();
@@ -1003,7 +1046,7 @@ describe("session replay screenshot asset checks", () => {
     image.remove();
   });
 
-  it("captures the replay viewport, nested frames, and visible cursor overlay", async () => {
+  it("reports a missing cloned stage frame while capturing nested frames and cursor", async () => {
     const stage = document.createElement("div");
     stage.style.backgroundColor = "rgb(17, 34, 51)";
     const stageRoot = document.createElement("div");
@@ -1067,6 +1110,7 @@ describe("session replay screenshot asset checks", () => {
       element: HTMLElement;
       options: Record<string, any>;
     }> = [];
+    let omitStageFrame = true;
     html2canvasMock.mockImplementation(
       async (element: HTMLElement, options: Record<string, any>) => {
         captures.push({ element, options });
@@ -1094,6 +1138,7 @@ describe("session replay screenshot asset checks", () => {
         }
 
         const clonedStageRoot = stageRoot.cloneNode(true) as HTMLElement;
+        if (omitStageFrame) clonedStageRoot.querySelector("iframe")?.remove();
         await options.onclone?.(document, clonedStageRoot);
         expect(clonedStageRoot.querySelector(".replayer-mouse")).not.toBeNull();
         expect(clonedStageRoot.querySelector("iframe")).toBeNull();
@@ -1116,6 +1161,14 @@ describe("session replay screenshot asset checks", () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:download");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
 
+    await expect(
+      downloadReplayScreenshot(stage, stageRoot, iframe, "replay.png"),
+    ).rejects.toMatchObject({ reason: "cloneStageFrame" });
+    expect(captures).toHaveLength(3);
+
+    captures.length = 0;
+    html2canvasMock.mockClear();
+    omitStageFrame = false;
     await downloadReplayScreenshot(stage, stageRoot, iframe, "replay.png");
 
     expect(captures).toHaveLength(3);
@@ -1356,6 +1409,21 @@ describe("session replay screenshot asset checks", () => {
       "data:image/png;base64,aW1hZ2U=",
     );
     expect(clonedHelper.hasAttribute("data-replay-screenshot-map")).toBe(false);
+  });
+
+  it("reports a missing cloned document with its specific reason", () => {
+    const original = document.implementation.createHTMLDocument("original");
+    const cloned = document.implementation.createHTMLDocument("cloned");
+    let error: unknown;
+
+    try {
+      inlineReplayAssets(original, cloned, new Map(), "replay-missing-clone");
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(ReplayScreenshotAssetError);
+    expect(error).toMatchObject({ reason: "cloneDocument" });
   });
 
   it("ignores source helper nodes added after the replay element snapshot", () => {
