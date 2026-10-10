@@ -12,6 +12,7 @@ import {
   STUB_WIDTH,
   cardSize,
   clampAspect,
+  layoutJourneyAppBands,
   layoutJourney,
   type JourneyLayoutNode,
   type PlacedNode,
@@ -192,6 +193,19 @@ describe("layoutJourney", () => {
     );
   });
 
+  it("lays out a 2,000-node path without overflowing the call stack", () => {
+    const nodes: JourneyLayoutNode[] = Array.from(
+      { length: 2_000 },
+      (_, index) => ({
+        key: `n${index}`,
+        parentKey: index === 0 ? null : `n${index - 1}`,
+        kind: "card",
+      }),
+    );
+
+    expect(layoutJourney(nodes, { cardWidth: 120 }).nodes).toHaveLength(2_000);
+  });
+
   it("rejects duplicate keys, missing parents, stub parents and cycles", () => {
     const card = (
       key: string,
@@ -288,5 +302,214 @@ describe("layoutJourney", () => {
         STUB_HEIGHT + ROW_GAP,
       );
     }
+  });
+});
+
+describe("layoutJourneyAppBands", () => {
+  it("packs sibling forks independently of each branch's descendant depth", () => {
+    const layout = layoutJourneyAppBands(
+      [
+        {
+          key: "clips",
+          rootN: 100,
+          nodes: [
+            { key: "clips::choice", parentKey: null, kind: "card" },
+            { key: "clips::custom", parentKey: "clips::choice", kind: "card" },
+            {
+              key: "clips::custom-1",
+              parentKey: "clips::custom",
+              kind: "card",
+            },
+            {
+              key: "clips::custom-left",
+              parentKey: "clips::custom-1",
+              kind: "card",
+            },
+            {
+              key: "clips::custom-left-1",
+              parentKey: "clips::custom-left",
+              kind: "card",
+            },
+            {
+              key: "clips::custom-left-2",
+              parentKey: "clips::custom-left-1",
+              kind: "card",
+            },
+            {
+              key: "clips::custom-right",
+              parentKey: "clips::custom-1",
+              kind: "card",
+            },
+            {
+              key: "clips::builder",
+              parentKey: "clips::choice",
+              kind: "card",
+            },
+            { key: "clips::skip", parentKey: "clips::choice", kind: "card" },
+          ],
+        },
+      ],
+      { cardWidth: 360 },
+    );
+    const byKey = new Map(layout.nodes.map((node) => [node.key, node]));
+    const custom = byKey.get("clips::custom")!;
+    const builder = byKey.get("clips::builder")!;
+    const skip = byKey.get("clips::skip")!;
+
+    expect(builder.rect.y).toBe(
+      custom.footprint.y + custom.footprint.height + ROW_GAP,
+    );
+    expect(skip.rect.y).toBe(
+      builder.footprint.y + builder.footprint.height + ROW_GAP,
+    );
+    expect(layout.edges).toContainEqual(
+      expect.objectContaining({
+        fromKey: "clips::choice",
+        toKey: "clips::builder",
+      }),
+    );
+  });
+
+  it("keeps independent app trees side by side with only their internal edges", () => {
+    const layout = layoutJourneyAppBands(
+      [
+        {
+          key: "clips",
+          rootN: 100,
+          nodes: [
+            { key: "clips::root", parentKey: null, kind: "card" },
+            { key: "clips::child", parentKey: "clips::root", kind: "card" },
+          ],
+        },
+        {
+          key: "design",
+          rootN: 40,
+          nodes: [
+            { key: "design::root", parentKey: null, kind: "card" },
+            { key: "design::child", parentKey: "design::root", kind: "card" },
+          ],
+        },
+      ],
+      { cardWidth: 360 },
+    );
+    const byKey = new Map(layout.nodes.map((node) => [node.key, node]));
+    const clipsRoot = byKey.get("clips::root")!;
+    const clipsChild = byKey.get("clips::child")!;
+    const designRoot = byKey.get("design::root")!;
+    const designChild = byKey.get("design::child")!;
+
+    expect(layout.bands.map((band) => band.key)).toEqual(["clips", "design"]);
+    expect(layout.edges.map((edge) => [edge.fromKey, edge.toKey])).toEqual([
+      ["clips::root", "clips::child"],
+      ["design::root", "design::child"],
+    ]);
+    expect(designRoot.rect.x).toBeGreaterThan(clipsChild.footprint.x);
+    expect(clipsRoot.rect.y).toBe(designRoot.rect.y);
+    for (const left of layout.nodes) {
+      for (const right of layout.nodes) {
+        if (left.key >= right.key) continue;
+        expect(intersects(left.footprint, right.footprint)).toBe(false);
+      }
+    }
+  });
+
+  it("keeps top-aligned onboarding bands free of card and label overlaps", () => {
+    const prefixNodes = (app: string, nodes: JourneyLayoutNode[]) =>
+      nodes.map((node) => ({
+        ...node,
+        key: `${app}::${node.key}`,
+        parentKey: node.parentKey ? `${app}::${node.parentKey}` : null,
+      }));
+    const layout = layoutJourneyAppBands(
+      [
+        {
+          key: "clips",
+          rootN: 900,
+          nodes: prefixNodes("clips", randomTree(91, 80)),
+        },
+        {
+          key: "slides",
+          rootN: 700,
+          nodes: prefixNodes("slides", randomTree(92, 80)),
+        },
+      ],
+      { cardWidth: 360 },
+    );
+
+    for (let index = 0; index < layout.nodes.length; index += 1) {
+      const node = layout.nodes[index]!;
+      for (
+        let otherIndex = index + 1;
+        otherIndex < layout.nodes.length;
+        otherIndex += 1
+      ) {
+        expect(
+          intersects(node.footprint, layout.nodes[otherIndex]!.footprint),
+          `${node.key} overlaps ${layout.nodes[otherIndex]!.key}`,
+        ).toBe(false);
+      }
+      for (const edge of layout.edges) {
+        if (edge.fromKey === node.key || edge.toKey === node.key) continue;
+        expect(
+          intersects(node.footprint, edge.labelRect),
+          `label ${edge.fromKey}>${edge.toKey} overlaps ${node.key}`,
+        ).toBe(false);
+      }
+    }
+    for (let index = 0; index < layout.edges.length; index += 1) {
+      for (
+        let otherIndex = index + 1;
+        otherIndex < layout.edges.length;
+        otherIndex += 1
+      ) {
+        expect(
+          intersects(
+            layout.edges[index]!.labelRect,
+            layout.edges[otherIndex]!.labelRect,
+          ),
+          `edge labels ${index} and ${otherIndex} overlap`,
+        ).toBe(false);
+      }
+    }
+    expect(
+      layout.edges.every(
+        ({ fromKey, toKey }) =>
+          fromKey.startsWith("clips::") === toKey.startsWith("clips::"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects duplicate node keys across bands and missing intra-band parents", () => {
+    expect(() =>
+      layoutJourneyAppBands(
+        [
+          {
+            key: "clips",
+            rootN: 2,
+            nodes: [{ key: "same", parentKey: null, kind: "card" }],
+          },
+          {
+            key: "design",
+            rootN: 2,
+            nodes: [{ key: "same", parentKey: null, kind: "card" }],
+          },
+        ],
+        { cardWidth: 360 },
+      ),
+    ).toThrow(/Duplicate node key/);
+    expect(() =>
+      layoutJourneyAppBands(
+        [
+          {
+            key: "clips",
+            rootN: 2,
+            nodes: [
+              { key: "clips::child", parentKey: "design::root", kind: "card" },
+            ],
+          },
+        ],
+        { cardWidth: 360 },
+      ),
+    ).toThrow(/missing parent/);
   });
 });

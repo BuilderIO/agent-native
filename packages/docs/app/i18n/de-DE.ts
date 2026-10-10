@@ -682,7 +682,7 @@ const deDE = {
         "Installiere visuelle Planung als app-backed Skill. Dein Coding-Agent kann strukturierte Pläne mit Diagrammen, Wireframes, Prototypen, Annotationen, Kommentaren und Review-Links öffnen.",
     },
     design: {
-      replaces: "Ersetzt oder erweitert Design-Prototyping-Tools",
+      replaces: "Agent-Native Designstudio",
       description:
         "Verwandelt Prompts in interaktive Designs, die Ihrem Designsystem folgen, während der Agent jeden Bildschirm mit Feedback verfeinert.",
     },
@@ -1459,7 +1459,7 @@ const deDE = {
       s003: "Generieren",
       s004: "Verfeinern",
       s005: "Alle Vorlagen",
-      s006: "Das Open-Source-Prototyping-Studio AI HTML",
+      s006: "Open-Source-Design-Arbeitsbereich",
       s007: "Erstellen Sie interaktive Designs und Prototypen. Verfeinern Sie sie mit gewohnten Werkzeugen oder nehmen Sie Konversationsbearbeitungen vor. Exportieren Sie überall hin.",
       s008: "Etwas gestalten",
       s009: "Wie es funktioniert",

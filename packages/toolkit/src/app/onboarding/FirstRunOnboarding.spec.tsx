@@ -532,6 +532,11 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.textContent,
     ).toBe("Use Builder.io");
+    expect(
+      document.body
+        .querySelector('[data-testid="first-run-builder-sign-in"]')
+        ?.querySelector("svg"),
+    ).toBeNull();
   });
 
   it("keeps existing-account sign-in available when provisioning is unavailable", () => {
@@ -802,6 +807,11 @@ describe("FirstRunOnboarding", () => {
         '[data-testid="first-run-builder-create-account"]',
       )?.textContent,
     ).toBe("Use Builder.io");
+    expect(
+      document.body
+        .querySelector('[data-testid="first-run-builder-create-account"]')
+        ?.querySelector("svg"),
+    ).toBeNull();
     act(() => {
       document.body
         .querySelector('[data-testid="first-run-builder-create-account"]')

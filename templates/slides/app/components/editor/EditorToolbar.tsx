@@ -2,6 +2,7 @@ import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { type CollabUser } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  openMcpAppHostLink,
   useIsMcpAppWidgetEmbed,
   useIsMcpDirectoryWidgetReadOnlyEmbed,
 } from "@agent-native/core/client/mcp-app-host";
@@ -27,6 +28,7 @@ import {
   IconSun,
   IconMoon,
   IconDotsVertical,
+  IconExternalLink,
   IconArrowBackUp,
   IconArrowForwardUp,
   IconLoader2,
@@ -105,6 +107,7 @@ import {
   parseUploadResponse,
   promptImportResponseError,
 } from "@/lib/upload-response";
+import { cn } from "@/lib/utils";
 
 import {
   registerEditorCommands,
@@ -770,6 +773,21 @@ export default function EditorToolbar({
 
   useEffect(() => registerEditorCommands(() => editorCommandsRef.current), []);
 
+  // The host decides how a link leaves the widget frame; a host that cannot
+  // open it, or has no bridge, falls back to a plain new tab.
+  const openEditorInApp = () => {
+    const openTab = () =>
+      window.open(editorUrl, "_blank", "noopener,noreferrer");
+    const request = openMcpAppHostLink(editorUrl);
+    if (!request) {
+      openTab();
+      return;
+    }
+    void request.then((opened) => {
+      if (!opened) openTab();
+    }, openTab);
+  };
+
   const handlePresentClick = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 && event.button !== 1) return;
     const preserveNativeNavigation =
@@ -849,7 +867,12 @@ export default function EditorToolbar({
         readOnly={!canEdit}
         onChange={(e) => onTitleChange(e.target.value)}
         style={{ width: `${titleInputWidth}px` }}
-        className="min-w-0 max-w-[500px] shrink-0 bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground"
+        className={cn(
+          "min-w-0 max-w-[500px] bg-transparent text-sm font-medium text-foreground/90 outline-none focus:text-foreground",
+          // The widget pane is narrower than the toolbar's controls, so a long
+          // title gives way to Share instead of pushing it out of view.
+          widgetEmbed ? "shrink truncate" : "shrink-0",
+        )}
         spellCheck={false}
       />
 
@@ -906,9 +929,9 @@ export default function EditorToolbar({
               window.location.reload();
             }
           }}
-          onDownloadBackup={onDownloadBackup}
+          onDownloadBackup={!widgetEmbed ? onDownloadBackup : undefined}
           onImportBackup={
-            canEdit && onImportDeckBackup
+            !widgetEmbed && canEdit && onImportDeckBackup
               ? () => backupInputRef.current?.click()
               : undefined
           }
@@ -1032,7 +1055,7 @@ export default function EditorToolbar({
               </>
             )}
 
-            {onToggleComments && (
+            {!widgetEmbed && onToggleComments && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -1080,40 +1103,44 @@ export default function EditorToolbar({
                 <DropdownMenuSeparator />
               </>
             )}
-            <DropdownMenuGroup>
-              <DropdownMenuItem onSelect={onShowHistory}>
-                <IconHistory className="size-4" />
-                {t("editorToolbar.savedVersions")}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <ExportMenu
-              ref={exportMenuRef}
-              inline
-              hideExportDialog
-              onExportStatusChange={setExportStatus}
-              hasSlides={hasSlides}
-              deckId={deckId}
-              deckTitle={deckTitle}
-              onDuplicate={onDuplicateDeck ?? (() => {})}
-              onExportPdf={onExportPdf ?? (() => {})}
-              onExportPptx={onExportPptx ?? (() => {})}
-              onExportGoogleSlides={onExportGoogleSlides}
-            />
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={importing}
-              onSelect={() => void openFileImport()}
-            >
-              {importing ? (
-                <IconLoader2 className="size-4 animate-spin" />
-              ) : (
-                <IconDownload className="size-4" />
-              )}
-              {importing
-                ? t("editorToolbar.importing")
-                : t("editorToolbar.importFile")}
-            </DropdownMenuItem>
+            {!widgetEmbed && (
+              <>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onSelect={onShowHistory}>
+                    <IconHistory className="size-4" />
+                    {t("editorToolbar.savedVersions")}
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <ExportMenu
+                  ref={exportMenuRef}
+                  inline
+                  hideExportDialog
+                  onExportStatusChange={setExportStatus}
+                  hasSlides={hasSlides}
+                  deckId={deckId}
+                  deckTitle={deckTitle}
+                  onDuplicate={onDuplicateDeck ?? (() => {})}
+                  onExportPdf={onExportPdf ?? (() => {})}
+                  onExportPptx={onExportPptx ?? (() => {})}
+                  onExportGoogleSlides={onExportGoogleSlides}
+                />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={importing}
+                  onSelect={() => void openFileImport()}
+                >
+                  {importing ? (
+                    <IconLoader2 className="size-4 animate-spin" />
+                  ) : (
+                    <IconDownload className="size-4" />
+                  )}
+                  {importing
+                    ? t("editorToolbar.importing")
+                    : t("editorToolbar.importFile")}
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
         <ExportStatusDialog
@@ -1139,8 +1166,10 @@ export default function EditorToolbar({
           shareUrlLabel={primaryShareLink.label}
           shareUrlDescription={primaryShareLink.description}
           showShareLinks={showShareLink}
+          mobileSheet={widgetEmbed}
+          basicSharingOnly={widgetEmbed}
           shareTabs={
-            creativeContextEnabled
+            creativeContextEnabled && !widgetEmbed
               ? {
                   tabs: [
                     {
@@ -1168,8 +1197,27 @@ export default function EditorToolbar({
           }
         />
       </div>
+      {widgetEmbed && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer text-muted-foreground hover:bg-accent hover:text-foreground/70`}
+              aria-label={t("editorToolbar.openInAgentNative")}
+              onClick={openEditorInApp}
+            >
+              <IconExternalLink className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {t("editorToolbar.openInAgentNative")}
+          </TooltipContent>
+        </Tooltip>
+      )}
       {/* Present button — matches Share trigger height (h-9) */}
-      {hasSlides ? (
+      {!widgetEmbed && hasSlides ? (
         <Link
           to={`/deck/${deckId}/present?slide=${currentSlideIndex + 1}`}
           onClick={onPresent ? handlePresentClick : undefined}
@@ -1179,7 +1227,7 @@ export default function EditorToolbar({
           <IconPlayerPlay className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
         </Link>
-      ) : (
+      ) : !widgetEmbed ? (
         <Button
           type="button"
           disabled
@@ -1188,7 +1236,7 @@ export default function EditorToolbar({
           <IconPlayerPlay className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">{t("editorToolbar.present")}</span>
         </Button>
-      )}
+      ) : null}
 
       {/* Hidden file input for "Import" overflow menu item */}
       <input

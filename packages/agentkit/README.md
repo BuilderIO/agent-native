@@ -227,6 +227,12 @@ SSE event envelopes for end-to-end tracing. Each non-stream operation also
 accepts a request context whose signal cancels that Fetch request independently
 of the transport lifecycle and whose correlation id overrides the factory.
 
+AgentKitClient requires an AI-readiness assertion before user-started sends,
+queueing, and continuation by default. Agent-Native transports provide this
+check. A custom transport without shared provider setup must opt out explicitly
+with `clientOptions={{ aiSetupReadiness: "not-applicable" }}`; use that only
+when the transport owns readiness elsewhere or does not use shared AI setup.
+
 ### Server handler
 
 ```ts

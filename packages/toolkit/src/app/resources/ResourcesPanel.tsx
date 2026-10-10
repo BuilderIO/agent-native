@@ -89,6 +89,7 @@ import React, {
   useMemo,
 } from "react";
 
+import { uploadedSkillSlug } from "../../skill-upload.js";
 import {
   FileStorageSetupPopover,
   type FileStorageSetupCloseReason,
@@ -437,6 +438,7 @@ function CreateMenu({
     content: string,
     mimeType?: string,
     opts?: {
+      uniqueSkillPath?: boolean;
       onSuccess?: (resource: ResourceMeta) => void;
       onError?: (err: unknown) => void;
     },
@@ -577,10 +579,7 @@ function CreateMenu({
     if (!files || files.length === 0) return;
     const file = files[0];
     const text = await file.text();
-    const baseName = file.name.replace(/\.[^./]+$/, "");
-    const slug = slugifyName(
-      baseName.toLowerCase() === "skill" ? "uploaded-skill" : baseName,
-    );
+    const slug = uploadedSkillSlug(file.name, text);
     setSkillUploadSlug(slug);
     setSkillUploadContent(text);
     setSkillUploadFileName(file.name);
@@ -604,6 +603,7 @@ function CreateMenu({
             : "Failed to save skill file";
         showToast?.("err", msg);
       },
+      uniqueSkillPath: true,
     });
     setOpen(false);
     onCreated?.();
@@ -949,6 +949,7 @@ The job will run automatically on the schedule. Make the instructions specific â
               </p>
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 placeholder="e.g. A skill that reviews PRs for security issues and OWASP top 10 vulnerabilities"
                 draftScope="resources:create-skill"
                 onSubmit={(text) => submitSkill(text)}
@@ -1023,6 +1024,7 @@ The job will run automatically on the schedule. Make the instructions specific â
               </p>
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 placeholder="e.g. Every weekday at 9am, check for overdue scorecards and send a Slack update"
                 draftScope="resources:create-job"
                 onSubmit={(text) => submitJob(text)}
@@ -1083,6 +1085,7 @@ The job will run automatically on the schedule. Make the instructions specific â
               </p>
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 placeholder="e.g. A design agent that critiques layouts, suggests UI direction, and prefers concise product reasoning"
                 draftScope="resources:create-agent"
                 onSubmit={(text) => submitAgentPrompt(text)}
@@ -1723,12 +1726,19 @@ export function ResourcesPanel({
       content: string,
       mimeType?: string,
       opts?: {
+        uniqueSkillPath?: boolean;
         onSuccess?: (resource: ResourceMeta) => void;
         onError?: (err: unknown) => void;
       },
     ) => {
       createResource.mutate(
-        { path, content, mimeType, shared: targetScope === "shared" },
+        {
+          path,
+          content,
+          mimeType,
+          shared: targetScope === "shared",
+          uniqueSkillPath: opts?.uniqueSkillPath,
+        },
         {
           onSuccess: (data) => {
             setSelectedResourceId(data.id);

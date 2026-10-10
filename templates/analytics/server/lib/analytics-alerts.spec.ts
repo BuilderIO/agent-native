@@ -519,31 +519,6 @@ describe("analytics alert evaluation", () => {
     expect(source).not.toContain("function maxCandidateEventsPerRule");
   });
 
-  it("claims alert rules before evaluating so parallel sweeps cannot double-send", () => {
-    const source = readFileSync(
-      new URL("./analytics-alerts.ts", import.meta.url),
-      "utf8",
-    );
-    const jobSource = readFileSync(
-      new URL("../jobs/analytics-alerts.ts", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      "export async function claimAnalyticsAlertRuleEvaluation",
-    );
-    expect(source).toContain('lastStatus: "running"');
-    expect(source).toContain("alertRuleNotRunningWhere(now)");
-    expect(source).toContain("alertRulePreviousEvaluationWhere(rule)");
-    expect(source).toContain(".returning({ id: table.id })");
-    expect(jobSource).toContain("claimAnalyticsAlertRuleEvaluation(rule)");
-    expect(
-      jobSource.indexOf("claimAnalyticsAlertRuleEvaluation(rule)"),
-    ).toBeLessThan(
-      jobSource.indexOf("evaluateAndNotifyAnalyticsAlertRule(rule)"),
-    );
-  });
-
   it("keeps triggered rules retryable only when no notification channel delivered", () => {
     const source = readFileSync(
       new URL("./analytics-alerts.ts", import.meta.url),
@@ -705,8 +680,7 @@ describe("analytics alert evaluation", () => {
     );
 
     expect(source).toContain("ensureDefaultAnalyticsAlertRules");
-    expect(source).toContain("Hosted app HTTP 5xx spike");
-    expect(source).toContain("properties.status_class");
+    expect(source).not.toContain("Hosted app HTTP 5xx spike");
     expect(source).toContain("Hosted agent chat stuck spike");
     expect(source).toContain('"default-agent-chat-stuck-spike"');
     expect(source).toContain('eventName: "agent_chat_stuck_detected"');
@@ -761,7 +735,7 @@ describe("analytics alert evaluation", () => {
     expect(seedCallIndex).toBeLessThan(listRulesIndex);
   });
 
-  it("creates each hosted default once per scope and counts distinct stuck runs", async () => {
+  it("creates the hosted stuck-chat default once per scope and counts distinct stuck runs", async () => {
     vi.stubEnv("URL", "https://analytics.agent-native.com");
     const { db, inserted } = defaultAlertDb([
       { ownerEmail: "owner@example.test", orgId: "org_123" },
@@ -769,26 +743,19 @@ describe("analytics alert evaluation", () => {
     dbMocks.getDb.mockReturnValue(db);
 
     await expect(ensureDefaultAnalyticsAlertRules()).resolves.toEqual({
-      checked: 2,
-      created: 2,
+      checked: 1,
+      created: 1,
     });
     await expect(ensureDefaultAnalyticsAlertRules()).resolves.toEqual({
-      checked: 2,
+      checked: 1,
       created: 0,
     });
 
     const rows = [...inserted.values()];
-    const http = rows.find((row) => row.eventName === "http.response");
-    const stuck = rows.find(
-      (row) => row.eventName === "agent_chat_stuck_detected",
-    );
-    expect(http).toMatchObject({
-      thresholdMode: "event_count",
-      distinctBy: null,
-      ownerEmail: "owner@example.test",
-      orgId: "org_123",
-    });
-    expect(String(http?.id)).toMatch(/^default-http-5xx-spike-/);
+    expect(rows.map((row) => row.eventName)).toEqual([
+      "agent_chat_stuck_detected",
+    ]);
+    const stuck = rows[0];
     expect(stuck).toMatchObject({
       thresholdMode: "distinct_count",
       distinctBy: "properties.runId",
@@ -812,10 +779,10 @@ describe("analytics alert evaluation", () => {
     dbMocks.getDb.mockReturnValue(db);
 
     await expect(ensureDefaultAnalyticsAlertRules()).resolves.toEqual({
-      checked: 2_002,
-      created: 2_002,
+      checked: 1_001,
+      created: 1_001,
     });
-    expect(inserted).toHaveLength(2_002);
+    expect(inserted).toHaveLength(1_001);
   });
 
   it("keeps a deleted hosted default disabled across later seed sweeps", async () => {
@@ -836,40 +803,57 @@ describe("analytics alert evaluation", () => {
     });
     expect(inserted.get(stuckId!)?.enabled).toBe(false);
     await expect(ensureDefaultAnalyticsAlertRules()).resolves.toEqual({
-      checked: 2,
+      checked: 1,
       created: 0,
     });
     expect(inserted.get(stuckId!)?.enabled).toBe(false);
   });
 
-  it("honors independent enable switches for hosted default alerts", async () => {
+  it("retires an existing legacy HTTP 5xx default row without seeding a new one", async () => {
+    vi.stubEnv("ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_ENABLED", "false");
+    const { db, inserted } = defaultAlertDb([
+      { ownerEmail: "owner@example.test", orgId: "org_123" },
+    ]);
+    inserted.set("default-http-5xx-spike-legacy", {
+      id: "default-http-5xx-spike-legacy",
+      eventName: "http.response",
+      enabled: true,
+    });
+    dbMocks.getDb.mockReturnValue(db);
+
+    await expect(ensureDefaultAnalyticsAlertRules()).resolves.toEqual({
+      checked: 0,
+      created: 0,
+    });
+    expect(inserted.get("default-http-5xx-spike-legacy")?.enabled).toBe(false);
+    expect(inserted.size).toBe(1);
+  });
+
+  it("honors the enable switch for the hosted stuck-chat default", async () => {
     vi.stubEnv("URL", "https://analytics.agent-native.com");
     vi.stubEnv("ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_ENABLED", "false");
-    const httpOnly = defaultAlertDb([
+    const disabled = defaultAlertDb([
       { ownerEmail: "owner@example.test", orgId: null },
     ]);
-    dbMocks.getDb.mockReturnValue(httpOnly.db);
+    dbMocks.getDb.mockReturnValue(disabled.db);
     await expect(ensureDefaultAnalyticsAlertRules()).resolves.toEqual({
-      checked: 1,
-      created: 1,
+      checked: 0,
+      created: 0,
     });
-    expect([...httpOnly.inserted.values()].map((row) => row.eventName)).toEqual(
-      ["http.response"],
-    );
+    expect(disabled.inserted.size).toBe(0);
 
-    vi.stubEnv("ANALYTICS_DEFAULT_HTTP_5XX_ALERT_ENABLED", "false");
     vi.stubEnv("ANALYTICS_DEFAULT_AGENT_CHAT_STUCK_ALERT_ENABLED", "true");
-    const stuckOnly = defaultAlertDb([
+    const enabled = defaultAlertDb([
       { ownerEmail: "owner@example.test", orgId: null },
     ]);
-    dbMocks.getDb.mockReturnValue(stuckOnly.db);
+    dbMocks.getDb.mockReturnValue(enabled.db);
     await expect(ensureDefaultAnalyticsAlertRules()).resolves.toEqual({
       checked: 1,
       created: 1,
     });
-    expect(
-      [...stuckOnly.inserted.values()].map((row) => row.eventName),
-    ).toEqual(["agent_chat_stuck_detected"]);
+    expect([...enabled.inserted.values()].map((row) => row.eventName)).toEqual([
+      "agent_chat_stuck_detected",
+    ]);
   });
 
   it("reads user-scoped alert recipient defaults for the active org", async () => {

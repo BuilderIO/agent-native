@@ -44,6 +44,43 @@ afterEach(async () => {
 });
 
 describe("observational-memory store", () => {
+  it("widens legacy timestamp columns before writing millisecond epochs", async () => {
+    await pglite.exec(`
+      CREATE TABLE observational_memory (
+        id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        tier TEXT NOT NULL,
+        text TEXT NOT NULL,
+        token_estimate INTEGER NOT NULL DEFAULT 0,
+        source_start_index INTEGER,
+        source_end_index INTEGER,
+        source_message_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private'
+      )
+    `);
+
+    const entry = await insertObservationalMemory({
+      threadId: "legacy-thread",
+      tier: "observation",
+      text: "legacy schema can store millisecond timestamps",
+      tokenEstimate: 9,
+      ownerEmail: "alice@example.com",
+    });
+
+    const rows = await listObservationalMemory({
+      threadId: "legacy-thread",
+      ownerEmail: "alice@example.com",
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].createdAt).toBe(entry.createdAt);
+    expect(rows[0].updatedAt).toBe(entry.updatedAt);
+    expect(entry.createdAt).toBeGreaterThan(2_147_483_647);
+  });
+
   it("creates the table lazily and round-trips an observation entry", async () => {
     const entry = await insertObservationalMemory({
       threadId: "t1",

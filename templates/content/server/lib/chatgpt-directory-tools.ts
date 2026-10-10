@@ -1,3 +1,9 @@
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+
 export const CHATGPT_DIRECTORY_TOOL_NAMES = [
   "list-documents",
   "search-documents",
@@ -26,11 +32,43 @@ function id(...values: unknown[]): string | null {
   );
 }
 
+type WidgetWriteAuthorizationInput = {
+  toolName: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  target: { targetPath: string; resourceIds: Record<string, string> };
+  identity: { userEmail?: string; orgId?: string | null };
+};
+
 export const CHATGPT_DIRECTORY_PROFILE = {
   connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
   widgets: true,
   widgetDomain: "https://content.agent-native.com",
   widgetResourceTitle: false as const,
+  authorizeWidgetWrite: async ({
+    target,
+    identity,
+  }: WidgetWriteAuthorizationInput) => {
+    const documentId = target.resourceIds.documentId;
+    const requestEmail = getRequestUserEmail()?.trim().toLowerCase();
+    const requestOrgId = getRequestOrgId() ?? undefined;
+    if (
+      !documentId ||
+      !identity.userEmail ||
+      requestEmail !== identity.userEmail.trim().toLowerCase() ||
+      (identity.orgId !== undefined &&
+        (identity.orgId ?? undefined) !== requestOrgId)
+    ) {
+      return false;
+    }
+    try {
+      await assertAccess("document", documentId, "editor");
+      return true;
+    } catch (error) {
+      if (error instanceof ForbiddenError) return false;
+      throw error;
+    }
+  },
   widgetTargets: {
     "create-document": (_args: Record<string, unknown>, result: unknown) => {
       const documentId = id(record(result).id, record(result).documentId);
@@ -43,6 +81,12 @@ export const CHATGPT_DIRECTORY_PROFILE = {
               resourceType: "document",
               ...(spaceId ? { spaceId } : {}),
             },
+            writeActions: [
+              "update-document",
+              "share-resource",
+              "unshare-resource",
+              "set-resource-visibility",
+            ],
           }
         : null;
     },
@@ -60,9 +104,11 @@ export const CHATGPT_DIRECTORY_PROFILE = {
             resourceIds: {
               databaseId,
               documentId,
+              databaseDocumentId: documentId,
               resourceType: "document",
               ...(spaceId ? { spaceId } : {}),
             },
+            writeActions: ["add-database-item", "update-database-item"],
           }
         : null;
     },
@@ -73,6 +119,10 @@ export const CHATGPT_DIRECTORY_PROFILE = {
     "get-preview-document-draft": { documentId: "documentId" },
     "list-comments": { documentId: "documentId" },
     "list-resource-suggestions": {
+      resourceType: "resourceType",
+      resourceId: "documentId",
+    },
+    "list-resource-shares": {
       resourceType: "resourceType",
       resourceId: "documentId",
     },
@@ -88,6 +138,76 @@ export const CHATGPT_DIRECTORY_PROFILE = {
       tableQuery: { type: "actionSchema" as const },
     },
   },
+  widgetWriteActionArguments: {
+    "update-document": {
+      id: "documentId",
+      title: { type: "actionSchema" as const },
+      icon: { type: "actionSchema" as const },
+      content: { type: "actionSchema" as const },
+      loadedUpdatedAt: { type: "actionSchema" as const },
+      loadedContentWasEmpty: { type: "actionSchema" as const },
+      baseUpdatedAt: { type: "actionSchema" as const },
+      recoveryExpectedUpdatedAt: { type: "actionSchema" as const },
+      baseRevision: { type: "actionSchema" as const },
+      authoredBaseRevision: { type: "actionSchema" as const },
+      authoredBaseContent: { type: "actionSchema" as const },
+      authoredCandidateContent: { type: "actionSchema" as const },
+      baseTitle: { type: "actionSchema" as const },
+      historySessionId: { type: "actionSchema" as const },
+      editorSessionId: { type: "actionSchema" as const },
+      editorEditGeneration: { type: "actionSchema" as const },
+      editorSnapshotTitle: { type: "actionSchema" as const },
+      editorSnapshotContent: { type: "actionSchema" as const },
+      browserSaveAttemptId: { type: "actionSchema" as const },
+      preserveLeadingTitleHeading: { type: "actionSchema" as const },
+    },
+    "share-resource": {
+      resourceType: "resourceType",
+      resourceId: "documentId",
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+      role: { type: "actionSchema" as const },
+      notify: { type: "actionSchema" as const },
+      resourceUrl: { type: "actionSchema" as const },
+      message: { type: "actionSchema" as const },
+    },
+    "unshare-resource": {
+      resourceType: "resourceType",
+      resourceId: "documentId",
+      principalType: { type: "actionSchema" as const },
+      principalId: { type: "actionSchema" as const },
+    },
+    "set-resource-visibility": {
+      resourceType: "resourceType",
+      resourceId: "documentId",
+      visibility: { type: "actionSchema" as const },
+    },
+    "add-database-item": {
+      target: {
+        type: "actionSchemaResourceBound" as const,
+        resourceKey: "databaseId",
+      },
+      expectedSchemaRevision: { type: "actionSchema" as const },
+      idempotencyKey: { type: "actionSchema" as const },
+      title: { type: "actionSchema" as const },
+      propertyValues: { type: "actionSchema" as const },
+      propertyEntries: { type: "actionSchema" as const },
+    },
+    "update-database-item": {
+      target: {
+        type: "actionSchemaResourceBound" as const,
+        resourceKey: "databaseId",
+      },
+      expectedSchemaRevision: { type: "actionSchema" as const },
+      idempotencyKey: { type: "actionSchema" as const },
+      itemId: { type: "actionSchema" as const },
+      documentId: { type: "actionSchema" as const },
+      expectedRowRevision: { type: "actionSchema" as const },
+      title: { type: "actionSchema" as const },
+      propertyValues: { type: "actionSchema" as const },
+      propertyEntries: { type: "actionSchema" as const },
+    },
+  },
   widgetReadOnlyActions: [
     "get-content-database-personal-view",
     "list-comments",
@@ -95,8 +215,12 @@ export const CHATGPT_DIRECTORY_PROFILE = {
   widgetReadAuthenticatedActions: [
     "get-content-database-personal-view",
     "list-comments",
+    "list-resource-shares",
     "list-resource-suggestions",
   ],
+  // The collaborator list goes only to a ticket that can share the document;
+  // a read-only or database ticket never lists who has access.
+  widgetReadActionWriteGates: { "list-resource-shares": "share-resource" },
   widgetReadPrivateActions: [
     "get-content-navigation-context",
     "get-preview-document-draft",

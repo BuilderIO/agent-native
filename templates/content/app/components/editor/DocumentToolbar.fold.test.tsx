@@ -30,6 +30,8 @@ vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => ({
     typeof import("@agent-native/core/client/mcp-app-host")
   >()),
   useIsMcpAppWidgetEmbed: () => false,
+  useIsMcpDirectoryWidgetReadOnlyEmbed: () => false,
+  useIsMcpDirectoryWidgetWriteEmbed: () => false,
 }));
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
@@ -65,7 +67,11 @@ vi.mock("@agent-native/toolkit/app/sharing", () => ({
     ),
 }));
 
-import { DocumentToolbar, toolbarFoldLevel } from "./DocumentToolbar";
+import {
+  DocumentToolbar,
+  toolbarFoldLevel,
+  WIDGET_TOOLBAR_FOLD_ROOMS,
+} from "./DocumentToolbar";
 
 describe("toolbarFoldLevel", () => {
   it("folds one step at each room for the controls", () => {
@@ -83,6 +89,14 @@ describe("toolbarFoldLevel", () => {
     expect(toolbarFoldLevel(390, 192)).toBe(3);
     expect(toolbarFoldLevel(390, 236)).toBe(3);
     expect(toolbarFoldLevel(320, 236)).toBe(5);
+  });
+
+  it("folds a widget's Open link once, at 480px", () => {
+    expect(
+      [1040, 480, 479, 360].map((width) =>
+        toolbarFoldLevel(width, 0, WIDGET_TOOLBAR_FOLD_ROOMS),
+      ),
+    ).toEqual([0, 0, 1, 1]);
   });
 });
 

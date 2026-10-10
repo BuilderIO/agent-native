@@ -7,8 +7,11 @@ import type { EditorContentAndComponents } from "../domains/use-editor-content-a
 import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorHistory } from "../domains/use-editor-history";
 import type { EditorModes } from "../domains/use-editor-modes";
-import { rightInspectorPanelClassName } from "../minimal-inspector";
-import { TOP_BAR_HEIGHT_PX } from "../top-bar";
+import {
+  rightInspectorPanelClassName,
+  shouldShowWidgetZoomFallback,
+} from "../minimal-inspector";
+import { minimalUiBarTopPaddingPx, TOP_BAR_HEIGHT_PX } from "../top-bar";
 
 export function renderRightRail({
   editorCore,
@@ -21,6 +24,7 @@ export function renderRightRail({
   localPreviewRow,
   rightSidebarActions,
   topBarVisible,
+  topBarZoomVisible,
   renderResponsiveInteractBar,
   rightSidebarVisible,
   editPanelProps,
@@ -37,6 +41,7 @@ export function renderRightRail({
   localPreviewRow: ReactElement | null;
   rightSidebarActions: ReactElement;
   topBarVisible: boolean;
+  topBarZoomVisible: boolean;
   renderResponsiveInteractBar: (floating: boolean) => ReactElement;
   rightSidebarVisible: boolean;
   editPanelProps: Omit<
@@ -62,14 +67,21 @@ export function renderRightRail({
           data-design-chrome-region="right-panel"
           className={rightInspectorPanelClassName(minimalUi)}
           style={
-            topBarVisible && !minimalUi
+            widgetEmbed && minimalUi
               ? {
                   width: rightSidebarWidth,
-                  top: TOP_BAR_HEIGHT_PX,
-                  bottom: 0,
+                  top: TOP_BAR_HEIGHT_PX + 12,
+                  bottom: 12,
                   height: "auto",
                 }
-              : { width: rightSidebarWidth }
+              : topBarVisible && !minimalUi
+                ? {
+                    width: rightSidebarWidth,
+                    top: TOP_BAR_HEIGHT_PX,
+                    bottom: 0,
+                    height: "auto",
+                  }
+                : { width: rightSidebarWidth }
           }
         >
           <div
@@ -104,7 +116,10 @@ export function renderRightRail({
           data-design-minimal-ui
           className="pointer-events-none absolute inset-x-0 top-0 z-[90]"
         >
-          <div className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3">
+          <div
+            className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-start gap-3 px-3 pt-3"
+            style={{ paddingTop: minimalUiBarTopPaddingPx(widgetEmbed) }}
+          >
             {widgetEmbed ? (
               <div aria-hidden="true" />
             ) : (
@@ -141,9 +156,14 @@ export function renderRightRail({
         </div>
       ) : null}
 
-      {/* The widget's only persistent control sits in the bottom corner so it
-            never covers the page header the screen starts with. */}
-      {widgetEmbed && minimalUi && (!rightSidebarVisible || uiHidden) ? (
+      {shouldShowWidgetZoomFallback({
+        widgetEmbed,
+        minimalUi,
+        topBarVisible,
+        topBarZoomVisible,
+        rightSidebarVisible,
+        uiHidden,
+      }) ? (
         <div
           data-design-widget-zoom
           className="absolute bottom-3 right-3 z-[90] flex h-7 items-center rounded-md border border-border bg-[var(--design-editor-panel-bg)] px-0.5 shadow-md"

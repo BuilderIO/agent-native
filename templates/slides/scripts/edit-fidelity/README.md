@@ -98,22 +98,24 @@ omits entries below 16 ms, the report uses all keydowns and shows a `<=16 ms`
 bound when the p95 is below that threshold. It gates the p95 time from keydown
 through the first animation frame and forced layout at 16 ms only when Event
 Timing is unavailable; that measurement is a proxy, not paint. When Event
-Timing is available, the proxy is reported but the keydown-to-paint measurement
-is the latency flag. Slides with `data:` URLs are excluded from the authoring
-rounds; the largest-slide latency copy replaces those URLs with `about:blank`
-while preserving source geometry, so embedded image bytes are never copied into
-the scratch database:
+Timing is available, the first-frame proxy does not force layout, and the gate
+reports beforeinput/input handler time separately. The Event Timing
+keydown-to-paint measurement remains the latency flag. Slides with `data:` URLs
+are excluded from the authoring rounds; the largest-slide latency copy replaces
+those URLs with `about:blank` while preserving source geometry, so embedded
+image bytes are never copied into the scratch database:
 
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus --browser webkit
+pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus --authoring-source largest --browser firefox
 pnpm exec tsx scripts/edit-fidelity/run.ts --corpus ../../.tmp/private/corpus --authoring-corpus --browser firefox
 ```
 
 Run seeded authoring soak checks. Each seed performs 500 mixed editing steps by
 default, checks caret, typing, layout, exception, undo/redo, and persistence
-invariants, and prints the seed plus a bounded operation log on failure. Use
-`--seeds 20` for the pre-merge cross-browser soak; seeds rotate through
+invariants, and prints the seed plus a bounded operation log on failure. For the
+manual cross-browser soak, use `--seeds 20`; seeds rotate through
 synthetic, absolute, flex/grid, semantic-list, imported flex bullet-row, imported
 paragraph bullet-row, and scaled committed-corpus text targets:
 
@@ -126,6 +128,12 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20 --browser webkit
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20 --browser firefox
 ```
+
+The `slides-authoring-fuzz-soak.yml` workflow is manual (`workflow_dispatch`). It
+runs 20 seeds of 500 steps for each browser, with one seed per job and at most
+four jobs at a time. PR CI runs a bounded 80-step smoke with seed 16 in each
+browser, plus an 80-step seed 2 absolute-layout smoke in Chromium. It does not
+run the full soak.
 
 ## Authoring parity checklist
 

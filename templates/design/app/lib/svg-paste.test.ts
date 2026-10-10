@@ -159,7 +159,7 @@ describe("buildPastedSvgLayer", () => {
     ).toBeNull();
   });
 
-  it("names a pasted file after the file, as Figma does", () => {
+  it("names a pasted file after its source file", () => {
     expect(svgLayerName("builderLogo.svg")).toBe("builderLogo");
     expect(svgLayerName("")).toBe("Frame");
   });
@@ -193,7 +193,7 @@ describe("buildPastedSvgLayer", () => {
     );
   });
 
-  it("keeps group clips and filters, as Figma's own SVG export uses them", () => {
+  it("preserves group clips and filters from the imported SVG", () => {
     const layer = buildPastedSvgLayer(
       '<svg width="10" height="10"><g clip-path="url(#clip0)"><g filter="url(#shadow)"><circle cx="5" cy="5" r="4"/></g></g><defs><clipPath id="clip0"><rect width="8" height="8"/></clipPath><filter id="shadow"><feGaussianBlur stdDeviation="1"/></filter></defs></svg>',
       "Icon",

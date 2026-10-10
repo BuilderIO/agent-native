@@ -34,6 +34,7 @@ import {
 } from "./DocumentEditor";
 import {
   VisualEditor,
+  type VisualEditorInitialSelection,
   type VisualEditorSelectionController,
   type VisualEditorSelectionSnapshot,
 } from "./VisualEditor";
@@ -104,12 +105,15 @@ describe("DocumentEditor selection handoff", () => {
   }
 
   async function render(
-    mode: "canonical" | "suggesting",
+    mode: "canonical" | "creation-handoff" | "suggesting",
     onSelectionControllerChange: (
       controller: VisualEditorSelectionController | null,
     ) => void,
     initialSelection: VisualEditorSelectionSnapshot | null = null,
     documentId = "document-a",
+    onInitialSelectionApplied?: (
+      selection: VisualEditorInitialSelection,
+    ) => void,
   ) {
     await act(async () => {
       root.render(
@@ -131,6 +135,7 @@ describe("DocumentEditor selection handoff", () => {
                 editable: true,
                 suggesting: mode === "suggesting",
                 initialSelection,
+                onInitialSelectionApplied,
                 onSelectionControllerChange,
               }),
             ),
@@ -207,6 +212,69 @@ describe("DocumentEditor selection handoff", () => {
     expect(suggesting.state.selection.from).toBe(7);
     expect(suggesting.state.selection.to).toBe(11);
     expect(suggesting.isFocused).toBe(true);
+  });
+
+  it("consumes a creation selection after applying it before restoring a later suggestion range", async () => {
+    let controller: VisualEditorSelectionController | null = null;
+    const onSelectionControllerChange = (
+      next: VisualEditorSelectionController | null,
+    ) => {
+      controller = next;
+    };
+    await render("canonical", onSelectionControllerChange);
+    const original = captured.editor!;
+    act(() => {
+      original.view.dispatch(
+        original.state.tr.setSelection(
+          TextSelection.create(original.state.doc, 11, 7),
+        ),
+      );
+      original.view.focus();
+    });
+    const creationSelection = controller!.captureSelection()!;
+    let pendingCreationSelection: VisualEditorSelectionSnapshot | null =
+      creationSelection;
+    const onInitialSelectionApplied = vi.fn(
+      (selection: VisualEditorInitialSelection) => {
+        if (pendingCreationSelection === selection) {
+          pendingCreationSelection = null;
+        }
+      },
+    );
+
+    await render(
+      "creation-handoff",
+      onSelectionControllerChange,
+      creationSelection,
+      "document-a",
+      onInitialSelectionApplied,
+    );
+    const handedOff = captured.editor!;
+    expect(onInitialSelectionApplied).toHaveBeenCalledWith(creationSelection);
+    expect(pendingCreationSelection).toBeNull();
+    expect(handedOff.state.selection.anchor).toBe(11);
+    expect(handedOff.state.selection.head).toBe(7);
+
+    act(() => {
+      handedOff.view.dispatch(
+        handedOff.state.tr.setSelection(
+          TextSelection.create(handedOff.state.doc, 18, 4),
+        ),
+      );
+    });
+    const suggestionSelection = controller!.captureSelection()!;
+    await render(
+      "suggesting",
+      onSelectionControllerChange,
+      suggestionSelection,
+    );
+    const suggesting = captured.editor!;
+
+    expect(suggesting.state.selection.anchor).toBe(18);
+    expect(suggesting.state.selection.head).toBe(4);
+    expect(suggesting.state.selection.anchor).not.toBe(
+      creationSelection.anchor,
+    );
   });
 
   it("starts a canonical draft instead of reopening a selected suggestion when page actions captured a range", () => {

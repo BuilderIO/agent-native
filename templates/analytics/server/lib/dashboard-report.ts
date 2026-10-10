@@ -1,5 +1,6 @@
 import { getAppProductionUrl, sendEmail } from "@agent-native/core/server";
 
+import { normalizeMultiSelectValue } from "../../app/pages/adhoc/sql-dashboard/filter-vars";
 import { listReportablePanelIds } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import type {
   DashboardFilter,
@@ -74,6 +75,22 @@ function defaultFilterValues(
   );
 }
 
+// The page reads multi-select values through normalizeMultiSelectValue, so a
+// report must too. A cleared selection stays an empty override, as on the page,
+// so a dashboard variable with the same name cannot fill it.
+function normalizeReportFilters(
+  filters: DashboardFilter[] | undefined,
+  values: Record<string, string>,
+): Record<string, string> {
+  const out = { ...values };
+  for (const f of filters ?? []) {
+    if (f.type !== "multi-select") continue;
+    const key = `f_${f.id}`;
+    out[key] = normalizeMultiSelectValue(out[key] ?? "");
+  }
+  return out;
+}
+
 function dashboardConfigFromRecord(raw: Record<string, unknown>) {
   return {
     name:
@@ -135,18 +152,20 @@ export async function collectReportSnapshot(
   }
 
   const config = dashboardConfigFromRecord(dashboard.config);
-  const filters = {
+  const linkFilters = {
     ...defaultFilterValues(config),
     ...sub.filters,
   };
+  // Links keep a cleared multi-select's marker, because a link without it reopens with the default selected. The query and filter line read the normalized map.
+  const filters = normalizeReportFilters(config.filters, linkFilters);
 
   return {
     dashboardId: sub.dashboardId,
     title: config.name || dashboard.title,
     description: config.description,
     filters,
-    dashboardUrl: buildDashboardUrl(sub.dashboardId, filters),
-    reportSettingsUrl: buildDashboardUrl(sub.dashboardId, filters, {
+    dashboardUrl: buildDashboardUrl(sub.dashboardId, linkFilters),
+    reportSettingsUrl: buildDashboardUrl(sub.dashboardId, linkFilters, {
       reportSettings: true,
     }),
     generatedAt: new Date().toISOString(),

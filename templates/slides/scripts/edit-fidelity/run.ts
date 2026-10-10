@@ -1,11 +1,5 @@
-/**
- * Real-browser edit-fidelity harness for the Slides editor: clicking into
- * text, typing, pressing Enter or just leaving an edit must not change any
- * styling or layout of the slide. See README.md.
- *
- * Exit codes: 0 pass, 1 regression against baseline.json, 2 could not run.
- */
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -28,9 +22,14 @@ import {
 } from "../export-fidelity/resolve-pkg.ts";
 import {
   assertAuthoringPersistence,
+  authoringFuzzUnavailableExitCode,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
+  formatAuthoringFuzzCleanupIssue,
+  formatAuthoringFuzzUnavailable,
+  isExpectedCleanupNavigationError as isExpectedCleanupNavigationRequestError,
   lineNavigationKeys,
+  retryAuthoringFuzzScratchDeckLookup,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
@@ -70,8 +69,29 @@ import {
   type StyleDiff,
 } from "./lib/metrics.ts";
 import { isRetryableInfraError } from "./retry-infra.ts";
-import { readValueOption } from "./run-options.ts";
+import { authoringFilterError, readValueOption } from "./run-options.ts";
+import {
+  ActionTransportError,
+  ActionRequestTimeoutError,
+  ActionHttpError,
+  canReuseAuthoringFuzzCleanupPage,
+  CouldNotRun,
+  getHarnessUnavailableError,
+  isPlaywrightTargetTransportFailure,
+  runSetupActionAsCouldNotRun,
+  runSetupAsCouldNotRun,
+  shouldLookUpAuthoringFuzzScratchDeck,
+  shouldUseFreshBrowserPageForCleanup,
+  withTimeout,
+} from "./run-outcomes.ts";
 
+/**
+ * Real-browser edit-fidelity harness for the Slides editor: clicking into
+ * text, typing, pressing Enter or just leaving an edit must not change any
+ * styling or layout of the slide. See README.md.
+ *
+ * Exit codes: 0 pass, 1 regression against baseline.json, 2 could not run.
+ */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCENARIOS = [
   "noop",
@@ -83,8 +103,22 @@ const SCENARIOS = [
 type Scenario = (typeof SCENARIOS)[number];
 /** Scenarios whose net text change is zero: nothing may change at all. */
 const NET_NOOP = new Set<Scenario>(["noop", "typedelete", "clickout"]);
-
-class CouldNotRun extends Error {}
+const getSlashListbox = async (page: any, editor: any) => {
+  const editorHandle = await editor.elementHandle();
+  if (!editorHandle) throw new Error("slash menu editor is unavailable");
+  await page.waitForFunction(
+    (element: HTMLElement) => {
+      const listboxId = element.getAttribute("aria-controls");
+      const listbox = listboxId ? document.getElementById(listboxId) : null;
+      return listbox?.getAttribute("role") === "listbox";
+    },
+    editorHandle,
+    { timeout: 5_000 },
+  );
+  const listboxId = await editor.getAttribute("aria-controls");
+  if (!listboxId) throw new Error("slash menu did not expose its listbox");
+  return page.locator(`[role="listbox"][id=${JSON.stringify(listboxId)}]`);
+};
 
 // ------------------------------------------------------------------- cli ---
 
@@ -176,6 +210,11 @@ const authoringSourceFilter = opt("--authoring-source");
 const authoringFlowFilter = opt("--authoring-flow");
 const authoringCaseFilter = opt("--authoring-case");
 const authoringFlows = ["slash", "shortcut", "list", "paste"] as const;
+const incompatibleAuthoringFilters = authoringFilterError(
+  authoringSourceFilter,
+  authoringFlowFilter,
+);
+if (incompatibleAuthoringFilters) fatal(incompatibleAuthoringFilters);
 if ((authoringSourceFilter || authoringFlowFilter) && !authoringCorpusOnly) {
   fatal("--authoring-source and --authoring-flow require --authoring-corpus");
 }
@@ -653,9 +692,9 @@ async function action<T = any>(
   name: string,
   body: Record<string, unknown>,
   method: "DELETE" | "GET" | "POST" = "POST",
+  timeoutMs = 30_000,
 ): Promise<T> {
-  const timeoutMs = 30_000;
-  const res = await page.evaluate(
+  const evaluation = page.evaluate(
     async ({ name, body, method, timeoutMs }: any) => {
       const url =
         method === "GET"
@@ -668,12 +707,21 @@ async function action<T = any>(
         headers: { "Content-Type": "application/json" },
         body: method === "GET" ? undefined : JSON.stringify(body),
         signal: controller.signal,
-      }).then(async (response) => ({
-        ok: response.ok,
-        status: response.status,
-        text: await response.text(),
-      }));
+      })
+        .then(async (response) => ({
+          kind: "response" as const,
+          ok: response.ok,
+          status: response.status,
+          text: await response.text(),
+        }))
+        .catch((error) => ({
+          kind: "transport" as const,
+          ok: false,
+          status: 0,
+          text: `transport failure: ${String(error)}`,
+        }));
       const timeout = new Promise<{
+        kind: "timeout";
         ok: false;
         status: 0;
         text: string;
@@ -681,6 +729,7 @@ async function action<T = any>(
         timeoutId = window.setTimeout(() => {
           controller.abort();
           resolve({
+            kind: "timeout" as const,
             ok: false,
             status: 0,
             text: `timed out after ${timeoutMs}ms`,
@@ -695,12 +744,26 @@ async function action<T = any>(
     },
     { name, body, method, timeoutMs },
   );
+  const res = await evaluation.catch((error: unknown) => {
+    if (isPlaywrightTargetTransportFailure(error)) {
+      throw new ActionTransportError(
+        `${name} action evaluation failed: ${String(error)}`,
+      );
+    }
+    throw error;
+  });
   if (!res.ok) {
-    throw new Error(
-      res.status === 0
-        ? `${method === "GET" ? "GET " : ""}${name} request ${res.text}`
-        : `${name} returned HTTP ${res.status}`,
-    );
+    if (res.status === 0) {
+      if (res.kind === "timeout") {
+        throw new ActionRequestTimeoutError(
+          `${method === "GET" ? "GET " : ""}${name} request ${res.text}`,
+        );
+      }
+      throw new ActionTransportError(
+        `${method === "GET" ? "GET " : ""}${name} request ${res.text}`,
+      );
+    }
+    throw new ActionHttpError(name, res.status);
   }
   try {
     return JSON.parse(res.text);
@@ -771,7 +834,7 @@ async function ensureSignedIn(page: Page) {
 }
 
 async function settle(page: Page) {
-  const settled = await page.evaluate(async (css: string) => {
+  const settleState = await page.evaluate(async (css: string) => {
     if (!document.querySelector("style[data-edit-fidelity-mask]")) {
       const style = document.createElement("style");
       style.setAttribute("data-edit-fidelity-mask", "");
@@ -784,6 +847,27 @@ async function settle(page: Page) {
     // paints the fallback). A failed font request can also leave it pending.
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const stylesheetState = () => {
+      const links = Array.from(
+        document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
+      );
+      const failed = links.filter(
+        (link) => link.dataset.editFidelityLoadError === "true",
+      );
+      const pending = links.filter(
+        (link) => !link.sheet && !failed.includes(link),
+      );
+      return { failed, pending };
+    };
+    const currentState = (settled: boolean) => {
+      const stylesheets = stylesheetState();
+      return {
+        settled,
+        fonts: document.fonts.status,
+        pendingStylesheets: stylesheets.pending.length,
+        failedStylesheets: stylesheets.failed.map((link) => link.href),
+      };
+    };
     // Imported-font stylesheets are appended by a passive effect after render.
     await frame();
     let ready = false;
@@ -793,16 +877,22 @@ async function settle(page: Page) {
         new Promise((resolve) => setTimeout(resolve, 500)),
       ]);
       await frame();
-      const sheetPending = Array.from(
-        document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
-      ).some((link) => !link.sheet);
-      if (!sheetPending && document.fonts.status === "loaded") {
+      const stylesheets = stylesheetState();
+      if (stylesheets.failed.length > 0) {
+        return currentState(false);
+      }
+      if (
+        stylesheets.pending.length === 0 &&
+        document.fonts.status === "loaded"
+      ) {
         ready = true;
         break;
       }
       await new Promise((r) => setTimeout(r, 100));
     }
-    if (!ready) return false;
+    if (!ready) {
+      return currentState(false);
+    }
     // Only the main canvas: sidebar thumbnails are lazy and may never load.
     // A broken image fires "error", never "load"; both views see the same one.
     const pending = Array.from(
@@ -825,10 +915,19 @@ async function settle(page: Page) {
     await new Promise((r) =>
       requestAnimationFrame(() => requestAnimationFrame(r)),
     );
-    return true;
+    const finalState = currentState(true);
+    return {
+      ...finalState,
+      settled:
+        finalState.fonts === "loaded" &&
+        finalState.pendingStylesheets === 0 &&
+        finalState.failedStylesheets.length === 0,
+    };
   }, MASK_CSS);
-  if (!settled) {
-    throw new CouldNotRun("slide fonts or stylesheets did not settle");
+  if (!settleState.settled) {
+    throw new CouldNotRun(
+      `slide fonts or stylesheets did not settle (font status: ${settleState.fonts}; pending stylesheets: ${settleState.pendingStylesheets}; failed stylesheets: ${settleState.failedStylesheets.join(", ") || "none"})`,
+    );
   }
   // Autofit measures after paint; give it one more beat.
   await sleep(300);
@@ -840,22 +939,74 @@ async function openSlide(
   deckId: string,
   index: number,
   slideId: string,
+  options: {
+    canvasTimeoutMs?: number;
+    initialOpenAsSetup?: boolean;
+    onNavigationStart?: () => void;
+    skipPointerMove?: boolean;
+  } = {},
 ) {
   for (let attempt = 0; ; attempt++) {
+    let failedStage: "navigation" | "canvas" = "navigation";
     try {
-      await page.goto(`${base}/deck/${deckId}?slide=${index + 1}`, {
-        waitUntil: "domcontentloaded",
-        timeout: 90_000,
+      options.onNavigationStart?.();
+      const navigate = () =>
+        page.goto(`${base}/deck/${deckId}?slide=${index + 1}`, {
+          waitUntil: "domcontentloaded",
+          timeout: 90_000,
+        });
+      if (options.initialOpenAsSetup) {
+        await runSetupAsCouldNotRun(
+          "could not navigate to authoring fuzz slide",
+          navigate,
+        );
+      } else {
+        await navigate();
+      }
+      failedStage = "canvas";
+      await page.waitForSelector(canvasSelector(slideId), {
+        timeout: options.canvasTimeoutMs ?? 45_000,
       });
-      await page.waitForSelector(canvasSelector(slideId), { timeout: 45_000 });
       break;
     } catch (error) {
-      // A first load can 504 "Outdated Optimize Dep" and full-reload, and a
-      // loaded dev server can miss the navigation deadline.
-      if (attempt >= 2) throw error;
+      // The first route can race Vite dependency optimization; navigating
+      // again after its full reload uses the completed optimized dependency set.
+      if (attempt < 2) continue;
+      let pageState: unknown;
+      try {
+        pageState = await withTimeout(
+          "canvas wait diagnostics",
+          2_000,
+          page.evaluate(() => ({
+            url: location.href,
+            readyState: document.readyState,
+            title: document.title,
+            bodyText: document.body.innerText.slice(0, 500),
+            mainCanvasCount: document.querySelectorAll(
+              '[data-main-slide-canvas="true"]',
+            ).length,
+            slideCanvases: Array.from(
+              document.querySelectorAll<HTMLElement>(
+                '[data-main-slide-canvas="true"] [data-slide-canvas]',
+              ),
+            ).map((element) => ({
+              id: element.dataset.slideCanvas,
+              width: element.getBoundingClientRect().width,
+              height: element.getBoundingClientRect().height,
+            })),
+          })),
+        );
+      } catch (diagnosticError) {
+        pageState = `unavailable: ${String(diagnosticError)}`;
+      }
+      const detail = `${String(error)}\nCanvas wait page state: ${JSON.stringify(pageState)}`;
+      if (error instanceof CouldNotRun && failedStage === "navigation") {
+        throw new CouldNotRun(`${error.message}\n${detail}`);
+      }
+      throw new Error(detail);
     }
   }
-  await page.mouse.move(0, 0);
+  if (!options.skipPointerMove) await page.mouse.move(0, 0);
   await settle(page);
 }
 
@@ -2897,31 +3048,37 @@ async function runAuthoringParityQa(
   const getEditor = (slideId: string) => page.locator(selectorFor(slideId));
   let currentCaseId = "setup";
   const waitForSlashOption = async (editor: any, caseId: string) => {
-    const option = page.locator('[role="listbox"] [role="option"]').first();
+    let listboxId: string | null = null;
     try {
+      const listbox = await getSlashListbox(page, editor);
+      listboxId = await listbox.getAttribute("id");
+      const option = listbox.locator('[role="option"]').first();
       await option.waitFor({ state: "visible", timeout: 3_000 });
     } catch {
-      const state = await editor.evaluate((element: HTMLElement) => {
-        const selection = window.getSelection();
-        const range = selection?.rangeCount
-          ? selection.getRangeAt(0)
-          : undefined;
-        const listbox = document.querySelector<HTMLElement>('[role="listbox"]');
-        return {
-          html: element.innerHTML,
-          focused: document.activeElement === element,
-          ariaExpanded: element.getAttribute("aria-expanded"),
-          ariaActiveDescendant: element.getAttribute("aria-activedescendant"),
-          selection: range
-            ? {
-                text: range.startContainer.textContent,
-                offset: range.startOffset,
-                collapsed: range.collapsed,
-              }
-            : null,
-          listbox: listbox?.outerHTML ?? null,
-        };
-      });
+      const state = await editor.evaluate(
+        (element: HTMLElement, id: string | null) => {
+          const selection = window.getSelection();
+          const range = selection?.rangeCount
+            ? selection.getRangeAt(0)
+            : undefined;
+          const listbox = id ? document.getElementById(id) : null;
+          return {
+            html: element.innerHTML,
+            focused: document.activeElement === element,
+            ariaExpanded: element.getAttribute("aria-expanded"),
+            ariaActiveDescendant: element.getAttribute("aria-activedescendant"),
+            selection: range
+              ? {
+                  text: range.startContainer.textContent,
+                  offset: range.startOffset,
+                  collapsed: range.collapsed,
+                }
+              : null,
+            listbox: listbox?.outerHTML ?? null,
+          };
+        },
+        listboxId,
+      );
       throw new Error(
         `${caseId}: slash menu did not open: ${JSON.stringify(state)}`,
       );
@@ -3179,13 +3336,13 @@ async function runAuthoringParityQa(
           await editor.pressSequentially("/");
           await waitForSlashOption(editor, test.id);
           await editor.pressSequentially("heading 2");
-          await page
-            .locator('[role="listbox"] [role="option"][data-value="heading2"]')
-            .waitFor({ state: "visible", timeout: 3_000 });
+          const listbox = await getSlashListbox(page, editor);
+          const headingOption = listbox.locator(
+            '[role="option"][data-value="heading2"]',
+          );
+          await headingOption.waitFor({ state: "visible", timeout: 3_000 });
           const active = await editor.getAttribute("aria-activedescendant");
-          const headingOptionId = await page
-            .locator('[role="listbox"] [role="option"][data-value="heading2"]')
-            .getAttribute("id");
+          const headingOptionId = await headingOption.getAttribute("id");
           if (!headingOptionId || active !== headingOptionId) {
             throw new Error(
               `/heading 2 did not select Heading 2 (active: ${active})`,
@@ -3197,8 +3354,9 @@ async function runAuthoringParityQa(
           });
         } else {
           await editor.pressSequentially("/");
-          const options = page.locator('[role="listbox"] [role="option"]');
           await waitForSlashOption(editor, test.id);
+          const listbox = await getSlashListbox(page, editor);
+          const options = listbox.locator('[role="option"]');
           if ((await options.count()) !== slashCommands.length) {
             throw new Error(
               `slash menu showed ${await options.count()} commands`,
@@ -3380,8 +3538,9 @@ async function runAuthoringParityQa(
         await editor.press(lineEndKey);
         await editor.press("Shift+Enter");
         await editor.pressSequentially("After /heading 2");
-        const option = page.locator(
-          '[role="listbox"] [role="option"][data-value="heading2"]',
+        const listbox = await getSlashListbox(page, editor);
+        const option = listbox.locator(
+          '[role="option"][data-value="heading2"]',
         );
         await option.waitFor({ state: "visible" });
         await page.keyboard.press("Enter");
@@ -3690,7 +3849,11 @@ async function runAuthoringCorpusQa(
           anchor = slashRange.getBoundingClientRect();
         }
       }
-      const listbox = document.querySelector<HTMLElement>('[role="listbox"]');
+      const listboxId = root.getAttribute("aria-controls");
+      const listbox = listboxId ? document.getElementById(listboxId) : null;
+      if (listbox?.getAttribute("role") !== "listbox") {
+        throw new Error("slash menu is not the active editor's listbox");
+      }
       const popover = listbox?.closest<HTMLElement>(
         "[data-radix-popper-content-wrapper]",
       );
@@ -4104,13 +4267,12 @@ async function runAuthoringCorpusQa(
               );
             }
             await page.keyboard.type("/heading 2");
-            const options = page.locator('[role="listbox"] [role="option"]');
+            const listbox = await getSlashListbox(page, editor);
+            const options = listbox.locator('[role="option"]');
             await options.first().waitFor({ state: "visible" });
             const active = await editor.getAttribute("aria-activedescendant");
-            const headingOptionId = await page
-              .locator(
-                '[role="listbox"] [role="option"][data-value="heading2"]',
-              )
+            const headingOptionId = await listbox
+              .locator('[role="option"][data-value="heading2"]')
               .getAttribute("id");
             if (!headingOptionId || active !== headingOptionId) {
               throw new Error(
@@ -4726,71 +4888,79 @@ async function runAuthoringCorpusQa(
     }
   }
 
-  if (authoringSourceFilter || authoringFlowFilter) return problems;
+  if (
+    authoringFlowFilter ||
+    (authoringSourceFilter && authoringSourceFilter !== "largest")
+  ) {
+    return problems;
+  }
 
-  let edgeDeckId: string | null = null;
-  const edgeSlideId = "authoring-slash-viewport-edge";
-  try {
-    await page.setViewportSize({ width: 800, height: 520 });
-    const edgeDeck = await action(page, "create-deck", {
-      title: `[edit-fidelity] slash viewport edge ${Date.now()}`,
-      slides: [
-        {
-          id: edgeSlideId,
-          content:
-            '<div class="fmd-slide" style="padding:0"><p style="position:absolute;right:8px;bottom:8px;margin:0;text-align:right;white-space:nowrap">Edge anchor&nbsp;</p></div>',
-        },
-      ],
-    });
-    edgeDeckId = String(edgeDeck.id ?? edgeDeck.deckId);
-    await openSlide(page, base, edgeDeckId, 0, edgeSlideId);
-    const [target] = await listTargets(page, edgeSlideId);
-    if (!target) throw new Error("viewport-edge slide has no text target");
-    if (!(await enterEdit(page, edgeSlideId, target.point, []))) {
-      throw new Error("could not edit the viewport-edge text target");
-    }
-    const editor = page.locator(selectorFor(edgeSlideId));
-    await editor.press(lineEndKey);
-    await editor.pressSequentially("/");
-    await page
-      .locator('[role="listbox"] [role="option"]')
-      .first()
-      .waitFor({ state: "visible" });
-    const geometry = await assertSlashPopoverGeometry(editor);
-    const horizontalCollision =
-      geometry.caret.left + geometry.popover.width + 8 >
-      geometry.viewport.width;
-    const verticalCollision =
-      geometry.viewport.height - geometry.caret.bottom <
-      geometry.popover.height + 12;
-    if (!horizontalCollision || !verticalCollision) {
-      throw new Error(
-        `viewport-edge fixture did not pressure both popover edges: ${JSON.stringify({ geometry, horizontalCollision, verticalCollision })}`,
-      );
-    }
-    if (
-      geometry.side !== "top" ||
-      geometry.popover.left >= geometry.caret.left ||
-      Math.abs(geometry.popover.right - (geometry.viewport.width - 8)) > 2
-    ) {
-      throw new Error(
-        `viewport-edge popover did not shift left and flip above the caret: ${JSON.stringify(geometry)}`,
-      );
-    }
-    await page.keyboard.press("Escape");
-    await page.locator('[role="listbox"]').waitFor({ state: "hidden" });
-    await exitEdit(page, edgeSlideId, "escape");
-  } catch (error) {
-    problems.push(`slash viewport-edge geometry: ${String(error)}`);
-  } finally {
-    if (edgeDeckId) {
-      try {
-        await action(page, "delete-deck", { id: edgeDeckId }, "DELETE");
-      } catch (error) {
-        problems.push(`slash viewport-edge cleanup failed: ${String(error)}`);
+  if (authoringSourceFilter !== "largest") {
+    let edgeDeckId: string | null = null;
+    const edgeSlideId = "authoring-slash-viewport-edge";
+    try {
+      await page.setViewportSize({ width: 800, height: 520 });
+      const edgeDeck = await action(page, "create-deck", {
+        title: `[edit-fidelity] slash viewport edge ${Date.now()}`,
+        slides: [
+          {
+            id: edgeSlideId,
+            content:
+              '<div class="fmd-slide" style="padding:0"><p style="position:absolute;right:8px;bottom:8px;margin:0;text-align:right;white-space:nowrap">Edge anchor&nbsp;</p></div>',
+          },
+        ],
+      });
+      edgeDeckId = String(edgeDeck.id ?? edgeDeck.deckId);
+      await openSlide(page, base, edgeDeckId, 0, edgeSlideId);
+      const [target] = await listTargets(page, edgeSlideId);
+      if (!target) throw new Error("viewport-edge slide has no text target");
+      if (!(await enterEdit(page, edgeSlideId, target.point, []))) {
+        throw new Error("could not edit the viewport-edge text target");
       }
+      const editor = page.locator(selectorFor(edgeSlideId));
+      await editor.press(lineEndKey);
+      await editor.pressSequentially("/");
+      const listbox = await getSlashListbox(page, editor);
+      await listbox
+        .locator('[role="option"]')
+        .first()
+        .waitFor({ state: "visible" });
+      const geometry = await assertSlashPopoverGeometry(editor);
+      const horizontalCollision =
+        geometry.caret.left + geometry.popover.width + 8 >
+        geometry.viewport.width;
+      const verticalCollision =
+        geometry.viewport.height - geometry.caret.bottom <
+        geometry.popover.height + 12;
+      if (!horizontalCollision || !verticalCollision) {
+        throw new Error(
+          `viewport-edge fixture did not pressure both popover edges: ${JSON.stringify({ geometry, horizontalCollision, verticalCollision })}`,
+        );
+      }
+      if (
+        geometry.side !== "top" ||
+        geometry.popover.left >= geometry.caret.left ||
+        Math.abs(geometry.popover.right - (geometry.viewport.width - 8)) > 2
+      ) {
+        throw new Error(
+          `viewport-edge popover did not shift left and flip above the caret: ${JSON.stringify(geometry)}`,
+        );
+      }
+      await page.keyboard.press("Escape");
+      await listbox.waitFor({ state: "hidden" });
+      await exitEdit(page, edgeSlideId, "escape");
+    } catch (error) {
+      problems.push(`slash viewport-edge geometry: ${String(error)}`);
+    } finally {
+      if (edgeDeckId) {
+        try {
+          await action(page, "delete-deck", { id: edgeDeckId }, "DELETE");
+        } catch (error) {
+          problems.push(`slash viewport-edge cleanup failed: ${String(error)}`);
+        }
+      }
+      await page.setViewportSize({ width: 1600, height: 1000 });
     }
-    await page.setViewportSize({ width: 1600, height: 1000 });
   }
 
   const largest = sources.find((source) => source.kind === "largest");
@@ -4835,8 +5005,10 @@ async function runAuthoringCorpusQa(
           handlerDuration: number;
           presentationDelay: number;
         }>,
+        operationSamples: [] as Array<{ type: string; duration: number }>,
         frameSamples: [] as number[],
         observer: null as PerformanceObserver | null,
+        cleanup: null as (() => void) | null,
       };
       const supportsEventTiming =
         PerformanceObserver.supportedEntryTypes?.includes("event") ?? false;
@@ -4881,6 +5053,33 @@ async function runAuthoringCorpusQa(
         }
       }
       (window as any).__slideKeyPaintMetrics = metrics;
+      const operationStarts = new WeakMap<Event, number>();
+      const operationTypes = ["beforeinput", "input"];
+      const eventRoot: HTMLElement | Document =
+        element.parentElement ?? document;
+      const startOperation = (event: Event) => {
+        if (event.target === element) {
+          operationStarts.set(event, performance.now());
+        }
+      };
+      const endOperation = (event: Event) => {
+        const started = operationStarts.get(event);
+        if (started === undefined) return;
+        metrics.operationSamples.push({
+          type: event.type,
+          duration: performance.now() - started,
+        });
+      };
+      for (const type of operationTypes) {
+        eventRoot.addEventListener(type, startOperation, true);
+        eventRoot.addEventListener(type, endOperation);
+      }
+      metrics.cleanup = () => {
+        for (const type of operationTypes) {
+          eventRoot.removeEventListener(type, startOperation, true);
+          eventRoot.removeEventListener(type, endOperation);
+        }
+      };
       element.addEventListener(
         "keydown",
         (event) => {
@@ -4888,7 +5087,9 @@ async function runAuthoringCorpusQa(
           metrics.keydowns += 1;
           const started = performance.now();
           requestAnimationFrame(() => {
-            element.getBoundingClientRect();
+            if (metrics.mode !== "event-timing") {
+              element.getBoundingClientRect();
+            }
             metrics.frameSamples.push(performance.now() - started);
           });
         },
@@ -4919,6 +5120,7 @@ async function runAuthoringCorpusQa(
     const metrics = (await page.evaluate(() => {
       const value = (window as any).__slideKeyPaintMetrics;
       value?.observer?.disconnect();
+      value?.cleanup?.();
       return value
         ? {
             mode: value.mode as string,
@@ -4928,6 +5130,10 @@ async function runAuthoringCorpusQa(
               inputDelay: number;
               handlerDuration: number;
               presentationDelay: number;
+            }>,
+            operationSamples: value.operationSamples as Array<{
+              type: string;
+              duration: number;
             }>,
             frameSamples: value.frameSamples as number[],
           }
@@ -4941,6 +5147,7 @@ async function runAuthoringCorpusQa(
         handlerDuration: number;
         presentationDelay: number;
       }>;
+      operationSamples: Array<{ type: string; duration: number }>;
       frameSamples: number[];
     } | null;
     if (!metrics || metrics.keydowns < 32) {
@@ -4949,6 +5156,20 @@ async function runAuthoringCorpusQa(
       );
     }
     if (metrics.mode === "event-timing") {
+      const operationP95 = (type: string) => {
+        const values = metrics.operationSamples
+          .filter((sample) => sample.type === type)
+          .map((sample) => sample.duration)
+          .sort((a, b) => a - b);
+        return values.length
+          ? values[Math.ceil(values.length * 0.95) - 1]
+          : null;
+      };
+      const beforeInputP95 = operationP95("beforeinput");
+      const inputP95 = operationP95("input");
+      console.log(
+        `[edit-fidelity] largest corpus slide editor event handler p95 (beforeinput=${beforeInputP95?.toFixed(2) ?? "n/a"}ms input=${inputP95?.toFixed(2) ?? "n/a"}ms)`,
+      );
       const sortedFrames = [...metrics.frameSamples].sort((a, b) => a - b);
       if (sortedFrames.length < 32) {
         throw new Error(
@@ -4982,7 +5203,7 @@ async function runAuthoringCorpusQa(
         }
       }
       console.log(
-        `[edit-fidelity] largest corpus slide keydown-to-first-rAF-plus-layout p95=${frameP95.toFixed(2)}ms (proxy, not paint; n=${sortedFrames.length}, threshold=16ms)`,
+        `[edit-fidelity] largest corpus slide keydown-to-first-rAF p95=${frameP95.toFixed(2)}ms (proxy, not paint; n=${sortedFrames.length}, threshold=16ms)`,
       );
     } else {
       const sorted = [...metrics.frameSamples].sort((a, b) => a - b);
@@ -5016,7 +5237,7 @@ async function runAuthoringCorpusQa(
 }
 
 async function runAuthoringFuzzQa(
-  page: Page,
+  createPage: () => Promise<Page>,
   base: string,
   cases: CorpusCase[],
   firstSeed: number,
@@ -5044,7 +5265,7 @@ async function runAuthoringFuzzQa(
 
   const selectorFor = (slideId: string) =>
     `${canvasSelector(slideId)} [contenteditable="true"][data-editing-block="true"]`;
-  const canonicalMarkup = async (html: string) =>
+  const canonicalMarkup = async (page: Page, html: string) =>
     JSON.stringify(
       await page.evaluate(
         (value: string) => window.__editFidelity.canonical(value),
@@ -5056,6 +5277,7 @@ async function runAuthoringFuzzQa(
     return index === null ? null : profiles[index];
   };
   const sourceTarget = async (
+    page: Page,
     slideId: string,
     source: CorpusAuthoringSource | null,
   ) => {
@@ -5149,44 +5371,115 @@ async function runAuthoringFuzzQa(
     return targets.find((target) => target.index === hint?.index);
   };
 
-  await page.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
-  await ensureSignedIn(page);
   const problems: string[] = [];
+  const cleanupProblems: string[] = [];
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
   const exercisedProfiles = new Set<string>();
+  let harnessUnavailable: CouldNotRun | null = null;
 
   for (let round = 0; round < seeds; round += 1) {
     const seed = firstSeed + round;
     const profile = profileFor(seed);
     exercisedProfiles.add(profile?.kind ?? "synthetic");
-    await page.setViewportSize(
-      profile?.kind === "scaled"
-        ? { width: 850, height: 650 }
-        : { width: 1600, height: 1000 },
-    );
     const slideId = `authoring-fuzz-${round}`;
+    let page: Page | null = null;
     let deckId: string | null = null;
     let authoringSucceeded = false;
-    try {
-      const created = await action(page, "create-deck", {
-        title: `[edit-fidelity] authoring fuzz ${seed}`,
-        ...(profile?.corpusCase.aspectRatio
-          ? { aspectRatio: profile.corpusCase.aspectRatio }
-          : {}),
-        slides: [
-          {
-            id: slideId,
-            content:
-              profile?.slide.content ??
-              `<div class="fmd-slide"><p>Fuzz seed ${seed} starts here.</p></div>`,
-            ...(profile?.slide.layout ? { layout: profile.slide.layout } : {}),
-          },
-        ],
+    let createAttempted = false;
+    let createError: unknown = null;
+    let seedHarnessUnavailable: CouldNotRun | null = null;
+    const unavailableCleanupPages = new Set<Page>();
+    const cleanupRequestStartTimes = new Map<
+      any,
+      { page: Page; startedAt: number }
+    >();
+    const cleanupRequestTrackingPages = new Map<
+      Page,
+      {
+        onRequest: (request: any) => void;
+        onRequestSettled: (request: any) => void;
+      }
+    >();
+    const trackCleanupRequests = (target: Page) => {
+      if (cleanupRequestTrackingPages.has(target)) return;
+      const onRequest = (request: any) => {
+        cleanupRequestStartTimes.set(request, {
+          page: target,
+          startedAt: Date.now(),
+        });
+      };
+      const onRequestSettled = (request: any) => {
+        cleanupRequestStartTimes.delete(request);
+      };
+      target.on("request", onRequest);
+      target.on("requestfinished", onRequestSettled);
+      target.on("requestfailed", onRequestSettled);
+      cleanupRequestTrackingPages.set(target, {
+        onRequest,
+        onRequestSettled,
       });
+    };
+    const scratchTitle = `[edit-fidelity] authoring fuzz ${seed} ${randomUUID()}`;
+    try {
+      const activePage = await runSetupAsCouldNotRun(
+        "could not create authoring fuzz page",
+        createPage,
+      );
+      page = activePage;
+      trackCleanupRequests(activePage);
+      activePage.on("crash", () => {
+        unavailableCleanupPages.add(activePage);
+      });
+      activePage.on("close", () => {
+        unavailableCleanupPages.add(activePage);
+      });
+      await runSetupAsCouldNotRun(
+        "could not navigate to authoring fuzz setup page",
+        () =>
+          activePage.goto(`${base}/home`, { waitUntil: "domcontentloaded" }),
+      );
+      await runSetupAsCouldNotRun("could not sign in authoring fuzz page", () =>
+        ensureSignedIn(activePage),
+      );
+      await runSetupAsCouldNotRun("could not size authoring fuzz page", () =>
+        activePage.setViewportSize(
+          profile?.kind === "scaled"
+            ? { width: 850, height: 650 }
+            : { width: 1600, height: 1000 },
+        ),
+      );
+      const created = await runSetupActionAsCouldNotRun(
+        "could not create authoring fuzz deck",
+        () => {
+          createAttempted = true;
+          return action(activePage, "create-deck", {
+            title: scratchTitle,
+            ...(profile?.corpusCase.aspectRatio
+              ? { aspectRatio: profile.corpusCase.aspectRatio }
+              : {}),
+            slides: [
+              {
+                id: slideId,
+                content:
+                  profile?.slide.content ??
+                  `<div class="fmd-slide"><p>Fuzz seed ${seed} starts here.</p></div>`,
+                ...(profile?.slide.layout
+                  ? { layout: profile.slide.layout }
+                  : {}),
+              },
+            ],
+          }).catch((error: unknown) => {
+            createError = error;
+            throw error;
+          });
+        },
+      );
       deckId = String(created.id ?? created.deckId);
-      await openSlide(page, base, deckId, 0, slideId);
+      await openSlide(activePage, base, deckId, 0, slideId, {
+        initialOpenAsSetup: true,
+      });
       if (profile?.kind === "scaled") {
-        const scale = await page
+        const scale = await activePage
           .locator(canvasSelector(slideId))
           .evaluate((element: HTMLElement) => {
             const rect = element.getBoundingClientRect();
@@ -5200,17 +5493,19 @@ async function runAuthoringFuzzQa(
           );
         }
       }
-      const target = await sourceTarget(slideId, profile);
+      const target = await sourceTarget(activePage, slideId, profile);
       if (!target) throw new Error("no target matched the authoring profile");
       const editorSelector = selectorFor(slideId);
       const rootSelector = `${canvasSelector(slideId)} .slide-content`;
-      const originalSlideHtml = await page.locator(rootSelector).innerHTML();
-      if (!(await enterEdit(page, slideId, target.point, []))) {
+      const originalSlideHtml = await activePage
+        .locator(rootSelector)
+        .innerHTML();
+      if (!(await enterEdit(activePage, slideId, target.point, []))) {
         throw new Error("could not enter in-place text editing");
       }
-      const originalHtml = await page.locator(editorSelector).innerHTML();
-      const slideHtml = () => page.locator(rootSelector).innerHTML();
-      const result = await runAuthoringFuzz(page, {
+      const originalHtml = await activePage.locator(editorSelector).innerHTML();
+      const slideHtml = () => activePage.locator(rootSelector).innerHTML();
+      const result = await runAuthoringFuzz(activePage, {
         seed,
         steps,
         editorSelector,
@@ -5218,25 +5513,50 @@ async function runAuthoringFuzzQa(
         slideContentSelector: rootSelector,
         originalHtml,
         originalSlideHtml,
+        initialPendingWatchedRequests: new Map(
+          [...cleanupRequestStartTimes.entries()]
+            .filter(([, request]) => request.page === activePage)
+            .map(([request, { startedAt }]) => [request, startedAt]),
+        ),
         modifier,
         historyLimit: IN_PLACE_TEXT_UNDO_LIMIT,
         expectScaledSlide: profile?.kind === "scaled",
         browser: browserName as "chromium" | "webkit" | "firefox",
         lineKeys: { start: lineStartKey, end: lineEndKey },
-        finishAndReload: async (): Promise<AuthoringFuzzPersistence> => {
-          if (!(await exitEdit(page, slideId, "escape"))) {
+        finishAndReload: async (
+          markReloadNavigationStart,
+        ): Promise<AuthoringFuzzPersistence> => {
+          const trace = (phase: string) => {
+            if (process.env.SLIDES_AUTHORING_FUZZ_TRACE === "1") {
+              console.log(`[edit-fidelity] save/reload ${phase}`);
+            }
+          };
+          trace("exit-edit:start");
+          if (!(await exitEdit(activePage, slideId, "escape"))) {
             throw new Error("Escape did not leave in-place text editing");
           }
+          trace("exit-edit:end");
+          trace("read-live-html:start");
           const liveHtml = await slideHtml();
+          trace("read-live-html:end");
+          trace("settle-saved:start");
           const stored = await settleSaved(
-            page,
+            activePage,
             deckId!,
             slideId,
             () => 0,
             2500,
           );
-          await openSlide(page, base, deckId!, 0, slideId);
+          trace("settle-saved:end");
+          trace("open-reloaded-slide:start");
+          await openSlide(activePage, base, deckId!, 0, slideId, {
+            onNavigationStart: markReloadNavigationStart,
+            skipPointerMove: true,
+          });
+          trace("open-reloaded-slide:end");
+          trace("read-reloaded-html:start");
           const reloadedHtml = await slideHtml();
+          trace("read-reloaded-html:end");
           return canonicalizeAuthoringFuzzPersistence(
             {
               originalHtml: originalSlideHtml,
@@ -5244,7 +5564,7 @@ async function runAuthoringFuzzQa(
               savedHtml: stored,
               reloadedHtml,
             },
-            canonicalMarkup,
+            (html) => canonicalMarkup(activePage, html),
           );
         },
       });
@@ -5253,17 +5573,73 @@ async function runAuthoringFuzzQa(
         `[edit-fidelity] fuzz seed=${result.seed} passed ${result.stepsRun} steps on ${profile ? `committed-${profile.kind}` : "synthetic"} (${result.undoSteps} undo steps)`,
       );
     } catch (error) {
-      const problem = `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`;
-      problems.push(problem);
-      console.error(`[edit-fidelity] ${problem}`);
+      seedHarnessUnavailable = getHarnessUnavailableError(error);
+      if (
+        page &&
+        shouldUseFreshBrowserPageForCleanup(error, Boolean(page.isClosed()))
+      ) {
+        unavailableCleanupPages.add(page);
+      }
+      if (!seedHarnessUnavailable) {
+        const problem = `seed ${seed} ${profile ? `committed-${profile.kind}` : "synthetic"}: ${String(error)}`;
+        problems.push(problem);
+        console.error(`[edit-fidelity] ${problem}`);
+      }
     } finally {
       const cleanupErrors: string[] = [];
+      const monitoredPages = new Set<Page>();
+      const recoveryPages = new Set<Page>();
+      let cleanupNavigationCandidates: Array<{
+        url: string;
+        pathname: string;
+        method: string;
+        startedAt: number;
+        requestWasPendingAtNavigation: true;
+      }> = [];
+      let cleanupNavigationPending = false;
+      let recoveryPage: Page | null = null;
+      let lastCleanupPage: Page | null = null;
+      const recordCleanupFailure = (
+        label: string,
+        error: unknown,
+        target: Page | null = lastCleanupPage,
+      ) => {
+        cleanupErrors.push(
+          formatAuthoringFuzzCleanupIssue(label, deckId, error),
+        );
+        if (
+          target &&
+          shouldUseFreshBrowserPageForCleanup(error, Boolean(target.isClosed()))
+        ) {
+          unavailableCleanupPages.add(target);
+        }
+        const unavailable = getHarnessUnavailableError(error);
+        if (unavailable) {
+          seedHarnessUnavailable ??= unavailable;
+        }
+      };
+      const isExpectedCleanupNavigationError = (message: string) => {
+        const now = Date.now();
+        const candidates = cleanupNavigationCandidates.map(
+          ({ startedAt, ...candidate }) => ({
+            ...candidate,
+            ageMs: now - startedAt,
+          }),
+        );
+        return isExpectedCleanupNavigationRequestError(
+          message,
+          candidates,
+          cleanupNavigationPending,
+        );
+      };
       const onConsole = (message: { type(): string; text(): string }) => {
         if (message.type() === "error") {
+          if (isExpectedCleanupNavigationError(message.text())) return;
           cleanupErrors.push(`console: ${message.text()}`);
         }
       };
       const onPageError = (error: Error) => {
+        if (isExpectedCleanupNavigationError(error.message)) return;
         cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
       };
       const onResponse = (response: { status(): number; url(): string }) => {
@@ -5271,61 +5647,233 @@ async function runAuthoringFuzzQa(
           cleanupErrors.push(`HTTP ${response.status()} ${response.url()}`);
         }
       };
-      if (deckId && authoringSucceeded) {
-        page.on("console", onConsole);
-        page.on("pageerror", onPageError);
-        page.on("response", onResponse);
-      }
+      const monitorCleanupPage = (target: Page) => {
+        if (!authoringSucceeded || monitoredPages.has(target)) return;
+        trackCleanupRequests(target);
+        target.on("console", onConsole);
+        target.on("pageerror", onPageError);
+        target.on("response", onResponse);
+        monitoredPages.add(target);
+      };
+      const getCleanupPage = async (): Promise<Page> => {
+        if (
+          page &&
+          canReuseAuthoringFuzzCleanupPage(
+            page.isClosed(),
+            unavailableCleanupPages.has(page),
+          )
+        ) {
+          lastCleanupPage = page;
+          monitorCleanupPage(page);
+          return page;
+        }
+        if (
+          recoveryPage &&
+          canReuseAuthoringFuzzCleanupPage(
+            recoveryPage.isClosed(),
+            unavailableCleanupPages.has(recoveryPage),
+          )
+        ) {
+          lastCleanupPage = recoveryPage;
+          monitorCleanupPage(recoveryPage);
+          return recoveryPage;
+        }
+        const createdRecoveryPage = await runSetupAsCouldNotRun(
+          "could not create a fresh authoring fuzz cleanup page",
+          createPage,
+        );
+        recoveryPage = createdRecoveryPage;
+        recoveryPages.add(createdRecoveryPage);
+        lastCleanupPage = createdRecoveryPage;
+        trackCleanupRequests(createdRecoveryPage);
+        createdRecoveryPage.on("crash", () => {
+          unavailableCleanupPages.add(createdRecoveryPage);
+        });
+        createdRecoveryPage.on("close", () => {
+          unavailableCleanupPages.add(createdRecoveryPage);
+        });
+        try {
+          await runSetupAsCouldNotRun(
+            "could not navigate the fresh authoring fuzz cleanup page",
+            () =>
+              createdRecoveryPage.goto(`${base}/home`, {
+                waitUntil: "domcontentloaded",
+              }),
+          );
+          await runSetupAsCouldNotRun(
+            "could not sign in the fresh authoring fuzz cleanup page",
+            () => ensureSignedIn(createdRecoveryPage),
+          );
+        } catch (error) {
+          unavailableCleanupPages.add(createdRecoveryPage);
+          recoveryPage = null;
+          if (!createdRecoveryPage.isClosed()) {
+            try {
+              await createdRecoveryPage.close();
+            } catch (closeError) {
+              recordCleanupFailure(
+                "could not close a failed recovery page",
+                closeError,
+                createdRecoveryPage,
+              );
+            }
+          }
+          throw error;
+        }
+        monitorCleanupPage(createdRecoveryPage);
+        return createdRecoveryPage;
+      };
       try {
-        if (deckId) {
+        if (
+          shouldLookUpAuthoringFuzzScratchDeck(
+            createAttempted,
+            deckId,
+            createError,
+          )
+        ) {
           try {
-            if ((await editorState(page, slideId)).editing) {
-              await exitEdit(page, slideId, "escape");
+            // A timed-out create can commit after the client stops waiting.
+            const recovery = await retryAuthoringFuzzScratchDeckLookup(
+              async () => {
+                const lookupPage = await getCleanupPage();
+                return action(
+                  lookupPage,
+                  "list-decks",
+                  {
+                    createdBy: "me",
+                    search: scratchTitle,
+                    light: "true",
+                    limit: "10",
+                  },
+                  "GET",
+                  5_000,
+                );
+              },
+              scratchTitle,
+            );
+            if (recovery.status === "found") {
+              deckId = recovery.deckId;
+            } else {
+              cleanupErrors.push(
+                recovery.status === "missing-decks"
+                  ? "list-decks response omitted its decks array after ambiguous creation"
+                  : "list-decks found no exact scratch deck after ambiguous creation",
+              );
             }
           } catch (error) {
-            cleanupErrors.push(`could not exit editing: ${String(error)}`);
+            recordCleanupFailure(
+              "could not look up scratch deck after ambiguous creation",
+              error,
+            );
+          }
+        }
+        if (deckId) {
+          try {
+            const cleanupPage = await getCleanupPage();
+            if (
+              cleanupPage === page &&
+              (await editorState(cleanupPage, slideId)).editing
+            ) {
+              await exitEdit(cleanupPage, slideId, "escape");
+            }
+          } catch (error) {
+            recordCleanupFailure("could not exit editing", error);
           }
           if (authoringSucceeded) {
             try {
-              await settleSaved(page, deckId, slideId, () => 0);
+              const cleanupPage = await getCleanupPage();
+              await settleSaved(cleanupPage, deckId, slideId, () => 0);
             } catch (error) {
-              cleanupErrors.push(`could not settle saves: ${String(error)}`);
+              recordCleanupFailure("could not settle saves", error);
             }
           }
           try {
-            await page.goto(`${base}/home`, {
-              waitUntil: "domcontentloaded",
-              timeout: 120_000,
-            });
+            const cleanupPage = await getCleanupPage();
+            cleanupNavigationCandidates = [
+              ...cleanupRequestStartTimes.entries(),
+            ]
+              .filter(([, request]) => request.page === cleanupPage)
+              .map(([request, { startedAt }]) => {
+                const url = request.url();
+                return {
+                  url,
+                  pathname: new URL(url).pathname,
+                  method: request.method(),
+                  startedAt,
+                  requestWasPendingAtNavigation: true as const,
+                };
+              });
+            cleanupNavigationPending = true;
+            try {
+              await cleanupPage.goto(`${base}/home`, {
+                waitUntil: "domcontentloaded",
+                timeout: 120_000,
+              });
+            } finally {
+              cleanupNavigationPending = false;
+              cleanupNavigationCandidates = [];
+            }
           } catch (error) {
-            cleanupErrors.push(
-              `could not leave scratch deck: ${String(error)}`,
-            );
+            recordCleanupFailure("could not leave scratch deck", error);
           }
           try {
-            await action(page, "delete-deck", { id: deckId }, "DELETE");
+            const cleanupPage = await getCleanupPage();
+            await action(cleanupPage, "delete-deck", { id: deckId }, "DELETE");
           } catch (error) {
-            cleanupErrors.push(
-              `could not delete scratch deck: ${String(error)}`,
-            );
+            recordCleanupFailure("could not delete scratch deck", error);
           }
         }
       } finally {
-        if (deckId && authoringSucceeded) {
-          page.off("console", onConsole);
-          page.off("pageerror", onPageError);
-          page.off("response", onResponse);
+        for (const monitoredPage of monitoredPages) {
+          if (monitoredPage.isClosed()) continue;
+          monitoredPage.off("console", onConsole);
+          monitoredPage.off("pageerror", onPageError);
+          monitoredPage.off("response", onResponse);
         }
+        for (const [trackedPage, listeners] of cleanupRequestTrackingPages) {
+          if (trackedPage.isClosed()) continue;
+          trackedPage.off("request", listeners.onRequest);
+          trackedPage.off("requestfinished", listeners.onRequestSettled);
+          trackedPage.off("requestfailed", listeners.onRequestSettled);
+        }
+      }
+      const closePage = async (target: Page, label: string) => {
+        if (target.isClosed()) return;
+        try {
+          await target.close();
+        } catch (error) {
+          recordCleanupFailure(label, error, target);
+        }
+      };
+      if (page) await closePage(page, "could not close authoring page");
+      for (const cleanupPage of recoveryPages) {
+        await closePage(cleanupPage, "could not close recovery page");
       }
       if (cleanupErrors.length) {
         const problem = `seed ${seed}: scratch deck cleanup failed (${cleanupErrors.join("; ")})`;
-        problems.push(problem);
+        cleanupProblems.push(problem);
         console.error(`[edit-fidelity] ${problem}`);
       }
     }
+    if (seedHarnessUnavailable) {
+      harnessUnavailable = seedHarnessUnavailable;
+      break;
+    }
   }
-  if (problems.length) {
-    return problems;
+  if (harnessUnavailable) {
+    const report = formatAuthoringFuzzUnavailable(
+      harnessUnavailable.message,
+      problems,
+      cleanupProblems,
+    );
+    if (authoringFuzzUnavailableExitCode(problems.length) === 1) {
+      console.error(`[edit-fidelity] authoring fuzz incomplete:\n${report}`);
+      return problems;
+    }
+    throw new CouldNotRun(report);
+  }
+  if (problems.length || cleanupProblems.length) {
+    return [...problems, ...cleanupProblems];
   }
   console.log(
     `[edit-fidelity] ${seeds} seeded authoring runs of ${steps} steps passed in ${browserName}; profiles: ${Array.from(exercisedProfiles).join(", ")}`,
@@ -6654,6 +7202,22 @@ async function main() {
     });
     // The local app can still be compiling when a new page first opens /home.
     context.setDefaultNavigationTimeout(120_000);
+    // Observe link failures before the app starts injecting slide stylesheets.
+    await context.addInitScript(() => {
+      window.addEventListener(
+        "error",
+        (event) => {
+          const target = event.target;
+          if (
+            target instanceof HTMLLinkElement &&
+            target.relList.contains("stylesheet")
+          ) {
+            target.dataset.editFidelityLoadError = "true";
+          }
+        },
+        true,
+      );
+    });
     const navigatorPlatform =
       lineKeyPlatform === "darwin"
         ? "MacIntel"
@@ -6773,19 +7337,17 @@ async function main() {
     }
 
     if (authoringFuzzOnly) {
-      const page = await context.newPage();
       const problems = await runAuthoringFuzzQa(
-        page,
+        () => context.newPage(),
         base,
         cases,
         fuzzSeed,
         fuzzSteps,
         fuzzSeeds,
       );
-      await page.close();
       if (problems.length) {
         console.error(
-          `[edit-fidelity] authoring fuzz completed with ${problems.length} failed seed or cleanup check(s); details are printed above`,
+          `[edit-fidelity] authoring fuzz stopped with ${problems.length} failed seed or cleanup check(s); details are printed above`,
         );
         return 1;
       }
@@ -7018,7 +7580,30 @@ async function warmUp(page: Page, base: string) {
     ],
   });
   const deckId = String(created.id ?? created.deckId);
-  await openSlide(page, base, deckId, 0, "warm-1");
+  // The first editor route can trigger Vite dependency optimization and a
+  // full-page reload; let that cold browser warm-up finish before retrying.
+  const browserErrors: string[] = [];
+  const onConsole = (message: any) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  };
+  const onPageError = (error: Error) => browserErrors.push(error.message);
+  page.on("console", onConsole);
+  page.on("pageerror", onPageError);
+  try {
+    await openSlide(page, base, deckId, 0, "warm-1", {
+      canvasTimeoutMs: 120_000,
+    });
+  } catch (error) {
+    if (browserErrors.length) {
+      console.error(
+        `[edit-fidelity] warm-up browser errors: ${browserErrors.slice(-20).join(" | ")}`,
+      );
+    }
+    throw error;
+  } finally {
+    page.off("console", onConsole);
+    page.off("pageerror", onPageError);
+  }
   const [target] = await listTargets(page, "warm-1");
   if (target && (await enterEdit(page, "warm-1", target.point, []))) {
     await exitEdit(page, "warm-1", "escape");

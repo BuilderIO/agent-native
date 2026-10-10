@@ -43,7 +43,7 @@ vi.mock("../../../design-system/index.js", async (importOriginal) => {
   };
 });
 
-import { AgentKitClient } from "@agent-native/agentkit/client";
+import { AgentKitClient as AgentKitClientImplementation } from "@agent-native/agentkit/client";
 import type { AgentTransport } from "@agent-native/agentkit/protocol";
 import {
   SESSION_REPLAY_BLOCK_ATTRIBUTE,
@@ -51,13 +51,56 @@ import {
 } from "@agent-native/core/client/session-replay-privacy";
 
 import { getComposerDraftKey } from "../../../composer/draft-key.js";
+import { ComposerRuntimeAdaptersProvider } from "../../../composer/runtime-adapters.js";
 import {
   AgentActivityItem,
   AgentInteractionItem,
-  AgentKitChat,
+  AgentKitChat as AgentKitChatImplementation,
   AgentMessageActions,
 } from "./components.js";
 import { AgentKitProvider } from "./context.js";
+
+class AgentKitClient extends AgentKitClientImplementation {
+  constructor(
+    options: ConstructorParameters<typeof AgentKitClientImplementation>[0],
+  ) {
+    super({ ...options, aiSetupReadiness: "not-applicable" });
+  }
+}
+
+type TestProviderStatus = "configured" | "unknown" | "missing" | "unavailable";
+
+type AgentKitChatTestProps = Parameters<
+  typeof AgentKitChatImplementation
+>[0] & {
+  testProviderStatus?: TestProviderStatus;
+  fetchTestProviderStatus?: () => Promise<TestProviderStatus>;
+};
+
+function AgentKitChat({
+  testProviderStatus = "configured",
+  fetchTestProviderStatus,
+  ...props
+}: AgentKitChatTestProps) {
+  return (
+    <ComposerRuntimeAdaptersProvider
+      adapters={{
+        models: {
+          useAgentEngineConfigured: () => ({
+            missing: testProviderStatus === "missing",
+            state: testProviderStatus,
+          }),
+          fetchAgentEngineConfiguredState: async () =>
+            fetchTestProviderStatus
+              ? fetchTestProviderStatus()
+              : testProviderStatus,
+        },
+      }}
+    >
+      <AgentKitChatImplementation {...props} />
+    </ComposerRuntimeAdaptersProvider>
+  );
+}
 
 describe("AgentActivityItem replay privacy", () => {
   it.each(["failed", "completed"] as const)(
@@ -246,8 +289,8 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
-  it("announces async preflight when the transcript slot is custom", async () => {
-    const preflight = Promise.withResolvers<boolean>();
+  it("keeps provider verification progress on the send button", async () => {
+    const preflight = Promise.withResolvers<TestProviderStatus>();
     const client = new AgentKitClient({
       transport: {
         async startRun() {
@@ -283,11 +326,13 @@ describe("AgentKitChat interactions", () => {
             }}
           >
             <AgentKitChat
+              testProviderStatus="unknown"
+              fetchTestProviderStatus={() => preflight.promise}
               composerProps={{
                 composerRef,
                 autoFocus: false,
                 modelStatusChecksEnabled: false,
-                onBeforeSubmit: () => preflight.promise,
+                requireAgentEngine: true,
                 voiceEnabled: false,
               }}
             />
@@ -308,23 +353,23 @@ describe("AgentKitChat interactions", () => {
       });
 
       expect(editor.textContent).toBe("");
-      expect(container.querySelector('[role="status"]')?.textContent).toBe(
-        "Thinking",
-      );
       expect(send.disabled).toBe(true);
-      expect(send.getAttribute("aria-busy")).toBeNull();
-      expect(send.querySelector(".animate-spin")).toBeNull();
+      expect(send.getAttribute("aria-busy")).toBe("true");
+      expect(send.querySelector(".animate-spin")).not.toBeNull();
+      expect(container.querySelector('[role="status"]')).toBeNull();
 
       await act(async () => {
-        preflight.resolve(false);
+        preflight.resolve("configured");
         await preflight.promise;
       });
 
-      expect(editor.textContent).toBe("Check this message");
-      expect(send.disabled).toBe(false);
-      expect(container.querySelector('[role="status"]')).toBeNull();
+      expect(
+        container.querySelector('[data-role="user"]')?.textContent,
+      ).toContain("Check this message");
+      expect(send.getAttribute("aria-busy")).toBeNull();
+      expect(send.querySelector(".animate-spin")).toBeNull();
     } finally {
-      preflight.resolve(false);
+      preflight.resolve("configured");
       await act(async () => root.unmount());
       await client.shutdown();
       container.remove();
@@ -642,6 +687,102 @@ describe("AgentKitChat interactions", () => {
         root.unmount();
         await Promise.resolve();
       });
+      container.remove();
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
+  it("blocks an edit before creating a fork when AI setup is missing", async () => {
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const forkThread = vi.fn(async (input) => ({
+      id: `${input.threadId}-fork`,
+      createdAt: "2026-09-26T00:00:00.000Z",
+      updatedAt: "2026-09-26T00:00:00.000Z",
+    }));
+    const startRun = vi.fn(async () => ({ runId: "run-edit-blocked" }));
+    const transport: AgentTransport = {
+      capabilities: { threadForking: true },
+      assertAiSetupReady,
+      forkThread,
+      startRun,
+      async *subscribeToRun() {},
+      async cancelRun() {},
+      async getThreadSnapshot(threadId) {
+        return {
+          id: threadId,
+          createdAt: "2026-09-26T00:00:00.000Z",
+          updatedAt: "2026-09-26T00:00:00.000Z",
+          messages: [
+            {
+              id: "user-edit-blocked",
+              role: "user",
+              parts: [{ type: "text", text: "Keep my prompt" }],
+            },
+          ],
+        };
+      },
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-edit-blocked");
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-edit-blocked"
+            onThreadForked={vi.fn()}
+          >
+            <AgentKitChat composerProps={{ modelStatusChecksEnabled: false }} />
+          </AgentKitProvider>,
+        );
+        await Promise.resolve();
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('button[aria-label="Edit message"]')
+          ?.click();
+        await Promise.resolve();
+      });
+      const editor = container.querySelector<HTMLElement>(
+        '[contenteditable="true"]',
+      );
+      expect(editor?.textContent).toBe("Keep my prompt");
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            '[data-agent-composer-slot="send-button"]',
+          )
+          ?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(forkThread).not.toHaveBeenCalled();
+      expect(startRun).not.toHaveBeenCalled();
+      expect(editor?.textContent).toBe("Keep my prompt");
+    } finally {
+      await act(async () => {
+        root.unmount();
+        await Promise.resolve();
+      });
+      await client.shutdown();
       container.remove();
       if (previousActEnvironment === undefined) {
         delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;

@@ -347,7 +347,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "Contexto de clipe legível pelo agente",
     agentInstructions:
-      "Busque agentContextUrl para a transcrição e o quadro JPEG URLs. Busque o quadro URLs para VER a tela, não apenas ler a transcrição.",
+      "Abra agentContextUrl primeiro. Leia a transcrição completa em apis.transcript e busque recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagens. Preserve id e agent_access exatamente como fornecidos. Em qualquer erro, confira failureKind, error e nextStep no JSON. Se failureKind=access, explique que o link não dá acesso; para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu Compartilhar do Clips e envie o link gerado. Se failureKind=media enquanto a transcrição funciona, explique que não foi possível recuperar a mídia armazenada e que outro link não resolverá. Se failureKind=processing, siga nextStep; isso não significa que o clipe esteja ausente ou que o link seja inválido. Se failureKind=expired, peça ao proprietário que amplie ou remova a expiração do clipe no menu Compartilhar, salve e então escolha {{shareWithAgents}} e envie o novo link.",
     untitledClip: "Clipe sem título",
     incorrectPassword: "Senha incorreta",
     passwordProtected: "Este clipe é protegido por senha",
@@ -611,7 +611,7 @@ const messages = {
     openInCodex: "Abrir no Codex",
     copyAgentPrompt: "Copiar prompt para agente",
     agentPrompt:
-      "Busque esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Use transcript.segments para o contexto falado, busque recommendedFrames ou as URLs da API de quadros para ver a tela e confira browserDiagnostics, se presente, para logs de console redigidos e metadados de solicitações fetch/XHR.",
+      "Leia esta URL de contexto para agentes do Clips: {{agentContextUrl}}. Leia a transcrição completa em apis.transcript e busque recommendedFrames[].url (ou apis.frame.urlTemplate com atMs) como imagens. Preserve id e agent_access exatamente como fornecidos. Em qualquer erro, confira failureKind, error e nextStep no JSON. Se failureKind=access, explique que o link não dá acesso; para um clipe privado, peça ao proprietário que escolha {{shareWithAgents}} no menu Compartilhar do Clips e envie o link gerado. Se failureKind=media enquanto a transcrição funciona, explique que não foi possível recuperar a mídia armazenada e que outro link não resolverá. Se failureKind=processing, siga nextStep; isso não significa que o clipe esteja ausente ou que o link seja inválido. Se failureKind=expired, peça ao proprietário que amplie ou remova a expiração do clipe no menu Compartilhar, salve e então escolha {{shareWithAgents}} e envie o novo link. Use browserDiagnostics quando disponível para relatar um problema.",
     agentTokenDescription:
       "Link temporário somente leitura para agentes, porque este clipe não é público. Expira em 2 horas.",
     agentPublicDescription:

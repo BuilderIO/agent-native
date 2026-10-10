@@ -10,6 +10,11 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import {
+  FILTER_TYPES,
+  MULTI_SELECT_EMPTY,
+  normalizeMultiSelectValue,
+} from "../app/pages/adhoc/sql-dashboard/filter-vars";
+import {
   interpolate,
   interpolateDashboardPanelSql,
 } from "../app/pages/adhoc/sql-dashboard/interpolate";
@@ -292,6 +297,77 @@ function collectDashboardConfigIssues(
       }
       const id = typeof f.id === "string" ? f.id.trim() : "";
       if (!id) return dashboardIssue(`config.filters[${i}].id is required`);
+      // isDashboardFilter rejects a non-string label or an unknown type, so a save that passes here would drop the whole filter set on read.
+      if (typeof f.label !== "string") {
+        return dashboardIssue(`config.filters[${i}].label must be a string`);
+      }
+      if (!(FILTER_TYPES as readonly unknown[]).includes(f.type)) {
+        return dashboardIssue(
+          `config.filters[${i}].type must be one of ${FILTER_TYPES.join(", ")}`,
+        );
+      }
+      // The read path (isDashboardFilter) rejects more than 100 options, so a save that passes here would make the dashboard unreadable.
+      if (Array.isArray(f.options) && f.options.length > 100) {
+        return dashboardIssue(
+          `config.filters[${i}].options can have at most 100 entries`,
+        );
+      }
+      // isDashboardFilter rejects these shapes for every filter type, so a save that passes here would drop the whole filter set on read.
+      if (f.options !== undefined && !Array.isArray(f.options)) {
+        return dashboardIssue(`config.filters[${i}].options must be an array`);
+      }
+      const options: unknown[] = Array.isArray(f.options) ? f.options : [];
+      for (let j = 0; j < options.length; j++) {
+        const option = options[j] as {
+          value?: unknown;
+          label?: unknown;
+        } | null;
+        if (
+          !option ||
+          typeof option !== "object" ||
+          typeof option.value !== "string" ||
+          typeof option.label !== "string"
+        ) {
+          return dashboardIssue(
+            `config.filters[${i}].options[${j}] must be an object with string value and label`,
+          );
+        }
+        // The selection is comma-joined in the URL, so a multi-select value cannot be empty or contain ",". MULTI_SELECT_EMPTY is reserved for the cleared state.
+        if (
+          f.type === "multi-select" &&
+          (option.value === "" ||
+            option.value.includes(",") ||
+            option.value === MULTI_SELECT_EMPTY)
+        ) {
+          return dashboardIssue(
+            `config.filters[${i}].options[${j}].value must be non-empty, cannot contain ",", and cannot be "${MULTI_SELECT_EMPTY}" in a multi-select filter`,
+          );
+        }
+      }
+      if (f.default !== undefined && typeof f.default !== "string") {
+        return dashboardIssue(`config.filters[${i}].default must be a string`);
+      }
+      if (f.type === "multi-select") {
+        if (typeof f.default === "string" && f.default !== "") {
+          const named = normalizeMultiSelectValue(f.default);
+          // A default that normalizes to nothing would show All while the query still gets a non-empty value.
+          if (named === "") {
+            return dashboardIssue(
+              `config.filters[${i}].default must name at least one option value in a multi-select filter`,
+            );
+          }
+          // Each default token must be a configured option: a token with no checkbox would be applied to SQL unseen.
+          const values = new Set(
+            options.map((option) => (option as { value: string }).value),
+          );
+          const unknown = named.split(",").find((token) => !values.has(token));
+          if (unknown !== undefined) {
+            return dashboardIssue(
+              `config.filters[${i}].default names "${unknown}", which is not one of its options`,
+            );
+          }
+        }
+      }
       if (seen.has(id)) continue;
       seen.add(id);
       deduped.push(f);

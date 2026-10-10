@@ -7,7 +7,6 @@ import {
 } from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
-import { track } from "@agent-native/core/tracking";
 import {
   recordGenerationCreativeContext,
   validateGenerationCreativeContext,
@@ -24,6 +23,7 @@ import {
   HYGIENE_ACTION_DESCRIPTION,
   slideHygieneResult,
 } from "../server/lib/slide-hygiene.js";
+import { trackSlides } from "../server/lib/slides-tracking.js";
 import {
   resolveDefaultDesignSystemId,
   resolveDesignSystemIdByTitle,
@@ -44,6 +44,7 @@ import {
   rebindCreativeContextSlideLabels,
 } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
+import { trackDeckCreationStarted } from "./_deck-tracking.js";
 import {
   assertDeckWriteApplied,
   deckRevisionWhere,
@@ -170,18 +171,6 @@ function generationTerminalEvent(signal?: AbortSignal): {
     outcome: "cancelled",
     failure_code: "cancelled",
   };
-}
-
-function trackGenerationEvent(
-  name: string,
-  properties: Record<string, unknown>,
-  source: Parameters<typeof track>[2],
-): void {
-  try {
-    track(name, properties, source);
-  } catch {
-    // coercion-ok: analytics is best-effort and must not affect deck writes.
-  }
 }
 
 export default defineAction({
@@ -338,11 +327,9 @@ export default defineAction({
     const tracksGenerationLifecycle =
       actionOwnsGenerationLifecycle && !isEmptyExistingDeckReplacement;
     if (tracksGenerationLifecycle) {
-      trackGenerationEvent(
+      trackSlides(
         "generation_started",
         {
-          app_name: "slides",
-          template_name: "slides",
           generation_attempt_id: generationAttemptId,
           source: "create_deck_action",
           generation_mode: incrementalGeneration ? "incremental" : "bulk",
@@ -350,6 +337,23 @@ export default defineAction({
           has_reference_deck: Boolean(contextPackId),
           slide_count: slides.length,
           ...(deckId ? { output_id: deckId } : {}),
+        },
+        ctx,
+      );
+    }
+    // Rewriting an existing deck is an edit, not the start of a new deck.
+    if (actionOwnsGenerationLifecycle && !deckId) {
+      // The deck id is minted later, so the start joins its deck_created on
+      // generation_attempt_id.
+      trackDeckCreationStarted(
+        undefined,
+        undefined,
+        {
+          generationAttemptId,
+          mode: "new",
+          ...(explicitDesignSystemId || designSystem
+            ? { designSystemId: explicitDesignSystemId || String(designSystem) }
+            : {}),
         },
         ctx,
       );
@@ -533,11 +537,9 @@ export default defineAction({
         const postProcessStatus = postProcessErrorType ? "failed" : "completed";
         if (postProcessErrorType && tracksGenerationLifecycle) {
           const generationEndedAt = Date.now();
-          trackGenerationEvent(
+          trackSlides(
             "generation_outcome_unresolved",
             {
-              app_name: "slides",
-              template_name: "slides",
               generation_attempt_id: generationAttemptId,
               source: "create_deck_action",
               generation_mode: "bulk",
@@ -554,11 +556,9 @@ export default defineAction({
           );
         } else if (!postProcessErrorType && tracksGenerationLifecycle) {
           const generationEndedAt = Date.now();
-          trackGenerationEvent(
+          trackSlides(
             "generation_completed",
             {
-              app_name: "slides",
-              template_name: "slides",
               generation_attempt_id: generationAttemptId,
               source: "create_deck_action",
               generation_mode: "bulk",
@@ -573,11 +573,9 @@ export default defineAction({
             ctx,
           );
         }
-        trackGenerationEvent(
+        trackSlides(
           "deck_edited",
           {
-            app_name: "slides",
-            template_name: "slides",
             ...(browserGenerationAttemptId !== undefined ||
             tracksGenerationLifecycle
               ? { generation_attempt_id: generationAttemptId }
@@ -679,11 +677,9 @@ export default defineAction({
       const postProcessStatus = postProcessErrorType ? "failed" : "completed";
       if (postProcessErrorType && tracksGenerationLifecycle) {
         const generationEndedAt = Date.now();
-        trackGenerationEvent(
+        trackSlides(
           "generation_outcome_unresolved",
           {
-            app_name: "slides",
-            template_name: "slides",
             generation_attempt_id: generationAttemptId,
             source: "create_deck_action",
             generation_mode: incrementalGeneration ? "incremental" : "bulk",
@@ -701,11 +697,9 @@ export default defineAction({
       }
       if (incrementalGeneration) {
         const generationEndedAt = Date.now();
-        trackGenerationEvent(
+        trackSlides(
           "generation_request_accepted",
           {
-            app_name: "slides",
-            template_name: "slides",
             generation_attempt_id: generationAttemptId,
             source: "create_deck_action",
             generation_mode: incrementalGeneration ? "incremental" : "bulk",
@@ -721,11 +715,9 @@ export default defineAction({
         tracksGenerationLifecycle
       ) {
         const generationEndedAt = Date.now();
-        trackGenerationEvent(
+        trackSlides(
           "generation_completed",
           {
-            app_name: "slides",
-            template_name: "slides",
             generation_attempt_id: generationAttemptId,
             source: "create_deck_action",
             generation_mode: "bulk",
@@ -740,12 +732,12 @@ export default defineAction({
           ctx,
         );
       }
-      trackGenerationEvent(
+      trackSlides(
         "deck_created",
         {
-          app_name: "slides",
-          template_name: "slides",
           generation_attempt_id: generationAttemptId,
+          creation_method: "generated",
+          purpose: "direct",
           generation_mode: incrementalGeneration ? "incremental" : "bulk",
           output_id: id,
           output_type: "deck",
@@ -771,11 +763,9 @@ export default defineAction({
       if (tracksGenerationLifecycle) {
         const terminal = generationTerminalEvent(ctx?.signal);
         const generationEndedAt = Date.now();
-        trackGenerationEvent(
+        trackSlides(
           terminal.name,
           {
-            app_name: "slides",
-            template_name: "slides",
             generation_attempt_id: generationAttemptId,
             source: "create_deck_action",
             ...(generationOutputId

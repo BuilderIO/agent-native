@@ -70,6 +70,7 @@ it("restores both deleted screens into the surviving variant set", async () => {
       .mockResolvedValueOnce({ id: "restored-a" }),
   };
   const queryClient = {
+    cancelQueries: vi.fn(async () => []),
     invalidateQueries: vi.fn(),
     setQueryData: vi.fn(),
   };

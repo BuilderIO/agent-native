@@ -130,6 +130,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "agentChat.recovery.copyFailed": "Copy failed",
         "agentChat.recovery.retryAttachmentUnavailable":
           "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
+        "agentChat.recovery.retryWithoutAttachment": "Retry without attachment",
         "agentChat.recovery.credentialRejected":
           "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
         "agentChat.recovery.newChatHint":
@@ -335,6 +336,11 @@ describe("run recovery surfaces", () => {
     expect(new URL(upgradeLink!.href).searchParams.get("utm_content")).toBe(
       "chat_credit_limit",
     );
+    const dismissButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Dismiss"]',
+    );
+    expect(dismissButton?.className).toContain("absolute");
+    expect(dismissButton?.className).toContain("top-2");
 
     await act(async () => {
       root.render(
@@ -595,6 +601,118 @@ describe("run recovery surfaces", () => {
     expect(copyButton?.title).toBe("Copy debug info");
     expect(retryButton?.textContent).toBe("");
     expect(newChatButton?.textContent).toBe("");
+  });
+
+  it("does not offer Retry for a terminal invalid-attachment provider error", async () => {
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.",
+              errorCode: "invalid_attachment",
+              recoverable: false,
+            }}
+            onContinue={vi.fn()}
+            onRetry={onRetry}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("export a smaller PNG");
+    expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
+    expect(onRetry).not.toHaveBeenCalled();
+  });
+
+  it("offers a non-retrying recovery that resends without attachments", async () => {
+    const onRetryWithoutAttachment = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message:
+                "The model provider rejected this attachment's format or size.",
+              errorCode: "invalid_attachment",
+              recoverable: false,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onRetryWithoutAttachment={onRetryWithoutAttachment}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (candidate) =>
+        candidate.textContent?.trim() === "Retry without attachment",
+    );
+    expect(button).toBeTruthy();
+    await act(async () => button?.click());
+    expect(onRetryWithoutAttachment).toHaveBeenCalledOnce();
+  });
+
+  it("offers only an attachment-free retry for a rejected attachment", async () => {
+    const onRetry = vi.fn();
+    const onRetryWithoutAttachments = vi.fn();
+    const onContinue = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "The provider rejected this attachment.",
+              errorCode: "invalid_attachment",
+              runId: "run-attachment",
+              // A misreported retryable flag must not bring plain Retry back.
+              recoverable: true,
+            }}
+            onContinue={onContinue}
+            onRetry={onRetry}
+            onRetryWithoutAttachments={onRetryWithoutAttachments}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const buttons = Array.from(container.querySelectorAll("button"));
+    const retryWithout = buttons.find(
+      (button) => button.textContent?.trim() === "Retry without attachment",
+    );
+    expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
+    expect(
+      buttons.some((button) => button.textContent?.trim() === "Continue"),
+    ).toBe(false);
+    expect(
+      container.querySelector('button[aria-label="Copy debug info"]'),
+    ).not.toBeNull();
+
+    await act(async () => retryWithout?.click());
+    expect(onRetryWithoutAttachments).toHaveBeenCalledOnce();
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(onContinue).not.toHaveBeenCalled();
   });
 
   it("gives Continue vertical padding and leaves icon actions unframed", async () => {
@@ -1085,6 +1203,26 @@ describe("run recovery surfaces", () => {
     expect((retryButton as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("keeps the Builder mark out of the shared Use Builder.io button", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupCard />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const builderButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Use Builder.io",
+    );
+    expect(builderButton).toBeTruthy();
+    expect(builderButton?.querySelector("svg")).toBeNull();
+  });
+
   it("keeps provider setup dismissible when requested", async () => {
     const onDismiss = vi.fn();
 
@@ -1407,6 +1545,10 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Connect AI");
     expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).not.toContain("The agent hit an error");
+    const builderButton = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Use Builder.io",
+    );
+    expect(builderButton?.querySelector("svg")).toBeNull();
   });
 
   it("routes rejected provider keys to API settings without retrying or dismissing", async () => {

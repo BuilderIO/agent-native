@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  getHeader,
   getMethod,
   getResponseStatus,
   setResponseHeader,
@@ -15,24 +14,25 @@ import {
   enterDatabaseRequestTelemetry,
   type DatabaseRequestTelemetry,
 } from "../db/request-telemetry.js";
-import { getDatabaseRuntimeFingerprint } from "../db/runtime-diagnostics.js";
-import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   flushObservability,
+  recordHttpServerHandoff,
   recordHttpServerRequest,
 } from "../observability/metrics.js";
 import {
   createTrackingEventScope,
+  endAgentSpan,
   flushTrackingEvents,
+  startAgentSpan,
   type TrackingEventScope,
 } from "../observability/tracing.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
-import { track } from "../tracking/index.js";
-import { getAppBasePathFromViteEnv } from "./app-base-path.js";
+import {
+  getAppBasePathFromViteEnv,
+  stripAppBasePath,
+} from "./app-base-path.js";
 import { httpRouteForRequest } from "./http-route.js";
-import { runWithRequestContext } from "./request-context.js";
 
-const TELEMETRY_EVENT_NAME = "http.response";
 const REQUEST_ID_HEADER = "x-agent-native-request-id";
 const TRACKING_INGEST_PATHS = new Set([
   "/track",
@@ -97,23 +97,10 @@ interface HttpRequestTelemetryState {
   startupDb?: DatabaseRequestTelemetry;
 }
 
-function envValue(key: string): string | undefined {
-  const value = process.env[key]?.trim();
-  return value || undefined;
-}
-
 function boolEnv(key: string): boolean {
   return ["1", "true", "yes", "on"].includes(
     (process.env[key] ?? "").trim().toLowerCase(),
   );
-}
-
-function sampleRate(): number {
-  const raw = envValue("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE");
-  if (!raw) return 0.1;
-  const parsed = Number.parseFloat(raw);
-  if (!Number.isFinite(parsed)) return 0.1;
-  return Math.max(0, Math.min(1, parsed));
 }
 
 function shouldDisableTelemetry(): boolean {
@@ -263,87 +250,11 @@ export function normalizeHttpTelemetryPath(pathname: string): string {
     .join("/");
 }
 
-function statusClass(statusCode: number): string {
-  if (!Number.isFinite(statusCode) || statusCode < 100) return "unknown";
-  return `${Math.floor(statusCode / 100)}xx`;
-}
-
-function routeKind(pathname: string): string {
-  const appBasePath = getAppBasePathFromViteEnv();
-  const frameworkPath =
-    appBasePath && pathname.startsWith(`${appBasePath}/`)
-      ? pathname.slice(appBasePath.length) || "/"
-      : pathname;
-  if (
-    isMcpPublicPath(frameworkPath) ||
-    frameworkPath === "/_agent-native" ||
-    frameworkPath.startsWith("/_agent-native/")
-  ) {
-    return "framework";
-  }
-  if (pathname === "/api" || pathname.startsWith("/api/")) return "api";
-  if (pathname.startsWith("/.well-known/")) return "well-known";
-  return "app";
-}
-
-function hostForEvent(event: H3Event): string | undefined {
-  return (
-    getHeader(event, "x-forwarded-host") ??
-    getHeader(event, "host") ??
-    undefined
-  );
-}
-
-function organizationForHost(host: string | undefined): string | undefined {
-  const configured =
-    envValue("AGENT_NATIVE_ANALYTICS_ORG_NAME") ??
-    envValue("AGENT_NATIVE_ORG_NAME");
-  if (configured) return configured;
-  const normalized = host?.split(":")[0]?.toLowerCase();
-  return normalized?.endsWith(".agent-native.com") ||
-    normalized === "agent-native.com"
-    ? "Builder.io"
-    : undefined;
-}
-
-interface TrackingDecision {
-  track: boolean;
-  sampleRate: number;
-  sampled: boolean;
-}
-
-function trackingDecision(
-  pathname: string,
-  statusCode: number,
-  state: HttpRequestTelemetryState,
-): TrackingDecision {
-  if (shouldDisableTelemetry()) {
-    return { track: false, sampleRate: 0, sampled: false };
-  }
-  if (isTrackingIngestPath(pathname)) {
-    return { track: false, sampleRate: 0, sampled: false };
-  }
-  if (pathname.startsWith("/api/analytics/replay")) {
-    return { track: false, sampleRate: 0, sampled: false };
-  }
-  if (statusCode >= 500) {
-    return { track: true, sampleRate: 1, sampled: false };
-  }
-  if (statusCode >= 400 && statusCode < 500 && state.actionName) {
-    return { track: true, sampleRate: 1, sampled: false };
-  }
-  if (state.requestSequence === 1 || state.startupDb) {
-    return { track: true, sampleRate: 1, sampled: false };
-  }
-  if (Date.now() - state.startedAt >= SLOW_REQUEST_MS) {
-    return { track: true, sampleRate: 1, sampled: false };
-  }
-  if (state.db.errorCount > 0 || state.db.timeoutCount > 0) {
-    return { track: true, sampleRate: 1, sampled: false };
-  }
-  const rate = sampleRate();
-  if (rate <= 0) return { track: false, sampleRate: rate, sampled: true };
-  return { track: Math.random() < rate, sampleRate: rate, sampled: true };
+function shouldRecordRequestSpan(pathname: string): boolean {
+  if (shouldDisableTelemetry()) return false;
+  const appPath = stripAppBasePath(pathname, getAppBasePathFromViteEnv());
+  if (isTrackingIngestPath(appPath)) return false;
+  return !appPath.startsWith("/api/analytics/replay");
 }
 
 function responseStatusCode(event: H3Event, response?: Response): number {
@@ -382,7 +293,6 @@ async function emitTelemetry(
 ): Promise<void> {
   const statusCode = responseStatusCode(event, response);
   const pathname = requestPath(event);
-  const decision = trackingDecision(pathname, statusCode, state);
   const route =
     state.routeTemplate ??
     httpRouteForRequest({
@@ -392,107 +302,84 @@ async function emitTelemetry(
         ?.matchedRoute?.route,
     });
 
-  if (decision.track) {
+  if (shouldRecordRequestSpan(pathname)) {
     try {
-      const host = hostForEvent(event);
-      const actionName = state.actionName;
-      const db = getDatabaseRuntimeFingerprint();
-      runWithRequestContext({ trackingScope: state.trackingScope }, () => {
-        track(TELEMETRY_EVENT_NAME, {
-          source: "server",
-          ...trackingIdentityProperties(),
-          organization: organizationForHost(host),
-          method: getMethod(event),
-          path: normalizeHttpTelemetryPath(pathname),
-          route_kind: routeKind(pathname),
-          route_template: route,
-          ...(actionName ? { action_name: actionName } : {}),
-          status_code: statusCode,
-          status_class: statusClass(statusCode),
-          sample_rate: decision.sampleRate,
-          sample_weight: 1 / decision.sampleRate,
-          sampled: decision.sampled,
-          duration_ms: durationMs,
-          request_id: state.requestId,
-          measurement: "nitro_request",
-          cold_start: state.requestSequence === 1,
-          request_sequence: state.requestSequence,
-          process_age_ms: state.processAgeAtStartMs,
-          boot_to_module_ms: processState.moduleEvalUptimeMs,
-          module_to_request_ms: moduleToRequestMs(state),
-          framework_ready_wait_ms: state.frameworkReadyWaitMs,
-          runtime_provider: runtimeProvider(),
-          function_name: envValue("AWS_LAMBDA_FUNCTION_NAME"),
-          function_memory_mb: envValue("AWS_LAMBDA_FUNCTION_MEMORY_SIZE"),
-          region: envValue("AWS_REGION") ?? envValue("VERCEL_REGION"),
-          host,
-          environment: envValue("NODE_ENV"),
-          deploy_context: envValue("CONTEXT") ?? envValue("VERCEL_ENV"),
-          deploy_id: envValue("DEPLOY_ID") ?? envValue("VERCEL_DEPLOYMENT_ID"),
-          commit_ref:
-            envValue("COMMIT_REF") ??
-            envValue("NETLIFY_COMMIT_REF") ??
-            envValue("VERCEL_GIT_COMMIT_SHA") ??
-            envValue("GIT_COMMIT_SHA"),
-          db_source: db.source,
-          db_url_hash: db.urlHash,
-          db_neon_endpoint: db.neon?.endpointId,
-          db_neon_pooled: db.neon?.pooled,
-          db_measured: state.dbMeasured,
-          db_operation_count: state.db.operationCount,
-          db_query_count: state.db.queryCount,
-          db_rows_returned: state.db.rowsReturned,
-          db_catalog_query_count: state.db.catalogQueryCount,
-          db_migration_table_query_count: state.db.migrationTableQueryCount,
-          db_connect_count: state.db.connectCount,
-          db_retry_count: state.db.retryCount,
-          db_error_count: state.db.errorCount,
-          db_timeout_count: state.db.timeoutCount,
-          db_operation_total_ms: Math.round(state.db.operationTotalMs),
-          db_operation_wall_ms: Math.round(state.db.operationWallMs),
-          db_query_total_ms: Math.round(state.db.queryTotalMs),
-          db_connect_total_ms: Math.round(state.db.connectTotalMs),
-          db_slowest_operation_ms: Math.round(state.db.slowestOperationMs),
-          startup_db_operation_count: state.startupDb?.operationCount,
-          startup_db_query_count: state.startupDb?.queryCount,
-          startup_db_rows_returned: state.startupDb?.rowsReturned,
-          startup_db_catalog_query_count: state.startupDb?.catalogQueryCount,
-          startup_db_migration_table_query_count:
-            state.startupDb?.migrationTableQueryCount,
-          startup_db_connect_count: state.startupDb?.connectCount,
-          startup_db_retry_count: state.startupDb?.retryCount,
-          startup_db_error_count: state.startupDb?.errorCount,
-          startup_db_timeout_count: state.startupDb?.timeoutCount,
-          startup_db_operation_total_ms: state.startupDb
-            ? Math.round(state.startupDb.operationTotalMs)
-            : undefined,
-          startup_db_operation_wall_ms: state.startupDb
-            ? Math.round(state.startupDb.operationWallMs)
-            : undefined,
-          startup_db_query_total_ms: state.startupDb
-            ? Math.round(state.startupDb.queryTotalMs)
-            : undefined,
-          startup_db_connect_total_ms: state.startupDb
-            ? Math.round(state.startupDb.connectTotalMs)
-            : undefined,
-          startup_db_slowest_operation_ms: state.startupDb
-            ? Math.round(state.startupDb.slowestOperationMs)
-            : undefined,
-        });
+      const endTime = Date.now();
+      const span = await startAgentSpan(
+        "http.server",
+        {
+          "http.request.method": getMethod(event),
+          "http.route": route,
+          "http.response.status_code": statusCode,
+          "agent.cold_start": state.requestSequence === 1,
+          "agent.framework_ready_wait_ms": Math.round(
+            state.frameworkReadyWaitMs,
+          ),
+          "agent.db_operation_count": state.db.operationCount,
+          "agent.db_operation_wall_ms": Math.round(state.db.operationWallMs),
+        },
+        null,
+        state.startedAt,
+      );
+      endAgentSpan(span, {
+        status: statusCode >= 500 ? "error" : "unset",
+        endTime,
       });
-      // coercion-ok: response telemetry must never affect request handling.
+      // coercion-ok: optional OTel export must never affect request handling.
     } catch {
-      // Response telemetry is best-effort. Never perturb request handling.
+      // Optional OTel export must never affect request handling.
     }
   }
-  recordHttpServerRequest({
-    method: getMethod(event),
-    statusCode,
-    durationMs,
-    route,
-  });
-  await flushTrackingEvents(state.trackingScope);
-  await flushObservability();
+  const metric = { method: getMethod(event), statusCode, durationMs, route };
+  recordHttpServerRequest(metric);
+  const recordHandoff = () =>
+    recordHttpServerHandoff({
+      ...metric,
+      durationMs: Date.now() - state.startedAt,
+    });
+  const flush = async () => {
+    await flushTrackingEvents(state.trackingScope);
+    await flushObservability();
+  };
+  const waitUntil = responseWaitUntil(event);
+  if (waitUntil) {
+    recordHandoff();
+    waitUntil(flush());
+    return;
+  }
+  await flush();
+  // Recorded after the export it measures, so the next flush carries it.
+  recordHandoff();
+}
+
+type WaitUntil = (promise: Promise<unknown>) => void;
+
+const NETLIFY_CONTEXT_STORE_KEY = Symbol.for(
+  "@netlify/functions/request-context-store",
+);
+
+type NetlifyContextStore = {
+  getStore?: () => { context?: { waitUntil?: unknown } } | undefined;
+};
+
+// h3 holds the Response until the response hook settles, so awaiting the
+// export here delays every reply by up to the flush timeout.
+function responseWaitUntil(event: H3Event): WaitUntil | undefined {
+  const req = event.req as { waitUntil?: unknown } | undefined;
+  if (typeof req?.waitUntil === "function") {
+    return req.waitUntil.bind(req) as WaitUntil;
+  }
+  // Nitro's Netlify entry drops the function context. The Netlify runtime
+  // still keeps it in the AsyncLocalStorage that `getContext()` from
+  // `@netlify/functions` reads, registered under this global symbol.
+  const store = (globalThis as Record<symbol, unknown>)[
+    NETLIFY_CONTEXT_STORE_KEY
+  ] as NetlifyContextStore | undefined;
+  const netlifyContext = store?.getStore?.()?.context;
+  if (typeof netlifyContext?.waitUntil === "function") {
+    return netlifyContext.waitUntil.bind(netlifyContext) as WaitUntil;
+  }
+  return undefined;
 }
 
 function requestTelemetryState(
