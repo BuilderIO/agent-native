@@ -36,8 +36,10 @@ import {
   getAgentChatContextState,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
+  removeAgentChatContextItemAndPersist,
   reportAgentChatSubmitResult,
   refreshAgentChatContext,
+  setAgentChatContextItemAndPersist,
   subscribeAgentChatContext,
   type AgentChatContextItem,
 } from "@agent-native/core/client/agent-chat";
@@ -1845,13 +1847,14 @@ const AgentKitAssistantChatBody = forwardRef<
         filterAgentChatContextItems(
           getAgentChatContextState().items,
           props.contextNamespace,
+          threadId,
         ),
       );
     };
     apply();
     void refreshAgentChatContext().then(apply);
     return subscribeAgentChatContext(apply);
-  }, [props.contextNamespace, props.isActiveComposer]);
+  }, [props.contextNamespace, props.isActiveComposer, threadId]);
 
   useEffect(() => {
     if (seenEventsRef.current.threadId !== threadId) {
@@ -2974,23 +2977,35 @@ const AgentKitAssistantChatBody = forwardRef<
         .concat(item);
       publishAgentChatContextItems(next);
       setContextItems(
-        filterAgentChatContextItems(next, props.contextNamespace),
+        filterAgentChatContextItems(next, props.contextNamespace, threadId),
       );
       if (focus) requestComposerFocus(threadId);
     },
     [props.contextNamespace, requestComposerFocus, threadId],
   );
   const removeContextItem = useCallback(
-    (key: string) => {
+    (key: string, options?: { threadScoped?: boolean }) => {
+      const targetKey = options?.threadScoped ? `${key}:${threadId}` : key;
+      if (options?.threadScoped) {
+        return removeAgentChatContextItemAndPersist(targetKey).then(() => {
+          setContextItems(
+            filterAgentChatContextItems(
+              getAgentChatContextState().items,
+              props.contextNamespace,
+              threadId,
+            ),
+          );
+        });
+      }
       const next = getAgentChatContextState().items.filter(
-        (item) => item.key !== key,
+        (item) => item.key !== targetKey,
       );
       publishAgentChatContextItems(next);
       setContextItems(
-        filterAgentChatContextItems(next, props.contextNamespace),
+        filterAgentChatContextItems(next, props.contextNamespace, threadId),
       );
     },
-    [props.contextNamespace],
+    [props.contextNamespace, threadId],
   );
   const implementPlan = useCallback(() => {
     const canImplement =
@@ -3012,8 +3027,29 @@ const AgentKitAssistantChatBody = forwardRef<
         writeAssistantChatComposerDraft(props.tabId ?? threadId, text);
         setPrefillRevision((revision) => revision + 1);
       },
-      setComposerContextItem: (item, options) =>
-        setContextItem(item, options?.focus !== false),
+      setComposerContextItem: (item, options) => {
+        const focus = options?.focus !== false;
+        if (!options?.threadScoped) {
+          setContextItem(item, focus);
+          return;
+        }
+
+        const scopedItem = {
+          ...item,
+          key: `${item.key}:${threadId}`,
+          targetThreadId: threadId,
+        };
+        return setAgentChatContextItemAndPersist(scopedItem).then(() => {
+          setContextItems(
+            filterAgentChatContextItems(
+              getAgentChatContextState().items,
+              props.contextNamespace,
+              threadId,
+            ),
+          );
+          if (focus) requestComposerFocus(threadId);
+        });
+      },
       removeComposerContextItem: removeContextItem,
       clearComposerContextItems: () => {
         for (const item of contextItems) removeContextItem(item.key);
