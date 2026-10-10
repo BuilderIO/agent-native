@@ -1270,7 +1270,8 @@ describe("tool-call result ledger", () => {
     expect(action.run).not.toHaveBeenCalled();
     const toolDone = events.find((e: any) => e.type === "tool_done");
     expect(toolDone?.isError).toBe(true);
-    expect(toolDone?.result).toContain("timed out after");
+    expect(toolDone?.result).toContain("timed out before the action started");
+    expect(toolDone?.result).not.toMatch(/tool call timed out after/i);
   });
 
   it("does not invoke a timed-out tool when app authorization resolves late", async () => {
@@ -1302,11 +1303,13 @@ describe("tool-call result ledger", () => {
 
     const toolDone = events.find((e: any) => e.type === "tool_done");
     expect(toolDone?.isError).toBe(true);
-    expect(toolDone?.result).toContain("timed out after");
+    expect(toolDone?.result).toContain("timed out before the action started");
     expect(action.run).not.toHaveBeenCalled();
 
+    // A macrotask drains the whole microtask chain behind the authorization
+    // promise; a single microtask flush can finish before the guard runs.
     resolveAuthorization(null);
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(action.run).not.toHaveBeenCalled();
   });

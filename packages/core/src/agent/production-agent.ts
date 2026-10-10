@@ -7307,6 +7307,13 @@ export async function runAgentLoop(opts: {
             throw new Error("Run aborted");
           }
           const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
+          // Only the invoked wording marks a write as possibly run (see
+          // isToolCallTimeoutResult); a timeout before invocation must not use it.
+          let actionInvoked = false;
+          const timeoutMessage = () =>
+            actionInvoked
+              ? `Tool call timed out after ${toolTimeoutMs / 1000} seconds`
+              : `Tool call timed out before the action started after ${toolTimeoutMs / 1000} seconds`;
           const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
           const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
           const requestContext = getRequestContext();
@@ -7320,9 +7327,7 @@ export async function runAgentLoop(opts: {
               actionOrgId,
             );
             if (timeoutSignal.aborted) {
-              throw new Error(
-                `Tool call timed out after ${toolTimeoutMs / 1000} seconds`,
-              );
+              throw new Error(timeoutMessage());
             }
             if (signal.aborted) {
               throw new Error("Run aborted");
@@ -7361,6 +7366,7 @@ export async function runAgentLoop(opts: {
               ...(opts.runId ? { runId: opts.runId } : {}),
               ...(opts.turnId ? { turnId: opts.turnId } : {}),
             };
+            actionInvoked = true;
             return actionEntry.run(
               toolCall.input as Record<string, string>,
               actionContext,
@@ -7442,11 +7448,7 @@ export async function runAgentLoop(opts: {
             actionPromise,
             new Promise<never>((_, reject) => {
               timeoutSignal.addEventListener("abort", () =>
-                reject(
-                  new Error(
-                    `Tool call timed out after ${toolTimeoutMs / 1000} seconds`,
-                  ),
-                ),
+                reject(new Error(timeoutMessage())),
               );
             }),
             new Promise<never>((_, reject) => {
