@@ -584,13 +584,23 @@ test("static design documents retain their rendered pixels through Design PNG ex
         const preview = exportPage.locator(
           'iframe[data-design-preview-iframe][data-design-source-type="localhost"]',
         );
-        await expect(preview).toHaveCount(1, { timeout: 30_000 });
+        const previewCount = entry.name === "effects-transforms" ? 2 : 1;
+        await expect(preview).toHaveCount(previewCount, { timeout: 30_000 });
+        for (let index = 0; index < previewCount; index++) {
+          await expect
+            .poll(() =>
+              preview
+                .nth(index)
+                .contentFrame()
+                .locator("[data-agent-native-node-id]")
+                .count(),
+            )
+            .toBeGreaterThan(0);
+          await waitForLivePixels(
+            preview.nth(index).contentFrame().locator("html"),
+          );
+        }
         const previewFrame = preview.first().contentFrame();
-        await expect
-          .poll(() =>
-            previewFrame.locator("[data-agent-native-node-id]").count(),
-          )
-          .toBeGreaterThan(0);
         const previewHtml = previewFrame.locator("html");
         const previewReadiness = await waitForLivePixels(previewHtml);
         stage.name = "source screenshot";
