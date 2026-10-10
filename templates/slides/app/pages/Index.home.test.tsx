@@ -1014,7 +1014,7 @@ describe("Slides prompt-led home", () => {
       "Do not restore a workspace default",
     );
     expect(agentSubmit.mock.calls[0][1]).toContain(
-      "For a requested slide count, compare the slideCount returned by every add-slide result",
+      "For a requested slide count, compare the realSlideCount returned by every add-slide result (slideCount only if realSlideCount is absent)",
     );
     expect(agentSubmit.mock.calls[0][1]).toContain(
       "If add-slide returns errorCode target_slide_count_reached, re-read get-deck once",

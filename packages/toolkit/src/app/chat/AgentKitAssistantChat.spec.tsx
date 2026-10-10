@@ -6,6 +6,7 @@ import {
 } from "@agent-native/agentkit/client";
 import { MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS } from "@agent-native/agentkit/protocol";
 import type {
+  AgentInteraction,
   FilePart,
   AgentMessage,
   AgentTransport,
@@ -13,10 +14,13 @@ import type {
 import { compareAndSetClientAppState } from "@agent-native/core/client/application-state";
 import React, { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
+import { AgentInteractionItem } from "../agentkit/react/components.js";
+import { AgentKitProvider } from "../agentkit/react/context.js";
 
 function largePngBytes(
   width = 2560,
@@ -146,8 +150,12 @@ const chatMocks = vi.hoisted(() => ({
 
 vi.mock("../agentkit/react/index.js", async () => {
   const React = await import("react");
-  const { AgentKitChat, AgentKitComposer, AgentMessageView } =
-    await import("../agentkit/react/components.js");
+  const {
+    AgentInteractionItem,
+    AgentKitChat,
+    AgentKitComposer,
+    AgentMessageView,
+  } = await import("../agentkit/react/components.js");
   const { useAgentKit, useAgentKitControl, useAgentThread } =
     await import("../agentkit/react/context.js");
   const { useThinkingDisplay } = await import("./thinking-display.js");
@@ -261,6 +269,7 @@ vi.mock("../agentkit/react/index.js", async () => {
       );
     },
     AgentApprovalPrompt: () => null,
+    AgentInteractionItem,
     AgentMessageView: ({ value }: any) => {
       if (chatMocks.useRealChat)
         return React.createElement(AgentMessageView, {
@@ -711,19 +720,36 @@ vi.mock("@agent-native/toolkit/clipboard", () => ({
   writeClipboardText: chatMocks.writeClipboardText,
 }));
 
-vi.mock("@agent-native/core/client/i18n", () => ({
-  useFormatters: () => ({
-    formatNumber: String,
-    formatDate: (value: string | Date) =>
-      value instanceof Date ? value.toISOString() : value,
-  }),
-  useT: () => (key: string, options?: Record<string, unknown>) =>
-    key === "agentChat.composer.previewAttachment"
-      ? `Preview ${String(options?.name ?? "{{name}}")}`
-      : key === "agentChat.errorMessages.invalidAttachmentNamed"
-        ? `${key}:${String(options?.name ?? "{{name}}")}`
-        : key,
-}));
+vi.mock("@agent-native/core/client/i18n", async () => {
+  const { toolkitMessagesForLocale } = await import("../i18n/catalog.js");
+  // Like the real hook, a key the catalog lacks resolves to its defaultValue;
+  // keys it defines stay as the key so assertions can name them.
+  const hasMessage = (path: string) =>
+    path
+      .split(".")
+      .reduce<unknown>(
+        (node, part) =>
+          node && typeof node === "object"
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        toolkitMessagesForLocale("en-US"),
+      ) !== undefined;
+  return {
+    useFormatters: () => ({
+      formatNumber: String,
+      formatDate: (value: string | Date) =>
+        value instanceof Date ? value.toISOString() : value,
+    }),
+    useT: () => (key: string, options?: Record<string, unknown>) =>
+      key === "agentChat.composer.previewAttachment"
+        ? `Preview ${String(options?.name ?? "{{name}}")}`
+        : key === "agentChat.errorMessages.invalidAttachmentNamed"
+          ? `${key}:${String(options?.name ?? "{{name}}")}`
+          : typeof options?.defaultValue === "string" && !hasMessage(key)
+            ? options.defaultValue
+            : key,
+  };
+});
 
 vi.mock("./RunStuckBanner.js", () => ({
   RunStuckBanner: (props: unknown) => {
@@ -6140,6 +6166,223 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
   });
 
+  it("renders a failed delegated-agent row with one app name and a localized reason", async () => {
+    const app = { id: "Brain", kind: "agent", label: "Brain" };
+    const interactionEvent = (
+      sequence: number,
+      kind: string,
+      metadata?: Record<string, unknown>,
+    ) => ({
+      id: `event-${sequence}`,
+      threadId: "thread-delegated",
+      runId: "run-delegated",
+      sequence,
+      occurredAt: "2026-10-06T00:00:00.000Z",
+      type: "agent.interaction" as const,
+      interaction: {
+        id: `call-1:${kind}:${sequence}`,
+        kind,
+        agentId: "call-1",
+        scope: "external" as const,
+        source: app,
+        ...(metadata ? { metadata } : {}),
+      },
+    });
+    const events = [
+      {
+        id: "event-1",
+        threadId: "thread-delegated",
+        runId: "run-delegated",
+        sequence: 1,
+        occurredAt: "2026-10-06T00:00:00.000Z",
+        type: "agent.registered" as const,
+        agent: {
+          id: "call-1",
+          name: "Brain",
+          kind: "delegated-agent",
+          status: "failed" as const,
+          origin: app,
+        },
+      },
+      interactionEvent(2, "delegated"),
+      interactionEvent(3, "failed", {
+        durationMs: 900,
+        failureReasonKey: "agentChat.agent.failureReason.setup",
+      }),
+    ];
+    const client = new AgentKitClient({
+      aiSetupReadiness: "not-applicable",
+      transport: {
+        capabilities: { multiAgentActivity: true },
+        async startRun() {
+          return { runId: "run-delegated" };
+        },
+        async *subscribeToRun() {
+          for (const event of events) yield event;
+          yield {
+            id: "event-4",
+            threadId: "thread-delegated",
+            runId: "run-delegated",
+            sequence: 4,
+            occurredAt: "2026-10-06T00:00:00.000Z",
+            type: "run.completed" as const,
+          };
+        },
+        async cancelRun() {},
+      },
+    });
+    await (
+      await client.sendMessage({ threadId: "thread-delegated", text: "Ask" })
+    ).completed;
+    await mount(baseProps());
+
+    const { registry, labels } = chatMocks.rootProps;
+    const [started, failed] = client.getThread("thread-delegated")
+      .agentInteractions as AgentInteraction[];
+    const row = (value: AgentInteraction) => {
+      const Renderer =
+        registry.agentInteractions[value.kind] ?? AgentInteractionItem;
+      return renderToStaticMarkup(
+        <AgentKitProvider
+          controller={client}
+          threadId="thread-delegated"
+          labels={labels}
+        >
+          <Renderer value={value} threadId="thread-delegated" />
+        </AgentKitProvider>,
+      );
+    };
+
+    const failedRow = row(failed!);
+    expect(failedRow.match(/Brain/g)).toHaveLength(1);
+    expect(failedRow).toContain("agentChat.agent.failed");
+    expect(failedRow).toContain("agentChat.agent.failureReason.setup");
+    expect(failedRow).not.toContain("agentkit-object");
+    const startedRow = row(started!);
+    expect(startedRow.match(/Brain/g)).toHaveLength(1);
+    expect(startedRow).toContain("agentChat.agent.delegated");
+    expect(startedRow).not.toContain("failureReason");
+  });
+
+  describe("failed delegated-agent reason", () => {
+    // The thread registers the call as a participant whose origin is the app,
+    // as a real delegated run does, so the app is named by its chip alone.
+    const renderFailedRow = async (overrides: Partial<AgentInteraction>) => {
+      const app = { id: "Brain", kind: "agent", label: "Brain" };
+      const base = {
+        threadId: "thread-delegated",
+        runId: "run-delegated",
+        occurredAt: "2026-10-06T00:00:00.000Z",
+      };
+      const interaction: AgentInteraction = {
+        id: "call-1:failed:2",
+        kind: "failed",
+        agentId: "call-1",
+        scope: "external",
+        source: app,
+        ...overrides,
+      };
+      const client = new AgentKitClient({
+        aiSetupReadiness: "not-applicable",
+        transport: {
+          capabilities: { multiAgentActivity: true },
+          async startRun() {
+            return { runId: "run-delegated" };
+          },
+          async *subscribeToRun() {
+            yield {
+              ...base,
+              id: "event-1",
+              sequence: 1,
+              type: "agent.registered" as const,
+              agent: {
+                id: "call-1",
+                name: "Brain",
+                kind: "delegated-agent",
+                status: "failed" as const,
+                origin: app,
+              },
+            };
+            yield {
+              ...base,
+              id: "event-2",
+              sequence: 2,
+              type: "agent.interaction" as const,
+              interaction,
+            };
+            yield {
+              ...base,
+              id: "event-3",
+              sequence: 3,
+              type: "run.completed" as const,
+            };
+          },
+          async cancelRun() {},
+        },
+      });
+      await (
+        await client.sendMessage({ threadId: "thread-delegated", text: "Ask" })
+      ).completed;
+      const { registry, labels } = chatMocks.rootProps;
+      const Renderer = registry.agentInteractions.failed;
+      return renderToStaticMarkup(
+        <AgentKitProvider
+          controller={client}
+          threadId="thread-delegated"
+          labels={labels}
+        >
+          <Renderer
+            threadId="thread-delegated"
+            value={
+              client.getThread("thread-delegated")
+                .agentInteractions[0] as AgentInteraction
+            }
+          />
+        </AgentKitProvider>,
+      );
+    };
+
+    it("uses the generic reason for a key this build does not know", async () => {
+      await mount(baseProps());
+
+      const html = await renderFailedRow({
+        metadata: { failureReasonKey: "agentChat.agent.failureReason.later" },
+      });
+
+      expect(html).toContain("agentChat.agent.failureReason.failed");
+      expect(html).not.toContain("failureReason.later");
+    });
+
+    it("leaves a failure without a usable reason key to the default row", async () => {
+      await mount(baseProps());
+
+      const detail = await renderFailedRow({
+        detail: "Recorded failure detail",
+      });
+      expect(detail).toContain("Recorded failure detail");
+      expect(detail).not.toContain("failureReason");
+
+      const nonString = await renderFailedRow({
+        detail: "Recorded failure detail",
+        metadata: { failureReasonKey: 42 },
+      });
+      expect(nonString).toContain("Recorded failure detail");
+      expect(nonString).not.toContain("failureReason");
+    });
+
+    it("shows the reason next to an object the row also names", async () => {
+      await mount(baseProps());
+
+      const html = await renderFailedRow({
+        object: { id: "task-1", kind: "task", label: "Remote task" },
+        metadata: { failureReasonKey: "agentChat.agent.failureReason.setup" },
+      });
+
+      expect(html).toContain("Remote task");
+      expect(html).toContain("agentChat.agent.failureReason.setup");
+    });
+  });
+
   it("copies markdown replies to the clipboard as rich HTML", async () => {
     await mount(baseProps());
 
@@ -6271,6 +6514,18 @@ describe("AgentKitAssistantChat host behavior", () => {
         message: "Restore the saved tool request.",
       },
     );
+  });
+
+  it("leaves a saved connection request from another chat to its owner", async () => {
+    await mount(baseProps());
+
+    const outcome = await chatMocks.resumeProps.onResume(
+      { threadId: "other-thread", runId: "run-1", requestId: "req-1" },
+      { message: "Restore the saved tool request." },
+    );
+
+    expect(outcome).toBe("not-owner");
+    expect(chatMocks.control.resolveConnectionRequest).not.toHaveBeenCalled();
   });
 
   it("resumes a generic saved prompt once through the active submission queue", async () => {
