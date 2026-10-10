@@ -3334,6 +3334,40 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it.each([
+    ["request_aborted", { code: "request_aborted" }],
+    ["AbortError", { name: "AbortError" }],
+    ["thread_snapshot_queue_full", { code: "thread_snapshot_queue_full" }],
+    [
+      "thread_snapshot_queue_stalled",
+      { code: "thread_snapshot_queue_stalled" },
+    ],
+  ] as const)(
+    "keeps legacy snapshot persistence nonfatal for expected deferral (%s)",
+    async (_label, properties) => {
+      const transport = createTransport([]);
+      const error = Object.assign(
+        new Error("Snapshot persistence did not complete."),
+        properties,
+      );
+      transport.persistThreadSnapshot = async () => {
+        throw error;
+      };
+      const onError = vi.fn();
+      const client = new AgentKitClient({ transport, onError });
+      const initialConnection = client.getSnapshot().connection;
+
+      await expect(client.persistThreadSnapshot("thread-1")).resolves.toBe(
+        undefined,
+      );
+
+      expect(client.getSnapshot().connection).toBe(initialConnection);
+      expect(client.getSnapshot()).not.toHaveProperty("error");
+      expect(onError).not.toHaveBeenCalled();
+      await client.shutdown();
+    },
+  );
+
   it.each(["caller abort", "checkpoint timeout"] as const)(
     "does not fail the client for a snapshot %s",
     async (cancellation) => {

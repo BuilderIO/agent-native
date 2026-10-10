@@ -1522,6 +1522,7 @@ describe("useChatThreads", () => {
 
     expect(hook!.activeThreadId).toBe("route-thread");
     expect(hook!.isThreadPersisted("route-thread")).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith("/chat/threads/route-thread");
     expect(
       window.localStorage.getItem("agent-chat-active-thread:route-test"),
     ).toBe("route-thread");

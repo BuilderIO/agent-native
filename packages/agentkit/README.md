@@ -654,10 +654,12 @@ Before advancing a replay cursor, validate the entire received batch with
 not follow `afterSequence` or any later event leaves a sequence gap.
 
 `AgentKitController.persistThreadSnapshot()` resolves when persistence is
-unsupported or succeeds. It rejects when the transport fails to save. Callers
-that used to fire and forget this method should now handle the rejection or use
-`persistThreadSnapshotWithResult()`, which returns `true` on success, `false` on
-failure, and `undefined` when the transport does not support snapshot writes.
+unsupported or succeeds. It also resolves when a write is cancelled or deferred
+by the snapshot queue; that does not confirm the snapshot was saved. Unexpected
+transport failures reject. Use `persistThreadSnapshotWithResult()` when the
+caller needs to distinguish a saved snapshot: it returns `true` on success,
+`false` on failure, cancellation, or deferral, and `undefined` when the transport
+does not support snapshot writes.
 
 ```ts
 const saved = await controller.persistThreadSnapshotWithResult(threadId);

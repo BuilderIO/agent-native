@@ -1045,10 +1045,9 @@ export function useChatThreads(
           newlyCreatedRef.current,
         ) &&
         (!routeControlsActiveThread ||
-          persistedThreadTranscriptStatus(
-            restoredThread,
-            routeThreadId ?? restoredId!,
-          ) === "verified")
+          (restoredThread.id === restoredId &&
+            persistedThreadTranscriptStatus(restoredThread, restoredId!) ===
+              "verified"))
       ) {
         serverConfirmedThreadIdsRef.current.add(
           serverConfirmedThreadKey(apiUrl, historyScopeKey, restoredThread.id),

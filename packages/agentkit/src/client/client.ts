@@ -377,14 +377,18 @@ export interface AgentKitController {
   subscribe(listener: AgentKitListener): () => void;
   getThread(threadId: ThreadId): AgentThreadState;
   /**
-   * Persist through the configured transport when supported and reject on failure.
+   * Persist through the configured transport when supported. Expected
+   * cancellation or queue deferral resolves without confirming that it saved;
+   * use persistThreadSnapshotWithResult() when the caller needs that status.
+   * Unexpected transport failures reject.
    */
   persistThreadSnapshot(
     threadId: ThreadId,
     messages?: AgentMessage[],
   ): Promise<void>;
   /**
-   * Return true when saved, false on failure, or undefined when unsupported.
+   * Return true when saved, false when failed, cancelled, or deferred, or
+   * undefined when unsupported.
    */
   persistThreadSnapshotWithResult?(
     threadId: ThreadId,
@@ -4415,13 +4419,13 @@ export class AgentKitClient implements AgentKitController {
     threadId: ThreadId,
     messages?: AgentMessage[],
   ): Promise<void> {
-    const persisted = await this.persistThreadSnapshotWithResult(
+    const result = await this.captureThreadSnapshotPersistence(
       threadId,
       messages,
     );
-    if (persisted === false) {
-      throw new Error("Thread snapshot persistence failed.");
-    }
+    if (!result || isExpectedThreadSnapshotDeferral(result.error)) return;
+    this.fail(result.error, "thread_snapshot_persist_failed");
+    throw new Error("Thread snapshot persistence failed.");
   }
 
   public async persistThreadSnapshotWithResult(
@@ -4430,22 +4434,31 @@ export class AgentKitClient implements AgentKitController {
     context?: AgentRequestContext,
   ): Promise<boolean | undefined> {
     if (!this.transport.persistThreadSnapshot) return undefined;
+    const result = await this.captureThreadSnapshotPersistence(
+      threadId,
+      messages,
+      context,
+    );
+    if (!result) return true;
+    if (!isExpectedThreadSnapshotDeferral(result.error)) {
+      this.fail(result.error, "thread_snapshot_persist_failed");
+    }
+    return false;
+  }
+
+  private async captureThreadSnapshotPersistence(
+    threadId: ThreadId,
+    messages?: AgentMessage[],
+    context?: AgentRequestContext,
+  ): Promise<{ error: unknown } | undefined> {
     try {
-      const result = await this.persistThreadSnapshotToTransport(
+      return await this.persistThreadSnapshotToTransport(
         threadId,
         messages,
         context,
       );
-      if (!result) return true;
-      if (!isExpectedThreadSnapshotDeferral(result.error)) {
-        this.fail(result.error, "thread_snapshot_persist_failed");
-      }
-      return false;
     } catch (error) {
-      if (!isExpectedThreadSnapshotDeferral(error)) {
-        this.fail(error, "thread_snapshot_persist_failed");
-      }
-      return false;
+      return { error };
     }
   }
 
