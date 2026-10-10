@@ -618,12 +618,15 @@ export default {
       initializeBindings(env);
       const h = await loadHandler();
       __cfRestoreModuleTimers();
-      await Promise.all([
+      const branches = [
         h.scheduled?.(controller, env, scopedCtx),
         controller?.cron === SWEEP_CRON
           ? runSweep(h, env, scopedCtx)
           : undefined,
-      ]);
+      ];
+      const results = await Promise.allSettled(branches);
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure) throw failure.reason;
     });
   },
   async email(message, env, ctx) {

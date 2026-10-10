@@ -18,6 +18,20 @@ interface PriorImageCandidates {
   neverRetainedCount: number;
 }
 
+function canonicalImageReferenceUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:" && !url.username && !url.password) {
+      url.hash = "";
+      const canonical = url.toString();
+      if (canonical.length <= 2_048) return canonical;
+    }
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+  }
+  return value;
+}
+
 export class PriorThreadImageHistoryReadError extends Error {
   readonly code = "prior_attachment_history_unreadable";
 
@@ -48,6 +62,7 @@ function candidatesFromThreadData(threadData: string): PriorImageCandidates {
   if (!Array.isArray(messages)) throw new PriorThreadImageHistoryReadError();
 
   const candidates: PriorImageCandidate[] = [];
+  const seenCanonicalUrls = new Set<string>();
   let neverRetainedCount = 0;
   for (
     let messageIndex = messages.length - 1;
@@ -113,6 +128,9 @@ function candidatesFromThreadData(threadData: string): PriorImageCandidates {
         neverRetainedCount++;
         continue;
       }
+      const canonicalUrl = canonicalImageReferenceUrl(url);
+      if (seenCanonicalUrls.has(canonicalUrl)) continue;
+      seenCanonicalUrls.add(canonicalUrl);
       candidates.push({
         name: typeof stored.name === "string" ? stored.name : "image",
         ...(typeof stored.contentType === "string"
@@ -129,8 +147,8 @@ function candidatesFromThreadData(threadData: string): PriorImageCandidates {
 /**
  * Rehydrate only recent image references from an already-authorized thread.
  * URL ownership and download limits are enforced by hydrateOwnedImageUrl.
- * Images named in excludeUrls are dropped before the candidate cap, so they
- * do not use up a slot.
+ * Duplicate canonical URLs and images named in excludeUrls are dropped before
+ * the candidate cap, so they do not use up a slot.
  */
 export async function hydratePriorThreadImages(
   threadData: string,

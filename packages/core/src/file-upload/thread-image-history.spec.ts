@@ -213,6 +213,107 @@ describe("hydratePriorThreadImages", () => {
     expect(findProviderMock).toHaveBeenCalledTimes(6);
   });
 
+  it("deduplicates URLs before the candidate cap and keeps the newest reference", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const bytes = Buffer.from(JPEG_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(bytes, { headers: { "content-type": "image/jpeg" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const repeatedUrl = "https://storage.example/repeated.jpg";
+    const messages = [
+      storedImage("unique-0.jpg", "https://storage.example/0.jpg"),
+      storedImage("unique-1.jpg", "https://storage.example/1.jpg"),
+      storedImage("unique-2.jpg", "https://storage.example/2.jpg"),
+      storedImage("repeated-old.jpg", repeatedUrl),
+      storedImage("unique-3.jpg", "https://storage.example/3.jpg"),
+      storedImage("unique-4.jpg", "https://storage.example/4.jpg"),
+      storedImage("repeated-new.jpg", repeatedUrl),
+    ];
+
+    const result = await hydratePriorThreadImages(JSON.stringify({ messages }));
+
+    expect(result.attachments.map((attachment) => attachment.name)).toEqual([
+      "unique-0.jpg",
+      "unique-1.jpg",
+      "unique-2.jpg",
+      "unique-3.jpg",
+      "unique-4.jpg",
+      "repeated-new.jpg",
+    ]);
+    expect(result.contextNote).toBeUndefined();
+    expect(findProviderMock).toHaveBeenCalledTimes(6);
+    expect(findProviderMock).toHaveBeenCalledWith(repeatedUrl);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("normalizes URL structure while preserving query variants", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const bytes = Buffer.from(JPEG_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(bytes, { headers: { "content-type": "image/jpeg" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const olderSmallUrl =
+      "https://STORAGE.EXAMPLE:443/repeated.jpg?variant=small#old";
+    const newestSmallUrl = "https://storage.example/repeated.jpg?variant=small";
+    const largeUrl = "https://storage.example/repeated.jpg?variant=large";
+
+    const result = await hydratePriorThreadImages(
+      JSON.stringify({
+        messages: [
+          storedImage("small-old.jpg", olderSmallUrl),
+          storedImage("small-new.jpg", newestSmallUrl),
+          storedImage("large.jpg", largeUrl),
+        ],
+      }),
+    );
+
+    expect(result.attachments.map((attachment) => attachment.name)).toEqual([
+      "small-new.jpg",
+      "large.jpg",
+    ]);
+    expect(result.contextNote).toBeUndefined();
+    expect(findProviderMock.mock.calls).toEqual([[largeUrl], [newestSmallUrl]]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("charges repeated URLs once against the shared candidate and byte budget", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const bytes = Buffer.from(JPEG_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(bytes, { headers: { "content-type": "image/jpeg" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const url = "https://storage.example/repeated.jpg";
+    const budget = createOwnedAttachmentHydrationBudget();
+    budget.remainingCandidates = 2;
+    budget.remainingBytes = bytes.byteLength;
+
+    const result = await hydratePriorThreadImages(
+      JSON.stringify({
+        messages: [
+          storedImage("older-name.jpg", url),
+          storedImage("newest-name.jpg", url),
+        ],
+      }),
+      { budget },
+    );
+
+    expect(result.attachments.map((attachment) => attachment.name)).toEqual([
+      "newest-name.jpg",
+    ]);
+    expect(result.contextNote).toBeUndefined();
+    expect(findProviderMock).toHaveBeenCalledTimes(1);
+    expect(findProviderMock).toHaveBeenCalledWith(url);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(budget.remainingCandidates).toBe(1);
+    expect(budget.remainingBytes).toBe(0);
+  });
+
   it("uses the request's remaining candidate and byte budget", async () => {
     findProviderMock.mockResolvedValue({ id: "owned-storage" });
     const bytes = Buffer.from(JPEG_BASE64, "base64");

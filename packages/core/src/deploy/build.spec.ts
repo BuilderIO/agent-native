@@ -1197,6 +1197,106 @@ export default {
       }
     }
   });
+
+  it("keeps the scheduled pool open until both the app handler and sweep settle", async () => {
+    const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
+    const marker = "__test_scheduled_sweep_pool_lifetime__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+import {
+  getCurrentRequestDbPoolScope,
+  getOrCreateRequestDbPool,
+} from "@agent-native/core/db/request-pool-context";
+
+export default {
+  async fetch() {
+    const scope = getCurrentRequestDbPoolScope();
+    const pool = getOrCreateRequestDbPool("scheduled-sweep-test", () => ({
+      ended: false,
+      async end() { this.ended = true; },
+    }));
+    globalThis.${marker}.pool = pool;
+    globalThis.${marker}.releaseScheduled();
+    await new Promise((resolve) => {
+      globalThis.${marker}.finishSweep = resolve;
+    });
+    const samePool = getOrCreateRequestDbPool("scheduled-sweep-test", () => {
+      throw new Error("the scheduled pool scope was replaced");
+    });
+    globalThis.${marker}.sweepPoolAlive = !pool.ended;
+    globalThis.${marker}.sweepPoolSame = samePool === pool;
+    globalThis.${marker}.sweepScopeSame = getCurrentRequestDbPoolScope() === scope;
+    return new Response("{}");
+  },
+  scheduled() {
+    return new Promise((resolve) => {
+      globalThis.${marker}.releaseScheduled = resolve;
+    }).then(() => {
+      globalThis.${marker}.scheduledFailureReached = true;
+      throw new Error("app scheduled handler failed");
+    });
+  },
+};
+`,
+    );
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const state = {
+      finishSweep: undefined as (() => void) | undefined,
+      pool: undefined as { ended: boolean } | undefined,
+      releaseScheduled: undefined as (() => void) | undefined,
+      scheduledFailureReached: false,
+      sweepPoolAlive: undefined as boolean | undefined,
+      sweepPoolSame: undefined as boolean | undefined,
+      sweepScopeSame: undefined as boolean | undefined,
+    };
+    const testGlobals = globalThis as Record<string, unknown>;
+    testGlobals[marker] = state;
+    const secret = "test-secret-do-not-use-in-prod";
+    vi.stubEnv("A2A_SECRET", secret);
+
+    let invocation: Promise<unknown> | undefined;
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+      let settled = false;
+      invocation = worker
+        .scheduled({ cron: CLOUDFLARE_SWEEP_CRON }, { A2A_SECRET: secret }, {})
+        .finally(() => {
+          settled = true;
+        });
+      void invocation.catch(() => {});
+
+      await vi.waitFor(() => expect(state.scheduledFailureReached).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(state.pool).toBeDefined();
+      expect(state.pool?.ended).toBe(false);
+      expect(settled).toBe(false);
+
+      state.finishSweep?.();
+      await expect(invocation).rejects.toThrow("app scheduled handler failed");
+      expect(state.sweepPoolAlive).toBe(true);
+      expect(state.sweepPoolSame).toBe(true);
+      expect(state.sweepScopeSame).toBe(true);
+      expect(state.pool?.ended).toBe(true);
+    } finally {
+      state.finishSweep?.();
+      await invocation?.catch(() => {});
+      vi.unstubAllEnvs();
+      for (const key of [
+        marker,
+        "__env__",
+        "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+      ]) {
+        Reflect.deleteProperty(testGlobals, key);
+      }
+    }
+  });
 });
 
 describe("Vercel sweep cron", () => {
