@@ -23,6 +23,7 @@ const tsx = path.join(repoRoot, "node_modules", ".bin", "tsx");
 const GUARDED_FILES = [
   ".github/workflows/beta-e2e.yml",
   ".github/workflows/beta-e2e-scheduled.yml",
+  "scripts/beta-e2e-digest.ts",
   ".github/actions/beta-e2e-setup/action.yml",
   ".github/workflows/deploy-production-sites-prebuilt.yml",
   "e2e/beta/lib/fleet.ts",
@@ -43,7 +44,7 @@ function runGuard(mutate: (files: Files) => void = () => {}): {
   try {
     const files: Files = {};
     for (const file of GUARDED_FILES) {
-      files[file] = readFileSync(path.join(repoRoot, file), "utf8");
+      files[file] = readFileSync(path.join(repoRoot, file), "utf8"); // source-read-ok: checks the live workflow text contract
     }
     mutate(files);
     for (const [file, content] of Object.entries(files)) {
@@ -380,7 +381,7 @@ describe("guard:beta-e2e-suite", () => {
     );
   });
 
-  it("holds the scheduled reporter to the issue, Slack, and permission contract", () => {
+  it("holds the scheduled reporter to the artifact, Slack, and permission contract", () => {
     rejects(
       (files) =>
         edit(
@@ -406,10 +407,70 @@ describe("guard:beta-e2e-suite", () => {
         edit(
           files,
           ".github/workflows/beta-e2e-scheduled.yml",
-          /(    permissions:\n      actions: read\n      contents: read\n      issues: write\n)/,
+          /(    permissions:\n      actions: read\n      contents: read\n)/,
           "$1      pull-requests: write\n",
         ),
       /report job permissions must be exactly/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "      actions: read\n      contents: read\n",
+          "      actions: read\n      contents: read\n      issues: write\n",
+        ),
+      /must not use GitHub Issues/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          "scripts/beta-e2e-digest.ts",
+          "import { createHash }",
+          "const issueNumber = 3986;\nimport { createHash }",
+        ),
+      /must use artifact-backed state and reports/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "      - name: Build the report",
+          "      - name: Create finding issue\n        run: gh issue create\n\n      - name: Build the report",
+        ),
+      /must not use GitHub Issues/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "          method: chat.postMessage",
+          "          method: chat.postMessage\n          method: chat.postMessage",
+        ),
+      /must post one batched Slack message/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          "COLLECT_OUTCOME: ${{ steps.collect.outcome }}",
+          "COLLECT_OUTCOME: skipped",
+        ),
+      /missing "COLLECT_OUTCOME: \$\{\{ steps\.collect\.outcome \}\}"/,
+    );
+    rejects(
+      (files) =>
+        edit(
+          files,
+          ".github/workflows/beta-e2e-scheduled.yml",
+          /actions\/upload-artifact@[0-9a-f]{40}/,
+          "actions/upload-artifact@v7",
+        ),
+      /pin actions\/upload-artifact by full commit SHA/,
     );
     rejects(
       (files) =>

@@ -771,6 +771,7 @@ function reconcileDurableMessages(
   }
   const durableById = new Map(durable.map((message) => [message.id, message]));
   const assistantIdsByRun = new Map<string, Set<string>>();
+  const completedAssistantIdsByRun = new Map<string, Set<string>>();
   for (const event of events ?? []) {
     if (
       (event.type !== "message.created" &&
@@ -782,6 +783,12 @@ function reconcileDurableMessages(
     const ids = assistantIdsByRun.get(event.runId) ?? new Set<string>();
     ids.add(event.message.id);
     assistantIdsByRun.set(event.runId, ids);
+    if (event.type === "message.completed") {
+      const completedIds =
+        completedAssistantIdsByRun.get(event.runId) ?? new Set<string>();
+      completedIds.add(event.message.id);
+      completedAssistantIdsByRun.set(event.runId, completedIds);
+    }
   }
   for (const value of runs ?? []) {
     const run = asRecord(value);
@@ -835,6 +842,39 @@ function reconcileDurableMessages(
       submittedRunByTurn.has(turnId) ? null : submittedRunId(stored)!,
     );
   }
+  // A completed successor owns its turn, so discard a different completed
+  // answer from the submitted run while leaving partial output and other turns.
+  const supersededCompletedAssistantIds = new Set<string>();
+  for (const reply of durable) {
+    const metadata = asRecord(reply.metadata);
+    const custom = asRecord(metadata?.custom);
+    const turnId = custom?.turnId;
+    const submitted =
+      typeof turnId === "string" ? submittedRunByTurn.get(turnId) : undefined;
+    const replyRunId = metadata?.runId;
+    const replyText = textOf(reply.parts);
+    if (
+      reply.role !== "assistant" ||
+      reply.status !== "complete" ||
+      custom?.continued === true ||
+      typeof submitted !== "string" ||
+      typeof replyRunId !== "string" ||
+      replyRunId === submitted ||
+      durableRunIds(reply).includes(submitted) ||
+      durableByRun.has(submitted) ||
+      !replyText
+    ) {
+      continue;
+    }
+    for (const id of completedAssistantIdsByRun.get(submitted) ?? []) {
+      const snapshot = messages.find(
+        (message) => message.role === "assistant" && message.id === id,
+      );
+      if (snapshot && textOf(snapshot.parts) !== replyText) {
+        supersededCompletedAssistantIds.add(id);
+      }
+    }
+  }
   const shownByInterruptedRun = (reply: AgentMessage) => {
     const turnId = asRecord(asRecord(reply.metadata)?.custom)?.turnId;
     const submitted =
@@ -874,7 +914,9 @@ function reconcileDurableMessages(
     ),
   );
   const deduplicatedMessages = messages.filter(
-    (message) => !representedDurableAssistantIds.has(message.id),
+    (message) =>
+      !representedDurableAssistantIds.has(message.id) &&
+      !supersededCompletedAssistantIds.has(message.id),
   );
 
   const representedSubmittedUserIds = new Set<string>();

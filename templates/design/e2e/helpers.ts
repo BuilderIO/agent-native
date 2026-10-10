@@ -572,7 +572,7 @@ export async function selectByText(
   const screenId = options?.screenId ?? activeScreenTargetFromUrl(page);
   await enterDirectMode(page, {
     screenId,
-    waitForBridgeReady: options?.clearPreviousSelection,
+    waitForBridgeReady: true,
   });
   await installBridge(page);
   if (options?.clearPreviousSelection) {
