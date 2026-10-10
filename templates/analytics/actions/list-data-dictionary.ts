@@ -24,6 +24,11 @@ import {
 } from "../server/lib/source-index-store.js";
 
 const KEY_PREFIX = "data-dict-";
+const hasOverlayValue = (value: unknown) =>
+  value !== null &&
+  value !== undefined &&
+  (typeof value !== "string" || value.trim().length > 0) &&
+  (!Array.isArray(value) || value.length > 0);
 
 export default defineAction({
   description:
@@ -83,9 +88,14 @@ export default defineAction({
             collect(entry);
             continue;
           }
+          const overlay = Object.fromEntries(
+            Object.entries(entries[existingIndex]).filter(([, value]) =>
+              hasOverlayValue(value),
+            ),
+          );
           entries[existingIndex] = {
             ...entry,
-            ...entries[existingIndex],
+            ...overlay,
             status: entry.status,
             sourceIndex: true,
             ...(typeof entry.sourcePath === "string"
