@@ -2450,7 +2450,6 @@ export function planJourneyCanvas(
       );
       const label = edgeLabelsByLayoutId.get(edge.toKey);
       if (label) {
-        const continuation = observedContinuationForEdge(edge);
         const recordingGap = observedRecordingGapForEdge(edge);
         const primaryFontSize = label.primaryFontSize ?? EDGE_LABEL_FONT_SIZE;
         const primaryLineHeight = edgeLabelLineHeight(primaryFontSize);
