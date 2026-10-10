@@ -1004,6 +1004,30 @@ describe("defineAction — outputSchema (return-value validation)", () => {
 });
 
 describe("defineAction — authorize", () => {
+  it("does not classify a typed output-processing failure as pre-execution", async () => {
+    const failure = new AgentConnectionRequiredError("Connect provider", {
+      provider: "test-child",
+    });
+    const effects: string[] = [];
+    const action = defineAction({
+      description: "Write with output validation",
+      schema: z.object({}),
+      outputSchema: z.object({ ok: z.boolean() }).transform(() => {
+        throw failure;
+      }),
+      run: async () => {
+        effects.push("sent");
+        return { ok: true };
+      },
+    });
+    const outcome = { refused: false };
+    await expect(
+      runActionWithExecutionOutcome(action.run, {}, undefined, outcome),
+    ).rejects.toBe(failure);
+    expect(effects).toEqual(["sent"]);
+    expect(outcome.refused).toBe(false);
+  });
+
   it("keeps concurrent failures separate when context and error objects are reused", async () => {
     const failure = new Error("Not authorized");
     let release!: () => void;

@@ -628,7 +628,7 @@ export function defineAction(options: any) {
   }
 
   const executionKey = {};
-  const handlerRun = (args: any, ctx?: ActionRunContext) => {
+  const handlerRun = async (args: any, ctx?: ActionRunContext) => {
     const frame = actionExecutionStorage?.getStore()?.frame;
     if (frame?.key === executionKey) {
       frame.handlerEntered = true;
@@ -637,7 +637,9 @@ export function defineAction(options: any) {
           parent.descendantWriteEntered = true;
       }
     }
-    return options.run(args, ctx);
+    const result = await options.run(args, ctx);
+    if (frame?.key === executionKey) frame.handlerCompleted = true;
+    return result;
   };
   const guardedRun =
     typeof options.authorize === "function" || options.access
@@ -1438,6 +1440,7 @@ type ActionExecutionFrame = {
   run: ActionExecutionRun;
   parent?: ActionExecutionFrame;
   handlerEntered: boolean;
+  handlerCompleted: boolean;
   descendantWriteEntered: boolean;
   boundaryPending?: boolean;
 };
@@ -1469,11 +1472,13 @@ function wrapRunWithExecutionBoundary(
             run: boundaryRun,
             parent: parent?.frame,
             handlerEntered: false,
+            handlerCompleted: false,
             descendantWriteEntered: false,
           };
     frame.key = key;
     frame.boundaryPending = false;
     frame.handlerEntered = false;
+    frame.handlerCompleted = false;
     const state: ActionExecutionState = {
       frame,
       failures: parent?.failures ?? new WeakMap(),
@@ -1508,6 +1513,7 @@ export async function runActionWithExecutionOutcome(
     run,
     parent: parent?.frame,
     handlerEntered: true,
+    handlerCompleted: false,
     descendantWriteEntered: false,
     boundaryPending: true,
   };
@@ -1530,6 +1536,7 @@ export async function runActionWithExecutionOutcome(
           error.errorCode === "permanent_precondition");
       outcome.refused =
         !frame.descendantWriteEntered &&
+        !frame.handlerCompleted &&
         (failure
           ? failure.frame === frame &&
             (!frame.handlerEntered ||
