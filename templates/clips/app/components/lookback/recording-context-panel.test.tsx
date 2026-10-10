@@ -2,6 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import messages from "@/i18n/en-US";
@@ -24,7 +25,18 @@ const queryState = vi.hoisted(() => ({
 
 const labState = vi.hoisted(() => ({ enabled: true }));
 const queryOptions = vi.hoisted(() => ({
-  current: undefined as { enabled?: boolean } | undefined,
+  current: undefined as
+    | {
+        enabled?: boolean;
+        refetchInterval?: (query: {
+          state: { data?: { items: unknown[] } };
+        }) => number | false;
+      }
+    | undefined,
+}));
+const removal = vi.hoisted(() => ({
+  calls: [] as Array<{ action: string; input: unknown }>,
+  outcome: "success" as "success" | "error",
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -36,6 +48,20 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     queryOptions.current = options;
     return queryState.current;
   },
+  useActionMutation: (action: string) => ({
+    mutate: (
+      input: unknown,
+      options: { onSuccess?: () => void; onError?: (error: Error) => void },
+    ) => {
+      removal.calls.push({ action, input });
+      if (removal.outcome === "success") options.onSuccess?.();
+      else options.onError?.(new Error("remove failed"));
+    },
+  }),
+}));
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
 }));
 
 vi.mock("@agent-native/core/client/labs", () => ({
@@ -88,6 +114,7 @@ function item(overrides: Partial<RecordingContextItem>): RecordingContextItem {
     width: 1280,
     height: 720,
     error: null,
+    capturedDeviceId: null,
     createdAt: "2026-10-09T10:05:01.000Z",
     updatedAt: "2026-10-09T10:05:30.000Z",
     ...overrides,
@@ -105,6 +132,13 @@ function setQuery(next: Partial<typeof queryState.current>) {
   };
 }
 
+// Radix portals the confirm dialog to document.body, outside the container.
+function buttonWithText(root: ParentNode, text: string) {
+  return Array.from(root.querySelectorAll("button")).find(
+    (button) => button.textContent?.trim() === text,
+  );
+}
+
 describe("RecordingContextPanel", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -116,6 +150,10 @@ describe("RecordingContextPanel", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    removal.calls = [];
+    removal.outcome = "success";
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.error).mockClear();
   });
 
   afterEach(() => {
@@ -193,6 +231,111 @@ describe("RecordingContextPanel", () => {
     const dialogVideos = document.querySelectorAll('[role="dialog"] video');
     expect(dialogVideos.length).toBe(1);
     expect(dialogVideos[0]?.getAttribute("src")).toBe("/api/video/media_1");
+  });
+
+  it("says it is waiting for the device that recorded a pending item", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: {
+        items: [
+          item({
+            status: "pending",
+            mediaRecordingId: null,
+            capturedDeviceId: "device-desktop-1",
+          }),
+        ],
+      },
+    });
+    render();
+    expect(container.textContent).toContain(
+      "Waiting for the device that recorded this clip",
+    );
+    expect(container.textContent).not.toContain("Saving earlier screen time");
+  });
+
+  it("keeps the saving text for a pending item with no captured device", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: {
+        items: [item({ status: "pending", mediaRecordingId: null })],
+      },
+    });
+    render();
+    expect(container.textContent).toContain("Saving earlier screen time…");
+    expect(container.textContent).not.toContain("Waiting for the device");
+  });
+
+  it("polls only while an item can still move on this device", () => {
+    setQuery({ isSuccess: true, isPending: false, data: { items: [] } });
+    render();
+    const pollFor = (items: RecordingContextItem[]) =>
+      queryOptions.current?.refetchInterval?.({ state: { data: { items } } });
+
+    expect(pollFor([item({ status: "pending", mediaRecordingId: null })])).toBe(
+      3000,
+    );
+    expect(
+      pollFor([item({ status: "processing", mediaRecordingId: null })]),
+    ).toBe(3000);
+    expect(
+      pollFor([
+        item({
+          status: "pending",
+          mediaRecordingId: null,
+          capturedDeviceId: "device-desktop-1",
+        }),
+      ]),
+    ).toBe(false);
+  });
+
+  it("asks before removing, then hides the item once the removal lands", () => {
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [item({})] },
+    });
+    render();
+
+    act(() => buttonWithText(container, "Remove earlier screen time")?.click());
+    expect(removal.calls).toEqual([]);
+
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("Remove earlier screen time?");
+    expect(dialog?.textContent).toContain(
+      "The footage is moved to Trash and the clip no longer includes it.",
+    );
+    act(() => buttonWithText(dialog ?? document, "Remove")?.click());
+
+    expect(removal.calls).toEqual([
+      { action: "remove-recording-context", input: { id: "ctx_1" } },
+    ]);
+    expect(toast.success).toHaveBeenCalledWith("Earlier screen time removed");
+    expect(container.textContent).not.toContain("Screen before recording");
+    expect(container.textContent).toContain(
+      "No earlier screen time is attached to this clip.",
+    );
+  });
+
+  it("keeps the item and reports the failure when the removal fails", () => {
+    removal.outcome = "error";
+    setQuery({
+      isSuccess: true,
+      isPending: false,
+      data: { items: [item({})] },
+    });
+    render();
+
+    act(() => buttonWithText(container, "Remove earlier screen time")?.click());
+    const dialog = document.querySelector('[role="alertdialog"]');
+    act(() => buttonWithText(dialog ?? document, "Remove")?.click());
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Couldn't remove earlier screen time. Try again.",
+    );
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Screen before recording");
   });
 });
 

@@ -250,4 +250,97 @@ describe("list-pending-recording-context", () => {
       status: "processing",
     });
   });
+
+  describe("device scoping", () => {
+    // Four items on four Clips: one with no device (a web or legacy request),
+    // two captured by dev_a and dev_b, and a stale claim captured by dev_b.
+    async function seedDeviceQueue() {
+      for (const recordingId of [
+        "rec_unowned",
+        "rec_mine",
+        "rec_theirs",
+        "rec_theirs_stale",
+      ]) {
+        await seedRecording(client, { id: recordingId });
+      }
+      await seedContextItem(client, {
+        id: "unowned",
+        recordingId: "rec_unowned",
+        createdAt: "2026-10-01T12:01:00.000Z",
+      });
+      await seedContextItem(client, {
+        id: "mine",
+        recordingId: "rec_mine",
+        capturedDeviceId: "dev_a",
+        createdAt: "2026-10-01T12:02:00.000Z",
+      });
+      await seedContextItem(client, {
+        id: "theirs",
+        recordingId: "rec_theirs",
+        capturedDeviceId: "dev_b",
+        createdAt: "2026-10-01T12:03:00.000Z",
+      });
+      await seedContextItem(client, {
+        id: "theirs_stale",
+        recordingId: "rec_theirs_stale",
+        status: "processing",
+        capturedDeviceId: "dev_b",
+        createdAt: "2026-10-01T12:00:00.000Z",
+      });
+      await setUpdatedAt("theirs_stale", STALE_CLAIM);
+    }
+
+    it("gives a device its own items and the unowned ones, not another device's", async () => {
+      await seedDeviceQueue();
+
+      const { items } = await action.run({ deviceId: "dev_a" });
+
+      expect(items.map((item) => item.id)).toEqual(["unowned", "mine"]);
+      expect(items[1]).toMatchObject({ capturedDeviceId: "dev_a" });
+    });
+
+    it("gives a device that captured nothing only the unowned items", async () => {
+      await seedDeviceQueue();
+
+      const { items } = await action.run({ deviceId: "dev_c" });
+
+      expect(items.map((item) => item.id)).toEqual(["unowned"]);
+    });
+
+    it("lists every device's items when no deviceId is sent, as before", async () => {
+      await seedDeviceQueue();
+
+      const { items } = await action.run({});
+
+      expect(items.map((item) => item.id)).toEqual([
+        "theirs_stale",
+        "unowned",
+        "mine",
+        "theirs",
+      ]);
+    });
+
+    it("applies excludeIds on top of the device filter", async () => {
+      await seedDeviceQueue();
+
+      const { items } = await action.run({
+        deviceId: "dev_a",
+        excludeIds: ["unowned"],
+      });
+
+      expect(items.map((item) => item.id)).toEqual(["mine"]);
+    });
+
+    it("accepts a deviceId of 1 to 200 characters", () => {
+      const schema = (action as unknown as { schema: ZodType }).schema;
+      expect(schema.safeParse({ deviceId: "d" }).success).toBe(true);
+      expect(schema.safeParse({ deviceId: "d".repeat(200) }).success).toBe(
+        true,
+      );
+      expect(schema.safeParse({ deviceId: "" }).success).toBe(false);
+      expect(schema.safeParse({ deviceId: "d".repeat(201) }).success).toBe(
+        false,
+      );
+    });
+  });
 });

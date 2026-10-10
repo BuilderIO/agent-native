@@ -12,8 +12,14 @@ description: >-
 ## Rule
 
 Screen Memory is a disabled-by-default, local-only desktop buffer of recent
-screen, app, and window context. It is not a hosted Clips recording, and never
-describe it as hosted, shared, exhaustive, or enabled by default.
+screen, app, and window context. Raw segments are never uploaded or shared, and
+never describe Screen Memory as hosted, shared, exhaustive, or enabled by
+default.
+
+The one exception is an owner's explicit request for earlier screen time (see
+below). Then a chosen window of Rewind history is uploaded as a private recording
+attached to one Clip. That Clip stays private, and sharing is refused until that
+context is removed. The rest of the buffer stays local.
 
 ## Reading it from the in-app agent
 
@@ -43,7 +49,8 @@ default). When the lab is off, do not offer this feature.
 This is not Screen Memory. It is passive metadata on one clip: screen history
 from before that recording started, attached to the clip as its own context.
 The window is never stitched into the clip's video, and the clip's video is
-unchanged.
+unchanged. The older editor option that stitched Rewind history into the video
+("Add what happened before") is removed. Do not offer it.
 
 An item has two windows, both inside the 5 minutes before the recording
 started:
@@ -84,7 +91,9 @@ Read it with:
 
 - `list-recording-context` (viewer access) returns the clip's active item: its
   window, `status` (`pending`, `processing`, `ready`, or `failed`), and any
-  error. Removed items are excluded. Only a `ready` item has footage.
+  error. Removed items are excluded. Only a `ready` item has footage. A
+  `pending` item captured on another device waits until that device saves it,
+  because only that device can export its footage.
 - `list-pending-recording-context` is for the desktop export worker, not for
   answering questions. It lists pending requests on clips the signed-in user
   owns. Pass `excludeIds[]` for items this device cannot process, so they do

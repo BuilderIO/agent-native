@@ -38,8 +38,18 @@ const messages = {
     playSelection: "Auswahl abspielen",
     removeFailed:
       "Frühere Bildschirmzeit für die verworfene Aufnahme konnte nicht entfernt werden.",
-    scrubberStart: "Beginnt",
-    scrubberEnd: "Endet",
+    removeFailedAction:
+      "Frühere Bildschirmzeit konnte nicht entfernt werden. Versuch es erneut.",
+    removeAction: "Frühere Bildschirmzeit entfernen",
+    removeConfirmTitle: "Frühere Bildschirmzeit entfernen?",
+    removeConfirmBody:
+      "Das Filmmaterial wird in den Papierkorb verschoben und der Clip enthält es nicht mehr.",
+    removeConfirm: "Entfernen",
+    removed: "Frühere Bildschirmzeit entfernt",
+    scrubberFromBefore: "Ab {{offset}} davor",
+    scrubberFromStart: "Ab Aufnahmebeginn",
+    scrubberToBefore: "Bis {{offset}} davor",
+    scrubberToStart: "Bis Aufnahmebeginn",
     scrubberLength: "Dauer",
     scrubberStartHandle: "Fensterbeginn",
     scrubberEndHandle: "Fensterende",
@@ -51,6 +61,7 @@ const messages = {
     empty: "An diesem Clip ist keine frühere Bildschirmzeit angehängt.",
     larger: "Vergrößern",
     editHint: "Bearbeite das Zeitfenster in Clips Desktop.",
+    waitingOtherDevice: "Warten auf das Gerät, das diesen Clip aufgenommen hat",
   },
   agentChat: {
     setup: {
@@ -2265,22 +2276,6 @@ const messages = {
     guideStartTitle: "Click Start notes (Lokalisiert)",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Lokalisiert)",
-  },
-  rewindExtension: {
-    title: "Frühere Aufnahme hinzufügen",
-    description:
-      "Wähle einen Zeitraum aus dem lokalen Rewind und füge ihn am Anfang dieses Clips ein. Nichts wird automatisch hinzugefügt.",
-    progressLabel: "Fortschritt der Rewind-Verarbeitung",
-    privateFirstTitle: "Diesen Clip zuerst privat machen",
-    privateFirstDescription:
-      "Der lokale Rewind-Verlauf kann Kontext von vor dem Aufnahmestart enthalten. Der Clip wird privat. Falls jemand direkten Zugriff hat, hält Clips an, damit du ihn zuerst unter Teilen entfernen kannst.",
-    makePrivateContinue: "Privat machen und fortfahren",
-    add30Seconds: "Vorherige 30 Sekunden hinzufügen",
-    add5Minutes: "Vorherige 5 Minuten hinzufügen",
-    add5MinutesDescription:
-      "Hilfreich, um den Einstieg in eine längere Erklärung wiederherzustellen.",
-    privateReady:
-      "Dieser Clip ist privat. Du kannst jetzt lokalen Rewind-Verlauf hinzufügen.",
   },
   browserDiagnostics: {
     debug: "Debug",
