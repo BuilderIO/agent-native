@@ -24,9 +24,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
+  dedupeRecordingsById,
   useInfiniteRecordings,
   useRecordingsCount,
-  type RecordingSummary,
 } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 
@@ -101,8 +101,9 @@ export default function TrashRoute() {
   } = useInfiniteRecordings(args, totalKnown ? totalCount : undefined);
   const recordings = useMemo(
     () =>
-      (data?.pages.flatMap((page) => page.recordings) ??
-        []) as RecordingSummary[],
+      dedupeRecordingsById(
+        data?.pages.flatMap((page) => page.recordings) ?? [],
+      ),
     [data?.pages],
   );
   const requestKey = JSON.stringify(args);

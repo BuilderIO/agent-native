@@ -47,6 +47,7 @@ import {
   useMoveRecording,
   type ListRecordingsArgs,
   type RecordingSummary,
+  dedupeRecordingsById,
 } from "@/hooks/use-library";
 import { useUploadVideoPicker } from "@/hooks/use-upload-video-picker";
 import {
@@ -409,9 +410,9 @@ export function LibraryGrid({
   );
   const recordings = useMemo(
     () =>
-      (data?.pages.flatMap((page) => page.recordings) ?? []).filter(
-        (recording) => !activeUploadIds.has(recording.id),
-      ),
+      dedupeRecordingsById(
+        data?.pages.flatMap((page) => page.recordings) ?? [],
+      ).filter((recording) => !activeUploadIds.has(recording.id)),
     [activeUploadIds, data?.pages],
   );
   const { data: organizations } = useOrganizations({
