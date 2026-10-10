@@ -8,7 +8,10 @@ const CITATION_PATTERN =
 // The functions Vitest declares tests with, as globals or as named imports.
 // suite is describe under another name.
 const TEST_FUNCTIONS = new Set(["it", "test", "describe", "suite"]);
+// The keys of an options object that set a test's mode.
+const OPTION_MODES = new Set(["skip", "only", "todo"]);
 const TEST_MODIFIERS = new Set([
+  "shuffle",
   "only",
   "skip",
   "todo",
@@ -83,15 +86,17 @@ type ImportContext = {
   // Local names of imports from anything other than vitest. They bind the
   // module scope, so they shadow a Vitest global of the same name.
   shadowed: Set<string>;
-  // Module-level consts that stand for a Vitest function, such as `const t = it`.
-  aliases: Map<string, VitestName>;
 };
 
-// What a call sees where it is written: the file's imports, and the names each
-// scope around the call declares, outermost (the module) first.
+// What one scope binds: null for a plain binding, which shadows a Vitest global
+// of the same name, or the Vitest function a const stands for.
+type Bindings = Map<string, VitestName | null>;
+
+// What a call sees where it is written: the file's imports, and what each scope
+// around the call binds, outermost (the module) first.
 type Context = {
   imports: ImportContext;
-  bindings: Set<string>[];
+  bindings: Bindings[];
 };
 
 /**
@@ -108,17 +113,11 @@ export function titleCitations(source: string, fileName: string): string[] {
     tsx: /[jt]sx$/.test(fileName),
   });
   const imports = readVitestImports(ast.body);
-  const moduleNames = new Set(imports.shadowed);
-  statementNames(ast.body, moduleNames);
-  varNames(ast.body, moduleNames);
-  // An alias is a module const, so it was just counted as a module name. It
-  // reads as the Vitest function it names instead, so it leaves that set.
-  imports.aliases = readVitestAliases(ast.body, {
-    imports,
-    bindings: [moduleNames],
-  });
-  for (const name of imports.aliases.keys()) moduleNames.delete(name);
+  const moduleNames: Bindings = new Map();
+  for (const name of imports.shadowed) moduleNames.set(name, null);
   const context: Context = { imports, bindings: [moduleNames] };
+  statementNames(ast.body, moduleNames, context);
+  varNames(ast.body, moduleNames, context);
   const registrations: Registration[] = [];
   collectRegistrations(
     ast.body,
@@ -150,7 +149,6 @@ function readVitestImports(statements: unknown): ImportContext {
     functions: new Map(),
     namespaces: new Set(),
     shadowed: new Set(),
-    aliases: new Map(),
   };
   if (!Array.isArray(statements)) return imports;
   for (const statement of statements as AstNode[]) {
@@ -181,34 +179,40 @@ function readVitestImports(statements: unknown): ImportContext {
 }
 
 /**
- * The module-level consts that stand for a Vitest function, such as
- * `const focus = it.only`. A call through one reads as the function it names.
- * Only a const counts: a reassigned name would not keep its first function.
+ * The Vitest function an initializer stands for: a name or member chain that
+ * resolves to one, such as `it` or `it.only`, or `<test>.extend(...)`, which
+ * returns a test function too.
  */
-function readVitestAliases(
-  statements: unknown,
-  context: Context,
-): Map<string, VitestName> {
-  const aliases = new Map<string, VitestName>();
-  if (!Array.isArray(statements)) return aliases;
-  for (const statement of statements as AstNode[]) {
-    const node =
-      statement.type === "ExportDeclaration"
-        ? (statement.declaration as AstNode)
-        : statement;
-    if (node.type !== "VariableDeclaration" || node.kind !== "const") continue;
-    for (const declarator of node.declarations as AstNode[]) {
-      const id = declarator.id as AstNode;
-      if (id.type !== "Identifier" || typeof id.value !== "string") continue;
-      const chain = memberChain(declarator.init);
-      if (chain === undefined || chain.length === 0) continue;
-      const resolved = resolveFunction(chain, context);
-      if (resolved !== undefined && TEST_FUNCTIONS.has(resolved.name)) {
-        aliases.set(id.value, resolved);
-      }
+function aliasOf(init: unknown, context: Context): VitestName | undefined {
+  const value = unwrapValue(init);
+  if (value === undefined) return undefined;
+  if (value.type === "CallExpression") {
+    // `extend` builds a fresh test function, so the focus or skip of the chain it
+    // extends does not carry over to it.
+    const callee = memberChain(value.callee);
+    if (callee === undefined || callee[callee.length - 1] !== "extend") {
+      return undefined;
     }
+    const base = resolveFunction(callee.slice(0, -1), context);
+    return base !== undefined && TEST_FUNCTIONS.has(base.name)
+      ? { name: base.name, modifiers: [] }
+      : undefined;
   }
-  return aliases;
+  const chain = memberChain(value);
+  if (chain === undefined || chain.length === 0) return undefined;
+  const resolved = resolveFunction(chain, context);
+  return resolved !== undefined && TEST_FUNCTIONS.has(resolved.name)
+    ? resolved
+    : undefined;
+}
+
+/** The expression under any parentheses or type casts, which keep its value. */
+function unwrapValue(value: unknown): AstNode | undefined {
+  let node = value as AstNode | undefined;
+  while (node !== undefined && VALUE_WRAPPERS.has(String(node.type))) {
+    node = node.expression as AstNode | undefined;
+  }
+  return node;
 }
 
 /**
@@ -217,20 +221,26 @@ function readVitestAliases(
  * and function declarations, a loop head's let or const, a catch parameter, and
  * a switch's cases. A var is not here; it belongs to the nearest function.
  */
-function scopeNames(node: AstNode): Set<string> | undefined {
-  const names = new Set<string>();
+function scopeNames(node: AstNode, context: Context): Bindings | undefined {
+  const names: Bindings = new Map();
+  const inner: Context = {
+    imports: context.imports,
+    bindings: [...context.bindings, names],
+  };
   if (isFunctionNode(node)) {
-    for (const param of paramsOf(node)) addPatternNames(param, names);
+    for (const param of paramsOf(node)) addPlainNames(param, names);
     if (node.type === "FunctionExpression" && node.identifier !== undefined) {
-      addPatternNames(node.identifier, names);
+      addPlainNames(node.identifier, names);
     }
     const body = node.body as AstNode | undefined;
-    if (body?.type === "BlockStatement") statementNames(body.stmts, names);
-    varNames(node.body, names);
+    if (body?.type === "BlockStatement") {
+      statementNames(body.stmts, names, inner);
+    }
+    varNames(node.body, names, inner);
     return names;
   }
   if (node.type === "BlockStatement") {
-    statementNames(node.stmts, names);
+    statementNames(node.stmts, names, inner);
     return names;
   }
   if (
@@ -241,16 +251,18 @@ function scopeNames(node: AstNode): Set<string> | undefined {
     const head = (node.type === "ForStatement" ? node.init : node.left) as
       | AstNode
       | undefined;
-    if (head?.type === "VariableDeclaration") addLexicalNames(head, names);
+    if (head?.type === "VariableDeclaration") {
+      addLexicalNames(head, names, inner);
+    }
     return names;
   }
   if (node.type === "CatchClause") {
-    addPatternNames(node.param, names);
+    addPlainNames(node.param, names);
     return names;
   }
   if (node.type === "SwitchStatement") {
     for (const switchCase of node.cases as AstNode[]) {
-      statementNames(switchCase.consequent, names);
+      statementNames(switchCase.consequent, names, inner);
     }
     return names;
   }
@@ -272,50 +284,102 @@ function paramsOf(node: AstNode): unknown[] {
   return node.param === undefined ? [] : [node.param];
 }
 
-/** The context inside a node: the names it declares join those around it. */
+/** The context inside a node: what it binds joins what is around it. */
 function enterScope(node: AstNode, context: Context): Context {
-  const names = scopeNames(node);
+  const names = scopeNames(node, context);
   if (names === undefined) return context;
   return { imports: context.imports, bindings: [...context.bindings, names] };
 }
 
 /**
- * The let, const, class and function declarations of a statement list. They
- * are visible throughout the list, so they count from its start.
+ * What a statement list binds. Its let, const, class and function declarations
+ * are visible throughout the list, so they count from its start. An alias may
+ * be made from an earlier alias, so the list is read in order.
  */
-function statementNames(statements: unknown, out: Set<string>): void {
+function statementNames(
+  statements: unknown,
+  out: Bindings,
+  context: Context,
+): void {
   if (!Array.isArray(statements)) return;
-  for (const statement of statements as AstNode[]) {
-    const node =
-      statement.type === "ExportDeclaration"
-        ? (statement.declaration as AstNode)
-        : statement;
-    if (node.type === "VariableDeclaration") addLexicalNames(node, out);
+  const nodes = (statements as AstNode[]).map((statement) =>
+    statement.type === "ExportDeclaration"
+      ? (statement.declaration as AstNode)
+      : statement,
+  );
+  // Every name the list declares is bound before any alias is read. A function
+  // or class is hoisted, and a const may name one declared after it.
+  for (const node of nodes) {
+    if (node.type === "VariableDeclaration" && node.kind !== "var") {
+      for (const declarator of node.declarations as AstNode[]) {
+        addPlainNames(declarator.id, out);
+      }
+    }
     if (
       node.type === "FunctionDeclaration" ||
       node.type === "ClassDeclaration"
     ) {
-      addPatternNames(node.identifier, out);
+      addPlainNames(node.identifier, out);
+    }
+  }
+  // Then each const is read in order, so an alias may be made from an earlier one.
+  for (const node of nodes) {
+    if (node.type === "VariableDeclaration") {
+      addLexicalNames(node, out, context);
     }
   }
 }
 
 /** The names a let or const declaration binds. A var is hoisted elsewhere. */
-function addLexicalNames(declaration: AstNode, out: Set<string>): void {
+function addLexicalNames(
+  declaration: AstNode,
+  out: Bindings,
+  context: Context,
+): void {
   if (declaration.kind === "var") return;
   for (const declarator of declaration.declarations as AstNode[]) {
-    addPatternNames(declarator.id, out);
+    addDeclarator(declarator, declaration.kind as string, out, context);
   }
 }
 
 /**
- * The names declared with var anywhere in a node, outside any nested function.
- * A var hoists to its function, so one inside a nested block still binds the
- * whole function body.
+ * Records what a declarator binds. A const whose initializer stands for a Vitest
+ * function is an alias of it. A let or var may be reassigned, so the scan cannot
+ * follow it, and one that holds a Vitest function fails rather than being read
+ * as a plain name.
  */
-function varNames(value: unknown, out: Set<string>): void {
+function addDeclarator(
+  declarator: AstNode,
+  kind: string,
+  out: Bindings,
+  context: Context,
+): void {
+  const id = declarator.id as AstNode;
+  const alias = declarator.init ? aliasOf(declarator.init, context) : undefined;
+  if (
+    alias !== undefined &&
+    id.type === "Identifier" &&
+    typeof id.value === "string"
+  ) {
+    if (kind !== "const") {
+      throw new Error(
+        `"${id.value}" binds a Vitest function with ${kind}; bind it with const so the citation scan can follow it`,
+      );
+    }
+    out.set(id.value, alias);
+    return;
+  }
+  addPlainNames(id, out);
+}
+
+/**
+ * What a node declares with var, anywhere outside a nested function. A var
+ * hoists to its function, so one inside a nested block still binds the whole
+ * function body.
+ */
+function varNames(value: unknown, out: Bindings, context: Context): void {
   if (Array.isArray(value)) {
-    for (const item of value) varNames(item, out);
+    for (const item of value) varNames(item, out, context);
     return;
   }
   if (typeof value !== "object" || value === null) return;
@@ -323,10 +387,17 @@ function varNames(value: unknown, out: Set<string>): void {
   if (isFunctionNode(node)) return;
   if (node.type === "VariableDeclaration" && node.kind === "var") {
     for (const declarator of node.declarations as AstNode[]) {
-      addPatternNames(declarator.id, out);
+      addDeclarator(declarator, "var", out, context);
     }
   }
-  for (const child of Object.values(node)) varNames(child, out);
+  for (const child of Object.values(node)) varNames(child, out, context);
+}
+
+/** Records each name a binding pattern declares as a plain binding. */
+function addPlainNames(pattern: unknown, out: Bindings): void {
+  const names = new Set<string>();
+  addPatternNames(pattern, names);
+  for (const name of names) out.set(name, null);
 }
 
 /** The names a binding pattern declares. */
@@ -415,7 +486,7 @@ function collectExpression(
 ): void {
   const node = unchained(value);
   if (node.type !== "CallExpression") return;
-  const declaration = testDeclaration(node.callee, context);
+  const declaration = declarationOf(node, context);
   if (declaration === undefined) return;
   // A table-driven declaration registers one test per case. A table that is not
   // a non-empty array literal cannot be shown to register any, so it is not
@@ -529,8 +600,14 @@ function containsFocus(value: unknown, context: Context): boolean {
     }
   }
   if (node.type === "CallExpression") {
-    const declaration = testDeclaration(node.callee, context);
-    if (declaration?.modifiers.includes("only")) return true;
+    const declaration = declarationOf(node, context);
+    // A focus over an empty table registers nothing, so it focuses nothing. The
+    // table is the argument of this call, or of the table call it is made on.
+    const emptyTable =
+      declaration !== undefined &&
+      declaration.modifiers.some((m) => TABLE_FORMS.has(m)) &&
+      (hasEmptyTableArg(node) || hasEmptyTableArg(node.callee));
+    if (declaration?.modifiers.includes("only") && !emptyTable) return true;
     // A handler runs after Vitest has decided the file's focus, so a focus inside
     // one changes nothing. The title, table and condition are evaluated while the
     // file is collected, so they are read.
@@ -563,6 +640,68 @@ function isHook(callee: unknown, context: Context): boolean {
   );
 }
 
+/**
+ * The declaration a call makes, with the modes its options object sets and a
+ * todo for a test that has no handler. Vitest reads an options object as the
+ * test's mode, so `{ skip: true }` skips it the way `it.skip` would.
+ */
+function declarationOf(
+  node: AstNode,
+  context: Context,
+): { base: string; modifiers: string[] } | undefined {
+  const declaration = testDeclaration(node.callee, context);
+  if (declaration === undefined) return undefined;
+  const modifiers = [...declaration.modifiers, ...optionModes(node)];
+  // A table form takes its handler in the next call, so only a plain test is
+  // todo for lacking one.
+  const tableForm = declaration.modifiers.some((m) => TABLE_FORMS.has(m));
+  if (
+    declaration.base !== "describe" &&
+    !tableForm &&
+    argumentsOf(node).length === 1
+  ) {
+    modifiers.push("todo");
+  }
+  return { base: declaration.base, modifiers };
+}
+
+/**
+ * The modes an options object sets: skip, only and todo. A value that is not
+ * literally false counts, since the scan cannot tell what it will be.
+ */
+function optionModes(node: AstNode): string[] {
+  const modes: string[] = [];
+  for (const argument of argumentsOf(node)) {
+    const options = unwrapValue(argument.expression);
+    if (options?.type !== "ObjectExpression") continue;
+    for (const property of (options.properties ?? []) as AstNode[]) {
+      if (property.type !== "KeyValueProperty") continue;
+      const key = property.key as AstNode;
+      const name = key.value;
+      if (typeof name !== "string" || !OPTION_MODES.has(name)) continue;
+      const value = unwrapValue(property.value);
+      if (value?.type === "BooleanLiteral" && value.value === false) continue;
+      modes.push(name);
+    }
+  }
+  return modes;
+}
+
+/**
+ * Whether a call's first argument is an empty array literal, the table of a
+ * table-driven declaration. Vitest registers no test from an empty table.
+ */
+function hasEmptyTableArg(value: unknown): boolean {
+  const call = unchained(value);
+  if (call.type !== "CallExpression") return false;
+  const table = unwrapValue(argumentsOf(call)[0]?.expression);
+  return (
+    table?.type === "ArrayExpression" &&
+    Array.isArray(table.elements) &&
+    table.elements.length === 0
+  );
+}
+
 /** A function literal passed as a test's handler, which runs after collection. */
 function isHandler(value: unknown): boolean {
   let node = value as AstNode | undefined;
@@ -588,7 +727,7 @@ function isSkipped(
   if (conditional === undefined) return false;
   const condition =
     callee.type === "CallExpression"
-      ? (argumentsOf(callee)[0]?.expression as AstNode | undefined)
+      ? unwrapValue(argumentsOf(callee)[0]?.expression)
       : undefined;
   if (condition?.type !== "BooleanLiteral") return true;
   return conditional === "skipIf"
@@ -668,14 +807,19 @@ function resolveFunction(
   context: Context,
 ): VitestName | undefined {
   const [head, ...rest] = chain;
-  // Only the scopes around this call can shadow it. A declaration elsewhere in
-  // the file, such as a helper's parameter, does not reach it.
-  if (context.bindings.some((names) => names.has(head))) return undefined;
-  const { imports } = context;
-  const alias = imports.aliases.get(head);
-  if (alias !== undefined) {
-    return { name: alias.name, modifiers: [...alias.modifiers, ...rest] };
+  // The innermost scope that binds the head decides what it is. A plain binding
+  // shadows the Vitest global; an alias stands for the function it was bound to.
+  // A binding elsewhere in the file, such as a helper's parameter, does not
+  // reach this call.
+  for (let index = context.bindings.length - 1; index >= 0; index--) {
+    const bound = context.bindings[index].get(head);
+    if (bound !== undefined) {
+      return bound === null
+        ? undefined
+        : { name: bound.name, modifiers: [...bound.modifiers, ...rest] };
+    }
   }
+  const { imports } = context;
   if (imports.namespaces.has(head)) {
     const [member, ...modifiers] = rest;
     return member === undefined ? undefined : { name: member, modifiers };
@@ -729,7 +873,7 @@ function memberChain(node: unknown): string[] | undefined {
 function memberName(member: AstNode): string | undefined {
   const property = member.property as AstNode | undefined;
   if (property?.type === "Computed") {
-    const key = property.expression as AstNode | undefined;
+    const key = unwrapValue(property.expression);
     if (key?.type === "StringLiteral" && typeof key.value === "string") {
       return key.value;
     }

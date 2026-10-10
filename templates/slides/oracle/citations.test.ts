@@ -599,6 +599,131 @@ describe("titleCitations counts only test titles", () => {
     expect(titleCitations(source, "a.test.ts")).toEqual(["9.18", "9.19"]);
   });
 
+  it("follows an alias made from an earlier alias", () => {
+    const source = [
+      `const base = it;`,
+      `const focus = base.only;`,
+      `focus("chained focus (oracle 9.20)", () => {});`,
+      `it("snaps (oracle 9.21)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.20"]);
+  });
+
+  it("follows an alias declared inside a suite callback", () => {
+    const source = [
+      `describe("group", () => {`,
+      `  const focus = it.only;`,
+      `  focus("suite focus (oracle 9.22)", () => {});`,
+      `  it("snaps (oracle 9.23)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.22"]);
+  });
+
+  it("follows an alias made by it.extend, which returns a test function", () => {
+    const source = [
+      `const myTest = it.extend({});`,
+      `myTest.only("extended focus (oracle 9.24)", () => {});`,
+      `it("snaps (oracle 9.25)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.24"]);
+  });
+
+  it("refuses a let that binds a vitest function, which the scan cannot follow", () => {
+    const source = [
+      `let t = it;`,
+      `t.only("never (oracle 9.26)", () => {});`,
+    ].join("\n");
+    expect(() => titleCitations(source, "a.test.ts")).toThrow(
+      /bind it with const/,
+    );
+  });
+
+  it("ignores a focus over an empty table, which registers no test", () => {
+    const source = [
+      `it.only.each([])("empty (oracle 9.27)", () => {});`,
+      `it("snaps (oracle 9.28)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.28"]);
+  });
+
+  it("reads a parenthesized static computed key as the member it names", () => {
+    const source = [
+      `it[("only")]("paren key (oracle 9.29)", () => {});`,
+      `it("snaps (oracle 9.30)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.29"]);
+  });
+
+  it("reads a parenthesized literal condition, so a runIf on true runs", () => {
+    expect(
+      titleCitations(
+        `it.runIf((true))("runs (oracle 9.31)", () => {});`,
+        "a.test.ts",
+      ),
+    ).toEqual(["9.31"]);
+  });
+
+  it("drops the focus of a chain that extend builds a fresh test function from", () => {
+    const source = [
+      `const t = it.only.extend({});`,
+      `t("moves (oracle 9.32)", () => {});`,
+      `it.only("snaps (oracle 9.33)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.33"]);
+  });
+
+  it("does not alias a const to a function that a later declaration hoists over", () => {
+    const source = [
+      `const f = it;`,
+      `function it(name: string, fn: () => void) { fn(); }`,
+      `f("moves (oracle 9.34)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("skips a test whose options object sets skip", () => {
+    const source = [
+      `it("moves (oracle 9.35)", { skip: true }, () => {});`,
+      `it("snaps (oracle 9.36)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.36"]);
+  });
+
+  it("focuses the file when an options object sets only", () => {
+    const source = [
+      `it("moves (oracle 9.37)", { only: true }, () => {});`,
+      `it("snaps (oracle 9.38)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.37"]);
+  });
+
+  it("treats a test with no handler as todo, so it does not run", () => {
+    const source = [
+      `it("moves (oracle 9.39)");`,
+      `it("snaps (oracle 9.40)", () => {});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.40"]);
+  });
+
+  it("skips every test in a suite whose options object sets skip", () => {
+    const source = [
+      `describe("group", { skip: true }, () => {`,
+      `  it("moves (oracle 9.41)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual([]);
+  });
+
+  it("reads a shuffled suite as a suite", () => {
+    const source = [
+      `describe.shuffle("group", () => {`,
+      `  it("moves (oracle 9.42)", () => {});`,
+      `});`,
+    ].join("\n");
+    expect(titleCitations(source, "a.test.ts")).toEqual(["9.42"]);
+  });
+
   it("counts ordinary tests when a focus sits inside a hook, which runs at test time", () => {
     const source = [
       `beforeEach(() => { it.only("never runs", () => {}); });`,
