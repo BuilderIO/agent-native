@@ -32,19 +32,21 @@ export function ScreenshotPrimaryAction({
   } = useScreenshotCapture({ folderId, spaceId });
 
   return (
-    <PageHeaderActionGroup>
-      <PageHeaderPrimaryAction
-        onClick={captureScreenshot}
-        disabled={isCapturing}
-        aria-label={t("preRecord.takeScreenshot")}
-      >
-        <IconCamera />
-        <span className="hidden sm:inline">
-          {t("preRecord.takeScreenshot")}
-        </span>
-      </PageHeaderPrimaryAction>
+    <>
+      <PageHeaderActionGroup>
+        <PageHeaderPrimaryAction
+          onClick={captureScreenshot}
+          disabled={isCapturing}
+          aria-label={t("preRecord.takeScreenshot")}
+        >
+          <IconCamera />
+          <span className="hidden sm:inline">
+            {t("preRecord.takeScreenshot")}
+          </span>
+        </PageHeaderPrimaryAction>
+      </PageHeaderActionGroup>
       {screenshotOverlay}
-    </PageHeaderActionGroup>
+    </>
   );
 }
 
@@ -69,32 +71,34 @@ export function LibraryPrimaryActions({
   });
 
   return (
-    <PageHeaderActionGroup>
-      <PageHeaderPrimaryAction asChild>
-        <NavLink to={recordHref} aria-label={t("navigation.newRecording")}>
-          <IconVideoPlus />
-          <span className="hidden sm:inline">
-            {t("navigation.newRecording")}
-          </span>
-        </NavLink>
-      </PageHeaderPrimaryAction>
-      <ImportMenu
-        uploadHref={uploadHref}
-        onScreenshot={captureScreenshot}
-        screenshotPending={isCapturing}
-        importLoomHref={importLoomHref}
-        spaceId={spaceId}
-        folderId={folderId}
-        recordHref={recordHref}
-        iconOnly
-        triggerIcon="chevron"
-        size="sm"
-        variant="default"
-        className="w-8 self-stretch rounded-e-md border-s border-primary-foreground/20 px-0 shadow-none"
-        menuSide="bottom"
-        menuAlign="end"
-      />
+    <>
+      <PageHeaderActionGroup>
+        <PageHeaderPrimaryAction asChild>
+          <NavLink to={recordHref} aria-label={t("navigation.newRecording")}>
+            <IconVideoPlus />
+            <span className="hidden sm:inline">
+              {t("navigation.newRecording")}
+            </span>
+          </NavLink>
+        </PageHeaderPrimaryAction>
+        <ImportMenu
+          uploadHref={uploadHref}
+          onScreenshot={captureScreenshot}
+          screenshotPending={isCapturing}
+          importLoomHref={importLoomHref}
+          spaceId={spaceId}
+          folderId={folderId}
+          recordHref={recordHref}
+          iconOnly
+          triggerIcon="chevron"
+          size="sm"
+          variant="default"
+          className="w-8 self-stretch px-0 shadow-none"
+          menuSide="bottom"
+          menuAlign="end"
+        />
+      </PageHeaderActionGroup>
       {screenshotOverlay}
-    </PageHeaderActionGroup>
+    </>
   );
 }
