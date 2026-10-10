@@ -39,4 +39,14 @@ describe("redactExportDiagnostic", () => {
       'previewToken=[redacted] csrf_token=[redacted] x_api_key=[redacted] "previewToken":"[redacted]" "csrf_token":"[redacted]" "x_api_key":"[redacted]" tokenCount=3 title=Welcome',
     );
   });
+
+  it("redacts password and authorization values including quoted spaces", () => {
+    expect(
+      redactExportDiagnostic(
+        "password=\"PASSWORD WITH SPACES PLACEHOLDER\" authorization='Bearer AUTHORIZATION WITH SPACES PLACEHOLDER' authorization=Bearer AUTHORIZATION_TOKEN_PLACEHOLDER passwordCount=3 title=Welcome",
+      ),
+    ).toBe(
+      "password=\"[redacted]\" authorization='[redacted]' authorization=[redacted] passwordCount=3 title=Welcome",
+    );
+  });
 });

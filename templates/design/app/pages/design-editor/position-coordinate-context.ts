@@ -91,6 +91,7 @@ export function positionCoordinateRenderOffsetForWindow(
       ? offset
       : null;
   } catch {
+    // coercion-ok: denied preview DOM reads mean the offset is unknown; callers skip the whole coordinate measurement.
     return null;
   }
 }

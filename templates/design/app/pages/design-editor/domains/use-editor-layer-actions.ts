@@ -934,72 +934,40 @@ export function useEditorLayerActions({
       ) {
         return;
       }
+      if (
+        !measured.positionReferenceRect ||
+        !measured.positionContainingBlockOrigin ||
+        !measured.positionContainingBlockTransform
+      ) {
+        return;
+      }
       const stableId = owner.node.dataAttributes["data-agent-native-node-id"];
       const ownerId = stableId ?? bridgeSourceIdForCodeLayerNode(owner.node);
       const layerKey = `${owner.fileId}:${owner.node.id}`;
       const stableKey = stableId ? `${owner.fileId}:${stableId}` : undefined;
-      const selected = selectedLayerIdsStateRef.current.includes(layerId)
-        ? selectedElementRef.current
-        : null;
-      const selectedForOwner =
-        selected?.sourceId === ownerId || selected?.runtimeSourceId === ownerId
-          ? selected
-          : null;
-      const previous =
-        renderedElementInfoByLayerKeyRef.current.get(layerKey) ??
-        (stableKey
-          ? renderedElementInfoByLayerKeyRef.current.get(stableKey)
-          : undefined);
-      const measuredWithPriorPositionContext = {
-        ...measured,
-        positionReferenceRect:
-          measured.positionReferenceRect ??
-          selectedForOwner?.positionReferenceRect ??
-          previous?.positionReferenceRect,
-        positionContainingBlockOrigin:
-          measured.positionContainingBlockOrigin ??
-          selectedForOwner?.positionContainingBlockOrigin ??
-          previous?.positionContainingBlockOrigin,
-        positionContainingBlockTransform:
-          measured.positionContainingBlockTransform ??
-          selectedForOwner?.positionContainingBlockTransform ??
-          previous?.positionContainingBlockTransform,
-      };
-      renderedElementInfoByLayerKeyRef.current.set(
-        layerKey,
-        measuredWithPriorPositionContext,
-      );
+      renderedElementInfoByLayerKeyRef.current.set(layerKey, measured);
       if (stableKey) {
-        renderedElementInfoByLayerKeyRef.current.set(
-          stableKey,
-          measuredWithPriorPositionContext,
-        );
+        renderedElementInfoByLayerKeyRef.current.set(stableKey, measured);
       }
       if (selectedLayerIdsStateRef.current.includes(layerId)) {
         const mergeMeasured = (current: ElementInfo | null) => {
-          if (!current) return measuredWithPriorPositionContext;
+          if (!current) return measured;
           const currentId = current.sourceId ?? current.runtimeSourceId;
           if (currentId !== ownerId) return current;
           const merged = {
-            ...measuredWithPriorPositionContext,
+            ...measured,
             ...current,
-            sourceLayerIdentity:
-              measuredWithPriorPositionContext.sourceLayerIdentity,
-            boundingRect: measuredWithPriorPositionContext.boundingRect,
+            sourceLayerIdentity: measured.sourceLayerIdentity,
+            boundingRect: measured.boundingRect,
             parentBoundingRect:
-              measuredWithPriorPositionContext.parentBoundingRect ??
-              current.parentBoundingRect,
-            positionReferenceRect:
-              measuredWithPriorPositionContext.positionReferenceRect ??
-              current.positionReferenceRect,
+              measured.parentBoundingRect ?? current.parentBoundingRect,
+            positionReferenceRect: measured.positionReferenceRect,
             positionContainingBlockOrigin:
-              measuredWithPriorPositionContext.positionContainingBlockOrigin ??
-              current.positionContainingBlockOrigin,
+              measured.positionContainingBlockOrigin,
             positionContainingBlockTransform:
-              measuredWithPriorPositionContext.positionContainingBlockTransform ??
-              current.positionContainingBlockTransform,
+              measured.positionContainingBlockTransform,
             computedStyles: {
-              ...measuredWithPriorPositionContext.computedStyles,
+              ...measured.computedStyles,
               ...current.computedStyles,
             },
           };
@@ -1016,8 +984,8 @@ export function useEditorLayerActions({
         }
       }
       if (
-        measuredWithPriorPositionContext.boundingRect.width <= 0 ||
-        measuredWithPriorPositionContext.boundingRect.height <= 0
+        measured.boundingRect.width <= 0 ||
+        measured.boundingRect.height <= 0
       ) {
         return;
       }

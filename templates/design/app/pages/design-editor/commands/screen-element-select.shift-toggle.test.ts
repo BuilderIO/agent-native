@@ -190,7 +190,7 @@ describe("runScreenElementSelect — Shift+click toggles selection membership", 
     }
   });
 
-  it("refreshes bounds but retains prior Position context when the offset is unreadable", () => {
+  it("retains one consistent geometry snapshot when the offset becomes unreadable", () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");
     document.body.appendChild(iframe);
@@ -200,51 +200,65 @@ describe("runScreenElementSelect — Shift+click toggles selection membership", 
     offset.setAttribute("data-agent-native-content-offset-x", "4096");
     offset.setAttribute("data-agent-native-content-offset-y", "2048");
     doc.head.appendChild(offset);
+    const boardRoot = doc.createElement("div");
+    boardRoot.setAttribute("data-agent-native-node-id", "board-root");
+    const frame = doc.createElement("div");
+    frame.setAttribute("data-an-primitive", "frame");
+    frame.setAttribute("data-agent-native-node-id", "frame-a");
+    frame.style.position = "relative";
     const target = doc.createElement("div");
     target.id = "node-a";
     target.setAttribute("data-agent-native-node-id", "node-a");
-    doc.body.appendChild(target);
+    target.style.position = "absolute";
+    boardRoot.appendChild(frame);
+    frame.appendChild(target);
+    doc.body.appendChild(boardRoot);
+    let moved = false;
+    frame.getBoundingClientRect = () =>
+      (moved
+        ? { x: 5000, y: 3000, width: 900, height: 700 }
+        : { x: 4096, y: 2048, width: 800, height: 600 }) as DOMRect;
     target.getBoundingClientRect = () =>
-      ({ x: 5000, y: 3000, width: 120, height: 60 }) as DOMRect;
+      (moved
+        ? { x: 5020, y: 3030, width: 120, height: 60 }
+        : { x: 4100, y: 2050, width: 100, height: 40 }) as DOMRect;
     const originalQuerySelector = doc.querySelector.bind(doc);
-    vi.spyOn(doc, "querySelector").mockImplementation((selector) => {
-      if (selector === "style[data-agent-native-content-offset]") {
-        throw new DOMException("Offset style is unavailable", "SecurityError");
-      }
-      return originalQuerySelector(selector);
-    });
 
     try {
-      const measured = withMeasuredGeometry({
-        ...makeInfo("node-a"),
-        boundingRect: { x: 4096, y: 2048, width: 100, height: 40 },
-        positionReferenceRect: { x: 4096, y: 2048, width: 800, height: 600 },
-        positionContainingBlockOrigin: { x: 4104, y: 2056 },
-        positionContainingBlockTransform: { a: 2, b: 0, c: 0, d: 2 },
-      } as ElementInfo);
-
-      expect(measured.boundingRect).toEqual({
-        x: 5000,
-        y: 3000,
-        width: 120,
-        height: 60,
+      const previous = withMeasuredGeometry(makeInfo("node-a"));
+      expect(previous.boundingRect).toEqual({
+        x: 4100,
+        y: 2050,
+        width: 100,
+        height: 40,
       });
-      expect(measured.positionReferenceRect).toEqual({
+      expect(previous.parentBoundingRect).toEqual({
         x: 4096,
         y: 2048,
         width: 800,
         height: 600,
       });
-      expect(measured.positionContainingBlockOrigin).toEqual({
-        x: 4104,
-        y: 2056,
+      expect(previous.positionReferenceRect).toEqual({
+        x: 4096,
+        y: 2048,
+        width: 800,
+        height: 600,
       });
-      expect(measured.positionContainingBlockTransform).toEqual({
-        a: 2,
-        b: 0,
-        c: 0,
-        d: 2,
+
+      moved = true;
+      vi.spyOn(doc, "querySelector").mockImplementation((selector) => {
+        if (selector === "style[data-agent-native-content-offset]") {
+          throw new DOMException(
+            "Offset style is unavailable",
+            "SecurityError",
+          );
+        }
+        return originalQuerySelector(selector);
       });
+
+      const measured = withMeasuredGeometry(previous);
+
+      expect(measured).toBe(previous);
     } finally {
       vi.restoreAllMocks();
       iframe.remove();

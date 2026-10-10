@@ -248,6 +248,7 @@ export function withMeasuredGeometry(
       view && renderOffset
         ? measurePositionCoordinateContext(node, view, renderOffset)
         : undefined;
+    if (!positionCoordinateContext) return info;
     const scrollX = view?.scrollX ?? 0;
     const scrollY = view?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);
