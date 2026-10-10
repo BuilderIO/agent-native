@@ -1,5 +1,7 @@
 # Google Slides interaction oracle
 
+The rows of this file are mirrored in `oracle/interaction-oracle.json`, which tests read; edit both together. `oracle/schema.test.ts` fails when they drift.
+
 Measured in a live Google Slides desktop-web tab on 2026-10-07 (scratch deck, two
 sessions: selection/drag/snap and text-box fitting). Every entry below is MEASURED
 unless marked otherwise. This is a reference ledger for `interaction-parity.md`

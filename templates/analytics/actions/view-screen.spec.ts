@@ -135,6 +135,25 @@ describe("view-screen monitoring status-pages branch", () => {
     expect(getDashboard).not.toHaveBeenCalled();
   });
 
+  it("does not surface a stale dashboard selection on a saved Ask thread", async () => {
+    selectedObjectState.current = {
+      type: "dashboard",
+      id: "dash-1",
+      title: "Revenue",
+    };
+    setScreen(
+      { view: "adhoc", dashboardId: "dash-1" },
+      { pathname: "/ask/thread-1" },
+    );
+
+    const out = await runScreen();
+
+    expect(out.selectedObject).toBeUndefined();
+    expect(out.navigation).toEqual({ view: "ask" });
+    expect(out.dashboard).toBeUndefined();
+    expect(getDashboard).not.toHaveBeenCalled();
+  });
+
   it("does not let stale Ask navigation mask a dashboard URL", async () => {
     selectedObjectState.current = {
       type: "dashboard",

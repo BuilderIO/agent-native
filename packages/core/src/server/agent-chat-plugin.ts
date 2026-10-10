@@ -3522,8 +3522,11 @@ export function createAgentChatPlugin(
       // have to open the (single-process) local database itself while this
       // server is already holding it open. Gated internally on deploy
       // environment, loopback, and a per-process token — see dev-action-bridge.ts.
-      const { mountDevActionForwardRoute, mountDevDbQueryForwardRoute } =
-        await import("./dev-action-bridge.js");
+      const {
+        mountDevActionForwardRoute,
+        mountDevDbMigrateForwardRoute,
+        mountDevDbQueryForwardRoute,
+      } = await import("./dev-action-bridge.js");
       mountDevActionForwardRoute(nitroApp, httpActions, {
         appId: options?.appId,
       });
@@ -3531,6 +3534,9 @@ export function createAgentChatPlugin(
       // it — this is the dedicated forward target `pnpm action db-query`
       // uses instead (see dev-query-proxy.ts).
       mountDevDbQueryForwardRoute(nitroApp);
+      // `agent-native db-migrate` applies migrations through this server's own
+      // PGlite client instead of opening the data dir from a second process.
+      mountDevDbMigrateForwardRoute(nitroApp);
       mountWebMcpActionRoutes(nitroApp, httpActions, {
         getOwnerFromEvent,
         getOwnerContextFromEvent: resolveOwnerContext,

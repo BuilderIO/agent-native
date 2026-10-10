@@ -308,13 +308,58 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
         }
       }
     };
+    const hasParagraphsInListItem = (element: Element, item: Element) =>
+      Array.from(element.querySelectorAll("p")).some(
+        (paragraph) => paragraph.closest("li") === item,
+      );
+    const collectListItemContent = (parent: Element) => {
+      for (const child of getPersistedChildren(parent)) {
+        const childTagName = child.tagName.toLowerCase();
+        if (SKIPPED_TAGS.has(childTagName)) continue;
+        if (childTagName === "p") {
+          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+        } else if (childTagName === "ul" || childTagName === "ol") {
+          collectListItems(child);
+        } else if (childTagName === "li") {
+          collectListItem(child);
+        } else if (shouldKeepAsSingleElement(child)) {
+          const containingListItem = parent.closest("li");
+          if (
+            containingListItem &&
+            hasOwnText(child) &&
+            hasParagraphsInListItem(child, containingListItem)
+          ) {
+            nativeParagraphs.push(child);
+            collectListItemContent(child);
+          } else {
+            if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
+            collectNestedLists(child);
+          }
+        } else {
+          collectListItemContent(child);
+        }
+      }
+    };
+    const collectListItem = (item: Element) => {
+      const itemHasParagraphs = hasParagraphsInListItem(item, item);
+      if (itemHasParagraphs && hasOwnText(item)) {
+        nativeParagraphs.push(item);
+        collectListItemContent(item);
+        return;
+      }
+      if (!itemHasParagraphs && hasMeaningfulContent(item)) {
+        nativeParagraphs.push(item);
+        collectNestedLists(item);
+        return;
+      }
+      collectListItemContent(item);
+    };
     const collectListItems = (list: Element) => {
       for (const child of getPersistedChildren(list)) {
         const childTagName = child.tagName.toLowerCase();
         if (SKIPPED_TAGS.has(childTagName)) continue;
         if (childTagName === "li") {
-          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-          collectNestedLists(child);
+          collectListItem(child);
         } else if (childTagName === "ul" || childTagName === "ol") {
           collectListItems(child);
         }
@@ -329,8 +374,7 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
           continue;
         }
         if (childTagName === "li") {
-          if (hasMeaningfulContent(child)) nativeParagraphs.push(child);
-          collectNestedLists(child);
+          collectListItem(child);
           continue;
         }
         if (childTagName === "ul" || childTagName === "ol") {

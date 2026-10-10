@@ -75,6 +75,7 @@ const {
   insertAgentComposerReference,
   listAgentChatContext,
   normalizeAgentComposerReference,
+  nextAgentChatStagedAt,
   parseSubmitChatMessage,
   publishAgentChatContextItems,
   removeAgentChatContextItem,
@@ -199,6 +200,43 @@ describe("sendToAgentChat", () => {
       kind: "content-comment-ai",
       requestId: "request-1",
     });
+  });
+
+  it("carries a prefill context chip label through the postMessage payload", () => {
+    sendToAgentChat({
+      message: "Tell me more",
+      context: '{"movieId":969681}',
+      contextLabel: "Spider-Man: Brand New Day",
+      submit: false,
+    });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    const parsed = parseSubmitChatMessage({ data: payload } as MessageEvent);
+
+    expect(parsed?.contextLabel).toBe("Spider-Man: Brand New Day");
+    expect(parsed?.context).toBe('{"movieId":969681}');
+  });
+
+  it("restaging stamps a fresh staging time over one the caller carried", () => {
+    setAgentChatContextItem({
+      key: "restage",
+      title: "Restage",
+      context: "first",
+      stagedAt: 1,
+    });
+
+    const [item] = listAgentChatContext();
+    expect(item.stagedAt).toBeGreaterThan(1);
+  });
+
+  it("never repeats a staging time within one page", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      const first = nextAgentChatStagedAt();
+      const second = nextAgentChatStagedAt();
+      expect(second).toBeGreaterThan(first);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("rejects malformed and oversized action scopes", () => {
@@ -1652,6 +1690,7 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
+        stagedAt: expect.any(Number),
       },
     });
     expect(listAgentChatContext()).toEqual([
@@ -1659,6 +1698,7 @@ describe("sendToAgentChat", () => {
         key: ".thing#hello",
         title: "Selected Element",
         context: "<div>Hello</div>",
+        stagedAt: expect.any(Number),
       },
     ]);
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
@@ -1684,6 +1724,7 @@ describe("sendToAgentChat", () => {
         title: "Cart",
         context: "Line item A",
         openSidebar: false,
+        stagedAt: expect.any(Number),
       },
     });
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
@@ -1715,7 +1756,12 @@ describe("sendToAgentChat", () => {
       text: async () => JSON.stringify(requestState),
     });
 
-    await expect(persistence).resolves.toBeUndefined();
+    await expect(persistence).resolves.toEqual(
+      expect.objectContaining({
+        key: "prefill:thread-1",
+        stagedAt: expect.any(Number),
+      }),
+    );
     expect(listAgentChatContext()).toEqual(requestState.items);
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toContain(
       "agentNative.chatContextChanged",

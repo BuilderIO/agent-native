@@ -1385,6 +1385,41 @@ describe("useChatThreads", () => {
     expect(hook!.isNewThread("route-thread")).toBe(false);
   });
 
+  it("keeps a chat created on the create route new once the route adopts its id", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness({ routeThreadId }: { routeThreadId: string | null }) {
+      hook = useChatThreads("/chat", "route-adopt-test", null, {
+        routeThreadId,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness routeThreadId={null} />);
+    });
+    const createdId = hook!.activeThreadId;
+    expect(createdId).toBeTruthy();
+
+    await act(async () => {
+      root.render(<Harness routeThreadId={createdId} />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe(createdId);
+    expect(hook!.isNewThread(createdId!)).toBe(true);
+  });
+
   it("does not confirm an archived route thread", async () => {
     const archivedRouteThread: ChatThreadSummary = {
       id: "archived-route-thread",

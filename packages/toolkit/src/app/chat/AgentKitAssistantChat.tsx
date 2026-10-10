@@ -3,6 +3,7 @@ import {
   hasActiveAgentRuns,
   selectAgentSuggestions,
   isCurrentAgentSuggestion,
+  splitAgentKitMessageContext,
   type AgentKitUploadDriver,
   type AgentThreadState,
 } from "@agent-native/agentkit";
@@ -35,6 +36,7 @@ import {
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   getAgentChatContextState,
+  nextAgentChatStagedAt,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
   removeAgentChatContextItemAndPersist,
@@ -96,6 +98,7 @@ import {
   type AgentSuggestionInput,
   type TiptapComposerHandle,
   AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
+  composerContextFits,
   readAgentPromptAttachment,
 } from "@agent-native/toolkit/composer";
 import {
@@ -1412,9 +1415,12 @@ interface AgentKitSurfaceContextValue {
   onComposerSubmissionPendingChange: (pending: boolean) => void;
   isThinkingVisibleInTranscript: boolean;
   contextItems: AgentChatContextItem[];
+  providerContextItems: { current: readonly AgentChatContextItem[] };
   suggestions: AgentSuggestionInput[];
   showSuggestions: boolean;
   voiceTranscriptMessages: AgentMessage[];
+  /** The user's message, shown from submit until the agent client appends it. */
+  optimisticUserMessage: AgentMessage | null;
   selectionLength: number | null;
   prefillRevision: number;
   text: string;
@@ -2201,6 +2207,19 @@ const AgentKitAssistantChatBody = forwardRef<
   const isSubmissionInFlight = history?.isSubmissionInFlight === true;
   const [composerSubmissionPending, setComposerSubmissionPending] =
     useState(false);
+  // Set at submit and cleared when the submit settles. The agent client
+  // appends the real message only after its own awaits, so the transcript
+  // shows this copy in the meantime.
+  const [pendingUserSubmission, setPendingUserSubmission] = useState<{
+    id: number;
+    text: string;
+    threadId: string;
+    baseCount: number;
+  } | null>(null);
+  // A send that settles late must not clear a newer send's pending prompt.
+  const pendingSubmissionIdRef = useRef(0);
+  const messageCountRef = useRef(0);
+  messageCountRef.current = thread.messages.length;
   const [continueSubmissionFailed, setContinueSubmissionFailed] =
     useState(false);
   const [queueSubmissionError, setQueueSubmissionError] = useState<
@@ -2280,6 +2299,9 @@ const AgentKitAssistantChatBody = forwardRef<
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const previousPrefillRevisionRef = useRef(prefillRevision);
   const [contextItems, setContextItems] = useState<AgentChatContextItem[]>([]);
+  // Items the composer provider owns; the composer surface keeps this current so
+  // the staging check counts what a submit would also send.
+  const providerContextItems = useRef<readonly AgentChatContextItem[]>([]);
   const [pendingSelection, setPendingSelection] =
     useState<PendingSelectionContext | null>(null);
   const pendingSelectionRef = useRef<PendingSelectionContext | null>(null);
@@ -2318,8 +2340,40 @@ const AgentKitAssistantChatBody = forwardRef<
   const threadMessageIds = new Set(
     thread.messages.map((message) => message.id),
   );
+  // Scoped to the thread that was submitted to. A reused surface can change
+  // threadId mid-send, and the prior prompt must not show under the new thread.
+  // Hidden only once this prompt's own message lands: another send appending
+  // first must not remove it. Exact text, not containment, so a longer message
+  // that quotes the prompt is not taken for this one.
+  const submittedMessageArrived =
+    pendingUserSubmission !== null &&
+    thread.messages
+      .slice(pendingUserSubmission.baseCount)
+      .some(
+        (message) =>
+          message.role === "user" &&
+          message.parts.some(
+            (part) =>
+              part.type === "text" &&
+              splitAgentKitMessageContext(part.text).message.trim() ===
+                pendingUserSubmission.text.trim(),
+          ),
+      );
+  const optimisticUserMessage: AgentMessage | null =
+    pendingUserSubmission &&
+    pendingUserSubmission.threadId === threadId &&
+    !submittedMessageArrived
+      ? {
+          id: "pending-user-submission",
+          role: "user",
+          parts: [{ type: "text", text: pendingUserSubmission.text }],
+          status: "complete",
+          metadata: { pendingSubmission: true },
+        }
+      : null;
   const hasRenderedMessages =
     thread.messages.length > 0 ||
+    optimisticUserMessage !== null ||
     props.threadContentSlot != null ||
     getAgentKitThreadHandoffMessages(
       thread,
@@ -3519,15 +3573,16 @@ const AgentKitAssistantChatBody = forwardRef<
         ) {
           requestPendingSelectionClear();
         }
-        const usedKeys = new Set(contextItems.map((item) => item.key));
+        // Matched by staging time as well as key, so a replacement staged while this
+        // send was in flight survives the cleanup.
+        const isSent = (item: AgentChatContextItem) =>
+          contextItems.some(
+            (sent) => sent.key === item.key && sent.stagedAt === item.stagedAt,
+          );
         publishAgentChatContextItems(
-          getAgentChatContextState().items.filter(
-            (item) => !usedKeys.has(item.key),
-          ),
+          getAgentChatContextState().items.filter((item) => !isSent(item)),
         );
-        setContextItems((items) =>
-          items.filter((item) => !usedKeys.has(item.key)),
-        );
+        setContextItems((items) => items.filter((item) => !isSent(item)));
       } catch (error) {
         localSubmissionRef.current = false;
         if (queuedMessageReservationId) {
@@ -3704,6 +3759,19 @@ const AgentKitAssistantChatBody = forwardRef<
         reportAgentChatSubmitResult(options.submitMessageId, false, reason);
         return { status: "rejected", reason };
       }
+      const showsUserMessage =
+        !options.hideUserMessage && !options.approvedToolCalls;
+      const pendingSubmissionId = ++pendingSubmissionIdRef.current;
+      if (showsUserMessage) {
+        if (!isThreadRunning()) {
+          setPendingUserSubmission({
+            id: pendingSubmissionId,
+            text,
+            threadId,
+            baseCount: messageCountRef.current,
+          });
+        }
+      }
       try {
         await dispatch(
           text,
@@ -3722,6 +3790,9 @@ const AgentKitAssistantChatBody = forwardRef<
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
       } finally {
+        setPendingUserSubmission((current) =>
+          current?.id === pendingSubmissionId ? null : current,
+        );
         release?.();
       }
     },
@@ -3758,6 +3829,15 @@ const AgentKitAssistantChatBody = forwardRef<
       const release = await acquireSubmission();
       if (!release)
         throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
+      const pendingSubmissionId = ++pendingSubmissionIdRef.current;
+      if (!runWasActiveAtSubmit) {
+        setPendingUserSubmission({
+          id: pendingSubmissionId,
+          text,
+          threadId,
+          baseCount: messageCountRef.current,
+        });
+      }
       try {
         const preparedOptions = prepare ? await prepare() : composerOptions;
         await dispatch(
@@ -3773,6 +3853,9 @@ const AgentKitAssistantChatBody = forwardRef<
         dispatchSetupRequiredEvent(error, props.tabId, threadId);
         throw error;
       } finally {
+        setPendingUserSubmission((current) =>
+          current?.id === pendingSubmissionId ? null : current,
+        );
         release?.();
       }
     },
@@ -4003,15 +4086,16 @@ const AgentKitAssistantChatBody = forwardRef<
         ) {
           requestPendingSelectionClear();
         }
-        const usedKeys = new Set(contextItems.map((item) => item.key));
+        // Matched by staging time as well as key, so a replacement staged while this
+        // send was in flight survives the cleanup.
+        const isSent = (item: AgentChatContextItem) =>
+          contextItems.some(
+            (sent) => sent.key === item.key && sent.stagedAt === item.stagedAt,
+          );
         publishAgentChatContextItems(
-          getAgentChatContextState().items.filter(
-            (item) => !usedKeys.has(item.key),
-          ),
+          getAgentChatContextState().items.filter((item) => !isSent(item)),
         );
-        setContextItems((items) =>
-          items.filter((item) => !usedKeys.has(item.key)),
-        );
+        setContextItems((items) => items.filter((item) => !isSent(item)));
         setQueueSubmissionError(null);
         return { status: "submitted" };
       } catch (error) {
@@ -4434,8 +4518,11 @@ const AgentKitAssistantChatBody = forwardRef<
 
   const setContextItem = useCallback(
     (rawItem: AgentChatContextItem, focus = true) => {
-      const item = normalizeAgentChatContextItem(rawItem);
-      if (!item) return;
+      const normalized = normalizeAgentChatContextItem(rawItem);
+      if (!normalized) return;
+      // A caller may carry the staging time of an item it read back; a replacement
+      // must not keep the replaced item's identity.
+      const item = { ...normalized, stagedAt: nextAgentChatStagedAt() };
       const current = getAgentChatContextState().items;
       const next = current
         .filter((candidate) => candidate.key !== item.key)
@@ -4449,10 +4536,12 @@ const AgentKitAssistantChatBody = forwardRef<
     [props.contextNamespace, requestComposerFocus, threadId],
   );
   const removeContextItem = useCallback(
-    (key: string, options?: { threadScoped?: boolean }) => {
+    (key: string, options?: { threadScoped?: boolean; stagedAt?: number }) => {
       const targetKey = options?.threadScoped ? `${key}:${threadId}` : key;
       if (options?.threadScoped) {
-        return removeAgentChatContextItemAndPersist(targetKey).then(() => {
+        return removeAgentChatContextItemAndPersist(targetKey, {
+          stagedAt: options.stagedAt,
+        }).then(() => {
           setContextItems(
             filterAgentChatContextItems(
               getAgentChatContextState().items,
@@ -4492,6 +4581,15 @@ const AgentKitAssistantChatBody = forwardRef<
         writeAssistantChatComposerDraft(props.tabId ?? threadId, text);
         setPrefillRevision((revision) => revision + 1);
       },
+      canStageComposerContextItem: (item) => {
+        const scopedKey = `${item.key}:${threadId}`;
+        return composerContextFits([
+          ...[...contextItems, ...providerContextItems.current].filter(
+            (candidate) => candidate.key !== scopedKey,
+          ),
+          { ...item, key: scopedKey, targetThreadId: threadId },
+        ]);
+      },
       setComposerContextItem: (item, options) => {
         const focus = options?.focus !== false;
         if (!options?.threadScoped) {
@@ -4504,7 +4602,7 @@ const AgentKitAssistantChatBody = forwardRef<
           key: `${item.key}:${threadId}`,
           targetThreadId: threadId,
         };
-        return setAgentChatContextItemAndPersist(scopedItem).then(() => {
+        return setAgentChatContextItemAndPersist(scopedItem).then((staged) => {
           setContextItems(
             filterAgentChatContextItems(
               getAgentChatContextState().items,
@@ -4513,6 +4611,7 @@ const AgentKitAssistantChatBody = forwardRef<
             ),
           );
           if (focus) requestComposerFocus(threadId);
+          return staged;
         });
       },
       removeComposerContextItem: removeContextItem,
@@ -4606,7 +4705,9 @@ const AgentKitAssistantChatBody = forwardRef<
     onComposerSubmissionPendingChange: setComposerSubmissionPending,
     isThinkingVisibleInTranscript,
     contextItems,
+    providerContextItems,
     voiceTranscriptMessages,
+    optimisticUserMessage,
     selectionLength,
     suggestions: suggestions ?? [],
     showSuggestions,
@@ -4940,10 +5041,11 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
   };
   const lastMessage = thread.messages.at(-1);
   const showThinking =
-    surface.isSubmissionInFlight &&
     !surface.isRunning &&
-    lastMessage?.role === "user" &&
-    lastMessage.metadata?.hideUserMessage !== true;
+    (surface.optimisticUserMessage !== null ||
+      (surface.isSubmissionInFlight &&
+        lastMessage?.role === "user" &&
+        lastMessage.metadata?.hideUserMessage !== true));
   const pendingVoiceMessages = surface.voiceTranscriptMessages.filter(
     (message) => !threadMessageIds.has(message.id),
   );
@@ -5172,6 +5274,12 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
           threadId={threadId}
         />
       ))}
+      {surface.optimisticUserMessage ? (
+        <AgentMessageView
+          value={surface.optimisticUserMessage}
+          threadId={threadId}
+        />
+      ) : null}
       {showThinking ? (
         <div
           className="agentkit-activities agentkit-activities-summary-content"
@@ -5349,6 +5457,7 @@ function AgentKitComposerSurface({
   setupBouncePulse,
   bounceSetupCard,
   contextItems,
+  providerContextItems,
   selectionLength,
   prefillRevision,
   text,
@@ -5386,6 +5495,7 @@ function AgentKitComposerSurface({
   setupBouncePulse: number;
   bounceSetupCard: () => void;
   contextItems: AgentChatContextItem[];
+  providerContextItems: { current: readonly AgentChatContextItem[] };
   selectionLength: number | null;
   prefillRevision: number;
   text: string;
@@ -5404,6 +5514,12 @@ function AgentKitComposerSurface({
 }) {
   const t = useT();
   const [composerError, setComposerError] = useState<string | null>(null);
+  React.useLayoutEffect(() => {
+    providerContextItems.current = composerContext?.contextItems ?? [];
+    return () => {
+      providerContextItems.current = [];
+    };
+  }, [composerContext?.contextItems, providerContextItems]);
   const mounted = useRef(true);
   const submissionAllowed = useRef(false);
   submissionAllowed.current =
@@ -6287,16 +6403,20 @@ function AgentKitRunFailure({
   const retryWithoutAttachments =
     retryRequest.fileParts.length || retryRequest.requestAttachments.length
       ? () =>
-          void sendRetryRequest(
-            surface,
-            {
-              ...retryRequest,
-              text: retryRequest.textWithContext,
-              fileParts: [],
-              requestAttachments: [],
-              hasUnavailableAttachment: false,
-            },
-            runId,
+          runContinueWithVisibleError(
+            () =>
+              sendRetryRequest(
+                surface,
+                {
+                  ...retryRequest,
+                  text: retryRequest.textWithContext,
+                  fileParts: [],
+                  requestAttachments: [],
+                  hasUnavailableAttachment: false,
+                },
+                runId,
+              ),
+            setRetryWithoutAttachmentFailed,
           )
       : undefined;
   const resumeAfterSetup = useResumeAfterAiSetup(

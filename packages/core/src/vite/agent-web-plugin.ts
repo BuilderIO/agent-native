@@ -22,6 +22,7 @@ export interface AgentWebVitePluginOptions {
   agentWeb?: AgentWebInputConfig | boolean;
   outputDirs?: string[];
   organization?: AgentWebOrganization;
+  sitemapGroup?: (page: AgentWebPage) => string;
 }
 
 export function createAgentWebVitePlugin(
@@ -52,6 +53,7 @@ export function createAgentWebVitePlugin(
         developerResources: options.developerResources,
         whenToUse: options.whenToUse,
         organization: options.organization,
+        sitemapGroup: options.sitemapGroup,
       });
 
       const outputDirs = options.outputDirs ?? [

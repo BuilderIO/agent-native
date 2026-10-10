@@ -143,7 +143,8 @@ function AssetsCommandMenu({
       chatStorageKey={ASSETS_CHAT_STORAGE_KEY}
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
-        {location.pathname === "/home" ? (
+        {location.pathname === "/home" ||
+        location.pathname.startsWith("/chat/") ? (
           <CommandMenu.Item onSelect={() => navigate("/library")}>
             {t("navigation.library")}
           </CommandMenu.Item>

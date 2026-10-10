@@ -1430,6 +1430,16 @@ export function useChatThreads(
 
   const isNewThread = useCallback(
     (id: string) => {
+      // A chat created this session stays new when the route adopts its id on
+      // its first save; treating it as a saved thread drops the surface into a
+      // restore-loading state until the thread list loads.
+      if (
+        routeControlsActiveThread &&
+        routeThreadId === id &&
+        !newlyCreatedRef.current.has(id)
+      ) {
+        return false;
+      }
       if (
         serverConfirmedThreadIdsRef.current.has(
           serverConfirmedThreadKey(apiUrl, historyScopeKey, id),
@@ -1439,7 +1449,7 @@ export function useChatThreads(
       }
       return newlyCreatedRef.current.has(id) || hasClientDraftThreadMarker(id);
     },
-    [apiUrl, historyScopeKey],
+    [apiUrl, historyScopeKey, routeControlsActiveThread, routeThreadId],
   );
 
   const isThreadPersisted = useCallback(
