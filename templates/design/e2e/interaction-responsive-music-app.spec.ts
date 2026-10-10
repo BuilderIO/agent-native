@@ -4009,6 +4009,18 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     tabletSource,
     "Workspace",
   );
+  const tabletSidebarMetrics = await measureSourceLayer(
+    page,
+    tabletScreenId,
+    tabletSource,
+    "Sidebar",
+  );
+  const tabletNavigationMetrics = await measureSourceLayer(
+    page,
+    tabletScreenId,
+    tabletSource,
+    "Navigation",
+  );
   const desktopPodcastRow = await measureSourceLayer(
     page,
     screenId,
@@ -4054,6 +4066,8 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
         geometry: tabletGeometry,
         mainContent: tabletMainMetrics,
         workspace: tabletWorkspaceMetrics,
+        sidebar: tabletSidebarMetrics,
+        navigation: tabletNavigationMetrics,
         podcastRow: tabletPodcastRow,
         cardA: tabletCardA,
         cardB: tabletCardB,
@@ -4065,7 +4079,17 @@ test("create a responsive music-app desktop shell under a Screen root", async ({
     ),
     contentType: "application/json",
   });
-  expect.soft(tabletMainMetrics.width).toBeCloseTo(467, 0);
+  expect
+    .soft(tabletMainMetrics.width)
+    .toBeCloseTo(
+      tabletWorkspaceMetrics.width -
+        parseFloat(tabletWorkspaceMetrics.paddingLeft) -
+        parseFloat(tabletWorkspaceMetrics.paddingRight) -
+        tabletNavigationMetrics.width -
+        tabletSidebarMetrics.width -
+        parseFloat(tabletWorkspaceMetrics.columnGap) * 2,
+      2,
+    );
   expect.soft(tabletMainMetrics.height).toBeCloseTo(1458, 0);
   expect.soft(tabletWorkspaceMetrics.width).toBeCloseTo(748, 0);
   expect.soft(tabletWorkspaceMetrics.height).toBeCloseTo(1276, 0);

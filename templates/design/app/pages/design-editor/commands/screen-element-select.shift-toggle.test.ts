@@ -190,6 +190,67 @@ describe("runScreenElementSelect — Shift+click toggles selection membership", 
     }
   });
 
+  it("refreshes bounds but retains prior Position context when the offset is unreadable", () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    const offset = doc.createElement("style");
+    offset.setAttribute("data-agent-native-content-offset", "");
+    offset.setAttribute("data-agent-native-content-offset-x", "4096");
+    offset.setAttribute("data-agent-native-content-offset-y", "2048");
+    doc.head.appendChild(offset);
+    const target = doc.createElement("div");
+    target.id = "node-a";
+    target.setAttribute("data-agent-native-node-id", "node-a");
+    doc.body.appendChild(target);
+    target.getBoundingClientRect = () =>
+      ({ x: 5000, y: 3000, width: 120, height: 60 }) as DOMRect;
+    const originalQuerySelector = doc.querySelector.bind(doc);
+    vi.spyOn(doc, "querySelector").mockImplementation((selector) => {
+      if (selector === "style[data-agent-native-content-offset]") {
+        throw new DOMException("Offset style is unavailable", "SecurityError");
+      }
+      return originalQuerySelector(selector);
+    });
+
+    try {
+      const measured = withMeasuredGeometry({
+        ...makeInfo("node-a"),
+        boundingRect: { x: 4096, y: 2048, width: 100, height: 40 },
+        positionReferenceRect: { x: 4096, y: 2048, width: 800, height: 600 },
+        positionContainingBlockOrigin: { x: 4104, y: 2056 },
+        positionContainingBlockTransform: { a: 2, b: 0, c: 0, d: 2 },
+      } as ElementInfo);
+
+      expect(measured.boundingRect).toEqual({
+        x: 5000,
+        y: 3000,
+        width: 120,
+        height: 60,
+      });
+      expect(measured.positionReferenceRect).toEqual({
+        x: 4096,
+        y: 2048,
+        width: 800,
+        height: 600,
+      });
+      expect(measured.positionContainingBlockOrigin).toEqual({
+        x: 4104,
+        y: 2056,
+      });
+      expect(measured.positionContainingBlockTransform).toEqual({
+        a: 2,
+        b: 0,
+        c: 0,
+        d: 2,
+      });
+    } finally {
+      vi.restoreAllMocks();
+      iframe.remove();
+    }
+  });
+
   it("refreshes live element and parent geometry with the position context", () => {
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");

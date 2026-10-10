@@ -94,11 +94,10 @@ function readRenderedLayerInfo(
       if (!element) continue;
       const computed = preview.getComputedStyle(element);
       const parent = element.parentElement;
-      const positionCoordinateContext = measurePositionCoordinateContext(
-        element,
-        preview,
-        positionCoordinateRenderOffsetForWindow(preview),
-      );
+      const renderOffset = positionCoordinateRenderOffsetForWindow(preview);
+      const positionCoordinateContext = renderOffset
+        ? measurePositionCoordinateContext(element, preview, renderOffset)
+        : undefined;
       const parentComputed = parent
         ? preview.getComputedStyle(parent)
         : undefined;
@@ -936,41 +935,71 @@ export function useEditorLayerActions({
         return;
       }
       const stableId = owner.node.dataAttributes["data-agent-native-node-id"];
+      const ownerId = stableId ?? bridgeSourceIdForCodeLayerNode(owner.node);
+      const layerKey = `${owner.fileId}:${owner.node.id}`;
+      const stableKey = stableId ? `${owner.fileId}:${stableId}` : undefined;
+      const selected = selectedLayerIdsStateRef.current.includes(layerId)
+        ? selectedElementRef.current
+        : null;
+      const selectedForOwner =
+        selected?.sourceId === ownerId || selected?.runtimeSourceId === ownerId
+          ? selected
+          : null;
+      const previous =
+        renderedElementInfoByLayerKeyRef.current.get(layerKey) ??
+        (stableKey
+          ? renderedElementInfoByLayerKeyRef.current.get(stableKey)
+          : undefined);
+      const measuredWithPriorPositionContext = {
+        ...measured,
+        positionReferenceRect:
+          measured.positionReferenceRect ??
+          selectedForOwner?.positionReferenceRect ??
+          previous?.positionReferenceRect,
+        positionContainingBlockOrigin:
+          measured.positionContainingBlockOrigin ??
+          selectedForOwner?.positionContainingBlockOrigin ??
+          previous?.positionContainingBlockOrigin,
+        positionContainingBlockTransform:
+          measured.positionContainingBlockTransform ??
+          selectedForOwner?.positionContainingBlockTransform ??
+          previous?.positionContainingBlockTransform,
+      };
       renderedElementInfoByLayerKeyRef.current.set(
-        `${owner.fileId}:${owner.node.id}`,
-        measured,
+        layerKey,
+        measuredWithPriorPositionContext,
       );
-      if (stableId) {
+      if (stableKey) {
         renderedElementInfoByLayerKeyRef.current.set(
-          `${owner.fileId}:${stableId}`,
-          measured,
+          stableKey,
+          measuredWithPriorPositionContext,
         );
       }
       if (selectedLayerIdsStateRef.current.includes(layerId)) {
-        const ownerId =
-          owner.node.dataAttributes["data-agent-native-node-id"] ??
-          bridgeSourceIdForCodeLayerNode(owner.node);
         const mergeMeasured = (current: ElementInfo | null) => {
-          if (!current) return measured;
+          if (!current) return measuredWithPriorPositionContext;
           const currentId = current.sourceId ?? current.runtimeSourceId;
           if (currentId !== ownerId) return current;
           const merged = {
-            ...measured,
+            ...measuredWithPriorPositionContext,
             ...current,
-            sourceLayerIdentity: measured.sourceLayerIdentity,
-            boundingRect: measured.boundingRect,
+            sourceLayerIdentity:
+              measuredWithPriorPositionContext.sourceLayerIdentity,
+            boundingRect: measuredWithPriorPositionContext.boundingRect,
             parentBoundingRect:
-              measured.parentBoundingRect ?? current.parentBoundingRect,
+              measuredWithPriorPositionContext.parentBoundingRect ??
+              current.parentBoundingRect,
             positionReferenceRect:
-              measured.positionReferenceRect ?? current.positionReferenceRect,
+              measuredWithPriorPositionContext.positionReferenceRect ??
+              current.positionReferenceRect,
             positionContainingBlockOrigin:
-              measured.positionContainingBlockOrigin ??
+              measuredWithPriorPositionContext.positionContainingBlockOrigin ??
               current.positionContainingBlockOrigin,
             positionContainingBlockTransform:
-              measured.positionContainingBlockTransform ??
+              measuredWithPriorPositionContext.positionContainingBlockTransform ??
               current.positionContainingBlockTransform,
             computedStyles: {
-              ...measured.computedStyles,
+              ...measuredWithPriorPositionContext.computedStyles,
               ...current.computedStyles,
             },
           };
@@ -987,8 +1016,8 @@ export function useEditorLayerActions({
         }
       }
       if (
-        measured.boundingRect.width <= 0 ||
-        measured.boundingRect.height <= 0
+        measuredWithPriorPositionContext.boundingRect.width <= 0 ||
+        measuredWithPriorPositionContext.boundingRect.height <= 0
       ) {
         return;
       }

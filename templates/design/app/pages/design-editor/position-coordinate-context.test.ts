@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { embeddedContentOffsetStyle } from "@/components/design/design-canvas/embedded-frame";
 
@@ -13,11 +13,18 @@ const cleanup: Element[] = [];
 
 afterEach(() => {
   cleanup.splice(0).forEach((element) => element.remove());
+  vi.restoreAllMocks();
 });
 
 function append(element: Element): void {
   document.body.appendChild(element);
   cleanup.push(element);
+}
+
+function requiredRenderOffset(view: Window) {
+  const offset = positionCoordinateRenderOffsetForWindow(view);
+  if (!offset) throw new Error("Expected a readable render offset");
+  return offset;
 }
 
 function mockRect(
@@ -140,6 +147,51 @@ describe("measurePositionCoordinateContext board render offset", () => {
     ).toEqual({ x: -12, y: 34 });
   });
 
+  it("treats an absent offset marker as a known zero offset", () => {
+    const iframe = document.createElement("iframe");
+    append(iframe);
+
+    expect(
+      positionCoordinateRenderOffsetForWindow(iframe.contentWindow!),
+    ).toEqual({ x: 0, y: 0 });
+  });
+
+  it.each(["invalid", "", " "])(
+    "returns unknown for unreadable offset %j",
+    (attribute) => {
+      const iframe = document.createElement("iframe");
+      append(iframe);
+      const style = iframe.contentDocument!.createElement("style");
+      style.setAttribute("data-agent-native-content-offset", "");
+      style.setAttribute("data-agent-native-content-offset-x", attribute);
+      style.setAttribute("data-agent-native-content-offset-y", attribute);
+      style.textContent =
+        "body > [data-agent-native-node-id]{translate:var(--board-offset);}";
+      iframe.contentDocument!.head.appendChild(style);
+
+      expect(
+        positionCoordinateRenderOffsetForWindow(iframe.contentWindow!),
+      ).toBeNull();
+    },
+  );
+
+  it("returns unknown when reading a same-origin offset marker throws", () => {
+    const iframe = document.createElement("iframe");
+    append(iframe);
+    const doc = iframe.contentDocument!;
+    const originalQuerySelector = doc.querySelector.bind(doc);
+    vi.spyOn(doc, "querySelector").mockImplementation((selector) => {
+      if (selector === "style[data-agent-native-content-offset]") {
+        throw new DOMException("Offset style is unavailable", "SecurityError");
+      }
+      return originalQuerySelector(selector);
+    });
+
+    expect(
+      positionCoordinateRenderOffsetForWindow(iframe.contentWindow!),
+    ).toBeNull();
+  });
+
   it("reads legacy CSS text and maps the offset through body scale", () => {
     const iframe = document.createElement("iframe");
     append(iframe);
@@ -171,7 +223,7 @@ describe("measurePositionCoordinateContext board render offset", () => {
     const first = measurePositionCoordinateContext(
       root,
       window,
-      positionCoordinateRenderOffsetForWindow(window),
+      requiredRenderOffset(window),
     );
     style.setAttribute("data-agent-native-content-offset-x", "-30");
     style.setAttribute("data-agent-native-content-offset-y", "40");
@@ -180,7 +232,7 @@ describe("measurePositionCoordinateContext board render offset", () => {
     const second = measurePositionCoordinateContext(
       root,
       window,
-      positionCoordinateRenderOffsetForWindow(window),
+      requiredRenderOffset(window),
     );
 
     expect(first.positionContainingBlockOrigin).toEqual({ x: 10, y: 20 });

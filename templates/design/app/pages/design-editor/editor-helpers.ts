@@ -241,13 +241,13 @@ export function withMeasuredGeometry(
         : node.parentElement;
     const parentBox = parent?.getBoundingClientRect();
     const view = frame.contentWindow;
-    const positionCoordinateContext = view
-      ? measurePositionCoordinateContext(
-          node,
-          view,
-          positionCoordinateRenderOffsetForWindow(view),
-        )
-      : undefined;
+    const renderOffset = view
+      ? positionCoordinateRenderOffsetForWindow(view)
+      : null;
+    const positionCoordinateContext =
+      view && renderOffset
+        ? measurePositionCoordinateContext(node, view, renderOffset)
+        : undefined;
     const scrollX = view?.scrollX ?? 0;
     const scrollY = view?.scrollY ?? 0;
     const computed = frame.contentWindow?.getComputedStyle(node);

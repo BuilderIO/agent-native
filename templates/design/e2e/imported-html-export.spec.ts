@@ -66,6 +66,35 @@ interface CorpusEntry {
   sourcePath: string;
 }
 
+function expectedFixtureFrameMarker(entry: CorpusEntry): string | null {
+  const sourceHtml = fs.readFileSync(entry.sourcePath, "utf8");
+  const nodeIds = Array.from(
+    sourceHtml.matchAll(/\bdata-agent-native-node-id\s*=\s*["']([^"']+)["']/gi),
+    (match) => match[1],
+  ).filter((nodeId): nodeId is string => Boolean(nodeId));
+  return nodeIds.includes("frame") ? "frame" : null;
+}
+
+function submittedHtmlHasFixtureFrameMarker(
+  page: Page,
+  html: string,
+  expectedFrameMarker: string,
+): Promise<boolean> {
+  return page.evaluate(
+    ({ html, expectedFrameMarker }) => {
+      const parsedSnapshot = new DOMParser().parseFromString(html, "text/html");
+      return Array.from(
+        parsedSnapshot.querySelectorAll("[data-agent-native-node-id]"),
+      ).some(
+        (element) =>
+          element.getAttribute("data-agent-native-node-id") ===
+          expectedFrameMarker,
+      );
+    },
+    { html, expectedFrameMarker },
+  );
+}
+
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const STATIC_EXPORT_FIXTURES: CorpusEntry[] = [
   {
@@ -685,14 +714,16 @@ async function runStaticDesignExportCase(
     });
     const exportPage = await browserContext.newPage();
     let activeDiagnostics: ExportDiagnostic[] | null = null;
+    let diagnosticsDropped = 0;
     let activeDiagnosticCaseStartedAt = Date.now();
     let activeExport: { label: string; startedAt: number } | null = null;
     let activeRenderSnapshotHtml: string | null = null;
+    let activeExpectedFrameMarker: string | null = null;
+    let activeRenderFrameMarkerPresent: Promise<boolean> | null = null;
     const recordDiagnostic = (event: string, at = Date.now()) => {
-      if (
-        !activeDiagnostics ||
-        activeDiagnostics.length >= MAX_EXPORT_DIAGNOSTICS
-      ) {
+      if (!activeDiagnostics) return;
+      if (activeDiagnostics.length >= MAX_EXPORT_DIAGNOSTICS) {
+        diagnosticsDropped += 1;
         return;
       }
       const safeEvent = redactExportDiagnostic(event).slice(0, 180);
@@ -743,6 +774,13 @@ async function runStaticDesignExportCase(
           };
           if (typeof body.html === "string") {
             activeRenderSnapshotHtml = body.html;
+            activeRenderFrameMarkerPresent = activeExpectedFrameMarker
+              ? submittedHtmlHasFixtureFrameMarker(
+                  exportPage,
+                  body.html,
+                  activeExpectedFrameMarker,
+                )
+              : null;
             recordDiagnostic(
               `render request started bodyBytes=${new TextEncoder().encode(body.html).byteLength}`,
             );
@@ -882,6 +920,10 @@ async function runStaticDesignExportCase(
       activeDiagnosticCaseStartedAt = Date.now();
       activeExport = null;
       activeDiagnostics = diagnostics;
+      diagnosticsDropped = 0;
+      const expectedFrameMarker = expectedFixtureFrameMarker(entry);
+      activeExpectedFrameMarker = expectedFrameMarker;
+      activeRenderFrameMarkerPresent = null;
       const stage = { name: "setup" };
       let designId: string | null = null;
       try {
@@ -1035,12 +1077,21 @@ async function runStaticDesignExportCase(
         if (exportMode === "png") {
           stage.name = "PNG download";
           activeRenderSnapshotHtml = null;
+          activeRenderFrameMarkerPresent = null;
           const exportedPng = await downloadPng(exportPage, exportTrace);
           const exportSnapshotHtml = activeRenderSnapshotHtml;
           if (!exportSnapshotHtml) {
             throw new Error(
               "PNG renderer request did not include snapshot HTML",
             );
+          }
+          if (expectedFrameMarker) {
+            expect(
+              activeRenderFrameMarkerPresent
+                ? await activeRenderFrameMarkerPresent
+                : false,
+              `PNG request HTML for ${entry.name} must retain fixture marker ${expectedFrameMarker}`,
+            ).toBe(true);
           }
           snapshotResourceFailures =
             /data-agent-native-export-resource-failures=["']([^"']+)["']/i
@@ -1255,6 +1306,7 @@ async function runStaticDesignExportCase(
             redactExportDiagnostic(message).slice(0, 300),
           ),
           snapshotResourceFailures,
+          diagnosticsDropped,
           diagnostics: [...diagnostics].sort(
             (left, right) => left.caseMs - right.caseMs,
           ),
@@ -1289,6 +1341,7 @@ async function runStaticDesignExportCase(
           ? outcome.toastHistory.map((message) => safeError(message).message)
           : [],
         diagnostics: outcome.diagnostics,
+        diagnosticsDropped: outcome.diagnosticsDropped,
       }));
     if (failureDetails.length > 0) {
       await testInfo.attach("imported-html-export-failures.json", {

@@ -29,4 +29,14 @@ describe("redactExportDiagnostic", () => {
       '{"access_token":"[redacted]","api key":"[redacted]","apiKey":"[redacted]"}',
     );
   });
+
+  it("redacts prefixed credential names without changing ordinary fields", () => {
+    expect(
+      redactExportDiagnostic(
+        'previewToken=PREVIEW_TOKEN_PLACEHOLDER csrf_token=CSRF_TOKEN_PLACEHOLDER x_api_key=X_API_KEY_PLACEHOLDER "previewToken":"QUOTED_PREVIEW_TOKEN_PLACEHOLDER" "csrf_token":"QUOTED_CSRF_TOKEN_PLACEHOLDER" "x_api_key":"QUOTED_X_API_KEY_PLACEHOLDER" tokenCount=3 title=Welcome',
+      ),
+    ).toBe(
+      'previewToken=[redacted] csrf_token=[redacted] x_api_key=[redacted] "previewToken":"[redacted]" "csrf_token":"[redacted]" "x_api_key":"[redacted]" tokenCount=3 title=Welcome',
+    );
+  });
 });

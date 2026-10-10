@@ -51,7 +51,7 @@ function positionOriginWithRenderOffset(
 
 export function positionCoordinateRenderOffsetForWindow(
   view: Window,
-): PositionCoordinateRenderOffset {
+): PositionCoordinateRenderOffset | null {
   try {
     const offsetStyle = view.document.querySelector(
       "style[data-agent-native-content-offset]",
@@ -63,9 +63,9 @@ export function positionCoordinateRenderOffsetForWindow(
     const yAttribute = offsetStyle.getAttribute(
       BOARD_CONTENT_OFFSET_Y_ATTRIBUTE,
     );
-    const x = xAttribute === null ? Number.NaN : Number(xAttribute);
-    const y = yAttribute === null ? Number.NaN : Number(yAttribute);
-    const cssOffset =
+    const x = xAttribute?.trim() ? Number(xAttribute) : Number.NaN;
+    const y = yAttribute?.trim() ? Number(yAttribute) : Number.NaN;
+    const cssOffset: PositionCoordinateRenderOffset | null =
       Number.isFinite(x) && Number.isFinite(y)
         ? { x, y }
         : (() => {
@@ -73,23 +73,25 @@ export function positionCoordinateRenderOffsetForWindow(
               /translate:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))px\s+(-?(?:\d+(?:\.\d*)?|\.\d+))px/u.exec(
                 offsetStyle.textContent ?? "",
               );
-            return match
-              ? { x: Number(match[1]), y: Number(match[2]) }
-              : { x: 0, y: 0 };
+            return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
           })();
+    if (!cssOffset) return null;
     const body = view.document.body;
-    if (!body) return cssOffset;
+    if (!body) return null;
 
     // The injected translate is on a direct body child. Map its CSS-pixel
     // vector through body/html transforms and zoom, but leave the root's own
     // authored transform alone because CSS applies `translate` outside it.
     const ancestorTransform = containingBlockTransform(body, view);
-    return {
+    const offset = {
       x: ancestorTransform.a * cssOffset.x + ancestorTransform.c * cssOffset.y,
       y: ancestorTransform.b * cssOffset.x + ancestorTransform.d * cssOffset.y,
     };
+    return Number.isFinite(offset.x) && Number.isFinite(offset.y)
+      ? offset
+      : null;
   } catch {
-    return { x: 0, y: 0 };
+    return null;
   }
 }
 
@@ -271,7 +273,7 @@ function paddingEdgeOrigin(
 export function measurePositionCoordinateContext(
   element: Element,
   view: Window,
-  renderOffset: PositionCoordinateRenderOffset = { x: 0, y: 0 },
+  renderOffset: PositionCoordinateRenderOffset,
 ): PositionCoordinateContext {
   let frame = element.parentElement;
   while (frame && frame.getAttribute("data-an-primitive") !== "frame") {
