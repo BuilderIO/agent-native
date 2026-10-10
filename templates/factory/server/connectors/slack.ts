@@ -136,14 +136,20 @@ async function slackWrite<T extends { ok?: boolean; error?: string }>(
 ): Promise<T> {
   const token = await getToken(workspace, tokenResolver);
   try {
-    const response = await fetch(`https://slack.com/api/${method}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json; charset=utf-8",
-      },
-      body: JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`https://slack.com/api/${method}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new SlackWriteError(`Slack transport error: ${message}`, "unknown");
+    }
     if (!response.ok) {
       const retryAfterHeader = response.headers.get("retry-after");
       const retryAfterSeconds =
@@ -152,7 +158,9 @@ async function slackWrite<T extends { ok?: boolean; error?: string }>(
           : null;
       throw new SlackWriteError(
         `Slack API error ${response.status}: ${await response.text()}`,
-        response.status === 429 ? "rejected" : "unknown",
+        response.status >= 400 && response.status < 500
+          ? "rejected"
+          : "unknown",
         response.status === 429 ? retryAfterSeconds : null,
       );
     }

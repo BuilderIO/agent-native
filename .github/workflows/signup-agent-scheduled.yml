@@ -109,7 +109,7 @@ jobs:
 
           previous_jobs_file="$previous_dir/jobs.json"
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$previous_id/jobs?per_page=100" > "$previous_jobs_file"
-          node --experimental-strip-types scripts/signup-report-continuity.ts assert-legacy-fallback \
+          node --experimental-strip-types scripts/signup-report-continuity.ts legacy-fallback-allowed \
             --jobs-file "$previous_jobs_file" \
             --persist-step-name "Persist Signup agent continuity state"
 

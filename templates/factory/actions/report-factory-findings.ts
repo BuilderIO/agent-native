@@ -28,6 +28,7 @@ import {
   orgFactoryRunFilter,
   requireExistingFactory,
 } from "../server/lib/factory-scope.js";
+import { canonicalGitHubRepository } from "../server/lib/github-repository.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -67,11 +68,75 @@ type Finding = z.infer<typeof findingSchema>;
 type FindingSource = {
   id: string;
   source: "github_issue" | "sentry";
+  externalId: string;
   sourceUrl: string | null;
+  repository: string | null;
   title: string;
   summary: string | null;
   metadataJson: string;
 };
+
+export function findingMatchesAutomationDestination(input: {
+  source: "github_issue" | "sentry";
+  config: Pick<
+    FactoryAutomationConfig,
+    "repository" | "sentryOrgSlug" | "sentryProjectSlug"
+  >;
+  item: Pick<
+    FindingSource,
+    "externalId" | "sourceUrl" | "repository" | "metadataJson"
+  >;
+}): boolean {
+  if (input.source === "github_issue") {
+    const configuredRepository = input.config.repository?.trim();
+    const issue = /^(.+)#([1-9][0-9]*)$/.exec(input.item.externalId);
+    if (!configuredRepository || !issue || !input.item.sourceUrl) return false;
+
+    try {
+      const configured = canonicalGitHubRepository(configuredRepository);
+      const sourceRepository = canonicalGitHubRepository(issue[1]!);
+      const sourceUrl = new URL(input.item.sourceUrl);
+      const path = sourceUrl.pathname.split("/").filter(Boolean);
+      const urlRepository = canonicalGitHubRepository(
+        `${path[0] ?? ""}/${path[1] ?? ""}`,
+      );
+      const urlIssueNumber = path[3];
+      const isGitHubHost =
+        sourceUrl.hostname === "github.com" ||
+        sourceUrl.hostname === "www.github.com";
+      const storedRepository = input.item.repository?.trim();
+      return (
+        isGitHubHost &&
+        (sourceUrl.protocol === "https:" || sourceUrl.protocol === "http:") &&
+        path.length === 4 &&
+        path[2] === "issues" &&
+        urlIssueNumber === issue[2] &&
+        configured.toLowerCase() === sourceRepository.toLowerCase() &&
+        configured.toLowerCase() === urlRepository.toLowerCase() &&
+        (!storedRepository ||
+          canonicalGitHubRepository(storedRepository).toLowerCase() ===
+            configured.toLowerCase())
+      );
+    } catch {
+      fail(
+        "One or more findings do not belong to this automation's configured source destination.",
+        { errorCode: "factory_finding_destination_mismatch", statusCode: 400 },
+      );
+    }
+  }
+
+  const configuredOrg = input.config.sentryOrgSlug?.trim();
+  const configuredProject = input.config.sentryProjectSlug?.trim();
+  if (!configuredOrg || !configuredProject) return false;
+
+  const metadata = parseTriageMetadata(input.item.metadataJson);
+  const sourceOrg = metadataString(metadata, "sentryOrgSlug")?.trim();
+  const sourceProject = metadataString(metadata, "projectSlug")?.trim();
+  return (
+    sourceOrg?.toLowerCase() === configuredOrg.toLowerCase() &&
+    sourceProject?.toLowerCase() === configuredProject.toLowerCase()
+  );
+}
 
 export function reportableFindingSource(input: {
   source: FactoryAutomationConfig["source"];
@@ -325,6 +390,21 @@ export default defineAction({
       fail(
         `This automation can report only ${source} findings from its Factory.`,
         { errorCode: "factory_finding_source_mismatch", statusCode: 400 },
+      );
+    }
+    if (
+      sourceItems.some(
+        (item) =>
+          !findingMatchesAutomationDestination({
+            source,
+            config: job.config,
+            item,
+          }),
+      )
+    ) {
+      fail(
+        "One or more findings do not belong to this automation's configured source destination.",
+        { errorCode: "factory_finding_destination_mismatch", statusCode: 400 },
       );
     }
     const itemById = new Map(sourceItems.map((item) => [item.id, item]));

@@ -154,10 +154,42 @@ describe("Slack message write delivery", () => {
     } satisfies Partial<SlackWriteError>);
   });
 
+  it.each([400, 401])("classifies HTTP %s as rejected", async (status) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("invalid_request", { status })),
+    );
+
+    await expect(
+      postChannelMessage("primary", "C123", "report", async () => "token"),
+    ).rejects.toMatchObject({
+      name: "SlackWriteError",
+      delivery: "rejected",
+      retryAfterSeconds: null,
+    } satisfies Partial<SlackWriteError>);
+  });
+
   it("keeps server errors ambiguous", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("unavailable", { status: 500 })),
+    );
+
+    await expect(
+      postChannelMessage("primary", "C123", "report", async () => "token"),
+    ).rejects.toMatchObject({
+      name: "SlackWriteError",
+      delivery: "unknown",
+      retryAfterSeconds: null,
+    } satisfies Partial<SlackWriteError>);
+  });
+
+  it("keeps transport failures ambiguous", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      }),
     );
 
     await expect(

@@ -100,6 +100,7 @@ import {
   findSlackReportMessage,
   factoryFindingsReportKey,
   factoryFindingRollupText,
+  findingMatchesAutomationDestination,
   isSlackReportRejectionRetryable,
   reportableFindingSource,
 } from "./report-factory-findings.js";
@@ -109,6 +110,16 @@ function createActionDatabase(
   initialItems: Record<string, unknown> | Record<string, unknown>[],
 ) {
   const items = Array.isArray(initialItems) ? initialItems : [initialItems];
+  const scopedItems = items.map((item, index) =>
+    item.externalId
+      ? { repository: null, ...item }
+      : {
+          ...item,
+          externalId: `BuilderIO/agent-native#${index + 1}`,
+          repository: item.repository ?? null,
+          sourceUrl: `https://github.com/BuilderIO/agent-native/issues/${index + 1}`,
+        },
+  );
   const runs: Array<Record<string, unknown>> = [];
   const matches = (
     row: Record<string, unknown>,
@@ -142,7 +153,7 @@ function createActionDatabase(
     return true;
   };
   const tableValues = (table: unknown) =>
-    table === triageItems ? items : table === triageRuns ? runs : [];
+    table === triageItems ? scopedItems : table === triageRuns ? runs : [];
   const tableRows = (table: unknown, condition: unknown) =>
     tableValues(table)
       .filter((row) => matches(row, condition))
@@ -200,7 +211,7 @@ function createActionDatabase(
       }),
     }),
   };
-  return { db, items, runs };
+  return { db, items: scopedItems, runs };
 }
 
 const reportAction = action as {
@@ -233,7 +244,15 @@ function automationContext(runId: string) {
   };
 }
 
-function configureActionMocks(db: unknown, slack: unknown) {
+function configureActionMocks(
+  db: unknown,
+  slack: unknown,
+  config = {
+    source: "github" as const,
+    template: "github-issues" as const,
+    repository: "BuilderIO/agent-native",
+  },
+) {
   vi.mocked(getDb).mockReturnValue(db as never);
   vi.mocked(requireWorkspaceMember).mockResolvedValue({
     userEmail: "steve@example.com",
@@ -242,7 +261,7 @@ function configureActionMocks(db: unknown, slack: unknown) {
   vi.mocked(workspaceMemberIdentityFromContext).mockReturnValue({} as never);
   vi.mocked(requireFactoryAutomation).mockResolvedValue(undefined as never);
   vi.mocked(readCallingFactoryAutomation).mockResolvedValue({
-    config: { source: "github", template: "github-issues" },
+    config,
   } as never);
   vi.mocked(requireExistingFactory).mockResolvedValue(undefined);
   vi.mocked(createSlackReader).mockReturnValue(slack as never);
@@ -268,6 +287,132 @@ describe("report-factory-findings", () => {
     expect(
       reportableFindingSource({ source: "slack", template: "slack-feedback" }),
     ).toBeNull();
+  });
+
+  it("binds GitHub issues to the automation repository", () => {
+    const config = {
+      repository: "builderio/agent-native",
+      sentryOrgSlug: null,
+      sentryProjectSlug: null,
+    };
+    const item = {
+      externalId: "BuilderIO/agent-native#12",
+      sourceUrl: "https://github.com/BuilderIO/agent-native/issues/12",
+      repository: null,
+      metadataJson: "{}",
+    };
+
+    expect(
+      findingMatchesAutomationDestination({
+        source: "github_issue",
+        config,
+        item,
+      }),
+    ).toBe(true);
+    expect(
+      findingMatchesAutomationDestination({
+        source: "github_issue",
+        config,
+        item: {
+          ...item,
+          externalId: "BuilderIO/other-repo#12",
+          sourceUrl: "https://github.com/BuilderIO/other-repo/issues/12",
+        },
+      }),
+    ).toBe(false);
+    expect(
+      findingMatchesAutomationDestination({
+        source: "github_issue",
+        config,
+        item: {
+          ...item,
+          sourceUrl: "https://github.com/BuilderIO/other-repo/issues/12",
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("binds Sentry findings to the automation organization and project", () => {
+    const config = {
+      repository: null,
+      sentryOrgSlug: "builder",
+      sentryProjectSlug: "factory",
+    };
+    const item = {
+      externalId: "123",
+      sourceUrl: "https://sentry.io/organizations/builder/issues/123/",
+      repository: null,
+      metadataJson: JSON.stringify({
+        sentryOrgSlug: "builder",
+        projectSlug: "factory",
+      }),
+    };
+
+    expect(
+      findingMatchesAutomationDestination({ source: "sentry", config, item }),
+    ).toBe(true);
+    expect(
+      findingMatchesAutomationDestination({
+        source: "sentry",
+        config,
+        item: {
+          ...item,
+          metadataJson: JSON.stringify({
+            sentryOrgSlug: "builder",
+            projectSlug: "other-project",
+          }),
+        },
+      }),
+    ).toBe(false);
+    expect(
+      findingMatchesAutomationDestination({
+        source: "sentry",
+        config,
+        item: {
+          ...item,
+          metadataJson: JSON.stringify({
+            sentryOrgSlug: "another-org",
+            projectSlug: "factory",
+          }),
+        },
+      }),
+    ).toBe(false);
+    expect(
+      findingMatchesAutomationDestination({
+        source: "sentry",
+        config,
+        item: {
+          ...item,
+          metadataJson: JSON.stringify({ projectSlug: "factory" }),
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("refuses to report GitHub items from another repository", async () => {
+    const { db, runs } = createActionDatabase({
+      id: "item-1",
+      source: "github_issue",
+      externalId: "BuilderIO/other-repo#1",
+      sourceUrl: "https://github.com/BuilderIO/other-repo/issues/1",
+      title: "Unrelated issue",
+      summary: "An issue from another configured repository.",
+      metadataJson: "{}",
+    });
+    const slack = {
+      getAgentNativeIdentity: vi
+        .fn()
+        .mockResolvedValue({ userId: "U_AGENT_NATIVE" }),
+      getChannelHistory: vi.fn(),
+      postChannelMessage: vi.fn(),
+    };
+    configureActionMocks(db, slack);
+
+    await expect(
+      reportAction.run(reportInput(), automationContext("automation-run-a")),
+    ).rejects.toThrow(/configured source destination/);
+    expect(slack.postChannelMessage).not.toHaveBeenCalled();
+    expect(runs).toHaveLength(0);
   });
 
   it("builds one grouped message with the source links and stored evidence", () => {

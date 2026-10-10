@@ -99,18 +99,21 @@ export function legacySignupReportFallbackAllowed(
     throw new Error("previous workflow jobs have an invalid shape");
   }
 
-  const persistStepFound = value.jobs.some((job) => {
+  const persistStepConclusions: unknown[] = [];
+  for (const job of value.jobs) {
     if (!isRecord(job) || !Array.isArray(job.steps)) {
       throw new Error("previous workflow jobs have an invalid shape");
     }
-    return job.steps.some((step) => {
+    for (const step of job.steps) {
       if (!isRecord(step) || typeof step.name !== "string") {
         throw new Error("previous workflow steps have an invalid shape");
       }
-      return step.name === persistStepName;
-    });
-  });
-  return !persistStepFound;
+      if (step.name === persistStepName) {
+        persistStepConclusions.push(step.conclusion);
+      }
+    }
+  }
+  return persistStepConclusions.every((conclusion) => conclusion === "skipped");
 }
 
 export function legacySignupE2ETestStepResult(

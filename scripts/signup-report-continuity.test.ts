@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -23,7 +27,7 @@ const priorRunUrl =
 const artifactUrl = `${runUrl}/artifacts/456`;
 const priorArtifactUrl = `${priorRunUrl}/artifacts/789`;
 
-test("legacy signup fallback is unavailable when continuity persistence was attempted", () => {
+test("legacy signup fallback is allowed only when continuity persistence was skipped", () => {
   assert.equal(
     legacySignupReportFallbackAllowed(
       JSON.stringify({
@@ -34,12 +38,26 @@ test("legacy signup fallback is unavailable when continuity persistence was atte
     true,
   );
 
-  for (const conclusion of [
-    "skipped",
-    "success",
-    "failure",
-    "action_required",
-  ]) {
+  assert.equal(
+    legacySignupReportFallbackAllowed(
+      JSON.stringify({
+        jobs: [
+          {
+            steps: [
+              {
+                name: "Persist Signup agent continuity state",
+                conclusion: "skipped",
+              },
+            ],
+          },
+        ],
+      }),
+      "Persist Signup agent continuity state",
+    ),
+    true,
+  );
+
+  for (const conclusion of ["success", "failure", "action_required"]) {
     assert.equal(
       legacySignupReportFallbackAllowed(
         JSON.stringify({
@@ -64,6 +82,50 @@ test("legacy signup fallback is unavailable when continuity persistence was atte
     () => legacySignupReportFallbackAllowed("{}", "Persist state"),
     /invalid shape/,
   );
+});
+
+test("Signup agent workflow invokes a supported continuity CLI command", () => {
+  const workflow = readFileSync(
+    ".github/workflows/signup-agent-scheduled.yml",
+    "utf8",
+  );
+  const invocation = workflow.match(
+    /node --experimental-strip-types scripts\/signup-report-continuity\.ts ([a-z-]+) \\\n\s+--jobs-file "[^"]+" \\\n\s+--persist-step-name "([^"]+)"/,
+  );
+  assert.ok(invocation, "workflow legacy fallback CLI invocation is present");
+
+  const directory = mkdtempSync(join(tmpdir(), "signup-report-continuity-"));
+  const jobsFile = join(directory, "jobs.json");
+  writeFileSync(
+    jobsFile,
+    JSON.stringify({
+      jobs: [
+        {
+          steps: [{ name: invocation[2], conclusion: "skipped" }],
+        },
+      ],
+    }),
+  );
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--experimental-strip-types",
+        "scripts/signup-report-continuity.ts",
+        invocation[1]!,
+        "--jobs-file",
+        jobsFile,
+        "--persist-step-name",
+        invocation[2]!,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "true");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("legacy E2E recovery uses the signup test step result only", () => {
