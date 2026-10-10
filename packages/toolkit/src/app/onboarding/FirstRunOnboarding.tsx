@@ -554,15 +554,12 @@ export function FirstRunOnboarding({
     );
   }
 
-  if (loading || !profile) {
+  const canRenderRoleWhileLoading =
+    initialFirstRun && loading && screen === "role";
+  if ((loading || !profile) && !canRenderRoleWhileLoading) {
     return <OnboardingSkeleton />;
   }
 
-  // Every shared service Builder.io powers, the same list Infrastructure
-  // shows, plus the app's own headline capabilities it covers.
-  const builderCapabilities = getBuilderIncludedCapabilities(
-    profile.capabilities,
-  );
   const handleBuilder = (provisionAccount = canActivateBuilderFreeCredits) => {
     if (previewMode) {
       handleFinish(null);
@@ -736,6 +733,14 @@ export function FirstRunOnboarding({
   }
 
   if (screen === "choice") {
+    if (!profile) return <OnboardingSkeleton />;
+
+    // Every shared service Builder.io powers, the same list Infrastructure
+    // shows, plus the app's own headline capabilities it covers.
+    const builderCapabilities = getBuilderIncludedCapabilities(
+      profile.capabilities,
+    );
+
     return (
       <OnboardingShell
         profile={profile}

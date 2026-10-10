@@ -24,13 +24,17 @@ import {
 
 const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
-function FirstRunOnboarding() {
+function FirstRunOnboarding({
+  initialFirstRun = false,
+}: {
+  initialFirstRun?: boolean;
+} = {}) {
   return (
     <AgentNativeI18nProvider
       catalog={toolkitI18nCatalog}
       persistPreference={false}
     >
-      <FirstRunOnboardingSource />
+      <FirstRunOnboardingSource initialFirstRun={initialFirstRun} />
     </AgentNativeI18nProvider>
   );
 }
@@ -256,6 +260,30 @@ describe("FirstRunOnboarding", () => {
 
     expect(document.body.querySelector("[data-onboarding-loading]")).toBeNull();
     expect(document.body.querySelector("[data-onboarding-screen]")).toBeNull();
+  });
+
+  it("shows the first-run role step while the onboarding summary is loading", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: true,
+      error: null,
+      profile: null,
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      document.body.querySelector('[data-onboarding-screen="role"]'),
+    ).not.toBeNull();
+    expect(document.body.querySelector("[data-onboarding-loading]")).toBeNull();
   });
 
   it("does not show a close button during first-run setup", async () => {
