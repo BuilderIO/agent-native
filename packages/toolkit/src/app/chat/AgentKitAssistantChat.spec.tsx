@@ -1232,6 +1232,36 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.textContent).not.toContain("Summarize my inbox");
   });
 
+  it("keeps a pending prompt visible until its own message lands, not another send's", async () => {
+    chatMocks.control.sendMessage.mockImplementationOnce(
+      () => new Promise<undefined>(() => undefined),
+    );
+    await mount(baseProps());
+
+    await act(async () => {
+      void chatMocks.composerProps.onSubmit("Summarize my inbox", [], [], {
+        intent: "immediate",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.textContent).toContain("Summarize my inbox");
+
+    chatMocks.thread.messages = [
+      ...chatMocks.thread.messages,
+      {
+        id: "other-send",
+        role: "user",
+        parts: [{ type: "text", text: "Another prompt" }],
+        status: "complete",
+      },
+    ];
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...baseProps()} />);
+    });
+
+    expect(container.textContent).toContain("Summarize my inbox");
+  });
+
   it("copies the active run ID from its action menu", async () => {
     const props = baseProps();
     await mount(props);

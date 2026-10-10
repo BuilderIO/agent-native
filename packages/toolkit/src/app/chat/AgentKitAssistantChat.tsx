@@ -2018,10 +2018,25 @@ const AgentKitAssistantChatBody = forwardRef<
   );
   // Scoped to the thread that was submitted to. A reused surface can change
   // threadId mid-send, and the prior prompt must not show under the new thread.
+  // Hidden only once this prompt's own message lands: another send appending
+  // first must not remove it.
+  const submittedMessageArrived =
+    pendingUserSubmission !== null &&
+    thread.messages
+      .slice(pendingUserSubmission.baseCount)
+      .some(
+        (message) =>
+          message.role === "user" &&
+          message.parts.some(
+            (part) =>
+              part.type === "text" &&
+              part.text.includes(pendingUserSubmission.text.trim()),
+          ),
+      );
   const optimisticUserMessage: AgentMessage | null =
     pendingUserSubmission &&
     pendingUserSubmission.threadId === threadId &&
-    thread.messages.length <= pendingUserSubmission.baseCount
+    !submittedMessageArrived
       ? {
           id: "pending-user-submission",
           role: "user",
