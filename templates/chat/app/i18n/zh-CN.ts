@@ -33,6 +33,8 @@ const messages = {
     retryPreviousRequest: "模型提供商已连接，请重试我之前的请求。",
     invalidHandoffOptions:
       "提示已保存为草稿，但无法恢复其聊天设置。请在重新发送前检查提示、上下文和模型。",
+    recoveryDraftUnsaved:
+      "这些草稿更改尚未保存。重新加载此聊天可能会丢失这些更改。",
     retryAttachmentUnavailable:
       "Chat 无法重新打开此附件以重试。请添加可访问的文件 URL，然后重试。",
     renameChat: "重命名聊天",

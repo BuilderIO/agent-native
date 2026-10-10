@@ -13,8 +13,8 @@ This page is for developers extending the [Chat template](/docs/template-chat). 
   add actions beside it.
 - `app/components/chat/ChatRouteContent.tsx` renders the full-page chat surface
   at `/chat/<threadId>`. Adjust the empty state, composer, or message slots here.
-- `app/components/home/HomePage.tsx` is the editable Get started page at
-  `/home` in development and production.
+- `app/components/home/HomePage.tsx` is the editable Get started page shown at
+  `/home` during development. Production `/home` starts a new chat.
 - `AGENTS.md` tells the built-in agent how to work inside this app.
 
 <FileTree
@@ -35,7 +35,7 @@ This page is for developers extending the [Chat template](/docs/template-chat). 
     },
     {
       path: "app/routes/home.tsx",
-      note: "/home: the Get started page in development and production",
+      note: "/home: the Get started page under pnpm dev; production starts a new chat",
     },
     {
       path: "app/routes/chat._index.tsx",

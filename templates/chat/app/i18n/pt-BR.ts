@@ -37,6 +37,8 @@ const messages = {
       "Tente novamente minha solicitação anterior agora que o provedor do modelo está conectado.",
     invalidHandoffOptions:
       "O prompt foi salvo como rascunho, mas não foi possível restaurar as configurações do chat. Revise o prompt, o contexto e o modelo antes de enviá-lo novamente.",
+    recoveryDraftUnsaved:
+      "Estas alterações do rascunho não foram salvas. Se você recarregar este chat, poderá perdê-las.",
     retryAttachmentUnavailable:
       "O Chat não consegue reabrir este anexo para tentar novamente. Adicione uma URL de arquivo acessível e tente outra vez.",
     renameChat: "Renomear chat",

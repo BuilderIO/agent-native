@@ -89,6 +89,12 @@ import { TAB_ID } from "@/lib/tab-id";
 // a new callback each render would rebuild the client and drop the stream.
 const reportStreamIntegrity = createAgentKitIntegrityReporter("chat");
 
+type FailedInitialDraft = FailedChatHandoffEnvelope & {
+  attempt: number;
+  threadId: string;
+  unsaved: boolean;
+};
+
 export default function ChatRouteContent({
   initialThreadId,
 }: {
@@ -156,21 +162,18 @@ function ChatThreadRouteContent({
     restoredHandoffResult.status === "found"
       ? restoredHandoffResult.handoff
       : null;
-  const [failedInitialDraft, setFailedInitialDraft] = useState<{
-    text: string;
-    options: ChatInitialComposerOptions;
-    attempt: number;
-    threadId: string;
-  } | null>(() => {
-    return restoredHandoff
-      ? {
-          text: restoredHandoff.text,
-          options: restoredHandoff.options,
-          attempt: 0,
-          threadId: resolvedThreadId,
-        }
-      : null;
-  });
+  const [failedInitialDraft, setFailedInitialDraft] =
+    useState<FailedInitialDraft | null>(() => {
+      return restoredHandoff
+        ? {
+            text: restoredHandoff.text,
+            options: restoredHandoff.options,
+            attempt: 0,
+            threadId: resolvedThreadId,
+            unsaved: false,
+          }
+        : null;
+    });
   const restoredForRoute = restoredHandoff;
   const failedDraftForRoute =
     failedInitialDraft?.threadId === resolvedThreadId
@@ -181,6 +184,7 @@ function ChatThreadRouteContent({
             options: restoredForRoute.options,
             attempt: 0,
             threadId: resolvedThreadId,
+            unsaved: false,
           }
         : null;
   const failedInitialDraftRef = useRef(failedDraftForRoute);
@@ -199,6 +203,7 @@ function ChatThreadRouteContent({
             options: restoredHandoff.options,
             attempt: 0,
             threadId: resolvedThreadId,
+            unsaved: false,
           }
         : null;
     });
@@ -209,10 +214,14 @@ function ChatThreadRouteContent({
     restoredHandoffResult,
   ]);
   const handleInitialMessageFailure = useCallback(
-    (text: string, options: ChatInitialComposerOptions) => {
+    (
+      text: string,
+      options: ChatInitialComposerOptions,
+      persistence = writeFailedChatHandoff(resolvedThreadId, text, options),
+    ) => {
       failedInitialDraftAttemptRef.current += 1;
       reportHandoffStorageFailure(
-        writeFailedChatHandoff(resolvedThreadId, text, options),
+        persistence,
         "Could not save the failed Chat handoff",
       );
       const failedDraft = {
@@ -220,6 +229,7 @@ function ChatThreadRouteContent({
         options,
         attempt: failedInitialDraftAttemptRef.current,
         threadId: resolvedThreadId,
+        unsaved: persistence.status !== "stored",
       };
       failedInitialDraftRef.current = failedDraft;
       setFailedInitialDraft(failedDraft);
@@ -250,12 +260,21 @@ function ChatThreadRouteContent({
         ...update,
         options: { ...current.options, ...update.options },
       };
-      failedInitialDraftRef.current = next;
+      const persistence = writeFailedChatHandoff(
+        next.threadId,
+        next.text,
+        next.options,
+      );
+      const nextDraft = {
+        ...next,
+        unsaved: persistence.status !== "stored",
+      };
+      failedInitialDraftRef.current = nextDraft;
       reportHandoffStorageFailure(
-        writeFailedChatHandoff(next.threadId, next.text, next.options),
+        persistence,
         "Could not save the failed Chat handoff",
       );
-      setFailedInitialDraft(next);
+      setFailedInitialDraft(nextDraft);
     },
     [reportHandoffStorageFailure, resolvedThreadId],
   );
@@ -327,6 +346,7 @@ function ChatThreadRouteContent({
               recoveryOptions={
                 failedDraftForRoute ? failedDraftForRoute.options : undefined
               }
+              recoveryDraftUnsaved={failedDraftForRoute?.unsaved ?? false}
               onRecoveryOptionsChange={(options) =>
                 updateFailedInitialDraft({ options })
               }
@@ -611,7 +631,11 @@ function ChatInitialMessage({
 }: {
   threadId: string;
   hasRestoredDraft: boolean;
-  onFailure: (text: string, options: ChatInitialComposerOptions) => void;
+  onFailure: (
+    text: string,
+    options: ChatInitialComposerOptions,
+    persistence?: FailedChatHandoffWriteResult,
+  ) => void;
   onAccepted: () => void;
 }) {
   const location = useLocation();
@@ -642,12 +666,14 @@ function ChatInitialMessage({
       return;
     }
     sentRef.current = true;
-    if (invalidComposerOptions) {
-      onFailure(message, {});
+    const clearRouteState = () =>
       navigate(
         { pathname: location.pathname, search: location.search },
         { replace: true, state: null },
       );
+    if (invalidComposerOptions) {
+      clearRouteState();
+      onFailure(message, {});
       toast.error(t("chat.invalidHandoffOptions"));
       captureException(new Error("Invalid options in initial Chat handoff"), {
         tags: { area: "chat_initial_message" },
@@ -657,23 +683,13 @@ function ChatInitialMessage({
     const options = composerOptions ?? {};
     const persistence = writeFailedChatHandoff(threadId, message, options);
     if (persistence.status !== "stored") {
-      onFailure(message, options);
-      captureException(
-        persistence.status === "unavailable"
-          ? persistence.cause
-          : new Error(
-              `Failed to persist the pending chat handoff: ${persistence.reason}`,
-            ),
-        { tags: { area: "chat_initial_message" } },
-      );
+      clearRouteState();
+      onFailure(message, options, persistence);
       return;
     }
     // Router state survives a reload, so drop it before sending or a refresh
     // cannot distinguish a pending send from a failed one.
-    navigate(
-      { pathname: location.pathname, search: location.search },
-      { replace: true, state: null },
-    );
+    clearRouteState();
     const context = [
       composerOptions?.composerModeContext,
       contextItems?.map((item) => item.context).join("\n\n"),
@@ -982,12 +998,14 @@ function ChatCanvas({
   onRecoveryOptionsChange,
   onRecoveryDraftChange,
   onRecoverySubmitAccepted,
+  recoveryDraftUnsaved,
 }: {
   workspaceOpen: boolean;
   setWorkspaceOpen: (value: boolean | ((current: boolean) => boolean)) => void;
   initialText?: string;
   initialTextKey?: string;
   recoveryOptions?: ChatInitialComposerOptions;
+  recoveryDraftUnsaved: boolean;
   onRecoveryOptionsChange: (
     options: Partial<ChatInitialComposerOptions>,
   ) => void;
@@ -1184,25 +1202,36 @@ function ChatCanvas({
                 }),
               onTextChange: (text: string) => onRecoveryDraftChange({ text }),
               toolbarSlot: (
-                <RecoveryIncludedSources
-                  references={recoveryOptions.references ?? []}
-                  attachments={recoveryOptions.uploadedAttachments ?? []}
-                  onRemoveReference={(index) =>
-                    onRecoveryOptionsChange({
-                      references: recoveryOptions.references?.filter(
-                        (_reference, candidate) => candidate !== index,
-                      ),
-                    })
-                  }
-                  onRemoveAttachment={(index) =>
-                    onRecoveryOptionsChange({
-                      uploadedAttachments:
-                        recoveryOptions.uploadedAttachments?.filter(
-                          (_attachment, candidate) => candidate !== index,
+                <>
+                  {recoveryDraftUnsaved ? (
+                    <p
+                      className="px-2 text-xs text-destructive"
+                      data-testid="chat-recovery-draft-unsaved"
+                      role="status"
+                    >
+                      {t("chat.recoveryDraftUnsaved")}
+                    </p>
+                  ) : null}
+                  <RecoveryIncludedSources
+                    references={recoveryOptions.references ?? []}
+                    attachments={recoveryOptions.uploadedAttachments ?? []}
+                    onRemoveReference={(index) =>
+                      onRecoveryOptionsChange({
+                        references: recoveryOptions.references?.filter(
+                          (_reference, candidate) => candidate !== index,
                         ),
-                    })
-                  }
-                />
+                      })
+                    }
+                    onRemoveAttachment={(index) =>
+                      onRecoveryOptionsChange({
+                        uploadedAttachments:
+                          recoveryOptions.uploadedAttachments?.filter(
+                            (_attachment, candidate) => candidate !== index,
+                          ),
+                      })
+                    }
+                  />
+                </>
               ),
               onSubmit: retryInitialDraft,
             }

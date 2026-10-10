@@ -37,6 +37,8 @@ const messages = {
       "모델 공급자가 연결되었으니 이전 요청을 다시 시도해 주세요.",
     invalidHandoffOptions:
       "프롬프트는 초안으로 저장했지만 채팅 설정을 복원하지 못했습니다. 다시 보내기 전에 프롬프트, 컨텍스트, 모델을 확인하세요.",
+    recoveryDraftUnsaved:
+      "초안 변경 사항이 저장되지 않았습니다. 이 채팅을 새로 고치면 변경 사항이 사라질 수 있습니다.",
     retryAttachmentUnavailable:
       "Chat에서 이 첨부 파일을 다시 열어 재시도할 수 없습니다. 접근 가능한 파일 URL을 추가한 뒤 다시 시도하세요.",
     renameChat: "채팅 이름 바꾸기",

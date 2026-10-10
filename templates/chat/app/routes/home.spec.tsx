@@ -228,6 +228,7 @@ describe("ChatRoute AgentKit surface", () => {
   let container: HTMLDivElement;
   let root: Root;
   let locationReplace: ReturnType<typeof vi.spyOn>;
+  let restoreSessionStorageSetItem: (() => void) | null = null;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -269,7 +270,11 @@ describe("ChatRoute AgentKit surface", () => {
     act(() => root.unmount());
     container.remove();
     locationReplace.mockRestore();
+    restoreSessionStorageSetItem?.();
+    restoreSessionStorageSetItem = null;
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("mounts the real Agent-Native transport into AgentKit", () => {
@@ -1084,6 +1089,62 @@ describe("ChatRoute AgentKit surface", () => {
     });
   });
 
+  it("clears router state when failed handoff storage is unavailable", async () => {
+    routeState.threadId = "chat-from-home";
+    routeState.locationState = { initialMessage: "Call the hello action" };
+    const setItemSpy = vi
+      .spyOn(window.sessionStorage, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("Storage is full", "QuotaExceededError");
+      });
+    restoreSessionStorageSetItem = () => setItemSpy.mockRestore();
+
+    await act(async () => root.render(<ChatRoute />));
+
+    expect(routeState.sendMessage).not.toHaveBeenCalled();
+    expect(routeState.navigate).toHaveBeenCalledWith(
+      { pathname: "/chat/chat-from-home", search: "" },
+      { replace: true, state: null },
+    );
+    expect(routeState.chatProps).toMatchObject({
+      composerProps: { initialText: "Call the hello action" },
+    });
+    expect(
+      container.querySelector('[data-testid="chat-recovery-draft-unsaved"]')
+        ?.textContent,
+    ).toBe("chat.recoveryDraftUnsaved");
+  });
+
+  it("warns when edits to a recovery draft cannot be saved", async () => {
+    routeState.threadId = "chat-from-home";
+    routeState.locationState = { initialMessage: "Call the hello action" };
+    routeState.sendMessage.mockRejectedValueOnce(
+      new Error("No model connected"),
+    );
+
+    await act(async () => root.render(<ChatRoute />));
+
+    const editedDraft = "x".repeat(24 * 1024 + 1);
+    const onTextChange = (
+      routeState.chatProps?.composerProps as {
+        onTextChange: (text: string) => void;
+      }
+    ).onTextChange;
+    act(() => onTextChange(editedDraft));
+
+    expect(
+      container.querySelector('[data-testid="chat-recovery-draft-unsaved"]')
+        ?.textContent,
+    ).toBe("chat.recoveryDraftUnsaved");
+    expect(
+      JSON.parse(
+        window.sessionStorage.getItem(
+          "agent-native.chat.failed-handoff:chat-from-home",
+        ) ?? "null",
+      ).text,
+    ).toBe("Call the hello action");
+  });
+
   it("keeps the prompt recoverable instead of sending invalid handoff options", async () => {
     routeState.threadId = "invalid-chat";
     routeState.locationState = {
@@ -1143,12 +1204,24 @@ describe("ChatRoute AgentKit surface", () => {
     expect(markHandoff).toHaveBeenCalledWith("chat");
   });
 
-  it("renders the Home page at /home in every build", async () => {
+  it("renders the Home page at /home during development", async () => {
+    vi.stubEnv("DEV", true);
     await act(async () => root.render(<HomeRoute />));
 
     expect(container.querySelector('[data-testid="home-page"]')).not.toBeNull();
     expect(locationReplace).not.toHaveBeenCalled();
     expect(markHandoff).not.toHaveBeenCalled();
+  });
+
+  it("starts a new chat from /home in production", async () => {
+    vi.stubEnv("DEV", false);
+    await act(async () => root.render(<HomeRoute />));
+
+    expect(container.querySelector('[data-testid="home-page"]')).toBeNull();
+    expect(locationReplace).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/chat\/chat-/),
+    );
+    expect(markHandoff).toHaveBeenCalledWith("chat");
   });
 
   it("keeps the home handoff inside the deployed app base path", async () => {

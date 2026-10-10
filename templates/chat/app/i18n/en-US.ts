@@ -36,6 +36,8 @@ const messages = {
       "Retry my previous request now that the model provider is connected.",
     invalidHandoffOptions:
       "The prompt was saved as a draft, but its chat settings could not be restored. Review the prompt, context, and model before sending it again.",
+    recoveryDraftUnsaved:
+      "These draft changes aren't saved. Reloading this chat may lose them.",
     retryAttachmentUnavailable:
       "Chat can't reopen this attachment for retry. Add an accessible file URL, then retry.",
     renameChat: "Rename Chat",
