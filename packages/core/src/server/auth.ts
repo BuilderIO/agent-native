@@ -1302,15 +1302,46 @@ function sanitizeVerificationErrorRedirect(
   location: string,
   requestUrl: string,
 ): string {
+  const basePath = getAppBasePath();
+  const config = getAppConfig();
+  const homePath = resolveAppHomePath(config.app, config.workspace);
+  const request = new URL(requestUrl);
+  let callback: URL;
   try {
-    const parsed = new URL(location, requestUrl);
-    parsed.searchParams.set("error", "verification_link_invalid");
-    return /^[a-z][a-z\d+.-]*:/i.test(location)
-      ? parsed.toString()
-      : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    callback = new URL(location, request);
   } catch {
-    return location;
+    return `${basePath}${SIGN_IN_ENTRY_PATH}?error=verification_link_invalid`;
   }
+  callback.searchParams.delete("error");
+  callback.searchParams.delete("verified");
+  const sameOrigin = callback.origin === request.origin;
+  const journey = signInJourney({
+    at: sameOrigin
+      ? `${callback.pathname}${callback.search}${callback.hash}`
+      : "",
+    continuation: sameOrigin
+      ? callback.searchParams.get(SIGN_IN_CONTINUATION_PARAM)
+      : null,
+    legacyReturn: sameOrigin
+      ? callback.searchParams.get(SIGN_IN_LEGACY_RETURN_PARAM)
+      : null,
+    basePath,
+    homePath,
+  });
+  const resume = new URL(journey.resumeHref, request);
+  resume.searchParams.delete("error");
+  resume.searchParams.delete("verified");
+  const signInHref =
+    journey.signInHref ??
+    signInJourney({
+      at: `${resume.pathname}${resume.search}${resume.hash}`,
+      basePath,
+      homePath,
+    }).signInHref ??
+    `${basePath}${SIGN_IN_ENTRY_PATH}`;
+  const recovery = new URL(signInHref, request);
+  recovery.searchParams.set("error", "verification_link_invalid");
+  return `${recovery.pathname}${recovery.search}`;
 }
 
 function appendVerifiedParamToLocation(location: string): string {
