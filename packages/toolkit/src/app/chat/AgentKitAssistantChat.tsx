@@ -214,6 +214,8 @@ import { SESSION_REPLAY_MASK_PROPS } from "./session-replay-privacy.js";
 import { ThinkingDisplayProvider } from "./thinking-display.js";
 
 export interface AgentKitAssistantChatProps extends AssistantChatProps {
+  /** Reference routing follows the selected conversation even when chat is hidden. */
+  isReferenceTarget?: boolean;
   /** Called after AgentKit creates a fork so the host can add and activate a tab. */
   onForkedThread?: (threadId: string) => void;
   branchNavigation?: AgentKitBranchNavigation;
@@ -5890,6 +5892,7 @@ function AgentKitComposerSurface({
       <div className="relative">
         <AgentKitComposer
           threadId={threadId}
+          isReferenceTarget={props.isReferenceTarget !== false}
           requireAgentEngine
           disabled={
             (!canChat && !providerSubmissionPending) ||

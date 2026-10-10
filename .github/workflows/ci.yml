@@ -1159,7 +1159,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -1222,12 +1222,16 @@ jobs:
 
       - name: Run deterministic authoring smoke in WebKit
         working-directory: templates/slides
+        env:
+          SLIDES_AUTHORING_FUZZ_TRACE: "1"
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
           --seed 16 --steps 80 --browser webkit
 
       - name: Run deterministic authoring smoke in Firefox
         working-directory: templates/slides
+        env:
+          SLIDES_AUTHORING_FUZZ_TRACE: "1"
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz
           --seed 16 --steps 80 --browser firefox

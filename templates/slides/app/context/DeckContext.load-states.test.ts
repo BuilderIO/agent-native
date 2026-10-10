@@ -49,10 +49,19 @@ function setupFetch() {
   let listFailureStatus: number | "network" = 503;
   let holdDeckReads = false;
   let failDeckReads = false;
+  let failOrgRead = false;
   const pendingDeckReads: (() => void)[] = [];
 
   const fetchMock = vi.fn((url: string | URL | Request) => {
     const href = requestString(url);
+
+    if (href.includes("/_agent-native/org/me")) {
+      return Promise.resolve(
+        failOrgRead
+          ? new Response("", { status: 503 })
+          : new Response(JSON.stringify({ orgId: null }), { status: 200 }),
+      );
+    }
 
     if (href.includes("/_agent-native/actions/list-decks")) {
       if (listFailures > 0) {
@@ -92,6 +101,9 @@ function setupFetch() {
     fetchMock,
     setServerDecks(decks: Deck[]) {
       serverDecks = decks;
+    },
+    setOrgReadFailure(failed: boolean) {
+      failOrgRead = failed;
     },
     failNextListReads(count: number, status: number | "network" = 503) {
       listFailures = count;
@@ -146,6 +158,40 @@ describe("deck list loading states", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     queryClient.clear();
+  });
+
+  it("surfaces an unresolved organization read failure and recovers on retry", async () => {
+    window.history.pushState({}, "", "/deck/deck-a?slide=1");
+    const api = setupFetch();
+    api.setServerDecks([deck("deck-a")]);
+    api.setOrgReadFailure(true);
+
+    const { result, seen } = renderDeckListStates();
+    await waitFor(() => expect(seen).toContain("error"));
+    expect(result.current.decks).toEqual([]);
+    expect(
+      api.fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/get-deck"),
+      ),
+    ).toBe(false);
+    expect(window.location.pathname + window.location.search).toBe(
+      "/deck/deck-a?slide=1",
+    );
+
+    expect(await result.current.reloadDecksWithStatus()).toBe("failed");
+    api.setOrgReadFailure(false);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck("deck-a")).toEqual(deck("deck-a")),
+    );
+    expect(result.current.loading).toBe(false);
+    expect(result.current.loadError).toBe(false);
+    expect(window.location.pathname + window.location.search).toBe(
+      "/deck/deck-a?slide=1",
+    );
   });
 
   it("keeps the initial load pending when a cold first read recovers on retry", async () => {

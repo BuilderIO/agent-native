@@ -959,7 +959,7 @@ export async function runAuthoringFuzz(
     if (message.type() !== "error") return;
     if (traceEnabled) {
       console.log(
-        `[edit-fidelity] console error phase=${activePhase}: ${message.text()}`,
+        `[edit-fidelity] console error phase=${activePhase} location=${JSON.stringify(message.location())}: ${message.text()}`,
       );
     }
     if (isConflictResourceConsoleError(message.text())) {
@@ -983,8 +983,14 @@ export async function runAuthoringFuzz(
     }
     pageErrors.push(message.text());
   };
-  const onPageError = (error: Error) =>
+  const onPageError = (error: Error) => {
+    if (traceEnabled) {
+      console.log(
+        `[edit-fidelity] page error phase=${activePhase}: ${error.stack ?? error.message}`,
+      );
+    }
     pageErrors.push(error.stack ?? error.message);
+  };
   const onRequestFailed = (request: any) => {
     const requestStartedAt = watchedRequests.get(request);
     const requestPendingAtReloadNavigation =
@@ -996,7 +1002,7 @@ export async function runAuthoringFuzz(
     const errorText = request.failure()?.errorText ?? "unknown";
     if (traceEnabled) {
       console.log(
-        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText})`,
+        `[edit-fidelity] request failed ${request.method()} ${pathname} (${errorText}) phase=${activePhase} ageMs=${requestStartedAt === undefined ? "unknown" : Date.now() - requestStartedAt} pendingAtReload=${requestPendingAtReloadNavigation}`,
       );
     }
     if (
@@ -4763,6 +4769,11 @@ export async function runAuthoringFuzz(
     const persistence = await options.finishAndReload(() => {
       for (const [request, startedAt] of watchedRequests.entries()) {
         reloadNavigationRequests.set(request, startedAt);
+        if (traceEnabled) {
+          console.log(
+            `[edit-fidelity] reload pending ${request.method()} ${new URL(request.url()).pathname} ageMs=${Date.now() - startedAt}`,
+          );
+        }
       }
     });
     assertAuthoringPersistence(persistence);

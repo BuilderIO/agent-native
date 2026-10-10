@@ -7,6 +7,16 @@ import {
 } from "@agent-native/core/agent/harness/hosted";
 import {
   AGENT_SIDEBAR_MIN_WIDTH,
+  AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
+  AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+  AGENT_CHAT_INSERT_REFERENCE_EVENT,
+  cancelAgentChatSubmit,
+  claimAgentChatSubmit,
+  claimAgentChatOpenRequest,
+  parseSubmitChatMessage,
+  reportAgentChatSubmitResult,
   consumeAgentSidebarUrlOpenOverride,
   clampAgentSidebarWidth,
   dispatchAgentSidebarStateChange,
@@ -38,6 +48,7 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { shouldParentFrameOwnAgentPanel } from "@agent-native/core/client/host";
 import {
   getFramePostMessageTargetOrigin,
+  isTrustedBuilderMessage,
   isTrustedFrameMessage,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
@@ -49,6 +60,7 @@ import { IconLayoutSidebarRight } from "@tabler/icons-react";
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -57,14 +69,20 @@ import React, {
 } from "react";
 import { flushSync } from "react-dom";
 
+import { setComposerReferenceEventTarget } from "../../composer/runtime-adapters.js";
+import { Skeleton } from "../../ui/skeleton.js";
 import { useFirstRunOnboardingGateOwnsSurface } from "../onboarding/first-run-startup-gate.js";
 import type { BuilderConnectTransport } from "../settings/index.js";
+import { LazyChunkErrorBoundary } from "../shared/LazyChunkErrorBoundary.js";
+import { LazyChunkRetryFallback } from "../shared/LazyChunkRetryFallback.js";
 import { AgentSidebarOnboardingContext } from "./agent-sidebar-context.js";
 import {
   AGENT_CHAT_RUNNING_EVENT,
   AGENT_PANEL_OPEN_SETTINGS_EVENT,
   AGENT_PANEL_PREPARE_EVENT,
   AGENT_PANEL_SET_MODE_EVENT,
+  getAgentChatNavigationKey,
+  type AgentChatNavigationKey,
   isAgentPanelChatShortcut,
   isAgentSidebarToggleShortcut,
   agentPanelShortcutSelectionText,
@@ -75,15 +93,28 @@ import {
   SettingsReturnPathRecorder,
   URLSync,
 } from "./agent-sidebar-url-sync.js";
-import { AgentSidebarPanel } from "./AgentSidebarPanel.js";
 import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
 import type { AssistantChatProps } from "./chat/surface-types.js";
 import type { MultiTabAssistantChatProps } from "./MultiTabAssistantChat.js";
 import "@agent-native/core/client/mcp-app-host";
 
 export function preloadAgentChatSurface(): Promise<void> {
+  // Desktop shells call this unconditionally on mount; loading here would defeat on-demand chat.
   return Promise.resolve();
 }
+
+const panelImportErrors = new Set<unknown>();
+const isPanelImportError = (error: unknown) => panelImportErrors.has(error);
+const AgentSidebarPanel = lazy(() =>
+  import("./AgentSidebarPanel.js")
+    .then((m) => ({
+      default: m.AgentSidebarPanel,
+    }))
+    .catch((error: unknown) => {
+      panelImportErrors.add(error);
+      throw error;
+    }),
+);
 
 const SHOW_FIRST_RUN_ONBOARDING = isFirstRunOnboardingEnabled();
 const FirstRunOnboarding = lazy(() =>
@@ -106,6 +137,15 @@ type AgentPanelStyle = React.CSSProperties & {
   "--agent-sidebar-inner-closed-transform"?: string;
   "--agent-sidebar-width"?: string;
   viewTransitionName?: string;
+};
+
+type PendingPanelEvent = {
+  event: Event;
+  order: number;
+  referenceTargetId?: string | null;
+  targetId?: string | null;
+  navigation?: AgentChatNavigationKey;
+  reference?: PendingPanelEvent;
 };
 
 const SIDEBAR_STORAGE_KEY = "agent-native-sidebar-width";
@@ -567,20 +607,337 @@ export function AgentSidebar({
   const [frameSidebarOpen, setFrameSidebarOpen] = useState(false);
   const [hasFrameSidebarState, setHasFrameSidebarState] = useState(false);
   const [backgroundPanelActive, setBackgroundPanelActive] = useState(false);
+  const [hasPendingPanelEvents, setHasPendingPanelEvents] = useState(false);
   const [runningTabIds, setRunningTabIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const shouldMountPanel =
+  const ownsPanel =
     enabled &&
     !isPerAppChatHosted &&
     !presentationMode &&
-    (!frameCodeMode || !shouldParentFrameOwnAgentPanel()) &&
-    (open || backgroundPanelActive || runningTabIds.size > 0);
-  const shouldMountPanelRef = useRef(shouldMountPanel);
-
-  useEffect(() => {
-    shouldMountPanelRef.current = shouldMountPanel;
-  }, [shouldMountPanel]);
+    (!frameCodeMode || !shouldParentFrameOwnAgentPanel());
+  const shouldMountPanel =
+    ownsPanel &&
+    (open ||
+      backgroundPanelActive ||
+      runningTabIds.size > 0 ||
+      hasPendingPanelEvents);
+  const panelReadyRef = useRef(false);
+  const panelLoadFailedRef = useRef(false);
+  const composerReadyRef = useRef(false);
+  const composerElementRef = useRef<HTMLElement | null>(null);
+  const panelElementRef = useRef<HTMLDivElement>(null);
+  const pendingPanelEvents = useRef<PendingPanelEvent[]>([]);
+  const pendingPanelControls = useRef<PendingPanelEvent[]>([]);
+  const pendingEventOrder = useRef(0);
+  const replayingPanelEvent = useRef<Event | null>(null);
+  const drainScheduled = useRef(false);
+  const activeNavigations = useRef(new Map<AgentChatNavigationKey, Event>());
+  const committedNavigations = useRef(new Set<AgentChatNavigationKey>());
+  const committedReferenceTargetId = useRef<string | null>(null);
+  const getReferenceTargetId = useCallback(
+    () =>
+      panelElementRef.current
+        ?.querySelector("[data-agent-chat-reference-target]")
+        ?.getAttribute("data-agent-chat-reference-target") ?? null,
+    [],
+  );
+  const isReferenceTargetReady = useCallback(
+    (targetId: string | null) => {
+      const element = composerElementRef.current;
+      return (
+        composerReadyRef.current &&
+        element !== null &&
+        panelElementRef.current !== null &&
+        panelElementRef.current.contains(element) &&
+        targetId === getReferenceTargetId() &&
+        (element
+          .closest("[data-agent-chat-reference-target]")
+          ?.getAttribute("data-agent-chat-reference-target") ?? null) ===
+          targetId
+      );
+    },
+    [getReferenceTargetId],
+  );
+  const drainPendingPanelEvents = useCallback(() => {
+    if (drainScheduled.current) return;
+    drainScheduled.current = true;
+    queueMicrotask(() => {
+      try {
+        while (panelReadyRef.current) {
+          const head = pendingPanelEvents.current[0];
+          const referenceBlocked =
+            head &&
+            isComposerReferenceEvent(head.event) &&
+            !isReferenceTargetReady(head.referenceTargetId ?? null);
+          const navigation =
+            activeNavigations.current.size > 0 || referenceBlocked
+              ? pendingPanelEvents.current.find((pending) =>
+                  isPanelNavigationEvent(pending.event),
+                )
+              : undefined;
+          if (referenceBlocked && navigation) {
+            const superseded = new Set(
+              pendingPanelEvents.current.filter((pending) => {
+                const submit =
+                  pending.event instanceof MessageEvent
+                    ? parseSubmitChatMessage(pending.event)
+                    : null;
+                return (
+                  pending.order < navigation.order &&
+                  !isPanelNavigationEvent(pending.event) &&
+                  !submit?.targetTabId
+                );
+              }),
+            );
+            // Cancel before navigation can deliver a prefill that would overtake the reference.
+            cancelPendingEventsRef.current(
+              (pending) => superseded.has(pending),
+              "navigation-superseded",
+            );
+            continue;
+          }
+          const conversation = navigation ?? head;
+          const control = pendingPanelControls.current[0];
+          const conversationReady =
+            conversation &&
+            (isPanelNavigationEvent(conversation.event) ||
+              activeNavigations.current.size === 0) &&
+            (!isComposerReferenceEvent(conversation.event) ||
+              isReferenceTargetReady(conversation.referenceTargetId ?? null));
+          const queue =
+            control &&
+            (!conversationReady || control.order < conversation.order)
+              ? pendingPanelControls.current
+              : conversationReady
+                ? pendingPanelEvents.current
+                : null;
+          if (!queue) break;
+          const pending =
+            queue === pendingPanelControls.current ? control : conversation;
+          if (!pending) break;
+          const { event } = pending;
+          const index = queue.indexOf(pending);
+          if (index >= 0) queue.splice(index, 1);
+          if (isComposerReferenceEvent(event) && composerElementRef.current)
+            setComposerReferenceEventTarget(event, composerElementRef.current);
+          replayingPanelEvent.current = event;
+          // Reference insertion must commit before a following submission reads its context.
+          flushSync(() => window.dispatchEvent(event));
+        }
+      } finally {
+        replayingPanelEvent.current = null;
+        drainScheduled.current = false;
+        setHasPendingPanelEvents(
+          pendingPanelEvents.current.length +
+            pendingPanelControls.current.length +
+            activeNavigations.current.size >
+            0,
+        );
+      }
+    });
+  }, [isReferenceTargetReady]);
+  const preparePendingEventCancellation = useCallback(
+    (
+      matches: (pending: PendingPanelEvent) => boolean,
+      reason: string | ((pending: PendingPanelEvent) => string),
+    ) => {
+      const cancelled: PendingPanelEvent[] = [];
+      for (const queue of [
+        pendingPanelEvents.current,
+        pendingPanelControls.current,
+      ]) {
+        for (let index = queue.length - 1; index >= 0; index--) {
+          if (matches(queue[index])) {
+            cancelled.push(...queue.splice(index, 1));
+          }
+        }
+      }
+      cancelled.sort((a, b) => a.order - b.order);
+      const publish = () => {
+        for (const pending of cancelled) {
+          const submit =
+            pending.event instanceof MessageEvent
+              ? parseSubmitChatMessage(pending.event)
+              : null;
+          if (submit) claimAgentChatSubmit(submit.submitMessageId);
+          else if (isPanelNavigationEvent(pending.event))
+            claimAgentChatOpenRequest(getAgentChatNavigationKey(pending.event));
+        }
+        for (const pending of cancelled) {
+          const cancellationReason =
+            typeof reason === "string" ? reason : reason(pending);
+          const submit =
+            pending.event instanceof MessageEvent
+              ? parseSubmitChatMessage(pending.event)
+              : null;
+          if (submit) {
+            reportAgentChatSubmitResult(
+              submit.submitMessageId,
+              false,
+              cancellationReason,
+            );
+            cancelAgentChatSubmit(submit.submitMessageId);
+          } else {
+            console.warn("[agent-chat] cancelled retained conversation event", {
+              type: pending.event.type,
+              reason: cancellationReason,
+            });
+          }
+        }
+        drainPendingPanelEvents();
+      };
+      return publish;
+    },
+    [drainPendingPanelEvents],
+  );
+  const cancelPendingEvents = useCallback(
+    (matches: (pending: PendingPanelEvent) => boolean, reason: string) =>
+      preparePendingEventCancellation(matches, reason)(),
+    [preparePendingEventCancellation],
+  );
+  const onReferenceTargetChange = useCallback(
+    (
+      targetId = committedReferenceTargetId.current ?? getReferenceTargetId(),
+      navigations: Event[] = [],
+    ) => {
+      if (targetId !== null) {
+        committedReferenceTargetId.current = targetId;
+        const committed = new Set(navigations.map(getAgentChatNavigationKey));
+        for (const key of committed) committedNavigations.current.add(key);
+        for (const pending of pendingPanelEvents.current) {
+          if (
+            pending.navigation === undefined ||
+            committed.has(pending.navigation)
+          ) {
+            if (pending.referenceTargetId === null)
+              pending.referenceTargetId = targetId;
+            else if (
+              pending.targetId == null &&
+              !pending.reference &&
+              !isComposerReferenceEvent(pending.event) &&
+              !isPanelNavigationEvent(pending.event)
+            )
+              pending.targetId = targetId;
+          }
+        }
+        const cancelled = new Set(
+          pendingPanelEvents.current.filter((pending) => {
+            const submit =
+              pending.event instanceof MessageEvent
+                ? parseSubmitChatMessage(pending.event)
+                : null;
+            if (submit?.targetTabId) return false;
+            const recipient =
+              pending.referenceTargetId ??
+              pending.reference?.referenceTargetId ??
+              pending.targetId;
+            return typeof recipient === "string" && recipient !== targetId;
+          }),
+        );
+        if (cancelled.size > 0)
+          cancelPendingEvents(
+            (pending) => cancelled.has(pending),
+            "reference-target-changed",
+          );
+      }
+      drainPendingPanelEvents();
+    },
+    [getReferenceTargetId, cancelPendingEvents, drainPendingPanelEvents],
+  );
+  const cancelPendingEventsRef = useRef(cancelPendingEvents);
+  cancelPendingEventsRef.current = cancelPendingEvents;
+  useEffect(
+    () => () => {
+      panelReadyRef.current = false;
+      composerReadyRef.current = false;
+      composerElementRef.current = null;
+      activeNavigations.current.clear();
+      committedNavigations.current.clear();
+      cancelPendingEventsRef.current(() => true, "panel-unmounted");
+    },
+    [],
+  );
+  const onNavigationChange = useCallback<
+    NonNullable<MultiTabAssistantChatProps["onNavigationChange"]>
+  >(
+    (event, outcome) => {
+      const key = getAgentChatNavigationKey(event);
+      if (outcome === "started") {
+        committedNavigations.current.delete(key);
+        activeNavigations.current.set(key, event);
+        setHasPendingPanelEvents(true);
+        return;
+      }
+      activeNavigations.current.delete(key);
+      committedNavigations.current.delete(key);
+      if (outcome !== "selected") {
+        cancelPendingEvents(
+          (pending) => pending.navigation === key,
+          `navigation-${outcome}`,
+        );
+      }
+      drainPendingPanelEvents();
+    },
+    [cancelPendingEvents, drainPendingPanelEvents],
+  );
+  const onPanelLoadFailed = useCallback(() => {
+    panelLoadFailedRef.current = true;
+    panelReadyRef.current = false;
+    composerReadyRef.current = false;
+    composerElementRef.current = null;
+    cancelPendingEvents(() => true, "panel-load-failed");
+    setHasPendingPanelEvents(false);
+    setBackgroundPanelActive(false);
+  }, [cancelPendingEvents]);
+  const onTabsClosing = useCallback<
+    NonNullable<MultiTabAssistantChatProps["onTabsClosing"]>
+  >(
+    (tabIds, outcome) => {
+      const closed = new Set(tabIds);
+      const closedNavigations = new Set(
+        [
+          ...activeNavigations.current.values(),
+          ...pendingPanelEvents.current
+            .filter((pending) => isPanelNavigationEvent(pending.event))
+            .map((pending) => pending.event),
+        ]
+          .filter((event) =>
+            closed.has((event as CustomEvent).detail?.threadId),
+          )
+          .map(getAgentChatNavigationKey),
+      );
+      return preparePendingEventCancellation(
+        (pending) => {
+          if (
+            closedNavigations.has(getAgentChatNavigationKey(pending.event)) ||
+            (pending.navigation !== undefined &&
+              closedNavigations.has(pending.navigation))
+          )
+            return true;
+          const targetId =
+            pending.referenceTargetId ??
+            pending.targetId ??
+            pending.reference?.referenceTargetId;
+          return typeof targetId === "string" && closed.has(targetId);
+        },
+        (pending) =>
+          pending.navigation !== undefined &&
+          closedNavigations.has(pending.navigation)
+            ? `navigation-${outcome}`
+            : "target-tab-closed",
+      );
+    },
+    [preparePendingEventCancellation],
+  );
+  const onPanelReadyChange = useCallback(
+    (ready: boolean) => {
+      panelReadyRef.current = ready;
+      if (!ready) return;
+      onReferenceTargetChange();
+    },
+    [onReferenceTargetChange],
+  );
 
   useEffect(() => {
     const frameOwned = frameCodeMode && shouldParentFrameOwnAgentPanel();
@@ -682,21 +1039,96 @@ export function AgentSidebar({
     };
   }, [enabled, isPerAppChatHosted, openOnChatRunning, setOpenPersisted]);
 
-  useEffect(() => {
-    if (!enabled) return;
-    const replayAfterMount = (type: string, event: Event) => {
-      if (shouldMountPanelRef.current) return;
-
-      const detail = (event as CustomEvent).detail;
-      shouldMountPanelRef.current = true;
+  // Child composers announce readiness in passive effects, including ownership remounts.
+  useLayoutEffect(() => {
+    if (!ownsPanel) {
+      panelReadyRef.current = false;
+      composerReadyRef.current = false;
+      composerElementRef.current = null;
+      return;
+    }
+    const retainEvent = (event: Event, queue: PendingPanelEvent[]) => {
+      event.stopImmediatePropagation();
+      const queued =
+        event instanceof MessageEvent
+          ? new MessageEvent("message", {
+              data: event.data,
+              origin: event.origin,
+              source: event.source,
+            })
+          : new CustomEvent(event.type, {
+              detail: (event as CustomEvent).detail,
+            });
+      const precedingNavigation = [...pendingPanelEvents.current]
+        .reverse()
+        .find((pending) => isPanelNavigationEvent(pending.event));
+      const precedingNavigationKey = precedingNavigation
+        ? getAgentChatNavigationKey(precedingNavigation.event)
+        : [...activeNavigations.current.keys()].at(-1);
+      const navigation =
+        precedingNavigationKey !== undefined &&
+        !committedNavigations.current.has(precedingNavigationKey)
+          ? precedingNavigationKey
+          : undefined;
+      const recipient =
+        committedReferenceTargetId.current ?? getReferenceTargetId();
+      const reference = [...pendingPanelEvents.current]
+        .reverse()
+        .find(
+          (pending) =>
+            isPanelNavigationEvent(pending.event) ||
+            isComposerReferenceEvent(pending.event),
+        );
+      const submit =
+        queued instanceof MessageEvent ? parseSubmitChatMessage(queued) : null;
+      queue.push({
+        event: queued,
+        order: pendingEventOrder.current++,
+        referenceTargetId: isComposerReferenceEvent(event)
+          ? navigation
+            ? null
+            : recipient
+          : undefined,
+        navigation:
+          submit?.targetTabId || isPanelNavigationEvent(event)
+            ? undefined
+            : navigation,
+        targetId:
+          submit?.targetTabId ??
+          (navigation ||
+          isPanelNavigationEvent(event) ||
+          isComposerReferenceEvent(event)
+            ? undefined
+            : reference && isComposerReferenceEvent(reference.event)
+              ? undefined
+              : recipient),
+        reference:
+          !isPanelNavigationEvent(event) &&
+          !submit?.targetTabId &&
+          reference &&
+          isComposerReferenceEvent(reference.event)
+            ? reference
+            : undefined,
+      });
+      if (panelLoadFailedRef.current) {
+        cancelPendingEvents(() => true, "panel-load-failed");
+        return;
+      }
+      setHasPendingPanelEvents(true);
       setBackgroundPanelActive(true);
+      onReferenceTargetChange();
+    };
+    const shouldRetainEvent = (event: Event, ready: boolean) =>
+      event !== replayingPanelEvent.current &&
+      (!ready ||
+        pendingPanelEvents.current.length > 0 ||
+        pendingPanelControls.current.length > 0);
+    const replayAfterMount = (type: string, event: Event) => {
+      if (!shouldRetainEvent(event, panelReadyRef.current)) return;
+      retainEvent(event, pendingPanelControls.current);
       if (type === AGENT_PANEL_OPEN_SETTINGS_EVENT) {
         setOpenPersisted(true);
       }
-
-      window.setTimeout(() => {
-        window.dispatchEvent(new CustomEvent(type, { detail }));
-      }, 0);
     };
 
     const handleSetMode = (event: Event) => {
@@ -706,19 +1138,152 @@ export function AgentSidebar({
       replayAfterMount(AGENT_PANEL_OPEN_SETTINGS_EVENT, event);
     };
 
-    window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode);
+    const handleOpenThread = (event: Event) => {
+      const key = getAgentChatNavigationKey(event);
+      if (
+        event !== replayingPanelEvent.current &&
+        (activeNavigations.current.has(key) ||
+          pendingPanelEvents.current.some(
+            (pending) =>
+              isPanelNavigationEvent(pending.event) &&
+              getAgentChatNavigationKey(pending.event) === key,
+          ))
+      ) {
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (!shouldRetainEvent(event, panelReadyRef.current)) return;
+      retainEvent(event, pendingPanelEvents.current);
+    };
+    const handleReference = (event: Event) => {
+      if (
+        !shouldRetainEvent(
+          event,
+          activeNavigations.current.size === 0 &&
+            isReferenceTargetReady(getReferenceTargetId()),
+        )
+      ) {
+        if (event !== replayingPanelEvent.current && composerElementRef.current)
+          setComposerReferenceEventTarget(event, composerElementRef.current);
+        return;
+      }
+      retainEvent(event, pendingPanelEvents.current);
+    };
+    const handleComposerReady = (event: Event) => {
+      const element = (event as CustomEvent).detail;
+      if (
+        !(element instanceof HTMLElement) ||
+        !panelElementRef.current?.contains(element)
+      )
+        return;
+      composerReadyRef.current = true;
+      composerElementRef.current = element;
+      drainPendingPanelEvents();
+    };
+    const handleComposerUnavailable = (event: Event) => {
+      if ((event as CustomEvent).detail !== composerElementRef.current) return;
+      composerReadyRef.current = false;
+      composerElementRef.current = null;
+    };
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        !isTrustedFrameMessage(event) &&
+        !(isComposerReferenceEvent(event) && isTrustedBuilderMessage(event))
+      )
+        return;
+      if (
+        !shouldRetainEvent(
+          event,
+          isComposerReferenceEvent(event)
+            ? activeNavigations.current.size === 0 &&
+                isReferenceTargetReady(getReferenceTargetId())
+            : panelReadyRef.current && activeNavigations.current.size === 0,
+        )
+      ) {
+        if (
+          isComposerReferenceEvent(event) &&
+          event !== replayingPanelEvent.current &&
+          composerElementRef.current
+        )
+          setComposerReferenceEventTarget(event, composerElementRef.current);
+        return;
+      }
+      if (
+        ![
+          "agentNative.submitChat",
+          AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
+          AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
+          AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
+          AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+        ].includes(event.data?.type)
+      )
+        return;
+      retainEvent(event, pendingPanelEvents.current);
+    };
+
+    window.addEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode, true);
     window.addEventListener(
       AGENT_PANEL_OPEN_SETTINGS_EVENT,
       handleOpenSettings,
+      true,
+    );
+    window.addEventListener("agent-chat:open-thread", handleOpenThread, true);
+    window.addEventListener("agent-task-open", handleOpenThread, true);
+    window.addEventListener("message", handleMessage, true);
+    window.addEventListener(
+      AGENT_CHAT_INSERT_REFERENCE_EVENT,
+      handleReference,
+      true,
+    );
+    window.addEventListener(
+      "agentNative:composer-reference-ready",
+      handleComposerReady,
+    );
+    window.addEventListener(
+      "agentNative:composer-reference-unavailable",
+      handleComposerUnavailable,
     );
     return () => {
-      window.removeEventListener(AGENT_PANEL_SET_MODE_EVENT, handleSetMode);
+      window.removeEventListener(
+        AGENT_PANEL_SET_MODE_EVENT,
+        handleSetMode,
+        true,
+      );
       window.removeEventListener(
         AGENT_PANEL_OPEN_SETTINGS_EVENT,
         handleOpenSettings,
+        true,
+      );
+      window.removeEventListener(
+        "agent-chat:open-thread",
+        handleOpenThread,
+        true,
+      );
+      window.removeEventListener("agent-task-open", handleOpenThread, true);
+      window.removeEventListener("message", handleMessage, true);
+      window.removeEventListener(
+        AGENT_CHAT_INSERT_REFERENCE_EVENT,
+        handleReference,
+        true,
+      );
+      window.removeEventListener(
+        "agentNative:composer-reference-ready",
+        handleComposerReady,
+      );
+      window.removeEventListener(
+        "agentNative:composer-reference-unavailable",
+        handleComposerUnavailable,
       );
     };
-  }, [enabled, setOpenPersisted]);
+  }, [
+    ownsPanel,
+    setOpenPersisted,
+    cancelPendingEvents,
+    drainPendingPanelEvents,
+    getReferenceTargetId,
+    onReferenceTargetChange,
+    isReferenceTargetReady,
+  ]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -1014,7 +1579,7 @@ export function AgentSidebar({
   }, [shouldMountPanel, sidebarAnimationEnabled]);
 
   const shouldRenderPanel =
-    enabled &&
+    ownsPanel &&
     (sidebarAnimationEnabled ? renderAnimatedPanel : shouldMountPanel);
   const panelOpen = enabled && open && shouldMountPanel;
   const panelLayout = isOverlay
@@ -1138,67 +1703,93 @@ export function AgentSidebar({
         inert={sidebarAnimationEnabled && !panelOpen ? true : undefined}
         aria-hidden={sidebarAnimationEnabled && !panelOpen ? true : undefined}
       >
-        <div className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col">
-          <AgentSidebarPanel
-            emptyStateText={emptyStateText}
-            suggestions={suggestions}
-            dynamicSuggestions={dynamicSuggestions}
-            suggestionPlacement="context-chips"
-            composerToolbarSlot={composerToolbarSlot}
-            composerSlot={composerSlot}
-            composerContextProvider={composerContextProvider}
-            onComposerTextChange={onComposerTextChange}
-            imageModelMenu={imageModelMenu}
-            availableAgents={effectiveAvailableAgents}
-            availableModels={availableModels}
-            modelListLoading={modelListLoading}
-            selectedAgent={effectiveSelectedAgent}
-            onAgentChange={effectiveOnAgentChange}
-            hostedHarness={hostedHarnessEnabled}
-            onConnectProvider={onConnectProvider}
-            builderConnectTransport={builderConnectTransport}
-            onConnectLocalRuntime={onConnectLocalRuntime}
-            runtime={runtime}
-            adapterReloadKey={adapterReloadKey}
-            threadFooterSlot={threadFooterSlot}
-            apiUrl={apiUrl}
-            agentChatSurface={agentChatSurface}
-            desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
-            desktopIdentityAuthenticated={desktopIdentityAuthenticated}
-            showTabBar={effectiveShowTabBar}
-            suppressInlineOpenApp={suppressInlineOpenApp}
-            composerPlaceholder={composerPlaceholder}
-            showMissingApiKeySetup={showMissingApiKeySetup}
-            setupCardOwner={setupCardOwner}
-            showGuidedQuestions={showGuidedQuestions}
-            missingApiKeySetupLayout="sidebar"
-            defaultMode={defaultMode}
-            onCollapse={() => setOpenPersisted(false)}
-            showCollapseButton={showCollapseButton}
-            onSnapTo75Percent={isOverlay ? undefined : snapTo75Percent}
-            isWideDrawer={isOverlay ? false : isWideDrawer}
-            onExitWideDrawer={isOverlay ? undefined : exitWideDrawer}
-            onFullViewRequest={onFullscreenRequest}
-            onOpenSettings={onOpenSettings}
-            onNewCliTab={onNewCliTab}
-            onNewUiTab={onNewUiTab}
-            renderCliTab={renderCliTab}
-            newTabMode={newTabMode}
-            newCliTabLabel={newCliTabLabel}
-            newUiTabLabel={newUiTabLabel}
-            storageKey={storageKey}
-            restoreActiveThread={restoreActiveThread}
-            scope={scope}
-            chatHistory={chatHistory}
-            isolateHistoryByScope={isolateHistoryByScope}
-            showScopeBadge={showScopeBadge}
-            browserTabId={resolvedBrowserTabId}
-            threadUrlSync={threadUrlSync}
-            agentPageHref={agentPageHref}
-            thinkingDisplay={thinkingDisplay}
-            showModelSelector={showModelSelector}
-            chatOnly={chatOnly}
-          />
+        <div
+          ref={panelElementRef}
+          className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col"
+        >
+          <LazyChunkErrorBoundary
+            fallback={<LazyChunkRetryFallback />}
+            shouldHandleError={isPanelImportError}
+            onError={onPanelLoadFailed}
+          >
+            <Suspense
+              fallback={
+                <div
+                  aria-hidden="true"
+                  className="flex min-h-0 flex-1 flex-col gap-3 p-3"
+                >
+                  <Skeleton className="h-8 w-full" />
+                  <div className="flex-1" />
+                  <Skeleton className="h-28 w-full rounded-xl" />
+                </div>
+              }
+            >
+              <AgentSidebarPanel
+                onReadyChange={onPanelReadyChange}
+                onReferenceTargetChange={onReferenceTargetChange}
+                onNavigationChange={onNavigationChange}
+                onTabsClosing={onTabsClosing}
+                emptyStateText={emptyStateText}
+                suggestions={suggestions}
+                dynamicSuggestions={dynamicSuggestions}
+                suggestionPlacement="context-chips"
+                composerToolbarSlot={composerToolbarSlot}
+                composerSlot={composerSlot}
+                composerContextProvider={composerContextProvider}
+                onComposerTextChange={onComposerTextChange}
+                imageModelMenu={imageModelMenu}
+                availableAgents={effectiveAvailableAgents}
+                availableModels={availableModels}
+                modelListLoading={modelListLoading}
+                selectedAgent={effectiveSelectedAgent}
+                onAgentChange={effectiveOnAgentChange}
+                hostedHarness={hostedHarnessEnabled}
+                onConnectProvider={onConnectProvider}
+                builderConnectTransport={builderConnectTransport}
+                onConnectLocalRuntime={onConnectLocalRuntime}
+                runtime={runtime}
+                adapterReloadKey={adapterReloadKey}
+                threadFooterSlot={threadFooterSlot}
+                apiUrl={apiUrl}
+                agentChatSurface={agentChatSurface}
+                desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
+                desktopIdentityAuthenticated={desktopIdentityAuthenticated}
+                showTabBar={effectiveShowTabBar}
+                suppressInlineOpenApp={suppressInlineOpenApp}
+                composerPlaceholder={composerPlaceholder}
+                showMissingApiKeySetup={showMissingApiKeySetup}
+                setupCardOwner={setupCardOwner}
+                showGuidedQuestions={showGuidedQuestions}
+                missingApiKeySetupLayout="sidebar"
+                defaultMode={defaultMode}
+                onCollapse={() => setOpenPersisted(false)}
+                showCollapseButton={showCollapseButton}
+                onSnapTo75Percent={isOverlay ? undefined : snapTo75Percent}
+                isWideDrawer={isOverlay ? false : isWideDrawer}
+                onExitWideDrawer={isOverlay ? undefined : exitWideDrawer}
+                onFullViewRequest={onFullscreenRequest}
+                onOpenSettings={onOpenSettings}
+                onNewCliTab={onNewCliTab}
+                onNewUiTab={onNewUiTab}
+                renderCliTab={renderCliTab}
+                newTabMode={newTabMode}
+                newCliTabLabel={newCliTabLabel}
+                newUiTabLabel={newUiTabLabel}
+                storageKey={storageKey}
+                restoreActiveThread={restoreActiveThread}
+                scope={scope}
+                chatHistory={chatHistory}
+                isolateHistoryByScope={isolateHistoryByScope}
+                showScopeBadge={showScopeBadge}
+                browserTabId={resolvedBrowserTabId}
+                threadUrlSync={threadUrlSync}
+                agentPageHref={agentPageHref}
+                thinkingDisplay={thinkingDisplay}
+                showModelSelector={showModelSelector}
+                chatOnly={chatOnly}
+              />
+            </Suspense>
+          </LazyChunkErrorBoundary>
         </div>
       </div>
       {showResizeHandle && isLeft && (
@@ -1307,6 +1898,20 @@ export function focusAgentChat() {
   focusAgentChatComposer();
 }
 
+function isComposerReferenceEvent(event: Event): boolean {
+  return (
+    event.type === AGENT_CHAT_INSERT_REFERENCE_EVENT ||
+    (event instanceof MessageEvent &&
+      event.data?.type === AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE)
+  );
+}
+
+function isPanelNavigationEvent(event: Event): boolean {
+  return (
+    event.type === "agent-chat:open-thread" || event.type === "agent-task-open"
+  );
+}
+
 function focusAgentChatComposer() {
   const focusComposer = (attempt = 0) => {
     if (typeof window === "undefined" || typeof document === "undefined")
@@ -1364,9 +1969,6 @@ export function AgentToggleButton({
           aria-label={t("agentPanel.toggleAgent")}
           aria-pressed={open}
           data-state={open ? "open" : "closed"}
-          onPointerEnter={() => void preloadAgentChatSurface()}
-          onFocus={() => void preloadAgentChatSurface()}
-          onPointerDown={() => void preloadAgentChatSurface()}
           onClick={() =>
             window.dispatchEvent(
               new CustomEvent("agent-panel:toggle", {

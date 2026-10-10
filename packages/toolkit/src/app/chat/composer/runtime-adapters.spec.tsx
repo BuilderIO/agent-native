@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
+import { insertAgentComposerReference } from "@agent-native/core/client/agent-chat";
 import {
+  AGENT_CHAT_INSERT_REFERENCE_EVENT,
+  AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
   useComposerRuntimeAdapters,
   type ComposerRuntimeAdapters,
 } from "@agent-native/toolkit/composer/runtime-adapters";
@@ -36,6 +39,46 @@ afterEach(() => {
 });
 
 describe("CoreComposerRuntimeProvider", () => {
+  it("receives references sent by the core custom-event and postMessage helper", async () => {
+    const customReferences: unknown[] = [];
+    const messageReferences: unknown[] = [];
+    const handleEvent = (event: Event) =>
+      customReferences.push((event as CustomEvent).detail);
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE)
+        messageReferences.push(event.data.data);
+    };
+    window.addEventListener(AGENT_CHAT_INSERT_REFERENCE_EVENT, handleEvent);
+    window.addEventListener("message", handleMessage);
+    const postMessage = vi
+      .spyOn(window, "postMessage")
+      .mockImplementation((data) => {
+        window.dispatchEvent(new MessageEvent("message", { data }));
+      });
+    try {
+      insertAgentComposerReference({
+        label: "Reference",
+        refType: "file",
+        refId: "/reference.md",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(customReferences).toHaveLength(1);
+      expect(postMessage).toHaveBeenCalledOnce();
+      expect(messageReferences).toEqual(customReferences);
+      expect(customReferences[0]).toMatchObject({
+        label: "Reference",
+        refType: "file",
+        refId: "/reference.md",
+      });
+    } finally {
+      postMessage.mockRestore();
+      window.removeEventListener(
+        AGENT_CHAT_INSERT_REFERENCE_EVENT,
+        handleEvent,
+      );
+      window.removeEventListener("message", handleMessage);
+    }
+  });
   it("keeps the adapters identity across re-renders", () => {
     const seen: ComposerRuntimeAdapters[] = [];
     function Consumer({ tick }: { tick: number }) {
