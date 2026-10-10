@@ -1959,8 +1959,8 @@ function getRealtimeClientConfigScript() {
 function getAppOriginClientConfigScript() {
   // MUST stay consistent with resolvePublicAppOriginConfig in
   // server/app-origin-config.ts, and with the alias order declared on
-  // app.id / app.workspaceId / app.url / workspace.* in app-config (worker
-  // bundles a string copy; it can't import them). Impersonal values only —
+  // app.id / app.workspaceId / app.basePath / app.url / workspace.* in
+  // app-config (worker bundles a string copy; it can't import them). Impersonal values only —
   // this ships into the CDN-cached shell.
   const env = globalThis.process?.env || {};
   const appUrl = firstNonEmpty(
@@ -1987,7 +1987,8 @@ function getAppOriginClientConfigScript() {
         env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
       ),
     );
-  const workspaceAppMountPaths = (() => {
+  const appConfig = getAgentNativeAppConfig();
+  const workspaceAppMountConfig = (() => {
     const raw = firstNonEmpty(
       env.AGENT_NATIVE_WORKSPACE_APPS_JSON,
       env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
@@ -2001,35 +2002,49 @@ function getAppOriginClientConfigScript() {
           ? parsed.apps
           : null;
       if (!Array.isArray(entries)) return;
+      const mounts = entries
+        .map((entry) => {
+          if (!entry || typeof entry !== "object") return null;
+          const id = typeof entry.id === "string" ? entry.id : undefined;
+          let rawPath = null;
+          if (typeof entry.path === "string") rawPath = entry.path;
+          else if (id) rawPath = "/" + id;
+          if (!rawPath) return null;
+          const normalized = normalizeAppBasePath(rawPath);
+          return { id, path: normalized || "/" };
+        })
+        .filter(Boolean);
       const paths = Array.from(
-        new Set(
-          entries
-            .map((entry) => {
-              if (!entry || typeof entry !== "object") return null;
-              const rawPath =
-                typeof entry.path === "string"
-                  ? entry.path
-                  : typeof entry.id === "string"
-                    ? "/" + entry.id
-                    : null;
-              if (!rawPath) return null;
-              const normalized = normalizeAppBasePath(rawPath);
-              return normalized || null;
-            })
-            .filter(Boolean),
-        ),
+        new Set(mounts.map((mount) => mount.path).filter((mount) => mount !== "/")),
       );
-      return paths.length ? paths : undefined;
+      const workspaceAppId = appConfig.app.workspaceId;
+      const currentPath =
+        typeof workspaceAppId === "string" && workspaceAppId.trim().length > 0
+          ? mounts.find((mount) => mount.id === workspaceAppId)?.path
+          : undefined;
+      return paths.length || currentPath
+        ? {
+            ...(paths.length ? { paths } : {}),
+            ...(currentPath ? { currentPath } : {}),
+          }
+        : undefined;
     } catch {
       return;
     }
   })();
-  const appConfig = getAgentNativeAppConfig();
+  const configuredWorkspaceAppPath =
+    typeof appConfig.app.basePath === "string" && appConfig.app.basePath.trim()
+      ? normalizeAppBasePath(appConfig.app.basePath) || "/"
+      : "";
+  const workspaceAppPath =
+    workspaceAppMountConfig?.currentPath ??
+    (workspaceRuntime ? configuredWorkspaceAppPath : "");
   const config = {
     ...(appConfig.app.id ? { appId: appConfig.app.id } : {}),
     ...(appConfig.app.workspaceId
       ? { workspaceAppId: appConfig.app.workspaceId }
       : {}),
+    ...(workspaceAppPath ? { workspaceAppPath } : {}),
     appHomePath: resolveAgentNativeAppHomePath(
       appConfig.app,
       appConfig.workspace,
@@ -2038,7 +2053,9 @@ function getAppOriginClientConfigScript() {
     ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
     ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
     ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
-    ...(workspaceAppMountPaths ? { workspaceAppMountPaths } : {}),
+    ...(workspaceAppMountConfig?.paths
+      ? { workspaceAppMountPaths: workspaceAppMountConfig.paths }
+      : {}),
   };
   const toUnicodeEscape = (character) =>
     String.fromCharCode(92) +

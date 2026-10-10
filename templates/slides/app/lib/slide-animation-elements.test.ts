@@ -470,15 +470,15 @@ describe("slide animation element parsing", () => {
   it.each([
     {
       description: "bare text",
-      mixedContent: "A direct text label",
-      nestedListIndex: 2,
+      mixedContent: "Intro",
+      nestedListIndex: 1,
     },
   ])(
-    "keeps list items with paragraphs and $description together",
+    "expands list items with $description and wrapped paragraphs separately",
     ({ mixedContent, nestedListIndex }) => {
       const doc = new DOMParser().parseFromString(
         `<div class="fmd-slide"><div><ul>
-          <li><p>First paragraph</p>${mixedContent}<p>Second paragraph</p>
+          <li>${mixedContent}<div>Section intro<p>First paragraph</p><p>Second paragraph</p></div>
             <ul><li>Nested point</li></ul>
           </li>
           <li>Following item</li>
@@ -501,6 +501,9 @@ describe("slide animation element parsing", () => {
 
       expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
         [0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 1],
         [0, 0, 0, nestedListIndex, 0],
         [0, 0, 1],
       ]);
@@ -537,6 +540,33 @@ describe("slide animation element parsing", () => {
       ]);
     },
   );
+
+  it("expands paragraphs wrapped inside a list item independently", () => {
+    const doc = new DOMParser().parseFromString(
+      `<div class="fmd-slide"><div><ul>
+        <li><div><p>First</p><p>Second</p></div></li>
+      </ul></div></div>`,
+      "text/html",
+    );
+    const root = doc.querySelector<HTMLElement>(".fmd-slide");
+    expect(root).not.toBeNull();
+    if (!root) return;
+
+    const expanded = expandByParagraphAnimations(root, [
+      {
+        id: "animation-1",
+        elementIndex: 0,
+        elementPath: [0, 0, 0],
+        byParagraph: true,
+        type: "slide-up",
+      },
+    ]);
+
+    expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
+      [0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 1],
+    ]);
+  });
 
   it("does not expand into unrelated nested text blocks", () => {
     const doc = new DOMParser().parseFromString(

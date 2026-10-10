@@ -22,6 +22,7 @@ export {
 } from "./ComposerContextMenu.js";
 export {
   areComposerContextItemsReady,
+  composerContextFits,
   snapshotComposerContextItems,
   ComposerContextError,
   COMPOSER_CONTEXT_MAX_ITEMS,

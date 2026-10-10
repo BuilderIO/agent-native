@@ -1451,6 +1451,38 @@ export function DesignCanvas({
   const { resolvedTheme } = useTheme();
   const browserOrigin = useBrowserOrigin();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const canvasFocusProbeRequestIdRef = useRef(0);
+  const pendingCanvasFocusProbeRef = useRef<{
+    requestId: number;
+    iframe: HTMLIFrameElement;
+    contentWindow: Window;
+    allowTabFocusOverride: boolean;
+  } | null>(null);
+  const requestCanvasFocusProbe = useCallback(
+    (
+      iframe: HTMLIFrameElement,
+      options: { reason?: string; allowTabFocusOverride?: boolean } = {},
+    ) => {
+      const contentWindow = iframe.contentWindow;
+      if (!contentWindow || iframeRef.current !== iframe) return;
+      const requestId = ++canvasFocusProbeRequestIdRef.current;
+      pendingCanvasFocusProbeRef.current = {
+        requestId,
+        iframe,
+        contentWindow,
+        allowTabFocusOverride: options.allowTabFocusOverride === true,
+      };
+      contentWindow.postMessage(
+        {
+          type: "agent-native:canvas-focus-state-probe",
+          requestId,
+          ...(options.reason ? { reason: options.reason } : {}),
+        },
+        "*",
+      );
+    },
+    [],
+  );
   const restoreKScalePreviewRef = useRef<(() => void) | null>(null);
   const textEditingStateRef = useRef<Omit<TextEditingState, "screenId">>({
     active: false,
@@ -3462,6 +3494,12 @@ export function DesignCanvas({
         usesLiveEditInjectedBridge ? liveEditBridgeKey : ""
       }`
     : iframeDocumentIdentity;
+  useLayoutEffect(() => {
+    pendingCanvasFocusProbeRef.current = null;
+    return () => {
+      pendingCanvasFocusProbeRef.current = null;
+    };
+  }, [editMode, iframeElementIdentity, interactMode, readOnly, sourceType]);
   if (previousIframeDocumentIdentityRef.current !== iframeDocumentIdentity) {
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     runtimeReloadingFromDocumentIdRef.current = undefined;
@@ -3775,6 +3813,55 @@ export function DesignCanvas({
       const tabFocusedFrame = iframeRef.current;
       if (
         trustedCurrentFrame &&
+        e.data.type === "agent-native:canvas-focus-state" &&
+        Object.prototype.hasOwnProperty.call(e.data, "requestId")
+      ) {
+        const pendingProbe = pendingCanvasFocusProbeRef.current;
+        if (
+          !pendingProbe ||
+          !Number.isSafeInteger(e.data.requestId) ||
+          e.data.requestId !== pendingProbe.requestId
+        ) {
+          return;
+        }
+        pendingCanvasFocusProbeRef.current = null;
+        if (
+          pendingProbe.iframe !== tabFocusedFrame ||
+          pendingProbe.contentWindow !== iframeWindow ||
+          e.source !== pendingProbe.contentWindow ||
+          e.data.focusSafe !== true ||
+          (sourceType !== "localhost" && sourceType !== "fusion") ||
+          readOnly ||
+          !editMode ||
+          interactMode ||
+          textEditingStateRef.current.active ||
+          document.activeElement !== pendingProbe.iframe ||
+          (!pendingProbe.allowTabFocusOverride &&
+            (tabFocusNavigationPendingDocuments.has(document) ||
+              (tabFocusedLiveFrames.has(pendingProbe.iframe) &&
+                !tabFocusedLiveFrames.get(pendingProbe.iframe))))
+        ) {
+          if (
+            e.data.focusSafe === false &&
+            pendingProbe.iframe === tabFocusedFrame &&
+            document.activeElement === pendingProbe.iframe &&
+            tabFocusedLiveFrames.has(pendingProbe.iframe)
+          ) {
+            tabFocusedLiveFrames.set(pendingProbe.iframe, true);
+          }
+          return;
+        }
+        if (pendingProbe.allowTabFocusOverride) {
+          tabFocusNavigationPendingDocuments.delete(document);
+        }
+        if (tabFocusedLiveFrames.has(pendingProbe.iframe)) {
+          tabFocusedLiveFrames.delete(pendingProbe.iframe);
+        }
+        focusScrollSurfaceRef.current?.(false, true);
+        return;
+      }
+      if (
+        trustedCurrentFrame &&
         sourceType === "localhost" &&
         !readOnly &&
         editMode &&
@@ -3943,14 +4030,13 @@ export function DesignCanvas({
             tabFocusedLiveFrames.delete(iframeRef.current);
             window.requestAnimationFrame(() => {
               const currentIframe = iframeRef.current;
-              if (currentIframe?.contentWindow === iframeWindow) {
-                iframeWindow?.postMessage(
-                  {
-                    type: "agent-native:canvas-focus-state-probe",
-                    reason: "route-change",
-                  },
-                  "*",
-                );
+              if (
+                currentIframe &&
+                currentIframe.contentWindow === iframeWindow
+              ) {
+                requestCanvasFocusProbe(currentIframe, {
+                  reason: "route-change",
+                });
               }
             });
           }
@@ -4228,6 +4314,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-select") {
+        const activePreviewFrame = iframeRef.current;
         const reported = e.data.payload as
           | { selector?: string; sourceId?: string; runtimeSourceId?: string }
           | undefined;
@@ -4255,6 +4342,27 @@ export function DesignCanvas({
           replayIframeEditorStateRef.current?.();
         }
         onElementSelect(e.data.payload, e.data.intent);
+        if (
+          e.data.trustedPointer === true &&
+          e.data.intent?.source === "pointer" &&
+          e.data.focusSafe !== false
+        ) {
+          if (
+            activePreviewFrame &&
+            e.source === activePreviewFrame.contentWindow &&
+            document.activeElement === activePreviewFrame
+          ) {
+            if (sourceType === "localhost" || sourceType === "fusion") {
+              requestCanvasFocusProbe(activePreviewFrame, {
+                allowTabFocusOverride: true,
+              });
+            } else {
+              focusScrollSurfaceRef.current?.();
+            }
+          } else {
+            focusScrollSurfaceRef.current?.();
+          }
+        }
         return;
       }
       if (
@@ -5266,6 +5374,7 @@ export function DesignCanvas({
     sourceType,
     bridgeUrl,
     liveEditBridgeKey,
+    requestCanvasFocusProbe,
     readOnly,
     editMode,
     interactMode,
@@ -5655,6 +5764,14 @@ export function DesignCanvas({
               (doc.head ?? doc.documentElement).appendChild(style);
             }
             style.textContent = css;
+            style.setAttribute(
+              "data-agent-native-content-offset-x",
+              String(Math.round(embeddedContentOffsetX)),
+            );
+            style.setAttribute(
+              "data-agent-native-content-offset-y",
+              String(Math.round(embeddedContentOffsetY)),
+            );
           }
         }
       } catch {
@@ -7428,12 +7545,10 @@ export function DesignCanvas({
             ) {
               return;
             }
-            event.currentTarget.contentWindow?.postMessage(
-              { type: "agent-native:canvas-focus-state-probe" },
-              "*",
-            );
+            requestCanvasFocusProbe(event.currentTarget);
           }}
           onLoad={(event) => {
+            pendingCanvasFocusProbeRef.current = null;
             if (!externalPreviewUrl && designId) {
               connectPrivateReplayScreenshotPreview(
                 event.currentTarget,

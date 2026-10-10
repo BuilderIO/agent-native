@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import { Button } from "../ui/button.js";
+import { Skeleton } from "../ui/skeleton.js";
 import { cn } from "../utils.js";
 
 const useBrowserLayoutEffect =
@@ -29,6 +30,9 @@ export interface AgentSuggestionBarProps {
   onSelect: (suggestion: AgentSuggestionItem) => void;
   renderSuggestion?: (suggestion: AgentSuggestionItem) => ReactNode;
   className?: string;
+  loading?: boolean;
+  announceUpdates?: boolean;
+  layout?: "wrap" | "single-line";
 }
 
 export function normalizeAgentSuggestion(
@@ -141,16 +145,21 @@ export function AgentSuggestionBar({
   onSelect,
   renderSuggestion,
   className,
+  loading = false,
+  announceUpdates = false,
+  layout = "wrap",
 }: AgentSuggestionBarProps) {
   const items = suggestions.map(normalizeAgentSuggestion);
   const { scrollerRef, trackRef, overflow } = useTwoLineSuggestionTrack(
-    items.map((item) => item.id).join("\n"),
+    loading ? "loading" : items.map((item) => item.id).join("\n"),
   );
-  if (items.length === 0) return null;
+  if (!loading && items.length === 0) return null;
 
   return (
     <section
       aria-label={ariaLabel}
+      aria-busy={loading || undefined}
+      aria-live={announceUpdates ? "polite" : undefined}
       data-agent-suggestion-bar="true"
       className={cn("w-full min-w-0 overflow-hidden px-3 py-2", className)}
     >
@@ -164,26 +173,40 @@ export function AgentSuggestionBar({
         <div
           ref={trackRef}
           data-agent-suggestion-track="true"
-          className="flex w-(--agent-suggestion-track-width) min-w-full flex-wrap gap-1"
+          className={cn(
+            "flex min-w-full gap-1",
+            layout === "single-line" || loading
+              ? "h-7 w-max flex-nowrap items-center"
+              : "w-(--agent-suggestion-track-width) flex-wrap",
+          )}
           onFocus={revealKeyboardFocusedChip}
         >
-          {items.map((suggestion) => (
-            <Button
-              key={suggestion.id}
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={suggestion.disabled}
-              onClick={() => onSelect(suggestion)}
-              className="h-7 shrink-0 snap-start whitespace-nowrap rounded-full border-transparent bg-muted/55 px-2.5 text-[11px] font-normal text-foreground/80 shadow-none transition-[border-color,background-color,color] hover:border-border/55 hover:bg-muted hover:text-foreground"
-            >
-              <span>
-                {renderSuggestion
-                  ? renderSuggestion(suggestion)
-                  : suggestion.label}
-              </span>
-            </Button>
-          ))}
+          {loading
+            ? ["w-32", "w-24", "w-28"].map((width, index) => (
+                <Skeleton
+                  key={index}
+                  aria-hidden="true"
+                  data-agent-suggestion-placeholder="true"
+                  className={cn("h-7 shrink-0 rounded-full", width)}
+                />
+              ))
+            : items.map((suggestion) => (
+                <Button
+                  key={suggestion.id}
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={suggestion.disabled}
+                  onClick={() => onSelect(suggestion)}
+                  className="h-7 shrink-0 snap-start whitespace-nowrap rounded-full border-transparent bg-muted/55 px-2.5 text-[11px] font-normal text-foreground/80 shadow-none transition-[border-color,background-color,color] hover:border-border/55 hover:bg-muted hover:text-foreground"
+                >
+                  <span>
+                    {renderSuggestion
+                      ? renderSuggestion(suggestion)
+                      : suggestion.label}
+                  </span>
+                </Button>
+              ))}
         </div>
       </div>
     </section>

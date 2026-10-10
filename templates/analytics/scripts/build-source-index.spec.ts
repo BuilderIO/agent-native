@@ -267,6 +267,7 @@ describe("compileSourceIndex", () => {
       (entry) => entry.metric === "model:long_model",
     );
 
+    expect(validModel?.status).toBe("active");
     expect(validModel?.definition).toContain(
       "Business note #3 explains the model grain.",
     );

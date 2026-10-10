@@ -215,7 +215,7 @@ tick. The runner classifies each failure (`jobs/automation-outcome.ts`):
 
 | Class        | Codes                                                                 | Pauses after |
 | ------------ | --------------------------------------------------------------------- | ------------ |
-| Precondition | `missing_credentials`, `missing_tools`, `owner_missing`, `owner_reserved`, `config_invalid` | 3 identical (owner/identity failures: immediately) |
+| Precondition | `missing_credentials`, `missing_tools`, `owner_missing`, `owner_reserved`, `config_invalid`, `connection_required` | 3 identical (owner/identity failures: immediately) |
 | Runtime      | the run's own code, e.g. `http_502`                                   | 5, with a widening gap between attempts |
 
 - An event or webhook automation counts a failure once per event
@@ -224,6 +224,12 @@ tick. The runner classifies each failure (`jobs/automation-outcome.ts`):
   "Job:" thread per tick. The failure is recorded on the automation and its run
   history only. Never write a generic "ended with status: errored"; surface the
   run's own error.
+- `connection_required` is the exception to that: a run only learns a provider
+  is not connected by running and yielding to the connection request, so every
+  failed attempt leaves a thread and an `agent_runs` row. It skips the runtime
+  backoff, pauses after 3 identical failures, and stays paused until the owner
+  enables the automation again; connecting the provider alone does not resume
+  it.
 - A paused automation has `enabled: false`, `lastStatus: paused`, and
   `pausedReason`/`pausedAt`. The owner is emailed once by the run that paused
   it (for organization and shared jobs: the creator while still a member,

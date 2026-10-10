@@ -4,14 +4,28 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { fetchMock, markDownloaded } = vi.hoisted(() => ({
-  fetchMock: vi.fn(),
-  markDownloaded: vi.fn(),
-}));
+const {
+  fetchMock,
+  markDownloaded,
+  appBasePathMock,
+  WorkspaceAppMountResolutionError,
+} = vi.hoisted(() => {
+  class WorkspaceAppMountResolutionError extends Error {}
+  const appBasePathMock = vi.fn((): string => {
+    throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
+  });
+  return {
+    fetchMock: vi.fn(),
+    markDownloaded: vi.fn(),
+    appBasePathMock,
+    WorkspaceAppMountResolutionError,
+  };
+});
 
 vi.mock("@agent-native/core/client/api-path", () => ({
-  appBasePath: () => "",
-  appPath: (path: string) => path,
+  appBasePath: appBasePathMock,
+  appPath: (path: string) => `${appBasePathMock()}${path}`,
+  WorkspaceAppMountResolutionError,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -24,6 +38,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadRoute.downloadStarted": "Download started",
       "downloadRoute.downloadAgain": "Didn't work? Try downloading again",
       "downloadRoute.retry": "Try again",
+      "downloadRoute.mountError":
+        "Clips could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
       "downloadRoute.stable": "Stable",
       "downloadRoute.nightly": "Nightly",
       "downloadRoute.allPlatforms": "All platforms",
@@ -100,6 +116,7 @@ describe("Clips download page", () => {
   let root: Root;
 
   beforeEach(async () => {
+    appBasePathMock.mockReturnValue("");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -125,6 +142,7 @@ describe("Clips download page", () => {
     container.remove();
     window.localStorage.clear();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -142,6 +160,7 @@ describe("Clips download page", () => {
       container.querySelector(`a[href="${stableManifest.assets[1].url}"]`),
     ).toBeTruthy();
 
+    appBasePathMock.mockReturnValue("/clips");
     act(() => {
       container
         .querySelector<HTMLButtonElement>(
@@ -158,13 +177,39 @@ describe("Clips download page", () => {
       nightlyManifest.assets[0].url,
     );
     expect(fetchMock).toHaveBeenLastCalledWith(
-      "/api/clips-latest.json?channel=nightly",
+      "/clips/api/clips-latest.json?channel=nightly",
     );
     expect(
       container
         .querySelector('button[role="radio"][aria-checked="true"]')
         ?.getAttribute("aria-checked"),
     ).toBe("true");
+  });
+
+  it("keeps the route available when the workspace mount cannot be resolved", async () => {
+    appBasePathMock.mockImplementation(() => {
+      throw new WorkspaceAppMountResolutionError("Workspace mount is unknown");
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[role="radio"][aria-checked="false"]',
+        )
+        ?.click();
+    });
+    await flushEffects();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Ask your workspace admin to check the app mount configuration.",
+    );
+    expect(container.querySelector("header a[href]")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) =>
+        button.textContent?.includes("Try again"),
+      ),
+    ).toBe(false);
   });
 
   it("confirms the download and offers a retry link after clicking", () => {

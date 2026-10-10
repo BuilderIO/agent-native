@@ -597,11 +597,21 @@ function resolveObjectLabel(
   );
 }
 
+// A delegated participant's id is its call id; the app it runs is its origin,
+// and that is what a source reference names.
 function sourceObjectUnlessRepresented(
   source: AgentObjectReference | undefined,
+  thread: AgentThreadState,
   displayedAgentIds: readonly (string | undefined)[],
 ): AgentObjectReference | undefined {
-  if (source?.kind === "agent" && displayedAgentIds.includes(source.id)) {
+  if (
+    source?.kind === "agent" &&
+    displayedAgentIds.some(
+      (id) =>
+        id !== undefined &&
+        (id === source.id || thread.agents[id]?.origin?.id === source.id),
+    )
+  ) {
     return undefined;
   }
   return source;
@@ -887,7 +897,7 @@ export function AgentInteractionItem({
   );
   const object =
     interaction.object ??
-    sourceObjectUnlessRepresented(interaction.source, [
+    sourceObjectUnlessRepresented(interaction.source, thread, [
       interaction.agentId,
       interaction.targetAgentId,
     ]);
@@ -922,9 +932,8 @@ export function AgentInteractionItem({
           fallbackName={labels.assistant}
         />
       ) : null}
-      {object ? (
-        <ObjectRenderer value={object} threadId={threadId} />
-      ) : detail ? (
+      {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      {detail && (!object || interaction.kind === "failed") ? (
         <span
           {...(interaction.kind === "failed"
             ? SESSION_REPLAY_MASK_PROPS
@@ -973,7 +982,7 @@ export function AgentActivityItem({
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
   const object =
     activity.object ??
-    sourceObjectUnlessRepresented(activity.source, [activity.agentId]);
+    sourceObjectUnlessRepresented(activity.source, thread, [activity.agentId]);
   const detail = tool ? "" : readableText(activity.detail);
   return (
     <div
@@ -1149,7 +1158,7 @@ function RepeatedActivityCluster({
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
   const object =
     activity.object ??
-    sourceObjectUnlessRepresented(activity.source, [activity.agentId]);
+    sourceObjectUnlessRepresented(activity.source, thread, [activity.agentId]);
   return (
     <details
       className="agentkit-activity-cluster"
@@ -2106,7 +2115,7 @@ export function AgentTaskItem({
   const detail = readableText(task.detail);
   const object =
     task.object ??
-    sourceObjectUnlessRepresented(task.source, [task.assignedAgentId]);
+    sourceObjectUnlessRepresented(task.source, thread, [task.assignedAgentId]);
   const showAgent =
     task.assignedAgentId &&
     title.toLocaleLowerCase() !== agentName.toLocaleLowerCase();
@@ -3730,6 +3739,7 @@ export function AgentMessageActions({
               onPress={() => void copyAction.execute().catch(() => undefined)}
             />
             {editContext?.enabled &&
+            message.metadata?.pendingSubmission !== true &&
             forkingCapability.visible &&
             text.trim() ? (
               <IconButton

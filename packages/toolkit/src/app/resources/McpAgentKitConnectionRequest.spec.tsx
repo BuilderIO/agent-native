@@ -4,6 +4,7 @@ import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import {
   clearMcpConnectionResume,
   consumeMcpConnectionResume,
+  getPendingMcpConnectionResume,
   notifyMcpConnectionComplete,
   saveMcpConnectionResume,
 } from "@agent-native/core/client/resources/mcp-connection-resume";
@@ -427,5 +428,75 @@ describe("McpAgentKitConnectionRequestCard", () => {
       expect.objectContaining({ message: "Retry the Slack request." }),
     );
     act(() => root.unmount());
+  });
+});
+
+describe("McpAgentKitConnectionResume after a failed attempt", () => {
+  const target = { threadId: "thread-1", runId: "run-1", requestId: "req-1" };
+  let root: ReturnType<typeof createRoot> | undefined;
+
+  afterEach(() => {
+    if (root) act(() => root?.unmount());
+    root = undefined;
+    window.sessionStorage.clear();
+  });
+
+  async function mount(onResume: () => void | Promise<void>) {
+    if (root) act(() => root?.unmount());
+    const container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<McpAgentKitConnectionResume onResume={onResume} />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return container;
+  }
+
+  it("drops the failure notice when the next resume attempt starts", async () => {
+    window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/chat/thread-1");
+    saveMcpConnectionResume("Restore the request.", target);
+    let finishRetry = () => {};
+    const onResume = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finishRetry = resolve)),
+      );
+    const container = await mount(onResume);
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(getPendingMcpConnectionResume()).not.toBeNull();
+
+    await act(async () => {
+      notifyMcpConnectionComplete();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onResume).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(getPendingMcpConnectionResume()).not.toBeNull();
+
+    await act(async () => {
+      finishRetry();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(getPendingMcpConnectionResume()).toBeNull();
+  });
+
+  it("still clears the record after a successful resume", async () => {
+    window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/chat/thread-1");
+    saveMcpConnectionResume("Restore the request.", target);
+    const onResume = vi.fn().mockResolvedValue(undefined);
+
+    const container = await mount(onResume);
+
+    expect(onResume).toHaveBeenCalledOnce();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(getPendingMcpConnectionResume()).toBeNull();
+    await mount(onResume);
+    expect(onResume).toHaveBeenCalledOnce();
   });
 });

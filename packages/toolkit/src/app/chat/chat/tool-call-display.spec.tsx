@@ -421,8 +421,8 @@ describe("ToolCallDisplay native renderers", () => {
       "button[aria-expanded]",
     );
     expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
-    expect(disclosure?.textContent).toContain("Asked Analytics");
-    expect(disclosure?.textContent).not.toContain("failed");
+    expect(disclosure?.textContent).toContain("Error asking Analytics");
+    expect(disclosure?.textContent).not.toContain("Asked Analytics");
     expect(container.textContent).not.toContain(errorMessage);
 
     act(() => disclosure?.click());
@@ -573,8 +573,7 @@ describe("ToolCallDisplay native renderers", () => {
       "button[aria-expanded]",
     );
     expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
-    expect(disclosure?.textContent).toContain("Asked Analytics");
-    expect(disclosure?.textContent).not.toContain("Error");
+    expect(disclosure?.textContent).toContain("Error asking Analytics");
     expect(container.textContent).not.toContain(
       "No error details are available.",
     );
@@ -583,6 +582,44 @@ describe("ToolCallDisplay native renderers", () => {
     act(() => disclosure?.click());
 
     expect(container.textContent).toContain("No error details are available.");
+  });
+
+  it("labels a failed delegated call as failed without changing the success row", () => {
+    const render = (props: { result?: string; isError?: boolean }) =>
+      act(() => {
+        root.render(
+          <ToolCallDisplay
+            toolName="agent:Analytics"
+            args={{}}
+            argsText="Signups are up 4%."
+            isRunning={false}
+            {...props}
+          />,
+        );
+      });
+    const disclosure = () =>
+      container.querySelector<HTMLButtonElement>("button[aria-expanded]");
+
+    render({ result: "Signups are up 4%." });
+    expect(disclosure()?.textContent).toBe("Asked Analytics");
+    expect(disclosure()?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("Signups are up 4%.");
+
+    render({ result: "The provider rejected the request.", isError: true });
+    expect(disclosure()?.textContent).toBe("Error asking Analytics");
+    expect(disclosure()?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Signups are up 4%.");
+    act(() => disclosure()?.click());
+    expect(container.textContent).toContain(
+      "The provider rejected the request.",
+    );
+
+    act(() => root.render(null));
+    render({ result: "Error calling agent" });
+    expect(disclosure()?.textContent).toBe("Error asking Analytics");
+    expect(disclosure()?.getAttribute("aria-expanded")).toBe("false");
+    act(() => disclosure()?.click());
+    expect(container.textContent).toContain("Error calling agent");
   });
 
   it("shows failed delegated subtool details only after that tool is expanded", () => {

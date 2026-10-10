@@ -4,6 +4,7 @@ import {
   resolveAgentChatRunningThreadId,
   type AgentChatRunningEventDetail,
 } from "@agent-native/core/client/agent-chat";
+import { isAnalyticsAskPath } from "@shared/ask-route";
 
 export const ANALYTICS_CHAT_STORAGE_KEY = "analytics";
 
@@ -48,7 +49,7 @@ export function updateAnalyticsChatHandoffForRun(
   const state = runningRuns.get(tabId);
 
   if (run.isRunning) {
-    if (pathname !== "/ask") return;
+    if (!isAnalyticsAskPath(pathname)) return;
     if (runId) {
       const next = state ?? new Set<string>();
       next.add(runId);
@@ -62,7 +63,7 @@ export function updateAnalyticsChatHandoffForRun(
   const hadActiveRun = state.delete(runId);
 
   if (state.size === 0) runningRuns.delete(tabId);
-  if (hadActiveRun && pathname === "/ask") {
+  if (hadActiveRun && isAnalyticsAskPath(pathname)) {
     markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
   }
 }

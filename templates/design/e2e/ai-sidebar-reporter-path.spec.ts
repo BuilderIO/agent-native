@@ -1705,7 +1705,7 @@ test("Design chat keeps uploaded image bytes out of every SQL table", async ({
   await sidebarPrompt.press("Enter");
   await expect
     .poll(providerImages, providerPoll)
-    .toEqual([inline.sha256, uploaded.sha256]);
+    .toEqual([inline.sha256, inline.sha256, uploaded.sha256]);
   expect(rewrittenRequests()).toBe(1);
   await page.unroute(/\/_agent-native\/agent-chat$/);
   await expect(replies).toHaveCount(2, { timeout: 15_000 });
