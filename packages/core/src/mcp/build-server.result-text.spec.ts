@@ -5,6 +5,22 @@ vi.mock("./builtin-tools.js", () => ({ getBuiltinCrossAppTools: () => ({}) }));
 const { conciseToolResultText } = await import("./build-server.js");
 
 describe("conciseToolResultText", () => {
+  it.each([true, false, null, 0, 42])(
+    "preserves the literal query primitive %j",
+    (result) => {
+      expect(
+        conciseToolResultText("read", result, { preserveObjectResult: true }),
+      ).toBe(JSON.stringify(result));
+    },
+  );
+
+  it.each([true, null, undefined])(
+    "keeps the completion message for a non-query result %j",
+    (result) => {
+      expect(conciseToolResultText("update", result)).toBe("update completed.");
+    },
+  );
+
   it.each([
     "body ".repeat(1000),
     {

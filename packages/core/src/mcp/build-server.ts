@@ -2635,15 +2635,13 @@ export function conciseToolResultText(
   const maxTextLength = options?.preserveObjectResult ? Infinity : 2000;
   if (typeof purged === "string")
     return truncateToolText(purged, maxTextLength);
+  if (options?.preserveObjectResult) {
+    const text = JSON.stringify(purged);
+    return text === undefined ? `${name} completed.` : text;
+  }
   if (purged === true || purged == null) return `${name} completed.`;
   if (purged && typeof purged === "object" && !Array.isArray(purged)) {
     const record = purged as Record<string, unknown>;
-    if (options?.preserveObjectResult) {
-      const text = JSON.stringify(purged);
-      return text === undefined
-        ? `${name} completed.`
-        : truncateToolText(text, maxTextLength);
-    }
     const link = record.url ?? record.webUrl ?? record.urlPath ?? record.path;
     const next =
       typeof record.nextRequiredAction === "string" &&
