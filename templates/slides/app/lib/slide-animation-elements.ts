@@ -328,6 +328,12 @@ function expandByParagraphAnimation<T extends AnimationTarget>(
         });
       if (hasParagraphs && hasUnaddressableContent) {
         nativeParagraphs.push(item);
+        for (const child of children) {
+          const childTagName = child.tagName.toLowerCase();
+          if (childTagName === "ul" || childTagName === "ol") {
+            collectListItems(child);
+          }
+        }
         return;
       }
       if (!hasParagraphs && hasMeaningfulContent(item)) {

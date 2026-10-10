@@ -403,17 +403,21 @@ describe("slide animation element parsing", () => {
     {
       description: "bare text",
       mixedContent: "A direct text label",
+      nestedListIndex: 2,
     },
     {
       description: "inline elements",
       mixedContent: "<strong>Inline label</strong>",
+      nestedListIndex: 3,
     },
   ])(
     "keeps list items with paragraphs and $description together",
-    ({ mixedContent }) => {
+    ({ mixedContent, nestedListIndex }) => {
       const doc = new DOMParser().parseFromString(
         `<div class="fmd-slide"><div><ul>
-          <li><p>First paragraph</p>${mixedContent}<p>Second paragraph</p></li>
+          <li><p>First paragraph</p>${mixedContent}<p>Second paragraph</p>
+            <ul><li>Nested point</li></ul>
+          </li>
           <li>Following item</li>
         </ul></div></div>`,
         "text/html",
@@ -434,6 +438,7 @@ describe("slide animation element parsing", () => {
 
       expect(expanded?.map(({ elementPath }) => elementPath)).toEqual([
         [0, 0, 0],
+        [0, 0, 0, nestedListIndex, 0],
         [0, 0, 1],
       ]);
     },
