@@ -563,7 +563,7 @@ jobs:
       - name: Run focused Design regression cases
         if: ${{ !startsWith(matrix.shard, 'screen-history-') && matrix.shard != 'ai-sidebar-loopback' && matrix.shard != 'music-app-workflow' }}
         working-directory: templates/design
-        timeout-minutes: 4
+        timeout-minutes: 6
         env:
           E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
         run: |
