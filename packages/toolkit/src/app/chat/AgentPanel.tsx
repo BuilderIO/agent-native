@@ -542,6 +542,8 @@ export interface AgentPanelProps extends Omit<
   onReadyChange?: (ready: boolean) => void;
   defaultMode?: "chat" | "cli";
   onReferenceTargetChange?: () => void;
+  onNavigationChange?: MultiTabAssistantChatProps["onNavigationChange"];
+  onTabsClosed?: MultiTabAssistantChatProps["onTabsClosed"];
   className?: string;
   style?: React.CSSProperties;
   onCollapse?: () => void;
@@ -727,6 +729,8 @@ function CodeAccessUnavailablePanel({
 function AgentPanelInner({
   onReadyChange,
   onReferenceTargetChange,
+  onNavigationChange,
+  onTabsClosed,
   defaultMode = "chat",
   className,
   style,
@@ -2420,6 +2424,8 @@ function AgentPanelInner({
               {...assistantChatProps}
               onCommandListenersReadyChange={setChatCommandsReady}
               onReferenceTargetChange={onReferenceTargetChange}
+              onNavigationChange={onNavigationChange}
+              onTabsClosed={onTabsClosed}
               threadContentSlot={assistantChatProps.threadContentSlot}
               agentChatSurface={effectiveAgentChatSurface}
               apiUrl={apiUrl}

@@ -12,6 +12,9 @@ import {
   AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE,
   AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
   AGENT_CHAT_INSERT_REFERENCE_EVENT,
+  cancelAgentChatSubmit,
+  parseSubmitChatMessage,
+  reportAgentChatSubmitResult,
   consumeAgentSidebarUrlOpenOverride,
   clampAgentSidebarWidth,
   dispatchAgentSidebarStateChange,
@@ -133,6 +136,9 @@ type PendingPanelEvent = {
   event: Event;
   order: number;
   referenceTargetId?: string | null;
+  targetId?: string | null;
+  navigation?: Event;
+  reference?: PendingPanelEvent;
 };
 
 const SIDEBAR_STORAGE_KEY = "agent-native-sidebar-width";
@@ -618,6 +624,7 @@ export function AgentSidebar({
   const pendingEventOrder = useRef(0);
   const replayingPanelEvent = useRef<Event | null>(null);
   const drainScheduled = useRef(false);
+  const activeNavigations = useRef(new Set<Event>());
   const getReferenceTargetId = useCallback(
     () =>
       panelElementRef.current
@@ -625,14 +632,6 @@ export function AgentSidebar({
         ?.getAttribute("data-agent-chat-reference-target") ?? null,
     [],
   );
-  const bindPendingReferences = useCallback(() => {
-    const targetId = getReferenceTargetId();
-    if (!targetId) return;
-    for (const pending of pendingPanelEvents.current) {
-      if (pending.referenceTargetId === null)
-        pending.referenceTargetId = targetId;
-    }
-  }, [getReferenceTargetId]);
   const isReferenceTargetReady = useCallback(
     (targetId: string | null) => {
       const element = composerElementRef.current;
@@ -658,8 +657,15 @@ export function AgentSidebar({
         while (panelReadyRef.current) {
           const conversation = pendingPanelEvents.current[0];
           const control = pendingPanelControls.current[0];
+          if (
+            conversation?.referenceTargetId === null &&
+            activeNavigations.current.size === 0
+          ) {
+            conversation.referenceTargetId = getReferenceTargetId();
+          }
           const conversationReady =
             conversation &&
+            activeNavigations.current.size === 0 &&
             (!isComposerReferenceEvent(conversation.event) ||
               isReferenceTargetReady(conversation.referenceTargetId ?? null));
           const queue =
@@ -681,16 +687,80 @@ export function AgentSidebar({
         drainScheduled.current = false;
         setHasPendingPanelEvents(
           pendingPanelEvents.current.length +
-            pendingPanelControls.current.length >
+            pendingPanelControls.current.length +
+            activeNavigations.current.size >
             0,
         );
       }
     });
-  }, [isReferenceTargetReady]);
+  }, [isReferenceTargetReady, getReferenceTargetId]);
   const onReferenceTargetChange = useCallback(() => {
-    bindPendingReferences();
     drainPendingPanelEvents();
-  }, [bindPendingReferences, drainPendingPanelEvents]);
+  }, [drainPendingPanelEvents]);
+  const cancelPendingEvents = useCallback(
+    (matches: (pending: PendingPanelEvent) => boolean, reason: string) => {
+      const cancelled: PendingPanelEvent[] = [];
+      for (
+        let index = pendingPanelEvents.current.length - 1;
+        index >= 0;
+        index--
+      ) {
+        if (matches(pendingPanelEvents.current[index])) {
+          cancelled.push(...pendingPanelEvents.current.splice(index, 1));
+        }
+      }
+      for (const pending of cancelled.reverse()) {
+        const submit =
+          pending.event instanceof MessageEvent
+            ? parseSubmitChatMessage(pending.event)
+            : null;
+        if (submit) {
+          reportAgentChatSubmitResult(submit.submitMessageId, false, reason);
+          cancelAgentChatSubmit(submit.submitMessageId);
+        } else {
+          console.warn("[agent-chat] cancelled retained conversation event", {
+            type: pending.event.type,
+            reason,
+          });
+        }
+      }
+      drainPendingPanelEvents();
+    },
+    [drainPendingPanelEvents],
+  );
+  const onNavigationChange = useCallback<
+    NonNullable<MultiTabAssistantChatProps["onNavigationChange"]>
+  >(
+    (event, outcome) => {
+      if (outcome === "started") {
+        activeNavigations.current.add(event);
+        setHasPendingPanelEvents(true);
+        return;
+      }
+      activeNavigations.current.delete(event);
+      if (outcome !== "selected") {
+        cancelPendingEvents(
+          (pending) => pending.navigation === event,
+          `navigation-${outcome}`,
+        );
+      }
+      drainPendingPanelEvents();
+    },
+    [cancelPendingEvents, drainPendingPanelEvents],
+  );
+  const onTabsClosed = useCallback(
+    (tabIds: string[]) => {
+      const closed = new Set(tabIds);
+      cancelPendingEvents((pending) => {
+        const targetId =
+          pending.referenceTargetId ??
+          pending.targetId ??
+          pending.reference?.referenceTargetId;
+        return typeof targetId === "string" && closed.has(targetId);
+      }, "target-tab-closed");
+    },
+    [cancelPendingEvents],
+  );
   const onPanelReadyChange = useCallback(
     (ready: boolean) => {
       panelReadyRef.current = ready;
@@ -820,12 +890,48 @@ export function AgentSidebar({
           : new CustomEvent(event.type, {
               detail: (event as CustomEvent).detail,
             });
+      const precedingNavigation = [...pendingPanelEvents.current]
+        .reverse()
+        .find((pending) => isPanelNavigationEvent(pending.event));
+      const navigation =
+        precedingNavigation?.event ?? [...activeNavigations.current].at(-1);
+      const reference = [...pendingPanelEvents.current]
+        .reverse()
+        .find(
+          (pending) =>
+            isPanelNavigationEvent(pending.event) ||
+            isComposerReferenceEvent(pending.event),
+        );
+      const submit =
+        queued instanceof MessageEvent ? parseSubmitChatMessage(queued) : null;
       queue.push({
         event: queued,
         order: pendingEventOrder.current++,
         referenceTargetId: isComposerReferenceEvent(event)
-          ? getReferenceTargetId()
+          ? navigation
+            ? null
+            : getReferenceTargetId()
           : undefined,
+        navigation:
+          submit?.targetTabId || isPanelNavigationEvent(event)
+            ? undefined
+            : navigation,
+        targetId:
+          submit?.targetTabId ??
+          (navigation ||
+          isPanelNavigationEvent(event) ||
+          isComposerReferenceEvent(event)
+            ? undefined
+            : reference && isComposerReferenceEvent(reference.event)
+              ? undefined
+              : getReferenceTargetId()),
+        reference:
+          !isPanelNavigationEvent(event) &&
+          !submit?.targetTabId &&
+          reference &&
+          isComposerReferenceEvent(reference.event)
+            ? reference
+            : undefined,
       });
       setHasPendingPanelEvents(true);
       setBackgroundPanelActive(true);
@@ -862,7 +968,7 @@ export function AgentSidebar({
       if (
         !shouldRetainEvent(
           event,
-          panelReadyRef.current,
+          panelReadyRef.current && activeNavigations.current.size === 0,
           pendingPanelEvents.current,
         )
       )
@@ -873,7 +979,8 @@ export function AgentSidebar({
       if (
         !shouldRetainEvent(
           event,
-          isReferenceTargetReady(getReferenceTargetId()),
+          activeNavigations.current.size === 0 &&
+            isReferenceTargetReady(getReferenceTargetId()),
           pendingPanelEvents.current,
         )
       )
@@ -906,8 +1013,9 @@ export function AgentSidebar({
         !shouldRetainEvent(
           event,
           isComposerReferenceEvent(event)
-            ? isReferenceTargetReady(getReferenceTargetId())
-            : panelReadyRef.current,
+            ? activeNavigations.current.size === 0 &&
+                isReferenceTargetReady(getReferenceTargetId())
+            : panelReadyRef.current && activeNavigations.current.size === 0,
           pendingPanelEvents.current,
         )
       )
@@ -1435,6 +1543,8 @@ export function AgentSidebar({
               <AgentSidebarPanel
                 onReadyChange={onPanelReadyChange}
                 onReferenceTargetChange={onReferenceTargetChange}
+                onNavigationChange={onNavigationChange}
+                onTabsClosed={onTabsClosed}
                 emptyStateText={emptyStateText}
                 suggestions={suggestions}
                 dynamicSuggestions={dynamicSuggestions}
@@ -1609,6 +1719,12 @@ function isComposerReferenceEvent(event: Event): boolean {
     event.type === AGENT_CHAT_INSERT_REFERENCE_EVENT ||
     (event instanceof MessageEvent &&
       event.data?.type === AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE)
+  );
+}
+
+function isPanelNavigationEvent(event: Event): boolean {
+  return (
+    event.type === "agent-chat:open-thread" || event.type === "agent-task-open"
   );
 }
 
