@@ -1030,6 +1030,16 @@ function edgeLabelLineHeight(fontSize: number): number {
   return EDGE_LABEL_LINE_HEIGHT;
 }
 
+function wrappedTextLayout(
+  value: string,
+  width: number,
+  fontSize: number,
+  lineHeight: number,
+): { lines: number; height: number } {
+  const lines = wrappedLineCount(value, width, fontSize);
+  return { lines, height: lines * lineHeight };
+}
+
 function wrappedStubHeaderHeight(
   title: string,
   detail: string,
@@ -1039,11 +1049,19 @@ function wrappedStubHeaderHeight(
   detailFontSize: number,
   detailLineHeight: number,
 ): number {
-  return (
-    16 +
-    wrappedLineCount(title, contentWidth, titleFontSize) * titleLineHeight +
-    wrappedLineCount(detail, contentWidth, detailFontSize) * detailLineHeight
+  const titleLayout = wrappedTextLayout(
+    title,
+    contentWidth,
+    titleFontSize,
+    titleLineHeight,
   );
+  const detailLayout = wrappedTextLayout(
+    detail,
+    contentWidth,
+    detailFontSize,
+    detailLineHeight,
+  );
+  return 16 + titleLayout.height + detailLayout.height;
 }
 
 interface JourneyEdgeLabel {
@@ -1075,14 +1093,21 @@ function edgeLabelSize(label: JourneyEdgeLabel): {
     ),
   );
   const contentWidth = labelWidth - 20;
-  const height =
-    8 +
-    wrappedLineCount(label.primary, contentWidth, primaryFontSize) *
-      edgeLabelLineHeight(primaryFontSize) +
-    (label.secondary
-      ? wrappedLineCount(label.secondary, contentWidth, secondaryFontSize) *
-        edgeLabelLineHeight(secondaryFontSize)
-      : 0);
+  const primary = wrappedTextLayout(
+    label.primary,
+    contentWidth,
+    primaryFontSize,
+    edgeLabelLineHeight(primaryFontSize),
+  );
+  const secondary = label.secondary
+    ? wrappedTextLayout(
+        label.secondary,
+        contentWidth,
+        secondaryFontSize,
+        edgeLabelLineHeight(secondaryFontSize),
+      )
+    : null;
+  const height = 8 + primary.height + (secondary?.height ?? 0);
   return {
     width: labelWidth,
     height: Math.max(28, height),
@@ -1199,18 +1224,20 @@ function otherStubDisplay(args: {
   if (displays.length === 0) {
     height +=
       8 +
-      wrappedLineCount(
+      wrappedTextLayout(
         messages.otherBranchDetailsUnavailable,
         OTHER_STUB_CONTENT_WIDTH,
         11,
-      ) *
-        14;
+        14,
+      ).height;
   } else {
     for (const branch of displays) {
       height +=
         7 +
-        wrappedLineCount(branch.path, OTHER_STUB_CONTENT_WIDTH, 11) * 14 +
-        wrappedLineCount(branch.detail, OTHER_STUB_CONTENT_WIDTH, 10) * 13;
+        wrappedTextLayout(branch.path, OTHER_STUB_CONTENT_WIDTH, 11, 14)
+          .height +
+        wrappedTextLayout(branch.detail, OTHER_STUB_CONTENT_WIDTH, 10, 13)
+          .height;
     }
     if (branchCount > displays.length) {
       const remaining = interpolateJourneyCanvasMessage(
@@ -1221,7 +1248,8 @@ function otherStubDisplay(args: {
         },
       );
       height +=
-        8 + wrappedLineCount(remaining, OTHER_STUB_CONTENT_WIDTH, 10) * 14;
+        8 +
+        wrappedTextLayout(remaining, OTHER_STUB_CONTENT_WIDTH, 10, 14).height;
     }
   }
   return {
@@ -1473,12 +1501,15 @@ function cardHeaderHeight(
   frames: JourneyFrame[],
   cardWidth: number,
   messages: JourneyCanvasMessages,
-  hasCoverageNote: boolean,
+  coverageNote?: string,
 ): number {
+  const coverageNoteHeight = coverageNote
+    ? wrappedTextLayout(coverageNote, cardWidth - 24, 10, 12).height
+    : 0;
   return (
     CARD_PROVENANCE_HEADER_HEIGHT +
     captionHeaderHeight(frames, cardWidth, messages) +
-    (hasCoverageNote ? 12 : 0) +
+    coverageNoteHeight +
     (frames.length > 1 ? 20 : 0)
   );
 }
@@ -1681,7 +1712,7 @@ header{height:${args.headerHeight}px;padding:6px 12px 0;border-bottom:1px solid 
 h1{margin:0;font-size:14px;line-height:20px;font-weight:600;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header p{margin:0;color:${MUTED};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header .metrics{font-size:12px;line-height:18px}
-header .coverage-note{font-size:10px;line-height:12px;overflow:hidden;text-overflow:ellipsis}
+header .coverage-note{font-size:10px;line-height:12px;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;white-space:normal}
 header .provenance{font-size:9px;line-height:12px}
 header .example-provenance{display:block}
 header .date-line,header .actor-line{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -2088,7 +2119,7 @@ export function planJourneyCanvas(
                   entry.frames,
                   cardWidth,
                   messages,
-                  continuationNotes.has(entry.node.key),
+                  continuationNotes.get(entry.node.key),
                 )
               : CARD_HEADER_HEIGHT,
             layers: Math.max(0, entry.frames.length - 1),
@@ -2279,7 +2310,7 @@ export function planJourneyCanvas(
               entry.frames,
               cardWidth,
               messages,
-              continuationNotes.has(entry.node.key),
+              continuationNotes.get(entry.node.key),
             )
           : CARD_HEADER_HEIGHT,
       }),

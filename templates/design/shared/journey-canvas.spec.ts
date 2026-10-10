@@ -1720,6 +1720,19 @@ describe("planJourneyCanvas", () => {
     );
   });
 
+  it("wraps and measures continuation notes at the card's content width", () => {
+    const root = plan(rawInput({ cardWidth: 320 })).screens.find(
+      (screen) => screen.nodeKey === "signup",
+    )!;
+
+    expect(root.frame.height).toBe(
+      CARD_PROVENANCE_HEADER_HEIGHT + 20 + 24 + 200,
+    );
+    expect(root.html).toContain(
+      "header .coverage-note{font-size:10px;line-height:12px;overflow:visible;overflow-wrap:anywhere;text-overflow:clip;white-space:normal}",
+    );
+  });
+
   it("renders a chronological reference chain without inventing cohort metrics", () => {
     const base = rawInput();
     const exampleAt = (sessionId: string, ts: string, offsetMs: number) => ({
