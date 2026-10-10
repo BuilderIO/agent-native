@@ -200,10 +200,13 @@ OAuth unterstützt.
 
 Die App benennt ihren MCP-Server, und jede Oberfläche verwendet diesen Namen:
 die Installationslinks, die kopierbaren Befehle und
-`npx @agent-native/core@latest connect`. Produktion verwendet den Namen ohne
-Zusatz, etwa `agent-native-mail`. Beta-, Vorschau- und lokale Deployments
-hängen die Umgebung an, etwa `agent-native-mail-beta`, damit ein Client einen
-Produktions- und einen Beta-Eintrag nebeneinander behalten kann. Skripte können
+`npx @agent-native/core@latest connect`.
+Produktion verwendet den Namen ohne Zusatz, etwa `agent-native-mail`. Beta-,
+Vorschau- und lokale Deployments stellen die Umgebung voran, etwa
+`beta-agent-native-mail`, damit ein Client einen Produktions- und einen
+Beta-Eintrag nebeneinander behalten kann. Diese Präfixe sind reserviert:
+`mcp.serverName` darf nicht mit `beta-`, `preview-` oder `local-` beginnen,
+sodass ein Beta-Name nie dem Produktionsnamen einer anderen App entspricht. Skripte können
 den Namen über `GET /mcp/connect/identity` lesen; der Endpunkt braucht keine
 Anmeldung und liefert Servername, App-Name, App-URL, MCP-URL und Umgebung
 sowie das Flag `connect`, das `false` ist, wenn `mcp.connect` ausgeschaltet ist.

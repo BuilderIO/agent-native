@@ -797,7 +797,7 @@ function serverNameForGrant(
 }
 
 /**
- * The server owns its name (it adds the environment suffix that keeps beta
+ * The server owns its name (it adds the environment prefix that keeps beta
  * and local entries apart from production), so ask it before guessing from
  * the hostname. Only a server without the identity route keeps the hostname
  * name: after any other failure a guess can land on another app's entry

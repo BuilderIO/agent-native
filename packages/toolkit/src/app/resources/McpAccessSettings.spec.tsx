@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpAccessSettings } from "./McpAccessSettings.js";
 
 const IDENTITY = {
-  serverName: "agent-native-content-beta",
+  serverName: "beta-agent-native-content",
   appName: "Content",
   appUrl: "https://beta.content.agent-native.com",
   mcpUrl: "https://beta.content.agent-native.com/mcp",
@@ -240,7 +240,7 @@ describe("McpAccessSettings localization", () => {
     await waitForGuides(container);
 
     expect(container.textContent).toContain(
-      "claude mcp add --transport http agent-native-content-beta https://beta.content.agent-native.com/mcp",
+      "claude mcp add --transport http beta-agent-native-content https://beta.content.agent-native.com/mcp",
     );
 
     await act(async () => {
@@ -256,7 +256,7 @@ describe("McpAccessSettings localization", () => {
       "https://cursor.com/install-mcp",
     );
     expect(cursorHref.searchParams.get("name")).toBe(
-      "agent-native-content-beta",
+      "beta-agent-native-content",
     );
     expect(
       JSON.parse(atob(cursorHref.searchParams.get("config") ?? "")),
@@ -282,7 +282,7 @@ describe("McpAccessSettings localization", () => {
     expect(
       JSON.parse(decodeURIComponent(vscodeHrefs[0].href.split("?")[1])),
     ).toEqual({
-      name: "agent-native-content-beta",
+      name: "beta-agent-native-content",
       type: "http",
       url: "https://beta.content.agent-native.com/mcp",
     });

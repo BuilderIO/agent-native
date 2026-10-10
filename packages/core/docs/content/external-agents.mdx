@@ -224,9 +224,11 @@ their own MCP-server UIs when their build supports remote OAuth MCP servers.
 The app names its MCP server, and every surface uses that name: the install
 links, the copyable commands, and `npx @agent-native/core@latest connect`.
 Production uses the bare name, such as `agent-native-mail`. Beta, preview, and
-local deployments add the environment, such as `agent-native-mail-beta`, so one
-client can keep a production entry and a beta entry side by side. Scripts can
-read the name from `GET /mcp/connect/identity`, which needs no sign-in and
+local deployments put the environment first, such as `beta-agent-native-mail`,
+so one client can keep a production entry and a beta entry side by side. The
+prefixes are reserved: `mcp.serverName` cannot start with `beta-`, `preview-`,
+or `local-`, so a beta name never matches another app's production name.
+Scripts can read the name from `GET /mcp/connect/identity`, which needs no sign-in and
 returns the server name, app name, app URL, MCP URL, and environment, plus a
 `connect` flag that is `false` when `mcp.connect` is off.
 

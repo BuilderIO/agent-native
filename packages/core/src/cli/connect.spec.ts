@@ -381,7 +381,7 @@ describe("runDeviceFlow", () => {
             status: "approved",
             token: "",
             mcpUrl: "http://localhost:4321/mcp",
-            serverName: "agent-native-analytics-local",
+            serverName: "local-agent-native-analytics",
             mcpServerEntry: {
               type: "http",
               url: "http://localhost:4321/mcp",
@@ -396,7 +396,7 @@ describe("runDeviceFlow", () => {
     expect(grant).toEqual({
       token: undefined,
       mcpUrl: "http://localhost:4321/mcp",
-      serverName: "agent-native-analytics-local",
+      serverName: "local-agent-native-analytics",
       headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
     });
   });
@@ -586,7 +586,7 @@ describe("writeConfigs", () => {
     const root = tmpDir();
     const written = writeConfigs(
       ["claude-code"],
-      "agent-native-analytics-local",
+      "local-agent-native-analytics",
       "http://localhost:4321/mcp",
       undefined,
       "project",
@@ -594,7 +594,7 @@ describe("writeConfigs", () => {
       { "X-Agent-Native-Owner-Email": "u@example.com" },
     );
     const cfg = JSON.parse(fs.readFileSync(written[0].file, "utf-8"));
-    expect(cfg.mcpServers["agent-native-analytics-local"]).toEqual({
+    expect(cfg.mcpServers["local-agent-native-analytics"]).toEqual({
       type: "http",
       url: "http://localhost:4321/mcp",
       headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
@@ -695,7 +695,7 @@ describe("writeConfigs", () => {
     try {
       const written = writeConfigs(
         ["codex"],
-        "agent-native-analytics-local",
+        "local-agent-native-analytics",
         "http://localhost:4321/mcp",
         undefined,
         "project",
@@ -1586,7 +1586,7 @@ describe("runConnect", () => {
       if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
         return new Response(
           JSON.stringify({
-            serverName: "agent-native-mail-beta",
+            serverName: "beta-agent-native-mail",
             appName: "Mail",
             appUrl: "https://beta.mail.agent-native.com",
             mcpUrl: "https://beta.mail.agent-native.com/mcp",
@@ -1616,8 +1616,8 @@ describe("runConnect", () => {
     const cfg = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
     );
-    expect(Object.keys(cfg.mcpServers)).toEqual(["agent-native-mail-beta"]);
-    expect(cfg.mcpServers["agent-native-mail-beta"]).toEqual({
+    expect(Object.keys(cfg.mcpServers)).toEqual(["beta-agent-native-mail"]);
+    expect(cfg.mcpServers["beta-agent-native-mail"]).toEqual({
       type: "http",
       url: "https://beta.mail.agent-native.com/mcp",
     });

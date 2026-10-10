@@ -1514,19 +1514,19 @@ describe("connect identity", () => {
     const label = `deploy-preview-6800--${"x".repeat(42)}`;
     const { serverName } = await identityFor(`${label}.netlify.app`);
     expect(serverName).toMatch(
-      /^agent-native-deploy-preview-6800--x+-preview$/,
+      /^preview-agent-native-deploy-preview-6800--x+-[0-9a-z]{7}$/,
     );
     expect(serverName.length).toBeLessThanOrEqual(64);
   });
 
   it.each([
-    ["beta", "beta.content.agent-native.com", "agent-native-content-beta"],
+    ["beta", "beta.content.agent-native.com", "beta-agent-native-content"],
     [
       "preview",
       "preview.content.agent-native.com",
-      "agent-native-content-preview",
+      "preview-agent-native-content",
     ],
-    ["local", "localhost:8080", "agent-native-content-local"],
+    ["local", "localhost:8080", "local-agent-native-content"],
   ])(
     "gives the %s environment its own name",
     async (environment, host, serverName) => {
@@ -1538,12 +1538,22 @@ describe("connect identity", () => {
     },
   );
 
-  it("suffixes a declared server name outside production", async () => {
+  it("prefixes a declared server name outside production", async () => {
     vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
     expect(
       (await identityFor("beta.plan.agent-native.com", { serverName: "plan" }))
         .serverName,
-    ).toBe("plan-beta");
+    ).toBe("beta-plan");
+  });
+
+  it("keeps beta mail apart from a production app named mail-beta", async () => {
+    defineAppConfig({ app: { id: "mail-beta" } });
+    const production = await identityFor("mail-beta.example.com");
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "beta");
+    defineAppConfig({ app: { id: "mail" } });
+    const beta = await identityFor("beta.mail.agent-native.com");
+    expect(production.serverName).toBe("agent-native-mail-beta");
+    expect(beta.serverName).toBe("beta-agent-native-mail");
   });
 
   it("targets the workspace base path", async () => {
@@ -1627,13 +1637,13 @@ describe("connect identity", () => {
         : JSON.parse(decodeURIComponent(href.slice(href.indexOf("?") + 1)));
       const { type, ...rest } = payload;
       expect(rest).toEqual({
-        name: "agent-native-mail-beta",
+        name: "beta-agent-native-mail",
         url: "https://beta.mail.agent-native.com/mcp",
       });
       expect(type === undefined || type === "http").toBe(true);
     }
     expect(body).toContain(
-      'href="https://cursor.com/install-mcp?name=agent-native-mail-beta',
+      'href="https://cursor.com/install-mcp?name=beta-agent-native-mail',
     );
   });
 });

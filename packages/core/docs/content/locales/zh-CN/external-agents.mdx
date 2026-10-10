@@ -186,9 +186,8 @@ Dispatch 不会重写 ChatGPT 或 Claude 的缓存日历/邮件/等。
 ### 服务器名称 {#server-names}
 
 应用会为自己的 MCP 服务器命名，所有入口都使用这个名称：安装链接、可复制的命令，以及
-`npx @agent-native/core@latest connect`。生产环境使用不带后缀的名称，例如
-`agent-native-mail`。Beta、预览和本地部署会加上环境名，例如
-`agent-native-mail-beta`，这样同一个客户端可以同时保留生产和 Beta 两个条目。
+`npx @agent-native/core@latest connect`。
+生产环境使用不带前缀的名称，例如 `agent-native-mail`。Beta、预览和本地部署会把环境名放在最前面，例如 `beta-agent-native-mail`，这样同一个客户端可以同时保留生产和 Beta 两个条目。这些前缀是保留的：`mcp.serverName` 不能以 `beta-`、`preview-` 或 `local-` 开头，因此 Beta 名称永远不会与另一个应用的生产名称相同。
 脚本可以通过 `GET /mcp/connect/identity` 读取名称；该接口无需登录，返回服务器名称、应用名称、应用 URL、MCP URL、环境，以及在 `mcp.connect` 关闭时为 `false` 的 `connect` 标志。
 
 ### 快速测试提示 {#quick-test}

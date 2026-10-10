@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpInstallActions } from "./McpInstallActions.js";
 
 const IDENTITY = {
-  serverName: "agent-native-content-beta",
+  serverName: "beta-agent-native-content",
   appName: "Content",
   appUrl: "https://beta.content.agent-native.com",
   mcpUrl: "https://beta.content.agent-native.com/mcp",
@@ -84,7 +84,7 @@ describe("McpInstallActions", () => {
     expect(cursor.origin + cursor.pathname).toBe(
       "https://cursor.com/install-mcp",
     );
-    expect(cursor.searchParams.get("name")).toBe("agent-native-content-beta");
+    expect(cursor.searchParams.get("name")).toBe("beta-agent-native-content");
     expect(JSON.parse(atob(cursor.searchParams.get("config")!))).toEqual({
       url: "https://beta.content.agent-native.com/mcp",
     });
@@ -94,7 +94,7 @@ describe("McpInstallActions", () => {
     const [scheme, query] = vscode.getAttribute("href")!.split("?");
     expect(scheme).toBe("vscode:mcp/install");
     expect(JSON.parse(decodeURIComponent(query!))).toEqual({
-      name: "agent-native-content-beta",
+      name: "beta-agent-native-content",
       type: "http",
       url: "https://beta.content.agent-native.com/mcp",
     });

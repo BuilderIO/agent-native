@@ -197,10 +197,13 @@ servidores MCP remotos com OAuth.
 
 O app dá nome ao próprio servidor MCP, e todas as superfícies usam esse nome:
 os links de instalação, os comandos copiáveis e
-`npx @agent-native/core@latest connect`. A produção usa o nome sem sufixo,
-como `agent-native-mail`. Implantações beta, de prévia e locais acrescentam o
-ambiente, como `agent-native-mail-beta`, para que um mesmo cliente mantenha
-uma entrada de produção e uma de beta lado a lado. Scripts podem ler o nome em
+`npx @agent-native/core@latest connect`.
+A produção usa o nome sem prefixo, como `agent-native-mail`. Implantações beta,
+de prévia e locais colocam o ambiente na frente, como `beta-agent-native-mail`,
+para que um mesmo cliente mantenha uma entrada de produção e uma de beta lado a
+lado. Esses prefixos são reservados: `mcp.serverName` não pode começar com
+`beta-`, `preview-` ou `local-`, então um nome beta nunca coincide com o nome de
+produção de outro app. Scripts podem ler o nome em
 `GET /mcp/connect/identity`, que não exige login e retorna o nome do servidor,
 o nome do app, a URL do app, a URL MCP e o ambiente, além da flag `connect`, que é
 `false` quando `mcp.connect` está desligado.

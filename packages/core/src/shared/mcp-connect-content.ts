@@ -1117,33 +1117,72 @@ export function interpolateMcpConnectTemplate(
 export const PLAIN_MCP_SERVER_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 /**
+ * Production keeps the bare name so existing client entries keep working;
+ * every other environment puts its own name first. It must be a prefix: as a
+ * suffix, beta `mail` and a production app named `mail-beta` both became
+ * `agent-native-mail-beta`, and one client entry silently replaced the other.
+ * No production name can start with a prefix, because derived names start
+ * with `agent-native-` and a configured name may not.
+ */
+const MCP_ENVIRONMENT_NAME_PREFIX: Readonly<
+  Record<McpConnectEnvironment, string>
+> = {
+  production: "",
+  beta: "beta-",
+  preview: "preview-",
+  local: "local-",
+};
+
+function mcpLabelHash(label: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < label.length; index++) {
+    hash = Math.imul(hash ^ label.charCodeAt(index), 0x01000193);
+  }
+  return (hash >>> 0).toString(36).padStart(7, "0");
+}
+
+/**
  * A name the framework derives from the app id or hostname is its own guess,
  * so it is fitted to the plain shape rather than refused: a 63-character
- * hostname label is valid DNS but pushes `agent-native-<label>-preview` past
- * 64 characters. A name the developer configures is still refused.
+ * hostname label is valid DNS but pushes `preview-agent-native-<label>` past
+ * 64 characters. A label that already fits is used as is. Cleaning or
+ * shortening one loses what told it apart (`@acme/notes` and `acme-notes`,
+ * two long labels with the same start), so those names end in a hash of the
+ * whole label instead. A name the developer configures is still refused.
  */
 export function derivedMcpServerBaseName(
   label: string,
   environment: McpConnectEnvironment,
 ): string {
-  const room = 64 - (environment === "production" ? 0 : environment.length + 1);
+  const room = 64 - MCP_ENVIRONMENT_NAME_PREFIX[environment].length;
+  const name = `agent-native-${label || "app"}`;
+  if (PLAIN_MCP_SERVER_NAME.test(name) && name.length <= room) return name;
+  const hash = mcpLabelHash(label);
   const slug = label
     .replace(/[^A-Za-z0-9_-]+/g, "-")
     .replace(/^[^A-Za-z0-9]+/, "");
-  return `agent-native-${slug || "app"}`.slice(0, room).replace(/[-_]+$/, "");
+  const head = `agent-native-${slug}`
+    .slice(0, room - hash.length - 1)
+    .replace(/[-_]+$/, "");
+  return `${head}-${hash}`;
 }
 
-/**
- * Production keeps the bare name so existing client entries keep working;
- * every other environment gets its own entry instead of overwriting
- * production's in the same client.
- */
 export function mcpConnectServerName(
   baseName: string,
   environment: McpConnectEnvironment,
 ): string {
-  const name =
-    environment === "production" ? baseName : `${baseName}-${environment}`;
+  const reserved = Object.entries(MCP_ENVIRONMENT_NAME_PREFIX).find(
+    ([, prefix]) => prefix && baseName.toLowerCase().startsWith(prefix),
+  );
+  if (reserved) {
+    throw new Error(
+      `The MCP server name ${JSON.stringify(baseName)} starts with ` +
+        `"${reserved[1]}", which only ${reserved[0]} deployments add, ` +
+        `so it could take another app's ${reserved[0]} entry. ` +
+        `Set mcp.serverName to a name without it.`,
+    );
+  }
+  const name = `${MCP_ENVIRONMENT_NAME_PREFIX[environment]}${baseName}`;
   if (!PLAIN_MCP_SERVER_NAME.test(name)) {
     throw new Error(
       `The MCP server name ${JSON.stringify(name)} is not a plain name ` +

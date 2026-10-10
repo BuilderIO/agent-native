@@ -10,6 +10,7 @@ import {
   MCP_STATIC_TOKEN_FALLBACK,
   getMcpConnectGuides,
   getMcpStaticTokenFallback,
+  type McpConnectEnvironment,
   resolveMcpConnectGuideId,
 } from "./mcp-connect-content.js";
 
@@ -128,15 +129,67 @@ describe("MCP connection copy", () => {
 });
 
 describe("MCP server names", () => {
-  it.each([
-    ["production", "agent-native-content"],
-    ["beta", "agent-native-content-beta"],
-    ["preview", "agent-native-content-preview"],
-    ["local", "agent-native-content-local"],
-  ] as const)("names the %s entry %s", (environment, expected) => {
-    expect(mcpConnectServerName("agent-native-content", environment)).toBe(
-      expected,
+  const environments = ["production", "beta", "preview", "local"] as const;
+  const nameFor = (label: string, environment: McpConnectEnvironment) =>
+    mcpConnectServerName(
+      derivedMcpServerBaseName(label, environment),
+      environment,
     );
+
+  it.each([
+    ["mail", "production", "agent-native-mail"],
+    ["mail", "beta", "beta-agent-native-mail"],
+    ["mail-beta", "production", "agent-native-mail-beta"],
+    ["mail-beta", "beta", "beta-agent-native-mail-beta"],
+    ["content", "production", "agent-native-content"],
+    ["content", "preview", "preview-agent-native-content"],
+    ["content", "local", "local-agent-native-content"],
+  ] as const)("names %s in %s %s", (label, environment, expected) => {
+    expect(nameFor(label, environment)).toBe(expected);
+  });
+
+  it("keeps beta mail apart from a production app named mail-beta", () => {
+    expect(nameFor("mail", "beta")).not.toBe(
+      nameFor("mail-beta", "production"),
+    );
+  });
+
+  it("gives every app and environment its own name", () => {
+    const labels = [
+      "mail",
+      "mail-beta",
+      "mail-preview",
+      "mail-local",
+      "beta-mail",
+      "beta",
+      "content",
+      "plan",
+      "@acme/notes",
+      "acme-notes",
+      "deploy-preview-6800--mail",
+      `${"x".repeat(60)}-one`,
+      `${"x".repeat(60)}-two`,
+    ];
+    const names = labels.flatMap((label) =>
+      environments.map((environment) => nameFor(label, environment)),
+    );
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it.each(["beta-plan", "Preview-plan", "local-plan"])(
+    "refuses to configure %j, which would read as another environment's",
+    (name) => {
+      for (const environment of environments) {
+        expect(() => mcpConnectServerName(name, environment)).toThrow(
+          /Set mcp\.serverName to a name without it/,
+        );
+      }
+    },
+  );
+
+  it("prefixes a configured name outside production", () => {
+    expect(mcpConnectServerName("plan", "production")).toBe("plan");
+    expect(mcpConnectServerName("plan", "beta")).toBe("beta-plan");
   });
 
   it.each([
@@ -151,41 +204,35 @@ describe("MCP server names", () => {
     );
   });
 
-  it("refuses a name the environment suffix pushes past 64 characters", () => {
+  it("refuses a name the environment prefix pushes past 64 characters", () => {
     expect(() => mcpConnectServerName("a".repeat(60), "beta")).toThrow(
       /not a plain name/,
     );
   });
 
   it.each([
-    ["mail", "production", "agent-native-mail"],
-    ["[::1]", "local", "agent-native-1"],
-    ["@acme/notes", "production", "agent-native-acme-notes"],
-    ["", "production", "agent-native-app"],
+    ["mail", "production", /^agent-native-mail$/],
+    ["", "production", /^agent-native-app$/],
+    ["[::1]", "local", /^agent-native-1-[0-9a-z]{7}$/],
+    ["@acme/notes", "production", /^agent-native-acme-notes-[0-9a-z]{7}$/],
   ] as const)(
     "derives a publishable base name from %j",
     (label, environment, expected) => {
-      expect(derivedMcpServerBaseName(label, environment)).toBe(expected);
-      expect(() =>
-        mcpConnectServerName(
-          derivedMcpServerBaseName(label, environment),
-          environment,
-        ),
-      ).not.toThrow();
+      expect(derivedMcpServerBaseName(label, environment)).toMatch(expected);
+      expect(() => nameFor(label, environment)).not.toThrow();
     },
   );
 
-  it("shortens a derived name so the environment suffix still fits", () => {
-    const base = derivedMcpServerBaseName("a".repeat(63), "preview");
-    const name = mcpConnectServerName(base, "preview");
+  it("shortens a derived name so the environment prefix still fits", () => {
+    const name = nameFor("a".repeat(63), "preview");
     expect(name).toHaveLength(64);
-    expect(name.endsWith("-preview")).toBe(true);
+    expect(name).toMatch(/^preview-agent-native-a+-[0-9a-z]{7}$/);
   });
 });
 
 describe("MCP install links", () => {
   const target = {
-    serverName: "agent-native-content-beta",
+    serverName: "beta-agent-native-content",
     mcpUrl: "https://beta.content.agent-native.com/content/mcp",
   };
 
