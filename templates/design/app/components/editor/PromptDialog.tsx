@@ -574,12 +574,12 @@ export default function PromptPopover({
         uploaded = await uploadFiles(files);
         if (
           uploaded.some(
-            (file) =>
-              !Number.isSafeInteger(file.size) ||
-              file.size < 0 ||
-              file.size > MAX_UPLOAD_BYTES,
+            (file) => !Number.isSafeInteger(file.size) || file.size < 0,
           )
         ) {
+          throw new Error(t("promptDialog.failedToUploadFile"));
+        }
+        if (uploaded.some((file) => file.size > MAX_UPLOAD_BYTES)) {
           throw new Error(attachmentLimitMessage);
         }
         if (draftScopeRef.current !== submissionScope)

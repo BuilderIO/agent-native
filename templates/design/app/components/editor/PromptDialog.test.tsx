@@ -607,6 +607,42 @@ describe("PromptPopover inline home", () => {
     ).toBe("Keep the draft");
   });
 
+  it.each([
+    {
+      label: "fractional",
+      size: 1.5,
+      message: "promptDialog.failedToUploadFile",
+    },
+    {
+      label: "negative",
+      size: -1,
+      message: "promptDialog.failedToUploadFile",
+    },
+    {
+      label: "over-limit",
+      size: MAX_UPLOAD_BYTES + 1,
+      message: 'promptDialog.attachmentsTooLarge:{"max":4}',
+    },
+  ])(
+    "reports $label upload response sizes accurately",
+    async ({ size, message }) => {
+      const onSubmit = vi.fn();
+      mockEagerUpload.implementation = async (files) =>
+        files.map((file) => ({ path: `/uploads/${file.name}`, size }));
+      await renderPopover({ inline: true, onSubmit });
+      const file = new File(["note"], "brief.txt", { type: "text/plain" });
+
+      await act(async () => {
+        await expect(
+          mockComposer.current!.onSubmit("Keep the draft", [file], [], {}),
+        ).rejects.toThrow(message);
+      });
+
+      expect(toastError).toHaveBeenCalledWith(message);
+      expect(onSubmit).not.toHaveBeenCalled();
+    },
+  );
+
   it("budgets image payloads across batches and uploads the full selection once", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     mockEagerUpload.useUploadCallback = true;
