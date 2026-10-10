@@ -751,6 +751,108 @@ describe("createAgentNativeChatRuntime", () => {
     );
   });
 
+  it("does not replay a current image in approval continuation history", async () => {
+    const imageUrl = "https://files.example.test/reference.png";
+    const currentImage = {
+      type: "image" as const,
+      alt: "reference.png",
+      mediaType: "image/png",
+      data: "data:image/png;base64,APPROVAL_IMAGE_BYTES",
+      url: imageUrl,
+    };
+    const requestAttachment = {
+      type: "image/png",
+      name: "reference.png",
+      mediaType: "image/png",
+      data: currentImage.data,
+      url: `${imageUrl}?token=fixture#download`,
+    };
+    const approvalKey = "publish-release:{}";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "tool_start",
+            id: "call-continue-image",
+            tool: "publish-release",
+            input: {},
+          },
+          {
+            type: "approval_required",
+            tool: "publish-release",
+            input: {},
+            approvalKey,
+            toolCallId: "call-continue-image",
+          },
+          {
+            type: "tool_done",
+            id: "call-continue-image",
+            tool: "publish-release",
+            result: "Awaiting approval.",
+          },
+          { type: "done" },
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-approval-image-history",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({
+      id: "thread-approval-image-history",
+      threadId: "thread-approval-image-history",
+    });
+    const first = await session.startTurn({
+      prompt: "Review this image before publishing.",
+      attachments: [requestAttachment],
+      messages: [
+        {
+          id: "originating-image",
+          role: "user",
+          content: [currentImage],
+        },
+        {
+          id: "latest-assistant-history",
+          role: "assistant",
+          content: [{ type: "text", text: "Preparing the release." }],
+        },
+      ],
+    });
+    await drain(first.events);
+
+    const continuation = await session.continueTurn?.({
+      turnId: first.id,
+      approval: { id: approvalKey, approved: true },
+    });
+    expect(continuation).toBeDefined();
+    await drain(continuation!.events);
+
+    for (const call of fetchMock.mock.calls) {
+      const body = JSON.parse(String(call[1]?.body));
+      const historyText = JSON.stringify(body.history ?? []);
+      const structuredHistory = JSON.stringify(body.structuredHistory ?? []);
+
+      expect(body.attachments).toEqual([requestAttachment]);
+      expect(body.history).toContainEqual({
+        role: "assistant",
+        content: "Preparing the release.",
+      });
+      expect(historyText).not.toContain("[attached: reference.png");
+      expect(structuredHistory).not.toContain("image-reference");
+      expect(structuredHistory).not.toContain(imageUrl);
+    }
+
+    const continuationBody = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body),
+    );
+    expect(continuationBody.message).toBe(
+      "Approved. Go ahead and run the requested action.",
+    );
+    expect(continuationBody.approvedToolCalls).toEqual([approvalKey]);
+  });
+
   it("keeps the original request context when a run-timeout stream closes without done", async () => {
     const fetchMock = vi
       .fn()
