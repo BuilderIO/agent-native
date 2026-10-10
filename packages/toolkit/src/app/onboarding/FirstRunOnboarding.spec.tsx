@@ -284,6 +284,60 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector('[data-onboarding-screen="role"]'),
     ).not.toBeNull();
     expect(document.body.querySelector("[data-onboarding-loading]")).toBeNull();
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_started",
+      { flow: "first_run" },
+    );
+    expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
+      "onboarding_step_viewed",
+      expect.objectContaining({ flow: "first_run", step_id: "role" }),
+    );
+  });
+
+  it("does not emit a second started event when the summary resolves", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: true,
+      error: null,
+      profile: null,
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+    });
+
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding initialFirstRun />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      mocks.trackOnboardingEvent.mock.calls.filter(
+        ([name]) => name === "onboarding_started",
+      ),
+    ).toHaveLength(1);
   });
 
   it("keeps the role selection visible if the onboarding summary fails", () => {

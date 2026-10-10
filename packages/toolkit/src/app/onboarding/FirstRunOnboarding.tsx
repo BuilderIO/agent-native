@@ -183,6 +183,10 @@ export function FirstRunOnboarding({
   const [screen, setScreen] = useState<FirstRunScreen>(() =>
     previewStep === "references" ? "extension" : (previewStep ?? "role"),
   );
+  const canRenderRoleWithoutProfile =
+    initialFirstRun && screen === "role" && (loading || error != null);
+  const canTrackOnboardingScreen =
+    (!loading && profile !== null) || canRenderRoleWithoutProfile;
   const [extensionPlacement, setExtensionPlacement] =
     useState<FirstRunExtensionPlacement>("after-setup");
   const [extensionIndex, setExtensionIndex] = useState(0);
@@ -308,6 +312,7 @@ export function FirstRunOnboarding({
   const setupSkipStartedRef = useRef(false);
   const onboardingTerminalRef = useRef(false);
   const abandonmentTrackedRef = useRef(false);
+  const onboardingStartedRef = useRef(false);
   const setupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const builderSetupAttemptRef = useRef<FirstRunSetupAttempt | null>(null);
   const stepViewRef = useRef<{ key: string; id: string } | null>(null);
@@ -367,12 +372,18 @@ export function FirstRunOnboarding({
     [completeFirstRun, extensionIndex, navigate, trackFirstRunStepCompleted],
   );
   useEffect(() => {
-    if (!previewMode && firstRun && !loading && profile) {
+    if (
+      !previewMode &&
+      firstRun &&
+      canTrackOnboardingScreen &&
+      !onboardingStartedRef.current
+    ) {
+      onboardingStartedRef.current = true;
       trackOnboardingEvent("onboarding_started", { flow: "first_run" });
     }
-  }, [firstRun, loading, previewMode, profile]);
+  }, [canTrackOnboardingScreen, firstRun, previewMode]);
   useEffect(() => {
-    if (previewMode || !firstRun || loading || !profile) {
+    if (previewMode || !firstRun || !canTrackOnboardingScreen) {
       stepViewRef.current = null;
       return;
     }
@@ -399,13 +410,12 @@ export function FirstRunOnboarding({
     extensionPlacement,
     extensionStepIndex,
     firstRun,
-    loading,
     previewMode,
-    profile,
+    canTrackOnboardingScreen,
     screen,
   ]);
   useEffect(() => {
-    if (previewMode || !firstRun || loading || !profile) return;
+    if (previewMode || !firstRun || !canTrackOnboardingScreen) return;
     const handlePageHide = (event: PageTransitionEvent) => {
       if (event.persisted) return;
       if (
@@ -436,9 +446,8 @@ export function FirstRunOnboarding({
     extensionPlacement,
     extensionStepIndex,
     firstRun,
-    loading,
     previewMode,
-    profile,
+    canTrackOnboardingScreen,
     screen,
   ]);
   const beginBeforeSetup = useCallback(() => {
@@ -527,9 +536,6 @@ export function FirstRunOnboarding({
   };
 
   if (!firstRun) return null;
-
-  const canRenderRoleWithoutProfile =
-    initialFirstRun && screen === "role" && (loading || error != null);
 
   if (error && !canRenderRoleWithoutProfile) {
     return (
