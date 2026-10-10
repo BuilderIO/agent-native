@@ -165,6 +165,13 @@ test("Signup agent workflow requires explicit legacy fallback eligibility", () =
     workflow,
     /report_unknown_continuity\(\) \{\s+message="\$1"\s+echo "::warning::\$message"\s+echo "\$message" >> "\$GITHUB_STEP_SUMMARY"\s+touch "\$unknown_state_file"\s+exit 0\s+\}/,
   );
+  assert.match(
+    workflow,
+    /if \[ -z "\$legacy_name" \]; then\s+report_unknown_continuity "Previous Signup agent continuity is unknown because the explicitly allowed legacy report artifact was not found\.[^"]*"\s+fi/,
+  );
+  const restoreUnknownMarker =
+    'if [ "$(jq -r \'.outcome // ""\' "$previous_state")" = "unknown" ]; then touch "$unknown_state_file"; fi';
+  assert.equal(workflow.split(restoreUnknownMarker).length - 1, 2);
 });
 
 test("Signup agent scheduled lookup failures preserve unknown state and continue", () => {
@@ -187,6 +194,51 @@ test("Signup agent scheduled lookup failures preserve unknown state and continue
   assert.match(
     workflow,
     /if \[ -f \.tmp\/signup-agent-continuity\/previous\/continuity-unknown \]; then\s+continuity_unknown=true\s+fi\s+args\+=\(--continuity-unknown "\$continuity_unknown"\)/,
+  );
+});
+
+test("unknown Signup agent continuity is reported and retained until Slack delivery", () => {
+  const workflow = readFileSync(
+    ".github/workflows/signup-agent-scheduled.yml",
+    "utf8",
+  );
+  assert.match(
+    workflow,
+    /name: Build the consolidated Slack report\n        id: report/,
+  );
+  assert.match(
+    workflow,
+    /if \[ -f \.tmp\/signup-agent-continuity\/previous\/continuity-unknown \]; then\s+continuity_unknown=true\s+fi\s+args\+=\(--continuity-unknown "\$continuity_unknown"\)\s+echo "continuity_unknown=\$continuity_unknown" >> "\$GITHUB_OUTPUT"/,
+  );
+  assert.match(
+    workflow,
+    /steps\.report\.outputs\.continuity_unknown == 'true'/,
+  );
+  assert.match(
+    workflow,
+    /if \[ "\$\{\{ steps\.report\.outputs\.continuity_unknown \}\}" != "true" \] && \[ "\$\{\{ steps\.continuity-plan\.outputs\.recovered \}\}" != "true" \] && \[ "\$\{\{ steps\.publish\.outputs\.has_findings \}\}" != "true" \]; then delivered=true; fi/,
+  );
+});
+
+test("an unknown Signup agent baseline advances only after Slack delivery", () => {
+  const previous = initialSignupAgentReportState();
+  const plan = planSignupAgentReport({
+    previous,
+    eventName: "schedule",
+    outcome: "clean",
+    findingCount: 0,
+    reportComplete: true,
+    runUrl,
+  });
+
+  assert.equal(plan.state.outcome, "clean");
+  assert.deepEqual(
+    finalizeSignupAgentReport({ previous, plan, slackDelivered: false }),
+    previous,
+  );
+  assert.deepEqual(
+    finalizeSignupAgentReport({ previous, plan, slackDelivered: true }),
+    plan.state,
   );
 });
 

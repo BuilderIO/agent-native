@@ -95,6 +95,7 @@ jobs:
               if [ -z "$state_file" ]; then echo "::error::Previous Signup agent state artifact had no state.json."; exit 1; fi
               cp "$state_file" "$previous_state"
               node --experimental-strip-types -e 'import { readFileSync } from "node:fs"; const value = JSON.parse(readFileSync(process.argv[1], "utf8")); if (value.reporter !== "signup-agent") process.exit(1)' "$previous_state"
+              if [ "$(jq -r '.outcome // ""' "$previous_state")" = "unknown" ]; then touch "$unknown_state_file"; fi
               exit 0
             fi
             echo "::error::The prior Signup agent attempt has no continuity artifact; refusing to use stale scheduled state."
@@ -119,6 +120,7 @@ jobs:
             if [ -z "$state_file" ]; then echo "::error::Previous Signup agent state artifact had no state.json."; exit 1; fi
             cp "$state_file" "$previous_state"
             node --experimental-strip-types -e 'import { readFileSync } from "node:fs"; const value = JSON.parse(readFileSync(process.argv[1], "utf8")); if (value.reporter !== "signup-agent") process.exit(1)' "$previous_state"
+            if [ "$(jq -r '.outcome // ""' "$previous_state")" = "unknown" ]; then touch "$unknown_state_file"; fi
             exit 0
           fi
 
@@ -137,7 +139,9 @@ jobs:
 
           legacy_name="$(jq -r --arg name "signup-agent-$previous_id" '[.artifacts[] | select(.name == $name and (.expired | not))] | last | .name // empty' <<< "$artifacts")"
           legacy_id="$(jq -r --arg name "signup-agent-$previous_id" '[.artifacts[] | select(.name == $name and (.expired | not))] | last | .id // empty' <<< "$artifacts")"
-          if [ -z "$legacy_name" ]; then exit 0; fi
+          if [ -z "$legacy_name" ]; then
+            report_unknown_continuity "Previous Signup agent continuity is unknown because the explicitly allowed legacy report artifact was not found. Continuing this review without prior state."
+          fi
           legacy_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$previous_id/artifacts/$legacy_id"
           gh run download "$previous_id" --name "$legacy_name" --dir "$previous_dir/legacy" --repo "$GITHUB_REPOSITORY"
           findings_file="$(find "$previous_dir/legacy" -type f -name findings.md -print -quit)"
@@ -236,6 +240,7 @@ jobs:
           retention-days: 90
 
       - name: Build the consolidated Slack report
+        id: report
         if: ${{ always() }}
         env:
           ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
@@ -277,6 +282,7 @@ jobs:
             continuity_unknown=true
           fi
           args+=(--continuity-unknown "$continuity_unknown")
+          echo "continuity_unknown=$continuity_unknown" >> "$GITHUB_OUTPUT"
           if [ -n "$ARTIFACT_URL" ]; then args+=(--artifact-url "$ARTIFACT_URL"); fi
           node --experimental-strip-types scripts/signup-agent-rollup.ts "${args[@]}"
           jq -n --arg channel "$SLACK_CHANNEL" --rawfile text .tmp/signup-agent/signup-agent-slack.txt \
@@ -320,7 +326,7 @@ jobs:
       - name: Check Slack configuration
         id: slack_config
         if: >-
-          ${{ always() && (steps.continuity-plan.outputs.recovered == 'true' || ((steps.classify.outputs.inconclusive != 'true' || steps.evidence.outcome == 'failure') && (steps.review.outcome != 'success' || steps.publish.outcome != 'success' || steps.publish.outputs.has_findings == 'true' || steps.evidence.outcome == 'failure'))) }}
+          ${{ always() && (steps.continuity-plan.outputs.recovered == 'true' || steps.report.outputs.continuity_unknown == 'true' || ((steps.classify.outputs.inconclusive != 'true' || steps.evidence.outcome == 'failure') && (steps.review.outcome != 'success' || steps.publish.outcome != 'success' || steps.publish.outputs.has_findings == 'true' || steps.evidence.outcome == 'failure'))) }}
         env:
           QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
         run: |
@@ -366,7 +372,7 @@ jobs:
         run: |
           set -euo pipefail
           delivered=false
-          if [ "${{ steps.continuity-plan.outputs.recovered }}" != "true" ] && [ "${{ steps.publish.outputs.has_findings }}" != "true" ]; then delivered=true; fi
+          if [ "${{ steps.report.outputs.continuity_unknown }}" != "true" ] && [ "${{ steps.continuity-plan.outputs.recovered }}" != "true" ] && [ "${{ steps.publish.outputs.has_findings }}" != "true" ]; then delivered=true; fi
           if [ "${{ steps.slack.outputs.ok }}" = "true" ]; then delivered=true; fi
           node --experimental-strip-types scripts/signup-report-continuity.ts finalize-agent \
             --previous-state .tmp/signup-agent-continuity/previous/state.json \

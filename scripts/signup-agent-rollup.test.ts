@@ -88,8 +88,8 @@ test("an incomplete signup agent run surfaces a missing findings report", () => 
 
 test("unknown prior continuity is included in the grouped report and Slack message", () => {
   const rollup = buildSignupAgentRollup({
-    markdown,
-    status: "reported high findings",
+    markdown: "",
+    status: "reported no findings",
     targets: "chat",
     environments: "beta",
     runUrl: "https://github.com/BuilderIO/agent-native/actions/runs/123",
@@ -97,6 +97,7 @@ test("unknown prior continuity is included in the grouped report and Slack messa
   });
 
   assert.match(rollup.slackText, /continued without prior state/);
+  assert.match(rollup.slackText, /No findings were reported/);
   assert.match(rollup.reportMarkdown, /Cross-run recovery may be incomplete/);
 });
 

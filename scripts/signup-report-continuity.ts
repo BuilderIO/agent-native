@@ -61,8 +61,10 @@ export function finalizeSignupAgentReport(input: {
   slackDelivered: boolean;
 }): SignupAgentReportState {
   validateAgentPlan(input.plan);
-  return (input.plan.recovery || input.plan.state.outcome === "findings") &&
-    !input.slackDelivered
+  return !input.slackDelivered &&
+    (input.plan.recovery ||
+      input.plan.state.outcome === "findings" ||
+      input.previous.outcome === "unknown")
     ? input.previous
     : input.plan.state;
 }
