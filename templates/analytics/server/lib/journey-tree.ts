@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 /**
  * Prefix tree over sessions' step sequences, with deterministic example
  * sessions per node. Pure: recordings arrive already read, so the same input
@@ -70,7 +72,11 @@ export interface JourneyExample {
 export interface JourneyNode {
   /** Unique path id: the step keys from the first step to this node, joined with " > ". */
   key: string;
+  /** True when the serialized key ends in a stable hash of its full value. */
+  keyTruncated?: boolean;
   label: string;
+  /** True when the displayed label ends in a stable hash of its full value. */
+  labelTruncated?: boolean;
   /** Null for first steps. */
   parentKey: string | null;
   /** 1 for first steps. */
@@ -93,16 +99,40 @@ export interface JourneyNode {
   /** Original direct children represented by an `other` aggregate. */
   otherBranchCount?: number;
   otherBranches?: Array<{
-    /** Full human-readable path from the journey root to this branch. */
+    /** Human-readable path; oversized segments end in an identity hash. */
     path: string[];
-    /** Source step key, used only to distinguish branches with identical labels. */
+    /** True when any displayed path segment ends in a stable hash. */
+    pathTruncated?: boolean;
+    /** Full path key, kept for legacy-compatible branch identity. */
     key: string;
+    /** True when the path key ends in a stable hash of its full value. */
+    keyTruncated?: boolean;
+    /** Last source step key, kept separate from the path key for display. */
+    sourceStepKey?: string;
+    /** True when the source step key ends in a stable hash of its full value. */
+    sourceStepKeyTruncated?: boolean;
     n: number;
     pctOfParent: number;
   }>;
 }
 
 export const MAX_OTHER_BRANCH_SUMMARIES = 20;
+export const MAX_JOURNEY_LABEL_CHARS = 300;
+export const MAX_JOURNEY_KEY_CHARS = 2_048;
+const JOURNEY_TRUNCATION_HASH_CHARS = 16;
+
+function boundedJourneyText(value: string, maxLength: number) {
+  if (value.length <= maxLength) return { value, truncated: false };
+
+  const hash = createHash("sha256")
+    .update(value)
+    .digest("hex")
+    .slice(0, JOURNEY_TRUNCATION_HASH_CHARS);
+  const suffix = `…#${hash}`;
+  let prefix = value.slice(0, maxLength - suffix.length);
+  if (/[\uD800-\uDBFF]$/.test(prefix)) prefix = prefix.slice(0, -1);
+  return { value: `${prefix}${suffix}`, truncated: true };
+}
 
 // Clock skew and recorder start-up mean a step can land just outside the
 // recording that shows it.
@@ -395,17 +425,50 @@ export function buildJourneyTree(
         otherBranchCount: merged.length,
         otherBranches: merged
           .slice(0, MAX_OTHER_BRANCH_SUMMARIES)
-          .map((branch) => ({
-            path: [...parentPath, branch.label],
-            key: branch.key,
-            n: branch.n,
-            pctOfParent: pct(branch.n, parent.n),
-          })),
+          .map((branch) => {
+            const path = [...parentPath, branch.label].map((label) =>
+              boundedJourneyText(label, MAX_JOURNEY_LABEL_CHARS),
+            );
+            const key = boundedJourneyText(branch.key, MAX_JOURNEY_KEY_CHARS);
+            const sourceStepKey = boundedJourneyText(
+              branch.stepKey,
+              MAX_JOURNEY_KEY_CHARS,
+            );
+            return {
+              path: path.map((segment) => segment.value),
+              ...(path.some((segment) => segment.truncated)
+                ? { pathTruncated: true }
+                : {}),
+              key: key.value,
+              ...(key.truncated ? { keyTruncated: true } : {}),
+              sourceStepKey: sourceStepKey.value,
+              ...(sourceStepKey.truncated
+                ? { sourceStepKeyTruncated: true }
+                : {}),
+              n: branch.n,
+              pctOfParent: pct(branch.n, parent.n),
+            };
+          }),
       });
     }
   };
   emitChildren(root, []);
-  return { rootN: root.n, nodes: addDeeperCounts(nodes) };
+  const boundedNodes = nodes.map((node) => {
+    const key = boundedJourneyText(node.key, MAX_JOURNEY_KEY_CHARS);
+    const label = boundedJourneyText(node.label, MAX_JOURNEY_LABEL_CHARS);
+    const parentKey = node.parentKey
+      ? boundedJourneyText(node.parentKey, MAX_JOURNEY_KEY_CHARS)
+      : null;
+    return {
+      ...node,
+      key: key.value,
+      ...(key.truncated ? { keyTruncated: true } : {}),
+      label: label.value,
+      ...(label.truncated ? { labelTruncated: true } : {}),
+      parentKey: parentKey?.value ?? null,
+    };
+  });
+  return { rootN: root.n, nodes: addDeeperCounts(boundedNodes) };
 }
 
 /** Counts continuation that the returned children do not represent. */

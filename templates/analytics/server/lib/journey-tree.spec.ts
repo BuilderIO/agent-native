@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { JourneyStep } from "./journey-steps";
 import {
   buildJourneyTree,
+  MAX_JOURNEY_KEY_CHARS,
+  MAX_JOURNEY_LABEL_CHARS,
   type BuildJourneyTreeOptions,
   type JourneyNode,
   type JourneyRecording,
@@ -209,6 +211,87 @@ describe("buildJourneyTree", () => {
     expect(
       other.otherBranches?.some((branch) => branch.key === "branch-21"),
     ).toBe(false);
+  });
+
+  it("bounds serialized labels and keys without changing branch metrics", () => {
+    const longLabel = `Unusually long step ${"workspace/".repeat(40)}`;
+    const longKey = `step:${"source-key/".repeat(220)}`;
+    const sessions: JourneySession[] = ["a", "b"].map((sessionId, index) => ({
+      sessionId,
+      steps: [
+        { key: "signup", label: "Sign up", tsMs: T0 },
+        {
+          key: `${longKey}${index}`,
+          label: longLabel,
+          tsMs: T0 + 10_000,
+        },
+      ],
+    }));
+    const { rootN, nodes } = buildJourneyTree(sessions, new Map(), {
+      ...OPTIONS,
+      minNodeSessions: 2,
+    });
+    const other = nodes.find((node) => node.kind === "other")!;
+
+    expect(rootN).toBe(2);
+    expect(other).toMatchObject({
+      n: 2,
+      pctOfRoot: 100,
+      pctOfParent: 100,
+      otherBranchCount: 2,
+    });
+    expect(other.otherBranches).toHaveLength(2);
+    for (const branch of other.otherBranches ?? []) {
+      expect(branch.path).toHaveLength(2);
+      expect(branch.path[1]).toHaveLength(MAX_JOURNEY_LABEL_CHARS);
+      expect(branch.path[1]).toMatch(/…#[a-f0-9]{16}$/);
+      expect(branch.pathTruncated).toBe(true);
+      expect(branch.key).toHaveLength(MAX_JOURNEY_KEY_CHARS);
+      expect(branch.key).toMatch(/…#[a-f0-9]{16}$/);
+      expect(branch.keyTruncated).toBe(true);
+      expect(branch.sourceStepKey).toHaveLength(MAX_JOURNEY_KEY_CHARS);
+      expect(branch.sourceStepKey).toMatch(/…#[a-f0-9]{16}$/);
+      expect(branch.sourceStepKeyTruncated).toBe(true);
+      expect(branch.n).toBe(1);
+      expect(branch.pctOfParent).toBe(50);
+    }
+    expect(
+      nodes.every(
+        (node) =>
+          node.key.length <= MAX_JOURNEY_KEY_CHARS &&
+          node.label.length <= MAX_JOURNEY_LABEL_CHARS &&
+          (node.parentKey?.length ?? 0) <= MAX_JOURNEY_KEY_CHARS,
+      ),
+    ).toBe(true);
+  });
+
+  it("bounds deep path IDs with stable hashes", () => {
+    const longPath = session(
+      "deep",
+      Array.from(
+        { length: 30 },
+        (_, index) => `step-${"x".repeat(100)}-${index}`,
+      ),
+    );
+    const options = { ...OPTIONS, maxDepth: 40 };
+    const first = buildJourneyTree([longPath], new Map(), options).nodes;
+    const second = buildJourneyTree([longPath], new Map(), options).nodes;
+
+    expect(
+      first.every((node) => node.key.length <= MAX_JOURNEY_KEY_CHARS),
+    ).toBe(true);
+    expect(
+      first.some(
+        (node) =>
+          node.keyTruncated &&
+          /…#[a-f0-9]{16}$/.test(node.key) &&
+          node.parentKey &&
+          node.parentKey.length <= MAX_JOURNEY_KEY_CHARS,
+      ),
+    ).toBe(true);
+    expect(first.map((node) => node.key)).toEqual(
+      second.map((node) => node.key),
+    );
   });
 
   it("counts sessions cut at maxDepth in n but not as drop-off", () => {

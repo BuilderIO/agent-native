@@ -7,6 +7,9 @@ import {
   JOURNEY_BOARD_ID_PREFIX,
   JOURNEY_FILE_ID_PREFIX,
   JOURNEY_FILENAME_PREFIX,
+  MAX_JOURNEY_COUNT,
+  MAX_JOURNEY_KEY_CHARS,
+  MAX_JOURNEY_LABEL_CHARS,
   REPLAY_SCREENSHOT_ROUTE,
   createJourneyCanvasInputSchema,
   formatPercent,
@@ -396,6 +399,128 @@ describe("create-journey-canvas input", () => {
         },
       }).join("\n"),
     ).toMatch(/branch count cannot exceed the aggregate session count/);
+  });
+
+  it("accepts producer truncation markers and enforces journey text and count limits", () => {
+    const raw = rawInput();
+    const boundedLabel = `${"x".repeat(MAX_JOURNEY_LABEL_CHARS - 18)}…#${"a".repeat(16)}`;
+    const boundedNodeKey = `${"n".repeat(MAX_JOURNEY_KEY_CHARS - 18)}…#${"d".repeat(16)}`;
+    const boundedPathKey = `${"k".repeat(MAX_JOURNEY_KEY_CHARS - 18)}…#${"b".repeat(16)}`;
+    const boundedSourceKey = `${"s".repeat(MAX_JOURNEY_KEY_CHARS - 18)}…#${"c".repeat(16)}`;
+    const other = {
+      ...node("signup > other", "signup", 1, {
+        pctOfRoot: 0.1,
+        pctOfParent: 0.1,
+      }),
+      key: boundedNodeKey,
+      keyTruncated: true,
+      kind: "other" as const,
+      label: boundedLabel,
+      labelTruncated: true,
+      examples: [],
+      otherBranchCount: 1,
+      otherBranches: [
+        {
+          path: ["signup", boundedLabel],
+          pathTruncated: true,
+          key: boundedPathKey,
+          keyTruncated: true,
+          sourceStepKey: boundedSourceKey,
+          sourceStepKeyTruncated: true,
+          n: 1,
+          pctOfParent: 0.1,
+        },
+      ],
+    };
+    const input = rawInput({
+      tree: { ...raw.tree, nodes: [...raw.tree.nodes.slice(0, 4), other] },
+    });
+
+    expect(problems(input)).toEqual([]);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? { ...candidate, label: "x".repeat(MAX_JOURNEY_LABEL_CHARS + 1) }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/label/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? { ...candidate, key: "k".repeat(MAX_JOURNEY_KEY_CHARS + 1) }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/key/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? {
+                  ...candidate,
+                  otherBranchCount: MAX_JOURNEY_COUNT + 1,
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/otherBranchCount/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? {
+                  ...candidate,
+                  otherBranches: [
+                    {
+                      ...other.otherBranches[0],
+                      path: ["x".repeat(MAX_JOURNEY_LABEL_CHARS + 1)],
+                    },
+                  ],
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/path/);
+    expect(
+      problems({
+        ...input,
+        tree: {
+          ...input.tree,
+          nodes: input.tree.nodes.map((candidate) =>
+            candidate.key === other.key
+              ? {
+                  ...candidate,
+                  otherBranches: [
+                    {
+                      ...other.otherBranches[0],
+                      key: "k".repeat(MAX_JOURNEY_KEY_CHARS + 1),
+                    },
+                  ],
+                }
+              : candidate,
+          ),
+        },
+      }).join("\n"),
+    ).toMatch(/key/);
   });
 
   it("accepts an https imageUrl and an attachmentRef", () => {
@@ -2388,12 +2513,14 @@ describe("planJourneyCanvas", () => {
         {
           path: ["signup", "Workspace"],
           key: "signup > workspace",
+          sourceStepKey: "workspace",
           n: 500,
           pctOfParent: 50,
         },
         {
           path: ["signup", "Workspace"],
           key: "signup > workspace_alternate",
+          sourceStepKey: "workspace_alternate",
           n: 200,
           pctOfParent: 20,
         },
@@ -2417,6 +2544,50 @@ describe("planJourneyCanvas", () => {
     expect(fragments).toContain("font-size:24px;line-height:28px");
     const otherFragment = fragments.slice(fragments.indexOf("jc-other-"));
     expect(otherFragment).not.toContain("<img");
+  });
+
+  it("renders explicit hash suffixes for bounded Other branch details", () => {
+    const raw = rawInput();
+    const truncatedPath = `${"workspace/".repeat(27)}…#${"a".repeat(16)}`;
+    const other = {
+      ...node("signup > other", "signup", 2, {
+        pctOfRoot: 0.2,
+        pctOfParent: 0.2,
+      }),
+      kind: "other" as const,
+      label: "Other (2 branches)",
+      examples: [],
+      otherBranchCount: 2,
+      otherBranches: [
+        {
+          path: ["signup", truncatedPath],
+          pathTruncated: true,
+          key: "signup > workspace-a",
+          sourceStepKey: `workspace-a…#${"b".repeat(16)}`,
+          sourceStepKeyTruncated: true,
+          n: 1,
+          pctOfParent: 0.1,
+        },
+        {
+          path: ["signup", truncatedPath],
+          pathTruncated: true,
+          key: "signup > workspace-b",
+          sourceStepKey: `workspace-b…#${"c".repeat(16)}`,
+          sourceStepKeyTruncated: true,
+          n: 1,
+          pctOfParent: 0.1,
+        },
+      ],
+    };
+    const input = rawInput({
+      tree: { ...raw.tree, nodes: [...raw.tree.nodes.slice(0, 4), other] },
+    });
+    const fragments = plan(input).boardFragments({ x: 0, y: 0 }).join("\n");
+
+    expect(fragments).toContain(truncatedPath);
+    expect(fragments).toContain(
+      `Source step key: workspace-a…#${"b".repeat(16)}`,
+    );
   });
 
   it("points private attachments at the authenticated replay-screenshot route", () => {

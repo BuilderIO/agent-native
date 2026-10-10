@@ -46,7 +46,10 @@ export const MAX_JOURNEY_NODES = 2000;
 export const MAX_JOURNEY_FRAMES = 900;
 export const MAX_EXAMPLES_PER_NODE = 6;
 export const MAX_OTHER_BRANCH_SUMMARIES = 20;
-const MAX_JOURNEY_DEPTH = 40;
+export const MAX_JOURNEY_DEPTH = 40;
+export const MAX_JOURNEY_LABEL_CHARS = 300;
+export const MAX_JOURNEY_KEY_CHARS = 2_048;
+export const MAX_JOURNEY_COUNT = 2_147_483_647;
 const MAX_RECORDING_GAP_MS = 30 * 24 * 60 * 60 * 1_000;
 const MAX_DIMENSION = 16_384;
 const MAX_IMAGE_URL_CHARS = 2_048;
@@ -90,11 +93,18 @@ const isoTimestamp = z
 
 const pixels = z.number().int().min(1).max(MAX_DIMENSION);
 const percent = z.number().min(0).max(100);
-const count = z.number().int().min(0).max(2_147_483_647);
+const count = z.number().int().min(0).max(MAX_JOURNEY_COUNT);
 const otherBranchSummarySchema = z
   .object({
-    path: z.array(z.string().min(1).max(300)).min(1).max(MAX_JOURNEY_DEPTH),
-    key: z.string().min(1).max(2_048),
+    path: z
+      .array(z.string().min(1).max(MAX_JOURNEY_LABEL_CHARS))
+      .min(1)
+      .max(MAX_JOURNEY_DEPTH),
+    pathTruncated: z.boolean().optional(),
+    key: z.string().min(1).max(MAX_JOURNEY_KEY_CHARS),
+    keyTruncated: z.boolean().optional(),
+    sourceStepKey: z.string().min(1).max(MAX_JOURNEY_KEY_CHARS).optional(),
+    sourceStepKeyTruncated: z.boolean().optional(),
     n: count.min(1),
     pctOfParent: percent,
   })
@@ -144,9 +154,11 @@ export const journeyExampleSchema = z.object({
 });
 
 const journeyNodeBaseSchema = z.object({
-  key: z.string().min(1).max(2_048),
-  label: z.string().min(1).max(300),
-  parentKey: z.string().min(1).max(2_048).nullable(),
+  key: z.string().min(1).max(MAX_JOURNEY_KEY_CHARS),
+  keyTruncated: z.boolean().optional(),
+  label: z.string().min(1).max(MAX_JOURNEY_LABEL_CHARS),
+  labelTruncated: z.boolean().optional(),
+  parentKey: z.string().min(1).max(MAX_JOURNEY_KEY_CHARS).nullable(),
   depth: count,
   examples: z.array(journeyExampleSchema).max(50),
   otherBranchCount: count.min(1).optional(),
@@ -1201,7 +1213,8 @@ function otherStubDisplay(args: {
   }
   const displays = branches.map((branch) => {
     const path = branch.path.join(" → ");
-    const sourceKey = branch.key.split(" > ").pop() ?? branch.key;
+    const sourceKey =
+      branch.sourceStepKey ?? branch.key.split(" > ").pop() ?? branch.key;
     return {
       path:
         pathCounts.get(path)! > 1
