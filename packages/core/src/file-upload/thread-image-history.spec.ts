@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES } from "./owned-attachment.js";
 import { JPEG_BASE64 } from "./test-image-fixtures.js";
 import {
   hydratePriorThreadImages,
@@ -71,6 +72,40 @@ describe("hydratePriorThreadImages", () => {
     expect(result.contextNote).toBeUndefined();
     expect(findProviderMock).toHaveBeenCalledWith(url);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips images structured history already sends before applying the candidate cap", async () => {
+    findProviderMock.mockResolvedValue({ id: "owned-storage" });
+    const bytes = Buffer.from(JPEG_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request) =>
+        new Response(bytes, { headers: { "content-type": "image/jpeg" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const sentUrl = "https://storage.example/sent.jpg";
+    const olderUrls = Array.from(
+      { length: MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES },
+      (_, index) => `https://storage.example/older-${index}.jpg`,
+    );
+    const messages = [
+      ...olderUrls.map((url, index) => storedImage(`older-${index}.jpg`, url)),
+      storedImage("sent.jpg", sentUrl),
+    ];
+
+    const result = await hydratePriorThreadImages(
+      JSON.stringify({ messages }),
+      {
+        excludeUrls: [sentUrl],
+      },
+    );
+
+    expect(result.attachments.map((attachment) => attachment.name)).toEqual(
+      olderUrls.map((_, index) => `older-${index}.jpg`),
+    );
+    expect(result.contextNote).toBeUndefined();
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).not.toContain(
+      sentUrl,
+    );
   });
 
   it("does not fetch unowned URLs and tells the model that the image is unreadable", async () => {

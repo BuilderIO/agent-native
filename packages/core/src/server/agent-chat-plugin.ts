@@ -4053,11 +4053,14 @@ export function createAgentChatPlugin(
         }
       };
 
-      const priorThreadImageContext = async (details: {
-        event: any;
-        ownerEmail: string | null;
-        threadId?: string;
-      }) => {
+      const priorThreadImageContext = async (
+        details: {
+          event: any;
+          ownerEmail: string | null;
+          threadId?: string;
+        },
+        excludedImageUrls: readonly string[],
+      ) => {
         if (!details.threadId || !details.ownerEmail) return undefined;
 
         let existingThread: ChatThread | null;
@@ -4113,7 +4116,9 @@ export function createAgentChatPlugin(
         }
 
         try {
-          return await hydratePriorThreadImages(thread.threadData);
+          return await hydratePriorThreadImages(thread.threadData, {
+            excludeUrls: excludedImageUrls,
+          });
         } catch (error) {
           if (!(error instanceof PriorThreadImageHistoryReadError)) throw error;
           throw createError({
@@ -4156,7 +4161,10 @@ export function createAgentChatPlugin(
             const preparedContext =
               await prepared?.prepareAfterModel?.(modelDetails);
             if (!modelDetails.vision) return preparedContext;
-            const prior = await priorThreadImageContext(details);
+            const prior = await priorThreadImageContext(
+              details,
+              modelDetails.historyImageUrls,
+            );
             return addPriorThreadImageContext(preparedContext, prior);
           },
         };

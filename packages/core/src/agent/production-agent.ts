@@ -1711,6 +1711,12 @@ export interface PreparedAgentRequest {
   prepareAfterModel?: (details: {
     model: string;
     vision: boolean;
+    /**
+     * Durable URLs of earlier-turn images this request already sends as
+     * structured-history image parts. Prepared context must skip them so each
+     * image reaches the model once.
+     */
+    historyImageUrls: readonly string[];
   }) =>
     | void
     | Pick<PreparedAgentRequest, "contextAttachments" | "contextNote">
@@ -2960,6 +2966,27 @@ function durableStructuredHistoryImageUrl(value: string): string | undefined {
   }
   const durableUrl = url.toString();
   return durableUrl.length <= 2_048 ? durableUrl : undefined;
+}
+
+function sentStructuredHistoryImageUrls(
+  history: AgentChatStructuredMessage[] | undefined,
+  resolutions: ReadonlyMap<string, StructuredHistoryImageResolution>,
+): string[] {
+  const urls = new Set<string>();
+  if (!Array.isArray(history)) return [];
+  for (const message of history) {
+    if (message?.role !== "user" || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (!isStructuredHistoryImageReference(part)) continue;
+      const resolution = resolutions.get(
+        structuredHistoryImageReferenceKey(part),
+      );
+      if (resolution?.type !== "image") continue;
+      const url = durableStructuredHistoryImageUrl(part.url);
+      if (url) urls.add(url);
+    }
+  }
+  return [...urls];
 }
 
 function safeHistoryImageName(name: string | undefined): string {
@@ -11114,9 +11141,18 @@ export function createProductionAgentHandler(
       });
     }
 
+    attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
+    const resolvedHistoryImages = await hydrateStructuredHistoryImageReferences(
+      requestStructuredHistory,
+      { vision: modelSupportsVision, budget: attachmentHydrationBudget },
+    );
     const modelPreparedContext = await preparedRequest?.prepareAfterModel?.({
       model: effectiveModel,
       vision: modelSupportsVision,
+      historyImageUrls: sentStructuredHistoryImageUrls(
+        requestStructuredHistory,
+        resolvedHistoryImages,
+      ),
     });
     if (modelPreparedContext) {
       if (Array.isArray(modelPreparedContext.contextAttachments)) {
@@ -11737,11 +11773,6 @@ export function createProductionAgentHandler(
       vision: modelSupportsVision,
     });
 
-    attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
-    const resolvedHistoryImages = await hydrateStructuredHistoryImageReferences(
-      requestStructuredHistory,
-      { vision: modelSupportsVision, budget: attachmentHydrationBudget },
-    );
     const historyMessages =
       structuredHistoryToEngineMessages(
         requestStructuredHistory,

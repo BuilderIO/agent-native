@@ -127,12 +127,21 @@ function candidatesFromThreadData(threadData: string): PriorImageCandidates {
 /**
  * Rehydrate only recent image references from an already-authorized thread.
  * URL ownership and download limits are enforced by hydrateOwnedImageUrl.
+ * Images named in excludeUrls are dropped before the candidate cap, so they
+ * do not use up a slot.
  */
 export async function hydratePriorThreadImages(
   threadData: string,
+  options: { excludeUrls?: readonly string[] } = {},
 ): Promise<PriorThreadImageHistory> {
-  const { retained: candidates, neverRetainedCount } =
-    candidatesFromThreadData(threadData);
+  const { retained, neverRetainedCount } = candidatesFromThreadData(threadData);
+  // Exact-string match is deliberate: structured history only sends canonical
+  // https URLs without query or hash, so a near-miss URL is sent twice rather
+  // than dropped.
+  const excludedUrls = new Set(options.excludeUrls ?? []);
+  const candidates = retained.filter(
+    (candidate) => !excludedUrls.has(candidate.url),
+  );
   const selected = candidates.slice(-MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES);
   const omittedCount = candidates.length - selected.length;
   const budget = createOwnedAttachmentHydrationBudget();
